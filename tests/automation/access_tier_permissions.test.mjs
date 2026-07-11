@@ -115,8 +115,11 @@ assert.match(indexHtml, /const hotelAccountHealthKey = \(hotel = \{\}\) => \{[\s
 assert.match(indexHtml, /const hotelNextAction = \(hotel = \{\}\) => \{[\s\S]*if \(rows\.length === 0\) \{[\s\S]*核对OTA策略/, 'empty applicable OTA platform rows must expose an explicit next action');
 assert.match(indexHtml, /const hotelAccountSummary = \(hotel = \{\}\) => \{[\s\S]*if \(rows\.length === 0\) \{[\s\S]*策略待确认/, 'empty applicable OTA platform rows must not show a ready account summary');
 assert.match(indexHtml, /const fullBound = activeHotels\.filter\(h => \{[\s\S]*return rows\.length > 0 && rows\.every\(row => row\.level === 'ready'\);[\s\S]*\}\)\.length;/, 'full-bound KPI must not count empty applicable platform rows as ready');
-assert.match(indexHtml, /const manualLoginVerified = hasBindingContract[\s\S]*bindingContract\.manual_login_state_verified === true[\s\S]*profile\.manual_login_state_verified === true \|\| profile\.manualLoginStateVerified === true \|\| \/manual_login_state_verified\/i\.test\(currentStatus\)/, 'Profile flow must require explicit manual_login_state_verified evidence for manual verification');
-assert.match(indexHtml, /const loginVerified = manualLoginVerified && statusCode === 'logged_in';/, 'Profile flow must not treat logged_in alone as manual login verification');
+assert.match(indexHtml, /const currentSessionVerified = hasBindingContract[\s\S]*bindingContract\.current_session_verified === true[\s\S]*profile\.current_session_verified === true/, 'Profile flow must require explicit current_session_verified evidence from the binding contract or profile payload');
+assert.doesNotMatch(indexHtml, /profile\.currentSessionVerified === true/, 'Profile flow compatibility must require the explicit current_session_verified field name');
+assert.match(indexHtml, /const loginVerified = currentSessionVerified && statusCode === 'logged_in';/, 'Profile flow must require current-session proof and the current logged_in status together');
+assert.doesNotMatch(indexHtml, /manual_login_state_verified\|logged_in/, 'Profile flow must not infer logged_in from historical status copy');
+assert.doesNotMatch(indexHtml, /manual_login_state_verified\/i\.test\(currentStatus\)/, 'historical manual-login text must not authorize the Profile flow');
 assert.match(indexHtml, /\{\{ hotelBindingOverview\.ctripBound \}\}\/\{\{ hotelBindingOverview\.ctripApplicable \}\}/, 'Ctrip readiness KPI must show applicable denominator');
 assert.match(indexHtml, /\{\{ hotelBindingOverview\.meituanBound \}\}\/\{\{ hotelBindingOverview\.meituanApplicable \}\}/, 'Meituan readiness KPI must show applicable denominator');
 assert.match(indexHtml, />OTA策略<\/span>[\s\S]*hotelOtaStrategyText\(hotel\)/, 'store identity must expose the selected OTA strategy');
@@ -199,7 +202,7 @@ assert.match(hotelScopeService, /private function ownedOrGrantedHotelIds\(User \
 assert.match(hotelScopeService, /\$this->primaryHotelIds\(\$user\)[\s\S]*\$this->ownedHotelIds\(\$user\)[\s\S]*\$this->grantedHotelIds\(\$user, \$capability\)/, 'non-super users must only see primary, owned, or explicitly granted hotels');
 assert.doesNotMatch(hotelScopeService, /if \(\$this->isVipUser\(\$user\)\)[\s\S]{0,160}return \$this->ownedHotelIds\(\$user\);/, 'VIP role alone must not bypass explicit hotel scope');
 assert.match(hotelScopeService, /'hotel\.delete' => \['can_edit'\]/, 'assigned hotel deletion must still pass through the per-hotel can_edit permission layer');
-assert.match(userController, /private function syncUserHotelPermissions\(UserModel \$targetUser, array \$hotelIds, Role \$targetRole\): void/, 'super admin user saves must sync user_hotel_permissions');
+assert.match(userController, /private function syncUserHotelPermissions\(UserModel \$targetUser, array \$hotelIds, Role \$targetRole, array \$hotelTenantIds = \[\]\): void[\s\S]*\$payload\['tenant_id'\] = \$tenantId;/, 'super admin user saves must sync user_hotel_permissions with authoritative tenant ids');
 assert.match(userController, /private function normalizeAssignedHotelIds\(array \$data\): array/, 'user API must accept multi-hotel assignments');
 assert.match(userController, /\$data\['hotel_ids'\]\s*=/, 'user API responses must expose assigned hotel ids for editing');
 assert.match(userController, /private function validateExternalUserIssueBoundary\(Role \$role, array \$hotelIds\): \?Response/, 'user API must validate external-account issue boundaries');

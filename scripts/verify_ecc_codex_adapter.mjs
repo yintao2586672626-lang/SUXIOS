@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const ROOT = process.cwd();
-const ECC_COMMIT = 'bc8e12bb80c904a5a9864797ef1fd1212aa82f3d';
+const ECC_COMMIT = '40927950c49f6e742d341e20ff7b9b7e1e7bfff5';
 const failures = [];
 
 function readText(relativePath) {

@@ -622,28 +622,26 @@ trait CollectionReliabilityConcern
     {
         $rows = [];
         $hotelIds = $this->visibleCookieHotelIds();
-
-        foreach ($this->getConfigList('online_data_cookies_global') as $item) {
-            $rows[] = $this->buildCookieHealth('generic', 'global', null, $item);
+        if (!$this->currentUser || (!$this->currentUser->isSuperAdmin() && $hotelIds === [])) {
+            return [];
         }
 
-        foreach ($hotelIds as $hotelId) {
-            foreach ($this->getConfigList("online_data_cookies_hotel_{$hotelId}") as $item) {
-                $rows[] = $this->buildCookieHealth('generic', 'hotel', (int)$hotelId, $item);
+        try {
+            $query = Db::name('ota_credentials')
+                ->field('id,tenant_id,system_hotel_id,platform,config_id,credential_status,rotated_at,create_time,update_time')
+                ->whereIn('platform', ['ctrip', 'meituan']);
+            if (!$this->currentUser->isSuperAdmin()) {
+                $query->whereIn('system_hotel_id', $hotelIds);
             }
+            $items = $query->select()->toArray();
+        } catch (\Throwable) {
+            return [];
         }
 
-        foreach ($this->getStoredCtripConfigList() as $item) {
-            $itemHotelId = (int)($item['hotel_id'] ?? $item['system_hotel_id'] ?? 0);
-            if ($this->canSeeCookieHotel($itemHotelId)) {
-                $rows[] = $this->buildCookieHealth('ctrip', $itemHotelId > 0 ? 'hotel' : 'global', $itemHotelId ?: null, $item);
-            }
-        }
-
-        foreach ($this->getConfigList('meituan_config_list') as $item) {
-            $itemHotelId = (int)($item['hotel_id'] ?? $item['system_hotel_id'] ?? 0);
-            if ($this->canSeeCookieHotel($itemHotelId)) {
-                $rows[] = $this->buildCookieHealth('meituan', $itemHotelId > 0 ? 'hotel' : 'global', $itemHotelId ?: null, $item);
+        foreach ($items as $item) {
+            $itemHotelId = (int)($item['system_hotel_id'] ?? 0);
+            if ($itemHotelId > 0 && $this->canSeeCookieHotel($itemHotelId)) {
+                $rows[] = $this->buildCredentialHealth((string)($item['platform'] ?? ''), $itemHotelId, $item);
             }
         }
 
@@ -651,37 +649,38 @@ trait CollectionReliabilityConcern
         return $rows;
     }
 
-    private function buildCookieHealth(string $platform, string $scope, ?int $hotelId, array $item): array
+    private function buildCredentialHealth(string $platform, int $hotelId, array $item): array
     {
-        $name = (string)($item['name'] ?? $item['hotel_name'] ?? $item['config_name'] ?? $platform);
-        $configId = trim((string)($item['id'] ?? ''));
-        $cookieValue = (string)($item['cookies'] ?? $item['cookie'] ?? '');
-        $updatedAt = (string)($item['update_time'] ?? $item['updated_at'] ?? $item['created_at'] ?? '');
+        $configId = trim((string)($item['config_id'] ?? ''));
+        $name = $configId !== '' ? $configId : $platform;
+        $credentialStatus = strtolower(trim((string)($item['credential_status'] ?? '')));
+        $hasCredential = $credentialStatus === 'ready' && (int)($item['id'] ?? 0) > 0;
+        $updatedAt = (string)($item['rotated_at'] ?? $item['update_time'] ?? $item['create_time'] ?? '');
         $timestamp = $updatedAt !== '' ? strtotime($updatedAt) : false;
         $ageDays = $timestamp ? max(0, (int)floor((time() - $timestamp) / 86400)) : null;
         $hasAlert = false;
-        $alertMessage = '';
         foreach ($this->getCookieAlerts() as $alert) {
             if (($alert['platform'] ?? '') === $platform && (string)($alert['name'] ?? '') === $name) {
                 $hasAlert = true;
-                $alertMessage = (string)($alert['message'] ?? '');
                 break;
             }
         }
-        $status = $this->resolveCookieHealthState($cookieValue, $ageDays, $hasAlert, $this->cookieWarningDays(), $this->cookieExpireDays());
+        $status = $credentialStatus === 'revoked'
+            ? 'expired'
+            : $this->resolveCookieHealthState($hasCredential ? 'metadata_ready' : '', $ageDays, $hasAlert, $this->cookieWarningDays(), $this->cookieExpireDays());
         $reason = $status;
-        if ($cookieValue === '') {
+        if (!$hasCredential) {
             $reason = 'empty';
         } elseif ($ageDays === null && !$hasAlert) {
             $reason = 'unknown';
         }
-        $message = $hasAlert && $alertMessage !== ''
-            ? $alertMessage
+        $message = $hasAlert
+            ? 'OTA authorization is unavailable. Reauthenticate the platform account before collection.'
             : $this->cookieHealthMessage($platform, $reason, $ageDays);
 
         return array_merge([
             'platform' => $platform,
-            'scope' => $scope,
+            'scope' => 'hotel',
             'hotel_id' => $hotelId,
             'name' => $name,
             'status' => $status,
@@ -689,7 +688,11 @@ trait CollectionReliabilityConcern
             'next_action' => $status === 'ok' ? '' : '重新登录OTA后台并通过书签脚本或配置页更新授权',
             'updated_at' => $updatedAt,
             'age_days' => $ageDays,
-            'has_cookie' => $cookieValue !== '',
+            'has_cookie' => $hasCredential,
+            'has_credential' => $hasCredential,
+            'credential_ref' => (int)($item['id'] ?? 0),
+            'credential_status' => $credentialStatus,
+            'source_policy' => 'ota_credentials_metadata_only',
             'reauthorize_entry' => $this->cookieReauthorizeEntry(),
         ], $this->cookieHealthPresentationMeta($platform, $status, $configId));
     }
@@ -812,29 +815,32 @@ trait CollectionReliabilityConcern
             return;
         }
 
-        $alerts = $this->getCookieAlerts();
-        $key = md5($platform . '|' . $name . '|' . (string)$hotelId);
-        $alerts[$key] = [
-            'platform' => $platform,
-            'name' => $name,
-            'hotel_id' => $hotelId,
-            'message' => mb_substr($message, 0, 240),
-            'created_at' => date('Y-m-d H:i:s'),
-            'next_action' => '重新登录' . $this->otaPlatformLabel($platform) . '后台，复制最新Cookie或重新运行书签脚本。',
-            'reauthorize_entry' => $this->cookieReauthorizeEntry(),
-        ];
+        $alerts = $this->sanitizeCookieAlertsForStorage($this->getCookieAlerts());
+        $record = $this->buildCookieAlertRecord($platform, $name, $hotelId);
+        $alertPlatform = (string)$record['platform'];
+        $alertName = (string)$record['name'];
+        $key = md5($alertPlatform . '|' . $alertName . '|' . (string)$hotelId);
+        $alerts[$key] = $record;
         $alerts = array_slice($alerts, -50, null, true);
         SystemConfig::setValue('ota_cookie_alerts', json_encode($alerts, JSON_UNESCAPED_UNICODE), 'OTA Cookie alerts');
 
         try {
-            OperationLog::record('online_data', 'cookie_expired', 'OTA cookie needs reauthorization: ' . $platform . '/' . $name, $this->currentUser->id ?? null, $hotelId, $message);
+            OperationLog::record(
+                'online_data',
+                'cookie_expired',
+                'OTA credential requires reauthorization: ' . $alertPlatform . '/' . $alertName,
+                $this->currentUser->id ?? null,
+                $hotelId,
+                null,
+                ['reason_code' => 'ota_credential_reauthorization_required']
+            );
             SystemNotification::recordEvent([
                 'hotel_id' => $hotelId,
                 'user_id' => (int)($this->currentUser->id ?? 0),
-                'platform' => $platform,
+                'platform' => $alertPlatform,
                 'category' => 'cookie_alert',
                 'severity' => 'warning',
-                'title' => $this->otaPlatformLabel($platform) . '授权需要更新',
+                'title' => $this->otaPlatformLabel($alertPlatform) . '授权需要更新',
                 'message' => '平台登录/Cookie 状态异常，需要重新登录或更新 Cookie 后再采集。',
                 'action_type' => 'cookie',
                 'action_payload' => [
@@ -843,18 +849,77 @@ trait CollectionReliabilityConcern
                     'action_label' => '更新授权',
                 ],
                 'source_module' => 'online_data',
-                'source_key' => 'cookie_alert:' . $platform . ':' . (int)($hotelId ?? 0) . ':' . substr(sha1($name), 0, 16),
+                'source_key' => 'cookie_alert:' . $alertPlatform . ':' . (int)($hotelId ?? 0) . ':' . substr(sha1($alertName), 0, 16),
             ]);
         } catch (\Throwable $e) {
             // Alert storage must not block OTA fetching.
         }
     }
 
+    private function buildCookieAlertRecord(string $platform, string $name, ?int $hotelId): array
+    {
+        $platform = strtolower(trim($platform));
+        if (!in_array($platform, ['ctrip', 'meituan', 'qunar', 'ota'], true)) {
+            $platform = 'ota';
+        }
+        return [
+            'platform' => $platform,
+            'name' => $this->sanitizeCookieAlertName($name, $platform),
+            'hotel_id' => $hotelId,
+            'reason_code' => 'ota_credential_reauthorization_required',
+            'message' => 'OTA authorization is unavailable. Reauthenticate the platform account before collection.',
+            'created_at' => date('Y-m-d H:i:s'),
+            'next_action' => 'Reauthenticate the OTA account and save the refreshed authorization before collection.',
+            'reauthorize_entry' => $this->cookieReauthorizeEntry(),
+        ];
+    }
+
+    private function sanitizeCookieAlertName(string $name, string $platform): string
+    {
+        $name = trim($name);
+        if ($name === ''
+            || preg_match('/(?:cookie|token|authorization|password|secret|spidertoken|mtgsig)\s*[:=]/i', $name) === 1) {
+            return $platform;
+        }
+        $name = preg_replace('/[^\p{L}\p{N}._\- ]/u', '_', $name) ?? '';
+        $name = mb_substr(trim($name), 0, 100);
+
+        return $name !== '' ? $name : $platform;
+    }
+
+    private function sanitizeCookieAlertsForStorage(array $alerts): array
+    {
+        $safe = [];
+        foreach ($alerts as $alert) {
+            if (!is_array($alert)) {
+                continue;
+            }
+
+            $platform = strtolower(trim((string)($alert['platform'] ?? 'ota')));
+            if (!in_array($platform, ['ctrip', 'meituan', 'qunar', 'ota'], true)) {
+                $platform = 'ota';
+            }
+            $hotelId = (int)($alert['hotel_id'] ?? 0);
+            $record = $this->buildCookieAlertRecord(
+                $platform,
+                (string)($alert['name'] ?? ''),
+                $hotelId > 0 ? $hotelId : null
+            );
+            $createdAt = trim((string)($alert['created_at'] ?? ''));
+            if (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/D', $createdAt) === 1) {
+                $record['created_at'] = $createdAt;
+            }
+            $safe[md5($platform . '|' . $record['name'] . '|' . (string)$record['hotel_id'])] = $record;
+        }
+
+        return $safe;
+    }
+
     private function getCookieAlerts(): array
     {
         $raw = SystemConfig::getValue('ota_cookie_alerts', '{}');
         $data = json_decode((string)$raw, true);
-        return is_array($data) ? $data : [];
+        return is_array($data) ? $this->sanitizeCookieAlertsForStorage($data) : [];
     }
 
     private function filterCollectionAuthorizationRows(array $rows, ?int $hotelId): array

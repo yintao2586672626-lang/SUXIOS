@@ -239,6 +239,7 @@ final class OnlineDailyDataPersistenceService
         return match ($value) {
             'realtime', 'real_time', 'realtime_snapshot', 'today_realtime', 'live', 'snapshot' => 'realtime_snapshot',
             'historical', 'history', 'historical_daily', 'daily', 'fixed', 'final' => 'historical_daily',
+            'next_30_days', 'next30days', 'future_forecast', 'forecast', 'forecast_window' => 'next_30_days',
             default => '',
         };
     }

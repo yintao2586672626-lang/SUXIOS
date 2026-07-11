@@ -61,11 +61,14 @@ test('Revenue AI static helper exposes the required display contract', () => {
     'buildRevenueAiReviewRequestBody',
     'aiDailyReportActionSources',
     'aiDailyReportEvidenceTarget',
+    'aiDailyReportActionIsInvestigationOnly',
     'aiDailyReportActionBlockedText',
+    'aiDailyReportActionStatusText',
     'aiDailyReportActionButtonText',
     'buildAiDailyReportBlockingRows',
     'summarizeAiDailyReportBlockingRows',
     'buildAiDailyReportEvidenceRows',
+    'buildAiDailyFactGate',
     'buildRevenueAiExecutionIntentOpenRow',
     'resolveRevenueAiReviewNavigation',
     'buildRevenueAiReviewNavigationState',
@@ -92,7 +95,7 @@ test('Revenue AI static helper exposes the required display contract', () => {
 });
 
 test('Revenue AI entry cache-busts the business closure helper contract', () => {
-  assert.match(html, /<script src="revenue-ai-static\.js\?v=20260708-ai-daily-blocking-summary"><\/script>/);
+  assert.match(html, /<script src="revenue-ai-static\.js\?v=20260710-ai-daily-fact-gate-investigation"><\/script>/);
   assert.match(html, /requireRevenueAiStatic\('buildRevenueAiBusinessClosure'\)/);
   assert.match(html, /data-testid="revenue-ai-pricing-generation-preflight"/);
   assert.match(html, /data-testid="agent-pricing-generation-preflight-summary"/);
@@ -139,12 +142,22 @@ test('AI daily report blocking helpers keep data gaps out of execution orders', 
     can_create_execution_intent: false,
     blocked_reason: 'Fallback manual review is investigation-only until stronger evidence is selected.',
   }), '查看证据');
+  assert.equal(helpers.aiDailyReportActionIsInvestigationOnly({
+    action_type: 'manual_review',
+    can_create_execution_intent: false,
+    blocked_reason: 'Fallback manual review is investigation-only until stronger evidence is selected.',
+  }), true);
+  assert.equal(helpers.aiDailyReportActionStatusText({
+    recommendation_type: 'investigation',
+    can_create_execution_intent: false,
+  }), '调查项 / 不可执行');
   assert.equal(helpers.aiDailyReportActionButtonText({ can_create_execution_intent: false }), '处理缺口');
 
   const summary = helpers.summarizeAiDailyReportBlockingRows(rows);
   assert.equal(summary.total, 3);
   assert.equal(summary.readinessCount, 1);
   assert.equal(summary.actionCount, 2);
+  assert.equal(summary.investigationCount, 0);
   assert.equal(summary.opsCount, 3);
   assert.match(summary.gateText, /运营执行门禁 3/);
 
@@ -155,6 +168,124 @@ test('AI daily report blocking helpers keep data gaps out of execution orders', 
   });
   assert.equal(evidenceRows.some(row => row.type === '缺口'), true);
   assert.equal(evidenceRows.some(row => row.className.includes('amber')), true);
+});
+
+test('AI daily report fallback rows are investigation items rather than execution blockers', () => {
+  const action = {
+    title: 'Investigate daily operating signal 1',
+    action_type: 'manual_review',
+    recommendation_type: 'investigation',
+    is_investigation_only: true,
+    execution_policy: 'forbidden',
+    can_create_execution_intent: false,
+    blocked_reason: 'Fallback investigation item is evidence review only and cannot create an execution intent.',
+    source_refs: ['operation.full_data'],
+  };
+  const rows = helpers.buildAiDailyReportBlockingRows({ actions: [action] });
+  const summary = helpers.summarizeAiDailyReportBlockingRows(rows);
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].type, 'investigation');
+  assert.equal(rows[0].label, '调查项：Investigate daily operating signal 1');
+  assert.equal(summary.investigationCount, 1);
+  assert.equal(summary.actionCount, 0);
+  assert.match(summary.detail, /调查项 1/);
+  assert.match(summary.gateText, /调查项不进入执行门禁/);
+  assert.equal(helpers.aiDailyReportActionButtonText(action), '查看证据');
+  assert.equal(helpers.aiDailyReportActionStatusText(action), '调查项 / 不可执行');
+  assert.match(helpers.aiDailyReportActionBlockedText(action), /仅用于查看证据/);
+});
+
+test('AI daily fact gate uses only applicable OTA platforms and never promotes failures to ready', () => {
+  const ready = helpers.buildAiDailyFactGate({
+    hotelId: 58,
+    targetDate: '2026-07-09',
+    collectionStatus: {
+      generated_at: '2026-07-10 09:00:00',
+      dataScope: 'ota_channel',
+      platforms: {
+        ctrip: {
+          platform: 'ctrip',
+          platformName: '携程',
+          platformLoginStatus: 'logged_in',
+          collectionStatus: 'collected',
+          targetDateRows: 3,
+          fieldFactsReady: 4,
+          fieldFactsMissing: 0,
+          fieldFactStatus: 'ready',
+          sourceSummary: { configuredCount: 1 },
+        },
+        meituan: {
+          platform: 'meituan',
+          platformName: '美团',
+          platformLoginStatus: 'unconfigured',
+          collectionStatus: 'not_collected',
+          targetDateRows: 0,
+          fieldFactsReady: 0,
+          fieldFactsMissing: 0,
+          fieldFactStatus: 'not_loaded',
+          sourceSummary: { configuredCount: 0 },
+          profile: { profileExists: false },
+        },
+      },
+    },
+    profileStatus: {
+      items: [
+        { platform: 'ctrip', status_code: 'logged_in' },
+        { platform: 'meituan', status_code: 'unconfigured' },
+      ],
+    },
+  });
+
+  assert.equal(ready.status, 'ready');
+  assert.equal(ready.configuredCount, 1);
+  assert.equal(ready.readyCount, 1);
+  assert.equal(ready.platformRows.find(row => row.platform === 'meituan').applicable, false);
+  assert.equal(ready.chain[0].status, 'ready');
+  assert.equal(ready.chain[1].status, 'pending_validation');
+  assert.match(ready.scopeText, /OTA渠道事实/);
+  assert.match(ready.scopeText, /不代表全酒店/);
+
+  const blocked = helpers.buildAiDailyFactGate({
+    hotelId: 58,
+    targetDate: '2026-07-09',
+    collectionStatus: {
+      dataScope: 'ota_channel',
+      platforms: {
+        ctrip: {
+          platform: 'ctrip',
+          collectionStatus: 'partial',
+          targetDateRows: 1,
+          fieldFactsReady: 1,
+          fieldFactsMissing: 2,
+          fieldFactStatus: 'missing',
+          sourceSummary: { configuredCount: 1 },
+        },
+      },
+    },
+    profileStatus: { items: [{ platform: 'ctrip', status_code: 'logged_in' }] },
+  });
+  assert.equal(blocked.status, 'blocked');
+  assert.equal(blocked.fieldGapCount, 2);
+  assert.equal(blocked.chain[0].status, 'blocked');
+  assert.equal(blocked.chain[1].status, 'blocked_upstream');
+
+  const unverified = helpers.buildAiDailyFactGate({
+    hotelId: 58,
+    targetDate: '2026-07-09',
+    errors: ['collection_status_failed'],
+  });
+  assert.equal(unverified.status, 'unverified');
+  assert.equal(unverified.readyCount, 0);
+  assert.match(unverified.statusText, /未核验/);
+});
+
+test('AI daily report page exposes the read-only OTA fact gate and source endpoints', () => {
+  assert.match(html, /data-testid="ai-daily-fact-gate"/);
+  assert.match(html, /\/online-data\/collection-status\?/);
+  assert.match(html, /\/online-data\/platform-profile-status\?/);
+  assert.match(html, /只读取现有状态，不触发OTA采集、不写业务数据/);
+  assert.match(html, /const loadAiDailyFactGate = async \(options = \{\}\) => \{[\s\S]*?const requestSeq = \+\+aiDailyFactGateRequestSeq;[\s\S]*?if \(hotelId === null \|\| !hotelId\) \{[\s\S]*?aiDailyFactGateLoading\.value = false;/);
 });
 
 test('Agent pricing suggestion workbench exposes manual room type pricing guard input', () => {

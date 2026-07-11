@@ -6,6 +6,11 @@
   "scripts": {
     "start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_local_stack.ps1",
     "start:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_local_stack.ps1",
+    "migrate:ota-credentials:dry-run": "C:\\xampp\\php\\php.exe think migrate:ota-credentials",
+    "migrate:ota-credentials:execute": "C:\\xampp\\php\\php.exe think migrate:ota-credentials --execute",
+    "init:ota-credential-key:dry-run": "C:\\xampp\\php\\php.exe scripts\\initialize_ota_credential_key.php",
+    "init:ota-credential-key:execute": "C:\\xampp\\php\\php.exe scripts\\initialize_ota_credential_key.php --execute",
+    "verify:ota-credential-vault": "node scripts/verify_ota_credential_vault.mjs",
     "verify:local-start": "node scripts/verify_local_start_contract.mjs",
     "verify:investment-decision": "node scripts/verify_investment_decision_support_contract.mjs",
     "report:business-chain": "C:\\xampp\\php\\php.exe scripts\\report_business_chain_status.php",

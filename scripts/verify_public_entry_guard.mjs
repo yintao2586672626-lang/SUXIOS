@@ -350,7 +350,7 @@ if (!fs.existsSync(indexPath)) {
   } catch (error) {
     failures.push(`public/system-static.js navigation guard could not evaluate menu definitions: ${error.message}`);
   }
-  if (!content.includes('revenue-ai-static.js?v=20260708-ai-daily-blocking-summary')
+  if (!content.includes('revenue-ai-static.js?v=20260710-ai-daily-fact-gate-investigation')
     || !revenueAiStaticContent.includes('window.SUXI_REVENUE_AI_STATIC')
     || !revenueAiStaticContent.includes('buildRevenueAiBusinessClosure')
     || !revenueAiStaticContent.includes('buildRevenueAiGapRows')
@@ -365,6 +365,7 @@ if (!fs.existsSync(indexPath)) {
     || !revenueAiStaticContent.includes('buildRevenueAiExecutionSummary')
     || !revenueAiStaticContent.includes('buildRevenueAiExecutionRows')
     || !revenueAiStaticContent.includes('buildRevenueAiEffectReviewRows')
+    || !revenueAiStaticContent.includes('buildAiDailyFactGate')
     || !revenueAiStaticContent.includes('evidenceSummary: item.evidence_summary ||')
     || !revenueAiStaticContent.includes('latestEvidenceType: item.latest_evidence_type ||')
     || !revenueAiStaticContent.includes('hasRevenueEvidence: item.has_revenue_evidence === true')
@@ -433,6 +434,8 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes("const revenueAiBuildExecutionSummary = requireRevenueAiStatic('buildRevenueAiExecutionSummary');")
     || !content.includes("const revenueAiBuildExecutionRows = requireRevenueAiStatic('buildRevenueAiExecutionRows');")
     || !content.includes("const revenueAiBuildEffectReviewRows = requireRevenueAiStatic('buildRevenueAiEffectReviewRows');")
+    || !content.includes("const revenueAiBuildDailyFactGate = requireRevenueAiStatic('buildAiDailyFactGate');")
+    || !content.includes('data-testid="ai-daily-fact-gate"')
     || !revenueAiStaticContent.includes('const revenueAiExecutionNeedsRoiEvidence = (row = {}) => {')
     || !revenueAiStaticContent.includes('const resolveRevenueAiExecutionNavigation = ({ row = {}, fallbackHotelId = 0 } = {}) => {')
     || !content.includes("const revenueAiResolveExecutionAction = requireRevenueAiStatic('resolveRevenueAiExecutionAction');")
@@ -808,36 +811,50 @@ if (!fs.existsSync(indexPath)) {
   if (!/let ctripConfigListLoadingPromise = null;[\s\S]*const loadCtripConfigList = async[\s\S]*if \(ctripConfigListLoadingPromise\) \{[\s\S]*if \(!force\) \{[\s\S]*return ctripConfigListLoadingPromise;[\s\S]*await ctripConfigListLoadingPromise\.catch\(\(\) => \[\]\);[\s\S]*finally \{[\s\S]*ctripConfigListLoadingPromise = null;/.test(content)) {
     failures.push('public/index.html must deduplicate concurrent Ctrip config-list loads for manual-fetch prewarm and tab switching.');
   }
+  const ctripCanFetchStart = content.indexOf('const canFetchCtripManualData = () => {');
+  const ctripCanFetchEnd = ctripCanFetchStart >= 0
+    ? content.indexOf('\n\n            const resolveCtripManualFetchConfig', ctripCanFetchStart)
+    : -1;
+  const ctripCanFetchSource = ctripCanFetchStart >= 0 && ctripCanFetchEnd > ctripCanFetchStart
+    ? content.slice(ctripCanFetchStart, ctripCanFetchEnd)
+    : '';
   if (!content.includes(':disabled="fetchingData || !canFetchCtripManualData()"')
     || !content.includes('const ctripManualFetchConfigProofPending = () => {')
     || !content.includes('return !!ctripConfigListLoadingPromise')
-    || !content.includes('const canFetchCtripManualData = () => {')
+    || !ctripCanFetchSource.includes('if (selectedCtripHotelId.value) return selectedCtripManualCredentialState.value.canFetch;')
+    || !ctripCanFetchSource.includes('return buildCtripManualCredentialState(ctripManualFetchConfigCandidate()).canFetch;')
+    || /ctripManualFetchConfigProofPending|ctripConfigListLoadingPromise|ctripConfigListLoaded|ctripConfigListLoadFailed/.test(ctripCanFetchSource)
     || !content.includes('const resolveCtripManualFetchConfig = async (config) => {')
-    || !content.includes('ensureCtripConfigSecret: async config => ensureCtripConfigSecret(await resolveCtripManualFetchConfig(config))')) {
-    failures.push('public/index.html Ctrip ranking/traffic manual fetch must stay clickable while pending config proof is loading and reuse the same config-list request before backend submission.');
+    || !content.includes('return ctripManualFetchConfigCandidate();')) {
+    failures.push('public/index.html Ctrip ranking/traffic manual fetch must fail closed while config proof is pending/loading/missing and only enable for a ready metadata credential; async prewarm and submit-time resolution must remain.');
   }
-  if (!/const ctripConfigDetailCache = new Map\(\);[\s\S]*const ctripConfigDetailLoadingPromises = new Map\(\);[\s\S]*const loadCtripConfigDetail = async[\s\S]*if \(ctripConfigDetailLoadingPromises\.has\(cacheKey\)\)[\s\S]*return ctripConfigDetailLoadingPromises\.get\(cacheKey\);[\s\S]*const ensureCtripConfigSecret = async[\s\S]*const cached = cacheKey \? ctripConfigDetailCache\.get\(cacheKey\) : null;/.test(content)) {
-    failures.push('public/index.html must cache and deduplicate full Ctrip config detail loads for manual-fetch hotel switching.');
+  if (!content.includes('const ctripConfigHasManualAuxiliary = (config = null) => {')
+    || !content.includes("String(config.credential_status || '') === 'ready'")
+    || !content.includes('config.has_cookies === true')
+    || content.includes('const loadCtripConfigDetail = async')
+    || content.includes('const ensureCtripConfigSecret = async')
+    || content.includes('const prewarmSelectedCtripConfigSecret =')
+    || content.includes('ctripConfigDetailCache.set(')) {
+    failures.push('public/index.html Ctrip execution readiness must use metadata only and must not load, prewarm, or cache full credential details.');
   }
-  if (!content.includes('const ensureCtripConfigSecret = async (config, options = {}) => {')
-    || !content.includes("console.error('[CTrip] 预热完整配置失败:', e);")
-    || !content.includes('const prewarmSelectedCtripConfigSecret = (config = findCtripConfigByHotelId(selectedCtripHotelId.value)) => {')
-    || !content.includes('deferUiTask(() => ensureCtripConfigSecret(config, { silent: true }), 80);')) {
-    failures.push('public/index.html must support silent, deferred Ctrip full-config prewarm for manual-fetch responsiveness.');
+  if (!content.includes('const resolveCtripConfigMetadata = (config) => config || null;')
+    || !content.includes("selectedCtripConfigId.value = config.config_id || config.id || '';")
+    || !content.includes("ctripForm.value.cookies = '';")
+    || !content.includes('ctripForm.value.auth_data = {};')) {
+    failures.push('public/index.html Ctrip config application must retain only locator/business metadata and clear browser credential fields.');
   }
   if (!content.includes('const scheduleCtripHotelConfigApply = (event = null, options = {}) => {')
     || !content.includes('const applyVersion = ++ctripHotelConfigApplyVersion;')
-    || !content.includes('const config = await ensureCtripConfigSecret(configSource, { silent: true });')
+    || !content.includes('const config = resolveCtripConfigMetadata(configSource);')
     || !content.includes('isCtripRankingFormAlignedWithConfig(ctripForm.value, config, { selectedHotelId: requestedHotelId })')
     || !content.includes('@change="scheduleCtripHotelConfigApply"')
     || content.includes('@change="applyCtripHotelConfig"')) {
-    failures.push('public/index.html Ctrip hotel selection must defer full config detail loading and skip redundant form application when already aligned.');
+    failures.push('public/index.html Ctrip hotel selection must apply metadata without credential-detail loading and skip redundant form application when already aligned.');
   }
-  if (!content.includes("clearCtripConfigDetailCache(body?.id || '');")
-    || !content.includes("clearCtripConfigDetailCache(ctrip.id || existing?.id || '');")
-    || !/deleteCtripConfig = async[\s\S]*clearCtripConfigDetailCache\(id\);/.test(content)
-    || !/batchDeleteCtripConfigs = async[\s\S]*clearCtripConfigDetailCache\(id\);/.test(content)) {
-    failures.push('public/index.html must invalidate cached full Ctrip config details after Ctrip config saves or deletes.');
+  if (content.includes("request('/online-data/get-ctrip-config-detail")
+    || content.includes('ctripConfigDetailLoadingPromises.set(')
+    || content.includes('ctripConfigDetailCache.set(')) {
+    failures.push('public/index.html must not request or retain reusable Ctrip credential detail in browser caches.');
   }
   const batchDeleteCtripConfigsSource = content.slice(
     content.indexOf('const batchDeleteCtripConfigs = async'),
@@ -991,12 +1008,14 @@ if (!fs.existsSync(indexPath)) {
     || !ctripEbookingDefaultLoader.includes('scheduleCtripEbookingDeferredStartupRefresh();')) {
     failures.push('public/index.html must defer Ctrip eBooking config/latest/cookie/bookmarklet startup refreshes until after the first paint loader.');
   }
-  if (!content.includes('方法四：旧 Cookie 书签已禁用')
-    || !content.includes('旧书签会把宿析登录 token 带到 OTA 页面')
+  if (!content.includes('凭据统一由平台配置保管')
+    || !content.includes('旧 Cookie 列表、明文详情和快速保存入口已停用。')
+    || !content.includes('<button @click="openPlatformSourcesTab"')
     || !content.includes("showToast(res.data?.message || '旧版携程 Cookie 书签已禁用', 'warning')")
     || !content.includes("showToast(res.data?.message || '旧版美团 Cookie 书签已禁用', 'warning')")
+    || /document\.cookie|copyCookieScript|Cookie脚本已复制/.test(content)
     || content.includes('书签脚本生成成功')) {
-    failures.push('public/index.html legacy Cookie bookmarklet UI must show disabled-by-policy state and must not imply successful script generation.');
+    failures.push('public/index.html legacy Cookie UI must route to the platform credential vault and must not ship an extraction helper or imply successful script generation.');
   }
   if (!content.includes('const CTRIP_EBOOKING_STARTUP_CONFIG_DELAY_MS = 2600;')
     || !content.includes('const CTRIP_EBOOKING_LATEST_DATA_DELAY_MS = 5200;')
@@ -1012,6 +1031,18 @@ if (!fs.existsSync(indexPath)) {
     || content.includes("return loadBookmarklet();\n                }, 3600);")) {
     failures.push('public/index.html Ctrip eBooking config-list startup refresh must stay responsive and use the explicit short delay constant.');
   }
+  const loadCookiesListSource = content.slice(
+    content.indexOf('const loadCookiesList = async () => {'),
+    content.indexOf('const loadCookieDetail = async (item) => {')
+  );
+  const loadCookieDetailSource = content.slice(
+    content.indexOf('const loadCookieDetail = async (item) => {'),
+    content.indexOf('const cookieStatusClass = (status) => {')
+  );
+  const saveCookiesConfigSource = content.slice(
+    content.indexOf('const saveCookiesConfig = async () => {'),
+    content.indexOf('const deleteCookiesConfig = async (name, hotelId) => {')
+  );
   const deleteCookiesConfigSource = content.slice(
     content.indexOf('const deleteCookiesConfig = async (name, hotelId) => {'),
     content.indexOf('const batchDeleteCookiesConfig = async () => {')
@@ -1020,33 +1051,48 @@ if (!fs.existsSync(indexPath)) {
     content.indexOf('const batchDeleteCookiesConfig = async () => {'),
     content.indexOf('const useCookies = async (item) => {')
   );
-  if (!content.includes("const buildCookieConfigRowKey = requireCtripStatic('buildCookieConfigRowKey');")
-    || !content.includes("const buildCookieConfigDeleteSuccessState = requireCtripStatic('buildCookieConfigDeleteSuccessState');")
-    || !content.includes("const buildCookieConfigDeleteFailureState = requireCtripStatic('buildCookieConfigDeleteFailureState');")
-    || !content.includes("const buildCookieConfigBatchDeleteSuccessState = requireCtripStatic('buildCookieConfigBatchDeleteSuccessState');")
-    || !content.includes("const buildCookieConfigBatchDeleteFailureState = requireCtripStatic('buildCookieConfigBatchDeleteFailureState');")
-    || !ctripStaticContent.includes('const buildCookieConfigRowKey = (item = {}) =>')
-    || !ctripStaticContent.includes('const buildCookieConfigDeleteSuccessState = ({')
-    || !ctripStaticContent.includes('const buildCookieConfigBatchDeleteSuccessState = ({')
-    || !content.includes('const cookieRowKey = buildCookieConfigRowKey;')
-    || !deleteCookiesConfigSource.includes('const deleteSuccessState = buildCookieConfigDeleteSuccessState({ name, hotelId });')
-    || !deleteCookiesConfigSource.includes('selectedCookieKeys.value = selectedCookieKeys.value.filter(key => key !== deleteSuccessState.selectedKeyToRemove);')
-    || !deleteCookiesConfigSource.includes('const deleteFailureState = buildCookieConfigDeleteFailureState({ response: res });')
-    || !batchDeleteCookiesConfigSource.includes('const batchDeleteSuccessState = buildCookieConfigBatchDeleteSuccessState({ response: res, rows });')
-    || !batchDeleteCookiesConfigSource.includes('selectedCookieKeys.value = batchDeleteSuccessState.selectedCookieKeys;')
-    || !batchDeleteCookiesConfigSource.includes('const batchDeleteFailureState = buildCookieConfigBatchDeleteFailureState({ response: res });')
-    || deleteCookiesConfigSource.includes("showToast('删除成功');")
-    || deleteCookiesConfigSource.includes("selectedCookieKeys.value = selectedCookieKeys.value.filter(key => key !== `${hotelId || 'global'}::${name}`);")
-    || batchDeleteCookiesConfigSource.includes('const deletedCount = res.data?.deleted_count ?? rows.length;')
-    || batchDeleteCookiesConfigSource.includes('selectedCookieKeys.value = [];')) {
-    failures.push('public/index.html cookie config delete flows must keep result state in ctrip-static.js helpers.');
+  const useCookiesSource = content.slice(
+    content.indexOf('const useCookies = async (item) => {'),
+    content.indexOf('// AI智能分析相关函数')
+  );
+  const saveQuickCookiesSource = content.slice(
+    content.indexOf('const saveQuickCookies = async () => {'),
+    content.indexOf('// 查看线上数据详情')
+  );
+  const forbiddenLegacyCookieRequestPattern = /request\(\s*['"]\/online-data\/(?:save-cookies|cookies-list|cookies-detail|delete-cookies|batch-delete-cookies)(?:[?'"])/;
+  if (!content.includes('凭据统一由平台配置保管')
+    || !content.includes('旧 Cookie 列表、明文详情和快速保存入口已停用。请在平台采集源中新增或更换携程凭据；浏览器不会再读取已保存的完整 Cookie。')
+    || !content.includes('<button @click="openPlatformSourcesTab"')
+    || !loadCookiesListSource.includes('cookiesList.value = [];')
+    || !loadCookiesListSource.includes('selectedCookieKeys.value = [];')
+    || loadCookiesListSource.includes('request(')
+    || !loadCookieDetailSource.includes("throw new Error('旧 Cookie 明文详情已停用，请在平台采集源中更换凭据');")
+    || loadCookieDetailSource.includes('request(')
+    || !saveCookiesConfigSource.includes("showToast('旧 Cookie 保存已停用，请在平台采集源中更换凭据', 'warning');")
+    || !saveCookiesConfigSource.includes('openPlatformSourcesTab();')
+    || saveCookiesConfigSource.includes('request(')
+    || !deleteCookiesConfigSource.includes("showToast('旧 Cookie 删除入口已停用，请在平台配置中吊销对应凭据', 'warning');")
+    || !deleteCookiesConfigSource.includes('openPlatformSourcesTab();')
+    || deleteCookiesConfigSource.includes('request(')
+    || !batchDeleteCookiesConfigSource.includes('selectedCookieKeys.value = [];')
+    || !batchDeleteCookiesConfigSource.includes("showToast('旧 Cookie 批量删除入口已停用，请在平台配置中逐项吊销凭据', 'warning');")
+    || !batchDeleteCookiesConfigSource.includes('openPlatformSourcesTab();')
+    || batchDeleteCookiesConfigSource.includes('request(')
+    || !useCookiesSource.includes("showToast('浏览器不再读取已保存的完整 Cookie，请选择平台配置凭据', 'warning');")
+    || !useCookiesSource.includes('openPlatformSourcesTab();')
+    || useCookiesSource.includes('request(')
+    || !saveQuickCookiesSource.includes("showToast('旧 Cookie 快速保存已停用，请在平台采集源中更换凭据', 'warning');")
+    || !saveQuickCookiesSource.includes('openPlatformSourcesTab();')
+    || saveQuickCookiesSource.includes('request(')
+    || forbiddenLegacyCookieRequestPattern.test(content)) {
+    failures.push('public/index.html legacy Cookie list/detail/save/delete/use actions must stay disabled, request-free, and route users to platform credential sources.');
   }
-  if (!/await loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);\s*if \(currentPage\.value !== 'ctrip-ebooking'\) return null;\s*prewarmSelectedCtripConfigSecret\(\);/.test(content)
+  if (!/await loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);\s*if \(currentPage\.value !== 'ctrip-ebooking'\) return null;/.test(content)
     || !content.includes('const shouldApplySelectedConfig = options.applySelectedConfig === true;')
     || !/if \(selectedCtripHotelId\.value && shouldApplySelectedConfig\) \{[\s\S]*deferUiTask\(\(\) => applyCtripHotelConfig\(false, \{[\s\S]*refreshList: false,[\s\S]*skipIfAligned: true,/.test(content)
-    || /if \(selectedCtripHotelId\.value\) \{\s*prewarmSelectedCtripConfigSecret\(\);\s*deferUiTask\(\(\) => applyCtripHotelConfig\(false\), 80\);/.test(content)
+    || content.includes('prewarmSelectedCtripConfigSecret')
     || content.includes("if (selectedCtripHotelId.value) {\n                                await applyCtripHotelConfig(false);\n                            }\n                            return ctripConfigList.value;")) {
-    failures.push('public/index.html Ctrip config list must return after list data and only apply selected config when explicitly requested.');
+    failures.push('public/index.html Ctrip config list must return metadata after list data and only apply selected metadata when explicitly requested.');
   }
   if (!content.includes('const CTRIP_EBOOKING_DATA_HEALTH_REFRESH_DELAY_MS = 1600;')
     || !ctripEbookingDefaultLoader.includes("scheduleDelayedPageTask(() => {\n                            if (!isCtripEbookingDataHealthVisible()) return null;\n                            scheduleDataHealthPanelRefresh('light');\n                            return null;\n                        }, CTRIP_EBOOKING_DATA_HEALTH_REFRESH_DELAY_MS);")
@@ -1161,9 +1207,12 @@ if (!fs.existsSync(indexPath)) {
     content.indexOf('const editCtripCookieFromHealth = async')
   );
   if (!openCtripCookieEditorFromHealthSource.includes("const listConfig = ctripConfigList.value.find(item => String(item.id || '') === configId);")
-    || !openCtripCookieEditorFromHealthSource.includes('listConfig\n                        ? await ensureCtripConfigSecret(listConfig)\n                        : await loadCtripConfigDetail(configId);')
-    || openCtripCookieEditorFromHealthSource.includes('await loadCtripConfigList();')) {
-    failures.push('public/index.html Ctrip health Cookie editor must read the exact config detail without waiting for the full config list first.');
+    || !openCtripCookieEditorFromHealthSource.includes('const config = resolveCtripConfigMetadata(listConfig || findCtripConfigMetadataById(configId));')
+    || !openCtripCookieEditorFromHealthSource.includes("throw new Error('未找到对应携程配置');")
+    || openCtripCookieEditorFromHealthSource.includes('await loadCtripConfigList();')
+    || openCtripCookieEditorFromHealthSource.includes('loadCtripConfigDetail')
+    || openCtripCookieEditorFromHealthSource.includes('ensureCtripConfigSecret')) {
+    failures.push('public/index.html Ctrip health Cookie editor must use exact metadata and keep replacement input blank instead of reading stored credentials.');
   }
   const ctripCookieHealthMutationSource = content.slice(
     content.indexOf('const saveCtripCookieFromHealth = async'),
@@ -1209,23 +1258,23 @@ if (!fs.existsSync(indexPath)) {
     || !meituanEbookingDefaultLoader.includes('scheduleMeituanEbookingDeferredStartupRefresh();')) {
     failures.push('public/index.html must start Meituan eBooking config matching near immediately while keeping secondary startup refreshes deferred.');
   }
-  if (!content.includes('const ensureMeituanConfigSecret = async (config, options = {}) => {')
-    || !content.includes('console.error(failureAction.label, failureAction.error);')
-    || !content.includes('const prewarmSelectedMeituanConfigSecret = (config = selectedMeituanHotelConfig.value) => {')
-    || !content.includes('const prewarmPlan = resolveMeituanConfigDetailPrewarmPlan({ config, delayMs: 80 });')
-    || !content.includes('if (!prewarmPlan.shouldPrewarm) return;')
-    || !content.includes('deferUiTask(() => ensureMeituanConfigSecret(prewarmPlan.config, { silent: true }), prewarmPlan.delayMs);')
-    || !content.includes('let configSource = options.resolvedConfig || selectedMeituanHotelConfig.value;')
-    || !content.includes('const config = options.resolvedConfig || await ensureMeituanConfigSecret(configSource);')
+  if (!content.includes('const resolveMeituanConfigMetadata = (config) => config || null;')
+    || !content.includes('const config = resolveMeituanConfigMetadata(options.resolvedConfig || selectedMeituanHotelConfig.value);')
+    || !content.includes("meituanForm.value.cookies = '';")
+    || !content.includes('meituanForm.value.auth_data = {};')
     || !meituanStaticContent.includes('if (!isMeituanRankingFormAlignedWithConfig(form, selectedMeituanConfig)) {')
     || !meituanStaticContent.includes('skipIfAligned: true,')
     || meituanStaticContent.includes('await applyMeituanHotelConfig(false);')
-    || !/await loadMeituanConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);\s*if \(currentPage\.value !== 'meituan-ebooking'\) return null;\s*prewarmSelectedMeituanConfigSecret\(\);/.test(content)
+    || !/await loadMeituanConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);\s*if \(currentPage\.value !== 'meituan-ebooking'\) return null;/.test(content)
     || !content.includes('const shouldApplySelectedConfig = options.applySelectedConfig === true;')
     || !content.includes('const applyAction = resolveMeituanConfigListApplyAction({')
     || !content.includes('if (applyAction.shouldApply) {')
+    || content.includes('const ensureMeituanConfigSecret = async')
+    || content.includes('const prewarmSelectedMeituanConfigSecret =')
+    || content.includes('const loadMeituanConfigDetail = async')
+    || content.includes('meituanConfigDetailCache.set(')
     || content.includes("if (meituanForm.value.hotelId) {\n                                await applyMeituanHotelConfig(false, { refreshList: false });\n                            }\n                            return meituanConfigList.value;")) {
-    failures.push('public/index.html Meituan config list must return after list data and prewarm full config detail in deferred work.');
+    failures.push('public/index.html Meituan config list/application must remain metadata-only and never prewarm or cache full credential detail.');
   }
   if (/runPageLoadOnce\(newPage,\s*['"]main['"][\s\S]*loadMeituanConfigList\(\)/.test(meituanEbookingDefaultLoader)) {
     failures.push('public/index.html Meituan eBooking default loader must not synchronously request saved configs in the first-paint group.');
@@ -1413,8 +1462,9 @@ if (!fs.existsSync(indexPath)) {
     content.indexOf('const useMeituanConfig')
   );
   if (!content.includes("const resolveMeituanConfigSaveCookieState = requireMeituanStatic('resolveMeituanConfigSaveCookieState');")
-    || !meituanStaticContent.includes("const resolveMeituanConfigSaveCookieState = (cookies = '') => {")
-    || !saveMeituanConfigItemSource.includes('const cookieState = resolveMeituanConfigSaveCookieState(meituanConfigForm.value.cookies);')
+    || !meituanStaticContent.includes("const resolveMeituanConfigSaveCookieState = (cookies = '', options = {}) => {")
+    || !saveMeituanConfigItemSource.includes('const cookieState = resolveMeituanConfigSaveCookieState(meituanConfigForm.value.cookies, {')
+    || !saveMeituanConfigItemSource.includes("String(meituanConfigForm.value.credential_status || '') === 'ready'")
     || !saveMeituanConfigItemSource.includes('showToast(cookieState.message, cookieState.level);')
     || !saveMeituanConfigItemSource.includes('cookies: cookieState.cookies,')
     || saveMeituanConfigItemSource.includes("String(meituanConfigForm.value.cookies || '').trim()")
@@ -1600,8 +1650,8 @@ if (!fs.existsSync(indexPath)) {
     || !meituanStaticContent.includes('const buildMeituanConfigListFailureAction = ({')
     || !meituanStaticContent.includes('const buildMeituanConfigListStartState = () => ({')
     || !meituanStaticContent.includes('const buildMeituanConfigListFinishState = () => ({')
-    || !meituanStaticContent.includes("if (String(safeForm.cookies || '').trim()) return true;")
-    || !meituanStaticContent.includes("return !!String(safeForm.hotelId || '').trim() && !!selectedConfig;")
+    || !meituanStaticContent.includes('config?.has_cookies === true')
+    || !meituanStaticContent.includes("return !!String(safeForm.hotelId || '').trim() && isMeituanExecutionConfigReady(selectedConfig);")
     || !content.includes('const cachedResult = resolveMeituanConfigListCachedResult({')
     || !content.includes('if (cachedResult.hit) {')
     || !content.includes('return cachedResult.list;')
@@ -1631,65 +1681,23 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('meituanConfigListLoading.value = finishState.loading;')
     || !content.includes('const resolveMeituanManualFetchConfig = async (config) => {')
     || !content.includes('return resolveMeituanManualFetchConfigCandidate({')
-    || !content.includes('ensureMeituanConfigSecret: async config => ensureMeituanConfigSecret(await resolveMeituanManualFetchConfig(config))')
-    || !meituanStaticContent.includes('const selectedMeituanConfig = form.hotelId')
-    || meituanStaticContent.includes("return { status: 'missing_hotel' };")
-    || meituanStaticContent.includes("return { status: 'missing_config' };")
-    || !content.includes('if (preparingConfig) {\n                        fetchingData.value = false;')) {
-    failures.push('public/index.html Meituan ranking manual fetch must allow temporary Cookie validation without a saved config, while keeping saved config application optional.');
+    || !meituanStaticContent.includes('const isMeituanExecutionConfigReady = (config = null) => Boolean(')
+    || !meituanStaticContent.includes('resolveMeituanExecutionConfigId(config)')
+    || !meituanStaticContent.includes("String(config?.credential_status || '') === 'ready'")
+    || !meituanStaticContent.includes("return !!String(safeForm.hotelId || '').trim() && isMeituanExecutionConfigReady(selectedConfig);")
+    || content.includes('ensureMeituanConfigSecret')) {
+    failures.push('public/index.html Meituan ranking manual fetch must require a ready saved credential locator and must not execute a temporary browser Cookie.');
   }
-  if (!content.includes("const getMeituanConfigDetailVersion = requireMeituanStatic('getMeituanConfigDetailVersion');")
-    || !content.includes("const buildMeituanConfigDetailCacheKey = requireMeituanStatic('buildMeituanConfigDetailCacheKey');")
-    || !content.includes("const resolveMeituanConfigDetailClearTarget = requireMeituanStatic('resolveMeituanConfigDetailClearTarget');")
-    || !content.includes("const resolveMeituanConfigDetailLoadTarget = requireMeituanStatic('resolveMeituanConfigDetailLoadTarget');")
-    || !content.includes("const buildMeituanConfigDetailRequestUrl = requireMeituanStatic('buildMeituanConfigDetailRequestUrl');")
-    || !content.includes("const resolveMeituanConfigDetailResponse = requireMeituanStatic('resolveMeituanConfigDetailResponse');")
-    || !content.includes("const shouldSkipMeituanConfigDetailLoad = requireMeituanStatic('shouldSkipMeituanConfigDetailLoad');")
-    || !content.includes("const resolveMeituanConfigDetailCachedResult = requireMeituanStatic('resolveMeituanConfigDetailCachedResult');")
-    || !content.includes("const resolveMeituanConfigDetailCacheLookup = requireMeituanStatic('resolveMeituanConfigDetailCacheLookup');")
-    || !content.includes("const buildMeituanConfigDetailCacheEntry = requireMeituanStatic('buildMeituanConfigDetailCacheEntry');")
-    || !content.includes("const resolveMeituanConfigDetailCacheStorePlan = requireMeituanStatic('resolveMeituanConfigDetailCacheStorePlan');")
-    || !content.includes("const resolveMeituanConfigDetailFailureAction = requireMeituanStatic('resolveMeituanConfigDetailFailureAction');")
-    || !content.includes("const resolveMeituanConfigDetailPrewarmPlan = requireMeituanStatic('resolveMeituanConfigDetailPrewarmPlan');")
+  if (!content.includes("const resolveMeituanConfigDetailClearTarget = requireMeituanStatic('resolveMeituanConfigDetailClearTarget');")
     || !content.includes('const clearTarget = resolveMeituanConfigDetailClearTarget(id);')
-    || !content.includes('if (!clearTarget.clearAll) {')
-    || !content.includes('const cacheKey = clearTarget.cacheKey;')
-    || !content.includes('const loadTarget = resolveMeituanConfigDetailLoadTarget({ id, loadingPromises: meituanConfigDetailLoadingPromises });')
-    || !content.includes("if (loadTarget.status === 'missing_key') return null;")
-    || !content.includes("if (loadTarget.status === 'loading') {")
-    || !content.includes('return loadTarget.promise;')
-    || !content.includes('const cacheKey = loadTarget.cacheKey;')
-    || !content.includes('const res = await request(buildMeituanConfigDetailRequestUrl(cacheKey));')
-    || !content.includes('const detailResult = resolveMeituanConfigDetailResponse(res);')
-    || !content.includes('throw new Error(detailResult.message);')
-    || !content.includes('const cacheLookup = resolveMeituanConfigDetailCacheLookup({ config, cache: meituanConfigDetailCache });')
-    || !content.includes('if (shouldSkipMeituanConfigDetailLoad(config)) return config;')
-    || !content.includes('const prewarmPlan = resolveMeituanConfigDetailPrewarmPlan({ config, delayMs: 80 });')
-    || !content.includes('if (!prewarmPlan.shouldPrewarm) return;')
-    || !content.includes('deferUiTask(() => ensureMeituanConfigSecret(prewarmPlan.config, { silent: true }), prewarmPlan.delayMs);')
-    || !content.includes('return cacheLookup.cachedResult.data;')
-    || !content.includes('const cacheEntry = buildMeituanConfigDetailCacheEntry({ detail, listVersion: cacheLookup.listVersion });')
-    || !content.includes('const storePlan = resolveMeituanConfigDetailCacheStorePlan({ cacheKey: cacheLookup.cacheKey, cacheEntry });')
-    || !content.includes('if (storePlan.shouldStore) {')
-    || !content.includes('meituanConfigDetailCache.set(storePlan.cacheKey, storePlan.cacheEntry);')
-    || !content.includes('const failureAction = resolveMeituanConfigDetailFailureAction({ error: e, silent: options.silent });')
-    || !content.includes("if (failureAction.type === 'log') {")
-    || !content.includes('console.error(failureAction.label, failureAction.error);')
-    || !content.includes('showToast(failureAction.message, failureAction.level);')
-    || !meituanStaticContent.includes('const getMeituanConfigDetailVersion = (config = {}) => String(')
-    || !meituanStaticContent.includes("const buildMeituanConfigDetailCacheKey = (id = '') => (id ? String(id) : '');")
-    || !meituanStaticContent.includes("const resolveMeituanConfigDetailClearTarget = (id = '') => {")
-    || !meituanStaticContent.includes('const resolveMeituanConfigDetailLoadTarget = ({')
-    || !meituanStaticContent.includes("const buildMeituanConfigDetailRequestUrl = (cacheKey = '') => (")
-    || !meituanStaticContent.includes('const resolveMeituanConfigDetailResponse = (res = {}) => {')
-    || !meituanStaticContent.includes('const shouldSkipMeituanConfigDetailLoad = (config = null) => (')
-    || !meituanStaticContent.includes('const resolveMeituanConfigDetailCachedResult = ({')
-    || !meituanStaticContent.includes('const resolveMeituanConfigDetailCacheLookup = ({')
-    || !meituanStaticContent.includes('const buildMeituanConfigDetailCacheEntry = ({')
-    || !meituanStaticContent.includes('const resolveMeituanConfigDetailCacheStorePlan = ({')
-    || !meituanStaticContent.includes('const resolveMeituanConfigDetailFailureAction = ({')
-    || !meituanStaticContent.includes('const resolveMeituanConfigDetailPrewarmPlan = ({')) {
-    failures.push('public/index.html Meituan config detail version, cache-key, cache-clear, load-target, cache-lookup, request-url, response, skip-load, cache-entry, cache-store, failure-action, and prewarm rules must be owned by the static helper.');
+    || !content.includes('meituanConfigDetailCache.delete(cacheKey);')
+    || !content.includes('meituanConfigDetailCache.clear();')
+    || content.includes('meituanConfigDetailCache.set(')
+    || content.includes('meituanConfigDetailLoadingPromises.set(')
+    || content.includes('const loadMeituanConfigDetail = async')
+    || content.includes('const ensureMeituanConfigSecret = async')
+    || content.includes('const prewarmSelectedMeituanConfigSecret =')) {
+    failures.push('public/index.html Meituan legacy cache compatibility may clear metadata keys only; it must not load, store, or prewarm credential details.');
   }
   const applyMeituanHotelConfigSource = content.slice(
     content.indexOf('const applyMeituanHotelConfig = async'),
@@ -2272,6 +2280,9 @@ if (!fs.existsSync(indexPath)) {
     || !dataHealthPanelSource.includes('const initialCacheKey = dataHealthLightCacheKey(initialHotelId);')
     || !dataHealthPanelSource.includes("if (normalizedMode === 'light' && !force && cacheKey !== initialCacheKey) {")
     || !dataHealthPanelSource.includes('const jobs = buildDataHealthPanelRefreshJobs({')
+    || dataHealthPanelSource.includes('loadDailyWorkbenchPatrols:')
+    || dataHealthPanelSource.includes('loadPhase3OperationEffectLoop,')
+    || dataHealthPanelSource.includes('loadPhase3OperationEffectLoopLedger,')
     || !dataHealthPanelSource.includes('return scheduleDataHealthLightDiagnosticsRefresh({')
     || dataHealthPanelSource.includes('const buildDataHealthPanelJobs = (normalizedMode) =>')
     || dataHealthPanelSource.includes('const jobs = [')
@@ -2338,10 +2349,11 @@ if (!fs.existsSync(indexPath)) {
       || forced?.status !== 'miss'
       || reset?.status !== 'miss'
       || !Array.isArray(fullJobs)
-      || fullJobs.length !== 11
+      || fullJobs.length !== 8
       || calls.find((call) => call.name === 'auto')?.args?.[0]?.detail !== true
       || calls.find((call) => call.name === 'collection')?.args?.[0] !== 'full'
       || !calls.some((call) => call.name === 'release-evidence')
+      || calls.some((call) => ['patrols', 'effect', 'ledger'].includes(call.name))
       || scheduledResult !== 'scheduled'
       || scheduled?.key !== 'data-health-light-diagnostics'
       || scheduled?.delay !== 360
@@ -2913,20 +2925,95 @@ if (!fs.existsSync(indexPath)) {
   }
   const lightHelperMatch = controllerContent.match(/private function buildAutoFetchPlatformLightStatus\(int \$hotelId, array \$status\): array\s+\{([\s\S]*?)\n    private function autoFetchPlatformsHaveConfig/);
   const lightHelperSource = lightHelperMatch ? lightHelperMatch[1] : '';
+  const runtimeSanitizerMatch = controllerContent.match(/private function sanitizeStoredOtaConfigListForRuntime\(array \$list\): array\s+\{([\s\S]*?)\n    private function splitOtaConfigSecrets/);
+  const runtimeSanitizerSource = runtimeSanitizerMatch ? runtimeSanitizerMatch[1] : '';
+  const secretKeyClassifierMatch = controllerContent.match(/private function isOtaSecretConfigKey\(string \$key\): bool\s+\{([\s\S]*?)\n    private function otaSecretPayloadContainsCookie/);
+  const secretKeyClassifierSource = secretKeyClassifierMatch ? secretKeyClassifierMatch[1] : '';
+  const storedCtripListMatch = controllerContent.match(/private function getStoredCtripConfigList\(\): array\s+\{([\s\S]*?)\n    private function getStoredMeituanConfigList/);
+  const storedCtripListSource = storedCtripListMatch ? storedCtripListMatch[1] : '';
+  const storedMeituanListMatch = controllerContent.match(/private function getStoredMeituanConfigList\(\): array\s+\{([\s\S]*?)\n    private function filterOtaConfigListForCurrentUser/);
+  const storedMeituanListSource = storedMeituanListMatch ? storedMeituanListMatch[1] : '';
+  const ctripLightListMatch = controllerContent.match(/private function getStoredCtripConfigListForLightCache\(\): array\s+\{([\s\S]*?)\n    private function getStoredMeituanConfigListForLightCache/);
+  const ctripLightListSource = ctripLightListMatch ? ctripLightListMatch[1] : '';
+  const meituanLightListMatch = controllerContent.match(/private function getStoredMeituanConfigListForLightCache\(\): array\s+\{([\s\S]*?)\n    private function isMeituanCommentConfigMetadata/);
+  const meituanLightListSource = meituanLightListMatch ? meituanLightListMatch[1] : '';
+  const profileSanitizerMatch = controllerContent.match(/private function sanitizeBrowserProfileSourcesForSharedCache\(array \$rows\): array\s+\{([\s\S]*?)\n    private function clearAutoFetchLightConfigListCache/);
+  const profileSanitizerSource = profileSanitizerMatch ? profileSanitizerMatch[1] : '';
+  const profileListMatch = controllerContent.match(/private function listEnabledBrowserProfileDataSources\(int \$hotelId, string \$platform = ''\): array\s+\{([\s\S]*?)\n    private function listEnabledCtripBrowserProfileDataSources/);
+  const profileListSource = profileListMatch ? profileListMatch[1] : '';
+  const credentialReadyMatch = controllerContent.match(/private function autoFetchCredentialReady\(array \$config\): bool\s+\{([\s\S]*?)\n    private function autoFetchCtripRequestUrl/);
+  const credentialReadySource = credentialReadyMatch ? credentialReadyMatch[1] : '';
   if (!lightHelperSource.includes('resolveCtripFetchConfigForHotelLight')
     || !lightHelperSource.includes('resolveMeituanFetchConfigForHotelLight')
     || lightHelperSource.includes('resolveCtripFetchConfigForHotel($hotelId)')
     || lightHelperSource.includes('resolveMeituanFetchConfigForHotel($hotelId)')
-    || !controllerContent.includes('private function getStoredCtripConfigListRaw')
-    || !controllerContent.includes('private function getStoredMeituanConfigListRaw')) {
-    failures.push('app/controller/OnlineData.php light auto-fetch platform status must use read-only raw config resolvers.');
+    || !controllerContent.includes('getStoredCtripConfigListForLightCache()')
+    || !controllerContent.includes('getStoredMeituanConfigListForLightCache()')
+    || controllerContent.includes('getStoredCtripConfigListRaw')
+    || controllerContent.includes('getStoredMeituanConfigListRaw')) {
+    failures.push('app/controller/OnlineData.php light auto-fetch platform status must use sanitized metadata-only config resolvers.');
+  }
+  if (runtimeSanitizerMatch === null
+    || !runtimeSanitizerSource.includes('foreach ($list as $index => $item)')
+    || !runtimeSanitizerSource.includes('splitOtaConfigSecrets($item)')
+    || !runtimeSanitizerSource.includes('sanitizeSecretConfig($item)')
+    || !runtimeSanitizerSource.includes("$metadata['migration_required'] = true;")
+    || !runtimeSanitizerSource.includes("$metadata['migration_reason'] = 'legacy_secret_fields_present';")
+    || !runtimeSanitizerSource.includes("$metadata['credential_status'] = 'migration_required';")
+    || !runtimeSanitizerSource.includes("$metadata['credential_level'] = 'blocked';")
+    || !runtimeSanitizerSource.includes("$metadata['has_cookies'] = false;")
+    || !credentialReadySource.includes("(string)($config['credential_status'] ?? '') === 'ready'")
+    || !credentialReadySource.includes("($config['has_cookies'] ?? false) === true")
+    || !storedCtripListSource.includes('sanitizeStoredOtaConfigListForRuntime($list)')
+    || !storedMeituanListSource.includes('sanitizeStoredOtaConfigListForRuntime($list)')
+    || !ctripLightListSource.includes('sanitizeStoredOtaConfigListForRuntime($list)')
+    || !meituanLightListSource.includes('sanitizeStoredOtaConfigListForRuntime($list)')
+    || !ctripLightListSource.includes('writeAutoFetchLightReadCache($cacheKey, $safeList)')
+    || !meituanLightListSource.includes('writeAutoFetchLightReadCache($cacheKey, $safeList)')
+    || ctripLightListSource.includes('writeAutoFetchLightReadCache($cacheKey, $list)')
+    || meituanLightListSource.includes('writeAutoFetchLightReadCache($cacheKey, $list)')
+    || !['cookies', 'token', 'auth_data', 'authorization', 'headers', 'encrypted_payload']
+      .every(key => secretKeyClassifierSource.includes(`'${key}'`))) {
+    failures.push('app/controller/OnlineData.php must sanitize every stored OTA config row, block legacy secret rows for migration, and cache safe metadata only.');
+  }
+  if (profileListMatch === null
+    || !profileListSource.includes("->field('id,tenant_id,name,system_hotel_id,platform,data_type,ingestion_method,config_json,enabled,status')")
+    || !profileListSource.includes("->whereIn('ingestion_method', ['browser_profile', 'profile_browser'])")
+    || profileListSource.includes('secret_json')
+    || !profileListSource.includes('sanitizeBrowserProfileSourcesForSharedCache($rows)')
+    || !profileListSource.includes('writeAutoFetchLightReadCache($cacheKey, $safeRows)')
+    || profileListSource.includes('writeAutoFetchLightReadCache($cacheKey, $rows)')
+    || profileSanitizerMatch === null
+    || !profileSanitizerSource.includes("unset($row['secret_json'])")
+    || !profileSanitizerSource.includes('splitOtaConfigSecrets($config)')
+    || !profileSanitizerSource.includes('splitOtaConfigSecrets($row)')
+    || !profileSanitizerSource.includes("$safeRow['migration_required'] = true;")
+    || !profileSanitizerSource.includes("$safeRow['status'] = 'migration_required';")) {
+    failures.push('app/controller/OnlineData.php browser-profile cache must select a safe field whitelist and sanitize config metadata before shared caching.');
   }
   if (!controllerContent.includes('private const AUTO_FETCH_LIGHT_READ_CACHE_TTL_SECONDS = 5;')
     || !controllerContent.includes('private array $autoFetchLightReadCache = [];')
     || !controllerContent.includes('readAutoFetchLightReadCache($cacheKey)')
-    || !controllerContent.includes('writeAutoFetchLightReadCache($cacheKey, $list)')
-    || !controllerContent.includes('writeAutoFetchLightReadCache($cacheKey, array_values(array_filter($rows, \'is_array\')))')) {
-    failures.push('app/controller/OnlineData.php light auto-fetch status must short-cache config-list and browser-profile source reads.');
+    || !controllerContent.includes("'_config_list_metadata_v2'")
+    || !controllerContent.includes("'online_data_auto_fetch_light_profile_sources_v3_'")
+    || !controllerContent.includes('writeAutoFetchLightReadCache($cacheKey, $safeList)')
+    || !controllerContent.includes('writeAutoFetchLightReadCache($cacheKey, $safeRows)')) {
+    failures.push('app/controller/OnlineData.php light auto-fetch status must preserve its five-second metadata-only config/profile read cache.');
+  }
+  const systemConfigPath = path.join(repoRoot, 'app/model/SystemConfig.php');
+  const systemConfigContent = fs.existsSync(systemConfigPath) ? fs.readFileSync(systemConfigPath, 'utf8') : '';
+  const durableKeysMatch = systemConfigContent.match(/private const DURABLE_VALUE_CACHE_KEYS\s*=\s*\[([\s\S]*?)\];/);
+  const protectedKeysMatch = systemConfigContent.match(/private const PROTECTED_OTA_KEYS\s*=\s*\[([\s\S]*?)\];/);
+  const durableKeysSource = durableKeysMatch ? durableKeysMatch[1] : '';
+  const protectedKeysSource = protectedKeysMatch ? protectedKeysMatch[1] : '';
+  if (durableKeysMatch === null
+    || protectedKeysMatch === null
+    || durableKeysSource.includes('ctrip_config_list')
+    || durableKeysSource.includes('meituan_config_list')
+    || protectedKeysSource.includes('ctrip_config_list') === false
+    || protectedKeysSource.includes('meituan_config_list') === false
+    || !systemConfigContent.includes('public static function isProtectedOtaKey(string $key): bool')) {
+    failures.push('app/model/SystemConfig.php must exclude protected OTA config lists from the generic cross-request value cache.');
   }
   if (!controllerContent.includes("clearAutoFetchLightConfigListCache('ctrip')")
     || !controllerContent.includes("clearAutoFetchLightConfigListCache('meituan')")

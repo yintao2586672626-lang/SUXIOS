@@ -137,7 +137,17 @@ trait CookieEndpointConcern
     {
         $value = preg_replace('/(1[3-9]\d)\d{4}(\d{4})/u', '$1****$2', $value) ?: '';
         $value = preg_replace('/\b\d{8,}\b/u', '[编号已隐藏]', $value) ?: '';
-        $value = preg_replace('/(cookie|token|authorization|spidertoken)\s*[:=]\s*[^;\s,]+/iu', '$1=****', $value) ?: '';
+        $value = preg_replace(
+            '/\b(cookie|set-cookie|authorization|proxy-authorization|x-api-key|api-key|token|access-token|refresh-token|spidertoken|spiderkey|mtgsig)\s*[:=]\s*[^\r\n]*/iu',
+            '$1=****',
+            $value
+        ) ?: '';
+        $value = preg_replace('/\bbearer\s+[A-Za-z0-9._~+\/=:-]{4,}/iu', 'Bearer ****', $value) ?: '';
+        $value = preg_replace(
+            '/\b([A-Za-z0-9_.-]*(?:session|token|auth|cookie|sid)[A-Za-z0-9_.-]*)\s*=\s*[^;\s,]+/iu',
+            '$1=****',
+            $value
+        ) ?: '';
         $value = preg_replace('/\s+/u', ' ', trim($value)) ?: '';
 
         return mb_substr($value, 0, 160);
@@ -195,14 +205,14 @@ trait CookieEndpointConcern
         $extra = $this->decodePublicEndpointFailureExtra($log);
         return [
             'id' => (int)($log['id'] ?? 0),
-            'endpoint' => (string)($extra['endpoint'] ?? ($endpoint !== '' ? $endpoint : str_replace('_public_failure', '', (string)($log['action'] ?? '')))),
+            'endpoint' => $this->safePublicEndpointText((string)($extra['endpoint'] ?? ($endpoint !== '' ? $endpoint : str_replace('_public_failure', '', (string)($log['action'] ?? ''))))),
             'reason' => $this->publicEndpointFailureReason($log, $extra),
             'status' => (int)$this->publicEndpointFailureStatus($log, $extra),
-            'method' => (string)($extra['method'] ?? ''),
-            'origin' => (string)($extra['origin'] ?? ''),
-            'ip_hash' => (string)($extra['ip_hash'] ?? ''),
+            'method' => $this->safePublicEndpointText((string)($extra['method'] ?? '')),
+            'origin' => $this->safePublicEndpointText((string)($extra['origin'] ?? '')),
+            'ip_hash' => $this->safePublicEndpointText((string)($extra['ip_hash'] ?? '')),
             'time' => (string)($log['create_time'] ?? ''),
-            'error_info' => (string)($log['error_info'] ?? ''),
+            'error_info' => $this->safePublicEndpointText((string)($log['error_info'] ?? '')),
         ];
     }
 
@@ -213,20 +223,20 @@ trait CookieEndpointConcern
             return [];
         }
         $decoded = json_decode($raw, true);
-        return is_array($decoded) ? $decoded : [];
+        return is_array($decoded) ? $this->sanitizePublicEndpointExtra($decoded) : [];
     }
 
     private function publicEndpointFailureReason(array $log, array $extra): string
     {
         $reason = trim((string)($extra['reason'] ?? ''));
         if ($reason !== '') {
-            return $reason;
+            return $this->safePublicEndpointText($reason);
         }
         if ((string)($log['action'] ?? '') === 'external_rate_limited') {
             return 'rate_limited';
         }
         $errorInfo = trim((string)($log['error_info'] ?? ''));
-        return $errorInfo !== '' ? $errorInfo : 'unknown';
+        return $errorInfo !== '' ? $this->safePublicEndpointText($errorInfo) : 'unknown';
     }
 
     private function publicEndpointFailureStatus(array $log, array $extra): string
@@ -272,10 +282,10 @@ trait CookieEndpointConcern
         }
 
         $this->recordPublicEndpointFailure('receive_cookies', 'legacy_bookmarklet_disabled', 410, [
-            'source' => (string)$this->request->post('source', ''),
-            'name' => (string)$this->request->post('name', ''),
+            'source_present' => trim((string)$this->request->post('source', '')) !== '',
+            'name_present' => trim((string)$this->request->post('name', '')) !== '',
         ]);
-        return $this->corsError('旧版 Cookie 书签入口已禁用：禁止把宿析登录 token 暴露到 OTA 页面；请使用浏览器 Profile 或同源手动保存入口。', 410);
+        return $this->corsError('旧版 Cookie 书签入口已禁用：禁止把宿析登录 token 暴露到 OTA 页面；请使用平台采集源或浏览器 Profile。', 410);
     }
 
     private function recordPublicEndpointFailure(string $endpoint, string $reason, int $status, array $extra = []): void
@@ -417,7 +427,7 @@ trait CookieEndpointConcern
             'status' => 'disabled_by_policy',
             'instructions' => [
                 '旧版 Cookie 书签已禁用，避免把宿析登录 token 暴露到 OTA 页面。',
-                '临时补数请使用同源手动保存入口；日常采集请使用门店浏览器 Profile。',
+                '新增或更换凭据请使用平台采集源；日常采集请使用门店浏览器 Profile。',
             ],
         ]);
     }
@@ -425,7 +435,7 @@ trait CookieEndpointConcern
     private function buildDisabledCookieBookmarkletScript(string $platform): string
     {
         $message = sprintf(
-            '%s Cookie 书签已禁用：禁止把宿析登录 token 暴露到 OTA 页面；请回到宿析OS使用浏览器 Profile 或同源手动保存入口。',
+            '%s Cookie 书签已禁用：禁止把宿析登录 token 暴露到 OTA 页面；请回到宿析OS使用平台采集源或浏览器 Profile。',
             $platform
         );
         $messageJson = json_encode($message, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -437,205 +447,37 @@ trait CookieEndpointConcern
     {
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
-
-        $name = $this->request->post('name', '');
-        $cookies = $this->request->post('cookies', '');
-        $hotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('hotel_id', null));
-
-        if (empty($name) || empty($cookies)) {
-            return $this->error('名称和Cookies不能为空');
-        }
-
-        // 非超级管理员只能保存自己酒店的Cookies
-        if (!$this->currentUser->isSuperAdmin()) {
-            $hotelId = $this->resolveOnlineDataSystemHotelId(null);
-            if (empty($hotelId)) {
-                return $this->error('您未关联酒店，无法保存Cookies');
-            }
-        }
-        // 超级管理员可以选择酒店，也可以不选（保存全局Cookies）
-
-        // 构建存储key（持久化到数据库）
-        $key = $hotelId ? "online_data_cookies_hotel_{$hotelId}" : "online_data_cookies_global";
-        $list = $this->getConfigList($key);
-        $list[$name] = [
-            'name' => $name,
-            'cookies' => $cookies,
-            'update_time' => date('Y-m-d H:i:s'),
-            'hotel_id' => $hotelId ?: null,
-        ];
-        $this->setConfigList($key, $list);
-
-        OperationLog::record('online_data', 'save_cookies', "保存Cookies配置: {$name}", $this->currentUser->id, $hotelId ? (int)$hotelId : null);
-
-        return $this->success(null, '临时 Cookie/API 辅助内容保存成功');
+        return $this->error(
+            'Legacy Cookie storage is disabled. Save or replace credentials in Ctrip/Meituan platform configuration.',
+            410
+        );
     }
 
     public function getCookiesList(): Response
     {
         $this->checkPermission();
-
-        $hotelId = $this->request->get('hotel_id', '');
-
-        // 非超级管理员只能查看自己酒店的Cookies
-        if (!$this->currentUser->isSuperAdmin()) {
-            $hotelId = $this->currentUser->hotel_id;
-            if (empty($hotelId)) {
-                return $this->success([]);
-            }
-            $key = "online_data_cookies_hotel_{$hotelId}";
-            $list = $this->getConfigList($key);
-            return $this->success(array_map([$this, 'sanitizeSecretConfig'], array_values($list)));
-        }
-
-        // 超级管理员查看所有Cookies（全局 + 所有酒店）
-        $allCookies = [];
-
-        // 获取全局Cookies
-        $globalKey = "online_data_cookies_global";
-        $globalList = $this->getConfigList($globalKey);
-        foreach ($globalList as $item) {
-            $allCookies[] = $item;
-        }
-
-        // 获取所有酒店的Cookies
-        $hotels = \app\model\Hotel::select();
-        foreach ($hotels as $hotel) {
-            $key = "online_data_cookies_hotel_{$hotel->id}";
-            $list = $this->getConfigList($key);
-            foreach ($list as $item) {
-                $allCookies[] = $item;
-            }
-        }
-
-        return $this->success(array_map([$this, 'sanitizeSecretConfig'], $allCookies));
+        return $this->success([]);
     }
 
     public function getCookiesDetail(): Response
     {
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
-
-        $name = trim((string)$this->request->get('name', ''));
-        if ($name === '') {
-            return $this->error('Cookies name is required.');
-        }
-
-        $hotelId = $this->resolveOnlineDataSystemHotelId($this->request->get('hotel_id', null));
-        $keys = [];
-        if ($hotelId) {
-            $keys[] = "online_data_cookies_hotel_{$hotelId}";
-        }
-        if ($this->currentUser->isSuperAdmin()) {
-            $keys[] = 'online_data_cookies_global';
-        }
-
-        foreach (array_unique($keys) as $key) {
-            $list = $this->getConfigList($key);
-            if (isset($list[$name])) {
-                return $this->success($list[$name]);
-            }
-        }
-
-        return $this->error('Cookies config not found.', 404);
+        return $this->error('Legacy Cookie detail access is disabled. Use credential metadata only.', 410);
     }
 
     public function deleteCookies(): Response
     {
         $this->checkPermission();
         $this->checkActionPermission('can_delete_online_data');
-
-        $name = $this->request->post('name', '');
-        $hotelId = $this->resolveOnlineDataSystemHotelId($this->request->post('hotel_id', null));
-
-        if (empty($name)) {
-            return $this->error('名称不能为空');
-        }
-
-        // 非超级管理员只能删除自己酒店的Cookies
-        if (!$this->currentUser->isSuperAdmin()) {
-            $hotelId = $this->resolveOnlineDataSystemHotelId(null);
-        }
-
-        // 构建key
-        $key = $hotelId ? "online_data_cookies_hotel_{$hotelId}" : "online_data_cookies_global";
-        $list = $this->getConfigList($key);
-        if (isset($list[$name])) {
-            unset($list[$name]);
-            $this->setConfigList($key, $list);
-            return $this->success(null, '删除成功');
-        }
-
-        return $this->error('Cookies配置不存在');
+        return $this->error('Legacy Cookie deletion is disabled. Revoke the linked platform credential instead.', 410);
     }
 
     public function batchDeleteCookies(): Response
     {
         $this->checkPermission();
         $this->checkActionPermission('can_delete_online_data');
-
-        $items = $this->request->post('items', []);
-        if (empty($items) || !is_array($items)) {
-            return $this->error('请选择要删除的Cookies配置');
-        }
-
-        $deletedCount = 0;
-        $skippedCount = 0;
-        $changedLists = [];
-        $isSuperAdmin = $this->currentUser->isSuperAdmin();
-        $userHotelId = $isSuperAdmin ? null : $this->resolveOnlineDataSystemHotelId(null);
-
-        if (!$isSuperAdmin && empty($userHotelId)) {
-            return $this->error('您未关联酒店，无法删除Cookies配置');
-        }
-
-        foreach ($items as $item) {
-            if (!is_array($item)) {
-                $skippedCount++;
-                continue;
-            }
-
-            $name = trim((string)($item['name'] ?? ''));
-            if ($name === '') {
-                $skippedCount++;
-                continue;
-            }
-
-            if ($isSuperAdmin) {
-                $rawHotelId = $item['hotel_id'] ?? null;
-                $hasHotelId = $rawHotelId !== null && trim((string)$rawHotelId) !== '';
-                $hotelId = $this->resolveOnlineDataSystemHotelId($rawHotelId);
-                if ($hasHotelId && empty($hotelId)) {
-                    $skippedCount++;
-                    continue;
-                }
-            } else {
-                $hotelId = $userHotelId;
-            }
-
-            $key = $hotelId ? "online_data_cookies_hotel_{$hotelId}" : 'online_data_cookies_global';
-            if (!array_key_exists($key, $changedLists)) {
-                $changedLists[$key] = $this->getConfigList($key);
-            }
-
-            if (isset($changedLists[$key][$name])) {
-                unset($changedLists[$key][$name]);
-                $deletedCount++;
-            } else {
-                $skippedCount++;
-            }
-        }
-
-        foreach ($changedLists as $key => $list) {
-            $this->setConfigList($key, $list);
-        }
-
-        OperationLog::record('online_data', 'batch_delete_cookies', '批量删除Cookies配置: ' . $deletedCount . '条', $this->currentUser->id);
-
-        return $this->success([
-            'deleted_count' => $deletedCount,
-            'skipped_count' => $skippedCount,
-        ], $deletedCount > 0 ? '删除成功' : '未删除任何Cookies配置');
+        return $this->error('Legacy Cookie batch deletion is disabled. Revoke linked platform credentials instead.', 410);
     }
 
 }

@@ -38,12 +38,20 @@ const frontend = read('public/index.html');
 const ctripStatic = read('public/ctrip-static.js');
 const dataHealthStatic = read('public/data-health-static.js');
 const manualFetchConcern = read('app/controller/concern/OnlineDataManualFetchConcern.php');
+const cookieEndpointConcern = read('app/controller/concern/CookieEndpointConcern.php');
 const compassStatic = read('public/compass-static.js');
+const fullAutomation = read('tests/automation/suxi_full_automation_test.mjs');
 
 const dailyStart = controller.indexOf('public function dailyWorkbench(): Response');
 const dailySlice = dailyStart >= 0 ? controller.slice(dailyStart) : '';
 
-const frontendPanelStart = frontend.indexOf('data-testid="phase2-daily-workbench"');
+const frontendOnlineDataStart = frontend.indexOf("currentPage === 'online-data'");
+const frontendDataHealthStart = frontend.indexOf('data-testid="online-data-health-panel"', frontendOnlineDataStart);
+const frontendDataHealthEnd = frontend.indexOf("onlineDataTab === 'analysis'", frontendDataHealthStart);
+const frontendDataHealthSlice = frontendDataHealthStart >= 0 && frontendDataHealthEnd > frontendDataHealthStart
+  ? frontend.slice(frontendDataHealthStart, frontendDataHealthEnd)
+  : '';
+const frontendPanelStart = frontend.indexOf('data-testid="manual-one-click-fetch"');
 const frontendPanelEnd = frontend.indexOf('data-testid="phase1-employee-six-question-summary"', frontendPanelStart);
 const frontendPanelSlice = frontendPanelStart >= 0 && frontendPanelEnd > frontendPanelStart
   ? frontend.slice(frontendPanelStart, frontendPanelEnd)
@@ -53,6 +61,11 @@ const frontendLoaderStart = frontend.indexOf('const loadDailyWorkbench = async')
 const frontendLoaderEnd = frontend.indexOf('const loadDataHealthOperationLogs = async', frontendLoaderStart);
 const frontendLoaderSlice = frontendLoaderStart >= 0 && frontendLoaderEnd > frontendLoaderStart
   ? frontend.slice(frontendLoaderStart, frontendLoaderEnd)
+  : '';
+const dataHealthRefreshStart = frontend.indexOf('const loadDataHealthPanel = async');
+const dataHealthRefreshEnd = frontend.indexOf('const triggerAutoFetch = async', dataHealthRefreshStart);
+const dataHealthRefreshSlice = dataHealthRefreshStart >= 0 && dataHealthRefreshEnd > dataHealthRefreshStart
+  ? frontend.slice(dataHealthRefreshStart, dataHealthRefreshEnd)
   : '';
 
 includesAll('route/app.php', 'daily workbench and patrol routes exist', route, [
@@ -280,43 +293,19 @@ excludesAll('scripts/verify_phase2_daily_workbench_runtime.php', 'runtime verifi
   'saveCookies',
 ]);
 
-includesAll('public/index.html', 'daily workbench frontend panel exposes manual one-click OTA acquisition', frontend, [
-  'data-testid="phase2-daily-workbench"',
-  'manualOneClickFetchRows',
+includesAll('public/index.html', 'focused online-data panel retains manual one-click OTA acquisition', frontendDataHealthSlice, [
+  'data-testid="manual-one-click-fetch"',
   'manualOneClickFetchCards',
   'manualOneClickFetchScopeText',
   'runManualOneClickFetch',
-  'refreshManualOneClickFetchConfig',
-  'fetchCtripData',
-  'fetchMeituanData',
-  'dailyWorkbenchSummaryCards',
-  'dailyWorkbenchRows',
-  'normalizeDailyWorkbenchWorkflowStage',
-  'workflowChainText',
-  'workflowChainRawText',
-  'dailyWorkbenchNextActions',
-  'dailyWorkbenchPatrolLatestText',
-  'dailyWorkbenchPatrolHealthText',
-  'dailyWorkbenchPatrolHealthClass',
-  'dailyWorkbenchPatrolAutomationText',
-  'dailyWorkbenchPatrolAutomationClass',
-  'dailyWorkbenchPatrolNextActionText',
-  'dailyWorkbenchPatrolActionText',
-  'dailyWorkbenchPatrolBoundaryText',
-  'dailyWorkbenchPatrolVisibleActions',
-  'dailyWorkbenchPatrolTrackedStatusText',
-  'dailyWorkbenchPatrolTrackedStatusClass',
-  'dailyWorkbenchPatrolExecutionText',
-  'dailyWorkbenchPatrolReviewText',
-  'dailyWorkbenchPatrolReviewClass',
-  'aiExplanationText',
-  'aiEvidenceNextStepText',
-  'aiEvidenceBoundaryText',
-  'aiEvidenceRawText',
-  'exportDailyWorkbenchPatrolReport',
-  'reviewDailyWorkbenchPatrolAction',
-  'updateDailyWorkbenchPatrolAction',
-  'runDailyWorkbenchPatrol',
+  'manualOneClickFetchDisplayRows',
+]);
+
+excludesAll('public/index.html', 'focused online-data panel removes employee and phase operation surfaces', frontendDataHealthSlice, [
+  'data-testid="phase2-daily-workbench"',
+  'data-testid="daily-workbench-write-boundary"',
+  'data-testid="phase3-operation-effect-loop"',
+  'employeeOtaChecklistRows',
 ]);
 
 includesAll('app/controller/concern/OnlineDataManualFetchConcern.php', 'Ctrip manual fetch treats zero Qunar visitors as partial capture', manualFetchConcern, [
@@ -336,7 +325,7 @@ includesAll('public/index.html', 'manual one-click Ctrip fetch retries partial Q
   '自动重抓',
   "const summarizeManualOneClickFetchRows = requireDataHealthStatic('summarizeManualOneClickFetchRows')",
   'summarizeManualOneClickFetchRows(manualOneClickFetchRows.value)',
-  'qunarVisitorIncomplete',
+  'buildManualOneClickFetchRunningRow({',
 ]);
 
 includesAll('public/data-health-static.js', 'manual one-click fetch display summary helper owns saved-count aggregation', dataHealthStatic, [
@@ -371,7 +360,7 @@ includesAll('public/index.html', 'manual one-click Ctrip fetch does not mark zer
   "const summarizeManualOneClickFetchResult = requireDataHealthStatic('summarizeManualOneClickFetchResult')",
   'summarizeManualOneClickFetchResult({',
   "qunarVisitorNeedsRetry: platform === 'ctrip' && manualOneClickFetchQunarVisitorNeedsRetry(ctripQunarQuality)",
-  'qunarVisitorIncomplete: resultSummary.qunarVisitorIncomplete',
+  'buildManualOneClickFetchResultRow({',
 ]);
 
 includesAll('public/data-health-static.js', 'manual one-click Ctrip fetch result helper keeps zero-Qunar retry exhaustion blocking', dataHealthStatic, [
@@ -414,8 +403,24 @@ includesAll('public/index.html', 'daily workbench frontend loader uses read-only
   'result_status: resultStatus',
 ]);
 
-includesAll('public/index.html', 'data health panel loads latest patrol snapshot', frontend, [
-  'loadDailyWorkbenchPatrols()',
+includesAll('public/index.html', 'dormant daily workbench writes retain explicit operator confirmation', frontend, [
+  'window.confirm(dailyWorkbenchWriteBoundary.run.confirmText)',
+  'window.confirm(dailyWorkbenchWriteBoundary.export.confirmText)',
+]);
+
+includesAll('app/controller/concern/OperationWorkbenchConcern.php', 'daily workbench write responses disclose exact side effects', controller, [
+  "'runtime_snapshot_written' => true",
+  "'latest_index_written' => true",
+  "'operation_log_written' => true",
+  "'ota_collection_triggered' => false",
+  "'business_table_written' => false",
+  "'X-SUXIOS-Operation-Log-Written' => 'true'",
+]);
+
+excludesAll('public/index.html', 'focused data health refresh does not auto-load patrol or phase3 resources', dataHealthRefreshSlice, [
+  'loadDailyWorkbenchPatrols:',
+  'loadPhase3OperationEffectLoop,',
+  'loadPhase3OperationEffectLoopLedger,',
 ]);
 
 excludesAll('public/index.html', 'daily workbench frontend panel does not expose collection actions', frontendPanelSlice + frontendLoaderSlice, [
@@ -428,6 +433,43 @@ excludesAll('public/index.html', 'daily workbench frontend panel does not expose
   '/online-data/save-cookies',
   '/online-data/update-data',
   '/online-data/delete-data',
+]);
+
+includesAll('app/controller/concern/CookieEndpointConcern.php', 'legacy Cookie write and detail endpoints fail closed while list metadata is empty', cookieEndpointConcern, [
+  'public function saveCookies(): Response',
+  'Legacy Cookie storage is disabled.',
+  'public function getCookiesList(): Response',
+  'return $this->success([]);',
+  'public function getCookiesDetail(): Response',
+  'Legacy Cookie detail access is disabled.',
+  'public function deleteCookies(): Response',
+  'Legacy Cookie deletion is disabled.',
+  'public function batchDeleteCookies(): Response',
+  'Legacy Cookie batch deletion is disabled.',
+  '410',
+]);
+
+excludesAll('public/index.html', 'frontend never calls legacy Cookie storage or plaintext-detail endpoints', frontend, [
+  '/online-data/save-cookies',
+  '/online-data/cookies-list',
+  '/online-data/cookies-detail',
+  '/online-data/delete-cookies',
+  '/online-data/batch-delete-cookies',
+]);
+
+includesAll('public/index.html', 'legacy Cookie UI redirects operators to platform credential sources', frontend, [
+  "cookiesList.value = [];",
+  "throw new Error('旧 Cookie 明文详情已停用，请在平台采集源中更换凭据')",
+  "showToast('旧 Cookie 保存已停用，请在平台采集源中更换凭据', 'warning')",
+  'openPlatformSourcesTab();',
+]);
+
+includesAll('tests/automation/suxi_full_automation_test.mjs', 'full automation exits non-zero on blocking verification failures', fullAutomation, [
+  "status: blockingFailureCount > 0 ? 'failed'",
+  'return blockingFailureCount === 0;',
+  'const passed = summarize();',
+  'if (!passed) {',
+  'process.exitCode = 1;',
 ]);
 
 const failures = checks.filter((item) => !item.ok);

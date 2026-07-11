@@ -18,6 +18,20 @@
 
 每一步都有自己的输入、输出、证据和失败状态。任何一步失败，都必须阻断或收窄下一步的结论范围。
 
+### 1.1 模块边界
+
+| 模块 | 输入 | 输出 | 明确不负责 |
+| --- | --- | --- | --- |
+| 登录与权限验证 | 受控会话引用、系统酒店、平台、目标能力 | 会话、绑定、POI、能力和数据探针状态 | 保管明文密码或绕过人工验证 |
+| 平台适配器 | 统一查询上下文和已授权采集方式 | 脱敏证据引用、原始字段映射、标准化候选值 | 复制平台页面、路由或接口地址 |
+| 采集与快照 | 适配器结果、日期、来源、解析版本 | 采集任务、证据引用、标准化 OTA 快照 | 用空值或旧数据伪装本次成功 |
+| 质量与门禁 | 验证结果、字段事实、日期和采集结果 | 七类质量状态、缺口代码、下游准入结论 | 将 `unverified` 或 `stale` 视为可决策事实 |
+| 收益与诊断 | 已准入的 OTA 事实及其范围 | 渠道收益分析、可追溯 AI 诊断 | 仅凭OTA生成全酒店结论 |
+| 运营动作与复核 | 诊断、审批、执行证据、复核指标 | 动作记录、执行状态、结果复核 | 自动替代人工审批或改写历史事实 |
+| 隐私与审计 | 各模块输出 | 脱敏投影、访问审计、保留策略 | 输出凭证、完整响应或客户隐私 |
+
+模块之间只传递脱敏摘要、结构化状态和受控证据引用；下游如需查看事实，必须通过权限校验后按最小字段读取。
+
 ## 2. 状态机
 
 ~~~text
@@ -212,3 +226,27 @@ OTA渠道数据只能用于渠道分析。
 | P4 下游闭环 | 收益分析、AI诊断、运营动作和复核 | 每条结论能回到事实和证据 |
 | P5 全酒店 | PMS、财务或全渠道整合 | 通过范围、时间和分母完整性验证 |
 
+## 9. 宿析OS当前实现追溯
+
+本节只记录“规范要求已由哪些宿析OS模块和测试承接”，不把代码存在、历史数据存在或任务成功记录等同于真实平台数据已验证。
+
+| 规范能力 | 宿析OS承接模块 | 最小验证证据 | 仍需真实证据的部分 |
+| --- | --- | --- | --- |
+| 会话、酒店、POI与登录后可用性验证 | `PlatformProfileBindingReadinessService`、`OtaCapabilityStateService` | 绑定检查、能力状态和安全投影测试 | 账户所有者在本机完成登录、验证码和目标酒店确认 |
+| 经营、订单、点评能力分离 | `OtaCapabilityStateService`、`PlatformDataSyncService` | `business`、`orders`、`reviews` 分别为已验证、权限拒绝、采集失败或未验证 | 每项能力都必须有目标日期的实际结果，不能用其他能力代替 |
+| 平台适配与标准化快照 | `CtripBrowserProfileDataSourceAdapter`、`MeituanBrowserProfileDataSourceAdapter`、`ManualImportDataSourceAdapter`、`PlatformDataSyncService` | 适配器合同、字段事实、采集时间、来源引用和标准化行测试 | 平台响应、酒店身份和字段口径仍须逐店逐日期复核 |
+| 数据质量与下游门禁 | `OtaCollectionQualityStateService`、`OtaDataCredibilityGateService`、`P0OtaDownstreamGateService` | 七类质量状态、P0门禁和失败投影测试 | 目标日期流量行、字段事实和保存闭环必须真实存在 |
+| 收益、AI、运营与投资边界 | `OtaRevenueMetricService`、`RevenueAiOverviewService`、`BusinessClosureOverviewService`、`Phase3OperationEffectLoopService` | OTA范围和全酒店范围阻断测试 | PMS、财务或全渠道分母完整前不得生成全酒店结论 |
+| 凭证与隐私边界 | OTA凭证执行边界、浏览器Profile适配器和任务诊断脱敏逻辑 | `OtaCredentialReadPathTest`、`PlatformDataSyncPrivacyBoundaryTest` | 凭证仅由账户所有者在受控运行环境使用，不进入知识文档、日志或任务摘要 |
+
+建议的本地回归集合：
+
+~~~text
+php vendor/bin/phpunit
+npm run verify:p0-guards
+npm run verify:platform-data-source-contract
+npm run verify:phase1-ota-loop
+npm run verify:p0-ota-field-loop -- --date=<目标日期>
+~~~
+
+其中最后一项只读取已保存的事实并报告门禁结果；它不会登录平台、不会采集数据，也不能替代账户所有者授权后的真实采集和复核。

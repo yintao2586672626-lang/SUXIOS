@@ -145,7 +145,19 @@ class SystemConfigController extends Base
     private function getAllConfigsWithoutProtectedOtaCache(): array
     {
         try {
-            return $this->filterProtectedOtaConfigs(SystemConfig::getAllConfigs());
+            $rows = SystemConfig::field('config_key,config_value')
+                ->whereRaw("LOWER(config_key) NOT IN ('ctrip_config_list','meituan_config_list')")
+                ->whereRaw("LOWER(config_key) NOT LIKE 'data_config_%'")
+                ->whereRaw("LOWER(config_key) NOT LIKE 'online_data_cookies_%'")
+                ->select();
+            $configs = [];
+            foreach ($rows as $row) {
+                $key = (string)$row->config_key;
+                if (!SystemConfig::isProtectedOtaKey($key)) {
+                    $configs[$key] = $row->config_value;
+                }
+            }
+            return $configs;
         } finally {
             SystemConfig::clearProtectedOtaCaches();
         }

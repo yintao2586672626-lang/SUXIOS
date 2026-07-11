@@ -121,6 +121,7 @@ async function http(method, urlPath, { token = '', body = undefined, expect = '2
       data = null;
     }
     if (expect === 'auth-fail') ok = status === 401 || status === 403 || data?.code === 401 || data?.code === 403;
+    else if (expect === 'gone') ok = status === 410 && Number(data?.code || 0) === 410;
     else if (expect === 'business-error') ok = status < 500 && data?.code !== 200;
     else if (expect === 'any') ok = status > 0 && status < 500;
     else ok = status >= 200 && status < 300 && (data?.code === undefined || Number(data.code) < 500);
@@ -137,6 +138,52 @@ async function http(method, urlPath, { token = '', body = undefined, expect = '2
     ms: Date.now() - started,
     message: data?.message || error || text.slice(0, 180),
     data,
+  };
+}
+
+const reusableOtaSecretKeys = new Set([
+  'cookie',
+  'cookies',
+  'auth_data',
+  'authorization',
+  'token',
+  'access_token',
+  'refresh_token',
+  'spidertoken',
+  'spider_token',
+  'spiderkey',
+  'spider_key',
+  'mtgsig',
+  'headers',
+  'headers_json',
+  'password',
+  'api_key',
+  'secret',
+  'secret_json',
+  'encrypted_payload',
+  'credential_payload',
+]);
+
+function containsReusableOtaSecret(value, depth = 0) {
+  if (depth > 12 || value === null || typeof value !== 'object') return false;
+  if (Array.isArray(value)) return value.some((item) => containsReusableOtaSecret(item, depth + 1));
+  return Object.entries(value).some(([key, item]) => {
+    if (reusableOtaSecretKeys.has(String(key).toLowerCase())) {
+      if (Array.isArray(item)) return item.length > 0;
+      if (item && typeof item === 'object') return Object.keys(item).length > 0;
+      return item !== null && item !== undefined && String(item).trim() !== '';
+    }
+    return containsReusableOtaSecret(item, depth + 1);
+  });
+}
+
+function requireCredentialMetadataOnly(result, label) {
+  const leaked = containsReusableOtaSecret(result?.data?.data);
+  return {
+    ...result,
+    label,
+    ok: result.ok && !leaked,
+    message: leaked ? 'reusable OTA credential leaked through metadata endpoint' : result.message,
   };
 }
 
@@ -396,28 +443,47 @@ async function runApiSuite(iteration) {
   cases.push(await http('GET', '/api/online-data/daily-data-list', { token, label: 'online daily data list' }));
   cases.push(await http('GET', '/api/online-data/daily-data-summary', { token, label: 'online daily data summary' }));
   cases.push(await http('GET', '/api/online-data/data-analysis', { token, label: 'online data analysis' }));
-  cases.push(await http('POST', '/api/online-data/fetch-ctrip', { token, body: {}, expect: 'business-error', label: 'ctrip fetch missing cookies' }));
-  cases.push(await http('POST', '/api/online-data/fetch-meituan', { token, body: {}, expect: 'business-error', label: 'meituan fetch missing cookies' }));
+  cases.push(await http('POST', '/api/online-data/fetch-ctrip', { token, body: {}, expect: 'business-error', label: 'ctrip fetch rejects missing credential locator' }));
+  cases.push(await http('POST', '/api/online-data/fetch-meituan', { token, body: {}, expect: 'business-error', label: 'meituan fetch rejects missing credential locator' }));
   cases.push(await http('POST', '/api/online-data/save-cookies', {
     token,
-    body: { name: `codex_automation_cookie_${iteration}`, cookies: 'codex=dummy' },
-    expect: 'any',
-    label: 'online save dummy cookies',
+    body: {},
+    expect: 'gone',
+    label: 'legacy Cookie storage is gone',
   }));
+  cases.push(await http('GET', '/api/online-data/cookies-detail?id=legacy-contract-probe', {
+    token,
+    expect: 'gone',
+    label: 'legacy Cookie plaintext detail is gone',
+  }));
+  const legacyCookieList = await http('GET', '/api/online-data/cookies-list', {
+    token,
+    label: 'legacy Cookie list is empty metadata',
+  });
+  legacyCookieList.ok = legacyCookieList.ok
+    && Array.isArray(legacyCookieList.data?.data)
+    && legacyCookieList.data.data.length === 0;
+  cases.push(legacyCookieList);
   cases.push(await http('POST', '/api/online-data/save-ctrip-config', {
     token,
     body: { name: `codex_automation_ctrip_${iteration}`, cookies: 'codex=dummy', hotel_id: hotelId || '' },
     expect: 'any',
-    label: 'ctrip config save',
+    label: 'Ctrip vault-backed platform config save',
   }));
-  cases.push(await http('GET', '/api/online-data/get-ctrip-config-list', { token, label: 'ctrip config list' }));
+  cases.push(requireCredentialMetadataOnly(
+    await http('GET', '/api/online-data/get-ctrip-config-list', { token, label: 'Ctrip config metadata list' }),
+    'Ctrip config list exposes metadata only'
+  ));
   cases.push(await http('POST', '/api/online-data/save-meituan-config-item', {
     token,
     body: { name: `codex_automation_meituan_${iteration}`, cookies: 'codex=dummy', partner_id: '1', poi_id: '1', hotel_id: hotelId || '' },
     expect: 'any',
-    label: 'meituan config save',
+    label: 'Meituan vault-backed platform config save',
   }));
-  cases.push(await http('GET', '/api/online-data/get-meituan-config-list', { token, label: 'meituan config list' }));
+  cases.push(requireCredentialMetadataOnly(
+    await http('GET', '/api/online-data/get-meituan-config-list', { token, label: 'Meituan config metadata list' }),
+    'Meituan config list exposes metadata only'
+  ));
   cases.push(await http('POST', '/api/online-data/ai-analysis', { token, body: { platform: 'ctrip', hotels: [] }, expect: 'any', label: 'online ai analysis empty' }));
 
   cases.push(await http('POST', '/api/ai/strategy', { token, body: { city: '上海', area: 5000, audience: '商务' }, label: 'ai strategy' }));
@@ -750,19 +816,43 @@ function summarize() {
   const failedMetrics = results.runs.flatMap((r) => r.api.metrics
     .filter((c) => !c.ok)
     .map((c) => ({ run: r.iteration, label: c.label, actual: c.actual, expected: c.expected })));
+  const failedDatabase = results.runs
+    .filter((r) => !r.database?.ok)
+    .map((r) => ({ run: r.iteration, label: r.database?.label || 'database probe', status: r.database?.status, stderr: r.database?.stderr || '' }));
+  const failedFrontend = results.runs
+    .filter((r) => !r.frontend?.ok && !r.frontend?.skipped)
+    .map((r) => ({ run: r.iteration, error: r.frontend?.error || r.frontend?.reason || 'frontend probe failed' }));
+  const skippedFrontend = results.runs
+    .filter((r) => r.frontend?.skipped)
+    .map((r) => ({ run: r.iteration, reason: r.frontend?.reason || 'frontend probe unavailable' }));
+  const executionErrors = results.runs
+    .filter((r) => r.api_error)
+    .map((r) => ({ run: r.iteration, error: r.api_error }));
+  const blockingFailureCount = failedApi.length
+    + failedMetrics.length
+    + failedDatabase.length
+    + failedFrontend.length
+    + executionErrors.length;
   results.final = {
     completed_at: new Date().toISOString(),
     report_dir: reportDir,
+    status: blockingFailureCount > 0 ? 'failed' : (skippedFrontend.length > 0 ? 'incomplete' : 'passed'),
+    blocking_failure_count: blockingFailureCount,
     api: { passed: apiPassed, total: apiCases },
     metrics: { passed: metricPassed, total: metricCases },
     database: { passed: dbPassed, total: results.runs.length },
     frontend: { passed: uiPassed, total: results.runs.length },
     failed_api: failedApi,
     failed_metrics: failedMetrics,
+    failed_database: failedDatabase,
+    failed_frontend: failedFrontend,
+    skipped_frontend: skippedFrontend,
+    execution_errors: executionErrors,
     xdebug_coverage: results.environment.xdebug_loaded
       ? 'xdebug loaded, line coverage can be added through PHPUnit'
       : 'xdebug not loaded; report includes route/controller/method reachability instead of executable line coverage',
   };
+  return blockingFailureCount === 0;
 }
 
 function writeReports() {
@@ -786,6 +876,8 @@ function writeReports() {
 - 基础地址：${results.environment.base_url}
 - 执行轮次：${results.run_count}
 - 报告目录：${reportDir}
+- 结论：${results.final.status}
+- 阻塞失败数：${results.final.blocking_failure_count}
 
 ## 环境
 
@@ -828,7 +920,14 @@ ${[...rows, ...metricRows, ...dbRows, ...uiRows].join('\n')}
 ## 失败项
 
 \`\`\`json
-${JSON.stringify({ failed_api: results.final.failed_api, failed_metrics: results.final.failed_metrics }, null, 2)}
+${JSON.stringify({
+  failed_api: results.final.failed_api,
+  failed_metrics: results.final.failed_metrics,
+  failed_database: results.final.failed_database,
+  failed_frontend: results.final.failed_frontend,
+  skipped_frontend: results.final.skipped_frontend,
+  execution_errors: results.final.execution_errors,
+}, null, 2)}
 \`\`\`
 
 ## 截图
@@ -885,9 +984,13 @@ async function main() {
       writeText(path.join(reportDir, `run-${iteration}.json`), JSON.stringify(runResult, null, 2));
       console.log(`run ${iteration}/${runCount}: api ${runResult.api.cases?.filter((c) => c.ok).length || 0}/${runResult.api.cases?.length || 0}, db=${runResult.database.ok ? 'pass' : 'fail'}, ui=${runResult.frontend.ok ? 'pass' : 'fail'}`);
     }
-    summarize();
+    const passed = summarize();
     writeReports();
     console.log(`REPORT_DIR=${reportDir}`);
+    if (!passed) {
+      console.error(`Automation verification failed with ${results.final.blocking_failure_count} blocking failure(s).`);
+      process.exitCode = 1;
+    }
   } catch (e) {
     appendError(e.stack || e.message || String(e));
     results.final = { fatal: e.stack || e.message || String(e), report_dir: reportDir };

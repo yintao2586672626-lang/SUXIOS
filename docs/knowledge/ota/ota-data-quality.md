@@ -196,6 +196,7 @@ binding_missing
 ~~~
 
 - 快照只能保存状态、计数、日期和缺口代码；不得保存原始响应、账号密码、Cookie、令牌、接口地址或客户隐私数据。
+- 同一任务统计可额外保存 `sync_diagnostics.capability_states`，固定使用 `business`、`orders`、`reviews` 三项能力和 `verified`、`permission_denied`、`capability_unavailable`、`unverified`、`collection_failed` 枚举值；它只说明该任务的能力证据，不能替代当前平台登录、绑定或新鲜度验证。
 - `available` 只表示该同步任务已形成可验证的 OTA 任务证据，不替代平台当前登录、酒店/POI 绑定或跨任务新鲜度检查。
 - 人工导入即使写入成功，也应先标记为 `unverified`，直到来源、绑定、日期和字段口径完成独立复核。
 - 平台状态页面可以展示该任务级快照，但收益、AI 和运营下游仍必须使用实时质量判定与 P0 门禁；不得把任务快照升级为全酒店结论。

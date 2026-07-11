@@ -1804,36 +1804,32 @@ class Agent extends Base
 
     private function resolveOtaDiagnosisConfig(string $platform, string $configId): array
     {
-        $configKey = $platform === 'meituan' ? 'meituan_config_list' : 'ctrip_config_list';
-        $table = $platform === 'meituan' ? 'system_config' : 'system_configs';
-        if (!$this->tableExists($table)) {
-            $table = $this->tableExists('system_config') ? 'system_config' : $table;
-        }
-        if (!$this->tableExists($table)) {
-            return [];
-        }
-        $raw = (string) Db::name($table)->where('config_key', $configKey)->value('config_value');
-        $list = $raw !== '' ? json_decode($raw, true) : [];
-        if (!is_array($list)) {
+        $platform = strtolower(trim($platform));
+        $configId = trim($configId);
+        if (!in_array($platform, ['ctrip', 'meituan'], true)
+            || preg_match('/^[A-Za-z0-9._-]{1,100}$/D', $configId) !== 1
+            || !$this->tableExists('ota_credentials')) {
             return [];
         }
 
-        foreach ($list as $key => $item) {
-            if (!is_array($item)) {
-                continue;
-            }
-            $itemId = (string) ($item['id'] ?? $key);
-            if ($itemId !== $configId && (string) $key !== $configId) {
-                continue;
-            }
-
-            return [
-                'hotel_id' => $item['system_hotel_id'] ?? $item['hotel_id'] ?? ($platform === 'meituan' ? ($item['poi_id'] ?? 0) : 0),
-                'hotel_name' => $item['hotel_name'] ?? $item['name'] ?? '',
-            ];
+        $matches = Db::name('ota_credentials')
+            ->where('platform', $platform)
+            ->where('config_id', $configId)
+            ->where('credential_status', 'ready')
+            ->field('system_hotel_id,config_id')
+            ->limit(2)
+            ->select()
+            ->toArray();
+        if (count($matches) !== 1) {
+            return [];
         }
 
-        return [];
+        $hotelId = (int)($matches[0]['system_hotel_id'] ?? 0);
+        if ($hotelId <= 0) {
+            return [];
+        }
+        $hotelName = (string)(Db::name('hotels')->where('id', $hotelId)->value('name') ?? '');
+        return ['hotel_id' => $hotelId, 'hotel_name' => $hotelName];
     }
 
     private function queryOtaDiagnosisData(int $hotelId, string $hotelIdRaw, string $platformHotelIdRaw, string $platform, string $startDate, string $endDate, string $analysisType): array
@@ -5201,7 +5197,53 @@ class Agent extends Base
         $this->checkAdmin();
         $raw = SystemConfig::getValue('ota_cookie_alerts', '{}');
         $alerts = json_decode((string)$raw, true);
-        return $this->success(['alerts' => is_array($alerts) ? array_values($alerts) : []]);
+        return $this->success(['alerts' => $this->sanitizeCookieWarningAlerts(is_array($alerts) ? $alerts : [])]);
+    }
+
+    private function sanitizeCookieWarningAlerts(array $alerts): array
+    {
+        $safe = [];
+        foreach ($alerts as $alert) {
+            if (!is_array($alert)) {
+                continue;
+            }
+
+            $platform = strtolower(trim((string)($alert['platform'] ?? 'ota')));
+            if (!in_array($platform, ['ctrip', 'meituan', 'qunar', 'ota'], true)) {
+                $platform = 'ota';
+            }
+            $hotelId = (int)($alert['hotel_id'] ?? 0);
+            $createdAt = trim((string)($alert['created_at'] ?? ''));
+            if (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/D', $createdAt) !== 1) {
+                $createdAt = '';
+            }
+
+            $safe[] = [
+                'platform' => $platform,
+                'name' => $this->sanitizeCookieWarningName((string)($alert['name'] ?? '')),
+                'hotel_id' => $hotelId > 0 ? $hotelId : null,
+                'reason_code' => 'ota_credential_reauthorization_required',
+                'message' => 'OTA authorization is unavailable. Reauthenticate the platform account before collection.',
+                'created_at' => $createdAt,
+                'next_action' => 'Reauthenticate the OTA account and save the refreshed authorization before collection.',
+                'reauthorize_entry' => '/online-data?tab=cookies',
+            ];
+        }
+
+        return $safe;
+    }
+
+    private function sanitizeCookieWarningName(string $name): string
+    {
+        $name = trim($name);
+        if ($name === ''
+            || preg_match('/(?:cookie|token|authorization|password|secret|spidertoken|mtgsig)\s*[:=]/i', $name) === 1) {
+            return 'ota';
+        }
+        $name = preg_replace('/[^\p{L}\p{N}._\- ]/u', '_', $name) ?? '';
+        $name = trim(preg_replace('/\s+/u', ' ', $name) ?? '');
+
+        return $name !== '' ? mb_substr($name, 0, 100) : 'ota';
     }
 
     public function roomTypes(): Response

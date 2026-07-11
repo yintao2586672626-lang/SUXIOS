@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller\concern;
 
 use app\service\OperationManagementService;
+use app\service\OtaProfileSessionProofService;
 use app\service\OtaRevenueMetricService;
 use app\service\OtaStandardEtlService;
 use think\facade\Db;
@@ -2102,7 +2103,7 @@ trait Phase1EmployeeConsoleConcern
             'target_date',
             'system_hotel_id',
             'authorized_' . $platform . '_profile_dir',
-            'manual_login_state_verified',
+            'current_session_verified',
             'traffic_response_listener',
             'desensitized_traffic_response_sample_or_source_trace_id',
         ];
@@ -3180,6 +3181,7 @@ trait Phase1EmployeeConsoleConcern
 
         $fields = $this->phase1ExistingColumns('platform_data_sources', [
             'id',
+            'tenant_id',
             'platform',
             'data_type',
             'ingestion_method',
@@ -3190,7 +3192,6 @@ trait Phase1EmployeeConsoleConcern
             'last_sync_time',
             'last_error',
             'config_json',
-            'secret_json',
         ]);
         if ($fields === []) {
             $base['status'] = 'source_schema_missing';
@@ -3235,10 +3236,11 @@ trait Phase1EmployeeConsoleConcern
             $config = is_array($config) ? $config : [];
             $issueCode = $this->phase1TrafficSourceIssueCode($row, $config);
             $latestSyncTask = $this->phase1P0TrafficSourceLatestSyncTask((int)($row['id'] ?? 0), $targetDate);
-            $manualLoginStateVerified = $this->phase1TrafficProfileLoginStateVerified($config);
+            $currentSessionVerified = $this->phase1TrafficProfileLoginStateVerified($row);
+            $historicalLoginMetadataPresent = $this->phase1TrafficHistoricalLoginMetadataPresent($config);
             $profileLoginTrigger = $this->phase1P0ProfileLoginTriggerAction($platform, (int)($row['id'] ?? 0), (int)($row['system_hotel_id'] ?? 0), $targetDate);
             $this->phase1P0AccumulateTrafficLatestSyncTask($base, $latestSyncTask);
-            if ($manualLoginStateVerified) {
+            if ($currentSessionVerified) {
                 $base['p0_manual_login_state_verified_count']++;
             }
             if ((string)($profileLoginTrigger['status'] ?? '') === 'available') {
@@ -3266,7 +3268,10 @@ trait Phase1EmployeeConsoleConcern
                     'last_sync_status' => $lastSyncStatus,
                     'issue_code' => $issueCode,
                     'capture_sections_has_traffic' => str_contains($captureSectionsText, 'traffic'),
-                    'manual_login_state_verified' => $manualLoginStateVerified,
+                    'manual_login_state_verified' => $currentSessionVerified,
+                    'current_session_verified' => $currentSessionVerified,
+                    'historical_login_metadata_present' => $historicalLoginMetadataPresent,
+                    'login_evidence_scope' => $currentSessionVerified ? 'current_session_probe' : 'historical_metadata_only',
                     'profile_id_present' => trim((string)($config['profile_id'] ?? $config['profileId'] ?? '')) !== '',
                     'platform_hotel_identifier_present' => $this->phase1TrafficPlatformHotelIdentifierPresent($platform, $config),
                     'profile_login_trigger' => $profileLoginTrigger,
@@ -3319,8 +3324,12 @@ trait Phase1EmployeeConsoleConcern
                     }
                 }
             }
-            $secret = json_decode((string)($row['secret_json'] ?? ''), true);
-            if (is_array($secret) ? $secret !== [] : trim((string)($row['secret_json'] ?? '')) !== '') {
+            $credentialRef = (int)($config['credential_ref'] ?? 0);
+            $credentialStatus = strtolower(trim((string)($config['credential_status'] ?? $config['status'] ?? '')));
+            $hasSecret = array_key_exists('has_secret', $config)
+                ? in_array($config['has_secret'], [true, 1, '1', 'true', 'yes', 'on'], true)
+                : $credentialRef > 0;
+            if ($credentialRef > 0 && $credentialStatus === 'ready' && $hasSecret) {
                 $base['traffic_secret_configured_count']++;
             }
         }
@@ -3386,7 +3395,7 @@ trait Phase1EmployeeConsoleConcern
                 'data_date' => $targetDate,
                 'capture_sections' => 'traffic',
             ],
-            'request_policy' => 'account owner completes OTA login, SMS/captcha, and permission checks on their own computer; diagnostics do not expose raw platform identifiers; sync_after_login runs only after manual_login_state_verified=true.',
+            'request_policy' => 'account owner completes OTA login, SMS/captcha, and permission checks on their own computer; diagnostics do not expose raw platform identifiers; sync_after_login runs only after current_session_verified=true on the same data source Profile session.',
             'after_login_sync' => [
                 'method' => 'POST',
                 'entry' => '/api/online-data/data-sources/' . $dataSourceId . '/sync',
@@ -3677,7 +3686,7 @@ trait Phase1EmployeeConsoleConcern
         $lastSyncStatus = strtolower(trim((string)($row['last_sync_status'] ?? '')));
         $lastError = strtolower(trim((string)($row['last_error'] ?? '')));
         $isBrowserProfileSource = in_array((string)($row['ingestion_method'] ?? ''), ['browser_profile', 'profile_browser'], true);
-        $loginStateVerified = $isBrowserProfileSource && $this->phase1TrafficProfileLoginStateVerified($config);
+        $loginStateVerified = $isBrowserProfileSource && $this->phase1TrafficProfileLoginStateVerified($row);
         if ($lastError !== '') {
             if (str_contains($lastError, 'cannot find package')
                 || str_contains($lastError, 'err_module_not_found')
@@ -3722,10 +3731,15 @@ trait Phase1EmployeeConsoleConcern
         return 'unknown';
     }
 
-    private function phase1TrafficProfileLoginStateVerified(array $config): bool
+    private function phase1TrafficProfileLoginStateVerified(array $source): bool
+    {
+        return (new OtaProfileSessionProofService())->isCurrentVerified($source);
+    }
+
+    private function phase1TrafficHistoricalLoginMetadataPresent(array $config): bool
     {
         foreach (['manual_login_state_verified', 'login_state_verified', 'profile_login_verified'] as $key) {
-            if (($config[$key] ?? false) === true) {
+            if (in_array($config[$key] ?? null, [true, 1, '1', 'true', 'yes', 'on'], true)) {
                 return true;
             }
         }
@@ -4296,7 +4310,7 @@ trait Phase1EmployeeConsoleConcern
 
         $inputs = [
             'authorized_' . $platform . '_profile_dir',
-            'manual_login_state_verified',
+            'current_session_verified',
             'traffic_response_listener',
         ];
 

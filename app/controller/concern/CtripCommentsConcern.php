@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace app\controller\concern;
 
-use app\model\OperationLog;
 use think\Response;
 
 trait CtripCommentsConcern
@@ -77,46 +76,15 @@ trait CtripCommentsConcern
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
 
-        $data = $this->requestData();
-        $systemHotelId = $this->resolveOnlineDataSystemHotelId(
-            $data['system_hotel_id']
-            ?? $data['systemHotelId']
-            ?? $data['hotel_id']
-            ?? $data['hotelId']
-            ?? null
+        return $this->error(
+            'Legacy Ctrip comment Cookie/API config storage is disabled. Use Ctrip platform configuration and browser Profile collection.',
+            410
         );
-        $config = [
-            'request_url' => trim((string)($data['request_url'] ?? $data['requestUrl'] ?? $data['url'] ?? '')),
-            'hotel_id' => trim((string)($data['hotel_id'] ?? $data['hotelId'] ?? $data['ctrip_hotel_id'] ?? $data['ctripHotelId'] ?? '')),
-            'master_hotel_id' => trim((string)($data['master_hotel_id'] ?? $data['masterHotelId'] ?? '')),
-            'profile_id' => trim((string)($data['profile_id'] ?? $data['profileId'] ?? '')),
-            'cookies' => trim((string)($data['cookies'] ?? $data['cookie'] ?? '')),
-            'spidertoken' => trim((string)($data['spidertoken'] ?? $data['spiderToken'] ?? $data['token'] ?? '')),
-            'page_index' => (int)($data['page_index'] ?? $data['pageIndex'] ?? 1),
-            'page_size' => (int)($data['page_size'] ?? $data['pageSize'] ?? 20),
-            'payload_json' => is_array($data['payload_json'] ?? $data['payloadJson'] ?? null)
-                ? json_encode($data['payload_json'] ?? $data['payloadJson'], JSON_UNESCAPED_UNICODE)
-                : trim((string)($data['payload_json'] ?? $data['payloadJson'] ?? '')),
-            '_fxpcqlniredt' => trim((string)($data['_fxpcqlniredt'] ?? '')),
-            'x_trace_id' => trim((string)($data['x_trace_id'] ?? $data['xTraceId'] ?? '')),
-            'tag_type' => trim((string)($data['tag_type'] ?? $data['tagType'] ?? '')),
-            'capture_sections' => 'comment_review',
-            'profile_sections' => 'comment_review',
-            'system_hotel_id' => $systemHotelId,
-            'scope' => 'ota_channel_review_summary',
-            'privacy_boundary' => 'aggregate_metrics_only_no_review_text',
-        ];
-
-        $saved = $this->saveOtaDataConfigValue('ctrip-comments', $config, '携程点评聚合采集配置');
-        OperationLog::record('online_data', 'save_ctrip_comment_config', '保存携程点评聚合采集配置', $this->currentUser->id);
-
-        return $this->success($this->sanitizeSecretConfig($saved), '配置保存成功');
     }
 
     public function getCtripCommentConfigList(): Response
     {
         $this->checkPermission();
-        $config = $this->readOtaDataConfigValue('ctrip-comments');
-        return $this->success($config === [] ? [] : [$this->sanitizeSecretConfig($config)]);
+        return $this->success([]);
     }
 }

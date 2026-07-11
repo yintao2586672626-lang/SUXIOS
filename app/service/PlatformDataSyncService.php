@@ -124,6 +124,23 @@ final class PlatformDataSyncService
             ],
         ],
         [
+            'resource' => 'orderData',
+            'data_type' => 'order',
+            'priority' => 'P1',
+            'platforms' => ['meituan', 'ctrip'],
+            'scope' => 'ota_channel_order_aggregate',
+            'default_enabled' => false,
+            'requires_explicit_authorization' => true,
+            'privacy_boundary' => 'aggregate_order_metrics_only_redacted_pii',
+            'aliases' => ['order', 'orders', 'order_data', 'orderdata', 'order_list'],
+            'periods' => ['yesterday', 'last_7_days', 'last_30_days'],
+            'fields' => [
+                ['field' => 'book_order_num', 'storage_table' => 'online_daily_data', 'storage_field' => 'book_order_num', 'missing_state' => 'field_missing'],
+                ['field' => 'quantity', 'storage_table' => 'online_daily_data', 'storage_field' => 'quantity', 'missing_state' => 'field_missing'],
+                ['field' => 'amount', 'storage_table' => 'online_daily_data', 'storage_field' => 'amount', 'missing_state' => 'optional_missing'],
+            ],
+        ],
+        [
             'resource' => 'reviewData',
             'data_type' => 'review',
             'priority' => 'P2',
@@ -385,13 +402,21 @@ final class PlatformDataSyncService
     /** @var array<int, DataSourceAdapter> */
     private array $adapters;
 
+    private ?OtaCredentialVault $credentialVault;
+
+    private OtaProfileSessionProofService $profileSessionProofService;
+
     /** @var array<string, array<string, bool>> */
     private array $columns = [];
 
     /**
      * @param array<int, DataSourceAdapter>|null $adapters
      */
-    public function __construct(?array $adapters = null)
+    public function __construct(
+        ?array $adapters = null,
+        ?OtaCredentialVault $credentialVault = null,
+        ?OtaProfileSessionProofService $profileSessionProofService = null
+    )
     {
         $this->adapters = $adapters ?? [
             new ManualImportDataSourceAdapter(),
@@ -399,6 +424,8 @@ final class PlatformDataSyncService
             new MeituanBrowserProfileDataSourceAdapter(),
             new ApiDataSourceAdapter(),
         ];
+        $this->credentialVault = $credentialVault;
+        $this->profileSessionProofService = $profileSessionProofService ?? new OtaProfileSessionProofService();
     }
 
     /**
@@ -475,7 +502,7 @@ final class PlatformDataSyncService
                 'ota_collection_mainline' => 'browser_profile_authorization',
                 'ota_password_custody' => 'not_supported',
                 'cookie_api_role' => 'p1_profile_derived_fast_path_or_backfill',
-                'profile_login_state' => 'manual_login_state_verified_required',
+                'profile_login_state' => 'current_session_verified_same_source_required',
             ],
             'access_issues' => $accessIssues,
         ];
@@ -491,6 +518,7 @@ final class PlatformDataSyncService
             return [];
         }
 
+        $tenantId = $this->resolveSourceTenantId($source);
         $normalized = [];
         foreach ($rows as $row) {
             if (!is_array($row)) {
@@ -570,7 +598,7 @@ final class PlatformDataSyncService
                 'comment_score' => $this->numericValue($row, ['comment_score', 'rating', 'score']),
                 'qunar_comment_score' => $this->numericValue($row, ['qunar_comment_score', 'qunar_score']),
                 'system_hotel_id' => (int)($source['system_hotel_id'] ?? $row['system_hotel_id'] ?? 0) ?: null,
-                'tenant_id' => (int)($source['system_hotel_id'] ?? $row['system_hotel_id'] ?? 0) ?: null,
+                'tenant_id' => $tenantId,
                 'data_value' => $this->dataValue($row, $dataType),
                 'source' => $platform,
                 'dimension' => $this->stringValue($row, ['dimension', 'dim_name', '_dimName']) ?: ($dataType === 'review' ? $this->reviewDimensionValue($row) : ''),
@@ -884,7 +912,7 @@ final class PlatformDataSyncService
 
     public function listDataSources($user, array $filters = []): array
     {
-        $query = Db::name('platform_data_sources')->order('id', 'desc');
+        $query = Db::name('platform_data_sources')->withoutField('secret_json')->order('id', 'desc');
         $this->applySourceScope($query, $user);
         if (!empty($filters['platform'])) {
             $query->where('platform', (string)$filters['platform']);
@@ -896,25 +924,48 @@ final class PlatformDataSyncService
             $query->where('system_hotel_id', (int)$filters['system_hotel_id']);
         }
         $rows = $query->select()->toArray();
+        $customIds = [];
+        foreach ($rows as $row) {
+            if (!$this->isOtaPlatform((string)($row['platform'] ?? '')) && (int)($row['id'] ?? 0) > 0) {
+                $customIds[] = (int)$row['id'];
+            }
+        }
+        $customSecrets = [];
+        if ($customIds !== []) {
+            foreach (Db::name('platform_data_sources')->field('id,secret_json')->whereIn('id', $customIds)->select()->toArray() as $secretRow) {
+                $customSecrets[(int)($secretRow['id'] ?? 0)] = $secretRow['secret_json'] ?? null;
+            }
+        }
+        foreach ($rows as &$row) {
+            $rowId = (int)($row['id'] ?? 0);
+            if (array_key_exists($rowId, $customSecrets)) {
+                $row['secret_json'] = $customSecrets[$rowId];
+            }
+        }
+        unset($row);
         return array_map([$this, 'sanitizeSourceRow'], $rows);
     }
 
     public function saveDataSource($user, array $payload): array
     {
-        $source = $this->normalizeSourcePayload($payload);
-        $this->assertCanUseHotel($user, (int)$source['system_hotel_id'], 'can_fetch_online_data');
-        $hasSecretInput = false;
-        foreach (['secret', 'secret_json', 'cookies', 'cookie', 'token', 'api_key', 'authorization', 'password', 'spidertoken', 'mtgsig'] as $key) {
-            if (!array_key_exists($key, $payload)) {
-                continue;
+        $id = (int)($payload['id'] ?? 0);
+        $existing = null;
+        if ($id > 0) {
+            $existing = Db::name('platform_data_sources')->withoutField('secret_json')->where('id', $id)->find();
+            if (!$existing) {
+                throw new RuntimeException('Data source not found.', 404);
             }
-            $value = $payload[$key];
-            if (is_array($value) ? !empty($value) : trim((string)$value) !== '') {
-                $hasSecretInput = true;
-                break;
-            }
+            $this->assertCanUseHotel($user, (int)($existing['system_hotel_id'] ?? 0), 'can_fetch_online_data');
         }
 
+        $source = $this->normalizeSourcePayload($payload);
+        $this->assertCanUseHotel($user, (int)$source['system_hotel_id'], 'can_fetch_online_data');
+
+        if ($this->isOtaPlatform((string)$source['platform'])) {
+            return $this->saveOtaDataSource($user, $source, $existing, $id);
+        }
+
+        $hasSecretInput = $this->credentialPayloadHasValue($source['secret']);
         $now = date('Y-m-d H:i:s');
         $data = [
             'system_hotel_id' => $source['system_hotel_id'],
@@ -931,16 +982,10 @@ final class PlatformDataSyncService
             'update_time' => $now,
         ];
         if (isset($this->tableColumns('platform_data_sources')['tenant_id'])) {
-            $data['tenant_id'] = (int)$source['system_hotel_id'] ?: null;
+            $data['tenant_id'] = $this->resolveHotelTenantId((int)$source['system_hotel_id']);
         }
 
-        $id = (int)($payload['id'] ?? 0);
         if ($id > 0) {
-            $existing = Db::name('platform_data_sources')->where('id', $id)->find();
-            if (!$existing) {
-                throw new RuntimeException('Data source not found.', 404);
-            }
-            $this->assertCanUseHotel($user, (int)($existing['system_hotel_id'] ?? 0), 'can_fetch_online_data');
             if (!$hasSecretInput) {
                 unset($data['secret_json']);
             }
@@ -955,20 +1000,486 @@ final class PlatformDataSyncService
         return $this->sanitizeSourceRow($row ?: []);
     }
 
+    /**
+     * @param array<string, mixed> $source
+     * @param array<string, mixed>|null $existing
+     * @return array<string, mixed>
+     */
+    private function saveOtaDataSource($user, array $source, ?array $existing, int $id): array
+    {
+        $hotelId = (int)$source['system_hotel_id'];
+        $tenantId = $this->resolveHotelTenantId($hotelId);
+        $platform = strtolower((string)$source['platform']);
+        $existingConfig = $existing ? $this->decodeConfig($existing['config_json'] ?? []) : [];
+        $secretPayload = $this->normalizeOtaCredentialPayload($source['secret']);
+        $hasSecretInput = $this->credentialPayloadHasValue($secretPayload);
+        $isBrowserProfile = in_array(
+            strtolower(trim((string)($source['ingestion_method'] ?? ''))),
+            ['browser_profile', 'profile_browser'],
+            true
+        );
+        if ($existing) {
+            $existingIsBrowserProfile = in_array(
+                strtolower(trim((string)($existing['ingestion_method'] ?? ''))),
+                ['browser_profile', 'profile_browser'],
+                true
+            );
+            if ($existingIsBrowserProfile !== $isBrowserProfile) {
+                throw new RuntimeException(
+                    'OTA data source cannot switch authorization model in place; create a separate data source.',
+                    422
+                );
+            }
+        }
+        if ($isBrowserProfile && $hasSecretInput) {
+            throw new RuntimeException(
+                'Browser Profile data source must not store reusable OTA credentials; use a separate API/manual source.',
+                422
+            );
+        }
+        if (!$isBrowserProfile && !$existing && !$hasSecretInput) {
+            throw new RuntimeException('New OTA data source requires a reusable credential.', 422);
+        }
+        $configId = $this->resolveOtaDataSourceConfigId($source['config'], $existingConfig, $platform, $id);
+
+        if ($existing && !$hasSecretInput) {
+            $existingPlatform = strtolower(trim((string)($existing['platform'] ?? '')));
+            $existingHotelId = (int)($existing['system_hotel_id'] ?? 0);
+            $existingConfigId = trim((string)($existingConfig['config_id'] ?? ''));
+            $locatorMismatch = $existingConfigId === '' || $existingConfigId !== $configId;
+            if ($existingPlatform !== $platform
+                || $existingHotelId !== $hotelId
+                || (!$isBrowserProfile && $locatorMismatch)
+                || ($isBrowserProfile && $existingConfigId !== '' && $existingConfigId !== $configId)
+            ) {
+                throw new RuntimeException('Replacing an OTA credential locator requires a new credential payload.', 422);
+            }
+        }
+
+        $actorId = (int)($user->id ?? 0);
+        $safeConfig = $this->allowlistedOtaSourceConfig($source['config'], $platform);
+        $profileKey = $isBrowserProfile ? $this->otaBrowserProfileKey($platform, $safeConfig) : '';
+        if ($isBrowserProfile && $profileKey === '') {
+            throw new RuntimeException('Browser Profile binding key is missing.', 422);
+        }
+        $now = date('Y-m-d H:i:s');
+
+        return Db::transaction(function () use (
+            $source,
+            $existing,
+            $existingConfig,
+            $secretPayload,
+            $hasSecretInput,
+            $isBrowserProfile,
+            $safeConfig,
+            $profileKey,
+            $tenantId,
+            $hotelId,
+            $platform,
+            $configId,
+            $actorId,
+            $now,
+            &$id
+        ): array {
+            if ($id > 0) {
+                $lockedExisting = Db::name('platform_data_sources')->withoutField('secret_json')->where('id', $id)->lock(true)->find();
+                if (!$lockedExisting) {
+                    throw new RuntimeException('Data source not found.', 404);
+                }
+                $lockedConfig = $this->decodeConfig($lockedExisting['config_json'] ?? []);
+                if (
+                    strtolower(trim((string)($lockedExisting['platform'] ?? ''))) !== strtolower(trim((string)($existing['platform'] ?? '')))
+                    || (int)($lockedExisting['system_hotel_id'] ?? 0) !== (int)($existing['system_hotel_id'] ?? 0)
+                    || strtolower(trim((string)($lockedExisting['ingestion_method'] ?? ''))) !== strtolower(trim((string)($existing['ingestion_method'] ?? '')))
+                    || trim((string)($lockedConfig['config_id'] ?? '')) !== trim((string)($existingConfig['config_id'] ?? ''))
+                ) {
+                    throw new RuntimeException('OTA data source changed concurrently; reload before saving.', 409);
+                }
+            }
+
+            if ($isBrowserProfile) {
+                (new OtaProfileBindingService())->claim($hotelId, $platform, $profileKey, $actorId);
+                $config = array_merge($safeConfig, [
+                    'config_id' => $configId,
+                    'credential_usage' => 'not_required_for_browser_profile',
+                    'credential_status' => 'not_required',
+                    'status' => 'not_required',
+                    'has_secret' => false,
+                    'has_cookies' => false,
+                    'profile_execution_policy' => 'profile_session_metadata_only_no_vault_decrypt',
+                ]);
+            } else {
+                $credential = ($hasSecretInput || !$existing)
+                    ? $this->otaCredentialVault()->store($tenantId, $hotelId, $platform, $configId, $secretPayload, $actorId)
+                    : $this->otaCredentialVault()->metadata($tenantId, $hotelId, $platform, $configId);
+                $hasCookies = $hasSecretInput || !$existing
+                    ? $this->otaCredentialPayloadHasCookies($secretPayload)
+                    : $this->truthy($existingConfig['has_cookies'] ?? false);
+                $hasSecret = $hasSecretInput || !$existing
+                    ? $this->credentialPayloadHasValue($secretPayload)
+                    : $this->truthy($existingConfig['has_secret'] ?? ((int)($existingConfig['credential_ref'] ?? 0) > 0));
+                $credentialStatus = trim((string)($credential['credential_status'] ?? ''));
+                if ($credentialStatus === '' || (int)($credential['credential_ref'] ?? 0) <= 0) {
+                    throw new RuntimeException('OTA credential metadata is incomplete.', 422);
+                }
+                $config = array_merge($safeConfig, [
+                    'config_id' => $configId,
+                    'credential_ref' => (int)$credential['credential_ref'],
+                    'credential_status' => $credentialStatus,
+                    'status' => $credentialStatus,
+                    'has_secret' => $hasSecret,
+                    'has_cookies' => $hasCookies,
+                ]);
+            }
+            $data = [
+                'system_hotel_id' => $hotelId,
+                'user_id' => $actorId ?: null,
+                'name' => $source['name'],
+                'platform' => $platform,
+                'data_type' => $source['data_type'],
+                'ingestion_method' => $source['ingestion_method'],
+                'status' => $source['status'],
+                'enabled' => $source['enabled'],
+                'config_json' => json_encode($config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+                'secret_json' => '{}',
+                'updated_by' => $actorId ?: null,
+                'update_time' => $now,
+            ];
+            if (isset($this->tableColumns('platform_data_sources')['tenant_id'])) {
+                $data['tenant_id'] = $tenantId;
+            }
+
+            if ($id > 0) {
+                Db::name('platform_data_sources')->where('id', $id)->update($data);
+            } else {
+                $data['created_by'] = $actorId ?: null;
+                $data['create_time'] = $now;
+                $id = (int)Db::name('platform_data_sources')->insertGetId($data);
+            }
+
+            $row = Db::name('platform_data_sources')->withoutField('secret_json')->where('id', $id)->find();
+            return $this->sanitizeSourceRow($row ?: []);
+        });
+    }
+
+    private function resolveHotelTenantId(int $hotelId): int
+    {
+        if ($hotelId <= 0) {
+            throw new RuntimeException('OTA credential hotel scope is missing.', 422);
+        }
+        $tenantId = (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id');
+        if ($tenantId <= 0) {
+            throw new RuntimeException('OTA credential tenant scope is missing.', 422);
+        }
+        return $tenantId;
+    }
+
+    /** @param array<string, mixed> $source */
+    private function resolveSourceTenantId(array $source): int
+    {
+        $tenantId = (int)($source['tenant_id'] ?? 0);
+        if ($tenantId > 0) {
+            return $tenantId;
+        }
+
+        return $this->resolveHotelTenantId((int)($source['system_hotel_id'] ?? 0));
+    }
+
+    /**
+     * @param array<string, mixed> $config
+     * @param array<string, mixed> $existingConfig
+     */
+    private function resolveOtaDataSourceConfigId(array $config, array $existingConfig, string $platform, int $id): string
+    {
+        $configId = trim((string)($config['config_id'] ?? $existingConfig['config_id'] ?? ''));
+        if ($configId === '') {
+            $configId = $id > 0
+                ? $platform . '-source-' . $id
+                : $platform . '-source-' . bin2hex(random_bytes(8));
+        }
+        if (preg_match('/^[A-Za-z0-9._-]{1,100}$/D', $configId) !== 1) {
+            throw new RuntimeException('Invalid OTA data source config_id.', 422);
+        }
+        return $configId;
+    }
+
+    /**
+     * @param array<string, mixed> $config
+     * @return array<string, mixed>
+     */
+    private function allowlistedOtaSourceConfig(array $config, string $platform): array
+    {
+        $allowed = [
+            'url', 'request_url', 'method', 'allowed_hosts', 'headers', 'payload', 'payload_json',
+            'external_hotel_id', 'hotel_name', 'profile_id', 'profileId', 'browser_profile_id', 'browserProfileId',
+            'stable_profile_id', 'stableProfileId', 'profile_binding_key', 'profileBindingKey',
+            'profile_reuse_scope', 'profileReuseScope',
+            'hotel_id', 'hotelId', 'ota_hotel_id', 'otaHotelId', 'ctrip_hotel_id', 'ctripHotelId',
+            'platform_hotel_id', 'platformHotelId', 'hotel_code', 'hotelCode', 'node_id', 'nodeId',
+            'store_id', 'storeId', 'store_name', 'storeName', 'poi_id', 'poiId', 'poi_name', 'poiName', 'partner_id', 'partnerId',
+            'ads_url', 'adsUrl', 'capture_sections', 'captureSections', 'sections', 'profile_sections',
+            'profileSections',
+            'section_concurrency', 'sectionConcurrency', 'ctrip_section_concurrency', 'ctripSectionConcurrency',
+            'sequential_sections', 'sequentialSections', 'section_sequential', 'sectionSequential',
+            'not_applicable_sections', 'notApplicableSections', 'excluded_sections', 'excludedSections',
+            'allow_review', 'authorized_review_collection', 'review_collection_enabled',
+            'manual_login_state_verified', 'profile_status', 'login_status', 'last_login_verified_at',
+            'lastLoginVerifiedAt', 'login_verified_at', 'loginVerifiedAt', 'last_verified_at', 'lastVerifiedAt',
+            'profile_login_verified_at', 'last_profile_login_at', 'profile_daily_reuse_enabled', 'profileDailyReuseEnabled',
+            'data_date', 'dataDate', 'data_period', 'dataPeriod', 'snapshot_time', 'snapshotTime',
+        ];
+        $safe = [];
+        foreach ($allowed as $key) {
+            if (!array_key_exists($key, $config)) {
+                continue;
+            }
+            if (str_contains(strtolower($key), 'url')) {
+                $this->assertOtaMetadataUrlsAreSafe($config[$key], $platform);
+            }
+            if ($key === 'allowed_hosts') {
+                $safe[$key] = $this->normalizeOtaAllowedHosts($config[$key], $platform);
+                continue;
+            }
+            $safe[$key] = $this->sanitizeOtaMetadataNode($config[$key]);
+        }
+        return $safe;
+    }
+
+    private function assertOtaMetadataUrlsAreSafe(mixed $value, string $platform): void
+    {
+        if (is_array($value)) {
+            foreach ($value as $item) {
+                $this->assertOtaMetadataUrlsAreSafe($item, $platform);
+            }
+            return;
+        }
+        $this->assertOtaMetadataUrlIsSafe($value, $platform);
+    }
+
+    private function assertOtaMetadataUrlIsSafe(mixed $value, string $platform): void
+    {
+        if (!is_scalar($value)) {
+            throw new RuntimeException('OTA data source URL metadata must be a string.', 422);
+        }
+        $url = trim((string)$value);
+        if ($url === '') {
+            return;
+        }
+        $parts = parse_url($url);
+        if ($parts === false) {
+            throw new RuntimeException('OTA data source URL is invalid.', 422);
+        }
+        $scheme = strtolower((string)($parts['scheme'] ?? ''));
+        $host = strtolower(rtrim((string)($parts['host'] ?? ''), '.'));
+        $port = isset($parts['port']) ? (int)$parts['port'] : 443;
+        if (
+            $scheme !== 'https'
+            || $host === ''
+            || $port !== 443
+            || !empty($parts['user'])
+            || !empty($parts['pass'])
+        ) {
+            throw new RuntimeException('OTA data source URL must use HTTPS port 443 without embedded credentials.', 422);
+        }
+        if (!$this->isAllowedOtaPlatformHost($host, $platform)) {
+            throw new RuntimeException('OTA data source URL host is outside the platform allowlist.', 422);
+        }
+        parse_str((string)($parts['query'] ?? ''), $query);
+        foreach (array_keys($query) as $key) {
+            if ($this->isSensitiveConfigKey((string)$key)) {
+                throw new RuntimeException('OTA data source URL must not contain credential query parameters.', 422);
+            }
+        }
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function normalizeOtaAllowedHosts(mixed $value, string $platform): array
+    {
+        $hosts = is_string($value) ? explode(',', $value) : $value;
+        if (!is_array($hosts)) {
+            throw new RuntimeException('OTA allowed_hosts metadata must be a string or list.', 422);
+        }
+        $safe = [];
+        foreach ($hosts as $host) {
+            if (!is_scalar($host)) {
+                throw new RuntimeException('OTA allowed_hosts metadata contains an unsupported value.', 422);
+            }
+            $host = strtolower(rtrim(ltrim(trim((string)$host), '.'), '.'));
+            if ($host === '') {
+                continue;
+            }
+            if (str_contains($host, '://') || str_contains($host, '/') || !$this->isAllowedOtaPlatformHost($host, $platform)) {
+                throw new RuntimeException('OTA allowed_hosts contains a host outside the platform allowlist.', 422);
+            }
+            $safe[$host] = $host;
+        }
+        return array_values($safe);
+    }
+
+    private function isAllowedOtaPlatformHost(string $host, string $platform): bool
+    {
+        $suffixes = match (strtolower(trim($platform))) {
+            'ctrip' => ['ctrip.com', 'ctripbiz.com', 'ctripbiz.cn'],
+            'meituan' => ['meituan.com', 'dianping.com'],
+            default => [],
+        };
+        foreach ($suffixes as $suffix) {
+            if ($host === $suffix || str_ends_with($host, '.' . $suffix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function sanitizeOtaMetadataNode(mixed $value): mixed
+    {
+        if (!is_array($value)) {
+            if (is_scalar($value) || $value === null) {
+                if (is_string($value) && $this->stringContainsCredentialMaterial($value)) {
+                    throw new RuntimeException('OTA data source metadata must not contain credential material.', 422);
+                }
+                return $value;
+            }
+            throw new RuntimeException('OTA data source metadata contains an unsupported value.', 422);
+        }
+
+        $safe = [];
+        foreach ($value as $key => $item) {
+            if (is_string($key) && $this->isSensitiveConfigKey($key)) {
+                throw new RuntimeException('OTA data source metadata contains a credential field; move it to the secret payload.', 422);
+            }
+            $safe[$key] = $this->sanitizeOtaMetadataNode($item);
+        }
+        return $safe;
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function normalizeOtaCredentialPayload(array $payload): array
+    {
+        $normalized = [];
+        foreach ($payload as $key => $value) {
+            $normalizedKey = strtolower((string)$key) === 'cookie' ? 'cookies' : (string)$key;
+            if (is_array($value)) {
+                $value = $this->normalizeOtaCredentialPayload($value);
+                if ($value === []) {
+                    continue;
+                }
+            } elseif ($value === null || (is_scalar($value) && trim((string)$value) === '')) {
+                continue;
+            } elseif (!is_scalar($value)) {
+                throw new RuntimeException('OTA credential payload contains an unsupported value.', 422);
+            }
+            $normalized[$normalizedKey] = $value;
+        }
+        return $normalized;
+    }
+
+    private function credentialPayloadHasValue(mixed $value): bool
+    {
+        if (is_array($value)) {
+            foreach ($value as $item) {
+                if ($this->credentialPayloadHasValue($item)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return $value !== null && is_scalar($value) && trim((string)$value) !== '';
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function otaCredentialPayloadHasCookies(array $payload): bool
+    {
+        foreach ($payload as $key => $value) {
+            if (in_array(strtolower((string)$key), ['cookie', 'cookies'], true) && $this->credentialPayloadHasValue($value)) {
+                return true;
+            }
+            if (is_array($value) && $this->otaCredentialPayloadHasCookies($value)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function isOtaPlatform(string $platform): bool
+    {
+        return in_array(strtolower(trim($platform)), ['ctrip', 'meituan'], true);
+    }
+
+    private function otaCredentialVault(): OtaCredentialVault
+    {
+        return $this->credentialVault ??= new OtaCredentialVault();
+    }
+
     public function deleteDataSource($user, int $id): bool
     {
-        $row = Db::name('platform_data_sources')->where('id', $id)->find();
+        $row = Db::name('platform_data_sources')->withoutField('secret_json')->where('id', $id)->find();
         if (!$row) {
             throw new RuntimeException('Data source not found.', 404);
         }
         $this->assertCanUseHotel($user, (int)($row['system_hotel_id'] ?? 0), 'can_delete_online_data');
-        Db::name('platform_data_sources')->where('id', $id)->update([
-            'enabled' => 0,
-            'status' => 'disabled',
-            'updated_by' => (int)($user->id ?? 0) ?: null,
-            'update_time' => date('Y-m-d H:i:s'),
-        ]);
-        return true;
+        return Db::transaction(function () use ($user, $id): bool {
+            $locked = Db::name('platform_data_sources')->withoutField('secret_json')->where('id', $id)->lock(true)->find();
+            if (!$locked) {
+                throw new RuntimeException('Data source not found.', 404);
+            }
+
+            $update = [
+                'enabled' => 0,
+                'status' => 'disabled',
+                'updated_by' => (int)($user->id ?? 0) ?: null,
+                'update_time' => date('Y-m-d H:i:s'),
+            ];
+            $platform = strtolower(trim((string)($locked['platform'] ?? '')));
+            if ($this->isOtaPlatform($platform)) {
+                $update['secret_json'] = '{}';
+                $config = $this->decodeConfig($locked['config_json'] ?? []);
+                $configId = trim((string)($config['config_id'] ?? ''));
+                $credentialRef = (int)($config['credential_ref'] ?? 0);
+                if ($credentialRef > 0 && preg_match('/^[A-Za-z0-9._-]{1,100}$/D', $configId) === 1
+                    && !$this->otherEnabledOtaSourceUsesCredential($id, (int)$locked['system_hotel_id'], $platform, $configId)
+                ) {
+                    $tenantId = $this->resolveHotelTenantId((int)$locked['system_hotel_id']);
+                    $credential = $this->otaCredentialVault()->revoke($tenantId, (int)$locked['system_hotel_id'], $platform, $configId);
+                    if ((int)($credential['credential_ref'] ?? 0) !== $credentialRef) {
+                        throw new RuntimeException('OTA data source credential reference does not match its locator.', 409);
+                    }
+                    $config['credential_status'] = (string)($credential['credential_status'] ?? 'revoked');
+                    $config['status'] = $config['credential_status'];
+                    $update['config_json'] = json_encode($config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+                }
+            }
+
+            return Db::name('platform_data_sources')->where('id', $id)->update($update) >= 0;
+        });
+    }
+
+    private function otherEnabledOtaSourceUsesCredential(int $excludedId, int $hotelId, string $platform, string $configId): bool
+    {
+        $rows = Db::name('platform_data_sources')
+            ->withoutField('secret_json')
+            ->where('system_hotel_id', $hotelId)
+            ->where('platform', $platform)
+            ->where('enabled', 1)
+            ->select()
+            ->toArray();
+        foreach ($rows as $row) {
+            if ((int)($row['id'] ?? 0) === $excludedId) {
+                continue;
+            }
+            $candidate = $this->decodeConfig($row['config_json'] ?? []);
+            if (hash_equals($configId, trim((string)($candidate['config_id'] ?? '')))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public function syncDataSource($user, int $id, array $options = []): array
@@ -977,6 +1488,7 @@ final class PlatformDataSyncService
         $timing = $this->emptySyncTiming();
         $source = $this->loadSource($id);
         $this->assertCanUseHotel($user, (int)($source['system_hotel_id'] ?? 0), 'can_fetch_online_data');
+        $isOtaSource = $this->isOtaPlatform((string)($source['platform'] ?? ''));
 
         if ((int)($source['enabled'] ?? 0) !== 1) {
             throw new RuntimeException('Data source is disabled.', 422);
@@ -987,7 +1499,13 @@ final class PlatformDataSyncService
             $adapter = $this->resolveAdapter($source);
             $this->assertBrowserProfileBackgroundSyncLoginVerified($source, $options);
             $phaseStartedAt = microtime(true);
-            $result = $adapter->fetch($source, $options);
+            if ($isOtaSource) {
+                $result = $this->isOtaBrowserProfileSource($source)
+                    ? $this->fetchOtaBrowserProfileSource($adapter, $source, $options)
+                    : $this->fetchOtaSourceInsideVault($adapter, $source, $options);
+            } else {
+                $result = $adapter->fetch($source, $options);
+            }
             $timing['capture_elapsed_ms'] = $this->elapsedMilliseconds($phaseStartedAt);
             $this->refreshDatabaseConnectionAfterExternalFetch();
             $payload = $this->applySyncOptionPeriodMetadata($result['payload'] ?? [], $options);
@@ -1017,10 +1535,11 @@ final class PlatformDataSyncService
             return $this->finishTask($taskId, $source, $status, $message, count($rows), $saved, $payload, $timing, $syncStartedAt);
         } catch (\Throwable $e) {
             $this->refreshDatabaseConnectionAfterExternalFetch();
+            $failureMessage = $isOtaSource ? $this->safeOtaExecutionFailureCode($e) : $e->getMessage();
             $payload = [
-                'sync_diagnostics' => $this->buildSyncDiagnostics([], 0, $source, $options, [], 'failed', $e->getMessage()),
+                'sync_diagnostics' => $this->buildSyncDiagnostics([], 0, $source, $options, [], 'failed', $failureMessage),
             ];
-            return $this->finishTask($taskId, $source, 'failed', $e->getMessage(), 0, 0, $payload, $timing, $syncStartedAt);
+            return $this->finishTask($taskId, $source, 'failed', $failureMessage, 0, 0, $payload, $timing, $syncStartedAt);
         }
     }
 
@@ -1093,6 +1612,7 @@ final class PlatformDataSyncService
         $rows = $query->limit(max(1, min(200, (int)($filters['limit'] ?? 50))))->select()->toArray();
         foreach ($rows as &$row) {
             $effectiveStatus = self::effectiveSyncTaskStatus(is_array($row) ? $row : []);
+            $row = $this->sanitizeSyncTaskRowForResponse(is_array($row) ? $row : []);
             $row['effective_status'] = $effectiveStatus;
             $row['is_stale_running'] = $effectiveStatus === 'stale_running';
             $row['stale_age_seconds'] = self::syncTaskAgeSeconds(is_array($row) ? $row : []);
@@ -1112,7 +1632,319 @@ final class PlatformDataSyncService
         if (!empty($filters['data_source_id'])) {
             $query->where('data_source_id', (int)$filters['data_source_id']);
         }
-        return $query->limit(max(1, min(200, (int)($filters['limit'] ?? 50))))->select()->toArray();
+        $rows = $query->limit(max(1, min(200, (int)($filters['limit'] ?? 50))))->select()->toArray();
+        return array_values(array_map(
+            fn(array $row): array => $this->sanitizeSyncLogRowForResponse($row),
+            array_values(array_filter($rows, 'is_array'))
+        ));
+    }
+
+    /**
+     * Converts a stored task row into the safe response contract used by task
+     * lists and collection-status projections. External error text never
+     * crosses this boundary.
+     *
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function sanitizeSyncTaskRowForResponse(array $row): array
+    {
+        $status = (string)($row['status'] ?? '');
+        $row['message'] = $this->safeSyncTaskMessage($status, (string)($row['message'] ?? ''));
+        $stats = $this->sanitizeSyncTaskStats($this->decodeConfig($row['stats_json'] ?? []), $status);
+        $row['stats_json'] = json_encode($stats, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}';
+        return $row;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function sanitizeSyncLogRowForResponse(array $row): array
+    {
+        $context = $this->decodeConfig($row['context_json'] ?? []);
+        $adapterStatus = (string)($context['sync_diagnostics']['adapter_status'] ?? '');
+        $row['message'] = $this->safeSyncTaskMessage($adapterStatus, (string)($row['message'] ?? ''));
+        $safeContext = $this->sanitizeSyncTaskStats($context, $adapterStatus);
+        $row['context_json'] = json_encode($safeContext, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}';
+        return $row;
+    }
+
+    /**
+     * @param array<string, mixed> $stats
+     * @return array<string, mixed>
+     */
+    private function sanitizeSyncTaskStats(array $stats, string $status): array
+    {
+        $safe = [
+            'normalized_count' => max(0, (int)($stats['normalized_count'] ?? 0)),
+            'saved_count' => max(0, (int)($stats['saved_count'] ?? 0)),
+            'payload_keys' => $this->sanitizeSyncTaskPayloadKeys($stats['payload_keys'] ?? []),
+        ];
+
+        if (is_array($stats['sync_diagnostics'] ?? null)) {
+            $safe['sync_diagnostics'] = $this->sanitizeSyncDiagnosticsForResponse($stats['sync_diagnostics'], $status);
+        }
+        if (is_array($stats['collection_quality'] ?? null)) {
+            $safe['collection_quality'] = $this->sanitizeSyncTaskCollectionQuality($stats['collection_quality']);
+        }
+
+        $period = $this->normalizeDataPeriod($stats['data_period'] ?? '');
+        if ($period !== '') {
+            $safe['data_period'] = $period;
+        }
+        $snapshotTime = $this->normalizeDateTime($stats['snapshot_time'] ?? '');
+        if ($snapshotTime !== null) {
+            $safe['snapshot_time'] = $snapshotTime;
+        }
+        $snapshotBucket = trim((string)($stats['snapshot_bucket'] ?? ''));
+        if (preg_match('/^\d{8,12}$/', $snapshotBucket) === 1) {
+            $safe['snapshot_bucket'] = $snapshotBucket;
+        }
+
+        $timing = $this->normalizeSyncTiming(is_array($stats['timing'] ?? null) ? $stats['timing'] : $stats);
+        $safe['timing'] = $timing;
+        foreach ($timing as $key => $value) {
+            $safe[$key] = $value;
+        }
+
+        return $safe;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function sanitizeSyncTaskPayloadKeys(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $keys = [];
+        foreach ($value as $key) {
+            $key = trim((string)$key);
+            if ($key === '' || $this->isSensitiveConfigKey($key) || preg_match('/^[a-zA-Z0-9_.-]{1,80}$/', $key) !== 1) {
+                continue;
+            }
+            $keys[] = $key;
+        }
+
+        return array_values(array_slice(array_unique($keys), 0, 30));
+    }
+
+    /**
+     * @param array<string, mixed> $diagnostics
+     * @return array<string, mixed>
+     */
+    private function sanitizeSyncDiagnosticsForResponse(array $diagnostics, string $fallbackStatus): array
+    {
+        if ($diagnostics === []) {
+            return [];
+        }
+
+        $fieldFactStatus = strtolower(trim((string)($diagnostics['field_fact_status'] ?? '')));
+        if (!in_array($fieldFactStatus, ['ready', 'partial', 'missing', 'not_loaded'], true)) {
+            $fieldFactStatus = 'unknown';
+        }
+        $p0Status = strtolower(trim((string)($diagnostics['p0_status'] ?? '')));
+        if (!in_array($p0Status, ['ready', 'blocked', 'not_required', 'not_loaded'], true)) {
+            $p0Status = 'unknown';
+        }
+        $adapterStatus = strtolower(trim((string)($diagnostics['adapter_status'] ?? $fallbackStatus)));
+        if (!in_array($adapterStatus, ['success', 'partial_success', 'failed', 'capture_failed', 'permission_denied'], true)) {
+            $adapterStatus = 'unknown';
+        }
+
+        return [
+            'target_date' => $this->normalizeDate($diagnostics['target_date'] ?? null) ?? '',
+            'requires_target_date_traffic' => $this->truthy($diagnostics['requires_target_date_traffic'] ?? false),
+            'target_date_rows' => max(0, (int)($diagnostics['target_date_rows'] ?? 0)),
+            'target_date_traffic_rows' => max(0, (int)($diagnostics['target_date_traffic_rows'] ?? 0)),
+            'target_date_traffic_field_fact_ready_count' => max(0, (int)($diagnostics['target_date_traffic_field_fact_ready_count'] ?? 0)),
+            'target_date_traffic_field_fact_missing_count' => max(0, (int)($diagnostics['target_date_traffic_field_fact_missing_count'] ?? 0)),
+            'field_fact_status' => $fieldFactStatus,
+            'p0_status' => $p0Status,
+            'capability_states' => $this->sanitizeSyncTaskCapabilityStates($diagnostics['capability_states'] ?? null),
+            'missing_inputs' => $this->syncTaskQualityMissingInputFlags($diagnostics['missing_inputs'] ?? []),
+            'operator_message' => $this->safeSyncTaskMessage($adapterStatus ?: $fallbackStatus, (string)($diagnostics['operator_message'] ?? '')),
+            'adapter_status' => $adapterStatus,
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function sanitizeSyncTaskCapabilityStates(mixed $value): array
+    {
+        $states = [
+            'business' => 'unverified',
+            'orders' => 'unverified',
+            'reviews' => 'unverified',
+        ];
+        if (!is_array($value)) {
+            return $states;
+        }
+
+        $allowed = ['verified', 'permission_denied', 'capability_unavailable', 'unverified', 'collection_failed'];
+        foreach (array_keys($states) as $capability) {
+            $candidate = strtolower(trim((string)($value[$capability] ?? '')));
+            if (in_array($candidate, $allowed, true)) {
+                $states[$capability] = $candidate;
+            }
+        }
+
+        return $states;
+    }
+
+    private function safeSyncTaskMessage(string $status, string $message): string
+    {
+        $message = strtolower(trim($message));
+        $knownMessages = [
+            'platform data synchronized.' => 'platform_data_synchronized',
+            'platform_data_synchronized' => 'platform_data_synchronized',
+            'no business rows were found in payload.' => 'sync_completed_without_saved_rows',
+            'sync_completed_without_saved_rows' => 'sync_completed_without_saved_rows',
+            'target_date_traffic_ready' => 'target_date_traffic_ready',
+            'manual_login_state_not_verified' => 'manual_login_state_not_verified',
+            'profile_reused_no_target_date_traffic_rows' => 'profile_reused_no_target_date_traffic_rows',
+            'traffic_field_facts_missing' => 'traffic_field_facts_missing',
+            'permission_denied' => 'permission_denied',
+            'credential_execution_failed' => 'credential_execution_failed',
+            'credential_locator_missing' => 'credential_locator_missing',
+            'credential_not_ready' => 'credential_not_ready',
+            'credential_not_found' => 'credential_not_found',
+            'credential_revoked' => 'credential_revoked',
+            'credential_scope_invalid' => 'credential_scope_invalid',
+            'ota_source_url_not_allowed' => 'ota_source_url_not_allowed',
+            'ota_source_inline_secret_requires_migration' => 'ota_source_inline_secret_requires_migration',
+            'collection_failed' => 'collection_failed',
+            'collection_partial' => 'collection_partial',
+            'stale_running_task' => 'stale_running_task',
+        ];
+        if (isset($knownMessages[$message])) {
+            return $knownMessages[$message];
+        }
+
+        return match (strtolower(trim($status))) {
+            'success' => 'platform_data_synchronized',
+            'partial_success' => 'collection_partial',
+            'permission_denied', 'unauthorized', 'forbidden' => 'permission_denied',
+            'login_expired', 'waiting_login', 'session_expired' => 'login_state_unverified',
+            'stale_running' => 'stale_running_task',
+            default => 'collection_failed',
+        };
+    }
+
+    private function safeOtaExecutionFailureCode(\Throwable $error): string
+    {
+        $message = strtolower($error->getMessage());
+        return match (true) {
+            str_contains($message, 'current_session_verified'),
+            str_contains($message, 'current session proof') => 'current_session_not_verified',
+            str_contains($message, 'url host is outside'),
+            str_contains($message, 'url must use https'),
+            str_contains($message, 'allowed_hosts contains') => 'ota_source_url_not_allowed',
+            str_contains($message, 'inline credentials'),
+            str_contains($message, 'inline credential'),
+            str_contains($message, 'require migration') => 'ota_source_inline_secret_requires_migration',
+            str_contains($message, 'locator is missing'),
+            str_contains($message, 'invalid credential locator') => 'credential_locator_missing',
+            str_contains($message, 'credential is not ready') => 'credential_not_ready',
+            str_contains($message, 'credential revoked') => 'credential_revoked',
+            str_contains($message, 'credential not found') => 'credential_not_found',
+            str_contains($message, 'hotel scope'),
+            str_contains($message, 'tenant scope'),
+            str_contains($message, 'scope not found'),
+            str_contains($message, 'reference does not match') => 'credential_scope_invalid',
+            default => 'credential_execution_failed',
+        };
+    }
+
+    /**
+     * @param array<string, mixed> $quality
+     * @return array<string, mixed>
+     */
+    private function sanitizeSyncTaskCollectionQuality(array $quality): array
+    {
+        $states = ['available', 'partial', 'stale', 'unverified', 'binding_missing', 'permission_denied', 'collection_failed'];
+        $state = strtolower(trim((string)($quality['primary_quality_state'] ?? '')));
+        if (!in_array($state, $states, true)) {
+            $state = 'unverified';
+        }
+        $allowedFlags = [
+            'current_session_verified', 'manual_login_state_verified', 'profile_status_logged_in', 'last_login_verified_at', 'target_date_traffic_rows',
+            'traffic_field_facts', 'system_hotel_id_missing', 'data_source_id_missing', 'ota_store_id_missing',
+            'profile_id_missing', 'non_ota_platform_source', 'platform_permission_denied', 'task_status_failed',
+            'manual_import_provenance_unverified', 'source_ingestion_method_unverified', 'platform_session_not_verified',
+            'target_date_missing', 'p0_target_date_evidence_not_ready', 'saved_rows_missing', 'target_date_rows_missing',
+            'target_date_traffic_rows_missing', 'target_date_field_facts_partial', 'task_partial_success', 'task_quality_not_verified',
+        ];
+        $flags = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $value): string => strtolower(trim((string)$value)),
+            (array)($quality['quality_flags'] ?? [])
+        ), static fn(string $flag): bool => in_array($flag, $allowedFlags, true))));
+        $metricScope = strtolower(trim((string)($quality['metric_scope'] ?? '')));
+        if (!in_array($metricScope, ['ota_channel', 'unknown'], true)) {
+            $metricScope = 'unknown';
+        }
+        $evidence = is_array($quality['evidence'] ?? null) ? $quality['evidence'] : [];
+        $taskStatus = strtolower(trim((string)($evidence['task_status'] ?? '')));
+        if (!in_array($taskStatus, ['success', 'partial_success', 'failed', 'capture_failed', 'permission_denied', 'unknown'], true)) {
+            $taskStatus = 'unknown';
+        }
+        $ingestionMethod = strtolower(trim((string)($evidence['ingestion_method'] ?? '')));
+        if (!in_array($ingestionMethod, ['browser_profile', 'profile_browser', 'manual', 'api', 'unknown'], true)) {
+            $ingestionMethod = 'unknown';
+        }
+        $p0Status = strtolower(trim((string)($evidence['p0_status'] ?? '')));
+        if (!in_array($p0Status, ['ready', 'blocked', 'not_required', 'not_loaded', 'unknown'], true)) {
+            $p0Status = 'unknown';
+        }
+        $fieldFactStatus = strtolower(trim((string)($evidence['field_fact_status'] ?? '')));
+        if (!in_array($fieldFactStatus, ['ready', 'partial', 'missing', 'not_loaded', 'unknown'], true)) {
+            $fieldFactStatus = 'unknown';
+        }
+
+        return [
+            'primary_quality_state' => $state,
+            'quality_flags' => $flags,
+            'metric_scope' => $metricScope,
+            'evidence_scope' => 'sync_task',
+            'target_date' => $this->normalizeDate($quality['target_date'] ?? null) ?? '',
+            'data_as_of' => $this->normalizeDate($quality['data_as_of'] ?? null) ?? '',
+            'collected_at' => $this->normalizeDateTime($quality['collected_at'] ?? null) ?? '',
+            'evidence' => [
+                'task_status' => $taskStatus,
+                'ingestion_method' => $ingestionMethod,
+                'p0_status' => $p0Status,
+                'target_date_rows' => max(0, (int)($evidence['target_date_rows'] ?? 0)),
+                'target_date_traffic_rows' => max(0, (int)($evidence['target_date_traffic_rows'] ?? 0)),
+                'field_fact_status' => $fieldFactStatus,
+                'normalized_count' => max(0, (int)($evidence['normalized_count'] ?? 0)),
+                'saved_count' => max(0, (int)($evidence['saved_count'] ?? 0)),
+            ],
+            'next_action' => $this->sanitizeSyncTaskCollectionQualityAction($quality['next_action'] ?? ''),
+        ];
+    }
+
+    private function sanitizeSyncTaskCollectionQualityAction(mixed $value): string
+    {
+        $value = strtolower(trim((string)$value));
+        $allowed = [
+            '',
+            'complete_hotel_poi_binding',
+            'restore_platform_permission',
+            'inspect_collection_failure',
+            'verify_task_source_scope',
+            'verify_manual_import_provenance',
+            'verify_collection_method',
+            'verify_platform_login_state',
+            'select_target_date',
+            'verify_target_date_evidence',
+            'collect_target_date_data',
+            'complete_missing_target_date_evidence',
+        ];
+        return in_array($value, $allowed, true) ? $value : 'verify_target_date_evidence';
     }
 
     /**
@@ -1320,7 +2152,7 @@ final class PlatformDataSyncService
                 'stale_age_seconds' => self::syncTaskAgeSeconds($latestTask),
                 'started_at' => (string)($latestTask['started_at'] ?? ''),
                 'finished_at' => (string)($latestTask['finished_at'] ?? ''),
-                'message' => $message,
+                'message' => $this->safeSyncTaskMessage($rawTaskStatus ?: $sourceStatus, $message),
                 'normalized_count' => $normalizedCount,
                 'saved_count' => $savedCount,
             ] : null,
@@ -1583,10 +2415,13 @@ final class PlatformDataSyncService
             return 'manual_intervention_required';
         }
         if ($taskStatus === 'failed') {
-            return $message !== '' ? $message : 'latest_task_failed';
+            return $message !== '' ? $this->safeSyncTaskMessage($taskStatus, $message) : 'latest_task_failed';
         }
         if (in_array($etlStatus, ['capture_success_not_stored', 'normalized_not_stored', 'not_stored'], true)) {
-            return $message !== '' ? $message : $etlStatus;
+            if ($message !== '' && $taskStatus !== 'success') {
+                return $this->safeSyncTaskMessage($taskStatus, $message);
+            }
+            return $etlStatus;
         }
         if ($freshness === 'stale') {
             return 'data_older_than_' . self::COLLECTION_RESOURCE_FRESH_HOURS . 'h';
@@ -1601,12 +2436,14 @@ final class PlatformDataSyncService
     {
         $config = $this->decodeConfig($payload['config_json'] ?? $payload['config'] ?? []);
         $secret = $this->decodeConfig($payload['secret_json'] ?? $payload['secret'] ?? []);
-        foreach (['cookies', 'cookie', 'token', 'api_key', 'authorization', 'password', 'spidertoken', 'mtgsig'] as $key) {
+        foreach (['cookies', 'cookie', 'token', 'api_key', 'authorization', 'authorization_header', 'password', 'spidertoken', 'spider_token', 'spiderkey', 'spider_key', 'mtgsig', 'auth_data', 'usertoken', 'usersign', '_mtsi_eb_u', 'access_token', 'refresh_token', 'set_cookie'] as $key) {
             if (array_key_exists($key, $payload) && $payload[$key] !== '') {
-                $secret[$key === 'cookie' ? 'cookies' : $key] = (string)$payload[$key];
+                $secret[$key === 'cookie' ? 'cookies' : $key] = is_array($payload[$key])
+                    ? $payload[$key]
+                    : (string)$payload[$key];
             }
         }
-        foreach (['url', 'request_url', 'method', 'allowed_hosts', 'payload', 'payload_json', 'headers', 'external_hotel_id', 'hotel_name', 'profile_id', 'profileId', 'browser_profile_id', 'hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId', 'store_id', 'storeId', 'poi_id', 'poiId', 'poi_name', 'poiName', 'partner_id', 'partnerId', 'ads_url', 'adsUrl', 'capture_sections', 'captureSections', 'profile_sections', 'section_concurrency', 'sectionConcurrency', 'ctrip_section_concurrency', 'ctripSectionConcurrency', 'not_applicable_sections', 'notApplicableSections', 'excluded_sections', 'excludedSections', 'allow_review', 'authorized_review_collection', 'review_collection_enabled'] as $key) {
+        foreach (['config_id', 'url', 'request_url', 'method', 'allowed_hosts', 'payload', 'payload_json', 'headers', 'headers_json', 'external_hotel_id', 'hotel_name', 'profile_id', 'profileId', 'browser_profile_id', 'hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId', 'store_id', 'storeId', 'poi_id', 'poiId', 'poi_name', 'poiName', 'partner_id', 'partnerId', 'ads_url', 'adsUrl', 'capture_sections', 'captureSections', 'profile_sections', 'section_concurrency', 'sectionConcurrency', 'ctrip_section_concurrency', 'ctripSectionConcurrency', 'not_applicable_sections', 'notApplicableSections', 'excluded_sections', 'excludedSections', 'allow_review', 'authorized_review_collection', 'review_collection_enabled'] as $key) {
             if (array_key_exists($key, $payload) && $payload[$key] !== '') {
                 $config[$key] = $payload[$key];
             }
@@ -1614,6 +2451,9 @@ final class PlatformDataSyncService
 
         $method = (string)($payload['ingestion_method'] ?? 'manual');
         $platform = strtolower(trim((string)($payload['platform'] ?? 'custom'))) ?: 'custom';
+        if ($this->isOtaPlatform($platform)) {
+            $this->moveOtaConfigCredentialsToSecret($config, $secret);
+        }
         $this->assertNoOtaPasswordCustody($platform, $secret);
         $status = in_array($method, ['manual', 'import_json', 'import_csv', 'import_excel'], true) || !empty($config) || !empty($secret)
             ? 'ready'
@@ -1643,6 +2483,95 @@ final class PlatformDataSyncService
     }
 
     /**
+     * @param array<string, mixed> $config
+     * @param array<string, mixed> $secret
+     */
+    private function moveOtaConfigCredentialsToSecret(array &$config, array &$secret): void
+    {
+        foreach (array_keys($config) as $key) {
+            $stringKey = (string)$key;
+            $lowerKey = strtolower($stringKey);
+            if (in_array($lowerKey, ['headers', 'headers_json'], true)) {
+                [$safeHeaders, $secretHeaders] = $this->splitOtaHeaders($config[$key]);
+                unset($config[$key]);
+                if ($safeHeaders !== []) {
+                    $config['headers'] = array_merge(is_array($config['headers'] ?? null) ? $config['headers'] : [], $safeHeaders);
+                }
+                foreach ($secretHeaders as $headerName => $headerValue) {
+                    $normalizedName = strtolower($headerName);
+                    if ($normalizedName === 'cookie') {
+                        $secret['cookies'] = $headerValue;
+                    } elseif ($normalizedName === 'authorization') {
+                        $secret['authorization'] = $headerValue;
+                    } elseif (in_array($normalizedName, ['x-api-key', 'api-key'], true)) {
+                        $secret['api_key'] = $headerValue;
+                    } else {
+                        $secret['headers'][$headerName] = $headerValue;
+                    }
+                }
+                continue;
+            }
+            if (!$this->isSensitiveConfigKey($stringKey)) {
+                continue;
+            }
+            $targetKey = $lowerKey === 'cookie' ? 'cookies' : $stringKey;
+            $secret[$targetKey] = $config[$key];
+            unset($config[$key]);
+        }
+    }
+
+    /**
+     * @return array{0: array<string, string>, 1: array<string, string>}
+     */
+    private function splitOtaHeaders(mixed $headers): array
+    {
+        if (is_string($headers)) {
+            $decoded = json_decode($headers, true);
+            if (is_array($decoded)) {
+                $headers = $decoded;
+            } else {
+                $lines = preg_split('/\r?\n/', $headers) ?: [];
+                $headers = [];
+                foreach ($lines as $line) {
+                    if (trim($line) === '') {
+                        continue;
+                    }
+                    if (!str_contains($line, ':')) {
+                        throw new RuntimeException('OTA header metadata must use Name: Value syntax.', 422);
+                    }
+                    [$name, $value] = explode(':', $line, 2);
+                    $headers[trim($name)] = trim($value);
+                }
+            }
+        }
+        if (!is_array($headers)) {
+            throw new RuntimeException('OTA header metadata must be an object or header string.', 422);
+        }
+
+        $safe = [];
+        $secret = [];
+        foreach ($headers as $name => $value) {
+            if (is_int($name) && is_string($value) && str_contains($value, ':')) {
+                [$name, $value] = explode(':', $value, 2);
+            }
+            $name = trim((string)$name);
+            if (preg_match('/^[A-Za-z0-9!#$%&\'*+.^_`|~-]{1,100}$/D', $name) !== 1 || !is_scalar($value)) {
+                throw new RuntimeException('OTA header metadata contains an unsupported entry.', 422);
+            }
+            $value = trim((string)$value);
+            if (preg_match('/[\r\n]/', $value) === 1) {
+                throw new RuntimeException('OTA header metadata contains an invalid value.', 422);
+            }
+            if ($this->isSensitiveConfigKey($name)) {
+                $secret[$name] = $value;
+            } else {
+                $safe[$name] = $value;
+            }
+        }
+        return [$safe, $secret];
+    }
+
+    /**
      * @param array<string, mixed> $secret
      */
     private function assertNoOtaPasswordCustody(string $platform, array $secret): void
@@ -1650,26 +2579,285 @@ final class PlatformDataSyncService
         if (!in_array($platform, ['ctrip', 'meituan'], true)) {
             return;
         }
-        if (!array_key_exists('password', $secret)) {
-            return;
-        }
-        $password = $secret['password'];
-        if (!is_scalar($password) || trim((string)$password) === '') {
+        if (!$this->credentialPayloadContainsPassword($secret)) {
             return;
         }
 
-        throw new RuntimeException('OTA account password custody is not supported. Use browser Profile login and manual_login_state_verified instead.', 422);
+        throw new RuntimeException('OTA account password custody is not supported. Use the browser Profile login task and its current-session proof instead.', 422);
+    }
+
+    /**
+     * @param array<string, mixed> $secret
+     */
+    private function credentialPayloadContainsPassword(array $secret): bool
+    {
+        foreach ($secret as $key => $value) {
+            if (strtolower((string)$key) === 'password' && $this->credentialPayloadHasValue($value)) {
+                return true;
+            }
+            if (is_array($value) && $this->credentialPayloadContainsPassword($value)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function loadSource(int $id): array
     {
-        $row = Db::name('platform_data_sources')->where('id', $id)->find();
+        $row = Db::name('platform_data_sources')->withoutField('secret_json')->where('id', $id)->find();
         if (!$row) {
             throw new RuntimeException('Data source not found.', 404);
         }
         $row['config'] = $this->decodeConfig($row['config_json'] ?? []);
-        $row['secret'] = $this->decodeConfig($row['secret_json'] ?? []);
+        if (!$this->isOtaPlatform((string)($row['platform'] ?? ''))) {
+            $row['secret'] = $this->decodeConfig(Db::name('platform_data_sources')->where('id', $id)->value('secret_json'));
+        }
         return $row;
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    private function fetchOtaSourceInsideVault(DataSourceAdapter $adapter, array $source, array $options): array
+    {
+        $platform = strtolower(trim((string)($source['platform'] ?? '')));
+        $this->assertNoInlineOtaCredentialOptions($options, $platform);
+        $hotelId = (int)($source['system_hotel_id'] ?? 0);
+        $tenantId = (int)($source['tenant_id'] ?? 0);
+        if ($tenantId <= 0) {
+            $tenantId = $this->resolveHotelTenantId($hotelId);
+        }
+        $config = is_array($source['config'] ?? null) ? $source['config'] : [];
+        $this->assertOtaExecutionConfigSafe($config, $platform);
+        $configId = trim((string)($config['config_id'] ?? ''));
+        if (preg_match('/^[A-Za-z0-9._-]{1,100}$/D', $configId) !== 1) {
+            throw new RuntimeException('OTA data source credential locator is missing.', 422);
+        }
+        if (trim((string)($config['credential_status'] ?? '')) !== 'ready') {
+            throw new RuntimeException('OTA data source credential is not ready.', 422);
+        }
+
+        return $this->otaCredentialVault()->withPayloadForExecution(
+            $tenantId,
+            $hotelId,
+            $platform,
+            $configId,
+            function (array $credentialPayload) use ($adapter, $source, $options): array {
+                $executionSource = $source;
+                unset($executionSource['secret_json']);
+                $executionSource['secret'] = $credentialPayload;
+                try {
+                    $result = $adapter->fetch($executionSource, $options);
+                    return $this->sanitizeAdapterResultForCredentialBoundary($result, $credentialPayload);
+                } finally {
+                    unset($executionSource['secret']);
+                    $credentialPayload = [];
+                }
+            }
+        );
+    }
+
+    /**
+     * Browser Profile collection reuses the authorized local browser session.
+     * It must never decrypt or inject a reusable Cookie/API credential.
+     *
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    private function fetchOtaBrowserProfileSource(DataSourceAdapter $adapter, array $source, array $options): array
+    {
+        $platform = strtolower(trim((string)($source['platform'] ?? '')));
+        $this->assertNoInlineOtaCredentialOptions($options, $platform);
+        $config = is_array($source['config'] ?? null) ? $source['config'] : [];
+        $this->assertOtaExecutionConfigSafe($config, $platform);
+        $hotelId = (int)($source['system_hotel_id'] ?? 0);
+        $profileKey = $this->otaBrowserProfileKey($platform, $config);
+        if ($profileKey === '') {
+            throw new RuntimeException('Browser Profile binding key is missing.', 422);
+        }
+        (new OtaProfileBindingService())->assertBound($hotelId, $platform, $profileKey);
+
+        $executionSource = $source;
+        unset($executionSource['secret'], $executionSource['secret_json']);
+
+        return $this->sanitizeAdapterResultForCredentialBoundary(
+            $adapter->fetch($executionSource, $options),
+            []
+        );
+    }
+
+    /** @param array<string, mixed> $config */
+    private function otaBrowserProfileKey(string $platform, array $config): string
+    {
+        $keys = $platform === 'meituan'
+            ? ['store_id', 'storeId', 'poi_id', 'poiId', 'profile_id', 'profileId']
+            : ['profile_id', 'profileId', 'browser_profile_id', 'browserProfileId'];
+        foreach ($keys as $key) {
+            if (is_scalar($config[$key] ?? null) && trim((string)$config[$key]) !== '') {
+                return trim((string)$config[$key]);
+            }
+        }
+        return '';
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     */
+    private function assertNoInlineOtaCredentialOptions(array $options, string $platform): void
+    {
+        foreach ($options as $key => $value) {
+            $key = (string)$key;
+            if ($this->isSensitiveConfigKey($key) && $this->credentialPayloadHasValue($value)) {
+                throw new RuntimeException('Inline OTA credentials are not allowed for data source sync.', 422);
+            }
+            if (str_contains(strtolower($key), 'url')) {
+                $this->assertOtaMetadataUrlsAreSafe($value, $platform);
+            }
+            if (strtolower($key) === 'headers' && is_string($value)
+                && preg_match('/(?:^|\r?\n)\s*(?:cookie|authorization|x-api-key|token)\s*:/i', $value) === 1
+            ) {
+                throw new RuntimeException('Inline OTA credentials are not allowed for data source sync.', 422);
+            }
+            if (is_string($value) && $this->stringContainsCredentialMaterial($value)) {
+                throw new RuntimeException('Inline OTA credentials are not allowed for data source sync.', 422);
+            }
+            if (is_array($value)) {
+                $this->assertNoInlineOtaCredentialOptions($value, $platform);
+            }
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $config
+     */
+    private function assertOtaExecutionConfigSafe(array $config, string $platform): void
+    {
+        foreach (['url', 'request_url', 'ads_url', 'adsUrl'] as $urlKey) {
+            if (array_key_exists($urlKey, $config)) {
+                $this->assertOtaMetadataUrlsAreSafe($config[$urlKey], $platform);
+            }
+        }
+        if (array_key_exists('allowed_hosts', $config)) {
+            $this->normalizeOtaAllowedHosts($config['allowed_hosts'], $platform);
+        }
+
+        $safeCredentialMetadata = [
+            'config_id', 'credential_ref', 'credential_status', 'status',
+            'has_secret', 'has_cookies', 'secret_mask', 'key_id', 'payload_version', 'rotated_at',
+        ];
+        foreach ($config as $key => $value) {
+            $key = (string)$key;
+            if (in_array($key, $safeCredentialMetadata, true)) {
+                continue;
+            }
+            if (in_array(strtolower($key), ['headers', 'headers_json'], true)) {
+                [, $secretHeaders] = $this->splitOtaHeaders($value);
+                if ($secretHeaders !== []) {
+                    throw new RuntimeException('Legacy OTA source headers contain inline credentials and require migration.', 422);
+                }
+                continue;
+            }
+            if ($this->isSensitiveConfigKey($key) && $this->credentialPayloadHasValue($value)) {
+                throw new RuntimeException('Legacy OTA source config contains inline credentials and requires migration.', 422);
+            }
+            $this->sanitizeOtaMetadataNode($value);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $result
+     * @param array<string, mixed> $credentialPayload
+     * @return array<string, mixed>
+     */
+    private function sanitizeAdapterResultForCredentialBoundary(array $result, array $credentialPayload): array
+    {
+        $status = strtolower(trim((string)($result['status'] ?? 'failed')));
+        if (preg_match('/^[a-z][a-z0-9_]{0,39}$/D', $status) !== 1) {
+            $status = 'failed';
+        }
+        $secretValues = $this->credentialScalarValues($credentialPayload);
+        $safe = [
+            'status' => $status,
+            'message' => $this->safeSyncTaskMessage($status, (string)($result['message'] ?? '')),
+            'payload' => is_array($result['payload'] ?? null)
+                ? $this->redactCredentialBoundValue($result['payload'], $secretValues)
+                : [],
+        ];
+        if (isset($result['http_status']) && is_numeric($result['http_status'])) {
+            $safe['http_status'] = max(0, min(599, (int)$result['http_status']));
+        }
+        foreach (['status_code', 'error_code'] as $key) {
+            if (!isset($result[$key]) || !is_scalar($result[$key])) {
+                continue;
+            }
+            $value = (string)$this->redactCredentialBoundValue((string)$result[$key], $secretValues);
+            if (preg_match('/^[A-Za-z0-9_.:-]{1,100}$/D', $value) === 1) {
+                $safe[$key] = $value;
+            }
+        }
+        return $safe;
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<int, string>
+     */
+    private function credentialScalarValues(array $payload): array
+    {
+        $values = [];
+        foreach ($payload as $value) {
+            if (is_array($value)) {
+                $values = array_merge($values, $this->credentialScalarValues($value));
+                continue;
+            }
+            if (is_scalar($value)) {
+                $value = (string)$value;
+                if (strlen($value) >= 4) {
+                    $values[] = $value;
+                }
+            }
+        }
+        return array_values(array_unique($values));
+    }
+
+    /**
+     * @param array<int, string> $secretValues
+     */
+    private function redactCredentialBoundValue(mixed $value, array $secretValues): mixed
+    {
+        if (is_array($value)) {
+            $safe = [];
+            foreach ($value as $key => $item) {
+                if (is_string($key) && ($this->isSensitiveConfigKey($key) || $this->containsCredentialScalar($key, $secretValues))) {
+                    continue;
+                }
+                $safe[$key] = $this->redactCredentialBoundValue($item, $secretValues);
+            }
+            return $safe;
+        }
+        if (is_string($value)) {
+            foreach ($secretValues as $secret) {
+                $value = str_replace($secret, '[redacted]', $value);
+            }
+            return $value;
+        }
+        return is_scalar($value) || $value === null ? $value : null;
+    }
+
+    /**
+     * @param array<int, string> $secretValues
+     */
+    private function containsCredentialScalar(string $value, array $secretValues): bool
+    {
+        foreach ($secretValues as $secret) {
+            if ($secret !== '' && str_contains($value, $secret)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function resolveAdapter(array $source): DataSourceAdapter
@@ -1694,7 +2882,7 @@ final class PlatformDataSyncService
         }
 
         throw new RuntimeException(
-            'browser_profile background sync requires manual_login_state_verified, profile_status=logged_in, and last_login_verified_at before capture.',
+            'browser_profile synchronization requires current_session_verified from the same data source Profile session before capture.',
             422
         );
     }
@@ -1706,32 +2894,13 @@ final class PlatformDataSyncService
      */
     private function browserProfileBackgroundSyncLoginMissingRequirements(array $source, array $options): array
     {
-        if (!$this->isOtaBrowserProfileSource($source) || $this->browserProfileSyncIsInteractive($options)) {
+        if (!$this->isOtaBrowserProfileSource($source)) {
             return [];
         }
 
-        $config = $this->decodeConfig($source['config'] ?? $source['config_json'] ?? []);
-        $missing = [];
-        if (!$this->truthy($config['manual_login_state_verified'] ?? null)) {
-            $missing[] = 'manual_login_state_verified';
-        }
-
-        $profileStatus = strtolower(trim((string)($config['profile_status'] ?? $config['login_status'] ?? '')));
-        if (!in_array($profileStatus, ['logged_in', 'authorized'], true)) {
-            $missing[] = 'profile_status_logged_in';
-        }
-
-        $lastVerifiedAt = trim((string)(
-            $config['last_login_verified_at']
-            ?? $config['profile_login_verified_at']
-            ?? $config['last_profile_login_at']
-            ?? ''
-        ));
-        if ($lastVerifiedAt === '') {
-            $missing[] = 'last_login_verified_at';
-        }
-
-        return $missing;
+        return $this->profileSessionProofService->isCurrentVerified($source)
+            ? []
+            : ['current_session_verified'];
     }
 
     /**
@@ -1743,14 +2912,6 @@ final class PlatformDataSyncService
         $method = strtolower(trim((string)($source['ingestion_method'] ?? '')));
         return in_array($platform, ['ctrip', 'meituan'], true)
             && in_array($method, ['browser_profile', 'profile_browser'], true);
-    }
-
-    /**
-     * @param array<string, mixed> $options
-     */
-    private function browserProfileSyncIsInteractive(array $options): bool
-    {
-        return $this->truthy($options['interactive_browser'] ?? $options['interactiveBrowser'] ?? false);
     }
 
     private function refreshDatabaseConnectionAfterExternalFetch(): void
@@ -1815,7 +2976,7 @@ final class PlatformDataSyncService
             'update_time' => $now,
         ];
         if (isset($this->tableColumns('platform_data_sync_tasks')['tenant_id'])) {
-            $data['tenant_id'] = (int)($source['system_hotel_id'] ?? 0) ?: null;
+            $data['tenant_id'] = (int)($source['tenant_id'] ?? 0) ?: null;
         }
 
         return (int)Db::name('platform_data_sync_tasks')->insertGetId($data);
@@ -1826,21 +2987,23 @@ final class PlatformDataSyncService
         $finishStartedAt = microtime(true);
         $now = date('Y-m-d H:i:s');
         $timing = $this->normalizeSyncTiming($timing);
+        $safeMessage = $this->safeSyncTaskMessage($status, $message);
+        $safeDiagnostics = $this->sanitizeSyncDiagnosticsForResponse(
+            is_array($payload['sync_diagnostics'] ?? null) ? $payload['sync_diagnostics'] : [],
+            $status
+        );
         $stats = [
             'normalized_count' => $normalizedCount,
             'saved_count' => $savedCount,
             'payload_keys' => array_slice(array_keys($payload), 0, 30),
         ];
-        if (!empty($payload['error_summary'])) {
-            $stats['error_summary'] = mb_substr((string)$payload['error_summary'], 0, 500);
-        }
-        if (is_array($payload['sync_diagnostics'] ?? null)) {
-            $stats['sync_diagnostics'] = $payload['sync_diagnostics'];
+        if ($safeDiagnostics !== []) {
+            $stats['sync_diagnostics'] = $safeDiagnostics;
         }
         $stats['collection_quality'] = $this->buildSyncTaskCollectionQualitySnapshot(
             $status,
             $source,
-            is_array($payload['sync_diagnostics'] ?? null) ? $payload['sync_diagnostics'] : [],
+            $safeDiagnostics,
             $normalizedCount,
             $savedCount,
             $now
@@ -1850,20 +3013,21 @@ final class PlatformDataSyncService
                 $stats[$periodKey] = (string)$payload[$periodKey];
             }
         }
+        $stats = $this->sanitizeSyncTaskStats($stats, $status);
         $nextRetryAt = in_array($status, ['failed', 'partial_success'], true) ? date('Y-m-d H:i:s', time() + 900) : null;
 
         Db::name('platform_data_sync_tasks')->where('id', $taskId)->update([
             'status' => $status,
             'finished_at' => $now,
             'next_retry_at' => $nextRetryAt,
-            'message' => $message,
+            'message' => $safeMessage,
             'stats_json' => json_encode($stats, JSON_UNESCAPED_UNICODE),
             'update_time' => $now,
         ]);
         Db::name('platform_data_sources')->where('id', (int)$source['id'])->update([
             'last_sync_time' => $now,
             'last_sync_status' => $status,
-            'last_error' => in_array($status, ['success'], true) ? null : $message,
+            'last_error' => in_array($status, ['success'], true) ? null : $safeMessage,
             'status' => $status === 'success' ? 'success' : $status,
             'update_time' => $now,
         ]);
@@ -1871,23 +3035,23 @@ final class PlatformDataSyncService
         if ($syncStartedAt !== null) {
             $timing['total_elapsed_ms'] = $this->elapsedMilliseconds($syncStartedAt);
         }
-        $stats = array_merge($stats, $timing, ['timing' => $timing]);
+        $stats = $this->sanitizeSyncTaskStats(array_merge($stats, $timing, ['timing' => $timing]), $status);
         Db::name('platform_data_sync_tasks')->where('id', $taskId)->update([
             'stats_json' => json_encode($stats, JSON_UNESCAPED_UNICODE),
             'update_time' => date('Y-m-d H:i:s'),
         ]);
-        $this->logSync($taskId, $source, $status === 'success' ? 'info' : 'warning', 'sync_finished', $message, $stats);
+        $this->logSync($taskId, $source, $status === 'success' ? 'info' : 'warning', 'sync_finished', $safeMessage, $stats);
 
         return [
             'task_id' => $taskId,
             'data_source_id' => (int)$source['id'],
             'status' => $status,
-            'message' => $message,
+            'message' => $safeMessage,
             'normalized_count' => $normalizedCount,
             'saved_count' => $savedCount,
             'next_retry_at' => $nextRetryAt,
             'timing' => $timing,
-            'sync_diagnostics' => is_array($payload['sync_diagnostics'] ?? null) ? $payload['sync_diagnostics'] : null,
+            'sync_diagnostics' => $safeDiagnostics !== [] ? $safeDiagnostics : null,
             'collection_quality' => $stats['collection_quality'],
         ];
     }
@@ -1952,9 +3116,8 @@ final class PlatformDataSyncService
         $profileStatus = strtolower(trim((string)($config['profile_status'] ?? $config['login_status'] ?? '')));
         $permissionDenied = in_array($taskStatus, ['permission_denied'], true)
             || in_array($profileStatus, ['permission_denied', 'no_permission', 'unauthorized'], true);
-        $profileLoginVerified = $this->truthy($config['manual_login_state_verified'] ?? null)
-            && in_array($profileStatus, ['logged_in', 'authorized'], true)
-            && $this->syncTaskLastLoginVerifiedAt($config) !== '';
+        $profileLoginVerified = $isBrowserProfile
+            && $this->profileSessionProofService->isCurrentVerified($source);
         $taskFailed = in_array($taskStatus, ['failed', 'capture_failed'], true);
 
         $state = 'unverified';
@@ -2048,6 +3211,7 @@ final class PlatformDataSyncService
         }
 
         $allowed = [
+            'current_session_verified',
             'manual_login_state_verified',
             'profile_status_logged_in',
             'last_login_verified_at',
@@ -2083,18 +3247,6 @@ final class PlatformDataSyncService
     private function syncTaskProfileIdentifier(array $config): string
     {
         foreach (['profile_id', 'profileId', 'stable_profile_id', 'stableProfileId', 'profile_binding_key', 'profileBindingKey'] as $key) {
-            $value = trim((string)($config[$key] ?? ''));
-            if ($value !== '') {
-                return $value;
-            }
-        }
-
-        return '';
-    }
-
-    private function syncTaskLastLoginVerifiedAt(array $config): string
-    {
-        foreach (['last_login_verified_at', 'lastLoginVerifiedAt', 'login_verified_at', 'loginVerifiedAt', 'last_verified_at', 'lastVerifiedAt'] as $key) {
             $value = trim((string)($config[$key] ?? ''));
             if ($value !== '') {
                 return $value;
@@ -2159,18 +3311,16 @@ final class PlatformDataSyncService
         $p0Status = $missingInputs !== []
             ? 'blocked'
             : ($requiresTraffic ? 'ready' : ($savedCount > 0 ? 'not_required' : 'not_loaded'));
+        $capabilityStates = $this->syncTaskCapabilityStates($dataTypes, $savedCount, $adapterStatus);
         $operatorMessage = 'target_date_traffic_ready';
-        if (in_array('manual_login_state_verified', $missingInputs, true)
-            || in_array('profile_status_logged_in', $missingInputs, true)
-            || in_array('last_login_verified_at', $missingInputs, true)
-        ) {
-            $operatorMessage = 'manual_login_state_not_verified';
+        if (in_array('current_session_verified', $missingInputs, true)) {
+            $operatorMessage = 'current_session_not_verified';
         } elseif (in_array('target_date_traffic_rows', $missingInputs, true)) {
             $operatorMessage = 'profile_reused_no_target_date_traffic_rows';
         } elseif (in_array('traffic_field_facts', $missingInputs, true)) {
             $operatorMessage = 'traffic_field_facts_missing';
         } elseif ($adapterStatus !== 'success') {
-            $operatorMessage = $adapterMessage !== '' ? $adapterMessage : $adapterStatus;
+            $operatorMessage = $this->safeSyncTaskMessage($adapterStatus, $adapterMessage);
         }
 
         return [
@@ -2183,11 +3333,42 @@ final class PlatformDataSyncService
             'target_date_traffic_field_fact_missing_count' => $targetTrafficFieldFactMissing,
             'field_fact_status' => $fieldFactStatus,
             'p0_status' => $p0Status,
+            'capability_states' => $capabilityStates,
             'missing_inputs' => $missingInputs,
             'operator_message' => $operatorMessage,
             'adapter_status' => $adapterStatus,
-            'adapter_message' => mb_substr($adapterMessage, 0, 240),
         ];
+    }
+
+    /**
+     * @param array<string, bool> $targetDataTypes
+     * @return array<string, string>
+     */
+    private function syncTaskCapabilityStates(array $targetDataTypes, int $savedCount, string $adapterStatus): array
+    {
+        $states = [
+            'business' => 'unverified',
+            'orders' => 'unverified',
+            'reviews' => 'unverified',
+        ];
+        if (in_array(strtolower(trim($adapterStatus)), ['permission_denied', 'no_permission', 'unauthorized', 'forbidden'], true)) {
+            return array_fill_keys(array_keys($states), 'permission_denied');
+        }
+        if ($savedCount <= 0) {
+            return $states;
+        }
+
+        foreach ([
+            'business' => 'business',
+            'order' => 'orders',
+            'review' => 'reviews',
+        ] as $dataType => $capability) {
+            if (isset($targetDataTypes[$dataType])) {
+                $states[$capability] = 'verified';
+            }
+        }
+
+        return $states;
     }
 
     private function syncTargetDate(array $options, array $payload): string
@@ -2283,7 +3464,7 @@ final class PlatformDataSyncService
             'create_time' => date('Y-m-d H:i:s'),
         ];
         if (isset($this->tableColumns('platform_data_raw_records')['tenant_id'])) {
-            $data['tenant_id'] = (int)($source['system_hotel_id'] ?? 0) ?: null;
+            $data['tenant_id'] = $this->resolveSourceTenantId($source);
         }
 
         Db::name('platform_data_raw_records')->insert($data);
@@ -2960,13 +4141,27 @@ final class PlatformDataSyncService
     private function sanitizeSourceRow(array $row): array
     {
         $config = $this->decodeConfig($row['config_json'] ?? []);
-        $secret = $this->decodeConfig($row['secret_json'] ?? []);
+        $isOta = $this->isOtaPlatform((string)($row['platform'] ?? ''));
+        $secret = $isOta ? [] : $this->decodeConfig($row['secret_json'] ?? []);
         unset($row['config_json']);
         unset($row['secret_json']);
         $row['config'] = $this->sanitizeConfigForResponse($config);
-        $row['has_secret'] = !empty($secret);
-        $row['has_cookies'] = isset($secret['cookies']) && trim((string)$secret['cookies']) !== '';
-        $row['cookies_preview'] = $row['has_cookies'] ? $this->maskSecret((string)$secret['cookies']) : '';
+        if ($isOta) {
+            $row['config_id'] = trim((string)($config['config_id'] ?? ''));
+            $row['credential_ref'] = (int)($config['credential_ref'] ?? 0) ?: null;
+            $row['credential_status'] = trim((string)($config['credential_status'] ?? $config['status'] ?? ''));
+            $row['has_secret'] = array_key_exists('has_secret', $config)
+                ? $this->truthy($config['has_secret'])
+                : (int)($config['credential_ref'] ?? 0) > 0;
+            $row['has_cookies'] = $this->truthy($config['has_cookies'] ?? false);
+        } else {
+            $row['has_secret'] = !empty($secret);
+            $row['has_cookies'] = isset($secret['cookies']) && trim((string)$secret['cookies']) !== '';
+        }
+        unset($row['cookies_preview']);
+        if (array_key_exists('last_error', $row)) {
+            $row['last_error'] = $this->safeSyncTaskMessage((string)($row['last_sync_status'] ?? $row['status'] ?? ''), (string)$row['last_error']);
+        }
         return $row;
     }
 
@@ -3168,8 +4363,13 @@ final class PlatformDataSyncService
     private function sanitizeConfigForResponse(array $config): array
     {
         foreach ($config as $key => $value) {
+            $normalized = strtolower(trim((string)preg_replace('/[^a-z0-9]+/i', '_', (string)$key), '_'));
+            if (in_array($normalized, ['profile_key_hash', 'current_session_probe_profile_key_hash'], true)) {
+                unset($config[$key]);
+                continue;
+            }
             if ($this->isSensitiveConfigKey((string)$key)) {
-                $config[$key] = is_string($value) ? $this->maskSecret($value) : '[configured]';
+                $config[$key] = '[configured]';
                 continue;
             }
             if (is_array($value)) {
@@ -3194,7 +4394,21 @@ final class PlatformDataSyncService
 
     private function isSensitiveConfigKey(string $key): bool
     {
-        return preg_match('/cookie|authorization|token|api[-_]?key|secret|password|spidertoken|mtgsig/i', $key) === 1;
+        $normalized = strtolower(trim((string)preg_replace('/[^a-z0-9]+/i', '_', $key), '_'));
+        if (in_array($normalized, [
+            'has_secret', 'secret_mask', 'has_cookies', 'cookie_configured',
+            'has_profile_cookie_source', 'profile_cookie_source', 'profile_cookie_source_candidate', 'cookie_source',
+            'authorization_policy', 'requires_explicit_authorization',
+        ], true)) {
+            return false;
+        }
+        return preg_match('/cookie|authorization|auth[-_]?data|token|api[-_]?key|secret|password|spider[-_]?(?:token|key)|mtgsig|user[-_]?(?:token|sign)|_mtsi_eb_u/i', $key) === 1;
+    }
+
+    private function stringContainsCredentialMaterial(string $value): bool
+    {
+        return preg_match('/["\']?(?:cookie|set-cookie|authorization|proxy-authorization|x-api-key|api-key|auth_data|token|access_token|refresh_token|spidertoken|spiderkey|mtgsig|usertoken|usersign|password)["\']?\s*[:=]/i', $value) === 1
+            || preg_match('/\bbearer\s+[A-Za-z0-9._~+\/=:-]{8,}/i', $value) === 1;
     }
 
     private function decodeConfig($value): array
@@ -3320,6 +4534,7 @@ final class PlatformDataSyncService
         return match ($value) {
             'realtime', 'real_time', 'realtime_snapshot', 'today_realtime', 'live', 'snapshot' => 'realtime_snapshot',
             'historical', 'history', 'historical_daily', 'daily', 'fixed', 'final' => 'historical_daily',
+            'next_30_days', 'next30days', 'future_forecast', 'forecast', 'forecast_window' => 'next_30_days',
             default => '',
         };
     }
@@ -3392,7 +4607,7 @@ final class PlatformDataSyncService
         if ($value === '') {
             return '';
         }
-        return mb_substr($value, 0, 4) . '...' . mb_substr($value, -4);
+        return '[configured]';
     }
 
     private function tableColumns(string $table): array
@@ -3446,6 +4661,9 @@ final class PlatformDataSyncService
 
     private function logSync(int $taskId, array $source, string $level, string $event, string $message, array $context = []): void
     {
+        $adapterStatus = (string)($context['sync_diagnostics']['adapter_status'] ?? '');
+        $message = $this->safeSyncTaskMessage($adapterStatus, $message);
+        $context = $this->sanitizeSyncTaskStats($context, $adapterStatus);
         $data = [
             'sync_task_id' => $taskId,
             'data_source_id' => (int)($source['id'] ?? 0) ?: null,
@@ -3457,7 +4675,7 @@ final class PlatformDataSyncService
             'create_time' => date('Y-m-d H:i:s'),
         ];
         if (isset($this->tableColumns('platform_data_sync_logs')['tenant_id'])) {
-            $data['tenant_id'] = (int)($source['system_hotel_id'] ?? 0) ?: null;
+            $data['tenant_id'] = (int)($source['tenant_id'] ?? 0) ?: null;
         }
 
         Db::name('platform_data_sync_logs')->insert($data);

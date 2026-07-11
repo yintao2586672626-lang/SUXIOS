@@ -12,6 +12,24 @@ vm.runInNewContext(readFileSync('public/data-health-static.js', 'utf8'), context
 
 const helpers = context.window.SUXI_DATA_HEALTH_STATIC;
 
+test('daily workbench write boundary requires confirmation for patrol and export writes', () => {
+  assert.equal(typeof helpers.buildDailyWorkbenchWriteBoundary, 'function');
+
+  const boundary = helpers.buildDailyWorkbenchWriteBoundary();
+  assert.match(boundary.summaryText, /运行巡检会写入运行时快照和操作日志/);
+  assert.match(boundary.summaryText, /导出会写入导出审计日志/);
+  assert.equal(boundary.run.requiresConfirmation, true);
+  assert.equal(boundary.run.runtimeSnapshotWritten, true);
+  assert.equal(boundary.run.operationLogWritten, true);
+  assert.equal(boundary.run.otaCollectionTriggered, false);
+  assert.match(boundary.run.confirmText, /runtime/);
+  assert.match(boundary.run.confirmText, /操作日志/);
+  assert.equal(boundary.export.requiresConfirmation, true);
+  assert.equal(boundary.export.runtimeSnapshotWritten, false);
+  assert.equal(boundary.export.operationLogWritten, true);
+  assert.match(boundary.export.confirmText, /导出审计日志/);
+});
+
 test('data health field-gap summary stays read-only and source-aware', () => {
   assert.equal(typeof helpers.summarizeDataHealthFieldGapActions, 'function');
 
@@ -655,6 +673,9 @@ test('full data health panel refresh includes release evidence status without li
     normalizedMode: 'light',
   }));
   assert.equal(calls.some(([name]) => name === 'loadReleaseEvidenceStatus'), false);
+  assert.equal(calls.some(([name]) => name === 'loadDailyWorkbenchPatrols'), false);
+  assert.equal(calls.some(([name]) => name === 'loadPhase3OperationEffectLoop'), false);
+  assert.equal(calls.some(([name]) => name === 'loadPhase3OperationEffectLoopLedger'), false);
 
   calls.length = 0;
   await Promise.all(helpers.buildDataHealthPanelRefreshJobs({
@@ -662,6 +683,9 @@ test('full data health panel refresh includes release evidence status without li
     normalizedMode: 'full',
   }));
   assert.equal(calls.some(([name]) => name === 'loadReleaseEvidenceStatus'), true);
+  assert.equal(calls.some(([name]) => name === 'loadDailyWorkbenchPatrols'), false);
+  assert.equal(calls.some(([name]) => name === 'loadPhase3OperationEffectLoop'), false);
+  assert.equal(calls.some(([name]) => name === 'loadPhase3OperationEffectLoopLedger'), false);
 });
 
 test('OTA field gap queue exposes source path metric storage UI and verifier state', () => {

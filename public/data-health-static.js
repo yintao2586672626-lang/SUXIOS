@@ -1034,9 +1034,6 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         normalizedMode = 'light',
         loadAutoFetchStatus,
         loadDailyWorkbench,
-        loadDailyWorkbenchPatrols,
-        loadPhase3OperationEffectLoop,
-        loadPhase3OperationEffectLoopLedger,
         loadCollectionReliability,
         loadDataHealthOperationLogs,
         loadPublicEndpointSecurity,
@@ -1048,9 +1045,6 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         const jobs = [
             requireDataHealthPanelLoader(loadAutoFetchStatus, 'loadAutoFetchStatus')({ detail: isFull }),
             requireDataHealthPanelLoader(loadDailyWorkbench, 'loadDailyWorkbench')({ limit: 10 }),
-            requireDataHealthPanelLoader(loadDailyWorkbenchPatrols, 'loadDailyWorkbenchPatrols')(),
-            requireDataHealthPanelLoader(loadPhase3OperationEffectLoop, 'loadPhase3OperationEffectLoop')({ limit: 20 }),
-            requireDataHealthPanelLoader(loadPhase3OperationEffectLoopLedger, 'loadPhase3OperationEffectLoopLedger')(),
         ];
         if (isFull) {
             jobs.push(
@@ -3319,6 +3313,26 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         missing_question: 'bg-red-50 text-red-700 border-red-100',
         request_failed: 'bg-red-50 text-red-700 border-red-100',
     }[String(status || '').toLowerCase()] || 'bg-gray-50 text-gray-600 border-gray-200');
+
+    const buildDailyWorkbenchWriteBoundary = () => ({
+        summaryText: '只读查看不会写业务数据；运行巡检会写入运行时快照和操作日志，导出会写入导出审计日志；两类操作均需二次确认。',
+        run: {
+            requiresConfirmation: true,
+            runtimeSnapshotWritten: true,
+            operationLogWritten: true,
+            otaCollectionTriggered: false,
+            businessTableWritten: false,
+            confirmText: '运行巡检会写入 runtime/phase2_daily_workbench_patrol 巡检快照、latest 索引和一条操作日志；不会触发 OTA 采集，也不会改写业务表。确认继续？',
+        },
+        export: {
+            requiresConfirmation: true,
+            runtimeSnapshotWritten: false,
+            operationLogWritten: true,
+            otaCollectionTriggered: false,
+            businessTableWritten: false,
+            confirmText: '导出只读取已有巡检快照，但会写入一条导出审计日志；不会触发 OTA 采集，也不会改写业务表。确认继续？',
+        },
+    });
 
     const phase3OperationEffectLoopStatusText = (status) => ({
         patrol_anomaly_confirmed: '异常已确认',
@@ -6094,6 +6108,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         phase1EmployeeQuestionStatusClass,
         dailyWorkbenchStatusText,
         dailyWorkbenchStatusClass,
+        buildDailyWorkbenchWriteBoundary,
         phase3OperationEffectLoopStatusText,
         phase3OperationEffectLoopStatusClass,
         phase1EmployeeActionFamilyText,

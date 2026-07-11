@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\command;
 
 use app\service\PlatformDataSyncService;
+use app\service\OtaCredentialVault;
 use think\console\Command;
 use think\console\Input;
 use think\console\Output;
@@ -100,7 +101,17 @@ class AutoFetchOnlineData extends Command
                 ], 7200);
                 $ranLockedTask = true;
                 try {
-                    $result = $this->fetchDataForHotel($hotelId, $run['data_date'], $browserHeadless, $run['period'], $snapshotTime, $ctripSectionConcurrency);
+                    $result = $this->fetchDataForHotel(
+                        $hotelId,
+                        $run['data_date'],
+                        $browserHeadless,
+                        $run['period'],
+                        $snapshotTime,
+                        $ctripSectionConcurrency,
+                        (string)($status['ctrip_config_id'] ?? ''),
+                        (string)($status['ctrip_request_url'] ?? ''),
+                        (string)($status['ctrip_node_id'] ?? '')
+                    );
                     $this->updateStatus($hotelId, !empty($result['success']), (string)($result['message'] ?? ''), $run['data_date'], [
                         'status' => !empty($result['success']) ? 'success' : 'failed',
                         'saved_count' => (int)($result['saved_count'] ?? 0),
@@ -121,7 +132,17 @@ class AutoFetchOnlineData extends Command
         return 0;
     }
 
-    private function fetchDataForHotel(int $hotelId, string $dataDate, bool $browserHeadless = true, string $dataPeriod = 'historical_daily', ?string $snapshotTime = null, int $ctripSectionConcurrency = 3): array
+    private function fetchDataForHotel(
+        int $hotelId,
+        string $dataDate,
+        bool $browserHeadless = true,
+        string $dataPeriod = 'historical_daily',
+        ?string $snapshotTime = null,
+        int $ctripSectionConcurrency = 3,
+        string $ctripConfigId = '',
+        string $ctripRequestUrl = '',
+        string $ctripNodeId = ''
+    ): array
     {
         $startedAt = microtime(true);
         $dataPeriod = $this->normalizeOnlineDailyDataPeriod($dataPeriod) ?: 'historical_daily';
@@ -139,38 +160,64 @@ class AutoFetchOnlineData extends Command
             ];
         }
 
-        $fetchConfig = $this->resolveCtripFetchConfigForHotel($hotelId);
-        $cookies = (string)($fetchConfig['cookies'] ?? '');
+        $ctripRequestUrl = $this->normalizeScheduledCtripRequestUrl($ctripRequestUrl);
+        $ctripNodeId = $this->normalizeScheduledCtripNodeId($ctripNodeId);
+        if ($ctripRequestUrl === '' || $ctripNodeId === '') {
+            return ['success' => false, 'message' => 'ctrip_execution_metadata_invalid', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt)];
+        }
 
-        if (empty($cookies)) {
-            return ['success' => false, 'message' => '未配置Cookies', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt)];
+        $locator = $this->resolveCtripCredentialLocatorForHotel($hotelId, $ctripConfigId);
+        if (($locator['status'] ?? '') !== 'ready') {
+            return [
+                'success' => false,
+                'message' => (string)($locator['message'] ?? 'credential_unavailable'),
+                'saved_count' => 0,
+                'data_period' => $dataPeriod,
+                'timing' => $this->ensureTotalTiming([], $startedAt),
+            ];
         }
 
         try {
-            $result = $this->sendHttpRequest(
-                (string)($fetchConfig['url'] ?? 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport'),
-                ['nodeId' => (string)($fetchConfig['node_id'] ?? '24588'), 'startDate' => $dataDate, 'endDate' => $dataDate],
-                $cookies
+            return (new OtaCredentialVault())->withPayloadForExecution(
+                (int)$locator['tenant_id'],
+                $hotelId,
+                'ctrip',
+                (string)$locator['config_id'],
+                function (array $credentialPayload) use ($hotelId, $dataDate, $dataPeriod, $snapshotTime, $startedAt, $ctripRequestUrl, $ctripNodeId): array {
+                    $cookieValue = $credentialPayload['cookies'] ?? $credentialPayload['cookie'] ?? null;
+                    $cookies = is_scalar($cookieValue) ? trim((string)$cookieValue) : '';
+                    if ($cookies === '') {
+                        return ['success' => false, 'message' => 'credential_payload_missing_cookie', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt)];
+                    }
+
+                    $result = $this->sendHttpRequest(
+                        $ctripRequestUrl,
+                        ['nodeId' => $ctripNodeId, 'startDate' => $dataDate, 'endDate' => $dataDate],
+                        $cookies
+                    );
+
+                    if (!$result['success']) {
+                        return ['success' => false, 'message' => 'ctrip_request_failed', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt)];
+                    }
+
+                    $savedCount = $this->parseAndSaveData($result['data'], $dataDate, $dataDate, $hotelId, $dataPeriod, $snapshotTime);
+
+                    if ($savedCount === 0) {
+                        return ['success' => false, 'message' => 'no_valid_data', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt)];
+                    }
+
+                    Log::info('Auto fetch online data succeeded', ['hotel_id' => $hotelId, 'count' => $savedCount]);
+                    $this->updateCtripLatestFetchStatus($hotelId, date('Y-m-d H:i:s'), $dataDate, $savedCount);
+
+                    return ['success' => true, 'message' => "saved_{$savedCount}_rows", 'saved_count' => $savedCount, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt)];
+                }
             );
-
-            if (!$result['success']) {
-                return ['success' => false, 'message' => '请求失败: ' . $result['error'], 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt)];
-            }
-
-            $savedCount = $this->parseAndSaveData($result['data'], $dataDate, $dataDate, $hotelId, $dataPeriod, $snapshotTime);
-
-            if ($savedCount === 0) {
-                return ['success' => false, 'message' => '未获取到有效数据', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt)];
-            }
-
-            Log::info("自动获取线上数据成功", ['hotel_id' => $hotelId, 'count' => $savedCount]);
-            $this->updateCtripLatestFetchStatus($hotelId, date('Y-m-d H:i:s'), $dataDate, $savedCount);
-
-            return ['success' => true, 'message' => "成功获取 {$savedCount} 条数据", 'saved_count' => $savedCount, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt)];
-
-        } catch (\Exception $e) {
-            Log::error("自动获取线上数据异常", ['hotel_id' => $hotelId, 'error' => $e->getMessage()]);
-            return ['success' => false, 'message' => '异常: ' . $e->getMessage(), 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt)];
+        } catch (\Throwable $e) {
+            Log::error('Auto fetch online data credential execution failed', [
+                'hotel_id' => $hotelId,
+                'exception_type' => get_debug_type($e),
+            ]);
+            return ['success' => false, 'message' => 'credential_execution_failed', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt)];
         }
     }
 
@@ -186,10 +233,14 @@ class AutoFetchOnlineData extends Command
                 ->where('system_hotel_id', $hotelId)
                 ->whereIn('platform', ['ctrip', 'meituan'])
                 ->where('ingestion_method', 'browser_profile')
+                ->field('id,platform,system_hotel_id')
                 ->select()
                 ->toArray();
         } catch (\Throwable $e) {
-            Log::warning('读取浏览器 Profile 数据源失败，回退旧自动获取', ['hotel_id' => $hotelId, 'error' => $e->getMessage()]);
+            Log::warning('Read browser Profile data-source metadata failed', [
+                'hotel_id' => $hotelId,
+                'exception_type' => get_debug_type($e),
+            ]);
             return ['attempted' => false, 'success' => false, 'message' => '', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => []];
         }
 
@@ -266,39 +317,61 @@ class AutoFetchOnlineData extends Command
         ];
     }
 
-    private function resolveCtripFetchConfigForHotel(int $hotelId): array
+    private function resolveCtripCredentialLocatorForHotel(int $hotelId, string $preferredConfigId = ''): array
     {
+        $tenantId = (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id');
+        if ($tenantId <= 0) {
+            return ['status' => 'missing_tenant', 'message' => 'credential_tenant_unavailable'];
+        }
+
+        $preferredConfigId = trim($preferredConfigId);
+        if ($preferredConfigId !== '' && !preg_match('/^[A-Za-z0-9._-]{1,100}$/D', $preferredConfigId)) {
+            return ['status' => 'invalid_credential', 'message' => 'credential_config_id_invalid'];
+        }
+
         try {
-            $raw = Db::name('system_configs')->where('config_key', 'ctrip_config_list')->value('config_value');
-            $list = $raw ? json_decode((string)$raw, true) : [];
-            if (is_array($list)) {
-                foreach (array_values($list) as $config) {
-                    $configHotelId = (string)($config['hotel_id'] ?? $config['system_hotel_id'] ?? '');
-                    if ($configHotelId !== '' && (string)$hotelId === $configHotelId && !empty($config['cookies'])) {
-                        return $config;
-                    }
-                }
+            $query = Db::name('ota_credentials')
+                ->where('tenant_id', $tenantId)
+                ->where('system_hotel_id', $hotelId)
+                ->where('platform', 'ctrip')
+                ->where('credential_status', 'ready')
+                ->field('tenant_id,system_hotel_id,platform,config_id,credential_status');
+            if ($preferredConfigId !== '') {
+                $query->where('config_id', $preferredConfigId);
             }
+            $rows = $query
+                ->limit(2)
+                ->select()
+                ->toArray();
         } catch (\Throwable $e) {
-            Log::warning('读取携程自动抓取配置失败', ['hotel_id' => $hotelId, 'error' => $e->getMessage()]);
+            Log::warning('Read Ctrip credential locator failed', [
+                'hotel_id' => $hotelId,
+                'exception_type' => get_debug_type($e),
+            ]);
+            return ['status' => 'metadata_unavailable', 'message' => 'credential_metadata_unavailable'];
         }
 
-        $cookiesList = Cache::get("online_data_cookies_hotel_{$hotelId}", []);
-        if (empty($cookiesList)) {
-            $cookiesList = Cache::get("online_data_cookies_{$hotelId}", []);
+        if (count($rows) === 0) {
+            return ['status' => 'missing_credential', 'message' => 'credential_not_ready'];
         }
 
-        foreach ($cookiesList as $item) {
-            if (!empty($item['cookies'])) {
-                return [
-                    'cookies' => $item['cookies'],
-                    'url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
-                    'node_id' => '24588',
-                ];
-            }
+        if (count($rows) !== 1) {
+            return ['status' => 'ambiguous_credential', 'message' => 'credential_selection_ambiguous'];
         }
 
-        return [];
+        $row = $rows[0];
+        $configId = trim((string)($row['config_id'] ?? ''));
+        if (!preg_match('/^[A-Za-z0-9._-]{1,100}$/', $configId)) {
+            return ['status' => 'invalid_credential', 'message' => 'credential_config_id_invalid'];
+        }
+
+        return [
+            'status' => 'ready',
+            'tenant_id' => $tenantId,
+            'system_hotel_id' => $hotelId,
+            'platform' => 'ctrip',
+            'config_id' => $configId,
+        ];
     }
 
     private function normalizeFetchScheduleTime(string $scheduleTime): ?string
@@ -308,6 +381,31 @@ class AutoFetchOnlineData extends Command
             return null;
         }
         return sprintf('%02d:%02d', (int)$matches[1], (int)$matches[2]);
+    }
+
+    private function normalizeScheduledCtripRequestUrl(string $url): string
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport';
+        }
+        $parts = parse_url($url);
+        if (!is_array($parts)
+            || strtolower((string)($parts['scheme'] ?? '')) !== 'https'
+            || strtolower((string)($parts['host'] ?? '')) !== 'ebooking.ctrip.com'
+        ) {
+            return '';
+        }
+        return $url;
+    }
+
+    private function normalizeScheduledCtripNodeId(string $nodeId): string
+    {
+        $nodeId = trim($nodeId);
+        if ($nodeId === '') {
+            return '24588';
+        }
+        return preg_match('/^[A-Za-z0-9._-]{1,100}$/D', $nodeId) === 1 ? $nodeId : '';
     }
 
     private function normalizeAutoFetchScheduleMinute($value): ?int

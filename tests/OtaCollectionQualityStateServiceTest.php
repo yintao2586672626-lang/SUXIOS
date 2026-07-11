@@ -148,6 +148,7 @@ final class OtaCollectionQualityStateServiceTest extends TestCase
             'target_date_rows' => 3,
             'target_date_traffic_rows' => 1,
             'field_fact_status' => 'ready',
+            'verified_traffic_metric_keys' => $this->requiredTrafficMetrics(),
             'has_stored_data' => true,
         ]);
 
@@ -156,6 +157,82 @@ final class OtaCollectionQualityStateServiceTest extends TestCase
         self::assertSame('2026-07-09', $quality['data_as_of']);
         self::assertSame('2026-07-10 08:20:00', $quality['collected_at']);
         self::assertSame([], $quality['quality_flags']);
+    }
+
+    public function testReadyLabelWithoutAllFiveCanonicalTrafficMetricsIsNotAvailable(): void
+    {
+        $quality = (new OtaCollectionQualityStateService())->evaluate([
+            'binding_contract_status' => 'complete',
+            'binding_check_status' => 'ok',
+            'profile_status' => 'logged_in',
+            'collection_status' => 'collected',
+            'target_date' => '2026-07-09',
+            'latest_data_date' => '2026-07-09',
+            'target_date_rows' => 1,
+            'target_date_traffic_rows' => 1,
+            'field_fact_status' => 'ready',
+            'verified_traffic_metric_keys' => ['list_exposure'],
+            'has_stored_data' => true,
+        ]);
+
+        self::assertSame('unverified', $quality['primary_quality_state']);
+        self::assertContains('target_date_required_traffic_metrics_missing', $quality['quality_flags']);
+        self::assertSame(1, $quality['evidence']['verified_traffic_metric_count']);
+        self::assertSame(4, $quality['evidence']['missing_traffic_metric_count']);
+    }
+
+    public function testBrowserProfileCannotBeAvailableWithoutCurrentSameSourceProof(): void
+    {
+        $input = [
+            'binding_contract_status' => 'complete',
+            'binding_check_status' => 'ok',
+            'profile_status' => 'logged_in',
+            'collection_status' => 'collected',
+            'target_date' => '2026-07-09',
+            'latest_data_date' => '2026-07-09',
+            'target_date_rows' => 1,
+            'target_date_traffic_rows' => 1,
+            'field_fact_status' => 'ready',
+            'verified_traffic_metric_keys' => $this->requiredTrafficMetrics(),
+            'profile_session_proof_required' => true,
+            'profile_session_verified' => false,
+            'profile_session_same_source' => false,
+            'has_stored_data' => true,
+        ];
+
+        $quality = (new OtaCollectionQualityStateService())->evaluate($input);
+
+        self::assertSame('unverified', $quality['primary_quality_state']);
+        self::assertContains('current_session_proof_missing', $quality['quality_flags']);
+        self::assertFalse($quality['evidence']['profile_session_verified']);
+
+        $input['profile_session_verified'] = true;
+        $input['profile_session_same_source'] = true;
+        $verified = (new OtaCollectionQualityStateService())->evaluate($input);
+        self::assertSame('available', $verified['primary_quality_state']);
+    }
+
+    public function testInvalidOrFutureTargetDateFailsClosed(): void
+    {
+        foreach (['2026-02-31', '2999-01-01', '2026/07/09'] as $targetDate) {
+            $quality = (new OtaCollectionQualityStateService())->evaluate([
+                'binding_contract_status' => 'complete',
+                'binding_check_status' => 'ok',
+                'profile_status' => 'logged_in',
+                'collection_status' => 'collected',
+                'target_date' => $targetDate,
+                'latest_data_date' => '2026-07-09',
+                'target_date_rows' => 1,
+                'target_date_traffic_rows' => 1,
+                'field_fact_status' => 'ready',
+                'verified_traffic_metric_keys' => $this->requiredTrafficMetrics(),
+                'has_stored_data' => true,
+            ]);
+
+            self::assertSame('unverified', $quality['primary_quality_state'], $targetDate);
+            self::assertContains('target_date_invalid', $quality['quality_flags'], $targetDate);
+            self::assertSame('', $quality['target_date'], $targetDate);
+        }
     }
 
     public function testOutputNeverExposesRawPayloadOrCredentials(): void
@@ -179,5 +256,17 @@ final class OtaCollectionQualityStateServiceTest extends TestCase
         self::assertStringNotContainsString('secret-password', (string)$encoded);
         self::assertStringNotContainsString('raw_payload', (string)$encoded);
         self::assertStringNotContainsString('password', strtolower((string)$encoded));
+    }
+
+    /** @return array<int, string> */
+    private function requiredTrafficMetrics(): array
+    {
+        return [
+            'list_exposure',
+            'detail_exposure',
+            'flow_rate',
+            'order_filling_num',
+            'order_submit_num',
+        ];
     }
 }

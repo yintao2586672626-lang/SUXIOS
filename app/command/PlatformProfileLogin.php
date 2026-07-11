@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace app\command;
 
 use app\service\BrowserProfileCaptureRequestService;
+use app\service\OtaProfileBindingService;
+use app\service\OtaProfileSessionProofService;
 use app\service\PlatformDataSyncService;
 use think\console\Command;
 use think\console\Input;
@@ -44,6 +46,19 @@ class PlatformProfileLogin extends Command
         $profileKey = trim((string)($task['profile_key'] ?? $request['profile_key'] ?? ''));
         if (!in_array($platform, ['ctrip', 'meituan'], true) || $hotelId <= 0 || $profileKey === '') {
             $this->writeTask($taskId, ['status' => 'failed', 'message' => '登录任务参数不完整', 'finished_at' => date('Y-m-d H:i:s')]);
+            return 1;
+        }
+
+        try {
+            (new OtaProfileBindingService())->assertBound($hotelId, $platform, $profileKey);
+        } catch (\RuntimeException $e) {
+            $this->writeTask($taskId, [
+                'status' => 'failed',
+                'status_code' => 'ota_profile_binding_blocked',
+                'error_code' => 'ota_profile_binding_blocked',
+                'message' => $e->getMessage(),
+                'finished_at' => date('Y-m-d H:i:s'),
+            ]);
             return 1;
         }
 
@@ -97,6 +112,10 @@ class PlatformProfileLogin extends Command
         }
 
         $result = $this->runProcess($args, $projectRoot, $timeout, $logPath);
+        if (!$this->restrictProfileLoginArtifactPermissions([$outputPath, $logPath])) {
+            $this->finishFailed($taskId, $platform, $hotelId, $profileKey, '平台登录任务产物权限不安全，已拒绝继续处理', $outputPath, $logPath);
+            return 1;
+        }
         if (!$result['success'] && !is_file($outputPath)) {
             $this->finishFailed($taskId, $platform, $hotelId, $profileKey, $result['message'], $outputPath, $logPath);
             $output->writeln($result['message']);
@@ -121,19 +140,29 @@ class PlatformProfileLogin extends Command
         $dataSourceError = '';
         if ($this->truthy($request['bind_data_source'] ?? $request['bindDataSource'] ?? false)) {
             try {
-                $dataSource = $this->bindDataSource($platform, $hotelId, $profileKey, $request, $payload);
+                $dataSource = $this->bindDataSource(
+                    $platform,
+                    $hotelId,
+                    $profileKey,
+                    $request,
+                    $payload,
+                    (bool)$result['success']
+                );
             } catch (\Throwable $e) {
-                $dataSourceError = $e->getMessage();
+                $dataSourceError = $this->safeProfileLoginStatusText($e->getMessage());
             }
         }
 
-        $profileStatus = [
+        $safeAuthStatus = $this->compactProfileLoginAuthStatus($authStatus);
+        $rawCaptureGate = is_array($payload['capture_gate'] ?? null) ? $payload['capture_gate'] : [];
+        $safeCaptureGate = $rawCaptureGate !== [] ? $this->compactProfileLoginCaptureGate($rawCaptureGate) : null;
+        $profileStatus = $this->sanitizeProfileLoginCachePayload([
             'checked_at' => date('Y-m-d H:i:s'),
-            'auth_status' => $authStatus,
-            'capture_gate' => $payload['capture_gate'] ?? null,
+            'auth_status' => $safeAuthStatus,
+            'capture_gate' => $safeCaptureGate,
             'status_code' => 'logged_in',
             'output' => $outputPath,
-        ];
+        ]);
         Cache::set($this->profileStatusKey($platform, $hotelId, $profileKey), $profileStatus, 86400 * 30);
 
         $this->writeTask($taskId, [
@@ -203,7 +232,7 @@ class PlatformProfileLogin extends Command
                     'status' => 'failed',
                     'data_source_id' => $sourceId,
                     'target_date' => $this->profileLoginSyncTargetDate($request),
-                    'message' => mb_substr($e->getMessage(), 0, 300),
+                    'message' => $this->safeProfileLoginStatusText($e->getMessage()),
                     'finished_at' => date('Y-m-d H:i:s'),
                     'sensitive_values_exposed' => false,
                 ],
@@ -223,7 +252,10 @@ class PlatformProfileLogin extends Command
 
     private function loadProfileLoginDataSourceForSync(int $sourceId, string $platform, int $hotelId): array
     {
-        $row = Db::name('platform_data_sources')->where('id', $sourceId)->find();
+        $row = Db::name('platform_data_sources')
+            ->field('id,system_hotel_id,platform,ingestion_method,enabled,status')
+            ->where('id', $sourceId)
+            ->find();
         if (!$row || !is_array($row)) {
             throw new \RuntimeException('Data source not found.');
         }
@@ -279,7 +311,7 @@ class PlatformProfileLogin extends Command
             'capture_sections' => (string)($options['capture_sections'] ?? ''),
             'normalized_count' => (int)($result['normalized_count'] ?? 0),
             'saved_count' => (int)($result['saved_count'] ?? 0),
-            'message' => mb_substr((string)($result['message'] ?? ''), 0, 300),
+            'message' => $this->safeProfileLoginStatusText((string)($result['message'] ?? '')),
             'finished_at' => date('Y-m-d H:i:s'),
             'sensitive_values_exposed' => false,
         ];
@@ -423,26 +455,44 @@ class PlatformProfileLogin extends Command
         return ['success' => true, 'message' => 'ok'];
     }
 
+    private function restrictProfileLoginArtifactPermissions(array $paths): bool
+    {
+        foreach ($paths as $path) {
+            $path = trim((string)$path);
+            if ($path === '' || !is_file($path)) {
+                continue;
+            }
+            if (!@chmod($path, 0600)) {
+                @unlink($path);
+                return false;
+            }
+        }
+        return true;
+    }
+
     private function finishFailed(string $taskId, string $platform, int $hotelId, string $profileKey, string $message, string $outputPath, string $logPath, array $authStatus = [], $captureGate = null): void
     {
         $statusCode = $this->profileLoginFailureStatusCode($message, $authStatus, $captureGate);
-        Cache::set($this->profileStatusKey($platform, $hotelId, $profileKey), [
+        $safeMessage = $this->safeProfileLoginStatusText($message);
+        $safeAuthStatus = $this->compactProfileLoginAuthStatus($authStatus);
+        $safeCaptureGate = is_array($captureGate) ? $this->compactProfileLoginCaptureGate($captureGate) : null;
+        Cache::set($this->profileStatusKey($platform, $hotelId, $profileKey), $this->sanitizeProfileLoginCachePayload([
             'checked_at' => date('Y-m-d H:i:s'),
-            'auth_status' => $authStatus,
-            'capture_gate' => $captureGate,
+            'auth_status' => $safeAuthStatus,
+            'capture_gate' => $safeCaptureGate,
             'status_code' => $statusCode,
             'output' => $outputPath,
-        ], 86400 * 30);
+        ]), 86400 * 30);
 
         $this->writeTask($taskId, [
             'status' => 'failed',
             'status_code' => $statusCode,
             'error_code' => $statusCode,
-            'message' => $message,
+            'message' => $safeMessage,
             'finished_at' => date('Y-m-d H:i:s'),
             'updated_at' => date('Y-m-d H:i:s'),
-            'auth_status' => $authStatus,
-            'capture_gate' => $captureGate,
+            'auth_status' => $safeAuthStatus,
+            'capture_gate' => $safeCaptureGate,
             'output' => $outputPath,
             'log' => $logPath,
         ]);
@@ -464,11 +514,26 @@ class PlatformProfileLogin extends Command
         return 'login_expired';
     }
 
-    private function bindDataSource(string $platform, int $hotelId, string $profileKey, array $request, array $payload): ?array
+    private function bindDataSource(
+        string $platform,
+        int $hotelId,
+        string $profileKey,
+        array $request,
+        array $payload,
+        bool $loginProcessSucceeded
+    ): ?array
     {
         $requestedSourceId = (int)($request['data_source_id'] ?? $request['source_id'] ?? 0);
         if ($requestedSourceId > 0) {
-            return $this->markDataSourceProfileLoginVerified($requestedSourceId, $platform, $hotelId, $profileKey, $request, $payload);
+            return $this->markDataSourceProfileLoginVerified(
+                $requestedSourceId,
+                $platform,
+                $hotelId,
+                $profileKey,
+                $request,
+                $payload,
+                $loginProcessSucceeded
+            );
         }
 
         $isCtrip = $platform === 'ctrip';
@@ -512,12 +577,37 @@ class PlatformProfileLogin extends Command
         if ((int)$payloadForSave['id'] <= 0) {
             unset($payloadForSave['id']);
         }
-        return (new PlatformDataSyncService())->saveDataSource($this->systemSyncUser(), $payloadForSave);
+        $saved = (new PlatformDataSyncService())->saveDataSource($this->systemSyncUser(), $payloadForSave);
+        $savedSourceId = (int)($saved['id'] ?? 0);
+        if ($savedSourceId <= 0) {
+            throw new \RuntimeException('Profile data source was saved without an id.');
+        }
+
+        return $this->markDataSourceProfileLoginVerified(
+            $savedSourceId,
+            $platform,
+            $hotelId,
+            $profileKey,
+            $request,
+            $payload,
+            $loginProcessSucceeded
+        );
     }
 
-    private function markDataSourceProfileLoginVerified(int $sourceId, string $platform, int $hotelId, string $profileKey, array $request, array $payload): array
+    private function markDataSourceProfileLoginVerified(
+        int $sourceId,
+        string $platform,
+        int $hotelId,
+        string $profileKey,
+        array $request,
+        array $payload,
+        bool $loginProcessSucceeded
+    ): array
     {
-        $row = Db::name('platform_data_sources')->where('id', $sourceId)->find();
+        $row = Db::name('platform_data_sources')
+            ->field('id,system_hotel_id,platform,data_type,ingestion_method,config_json,enabled,status,last_error,last_sync_status')
+            ->where('id', $sourceId)
+            ->find();
         if (!$row || !is_array($row)) {
             throw new \RuntimeException('Data source not found.');
         }
@@ -538,13 +628,28 @@ class PlatformProfileLogin extends Command
         }
 
         $now = date('Y-m-d H:i:s');
-        $config = json_decode((string)($row['config_json'] ?? ''), true);
-        $config = is_array($config) ? $config : [];
-        $config = $this->buildProfileLoginVerifiedConfig($config, $platform, $profileKey, $request, $payload, $now);
+        $currentConfig = $this->decodeSafeProfileSourceConfig((string)($row['config_json'] ?? ''));
+        $verifiedConfig = $this->buildProfileLoginVerifiedConfig($currentConfig, $platform, $profileKey, $request, $payload, $now);
+        $this->assertProfileSourceMetadataIsSafe($verifiedConfig);
+        $metadataPatch = [];
+        foreach ($verifiedConfig as $key => $value) {
+            if (!array_key_exists($key, $currentConfig) || $currentConfig[$key] !== $value) {
+                $metadataPatch[$key] = $value;
+            }
+        }
+        $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
+        $proof = (new OtaProfileSessionProofService())->recordVerified(
+            $sourceId,
+            $hotelId,
+            $platform,
+            $profileKey,
+            $loginProcessSucceeded,
+            $authStatus,
+            $metadataPatch
+        );
         $clearStaleLoginError = $this->isStaleProfileLoginError((string)($row['last_error'] ?? ''));
 
         $update = [
-            'config_json' => json_encode($config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
             'status' => $this->dataSourceStatusAfterProfileLogin($row),
             'last_error' => $clearStaleLoginError ? null : ($row['last_error'] ?? null),
             'update_time' => $now,
@@ -566,6 +671,8 @@ class PlatformProfileLogin extends Command
             'login_state_verified' => true,
             'profile_login_verified' => true,
             'last_login_verified_at' => $now,
+            'current_session_verified' => (bool)($proof['current_session_verified'] ?? false),
+            'current_session_probe_data_source_id' => (int)($proof['current_session_probe_data_source_id'] ?? 0),
             'stale_login_error_cleared' => $clearStaleLoginError,
             'sensitive_values_exposed' => false,
         ];
@@ -620,7 +727,7 @@ class PlatformProfileLogin extends Command
             'status' => $status !== '' ? $status : 'unknown',
         ];
         if (array_key_exists('message', $authStatus)) {
-            $compact['message'] = mb_substr(trim((string)$authStatus['message']), 0, 200);
+            $compact['message'] = $this->safeProfileLoginStatusText((string)$authStatus['message']);
         }
         if (array_key_exists('timeout_ms', $authStatus) && is_numeric($authStatus['timeout_ms'])) {
             $compact['timeout_ms'] = max(0, (int)$authStatus['timeout_ms']);
@@ -633,23 +740,77 @@ class PlatformProfileLogin extends Command
         $compact = [];
         foreach (['status', 'mode', 'reason'] as $key) {
             if (array_key_exists($key, $gate) && trim((string)$gate[$key]) !== '') {
-                $compact[$key] = mb_substr(trim((string)$gate[$key]), 0, 120);
+                $compact[$key] = $this->safeProfileLoginStatusText((string)$gate[$key]);
             }
         }
         if (is_array($gate['failed_check_ids'] ?? null)) {
             $compact['failed_check_ids'] = array_values(array_slice(array_map('strval', $gate['failed_check_ids']), 0, 20));
         }
         if (is_array($gate['checks'] ?? null)) {
-            $compact['checks'] = array_values(array_slice(array_map(static function ($check): array {
+            $compact['checks'] = array_values(array_slice(array_map(function ($check): array {
                 $check = is_array($check) ? $check : [];
                 return [
                     'id' => mb_substr(trim((string)($check['id'] ?? '')), 0, 80),
                     'status' => mb_substr(trim((string)($check['status'] ?? '')), 0, 40),
-                    'message' => mb_substr(trim((string)($check['message'] ?? '')), 0, 160),
+                    'message' => $this->safeProfileLoginStatusText((string)($check['message'] ?? '')),
                 ];
             }, $gate['checks']), 0, 20));
         }
         return $compact;
+    }
+
+    private function safeProfileLoginStatusText(string $value): string
+    {
+        $value = preg_replace(
+            '/\b(cookie|set-cookie|authorization|proxy-authorization|x-api-key|api-key|token|access-token|refresh-token|spidertoken|spiderkey|mtgsig)\s*[:=]\s*[^\r\n]*/iu',
+            '$1=****',
+            $value
+        ) ?: '';
+        $value = preg_replace('/\bbearer\s+[A-Za-z0-9._~+\/=:-]{4,}/iu', 'Bearer ****', $value) ?: '';
+        $value = preg_replace(
+            '/\b([A-Za-z0-9_.-]*(?:session|token|auth|cookie|sid)[A-Za-z0-9_.-]*)\s*=\s*[^;\s,]+/iu',
+            '$1=****',
+            $value
+        ) ?: '';
+        $value = preg_replace('/\s+/u', ' ', trim($value)) ?: '';
+        return mb_substr($value, 0, 300);
+    }
+
+    private function sanitizeProfileLoginCachePayload(array $payload): array
+    {
+        $safe = [];
+        foreach ($payload as $key => $value) {
+            if (is_string($key) && $this->isSensitiveProfileLoginCacheKey($key)) {
+                $safe[$key] = '[redacted]';
+                continue;
+            }
+            if (is_array($value)) {
+                $safe[$key] = $this->sanitizeProfileLoginCachePayload($value);
+                continue;
+            }
+            if (is_string($value)) {
+                $safe[$key] = $this->safeProfileLoginStatusText($value);
+                continue;
+            }
+            $safe[$key] = is_scalar($value) || $value === null ? $value : '[object]';
+        }
+        return $safe;
+    }
+
+    private function isSensitiveProfileLoginCacheKey(string $key): bool
+    {
+        if ($this->isSensitiveProfileSourceMetadataKey($key)) {
+            return true;
+        }
+        $normalized = strtolower((string)preg_replace('/[^a-z0-9]+/i', '_', trim($key)));
+        $normalized = trim($normalized, '_');
+        if (in_array($normalized, [
+            'auth_status', 'credential_status', 'authorization_policy',
+            'requires_explicit_authorization', 'has_cookies', 'cookie_configured',
+        ], true)) {
+            return false;
+        }
+        return preg_match('/(?:^|_)(?:raw_)?(?:cookies?|tokens?|auth_data|authorization|password|secret|api_key|headers?)(?:_|$)/i', $normalized) === 1;
     }
 
     private function dataSourceStatusAfterProfileLogin(array $source): string
@@ -699,6 +860,7 @@ class PlatformProfileLogin extends Command
     {
         try {
             $rows = Db::name('platform_data_sources')
+                ->field('id,config_json')
                 ->where('system_hotel_id', $hotelId)
                 ->where('platform', $platform)
                 ->where('ingestion_method', 'browser_profile')
@@ -710,8 +872,7 @@ class PlatformProfileLogin extends Command
         }
 
         foreach ($rows as $row) {
-            $config = json_decode((string)($row['config_json'] ?? ''), true);
-            $config = is_array($config) ? $config : [];
+            $config = $this->decodeSafeProfileSourceConfig((string)($row['config_json'] ?? ''));
             $candidate = $platform === 'ctrip'
                 ? (string)($config['profile_id'] ?? $config['profileId'] ?? $config['hotel_id'] ?? '')
                 : (string)($config['store_id'] ?? $config['storeId'] ?? $config['poi_id'] ?? '');
@@ -723,11 +884,64 @@ class PlatformProfileLogin extends Command
         return 0;
     }
 
+    private function decodeSafeProfileSourceConfig(string $raw): array
+    {
+        if (trim($raw) === '') {
+            return [];
+        }
+        try {
+            $config = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            throw new \RuntimeException('Profile data source config is invalid; credential migration is required.');
+        }
+        if (!is_array($config)) {
+            throw new \RuntimeException('Profile data source config is invalid; credential migration is required.');
+        }
+
+        $this->assertProfileSourceMetadataIsSafe($config);
+        return $config;
+    }
+
+    private function assertProfileSourceMetadataIsSafe(mixed $value): void
+    {
+        if (is_array($value)) {
+            foreach ($value as $key => $item) {
+                if (is_string($key) && $this->isSensitiveProfileSourceMetadataKey($key)) {
+                    throw new \RuntimeException('Profile data source contains legacy credential fields; credential migration is required.');
+                }
+                $this->assertProfileSourceMetadataIsSafe($item);
+            }
+            return;
+        }
+        if (is_string($value) && (
+            preg_match('/["\']?(?:cookie|set-cookie|authorization|proxy-authorization|x-api-key|api-key|auth_data|token|access_token|refresh_token|spidertoken|spiderkey|mtgsig|usertoken|usersign|password)["\']?\s*[:=]/i', $value) === 1
+            || preg_match('/\bbearer\s+[A-Za-z0-9._~+\/=:-]{8,}/i', $value) === 1
+        )) {
+            throw new \RuntimeException('Profile data source contains legacy credential material; credential migration is required.');
+        }
+        if (!is_scalar($value) && $value !== null) {
+            throw new \RuntimeException('Profile data source config contains an unsupported value.');
+        }
+    }
+
+    private function isSensitiveProfileSourceMetadataKey(string $key): bool
+    {
+        $normalized = strtolower((string)preg_replace('/[^a-z0-9]+/i', '_', trim($key)));
+        $normalized = trim($normalized, '_');
+        return in_array($normalized, [
+            'cookies', 'cookie', 'auth_data', 'authorization', 'authorization_header',
+            'token', 'spiderkey', 'spider_key', 'spidertoken', 'mtgsig', 'mtsi_eb_u',
+            'usertoken', 'usersign', 'password', 'secret', 'api_key', 'secret_json',
+            'auth_token', 'headers', 'headers_json', 'set_cookie', 'access_token',
+            'refresh_token', 'encrypted_payload', 'ciphertext',
+        ], true);
+    }
+
     private function writeTask(string $taskId, array $patch): void
     {
         $current = Cache::get($this->taskKey($taskId), []);
         $current = is_array($current) ? $current : [];
-        $merged = array_merge($current, $patch);
+        $merged = $this->sanitizeProfileLoginCachePayload(array_merge($current, $patch));
         Cache::set($this->taskKey($taskId), $merged, 86400);
 
         $currentKey = trim((string)($merged['current_key'] ?? ''));

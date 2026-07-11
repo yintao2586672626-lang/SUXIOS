@@ -34,6 +34,12 @@ const frontend = read('public/index.html');
 const dataHealthStatic = read('public/data-health-static.js');
 const onlineDataControllerSurface = `${controller}\n${operationWorkbenchConcern}`;
 const frontendSurface = `${frontend}\n${dataHealthStatic}`;
+const frontendOnlineDataStart = frontend.indexOf("currentPage === 'online-data'");
+const frontendDataHealthStart = frontend.indexOf('data-testid="online-data-health-panel"', frontendOnlineDataStart);
+const frontendDataHealthEnd = frontend.indexOf("onlineDataTab === 'analysis'", frontendDataHealthStart);
+const frontendDataHealthSlice = frontendDataHealthStart >= 0 && frontendDataHealthEnd > frontendDataHealthStart
+  ? frontend.slice(frontendDataHealthStart, frontendDataHealthEnd)
+  : '';
 
 includesAll('app/service/Phase3OperationEffectLoopService.php', 'phase3 service exposes six-stage loop contract', service, [
   'final class Phase3OperationEffectLoopService',
@@ -163,9 +169,12 @@ includesAll('package.json', 'phase3 verifier is exposed through npm', packageJso
   '"verify:phase3-operation-effect-loop": "node scripts/verify_phase3_operation_effect_loop_contract.mjs && C:\\\\xampp\\\\php\\\\php.exe scripts\\\\verify_phase3_operation_effect_loop_runtime.php"',
 ]);
 
-includesAll('public/index.html + public/data-health-static.js', 'phase3 operation effect loop is visible in the employee workbench UI', frontendSurface, [
+excludesAll('public/index.html', 'phase3 operation effect loop is not rendered in the focused manual data surface', frontendDataHealthSlice, [
   'data-testid="phase3-operation-effect-loop"',
   '第三阶段运营闭环',
+]);
+
+includesAll('public/index.html + public/data-health-static.js', 'phase3 implementation remains available behind its backend boundary', frontendSurface, [
   'phase3OperationEffectLoop',
   'phase3OperationEffectLoopLedger',
   'phase3OperationEffectLoopLoading',
@@ -185,13 +194,6 @@ includesAll('public/index.html + public/data-health-static.js', 'phase3 operatio
   'phase3OperationEffectLoopStatusText',
   'phase3OperationEffectLoopStatusClass',
   'phase3OperationEffectLoopBoundaryText',
-  '巡检异常',
-  '执行证据',
-  '效果复盘',
-  'SOP候选',
-  '多店复制',
-  '沉淀SOP',
-  '生成计划',
 ]);
 
 includesAll('public/index.html + public/data-health-static.js', 'phase3 frontend keeps missing states and OTA boundary visible', frontendSurface, [

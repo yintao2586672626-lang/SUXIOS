@@ -17,7 +17,7 @@ Local ECC source:
 
 - `.agents/vendor/everything-claude-code/`
 - Source repo: `https://github.com/affaan-m/everything-claude-code`
-- Pinned commit: `bc8e12bb80c904a5a9864797ef1fd1212aa82f3d`
+- Pinned commit: `40927950c49f6e742d341e20ff7b9b7e1e7bfff5`
 
 ## Priority
 

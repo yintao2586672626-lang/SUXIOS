@@ -95,6 +95,8 @@ trait OperationWorkbenchConcern
                 'X-SUXIOS-Metric-Scope' => 'ota_channel',
                 'X-SUXIOS-Collection-Logic-Changed' => 'false',
                 'X-SUXIOS-Raw-Data-Exposed' => 'false',
+                'X-SUXIOS-Runtime-Snapshot-Written' => 'false',
+                'X-SUXIOS-Operation-Log-Written' => 'true',
             ]);
         } catch (\Throwable $e) {
             return $this->error('Daily workbench patrol report export failed: ' . $e->getMessage());
@@ -143,6 +145,13 @@ trait OperationWorkbenchConcern
                 'snapshot' => $snapshot,
                 'latest' => $snapshot,
                 'health' => (new DailyWorkbenchPatrolService())->health($targetDate),
+                'write_effects' => [
+                    'runtime_snapshot_written' => true,
+                    'latest_index_written' => true,
+                    'operation_log_written' => true,
+                    'ota_collection_triggered' => false,
+                    'business_table_written' => false,
+                ],
             ]);
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage());

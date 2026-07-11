@@ -166,15 +166,41 @@ final class ApiDataSourceAdapter implements DataSourceAdapter
                 $headers[] = (string)$name . ': ' . (string)$value;
             }
         }
-        if (!empty($secret['token'])) {
-            $headers[] = 'Authorization: Bearer ' . (string)$secret['token'];
+        $authorization = $secret['authorization'] ?? $secret['authorization_header'] ?? null;
+        if (is_scalar($authorization) && trim((string)$authorization) !== '') {
+            $headers[] = 'Authorization: ' . $this->validatedHeaderValue($authorization);
+        } elseif (!empty($secret['token'])) {
+            $headers[] = 'Authorization: Bearer ' . $this->validatedHeaderValue($secret['token']);
         }
         if (!empty($secret['api_key'])) {
-            $headers[] = 'X-API-Key: ' . (string)$secret['api_key'];
+            $headers[] = 'X-API-Key: ' . $this->validatedHeaderValue($secret['api_key']);
         }
         if (!empty($secret['cookies'])) {
-            $headers[] = 'Cookie: ' . (string)$secret['cookies'];
+            $headers[] = 'Cookie: ' . $this->validatedHeaderValue($secret['cookies']);
+        }
+        $secretHeaders = $secret['headers'] ?? [];
+        if (is_string($secretHeaders)) {
+            $decoded = json_decode($secretHeaders, true);
+            $secretHeaders = is_array($decoded) ? $decoded : [];
+        }
+        if (is_array($secretHeaders)) {
+            foreach ($secretHeaders as $name => $value) {
+                $name = trim((string)$name);
+                if (preg_match('/^[A-Za-z0-9!#$%&\'*+.^_`|~-]{1,100}$/D', $name) !== 1 || !is_scalar($value)) {
+                    throw new \RuntimeException('Stored OTA credential contains an invalid header entry.');
+                }
+                $headers[] = $name . ': ' . $this->validatedHeaderValue($value);
+            }
         }
         return $headers;
+    }
+
+    private function validatedHeaderValue(mixed $value): string
+    {
+        $value = trim((string)$value);
+        if ($value === '' || preg_match('/[\r\n]/', $value) === 1) {
+            throw new \RuntimeException('Stored OTA credential contains an invalid header value.');
+        }
+        return $value;
     }
 }

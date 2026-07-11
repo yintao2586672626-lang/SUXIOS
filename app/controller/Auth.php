@@ -83,7 +83,11 @@ class Auth extends Base
             return $this->error('未配置基础用户角色，请管理员先配置普通用户角色', 422);
         }
 
+        $hotelTenantColumn = $this->strictTenantColumnExists('hotels');
+        $userTenantColumn = $this->strictTenantColumnExists('users');
+        $permissionTenantColumn = $this->strictTenantColumnExists('user_hotel_permissions');
         $resolvedHotelId = null;
+        $resolvedTenantId = null;
         if ($hotelId !== null && $hotelId !== '') {
             if (!is_numeric($hotelId) || (int)$hotelId <= 0) {
                 return $this->error('酒店 ID 不正确');
@@ -95,6 +99,16 @@ class Auth extends Base
                 return $this->error('酒店不存在或已停用', 422);
             }
             $resolvedHotelId = (int)$hotelId;
+
+            $tenantColumnsPresent = $hotelTenantColumn || $userTenantColumn || $permissionTenantColumn;
+            if ($tenantColumnsPresent) {
+                $resolvedTenantId = $hotelTenantColumn
+                    ? (int)($hotel->tenant_id ?? 0)
+                    : 0;
+                if ($resolvedTenantId <= 0) {
+                    return $this->error('酒店租户归属无效，无法创建用户', 422);
+                }
+            }
         }
 
         try {
@@ -106,21 +120,29 @@ class Auth extends Base
             $user->phone = $phone;
             $user->role_id = (int)$role->id;
             $user->hotel_id = $resolvedHotelId;
-            $user->status = User::STATUS_DISABLED;
-            $user->save();
-
-            if ($resolvedHotelId !== null) {
-                $hotelPermissionDefaults = $this->buildSelfRegistrationHotelPermissionDefaults($role);
-                $permission = new UserHotelPermission();
-                $permission->user_id = (int)$user->id;
-                $permission->hotel_id = $resolvedHotelId;
-                foreach ($hotelPermissionDefaults as $column => $value) {
-                    if ($this->tableColumnExists('user_hotel_permissions', (string)$column)) {
-                        $permission->{$column} = $value;
-                    }
-                }
-                $permission->save();
+            if ($userTenantColumn) {
+                $user->tenant_id = $resolvedTenantId;
             }
+            $user->status = User::STATUS_DISABLED;
+            Db::transaction(function () use ($user, $role, $resolvedHotelId, $resolvedTenantId, $permissionTenantColumn): void {
+                $user->save();
+
+                if ($resolvedHotelId !== null) {
+                    $hotelPermissionDefaults = $this->buildSelfRegistrationHotelPermissionDefaults($role);
+                    $permission = new UserHotelPermission();
+                    $permission->user_id = (int)$user->id;
+                    $permission->hotel_id = $resolvedHotelId;
+                    if ($permissionTenantColumn) {
+                        $permission->tenant_id = $resolvedTenantId;
+                    }
+                    foreach ($hotelPermissionDefaults as $column => $value) {
+                        if ($this->tableColumnExists('user_hotel_permissions', (string)$column)) {
+                            $permission->{$column} = $value;
+                        }
+                    }
+                    $permission->save();
+                }
+            });
 
             LoginLog::record((int)$user->id, $username, 'register', 'success', null, $ip, $userAgent);
             try {
@@ -259,6 +281,40 @@ class Auth extends Base
             'can_delete_online_data' => $allows('ota.delete'),
             'is_primary' => 1,
         ];
+    }
+
+    private function strictTenantColumnExists(string $table): bool
+    {
+        if (!in_array($table, ['hotels', 'users', 'user_hotel_permissions'], true)) {
+            throw new \InvalidArgumentException('Unsupported tenant schema table.');
+        }
+
+        try {
+            return !empty($this->querySchema("SHOW COLUMNS FROM `{$table}` LIKE 'tenant_id'"));
+        } catch (\Throwable $mysqlError) {
+            try {
+                $rows = $this->querySchema("PRAGMA table_info(`{$table}`)");
+            } catch (\Throwable $sqliteError) {
+                throw new \RuntimeException(
+                    "Unable to inspect required tenant schema for {$table}.tenant_id",
+                    0,
+                    $sqliteError
+                );
+            }
+
+            foreach ($rows as $row) {
+                if (($row['name'] ?? '') === 'tenant_id') {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+    }
+
+    protected function querySchema(string $sql): array
+    {
+        return Db::query($sql);
     }
 
     private function tableColumnExists(string $table, string $column): bool

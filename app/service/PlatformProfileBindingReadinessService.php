@@ -22,6 +22,8 @@ final class PlatformProfileBindingReadinessService
             'last_verified_at',
             'lastVerifiedAt',
         ]);
+        $historicalLoginMetadataPresent = $manualLoginVerified || $lastLoginVerifiedAt !== '';
+        $currentSessionVerified = $statusCode === 'logged_in';
 
         $missing = [];
         if ($hotelId <= 0) {
@@ -45,14 +47,8 @@ final class PlatformProfileBindingReadinessService
         if (!$profileExists) {
             $missing[] = 'profile_exists';
         }
-        if (!$manualLoginVerified) {
-            $missing[] = 'manual_login_state_verified';
-        }
-        if ($lastLoginVerifiedAt === '') {
-            $missing[] = 'last_login_verified_at';
-        }
-        if ($statusCode !== 'logged_in') {
-            $missing[] = 'profile_status_logged_in';
+        if (!$currentSessionVerified) {
+            $missing[] = 'current_session_verified';
         }
 
         $isComplete = $missing === [];
@@ -75,6 +71,8 @@ final class PlatformProfileBindingReadinessService
             'profile_daily_reuse_enabled' => self::truthy($config['profile_daily_reuse_enabled'] ?? $config['profileDailyReuseEnabled'] ?? null),
             'profile_exists' => $profileExists,
             'profile_status' => $statusCode,
+            'current_session_verified' => $currentSessionVerified,
+            'historical_login_metadata_present' => $historicalLoginMetadataPresent,
             'manual_login_state_verified' => $manualLoginVerified,
             'last_login_verified_at' => $lastLoginVerifiedAt,
             'last_capture_time' => (string)($source['last_sync_time'] ?? $source['update_time'] ?? ''),
@@ -156,24 +154,14 @@ final class PlatformProfileBindingReadinessService
                 $identityActionMeta = ['configure_meituan_poi', '补齐美团 POI/Store', 'platform-sources'];
             } elseif (!$partnerConfigured) {
                 $identityStatus = 'ok';
-                $identityDetail = 'POI/Store 已配置；Partner ID 仅影响 Cookie/API 快速路径';
+                $identityDetail = 'POI/Store 已配置；Browser Profile 是P0采集主线，Partner ID不是前置条件';
                 $identityAction = '可先执行美团 Profile 授权采集';
                 $identityActionMeta = ['login_platform_profile', '登录美团', 'profile-login'];
-            } elseif ($partnerConfigured) {
-                $identityStatus = 'ok';
-                $identityDetail = 'POI/Store 与 Partner ID 已配置';
-                $identityAction = '可执行美团榜单/API采集';
-                $identityActionMeta = ['run_meituan_ranking_capture', '执行美团榜单采集', 'meituan-ranking'];
-            } elseif ($profileExists) {
-                $identityStatus = 'warning';
-                $identityDetail = 'Profile目录已发现，但API榜单缺少 Partner ID';
-                $identityAction = '补充 Partner ID 以稳定采集榜单';
-                $identityActionMeta = ['complete_meituan_partner', '补 Partner ID', 'platform-sources'];
             } else {
-                $identityStatus = 'warning';
-                $identityDetail = '已有POI/Store，但 Partner ID 未配置';
-                $identityAction = '补充 Partner ID 或检测 Profile 登录态后采集';
-                $identityActionMeta = ['complete_meituan_identity_or_login', '补 Partner ID 或登录Profile', 'platform-sources'];
+                $identityStatus = 'ok';
+                $identityDetail = 'POI/Store 与 Partner ID 已配置；仍需已验证的 Browser Profile 会话';
+                $identityAction = '可执行美团 Profile 采集';
+                $identityActionMeta = ['run_profile_capture', '执行美团 Profile 采集', 'platform-auto'];
             }
         }
         $checks[] = self::buildCheck(

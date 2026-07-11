@@ -190,12 +190,24 @@ class Hotel extends Base
         if ($hasCreatorColumn) {
             $hotel->created_by = (int)$this->currentUser->id;
         }
-        $hotel->save();
-        if (!$this->currentUser->isSuperAdmin()) {
-            $this->grantCurrentUserHotelPermission($hotel);
-        }
+        Db::transaction(function () use ($hotel): void {
+            $hotel->save();
+            if ($this->tableColumnExists('hotels', 'tenant_id')) {
+                $tenantId = (int)Db::name('hotels')->where('id', (int)$hotel->id)->value('tenant_id');
+                if ($tenantId <= 0) {
+                    $tenantId = (int)$hotel->id;
+                    $hotel->tenant_id = $tenantId;
+                    $hotel->save();
+                } else {
+                    $hotel->tenant_id = $tenantId;
+                }
+            }
+            if (!$this->currentUser->isSuperAdmin()) {
+                $this->grantCurrentUserHotelPermission($hotel);
+            }
 
-        OperationLog::record('hotel', 'create', '创建酒店: ' . $hotel->name, $this->currentUser->id ?? null);
+            OperationLog::record('hotel', 'create', '创建酒店: ' . $hotel->name, $this->currentUser->id ?? null);
+        });
 
         return $this->success($hotel, '创建成功');
     }
@@ -684,7 +696,7 @@ class Hotel extends Base
         $column = str_replace(['`', "'"], '', $column);
 
         try {
-            return !empty(Db::query("SHOW COLUMNS FROM `{$table}` LIKE '{$column}'"));
+            return in_array($column, Db::name($table)->getTableFields(), true);
         } catch (\Throwable $e) {
             return false;
         }

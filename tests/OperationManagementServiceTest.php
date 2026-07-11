@@ -309,6 +309,146 @@ final class OperationManagementServiceTest extends TestCase
         self::assertStringContainsString('rank fields are not comparable', $changes['missing_reason']);
     }
 
+    public function testExecutionIntentRejectsNestedReusableCredentialMaterial(): void
+    {
+        $service = new OperationManagementService();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('reusable credential material');
+
+        $service->buildExecutionIntentPayload([7], 7, [
+            'hotel_id' => 7,
+            'platform' => 'meituan',
+            'object_type' => 'data_collection',
+            'action_type' => 'collect_ota_data',
+            'target_value' => ['collection_scope' => 'ota_channel'],
+            'evidence' => [
+                'evidence_refs' => ['operator_review'],
+                'nested' => ['authorization' => 'Bearer reusable-secret'],
+            ],
+        ], 9);
+    }
+
+    public function testExecutionIntentAllowsCurrencyAndOpaqueBusinessIds(): void
+    {
+        $service = new OperationManagementService();
+        $businessId = '5026028568383187252';
+
+        $payload = $service->buildExecutionIntentPayload([7], 7, [
+            'hotel_id' => 7,
+            'platform' => 'meituan',
+            'object_type' => 'data_collection',
+            'action_type' => 'collect_ota_data',
+            'current_value' => [
+                'currency' => 'CNY',
+                'external_order_id' => $businessId,
+                'cookiePricesDisplayed' => 'CNY',
+            ],
+            'target_value' => ['collection_scope' => 'ota_channel'],
+            'evidence' => ['evidence_refs' => ['operator_review']],
+        ], 9);
+
+        self::assertSame('CNY', $payload['current_value']['currency']);
+        self::assertSame($businessId, $payload['current_value']['external_order_id']);
+        self::assertSame('CNY', $payload['current_value']['cookiePricesDisplayed']);
+    }
+
+    public function testExecutionTaskUpdateRejectsNestedEvidenceCredentialMaterial(): void
+    {
+        $service = new OperationManagementService();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('reusable credential material');
+
+        $service->buildExecutionTaskUpdate(
+            ['id' => 81],
+            ['status' => 'approved'],
+            [
+                'status' => 'executed',
+                'evidence' => [
+                    'after' => ['auth_data' => ['token' => 'reusable-secret']],
+                ],
+            ],
+            9
+        );
+    }
+
+    public function testLegacyExecutionRowsRedactCredentialsWithoutAlteringCurrencyOrIds(): void
+    {
+        $service = new OperationManagementService();
+        $businessId = '5026028568383187252';
+
+        $intent = $this->invokeNonPublic($service, 'normalizeExecutionIntentRow', [[
+            'id' => 1,
+            'hotel_id' => 7,
+            'source_record_id' => 9,
+            'expected_delta' => 1,
+            'current_value_json' => json_encode([
+                'currency' => 'CNY',
+                'external_order_id' => $businessId,
+                'cookiePricesDisplayed' => 'CNY',
+            ], JSON_UNESCAPED_UNICODE),
+            'target_value_json' => json_encode(['nested' => ['cookies' => 'sid=legacy-secret']], JSON_UNESCAPED_UNICODE),
+            'evidence_json' => json_encode(['note' => 'Authorization: Bearer legacy-auth'], JSON_UNESCAPED_UNICODE),
+        ]]);
+        $task = $this->invokeNonPublic($service, 'normalizeExecutionTaskRow', [[
+            'id' => 2,
+            'intent_id' => 1,
+            'hotel_id' => 7,
+            'current_value_json' => json_encode(['token' => 'legacy-token'], JSON_UNESCAPED_UNICODE),
+            'target_value_json' => json_encode(['currency' => 'CNY', 'external_order_id' => $businessId], JSON_UNESCAPED_UNICODE),
+        ]]);
+        $evidence = $this->invokeNonPublic($service, 'normalizeExecutionEvidenceRow', [[
+            'id' => 3,
+            'task_id' => 2,
+            'before_json' => json_encode(['password' => 'legacy-password'], JSON_UNESCAPED_UNICODE),
+            'after_json' => json_encode(['currency' => 'CNY', 'external_order_id' => $businessId], JSON_UNESCAPED_UNICODE),
+            'platform_response_json' => json_encode(['headers' => ['Cookie' => 'sid=legacy-cookie']], JSON_UNESCAPED_UNICODE),
+            'remark' => 'mtgsig=legacy-signature',
+        ]]);
+
+        $encoded = json_encode([$intent, $task, $evidence], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        foreach (['legacy-secret', 'legacy-auth', 'legacy-token', 'legacy-password', 'legacy-cookie', 'legacy-signature'] as $secret) {
+            self::assertStringNotContainsString($secret, (string)$encoded);
+        }
+        self::assertSame('CNY', $intent['current_value']['currency']);
+        self::assertSame('CNY', $intent['current_value']['cookiePricesDisplayed']);
+        self::assertSame($businessId, $task['target_value']['external_order_id']);
+        self::assertSame($businessId, $evidence['after']['external_order_id']);
+    }
+
+    public function testMeituanTargetIdentityResolverDoesNotDecodeDataSourceConfigJson(): void
+    {
+        $method = new \ReflectionMethod(OperationManagementService::class, 'resolveMeituanTargetPoiId');
+        $lines = file($method->getFileName()) ?: [];
+        $source = implode('', array_slice(
+            $lines,
+            $method->getStartLine() - 1,
+            $method->getEndLine() - $method->getStartLine() + 1
+        ));
+
+        self::assertStringNotContainsString('config_json', $source);
+        self::assertStringNotContainsString('json_decode', $source);
+        self::assertStringContainsString('tableHasColumn', $source);
+    }
+
+    public function testExecutionTaskReviewGuardsBothInputAndDerivedSummaryBeforeWrite(): void
+    {
+        $method = new \ReflectionMethod(OperationManagementService::class, 'reviewExecutionTask');
+        $lines = file($method->getFileName()) ?: [];
+        $source = implode('', array_slice(
+            $lines,
+            $method->getStartLine() - 1,
+            $method->getEndLine() - $method->getStartLine() + 1
+        ));
+
+        self::assertGreaterThanOrEqual(
+            2,
+            substr_count($source, 'assertExecutionPayloadHasNoCredentialMaterial'),
+            'Task review must guard both request input and any summary derived from legacy action tracking.'
+        );
+    }
+
     private function metricValue(array $summary, string $key): mixed
     {
         foreach ($summary['metrics'] as $metric) {

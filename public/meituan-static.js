@@ -1048,17 +1048,20 @@ window.SUXI_MEITUAN_STATIC = (() => {
         const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
         return local.toISOString().slice(0, 10);
     };
+    const resolveMeituanExecutionConfigId = (config = null) => String(
+        config?.config_id || config?.id || ''
+    ).trim();
     const validateMeituanBatchFetchInput = ({
         form = {},
-        cookies = '',
+        configId = '',
         partnerId = '',
         poiId = '',
     } = {}) => {
         if (!form.hotelId) {
             return { ok: false, status: 'missing_hotel', level: 'error', message: '请选择目标酒店' };
         }
-        if (!String(cookies || '').trim()) {
-            return { ok: false, level: 'error', message: '临时 Cookie/API 辅助内容缺失：请提供美团 Cookie/API 辅助内容' };
+        if (!String(configId || '').trim()) {
+            return { ok: false, status: 'missing_config', level: 'warning', message: '当前酒店未配置可执行的美团凭证' };
         }
         const missingResourceFields = [];
         if (!String(partnerId || '').trim()) {
@@ -1095,7 +1098,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         return {
             ok: true,
             level: 'success',
-            cookies: String(cookies || '').trim(),
+            configId: String(configId || '').trim(),
             partnerId: String(partnerId || '').trim(),
             poiId: String(poiId || '').trim(),
         };
@@ -1103,9 +1106,9 @@ window.SUXI_MEITUAN_STATIC = (() => {
 
     const buildMeituanBatchFetchTasks = ({
         form = {},
+        configId = '',
         partnerId = '',
         poiId = '',
-        cookies = '',
     } = {}) => {
         const dateRanges = Array.isArray(form.dateRanges) ? form.dateRanges : [];
         const tasks = [];
@@ -1115,13 +1118,12 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 const rankName = meituanBatchRankTypeNames[rankType] || rankType;
                 const includeSelfMetrics = rankIndex === 0;
                 const body = {
+                    config_id: String(configId || '').trim(),
                     url: form.url,
                     partner_id: partnerId,
                     poi_id: poiId,
                     rank_type: rankType,
                     date_range: dateRange,
-                    cookies,
-                    auth_data: form.auth_data,
                     include_self_trade_metrics: includeSelfMetrics,
                     include_self_traffic_metrics: includeSelfMetrics,
                     include_self_business_metrics: includeSelfMetrics,
@@ -1284,9 +1286,18 @@ window.SUXI_MEITUAN_STATIC = (() => {
         return value === undefined ? '' : String(value).trim();
     };
 
-    const resolveMeituanConfigSaveCookieState = (cookies = '') => {
+    const resolveMeituanConfigSaveCookieState = (cookies = '', options = {}) => {
         const normalizedCookies = String(cookies || '').trim();
         if (!normalizedCookies) {
+            if (options.keepExisting === true) {
+                return {
+                    canSave: true,
+                    cookies: '',
+                    keepExisting: true,
+                    message: '',
+                    level: '',
+                };
+            }
             return {
                 canSave: false,
                 cookies: '',
@@ -1326,7 +1337,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         poi_id: form?.poi_id || '',
         hotel_room_count: form?.hotel_room_count || '',
         competitor_room_count: form?.competitor_room_count || '',
-        cookies: String(cookies || '').trim(),
+        ...(String(cookies || '').trim() ? { cookies: String(cookies || '').trim() } : {}),
     });
 
     const resolveMeituanConfigSaveRequestHotelId = ({
@@ -1348,6 +1359,8 @@ window.SUXI_MEITUAN_STATIC = (() => {
         partner_id: '',
         poi_id: '',
         cookies: '',
+        has_cookies: false,
+        credential_status: '',
         hotel_room_count: '',
         competitor_room_count: '',
     });
@@ -1445,8 +1458,6 @@ window.SUXI_MEITUAN_STATIC = (() => {
         hotelId: config?.hotel_id || config?.system_hotel_id || fallbackHotelId || '',
         partnerId: config?.partner_id || '',
         poiId: config?.poi_id || '',
-        cookies: config?.cookies || '',
-        auth_data: config?.auth_data || {},
         hotelRoomCount: config?.hotel_room_count || '',
         competitorRoomCount: config?.competitor_room_count || '',
     });
@@ -1466,7 +1477,9 @@ window.SUXI_MEITUAN_STATIC = (() => {
         hotel_id: config?.hotel_id || config?.system_hotel_id || '',
         partner_id: config?.partner_id || '',
         poi_id: config?.poi_id || '',
-        cookies: config?.cookies || '',
+        cookies: '',
+        has_cookies: config?.has_cookies === true,
+        credential_status: config?.credential_status || '',
         hotel_room_count: config?.hotel_room_count || '',
         competitor_room_count: config?.competitor_room_count || '',
     });
@@ -1508,8 +1521,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
 
         const formPartnerId = String(form.partnerId || '').trim();
         const formPoiId = String(form.poiId || '').trim();
-        const formCookies = normalizeMeituanCookieText(form.cookies);
-        if (!formPartnerId || !formPoiId || !formCookies) return false;
+        if (!formPartnerId || !formPoiId) return false;
 
         const configPartnerId = firstMeituanConfigText(config.partner_id, config.partnerId);
         const configPoiId = firstMeituanConfigText(config.poi_id, config.poiId, config.store_id, config.storeId);
@@ -1517,13 +1529,6 @@ window.SUXI_MEITUAN_STATIC = (() => {
         if (configPartnerId && formPartnerId !== configPartnerId) return false;
         if (configPoiId && formPoiId !== configPoiId) return false;
 
-        const configCookies = normalizeMeituanCookieText(config.cookies);
-        if (!configCookies) return false;
-        if (configCookies && formCookies !== configCookies) return false;
-
-        if (hasObjectValue(config.auth_data) && !isSameJsonObject(form.auth_data || {}, config.auth_data || {})) {
-            return false;
-        }
         return true;
     };
 
@@ -1578,13 +1583,55 @@ window.SUXI_MEITUAN_STATIC = (() => {
         };
     };
 
+    const isMeituanExecutionConfigReady = (config = null) => Boolean(
+        resolveMeituanExecutionConfigId(config)
+        && config?.has_cookies === true
+        && String(config?.credential_status || '') === 'ready'
+    );
+    const buildMeituanManualCredentialState = (config = null) => {
+        const status = String(config?.credential_status || '').trim().toLowerCase();
+        if (isMeituanExecutionConfigReady(config)) {
+            return {
+                key: 'ready',
+                canFetch: true,
+                label: '美团凭据已就绪',
+                detail: '加密凭据可用，可以获取数据。',
+                tone: 'success',
+            };
+        }
+        if (config && (config.migration_required === true || config.migration_required === 1 || status === 'migration_required')) {
+            return {
+                key: 'migration_required',
+                canFetch: false,
+                label: '旧版美团凭据待安全迁移',
+                detail: '完成凭据安全迁移或重新保存授权后，才能获取数据。',
+                tone: 'warning',
+            };
+        }
+        if (!config) {
+            return {
+                key: 'missing_config',
+                canFetch: false,
+                label: '未配置美团数据源',
+                detail: '请先保存美团授权配置。',
+                tone: 'warning',
+            };
+        }
+        return {
+            key: status || 'not_ready',
+            canFetch: false,
+            label: '美团凭据未就绪',
+            detail: '请重新登录、更新授权或完成凭据迁移后再获取数据。',
+            tone: 'warning',
+        };
+    };
+
     const resolveCanFetchMeituanRankingData = ({
         form = {},
         selectedConfig = null,
     } = {}) => {
         const safeForm = form && typeof form === 'object' ? form : {};
-        if (String(safeForm.cookies || '').trim()) return true;
-        return !!String(safeForm.hotelId || '').trim() && !!selectedConfig;
+        return !!String(safeForm.hotelId || '').trim() && buildMeituanManualCredentialState(selectedConfig).canFetch;
     };
 
     const resolveMeituanManualFetchConfigProofPending = ({
@@ -1592,7 +1639,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         selectedConfig = null,
     } = {}) => {
         const safeForm = form && typeof form === 'object' ? form : {};
-        return !!String(safeForm.hotelId || '').trim() && !!selectedConfig;
+        return !!String(safeForm.hotelId || '').trim() && isMeituanExecutionConfigReady(selectedConfig);
     };
 
     const resolveMeituanManualFetchConfigCandidate = ({
@@ -1600,10 +1647,10 @@ window.SUXI_MEITUAN_STATIC = (() => {
         form = {},
         selectedConfig = null,
     } = {}) => {
-        if (config) return config;
+        if (config) return isMeituanExecutionConfigReady(config) ? config : null;
         const safeForm = form && typeof form === 'object' ? form : {};
         if (!String(safeForm.hotelId || '').trim()) return null;
-        return selectedConfig || null;
+        return isMeituanExecutionConfigReady(selectedConfig) ? selectedConfig : null;
     };
 
     const resolveMeituanConfigListResponse = (res = {}) => {
@@ -2101,7 +2148,6 @@ window.SUXI_MEITUAN_STATIC = (() => {
         form.url = String(form.url || '').trim();
         form.partnerId = String(form.partnerId || '').trim();
         form.poiId = String(form.poiId || '').trim();
-        form.cookies = normalizeMeituanCookieText(form.cookies);
         return form;
     };
 
@@ -2115,29 +2161,27 @@ window.SUXI_MEITUAN_STATIC = (() => {
         if (!form.poiId) {
             return { ok: false, status: 'missing_poi_id', level: 'error', message: '需一次性平台门店标识：请输入平台门店标识' };
         }
-        if (!form.cookies) {
-            return { ok: false, status: 'missing_cookies', level: 'error', message: '临时 Cookie/API 辅助内容缺失：请输入临时 Cookie/API 辅助内容' };
-        }
         return { ok: true, status: 'ok' };
     };
 
     const buildMeituanTrafficFetchRequestBody = ({
         form = {},
+        configId = '',
         systemHotelId = null,
     } = {}) => ({
+        config_id: String(configId || '').trim(),
         url: form.url,
         partner_id: form.partnerId,
         poi_id: form.poiId,
-        cookies: form.cookies,
         start_date: form.startDate,
         end_date: form.endDate,
         auto_save: true,
-        extra_params: form.extraParams,
         system_hotel_id: systemHotelId,
     });
 
     const runMeituanTrafficFetchFlow = async ({
         getForm = () => ({}),
+        getConfigId = () => '',
         getSystemHotelId = () => null,
         notify = () => {},
         setFetching = () => {},
@@ -2149,6 +2193,12 @@ window.SUXI_MEITUAN_STATIC = (() => {
         refreshOnlineData = () => {},
     } = {}) => {
         const form = normalizeMeituanTrafficFetchForm(getForm() || {});
+        const configId = String(getConfigId() || '').trim();
+        if (!configId) {
+            const validation = { ok: false, status: 'missing_config', level: 'warning', message: '当前酒店未配置可执行的美团凭证' };
+            notify(validation.message, validation.level);
+            return { status: validation.status, validation, form };
+        }
         const validation = validateMeituanTrafficFetchInput(form);
         if (!validation.ok) {
             notify(validation.message, validation.level);
@@ -2159,6 +2209,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         setOnlineDataResult(null);
         const requestBody = buildMeituanTrafficFetchRequestBody({
             form,
+            configId,
             systemHotelId: getSystemHotelId(),
         });
         const directRequestBody = { ...requestBody, async: false, background: false };
@@ -2217,9 +2268,6 @@ window.SUXI_MEITUAN_STATIC = (() => {
         form.method = String(form.method || 'GET').toUpperCase();
         form.partnerId = String(form.partnerId || '').trim();
         form.poiId = String(form.poiId || '').trim();
-        form.cookies = normalizeMeituanCookieText(form.cookies);
-        form.payloadJson = String(form.payloadJson || '').trim();
-        form.extraParams = String(form.extraParams || '').trim();
         return form;
     };
 
@@ -2236,26 +2284,22 @@ window.SUXI_MEITUAN_STATIC = (() => {
         if (!form.poiId) {
             return { ok: false, status: 'missing_poi_id', level: 'error', message: '请输入平台门店标识' };
         }
-        if (!form.cookies) {
-            return { ok: false, status: 'missing_cookies', level: 'error', message: '请输入 Cookies' };
-        }
         return { ok: true, status: 'ok' };
     };
 
     const buildMeituanOrderFetchRequestBody = ({
         form = {},
+        configId = '',
         systemHotelId = null,
         hotelName = '',
     } = {}) => ({
+        config_id: String(configId || '').trim(),
         url: form.url,
         method: form.method,
         partner_id: form.partnerId,
         poi_id: form.poiId,
-        cookies: form.cookies,
         start_date: form.startDate,
         end_date: form.endDate,
-        payload_json: form.payloadJson,
-        extra_params: form.extraParams,
         auto_save: true,
         system_hotel_id: systemHotelId,
         hotel_name: hotelName,
@@ -2589,6 +2633,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
 
     const runMeituanOrderFetchFlow = async ({
         getForm = () => ({}),
+        getConfigId = () => '',
         getSystemHotelId = () => null,
         getHotelNameById = () => '',
         notify = () => {},
@@ -2599,6 +2644,12 @@ window.SUXI_MEITUAN_STATIC = (() => {
         refreshOnlineHistory = async () => {},
     } = {}) => {
         const form = normalizeMeituanOrderFetchForm(getForm() || {});
+        const configId = String(getConfigId() || '').trim();
+        if (!configId) {
+            const validation = { ok: false, status: 'missing_config', level: 'warning', message: '当前酒店未配置可执行的美团凭证' };
+            notify(validation.message, validation.level);
+            return { status: validation.status, validation, form };
+        }
         const validation = validateMeituanOrderFetchInput(form);
         if (!validation.ok) {
             notify(validation.message, validation.level);
@@ -2611,6 +2662,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         const systemHotelId = getSystemHotelId();
         const requestBody = buildMeituanOrderFetchRequestBody({
             form,
+            configId,
             systemHotelId,
             hotelName: getHotelNameById(systemHotelId),
         });
@@ -2663,9 +2715,6 @@ window.SUXI_MEITUAN_STATIC = (() => {
         form.partnerId = String(form.partnerId || '').trim();
         form.poiId = String(form.poiId || '').trim();
         form.shopId = String(form.shopId || '').trim();
-        form.cookies = normalizeMeituanCookieText(form.cookies);
-        form.payloadJson = String(form.payloadJson || '').trim();
-        form.extraParams = String(form.extraParams || '').trim();
         return form;
     };
 
@@ -2679,27 +2728,23 @@ window.SUXI_MEITUAN_STATIC = (() => {
         if (!form.shopId && !form.poiId) {
             return { ok: false, status: 'missing_shop_or_poi_id', level: 'error', message: '请输入推广店铺或门店标识' };
         }
-        if (!form.cookies) {
-            return { ok: false, status: 'missing_cookies', level: 'error', message: '请输入 Cookies' };
-        }
         return { ok: true, status: 'ok' };
     };
 
     const buildMeituanAdsFetchRequestBody = ({
         form = {},
+        configId = '',
         systemHotelId = null,
         hotelName = '',
     } = {}) => ({
+        config_id: String(configId || '').trim(),
         url: form.url,
         method: form.method,
         partner_id: form.partnerId,
         poi_id: form.poiId || form.shopId,
         shop_id: form.shopId || form.poiId,
-        cookies: form.cookies,
         start_date: form.startDate,
         end_date: form.endDate,
-        payload_json: form.payloadJson,
-        extra_params: form.extraParams,
         auto_save: true,
         system_hotel_id: systemHotelId,
         hotel_name: hotelName,
@@ -2707,6 +2752,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
 
     const runMeituanAdsFetchFlow = async ({
         getForm = () => ({}),
+        getConfigId = () => '',
         getSystemHotelId = () => null,
         getHotelNameById = () => '',
         notify = () => {},
@@ -2717,6 +2763,12 @@ window.SUXI_MEITUAN_STATIC = (() => {
         refreshOnlineHistory = async () => {},
     } = {}) => {
         const form = normalizeMeituanAdsFetchForm(getForm() || {});
+        const configId = String(getConfigId() || '').trim();
+        if (!configId) {
+            const validation = { ok: false, status: 'missing_config', level: 'warning', message: '当前酒店未配置可执行的美团凭证' };
+            notify(validation.message, validation.level);
+            return { status: validation.status, validation, form };
+        }
         const validation = validateMeituanAdsFetchInput(form);
         if (!validation.ok) {
             notify(validation.message, validation.level);
@@ -2729,6 +2781,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         const systemHotelId = getSystemHotelId();
         const requestBody = buildMeituanAdsFetchRequestBody({
             form,
+            configId,
             systemHotelId,
             hotelName: getHotelNameById(systemHotelId),
         });
@@ -2778,7 +2831,6 @@ window.SUXI_MEITUAN_STATIC = (() => {
     const runMeituanBatchFetchFlow = async ({
         getForm = () => ({}),
         getSelectedConfig = () => null,
-        ensureMeituanConfigSecret = async config => config,
         applyMeituanHotelConfig = async () => {},
         notify = () => {},
         setFetching = () => {},
@@ -2800,7 +2852,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
     } = {}) => {
         let form = getForm() || {};
         const selectedMeituanConfig = form.hotelId
-            ? await ensureMeituanConfigSecret(getSelectedConfig())
+            ? getSelectedConfig()
             : null;
         if (selectedMeituanConfig && !isMeituanConfigBoundToFormHotel(form, selectedMeituanConfig)) {
             notify('当前选择门店与美团配置归属不一致，已阻止跨门店获取数据', 'error');
@@ -2820,12 +2872,14 @@ window.SUXI_MEITUAN_STATIC = (() => {
             notify('当前门店美团配置未同步完成，已阻止本次获取，避免拿到其他门店数据', 'warning');
             return { status: 'selected_config_not_applied', form, selectedConfig: selectedMeituanConfig };
         }
-        const meituanCookies = String(form.cookies || '').trim();
+        const configId = isMeituanExecutionConfigReady(selectedMeituanConfig)
+            ? resolveMeituanExecutionConfigId(selectedMeituanConfig)
+            : '';
         const partnerId = String(form.partnerId || '').trim();
         const poiId = String(form.poiId || '').trim();
         const batchInput = validateMeituanBatchFetchInput({
             form,
-            cookies: meituanCookies,
+            configId,
             partnerId,
             poiId,
         });
@@ -2839,9 +2893,9 @@ window.SUXI_MEITUAN_STATIC = (() => {
         setFetchSuccess(false);
         const fetchTasks = buildMeituanBatchFetchTasks({
             form,
+            configId,
             partnerId,
             poiId,
-            cookies: meituanCookies,
         });
         const results = fetchTasks.map(task => buildMeituanBatchFetchPendingEntry(task));
         let resultUpdateTimer = null;
@@ -3173,6 +3227,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         runMeituanBrowserCaptureFlow,
         buildMeituanCapturedPayloadSaveContext,
         runMeituanCapturedPayloadSaveFlow,
+        resolveMeituanExecutionConfigId,
         validateMeituanBatchFetchInput,
         buildMeituanBatchFetchTasks,
         buildMeituanBatchFetchResultEntry,
@@ -3199,6 +3254,8 @@ window.SUXI_MEITUAN_STATIC = (() => {
         isMeituanRankingFormAlignedWithConfig,
         findMeituanConfigForHotel,
         resolveMeituanConfigStatus,
+        isMeituanExecutionConfigReady,
+        buildMeituanManualCredentialState,
         resolveCanFetchMeituanRankingData,
         resolveMeituanManualFetchConfigProofPending,
         resolveMeituanManualFetchConfigCandidate,

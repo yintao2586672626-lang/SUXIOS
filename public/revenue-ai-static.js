@@ -2106,8 +2106,21 @@
         };
     };
 
+    const aiDailyReportActionIsInvestigationOnly = (action) => {
+        if (!action || typeof action !== 'object') return false;
+        if (action.is_investigation_only === true) return true;
+        if (String(action.recommendation_type || '') === 'investigation') return true;
+        const text = `${action.title || ''} ${action.blocked_reason || ''}`.toLowerCase();
+        return action.can_create_execution_intent === false
+            && String(action.action_type || '') === 'manual_review'
+            && /fallback|investigation-only|investigation item|review daily operating signal|调查项/i.test(text);
+    };
+
     const aiDailyReportActionBlockedText = (action) => {
         if (!action) return '';
+        if (aiDailyReportActionIsInvestigationOnly(action)) {
+            return '调查项不可转执行单，仅用于查看证据和判断是否需要进一步分析。';
+        }
         if (action.can_create_execution_intent === false) {
             return action.blocked_reason || action.action_readiness?.notice || action.action_readiness?.next_action || '该建议受数据缺口阻断，不能直接转执行单。';
         }
@@ -2120,13 +2133,18 @@
         return '';
     };
 
-    const aiDailyReportActionButtonText = (action) => {
-        if (action?.can_create_execution_intent === false && String(action?.action_type || '') === 'manual_review') {
-            const blockedText = aiDailyReportActionBlockedText(action);
-            if (/Fallback manual review|investigation-only/i.test(blockedText)) {
-                return '查看证据';
-            }
+    const aiDailyReportActionStatusText = (action) => {
+        if (aiDailyReportActionIsInvestigationOnly(action)) return '调查项 / 不可执行';
+        if (action?.action_readiness?.status_label) return action.action_readiness.status_label;
+        if (action?.execution_intent_id) {
+            return action.execution_blocked_reason ? '已生成，待补齐' : '已生成执行单';
         }
+        if (action?.can_create_execution_intent === false) return action.blocked_reason || '不可转执行单';
+        return '可转执行单';
+    };
+
+    const aiDailyReportActionButtonText = (action) => {
+        if (aiDailyReportActionIsInvestigationOnly(action)) return '查看证据';
         if (action?.execution_intent_id) return '已转单';
         if (action?.can_create_execution_intent === false) return '处理缺口';
         if (aiDailyReportActionBlockedText(action)) return '待处理';
@@ -2151,19 +2169,28 @@
         (Array.isArray(actions) ? actions : []).forEach((action, index) => {
             const blockedText = aiDailyReportActionBlockedText(action);
             if (!blockedText) return;
-            const target = aiDailyReportEvidenceTarget({
-                ...action,
-                source_ref: aiDailyReportActionSources(action),
-                next_action: action?.action_readiness?.next_action || blockedText,
-            });
+            const isInvestigation = aiDailyReportActionIsInvestigationOnly(action);
+            const sourceRef = aiDailyReportActionSources(action);
+            const target = isInvestigation
+                ? {
+                    page: 'online-data',
+                    tab: 'data-health',
+                    label: '查看事实证据',
+                    sourceRef: sourceRef || 'operation.full_data',
+                }
+                : aiDailyReportEvidenceTarget({
+                    ...action,
+                    source_ref: sourceRef,
+                    next_action: action?.action_readiness?.next_action || blockedText,
+                });
             rows.push({
                 key: `action:${action?.title || index}:${index}`,
-                label: action?.title || `建议${index + 1}`,
+                label: isInvestigation ? `调查项：${action?.title || index + 1}` : (action?.title || `建议${index + 1}`),
                 nextAction: blockedText,
                 target,
                 actionText: target.label,
                 sourceRef: target.sourceRef,
-                type: 'action',
+                type: isInvestigation ? 'investigation' : 'action',
             });
         });
         return rows;
@@ -2173,18 +2200,24 @@
         const safeRows = Array.isArray(rows) ? rows : [];
         const readinessCount = safeRows.filter(row => row.type === 'readiness').length;
         const actionCount = safeRows.filter(row => row.type === 'action').length;
+        const investigationCount = safeRows.filter(row => row.type === 'investigation').length;
         const sourceCount = new Set(safeRows.map(row => row.sourceRef).filter(Boolean)).size;
         const opsCount = safeRows.filter(row => row.target?.page === 'ops-track').length;
         const dataHealthCount = safeRows.filter(row => (row.target?.tab || 'data-health') === 'data-health').length;
+        const gateParts = [];
+        if (opsCount > 0) gateParts.push(`运营执行门禁 ${opsCount}`);
+        if (readinessCount + actionCount > 0 || dataHealthCount > investigationCount) {
+            gateParts.push(`数据健康门禁 ${Math.max(0, dataHealthCount - investigationCount)}`);
+        }
+        if (investigationCount > 0) gateParts.push(`调查项不进入执行门禁 ${investigationCount}`);
         return {
             total: safeRows.length,
-            detail: `证据缺口 ${readinessCount} / 动作阻断 ${actionCount} / 来源 ${sourceCount || 0}`,
-            gateText: opsCount > 0
-                ? `运营执行门禁 ${opsCount}；数据健康门禁 ${dataHealthCount}`
-                : `数据健康门禁 ${dataHealthCount}`,
+            detail: `证据缺口 ${readinessCount} / 动作阻断 ${actionCount} / 调查项 ${investigationCount} / 来源 ${sourceCount || 0}`,
+            gateText: gateParts.join('；') || '当前没有执行门禁',
             sourceCount,
             readinessCount,
             actionCount,
+            investigationCount,
             opsCount,
             dataHealthCount,
         };
@@ -2219,16 +2252,177 @@
         (Array.isArray(actions) ? actions : []).forEach((action, index) => {
             const refs = aiDailyReportActionSources(action);
             if (!refs) return;
+            const isInvestigation = aiDailyReportActionIsInvestigationOnly(action);
             rows.push({
                 key: `action:${action?.title || index}:${index}`,
-                type: '动作',
+                type: isInvestigation ? '调查项' : '动作',
                 title: action?.title || `建议${index + 1}`,
                 detail: action?.reason || action?.action || '建议动作引用',
                 ref: refs,
-                className: aiDailyReportActionBlockedText(action) ? 'bg-amber-50 text-amber-700' : 'bg-green-50 text-green-700',
+                className: isInvestigation
+                    ? 'bg-slate-100 text-slate-700'
+                    : (aiDailyReportActionBlockedText(action) ? 'bg-amber-50 text-amber-700' : 'bg-green-50 text-green-700'),
             });
         });
         return rows.slice(0, 12);
+    };
+
+    const buildAiDailyFactGate = ({
+        hotelId = '',
+        targetDate = '',
+        collectionStatus = null,
+        profileStatus = null,
+        errors = [],
+    } = {}) => {
+        const safeErrors = (Array.isArray(errors) ? errors : [errors]).map(item => String(item || '').trim()).filter(Boolean);
+        const collection = collectionStatus && typeof collectionStatus === 'object' ? collectionStatus : null;
+        const profiles = profileStatus && typeof profileStatus === 'object' ? profileStatus : null;
+        const rawPlatforms = collection?.platforms && typeof collection.platforms === 'object'
+            ? collection.platforms
+            : {};
+        const collectionRows = Array.isArray(rawPlatforms) ? rawPlatforms : Object.values(rawPlatforms);
+        const profileRows = Array.isArray(profiles?.items) ? profiles.items : [];
+        const platformKeys = Array.from(new Set([
+            'ctrip',
+            'meituan',
+            ...collectionRows.map(row => String(row?.platform || '').toLowerCase()),
+            ...profileRows.map(row => String(row?.platform || '').toLowerCase()),
+        ].filter(Boolean)));
+        const loginTextMap = {
+            logged_in: '登录态已验证',
+            waiting_login: '登录待验证',
+            session_expired: '登录已过期',
+            login_expired: '登录已过期',
+            login_required: '需要登录',
+            missing_profile: '缺少 Profile',
+            needs_profile: '缺少 Profile',
+            permission_denied: '无权限',
+            no_permission: '无权限',
+            unauthorized: '无权限',
+            hotel_mismatch: '门店不匹配',
+            unconfigured: '未配置',
+            unverified: '未核验',
+        };
+        const collectionTextMap = {
+            collected: '目标日已入库',
+            partial: '目标日部分入库',
+            collecting: '采集中',
+            failed: '采集失败',
+            stale: '数据已过期',
+            stale_running: '任务运行超时',
+            not_collected: '目标日未采集',
+            not_loaded: '未加载',
+        };
+        const platformRows = platformKeys.map((platform) => {
+            const row = collectionRows.find(item => String(item?.platform || '').toLowerCase() === platform) || {};
+            const profile = profileRows.find(item => String(item?.platform || '').toLowerCase() === platform) || {};
+            const profileDetail = row.profile && typeof row.profile === 'object' ? row.profile : {};
+            const sourceSummary = row.sourceSummary && typeof row.sourceSummary === 'object' ? row.sourceSummary : {};
+            const loginStatus = String(profile.status_code || row.platformLoginStatus || profileDetail.statusCode || 'unverified').toLowerCase();
+            const collectionCode = String(row.collectionStatus || 'not_loaded').toLowerCase();
+            const targetDateRows = Math.max(0, Number(row.targetDateRows || 0));
+            const fieldFactsReady = Math.max(0, Number(row.fieldFactsReady || 0));
+            const fieldFactsMissing = Math.max(0, Number(row.fieldFactsMissing || 0));
+            const fieldFactStatus = String(row.fieldFactStatus || 'not_loaded').toLowerCase();
+            const configuredCount = Math.max(0, Number(sourceSummary.configuredCount || 0));
+            const applicable = configuredCount > 0
+                || Number(profileDetail.dataSourceId || 0) > 0
+                || profileDetail.profileExists === true
+                || targetDateRows > 0
+                || Number(row.storedRowCount || 0) > 0
+                || !['', 'unconfigured', 'unverified'].includes(loginStatus)
+                || !['', 'not_collected', 'not_loaded'].includes(collectionCode);
+            const loginReady = loginStatus === 'logged_in';
+            const targetDateReady = collectionCode === 'collected' && targetDateRows > 0;
+            const fieldReady = fieldFactStatus === 'ready' && fieldFactsMissing === 0;
+            const ready = applicable && loginReady && targetDateReady && fieldReady;
+            const blockers = [];
+            if (applicable && !loginReady) blockers.push(loginStatus || 'profile_login_unverified');
+            if (applicable && !targetDateReady) blockers.push(targetDateRows > 0 ? collectionCode : 'target_date_no_data');
+            if (applicable && !fieldReady) blockers.push(fieldFactsMissing > 0 ? 'field_missing' : `field_${fieldFactStatus || 'unverified'}`);
+            let nextAction = '该渠道未配置，不计入当前就绪分母';
+            if (applicable && !loginReady) nextAction = profile.next_action || profileDetail.nextAction || '先验证平台 Profile 登录状态';
+            else if (applicable && !targetDateReady) nextAction = `补齐 ${targetDate || '目标日'} OTA 入库事实`;
+            else if (applicable && !fieldReady) nextAction = '补齐字段事实、source path、metric key 与 verifier 证据';
+            else if (ready) nextAction = 'OTA 事实已就绪，下游仍需独立验证';
+            return {
+                platform,
+                label: row.platformName || (platform === 'meituan' ? '美团' : platform === 'ctrip' ? '携程' : platform),
+                applicable,
+                ready,
+                loginStatus,
+                loginText: loginTextMap[loginStatus] || profile.current_status || row.platformLoginText || loginStatus || '未核验',
+                collectionStatus: collectionCode,
+                collectionText: collectionTextMap[collectionCode] || collectionCode || '未核验',
+                targetDateRows,
+                fieldFactsReady,
+                fieldFactsMissing,
+                fieldFactStatus,
+                fieldText: fieldReady
+                    ? `字段事实已闭合 ${fieldFactsReady}`
+                    : (fieldFactsMissing > 0 ? `字段缺口 ${fieldFactsMissing}` : `字段状态 ${fieldFactStatus || '未核验'}`),
+                blockerCodes: blockers,
+                nextAction,
+                statusText: !applicable ? '未配置，不计入分母' : (ready ? '事实就绪' : '事实有缺口'),
+                statusClass: !applicable
+                    ? 'bg-slate-100 text-slate-600 border-slate-200'
+                    : (ready ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'),
+            };
+        });
+        const applicableRows = platformRows.filter(row => row.applicable);
+        const readyCount = applicableRows.filter(row => row.ready).length;
+        const configuredCount = applicableRows.length;
+        const fieldGapCount = applicableRows.reduce((sum, row) => sum + row.fieldFactsMissing, 0);
+        let status = 'not_loaded';
+        if (!String(hotelId || '').trim()) status = 'not_selected';
+        else if (safeErrors.length > 0) status = 'unverified';
+        else if (!collection) status = 'not_loaded';
+        else if (configuredCount === 0) status = 'not_configured';
+        else if (readyCount === configuredCount) status = 'ready';
+        else if (readyCount > 0) status = 'partial';
+        else status = 'blocked';
+        const statusMeta = {
+            ready: ['OTA事实门禁已通过', 'bg-emerald-50 text-emerald-700 border-emerald-200'],
+            partial: ['部分OTA渠道事实就绪', 'bg-amber-50 text-amber-700 border-amber-200'],
+            blocked: ['OTA事实门禁有缺口', 'bg-rose-50 text-rose-700 border-rose-200'],
+            unverified: ['OTA事实状态未核验', 'bg-red-50 text-red-700 border-red-200'],
+            not_configured: ['未发现适用OTA渠道', 'bg-slate-100 text-slate-600 border-slate-200'],
+            not_selected: ['请选择酒店', 'bg-slate-100 text-slate-600 border-slate-200'],
+            not_loaded: ['尚未读取OTA事实', 'bg-slate-100 text-slate-600 border-slate-200'],
+        }[status] || ['OTA事实状态未核验', 'bg-slate-100 text-slate-600 border-slate-200'];
+        const otaChainStatus = status === 'ready' ? 'ready' : (status === 'unverified' ? 'unverified' : 'blocked');
+        const downstreamStatus = status === 'ready' ? 'pending_validation' : 'blocked_upstream';
+        const chainClass = (chainStatus) => ({
+            ready: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+            pending_validation: 'border-blue-200 bg-blue-50 text-blue-700',
+            unverified: 'border-red-200 bg-red-50 text-red-700',
+            blocked: 'border-rose-200 bg-rose-50 text-rose-700',
+            blocked_upstream: 'border-slate-200 bg-slate-50 text-slate-500',
+        }[chainStatus] || 'border-slate-200 bg-slate-50 text-slate-500');
+        const chain = [
+            { key: 'ota', label: 'OTA事实', status: otaChainStatus, text: statusMeta[0] },
+            { key: 'revenue', label: '收益分析', status: downstreamStatus, text: status === 'ready' ? '待独立验证' : '等待OTA事实' },
+            { key: 'ai', label: 'AI决策', status: downstreamStatus, text: status === 'ready' ? '待独立验证' : '等待OTA事实' },
+            { key: 'operation', label: '运营管理', status: downstreamStatus, text: status === 'ready' ? '待独立验证' : '等待OTA事实' },
+            { key: 'investment', label: '投资决策', status: downstreamStatus, text: status === 'ready' ? '待独立验证' : '等待OTA事实' },
+        ].map(item => ({ ...item, className: chainClass(item.status) }));
+        return {
+            hotelId: String(hotelId || ''),
+            targetDate: String(targetDate || collection?.targetDate || ''),
+            generatedAt: String(collection?.generated_at || ''),
+            status,
+            statusText: statusMeta[0],
+            statusClass: statusMeta[1],
+            scopeText: 'OTA渠道事实门禁，不代表全酒店经营事实；Profile、目标日入库和字段闭环分层展示。',
+            errorText: safeErrors.join('；'),
+            configuredCount,
+            readyCount,
+            blockerCount: Math.max(0, configuredCount - readyCount),
+            fieldGapCount,
+            platformRows,
+            chain,
+            sourceRefs: ['online-data.collection-status', 'online-data.platform-profile-status'],
+        };
     };
 
     const buildRevenueAiExecutionIntentOpenRow = ({ payload = {}, item = {} } = {}) => {
@@ -2355,11 +2549,14 @@
         buildRevenueAiReviewRequestBody,
         aiDailyReportActionSources,
         aiDailyReportEvidenceTarget,
+        aiDailyReportActionIsInvestigationOnly,
         aiDailyReportActionBlockedText,
+        aiDailyReportActionStatusText,
         aiDailyReportActionButtonText,
         buildAiDailyReportBlockingRows,
         summarizeAiDailyReportBlockingRows,
         buildAiDailyReportEvidenceRows,
+        buildAiDailyFactGate,
         buildRevenueAiExecutionIntentOpenRow,
         resolveRevenueAiReviewNavigation,
         buildRevenueAiReviewNavigationState,

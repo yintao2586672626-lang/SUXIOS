@@ -730,7 +730,7 @@ includesAll('scripts/report_p0_profile_next_steps.mjs', 'P0 Profile next-step re
   'downstream_gate',
   'blocked_by_p0_ota_gate',
   'no_whole_hotel_or_downstream_closure_claim',
-  'manual_login_state_verified=true',
+  'current_session_verified',
   'isPlatformReady',
   "type: 'already_ready'",
   'already_ready_no_login',
@@ -828,6 +828,33 @@ includesAllSources([
   'missing_expected_payload',
   'expected_payload_present_unverified',
   ]);
+
+includesAll('app/controller/concern/Phase1EmployeeConsoleConcern.php', 'employee console requires same-source current-session proof', [
+  'use app\\service\\OtaProfileSessionProofService;',
+  "'tenant_id'",
+  'phase1TrafficProfileLoginStateVerified(array $source)',
+  '(new OtaProfileSessionProofService())->isCurrentVerified($source)',
+  'historical_login_metadata_present',
+  'historical_metadata_only',
+  'current_session_probe',
+  'sync_after_login runs only after current_session_verified=true',
+]);
+
+includesAll('scripts/build_phase1_ota_live_closure_evidence.php', 'build evidence script requires same-source current-session proof', [
+  'use app\\service\\OtaProfileSessionProofService;',
+  'traffic_source_profile_login_state_verified(array $source)',
+  '(new OtaProfileSessionProofService())->isCurrentVerified($source)',
+  "'tenant_id'",
+  'sync_after_login runs only after current_session_verified=true',
+]);
+
+includesAll('scripts/inspect_phase1_ota_live_closure.php', 'inspect evidence script requires same-source current-session proof', [
+  'use app\\service\\OtaProfileSessionProofService;',
+  'inspection_traffic_source_profile_login_state_verified(array $source)',
+  '(new OtaProfileSessionProofService())->isCurrentVerified($source)',
+  "'tenant_id'",
+  'sync_after_login runs only after current_session_verified=true',
+]);
 
 includesAll('scripts/verify_phase1_live_action_queue_runtime.mjs', 'live action runtime verifies P0 payload candidate UI metadata', [
   'p0_payload_candidate_policy',

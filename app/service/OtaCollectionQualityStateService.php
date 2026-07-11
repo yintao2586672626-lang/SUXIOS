@@ -3,8 +3,21 @@ declare(strict_types=1);
 
 namespace app\service;
 
+use DateTimeImmutable;
+use DateTimeZone;
+
 final class OtaCollectionQualityStateService
 {
+    private const TIMEZONE = 'Asia/Shanghai';
+
+    private const REQUIRED_TRAFFIC_METRICS = [
+        'list_exposure',
+        'detail_exposure',
+        'flow_rate',
+        'order_filling_num',
+        'order_submit_num',
+    ];
+
     private const BINDING_REQUIREMENTS = [
         'system_hotel_id',
         'data_source_id',
@@ -53,12 +66,23 @@ final class OtaCollectionQualityStateService
         $bindingMissingRequirements = $this->stringList($input['binding_missing_requirements'] ?? []);
         $profileStatus = $this->status($input['profile_status'] ?? '');
         $collectionStatus = $this->status($input['collection_status'] ?? '');
-        $targetDate = $this->dateValue($input['target_date'] ?? '');
+        $targetDateInput = $this->text($input['target_date'] ?? '');
+        $targetDate = $this->dateValue($targetDateInput);
+        $targetDateInvalid = $targetDateInput !== '' && $targetDate === '';
         $dataAsOf = $this->dateValue($input['latest_data_date'] ?? $input['data_as_of'] ?? '');
         $collectedAt = $this->text($input['latest_collected_at'] ?? $input['collected_at'] ?? '');
         $targetDateRows = $this->nonNegativeInt($input['target_date_rows'] ?? 0);
         $targetDateTrafficRows = $this->nonNegativeInt($input['target_date_traffic_rows'] ?? 0);
         $fieldFactStatus = $this->status($input['field_fact_status'] ?? '');
+        $verifiedTrafficMetricKeys = array_values(array_intersect(
+            self::REQUIRED_TRAFFIC_METRICS,
+            $this->stringList($input['verified_traffic_metric_keys'] ?? [])
+        ));
+        $missingTrafficMetricKeys = array_values(array_diff(self::REQUIRED_TRAFFIC_METRICS, $verifiedTrafficMetricKeys));
+        $trafficMetricClosureReady = $missingTrafficMetricKeys === [];
+        $profileSessionProofRequired = $this->truthy($input['profile_session_proof_required'] ?? false);
+        $profileSessionVerified = $this->truthy($input['profile_session_verified'] ?? false);
+        $profileSessionSameSource = $this->truthy($input['profile_session_same_source'] ?? false);
         $hasStoredData = array_key_exists('has_stored_data', $input)
             ? $this->truthy($input['has_stored_data'])
             : ($collectionStatus === 'collected' || $targetDateRows > 0 || $targetDateTrafficRows > 0);
@@ -97,6 +121,10 @@ final class OtaCollectionQualityStateService
             }
             $state = 'collection_failed';
             $nextAction = 'inspect_collection_failure';
+        } elseif ($targetDateInvalid) {
+            $flags[] = 'target_date_invalid';
+            $state = 'unverified';
+            $nextAction = 'select_target_date';
         } elseif ($targetDate === '') {
             $flags[] = 'target_date_missing';
             $state = 'unverified';
@@ -105,8 +133,16 @@ final class OtaCollectionQualityStateService
             $flags[] = $this->profileVerificationFlag($profileStatus);
             $state = 'unverified';
             $nextAction = 'verify_platform_login_state';
+        } elseif ($profileSessionProofRequired && (!$profileSessionVerified || !$profileSessionSameSource)) {
+            $flags[] = 'current_session_proof_missing';
+            $state = 'unverified';
+            $nextAction = 'verify_platform_login_state';
         } elseif ($targetDateTrafficRows > 0 && in_array($fieldFactStatus, ['missing', 'not_loaded', ''], true)) {
             $flags[] = 'target_date_field_facts_missing';
+            $state = 'unverified';
+            $nextAction = 'verify_target_date_field_facts';
+        } elseif ($targetDateTrafficRows > 0 && $fieldFactStatus === 'ready' && !$trafficMetricClosureReady) {
+            $flags[] = 'target_date_required_traffic_metrics_missing';
             $state = 'unverified';
             $nextAction = 'verify_target_date_field_facts';
         } elseif (!$hasStoredData || $dataAsOf === '' || (!$historicalForTargetDate && ($targetDateRows <= 0 || $targetDateTrafficRows <= 0))) {
@@ -178,6 +214,11 @@ final class OtaCollectionQualityStateService
                 'target_date_rows' => $targetDateRows,
                 'target_date_traffic_rows' => $targetDateTrafficRows,
                 'field_fact_status' => $fieldFactStatus,
+                'verified_traffic_metric_count' => count($verifiedTrafficMetricKeys),
+                'missing_traffic_metric_count' => count($missingTrafficMetricKeys),
+                'profile_session_proof_required' => $profileSessionProofRequired,
+                'profile_session_verified' => $profileSessionVerified,
+                'profile_session_same_source' => $profileSessionSameSource,
                 'has_stored_data' => $hasStoredData,
                 'source_count' => $sourceCount,
             ],
@@ -268,8 +309,18 @@ final class OtaCollectionQualityStateService
             return '';
         }
 
-        $timestamp = strtotime($text);
-        return $timestamp === false ? '' : date('Y-m-d', $timestamp);
+        $timezone = new DateTimeZone(self::TIMEZONE);
+        $date = DateTimeImmutable::createFromFormat('!Y-m-d', $text, $timezone);
+        $errors = DateTimeImmutable::getLastErrors();
+        if (!$date instanceof DateTimeImmutable
+            || ($errors !== false && (($errors['warning_count'] ?? 0) > 0 || ($errors['error_count'] ?? 0) > 0))
+            || $date->format('Y-m-d') !== $text
+            || $date > new DateTimeImmutable('today', $timezone)
+        ) {
+            return '';
+        }
+
+        return $date->format('Y-m-d');
     }
 
     private function status(mixed $value): string

@@ -314,25 +314,6 @@ window.SUXI_OTA_DIAGNOSIS_STATIC = (() => {
         const value = values.find(item => item !== undefined && item !== null && item !== '');
         return value === undefined ? '' : value;
     };
-    const readOtaDiagnosisHeaderValue = (headers, headerName) => {
-        const target = String(headerName || '').trim().toLowerCase();
-        if (!target || headers === undefined || headers === null || headers === '') return '';
-        if (typeof headers === 'object' && !Array.isArray(headers)) {
-            const foundKey = Object.keys(headers).find(key => key.toLowerCase() === target);
-            return foundKey ? String(headers[foundKey] || '').trim() : '';
-        }
-        const raw = String(headers || '').trim();
-        if (!raw) return '';
-        if (raw.startsWith('{')) {
-            try {
-                return readOtaDiagnosisHeaderValue(JSON.parse(raw), target);
-            } catch (e) {
-                return '';
-            }
-        }
-        const line = raw.split(/\r?\n/).find(item => item.trim().toLowerCase().startsWith(`${target}:`));
-        return line ? line.split(':').slice(1).join(':').trim() : '';
-    };
     const compactOtaDiagnosisBody = (body = {}) => {
         const compacted = {};
         Object.keys(body).forEach(key => {
@@ -354,14 +335,10 @@ window.SUXI_OTA_DIAGNOSIS_STATIC = (() => {
         String(firstOtaDiagnosisValue(
             config.request_urls,
             config.requestUrls,
-            config.endpoints_json,
-            config.endpointsJson,
             config.request_url,
             config.requestUrl,
             config.url
         ) || '').trim() !== ''
-        || (Array.isArray(config.endpoints) && config.endpoints.length > 0)
-        || (Array.isArray(config.requests) && config.requests.length > 0)
     );
     const buildOtaDiagnosisFetchContext = ({
         selectedHotel = {},
@@ -373,37 +350,6 @@ window.SUXI_OTA_DIAGNOSIS_STATIC = (() => {
         meituanTrafficConfig = {},
     } = {}) => {
         const systemHotelId = String(selectedHotel?.system_hotel_id || selectedHotel?.hotel_id || form.hotel_id || '').trim();
-        const ctripCookieApiProfileId = firstOtaDiagnosisValue(
-            ctripCookieApiConfig.profile_id,
-            ctripCookieApiConfig.profileId,
-            ctripCookieApiConfig.browser_profile_id,
-            ctripCookieApiConfig.browserProfileId,
-            ctripCookieApiConfig.ota_hotel_id,
-            ctripCookieApiConfig.ctrip_hotel_id,
-            ctripCookieApiConfig.ctripHotelId,
-            ctripCookieApiConfig.node_id,
-            ctripCookieApiConfig.nodeId,
-            ctripCookieApiConfig.hotel_id,
-            ctripConfig?.profile_id,
-            ctripConfig?.profileId,
-            ctripConfig?.browser_profile_id,
-            ctripConfig?.browserProfileId,
-            ctripConfig?.ota_hotel_id,
-            ctripConfig?.ctrip_hotel_id,
-            ctripConfig?.ctripHotelId,
-            ctripConfig?.node_id,
-            ctripConfig?.nodeId,
-            ctripConfig?.hotel_id,
-            systemHotelId
-        );
-        const ctripCookieApiHeaderCookie = firstOtaDiagnosisValue(
-            readOtaDiagnosisHeaderValue(ctripCookieApiConfig.headers_json, 'cookie'),
-            readOtaDiagnosisHeaderValue(ctripCookieApiConfig.headersJson, 'cookie'),
-            readOtaDiagnosisHeaderValue(ctripCookieApiConfig.request_headers, 'cookie'),
-            readOtaDiagnosisHeaderValue(ctripCookieApiConfig.requestHeaders, 'cookie'),
-            readOtaDiagnosisHeaderValue(ctripCookieApiConfig.request_headers_json, 'cookie'),
-            readOtaDiagnosisHeaderValue(ctripCookieApiConfig.requestHeadersJson, 'cookie')
-        );
         return {
             selectedHotel,
             form,
@@ -415,15 +361,6 @@ window.SUXI_OTA_DIAGNOSIS_STATIC = (() => {
             ctripTrafficConfig,
             ctripCookieApiConfig,
             meituanTrafficConfig,
-            ctripTrafficCookies: firstOtaDiagnosisValue(ctripTrafficConfig.cookies, ctripTrafficConfig.cookie, ctripConfig?.cookies),
-            ctripCookieApiProfileId,
-            ctripCookieApiCookies: firstOtaDiagnosisValue(
-                ctripCookieApiConfig.cookies,
-                ctripCookieApiConfig.cookie,
-                ctripCookieApiHeaderCookie,
-                ctripConfig?.cookies,
-                ctripConfig?.cookie
-            ),
             hasCtripCookieApiRequests: hasCtripCookieApiRequestConfig(ctripCookieApiConfig, systemHotelId),
         };
     };
@@ -436,12 +373,14 @@ window.SUXI_OTA_DIAGNOSIS_STATIC = (() => {
             body: compactOtaDiagnosisBody(task.body || {}),
         });
     };
+    const isOtaDiagnosisCredentialReady = (config = null) => Boolean(
+        config
+        && String(firstOtaDiagnosisValue(config.config_id, config.id) || '').trim()
+        && String(config.credential_status || '') === 'ready'
+        && config.has_cookies === true
+    );
     const buildOtaDiagnosisFetchTasks = ({
         context = {},
-        genericCtripCookie = null,
-        useCtripCorePresetForDiagnosis = false,
-        ctripCorePresetReason = '',
-        ctripCorePresetJson = '',
     } = {}) => {
         const tasks = [];
         const systemHotelId = context.systemHotelId;
@@ -454,16 +393,16 @@ window.SUXI_OTA_DIAGNOSIS_STATIC = (() => {
         const meituanConfig = context.meituanConfig || null;
         const meituanTrafficConfig = context.meituanTrafficConfig || {};
 
-        if (ctripConfig && String(ctripConfig.cookies || '').trim()) {
+        const ctripConfigId = String(firstOtaDiagnosisValue(ctripConfig?.config_id, ctripConfig?.id) || '').trim();
+        if (isOtaDiagnosisCredentialReady(ctripConfig)) {
             pushOtaDiagnosisFetchTask(tasks, {
                 label: 'ctrip-business',
                 url: '/online-data/fetch-ctrip',
-                required: ['cookies', 'node_id'],
+                required: ['config_id', 'node_id'],
                 body: {
+                    config_id: ctripConfigId,
                     url: ctripConfig.url,
                     node_id: firstOtaDiagnosisValue(ctripConfig.node_id, ctripConfig.nodeId, '24588'),
-                    cookies: ctripConfig.cookies,
-                    auth_data: ctripConfig.auth_data || {},
                     start_date: startDate,
                     end_date: endDate,
                     auto_save: true,
@@ -472,45 +411,34 @@ window.SUXI_OTA_DIAGNOSIS_STATIC = (() => {
             });
         }
 
-        const ctripTrafficCookies = context.ctripTrafficCookies;
-        if (ctripTrafficCookies && (isSavedOtaDiagnosisDataConfigUsable(ctripTrafficConfig, systemHotelId) || ctripConfig)) {
+        if (isOtaDiagnosisCredentialReady(ctripConfig) && isSavedOtaDiagnosisDataConfigUsable(ctripTrafficConfig, systemHotelId)) {
             pushOtaDiagnosisFetchTask(tasks, {
                 label: 'ctrip-traffic',
                 url: '/online-data/ctrip/traffic',
-                required: ['cookies'],
+                required: ['config_id'],
                 body: {
+                    config_id: ctripConfigId,
                     url: ctripTrafficConfig.url,
                     platform: ctripTrafficConfig.platform || 'Ctrip',
                     date_range: 'custom',
                     start_date: startDate,
                     end_date: endDate,
-                    spiderkey: ctripTrafficConfig.spiderkey,
-                    cookies: ctripTrafficCookies,
-                    extra_params: firstOtaDiagnosisValue(ctripTrafficConfig.extra_params, ctripTrafficConfig.extraParams),
                     auto_save: true,
                     system_hotel_id: systemHotelId,
                 },
             });
         }
 
-        if (context.hasCtripCookieApiRequests || useCtripCorePresetForDiagnosis) {
-            const endpointsJson = context.hasCtripCookieApiRequests
-                ? firstOtaDiagnosisValue(ctripCookieApiConfig.endpoints_json, ctripCookieApiConfig.endpointsJson)
-                : ctripCorePresetJson;
+        if (context.hasCtripCookieApiRequests && isOtaDiagnosisCredentialReady(ctripConfig)) {
             pushOtaDiagnosisFetchTask(tasks, {
                 label: 'ctrip-cookie-api',
                 url: '/online-data/fetch-ctrip-cookie-api',
-                required: [],
+                required: ['config_id'],
                 body: {
+                    config_id: ctripConfigId,
                     request_urls: firstOtaDiagnosisValue(ctripCookieApiConfig.request_urls, ctripCookieApiConfig.requestUrls),
-                    endpoints: firstOtaDiagnosisValue(ctripCookieApiConfig.endpoints, ctripCookieApiConfig.requests, []),
-                    endpoints_json: endpointsJson,
                     request_url: firstOtaDiagnosisValue(ctripCookieApiConfig.request_url, ctripCookieApiConfig.requestUrl, ctripCookieApiConfig.url),
                     method: String(ctripCookieApiConfig.method || 'GET').toUpperCase(),
-                    payload_json: firstOtaDiagnosisValue(ctripCookieApiConfig.payload_json, ctripCookieApiConfig.payloadJson),
-                    headers_json: firstOtaDiagnosisValue(ctripCookieApiConfig.headers_json, ctripCookieApiConfig.headersJson),
-                    cookies: firstOtaDiagnosisValue(context.ctripCookieApiCookies, genericCtripCookie?.cookies),
-                    profile_id: context.ctripCookieApiProfileId,
                     hotel_id: firstOtaDiagnosisValue(
                         ctripCookieApiConfig.hotel_id,
                         ctripCookieApiConfig.ctrip_hotel_id,
@@ -530,26 +458,26 @@ window.SUXI_OTA_DIAGNOSIS_STATIC = (() => {
                     end_date: endDate,
                     auto_save: true,
                     system_hotel_id: systemHotelId,
-                    request_source: context.hasCtripCookieApiRequests ? 'saved_config' : `core_preset:${ctripCorePresetReason || 'unknown'}`,
+                    request_source: 'saved_metadata',
                 },
             });
         }
 
-        if (meituanConfig && String(meituanConfig.cookies || '').trim()) {
+        const meituanConfigId = String(firstOtaDiagnosisValue(meituanConfig?.config_id, meituanConfig?.id) || '').trim();
+        if (isOtaDiagnosisCredentialReady(meituanConfig)) {
             ['P_RZ', 'P_XS', 'P_ZH', 'P_LL'].forEach(rankType => {
                 pushOtaDiagnosisFetchTask(tasks, {
                     label: `meituan-${rankType}`,
                     url: '/online-data/fetch-meituan',
-                    required: ['cookies', 'partner_id', 'poi_id'],
+                    required: ['config_id', 'partner_id', 'poi_id'],
                     body: {
+                        config_id: meituanConfigId,
                         url: meituanConfig.url,
                         partner_id: firstOtaDiagnosisValue(meituanConfig.partner_id, meituanConfig.partnerId),
                         poi_id: firstOtaDiagnosisValue(meituanConfig.poi_id, meituanConfig.poiId),
                         rank_type: rankType,
                         data_scope: meituanConfig.data_scope,
                         date_range: 'custom',
-                        cookies: meituanConfig.cookies,
-                        auth_data: meituanConfig.auth_data || {},
                         start_date: startDate,
                         end_date: endDate,
                         auto_save: true,
@@ -559,21 +487,20 @@ window.SUXI_OTA_DIAGNOSIS_STATIC = (() => {
             });
         }
 
-        if (isSavedOtaDiagnosisDataConfigUsable(meituanTrafficConfig, systemHotelId)) {
+        if (isOtaDiagnosisCredentialReady(meituanConfig) && isSavedOtaDiagnosisDataConfigUsable(meituanTrafficConfig, systemHotelId)) {
             const meituanTrafficPartnerId = firstOtaDiagnosisValue(meituanTrafficConfig.partner_id, meituanTrafficConfig.partnerId, meituanConfig?.partner_id, meituanConfig?.partnerId);
             const meituanTrafficPoiId = firstOtaDiagnosisValue(meituanTrafficConfig.poi_id, meituanTrafficConfig.poiId, meituanConfig?.poi_id, meituanConfig?.poiId);
             pushOtaDiagnosisFetchTask(tasks, {
                 label: 'meituan-traffic',
                 url: '/online-data/fetch-meituan-traffic',
-                required: ['url', 'cookies', 'partner_id', 'poi_id'],
+                required: ['config_id', 'url', 'partner_id', 'poi_id'],
                 body: {
+                    config_id: meituanConfigId,
                     url: meituanTrafficConfig.url,
                     partner_id: meituanTrafficPartnerId,
                     poi_id: meituanTrafficPoiId,
-                    cookies: firstOtaDiagnosisValue(meituanTrafficConfig.cookies, meituanTrafficConfig.cookie),
                     start_date: startDate,
                     end_date: endDate,
-                    extra_params: firstOtaDiagnosisValue(meituanTrafficConfig.extra_params, meituanTrafficConfig.extraParams),
                     auto_save: true,
                     system_hotel_id: systemHotelId,
                 },
@@ -630,73 +557,25 @@ window.SUXI_OTA_DIAGNOSIS_STATIC = (() => {
         form = {},
         findCtripConfigByHotelId = () => null,
         findMeituanConfigByHotelId = () => null,
-        readSavedOtaDataConfig = async () => ({}),
-        readSavedGenericCookieForDiagnosis = async () => null,
-        checkCtripProfileStatus = async () => ({}),
-        applyCtripProfileStatus = () => {},
-        getCtripCookieApiCorePresetJson = () => '',
         requestTask = async () => ({}),
         notify = () => {},
-        log = () => {},
     } = {}) => {
         const initialSystemHotelId = String(selectedHotel?.system_hotel_id || selectedHotel?.hotel_id || form.hotel_id || '').trim();
         if (!initialSystemHotelId) return buildEmptyOtaDiagnosisFetchSummary();
 
         const ctripConfig = findCtripConfigByHotelId(initialSystemHotelId);
         const meituanConfig = findMeituanConfigByHotelId(initialSystemHotelId);
-        const [
-            ctripTrafficConfig,
-            ctripCookieApiConfig,
-            meituanTrafficConfig,
-        ] = await Promise.all([
-            readSavedOtaDataConfig('ctrip-traffic'),
-            readSavedOtaDataConfig('ctrip-cookie-api'),
-            readSavedOtaDataConfig('meituan-traffic'),
-        ]);
         const fetchContext = buildOtaDiagnosisFetchContext({
             selectedHotel,
             form,
             ctripConfig,
             meituanConfig,
-            ctripTrafficConfig,
-            ctripCookieApiConfig,
-            meituanTrafficConfig,
         });
         const systemHotelId = fetchContext.systemHotelId;
         if (!systemHotelId) return buildEmptyOtaDiagnosisFetchSummary();
 
-        const genericCtripCookie = String(fetchContext.ctripCookieApiCookies || '').trim()
-            ? null
-            : await readSavedGenericCookieForDiagnosis(systemHotelId);
-        let useCtripCorePresetForDiagnosis = false;
-        let ctripCorePresetReason = '';
-        if (!fetchContext.hasCtripCookieApiRequests) {
-            if (String(fetchContext.ctripCookieApiCookies || genericCtripCookie?.cookies || '').trim()) {
-                useCtripCorePresetForDiagnosis = true;
-                ctripCorePresetReason = genericCtripCookie ? 'generic_cookie' : 'cookie';
-            } else if (String(fetchContext.ctripCookieApiProfileId || '').trim()) {
-                try {
-                    const profileStatus = await checkCtripProfileStatus({
-                        systemHotelId,
-                        profileId: String(fetchContext.ctripCookieApiProfileId).trim(),
-                    });
-                    if (profileStatus?.exists) {
-                        useCtripCorePresetForDiagnosis = true;
-                        ctripCorePresetReason = 'profile';
-                        applyCtripProfileStatus(profileStatus);
-                    }
-                } catch (error) {
-                    log('check Ctrip Profile before diagnosis fetch failed:', error);
-                }
-            }
-        }
-
         const tasks = buildOtaDiagnosisFetchTasks({
             context: fetchContext,
-            genericCtripCookie,
-            useCtripCorePresetForDiagnosis,
-            ctripCorePresetReason,
-            ctripCorePresetJson: getCtripCookieApiCorePresetJson(),
         });
         if (tasks.length === 0) return buildEmptyOtaDiagnosisFetchSummary();
 

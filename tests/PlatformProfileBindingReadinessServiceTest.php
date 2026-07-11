@@ -8,7 +8,7 @@ use PHPUnit\Framework\TestCase;
 
 final class PlatformProfileBindingReadinessServiceTest extends TestCase
 {
-    public function testCtripBrowserProfileContractRequiresStoreProfileAndVerifiedLogin(): void
+    public function testCtripBrowserProfileContractRequiresStoreProfileAndCurrentSessionProof(): void
     {
         $contract = PlatformProfileBindingReadinessService::buildContract('ctrip', 58, [
             'ota_hotel_id' => 'ctrip-58',
@@ -16,9 +16,8 @@ final class PlatformProfileBindingReadinessServiceTest extends TestCase
             'profile_binding_key' => 'profile-58',
             'profile_reuse_scope' => 'ota_account_store',
             'profile_daily_reuse_enabled' => true,
-            'manual_login_state_verified' => true,
-            'login_status' => 'logged_in',
-            'last_login_verified_at' => '2026-06-27 09:00:00',
+            'manual_login_state_verified' => false,
+            'login_status' => 'historical_logged_in',
             'cookies' => 'must-not-copy',
             'password' => 'must-not-copy',
         ], [
@@ -43,8 +42,10 @@ final class PlatformProfileBindingReadinessServiceTest extends TestCase
         self::assertSame('profile_id', $contract['profile_id_source']);
         self::assertSame('ota_account_store', $contract['profile_reuse_scope']);
         self::assertTrue($contract['profile_daily_reuse_enabled']);
-        self::assertTrue($contract['manual_login_state_verified']);
-        self::assertSame('2026-06-27 09:00:00', $contract['last_login_verified_at']);
+        self::assertTrue($contract['current_session_verified']);
+        self::assertFalse($contract['historical_login_metadata_present']);
+        self::assertFalse($contract['manual_login_state_verified']);
+        self::assertSame('', $contract['last_login_verified_at']);
 
         $encoded = json_encode($contract, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         self::assertStringNotContainsString('must-not-copy', (string)$encoded);
@@ -110,7 +111,7 @@ final class PlatformProfileBindingReadinessServiceTest extends TestCase
         self::assertSame('run_ctrip_trial_capture', $byKey['platform_identity']['action_key']);
     }
 
-    public function testMeituanContractKeepsUnverifiedProfileIncomplete(): void
+    public function testMeituanContractKeepsHistoricalLoginMetadataReferenceOnly(): void
     {
         $contract = PlatformProfileBindingReadinessService::buildContract('meituan', 58, [
             'store_id' => 'mt-store-58',
@@ -118,6 +119,8 @@ final class PlatformProfileBindingReadinessServiceTest extends TestCase
             'profile_binding_key' => 'mt-store-58',
             'profile_reuse_scope' => 'ota_account_store',
             'profile_daily_reuse_enabled' => true,
+            'manual_login_state_verified' => true,
+            'last_login_verified_at' => '2026-06-27 09:00:00',
         ], [
             'id' => 18,
             'system_hotel_id' => 58,
@@ -130,10 +133,11 @@ final class PlatformProfileBindingReadinessServiceTest extends TestCase
         self::assertSame('mt-store-58', $contract['ota_store_id']);
         self::assertSame('store_id', $contract['ota_store_id_source']);
         self::assertSame('mt-store-58', $contract['profile_id']);
-        self::assertFalse($contract['manual_login_state_verified']);
-        self::assertContains('manual_login_state_verified', $contract['missing_requirements']);
-        self::assertContains('last_login_verified_at', $contract['missing_requirements']);
-        self::assertContains('profile_status_logged_in', $contract['missing_requirements']);
+        self::assertFalse($contract['current_session_verified']);
+        self::assertTrue($contract['historical_login_metadata_present']);
+        self::assertTrue($contract['manual_login_state_verified']);
+        self::assertSame('2026-06-27 09:00:00', $contract['last_login_verified_at']);
+        self::assertSame(['current_session_verified'], $contract['missing_requirements']);
     }
 
     public function testMeituanChecksDoNotRequirePartnerIdForP0ProfileIdentity(): void
@@ -154,5 +158,7 @@ final class PlatformProfileBindingReadinessServiceTest extends TestCase
 
         self::assertSame('ok', $byKey['platform_identity']['status']);
         self::assertSame('login_platform_profile', $byKey['platform_identity']['action_key']);
+        self::assertStringContainsString('Browser Profile', $byKey['platform_identity']['detail']);
+        self::assertStringNotContainsString('Cookie/API', $byKey['platform_identity']['detail']);
     }
 }

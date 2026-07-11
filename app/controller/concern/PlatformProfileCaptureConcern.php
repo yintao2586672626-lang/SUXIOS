@@ -4,6 +4,9 @@ declare(strict_types=1);
 namespace app\controller\concern;
 
 use app\service\BrowserProfileCaptureRequestService;
+use app\service\OtaProfileBindingService;
+use app\service\OtaProfileSessionProofService;
+use think\facade\Db;
 
 trait PlatformProfileCaptureConcern
 {
@@ -20,7 +23,13 @@ trait PlatformProfileCaptureConcern
         $inputPath = $outputDir . DIRECTORY_SEPARATOR . $prefix . '.input.json';
         $outputPath = $outputDir . DIRECTORY_SEPARATOR . $prefix . '.json';
 
-        file_put_contents($inputPath, json_encode($config, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_INVALID_UTF8_SUBSTITUTE) . PHP_EOL, LOCK_EX);
+        $inputJson = json_encode($config, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_INVALID_UTF8_SUBSTITUTE);
+        if (!is_string($inputJson)
+            || file_put_contents($inputPath, $inputJson . PHP_EOL, LOCK_EX) === false
+            || !@chmod($inputPath, 0600)) {
+            @unlink($inputPath);
+            throw new \RuntimeException('无法安全写入携程 Cookie API 采集输入文件');
+        }
 
         return [
             'config' => $config,
@@ -33,6 +42,9 @@ trait PlatformProfileCaptureConcern
     {
         $hotelId = $systemHotelId !== null ? (int)$systemHotelId : 0;
         $profileId = $this->ctripProfileStoreIdFromConfig($requestData, $hotelId);
+        if ($hotelId > 0 && $profileId !== '') {
+            $this->assertOtaProfileBindingForHotel('ctrip', $hotelId, $profileId);
+        }
         $safeProfileId = $profileId !== '' ? BrowserProfileCaptureRequestService::safeFilePart($profileId) : '';
         $relativeDir = $safeProfileId !== '' ? 'storage/ctrip_profile_' . $safeProfileId : '';
         $projectRoot = dirname(__DIR__, 3);
@@ -239,6 +251,9 @@ trait PlatformProfileCaptureConcern
         }
 
         $storeId = $this->meituanProfileStoreIdFromConfig($requestData);
+        if ($hotelId > 0 && $storeId !== '') {
+            $this->assertOtaProfileBindingForHotel('meituan', $hotelId, $storeId);
+        }
         $safeStoreId = $storeId !== '' ? BrowserProfileCaptureRequestService::safeFilePart($storeId) : '';
         $relativeDir = $safeStoreId !== '' ? 'storage/meituan_profile_' . $safeStoreId : '';
         $projectRoot = dirname(__DIR__, 3);
@@ -363,14 +378,15 @@ trait PlatformProfileCaptureConcern
         if ($profileId === '') {
             throw new \InvalidArgumentException('missing Ctrip Cookie and browser Profile ID');
         }
+        $source = $this->loadProfileSessionSource('ctrip', $systemHotelId, $profileId);
+        $this->assertProfileCookieSourceLoginVerified($source, 'Ctrip');
+        $this->assertOtaProfileBindingForHotel('ctrip', $systemHotelId, $profileId);
 
         $safeProfileId = BrowserProfileCaptureRequestService::safeFilePart($profileId);
         $profileDir = $projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'ctrip_profile_' . $safeProfileId;
         if (!is_dir($profileDir)) {
             throw new \InvalidArgumentException("missing Ctrip Cookie and storage/ctrip_profile_{$safeProfileId}");
         }
-
-        $this->assertProfileCookieSourceLoginVerified($requestData, 'Ctrip');
 
         return $this->createPlatformCookieFileFromProfile('ctrip', $profileDir, $projectRoot, $profileId, 'ctrip_profile_' . $safeProfileId);
     }
@@ -381,6 +397,9 @@ trait PlatformProfileCaptureConcern
         if ($storeId === '') {
             throw new \InvalidArgumentException('missing Meituan Cookie and browser Profile Store ID');
         }
+        $source = $this->loadProfileSessionSource('meituan', $systemHotelId, $storeId);
+        $this->assertProfileCookieSourceLoginVerified($source, 'Meituan');
+        $this->assertOtaProfileBindingForHotel('meituan', $systemHotelId, $storeId);
 
         $safeStoreId = BrowserProfileCaptureRequestService::safeFilePart($storeId);
         $profileDir = $projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'meituan_profile_' . $safeStoreId;
@@ -388,14 +407,17 @@ trait PlatformProfileCaptureConcern
             throw new \InvalidArgumentException("missing Meituan Cookie and storage/meituan_profile_{$safeStoreId}");
         }
 
-        $this->assertProfileCookieSourceLoginVerified($requestData, 'Meituan');
-
         return $this->createPlatformCookieFileFromProfile('meituan', $profileDir, $projectRoot, $storeId, 'meituan_profile_' . $safeStoreId);
     }
 
-    private function assertProfileCookieSourceLoginVerified(array $config, string $platform): void
+    private function assertOtaProfileBindingForHotel(string $platform, int $systemHotelId, string $profileKey): void
     {
-        $missing = $this->profileCookieSourceLoginMissingRequirements($config);
+        (new OtaProfileBindingService())->assertBound($systemHotelId, $platform, $profileKey);
+    }
+
+    private function assertProfileCookieSourceLoginVerified(?array $source, string $platform): void
+    {
+        $missing = $this->profileCookieSourceLoginMissingRequirements($source ?? []);
         if ($missing === []) {
             return;
         }
@@ -405,35 +427,61 @@ trait PlatformProfileCaptureConcern
         );
     }
 
-    private function profileCookieSourceLoginVerified(array $config): bool
+    private function profileCookieSourceLoginMissingRequirements(array $source): array
     {
-        return $this->profileCookieSourceLoginMissingRequirements($config) === [];
+        return (new OtaProfileSessionProofService())->isCurrentVerified($source)
+            ? []
+            : ['current_session_verified'];
     }
 
-    private function profileCookieSourceLoginMissingRequirements(array $config): array
+    private function loadProfileSessionSource(
+        string $platform,
+        int $systemHotelId,
+        string $profileKey
+    ): ?array {
+        if ($systemHotelId <= 0 || trim($profileKey) === '') {
+            return null;
+        }
+
+        $rows = Db::name('platform_data_sources')
+            ->field('id,tenant_id,system_hotel_id,platform,ingestion_method,enabled,status,config_json')
+            ->where('system_hotel_id', $systemHotelId)
+            ->where('platform', strtolower(trim($platform)))
+            ->whereIn('ingestion_method', ['browser_profile', 'profile_browser'])
+            ->where('enabled', 1)
+            ->where('status', '<>', 'disabled')
+            ->order('id', 'desc')
+            ->select()
+            ->toArray();
+        $expected = BrowserProfileCaptureRequestService::safeFilePart($profileKey);
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $config = json_decode((string)($row['config_json'] ?? ''), true);
+            if (!is_array($config)) {
+                continue;
+            }
+            $candidate = $this->profileSessionSourceProfileKey($platform, $config);
+            if ($candidate !== '' && hash_equals($expected, BrowserProfileCaptureRequestService::safeFilePart($candidate))) {
+                return $row;
+            }
+        }
+
+        return null;
+    }
+
+    private function profileSessionSourceProfileKey(string $platform, array $config): string
     {
-        $missing = [];
-        if (!$this->isTruthyRequestValue($config['manual_login_state_verified'] ?? null)) {
-            $missing[] = 'manual_login_state_verified';
+        $keys = strtolower(trim($platform)) === 'meituan'
+            ? ['profile_binding_key', 'stable_profile_id', 'store_id', 'storeId', 'poi_id', 'poiId', 'profile_id', 'profileId']
+            : ['profile_binding_key', 'stable_profile_id', 'profile_id', 'profileId', 'browser_profile_id', 'browserProfileId'];
+        foreach ($keys as $key) {
+            if (is_scalar($config[$key] ?? null) && trim((string)$config[$key]) !== '') {
+                return trim((string)$config[$key]);
+            }
         }
-
-        $profileStatus = strtolower(trim((string)($config['profile_status'] ?? $config['login_status'] ?? '')));
-        if (!in_array($profileStatus, ['logged_in', 'authorized'], true)) {
-            $missing[] = 'profile_status_logged_in';
-        }
-
-        $lastVerifiedAt = trim((string)(
-            $config['last_login_verified_at']
-            ?? $config['profile_login_verified_at']
-            ?? $config['last_profile_login_at']
-            ?? $config['last_verified_at']
-            ?? ''
-        ));
-        if ($lastVerifiedAt === '') {
-            $missing[] = 'last_login_verified_at';
-        }
-
-        return $missing;
+        return '';
     }
 
     private function createPlatformCookieFileFromProfile(string $platform, string $profileDir, string $projectRoot, string $profileId, string $filePrefix): array
@@ -819,7 +867,13 @@ trait PlatformProfileCaptureConcern
         $markdownPath = $outputDir . DIRECTORY_SEPARATOR . $prefix . '.md';
         $candidatePath = $outputDir . DIRECTORY_SEPARATOR . $prefix . '.candidate.json';
 
-        file_put_contents($inputPath, json_encode($bundle, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . PHP_EOL);
+        $inputJson = json_encode($bundle, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+        if (!is_string($inputJson)
+            || file_put_contents($inputPath, $inputJson . PHP_EOL, LOCK_EX) === false
+            || !@chmod($inputPath, 0600)) {
+            @unlink($inputPath);
+            throw new \RuntimeException('无法安全写入携程接口证据输入文件');
+        }
 
         return [
             'bundle' => $bundle,
@@ -1302,7 +1356,14 @@ trait PlatformProfileCaptureConcern
         }
 
         $path = $dir . DIRECTORY_SEPARATOR . 'ctrip_profile_field_config_' . $suffix . '.json';
-        return file_put_contents($path, $json, LOCK_EX) === false ? '' : $path;
+        if (file_put_contents($path, $json, LOCK_EX) === false) {
+            return '';
+        }
+        if (!@chmod($path, 0600)) {
+            @unlink($path);
+            return '';
+        }
+        return $path;
     }
 
     private function buildCtripProfileFieldConfigPayload(array $fields): array

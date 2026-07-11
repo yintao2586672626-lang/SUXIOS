@@ -110,6 +110,24 @@ system_hotel_id
 
 同一唯一键重复采集时应形成新的采集运行记录，并按明确规则更新当前快照；不得静默覆盖来源、时间或质量状态。
 
+### 4.4 逻辑数据表设计（规范层）
+
+以下为宿析OS重新实现时的逻辑实体，不代表现有表名、迁移脚本或外部系统结构。实现时可按项目现有命名和租户模型落库，但不得省略关键追溯关系。
+
+| 逻辑实体 | 关键字段 | 职责 | 安全边界 |
+| --- | --- | --- | --- |
+| ota_data_sources | source_id、system_hotel_id、platform、ingestion_method、enabled、credential_present | 描述可用数据源和采集方式 | 只保存凭证存在性或受控引用，不保存明文凭证 |
+| ota_hotel_platform_bindings | binding_id、system_hotel_id、platform、poi_ref、binding_state、verified_at | 维护系统酒店与平台店铺/POI绑定 | POI不匹配时不得写入目标快照 |
+| ota_login_validations | validation_id、source_id、session_state、capability_states、validated_at、failure_codes | 保存会话、权限和目标数据探针结果 | 不保存Cookie、令牌或完整请求材料 |
+| ota_collection_runs | run_id、source_id、target_date、trigger_mode、status、started_at、finished_at、failure_codes | 记录一次手动、定时、浏览器会话或人工导入任务 | 任务消息只能使用结构化原因码 |
+| ota_evidence_refs | evidence_id、run_id、source_type、source_ref、payload_hash、collected_at、retention_policy | 保存脱敏证据引用和重放所需元数据 | 不保存完整响应、访问地址或客户隐私 |
+| ota_metric_snapshots | snapshot_id、run_id、system_hotel_id、platform、poi_ref、stat_date、metric_code、metric_value、quality_state | 保存标准化 OTA 事实和当前快照 | 默认 `OTA_CHANNEL_SCOPE`，不升级为全酒店事实 |
+| ota_quality_assessments | assessment_id、run_id、primary_quality_state、quality_flags、evidence_summary、next_action | 保存质量判定和下游门禁依据 | 只记录状态、计数、日期和缺口代码 |
+| ota_operation_actions | action_id、diagnosis_id、action_type、owner、approval_state、evidence_refs | 将诊断转为可审计运营动作 | AI只可提出建议，不能替代审批 |
+| ota_action_reviews | review_id、action_id、review_date、outcome_metrics、review_state | 保存执行结果和复核结论 | 必须保留原始质量状态与范围标签 |
+
+关系要求：一个数据源可对应多次登录验证和采集任务；一次任务可产生多条证据引用、指标快照和一份质量评估；一个运营动作必须指回诊断、事实快照和质量评估；复核不得覆盖原始快照。
+
 ## 5. 字段字典
 
 | 字段 | 类型 | 说明 | 缺失处理 |
@@ -182,4 +200,3 @@ system_hotel_id
 | 部分字段成功 | 写入可确认字段，整体标记 partial，缺失字段为 null |
 | 采集成功但保存失败 | 标记 collection_failed 或 snapshot_not_saved，不可进入下游 |
 | 只有历史快照 | 标记 stale，只能作为历史参考 |
-

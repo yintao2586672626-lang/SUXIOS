@@ -344,23 +344,14 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         normalized.startDate = firstDataConfigValue(normalized.startDate, normalized.start_date);
         normalized.end_date = firstDataConfigValue(normalized.end_date, normalized.endDate);
         normalized.endDate = firstDataConfigValue(normalized.endDate, normalized.end_date);
-        normalized.extra_params = firstDataConfigValue(normalized.extra_params, normalized.extraParams);
-        normalized.extraParams = firstDataConfigValue(normalized.extraParams, normalized.extra_params);
-        normalized.payload_json = firstDataConfigValue(normalized.payload_json, normalized.payloadJson);
-        normalized.payloadJson = firstDataConfigValue(normalized.payloadJson, normalized.payload_json);
         normalized.request_urls = firstDataConfigValue(normalized.request_urls, normalized.requestUrls);
         normalized.requestUrls = firstDataConfigValue(normalized.requestUrls, normalized.request_urls);
-        normalized.endpoints_json = firstDataConfigValue(normalized.endpoints_json, normalized.endpointsJson);
-        normalized.endpointsJson = firstDataConfigValue(normalized.endpointsJson, normalized.endpoints_json);
-        normalized.headers_json = firstDataConfigValue(normalized.headers_json, normalized.headersJson);
-        normalized.headersJson = firstDataConfigValue(normalized.headersJson, normalized.headers_json);
         normalized.profile_id = firstDataConfigValue(normalized.profile_id, normalized.profileId);
         normalized.profileId = firstDataConfigValue(normalized.profileId, normalized.profile_id);
         normalized.hotel_id = firstDataConfigValue(normalized.hotel_id, normalized.ctrip_hotel_id, normalized.ctripHotelId);
         normalized.ctrip_hotel_id = firstDataConfigValue(normalized.ctrip_hotel_id, normalized.hotel_id);
         normalized.ctripHotelId = firstDataConfigValue(normalized.ctripHotelId, normalized.ctrip_hotel_id);
-        normalized.cookies = firstDataConfigValue(normalized.cookies, normalized.cookie);
-        normalized.cookie = firstDataConfigValue(normalized.cookie, normalized.cookies);
+        normalized.config_id = firstDataConfigValue(normalized.config_id, normalized.id);
         normalized.system_hotel_id = firstDataConfigValue(normalized.system_hotel_id, normalized.hotelId);
         normalized.hotelId = firstDataConfigValue(normalized.hotelId, normalized.system_hotel_id);
         return normalized;
@@ -381,15 +372,15 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         const startDate = firstDataConfigValue(form.start_date, form.startDate);
         const endDate = firstDataConfigValue(form.end_date, form.endDate);
         const systemHotelId = firstDataConfigValue(form.system_hotel_id, form.hotelId);
+        const configId = firstDataConfigValue(form.config_id, form.id);
         const body = { auto_save: false };
 
         switch (type) {
             case 'ctrip-ebooking':
                 Object.assign(body, {
+                    config_id: configId,
                     url: form.url,
                     node_id: firstDataConfigValue(form.node_id, form.nodeId),
-                    cookies: firstDataConfigValue(form.cookies, form.cookie),
-                    auth_data: form.auth_data,
                     start_date: startDate,
                     end_date: endDate,
                     system_hotel_id: systemHotelId,
@@ -397,14 +388,13 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
                 break;
             case 'meituan-ebooking':
                 Object.assign(body, {
+                    config_id: configId,
                     url: form.url,
                     partner_id: firstDataConfigValue(form.partner_id, form.partnerId),
                     poi_id: firstDataConfigValue(form.poi_id, form.poiId),
                     rank_type: firstDataConfigValue(form.rank_type, form.rankType, 'P_RZ'),
                     data_scope: form.data_scope,
                     date_range: form.date_range,
-                    cookies: firstDataConfigValue(form.cookies, form.cookie),
-                    auth_data: form.auth_data,
                     start_date: startDate,
                     end_date: endDate,
                     system_hotel_id: systemHotelId,
@@ -412,26 +402,21 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
                 break;
             case 'ctrip-traffic':
                 Object.assign(body, {
+                    config_id: configId,
                     url: form.url,
                     platform: form.platform || 'Ctrip',
                     date_range: form.date_range || 'yesterday',
                     start_date: startDate,
                     end_date: endDate,
-                    spiderkey: form.spiderkey,
-                    cookies: firstDataConfigValue(form.cookies, form.cookie),
-                    extra_params: firstDataConfigValue(form.extra_params, form.extraParams),
                     system_hotel_id: systemHotelId,
                 });
                 break;
             case 'ctrip-cookie-api':
                 Object.assign(body, {
+                    config_id: configId,
                     request_urls: firstDataConfigValue(form.request_urls, form.requestUrls),
-                    endpoints_json: firstDataConfigValue(form.endpoints_json, form.endpointsJson),
                     request_url: firstDataConfigValue(form.request_url, form.url),
                     method: String(form.method || 'GET').toUpperCase(),
-                    payload_json: firstDataConfigValue(form.payload_json, form.payloadJson),
-                    headers_json: firstDataConfigValue(form.headers_json, form.headersJson),
-                    cookies: firstDataConfigValue(form.cookies, form.cookie),
                     profile_id: firstDataConfigValue(form.profile_id, form.profileId),
                     hotel_id: firstDataConfigValue(form.hotel_id, form.ctrip_hotel_id, form.ctripHotelId),
                     node_id: firstDataConfigValue(form.node_id, form.nodeId),
@@ -443,13 +428,12 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
                 break;
             case 'meituan-traffic':
                 Object.assign(body, {
+                    config_id: configId,
                     url: form.url,
                     partner_id: firstDataConfigValue(form.partner_id, form.partnerId),
                     poi_id: firstDataConfigValue(form.poi_id, form.poiId),
                     start_date: startDate,
                     end_date: endDate,
-                    cookies: firstDataConfigValue(form.cookies, form.cookie),
-                    extra_params: firstDataConfigValue(form.extra_params, form.extraParams),
                     system_hotel_id: systemHotelId,
                 });
                 break;
@@ -459,21 +443,17 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
                 Object.assign(body, {
                     platform: form.platform,
                     url: form.url,
-                    cookies: firstDataConfigValue(form.cookies, form.cookie),
-                    extra_params: firstDataConfigValue(form.extra_params, form.extraParams),
                     system_hotel_id: systemHotelId,
                 });
                 break;
             case 'ctrip-comments':
                 Object.assign(body, {
+                    config_id: configId,
                     request_url: firstDataConfigValue(form.request_url, form.url),
                     hotel_id: firstDataConfigValue(form.hotel_id, form.hotelId),
                     master_hotel_id: form.master_hotel_id,
-                    cookies: firstDataConfigValue(form.cookies, form.cookie),
-                    spidertoken: form.spidertoken,
                     page_index: form.page_index,
                     page_size: form.page_size,
-                    payload_json: firstDataConfigValue(form.payload_json, form.payloadJson),
                     _fxpcqlniredt: form._fxpcqlniredt,
                     x_trace_id: form.x_trace_id,
                     tag_type: form.tag_type,
@@ -482,11 +462,9 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
                 break;
             case 'meituan-comments':
                 Object.assign(body, {
+                    config_id: configId,
                     partner_id: firstDataConfigValue(form.partner_id, form.partnerId),
                     poi_id: firstDataConfigValue(form.poi_id, form.poiId),
-                    cookies: firstDataConfigValue(form.cookies, form.cookie),
-                    mtgsig: form.mtgsig,
-                    _mtsi_eb_u: form._mtsi_eb_u,
                     reply_type: form.reply_type,
                     tag: form.tag,
                     limit: form.limit,
@@ -496,10 +474,9 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
                 break;
             case 'ctrip-ads':
                 Object.assign(body, {
+                    config_id: configId,
                     url: form.url,
                     api_type: normalizeCtripAdsApiType(form.api_type),
-                    cookies: firstDataConfigValue(form.cookies, form.cookie),
-                    payload_json: firstDataConfigValue(form.payload_json, form.payloadJson, form.extra_params, form.extraParams),
                     date_range: form.date_range,
                     start_date: startDate,
                     end_date: endDate,
@@ -508,16 +485,14 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
                 break;
             case 'meituan-ads':
                 Object.assign(body, {
+                    config_id: configId,
                     url: form.url,
                     method: form.method || 'GET',
                     partner_id: firstDataConfigValue(form.partner_id, form.partnerId),
                     poi_id: firstDataConfigValue(form.poi_id, form.poiId, form.shop_id),
                     shop_id: firstDataConfigValue(form.shop_id, form.shopId, form.poi_id),
-                    cookies: firstDataConfigValue(form.cookies, form.cookie),
                     start_date: firstDataConfigValue(form.begin_date, startDate),
                     end_date: endDate,
-                    payload_json: firstDataConfigValue(form.payload_json, form.payloadJson),
-                    extra_params: firstDataConfigValue(form.extra_params, form.extraParams),
                     system_hotel_id: systemHotelId,
                 });
                 break;
@@ -578,11 +553,20 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
                 };
             }
         }
+        const body = buildDataConfigRequestBody(endpoint.type, form);
+        if (!String(body.config_id || '').trim() || !String(body.system_hotel_id || '').trim()) {
+            return {
+                status: 'credential_not_ready',
+                type: endpoint.type,
+                message: '请先保存并选择已就绪的 OTA 凭据配置',
+                level: 'warning',
+            };
+        }
         return {
             status: 'ready',
             type: endpoint.type,
             apiUrl: endpoint.apiUrl,
-            body: buildDataConfigRequestBody(endpoint.type, form),
+            body,
         };
     };
     const runDataConfigTestFlow = async ({

@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace app\service;
 
-use app\model\SystemConfig;
 use DateTimeImmutable;
 use DateTimeZone;
 use think\facade\Db;
@@ -11,6 +10,31 @@ use Throwable;
 
 class OperationManagementService
 {
+    private const EXECUTION_CREDENTIAL_KEYS = [
+        'authorization' => true,
+        'authorizationheader' => true,
+        'authdata' => true,
+        'authtoken' => true,
+        'accesstoken' => true,
+        'refreshtoken' => true,
+        'token' => true,
+        'cookie' => true,
+        'cookies' => true,
+        'cookieobj' => true,
+        'cookieheader' => true,
+        'setcookie' => true,
+        'password' => true,
+        'passwd' => true,
+        'secret' => true,
+        'secretjson' => true,
+        'clientsecret' => true,
+        'apisecret' => true,
+        'spidertoken' => true,
+        'mtgsig' => true,
+        'sessionid' => true,
+        'sessiontoken' => true,
+    ];
+
     private const DATA_PENDING = '待接入真实数据';
     private const DATA_OK = 'ok';
     private const DISCLAIMER = '该结果基于历史数据和规则估算，仅用于运营参考。';
@@ -609,6 +633,7 @@ class OperationManagementService
 
     public function buildPriceSuggestionExecutionIntentInput(array $suggestion, array $overrides = []): array
     {
+        $this->assertExecutionPayloadHasNoCredentialMaterial([$suggestion, $overrides]);
         $date = $this->normalizeExecutionDate((string)($suggestion['suggestion_date'] ?? date('Y-m-d')));
         $factors = $this->arrayValue($suggestion['factors'] ?? []);
         $manualReview = $this->latestManualReviewFromFactors($factors);
@@ -654,6 +679,7 @@ class OperationManagementService
 
     public function buildExecutionIntentPayload(array $hotelIds, ?int $hotelId, array $input, int $createdBy): array
     {
+        $this->assertExecutionPayloadHasNoCredentialMaterial($input);
         $selectedHotelId = (int)($input['hotel_id'] ?? $hotelId ?? ($hotelIds[0] ?? 0));
         if ($selectedHotelId <= 0 || !in_array($selectedHotelId, array_map('intval', $hotelIds), true)) {
             throw new \InvalidArgumentException('hotel_id is not permitted');
@@ -714,6 +740,7 @@ class OperationManagementService
 
     public function buildExecutionTaskUpdate(array $task, array $intent, array $input, int $operatorId): array
     {
+        $this->assertExecutionPayloadHasNoCredentialMaterial($input);
         if (($intent['status'] ?? '') !== 'approved') {
             throw new \InvalidArgumentException('intent must be approved before execution');
         }
@@ -798,6 +825,7 @@ class OperationManagementService
 
     public function syncDailyWorkbenchPatrolAction(array $hotelIds, array $input, int $userId): array
     {
+        $this->assertExecutionPayloadHasNoCredentialMaterial($input);
         $this->ensureExecutionTables();
 
         $hotelIds = array_values(array_unique(array_map('intval', $hotelIds)));
@@ -904,6 +932,7 @@ class OperationManagementService
 
     public function approveExecutionIntent(int $id, bool $approved, string $remark, int $userId, array $hotelIds): array
     {
+        $this->assertExecutionPayloadHasNoCredentialMaterial($remark);
         $this->ensureExecutionTables();
         $intent = $this->executionIntentRow($id, $hotelIds);
         if (!$intent) {
@@ -911,6 +940,13 @@ class OperationManagementService
         }
         if ($approved && ($intent['status'] ?? '') === 'blocked') {
             throw new \InvalidArgumentException('blocked execution intent cannot be approved');
+        }
+        if ($approved) {
+            $this->assertExecutionPayloadHasNoCredentialMaterial([
+                $this->decodeJson((string)($intent['current_value_json'] ?? '')),
+                $this->decodeJson((string)($intent['target_value_json'] ?? '')),
+                $this->decodeJson((string)($intent['evidence_json'] ?? '')),
+            ]);
         }
 
         $now = date('Y-m-d H:i:s');
@@ -954,6 +990,11 @@ class OperationManagementService
         if (!$intent) {
             throw new \RuntimeException('execution intent not found');
         }
+        $this->assertExecutionPayloadHasNoCredentialMaterial([
+            $this->decodeJson((string)($task['current_value_json'] ?? '')),
+            $this->decodeJson((string)($task['target_value_json'] ?? '')),
+            $this->decodeJson((string)($intent['evidence_json'] ?? '')),
+        ]);
 
         $built = $this->buildExecutionTaskUpdate($task, $intent, $input, $operatorId);
         $taskUpdate = $built['task'];
@@ -980,6 +1021,7 @@ class OperationManagementService
 
     public function addExecutionEvidence(int $taskId, array $hotelIds, array $input, int $userId): array
     {
+        $this->assertExecutionPayloadHasNoCredentialMaterial($input);
         $this->ensureExecutionTables();
         $task = $this->executionTaskRow($taskId, $hotelIds);
         if (!$task) {
@@ -1009,6 +1051,7 @@ class OperationManagementService
 
     public function reviewExecutionTask(int $taskId, array $hotelIds, array $input = []): array
     {
+        $this->assertExecutionPayloadHasNoCredentialMaterial($input);
         $this->ensureExecutionTables();
         $task = $this->executionTaskRow($taskId, $hotelIds);
         if (!$task) {
@@ -1036,6 +1079,7 @@ class OperationManagementService
             }
         }
 
+        $this->assertExecutionPayloadHasNoCredentialMaterial($summary);
         Db::name('operation_execution_tasks')->where('id', $taskId)->update([
             'result_status' => $resultStatus,
             'result_summary' => $summary,
@@ -1552,6 +1596,140 @@ class OperationManagementService
         return array_values(array_unique($reasons));
     }
 
+    private function assertExecutionPayloadHasNoCredentialMaterial(mixed $value, int $depth = 0): void
+    {
+        if ($depth > 32) {
+            throw new \InvalidArgumentException('Operation execution payload nesting is too deep.');
+        }
+
+        if (is_array($value)) {
+            foreach ($value as $key => $item) {
+                if ($this->isExecutionCredentialKey((string)$key)
+                    && !$this->isEmptyOrRedactedCredentialValue($item)) {
+                    throw new \InvalidArgumentException('Operation execution payload contains reusable credential material.');
+                }
+                $this->assertExecutionPayloadHasNoCredentialMaterial($item, $depth + 1);
+            }
+            return;
+        }
+
+        if (is_object($value)) {
+            $this->assertExecutionPayloadHasNoCredentialMaterial(get_object_vars($value), $depth + 1);
+            return;
+        }
+
+        if (is_string($value) && $this->containsExecutionCredentialText($value)) {
+            throw new \InvalidArgumentException('Operation execution payload contains reusable credential material.');
+        }
+    }
+
+    private function isExecutionCredentialKey(string $key): bool
+    {
+        $normalized = strtolower((string)(preg_replace('/[^a-z0-9]/i', '', $key) ?? ''));
+        return isset(self::EXECUTION_CREDENTIAL_KEYS[$normalized]);
+    }
+
+    private function isEmptyOrRedactedCredentialValue(mixed $value): bool
+    {
+        if ($value === null || $value === false || $value === 0 || $value === [] || $value === '') {
+            return true;
+        }
+        if (!is_string($value)) {
+            return false;
+        }
+
+        return in_array(strtolower(trim($value)), [
+            '***',
+            '[redacted]',
+            'redacted',
+            '[masked]',
+            'masked',
+            'missing',
+            'unavailable',
+            'expired',
+            'invalid',
+            'revoked',
+            'unknown',
+            'none',
+            'null',
+            'empty',
+            'omitted',
+            'not_configured',
+        ], true);
+    }
+
+    private function containsExecutionCredentialText(string $value): bool
+    {
+        if (trim($value) === '') {
+            return false;
+        }
+
+        $safeStatus = '(?:\*{3,}|\[?redacted\]?|\[?masked\]?|missing|unavailable|expired|invalid|revoked|unknown|none|null|empty|omitted|not_configured)';
+        if (preg_match('/\b(?:authorization|cookie|set-cookie)\s*:\s*(?!' . $safeStatus . '\b)[^\r\n]+/iu', $value) === 1) {
+            return true;
+        }
+
+        return preg_match(
+            '/["\']?(?:authorization|auth_data|auth_token|access_token|refresh_token|token|cookies?|password|client_secret|api_secret|spidertoken|mtgsig)["\']?\s*[:=]\s*["\']?(?!' . $safeStatus . '(?:["\']|\b))[^\s,;}"\']+/iu',
+            $value
+        ) === 1;
+    }
+
+    private function sanitizeLegacyExecutionValue(mixed $value, int $depth = 0): mixed
+    {
+        if ($depth > 32) {
+            return '[redacted]';
+        }
+
+        if (is_array($value)) {
+            $safe = [];
+            foreach ($value as $key => $item) {
+                if ($this->isExecutionCredentialKey((string)$key)) {
+                    $safe[$key] = '[redacted]';
+                    continue;
+                }
+                $safe[$key] = $this->sanitizeLegacyExecutionValue($item, $depth + 1);
+            }
+            return $safe;
+        }
+
+        if (is_object($value)) {
+            return '[redacted]';
+        }
+
+        if (!is_string($value) || trim($value) === '') {
+            return $value;
+        }
+
+        $trimmed = trim($value);
+        if (($trimmed[0] ?? '') === '{' || ($trimmed[0] ?? '') === '[') {
+            $decoded = json_decode($trimmed, true);
+            if (is_array($decoded)) {
+                return json_encode(
+                    $this->sanitizeLegacyExecutionValue($decoded, $depth + 1),
+                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+                ) ?: '{}';
+            }
+        }
+
+        return $this->sanitizeLegacyExecutionText($value);
+    }
+
+    private function sanitizeLegacyExecutionText(string $value): string
+    {
+        $value = preg_replace(
+            '/(\b(?:authorization|cookie|set-cookie)\s*:\s*)[^\r\n]+/iu',
+            '$1[redacted]',
+            $value
+        ) ?? $value;
+
+        return preg_replace(
+            '/(["\']?(?:authorization|auth_data|auth_token|access_token|refresh_token|token|cookies?|password|client_secret|api_secret|spidertoken|mtgsig)["\']?\s*[:=]\s*)["\']?[^\s,;}"\']+["\']?/iu',
+            '$1[redacted]',
+            $value
+        ) ?? $value;
+    }
+
     private function arrayValue(mixed $value): array
     {
         if (is_array($value)) {
@@ -1705,7 +1883,8 @@ class OperationManagementService
         $row['evidence'] = $this->decodeJson((string)($row['evidence_json'] ?? ''));
         unset($row['current_value_json'], $row['target_value_json'], $row['evidence_json']);
 
-        return $row;
+        $sanitized = $this->sanitizeLegacyExecutionValue($row);
+        return is_array($sanitized) ? $sanitized : [];
     }
 
     private function normalizeExecutionTaskRow(array $row): array
@@ -1719,7 +1898,8 @@ class OperationManagementService
         $row['target_value'] = $this->decodeJson((string)($row['target_value_json'] ?? ''));
         unset($row['current_value_json'], $row['target_value_json']);
 
-        return $row;
+        $sanitized = $this->sanitizeLegacyExecutionValue($row);
+        return is_array($sanitized) ? $sanitized : [];
     }
 
     private function normalizeExecutionEvidenceRow(array $row): array
@@ -1732,11 +1912,13 @@ class OperationManagementService
         $row['platform_response'] = $this->decodeJson((string)($row['platform_response_json'] ?? ''));
         unset($row['before_json'], $row['after_json'], $row['platform_response_json']);
 
-        return $row;
+        $sanitized = $this->sanitizeLegacyExecutionValue($row);
+        return is_array($sanitized) ? $sanitized : [];
     }
 
     private function insertExecutionEvidence(array $payload): void
     {
+        $this->assertExecutionPayloadHasNoCredentialMaterial($payload);
         $taskId = (int)$payload['task_id'];
         Db::name('operation_execution_evidence')->insert($this->withTenantId([
             'task_id' => $taskId,
@@ -2656,34 +2838,45 @@ class OperationManagementService
 
     private function resolveMeituanTargetPoiId(array $hotelIds): string
     {
-        $hotelIdSet = array_fill_keys(array_map('strval', array_map('intval', $hotelIds)), true);
+        $hotelIds = array_values(array_unique(array_filter(array_map('intval', $hotelIds), static fn(int $id): bool => $id > 0)));
+        if ($hotelIds === [] || !$this->tableExists('platform_data_sources')) {
+            return '';
+        }
+
+        $identityColumn = '';
+        foreach (['platform_hotel_id', 'poi_id', 'store_id'] as $candidate) {
+            if ($this->tableHasColumn('platform_data_sources', $candidate)) {
+                $identityColumn = $candidate;
+                break;
+            }
+        }
+        if ($identityColumn === '') {
+            return '';
+        }
+
         try {
-            $raw = SystemConfig::getValue('meituan_config_list', '[]');
-            $list = is_string($raw) && trim($raw) !== '' ? json_decode($raw, true) : [];
+            $rows = Db::name('platform_data_sources')
+                ->where('platform', 'meituan')
+                ->whereIn('system_hotel_id', $hotelIds)
+                ->where('enabled', 1)
+                ->whereIn('status', ['ready', 'success', 'partial_success'])
+                ->field(['system_hotel_id', $identityColumn])
+                ->order('update_time', 'desc')
+                ->select()
+                ->toArray();
         } catch (Throwable $e) {
             return '';
         }
-        if (!is_array($list)) {
-            return '';
-        }
 
-        foreach ($list as $config) {
-            if (!is_array($config)) {
-                continue;
-            }
-            $configHotelId = (string)($config['system_hotel_id'] ?? $config['hotel_id'] ?? '');
-            if ($configHotelId === '' || !isset($hotelIdSet[(string)(int)$configHotelId])) {
-                continue;
-            }
-            foreach (['poi_id', 'poiId', 'store_id', 'storeId'] as $key) {
-                $value = trim((string)($config[$key] ?? ''));
-                if ($value !== '') {
-                    return $value;
-                }
+        $identities = [];
+        foreach ($rows as $row) {
+            $value = trim((string)($row[$identityColumn] ?? ''));
+            if ($value !== '' && preg_match('/^[A-Za-z0-9._:-]{1,128}$/D', $value) === 1) {
+                $identities[$value] = true;
             }
         }
 
-        return '';
+        return count($identities) === 1 ? (string)array_key_first($identities) : '';
     }
 
     private function meituanPlatformTagInfo(array $raw): array

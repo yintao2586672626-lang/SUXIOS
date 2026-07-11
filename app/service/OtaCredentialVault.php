@@ -43,8 +43,8 @@ final class OtaCredentialVault
         if (!$r) {
             throw new RuntimeException('Credential not found.');
         }
-        if (!$allowRevoked && (string) $r->credential_status === 'revoked') {
-            throw new RuntimeException('Credential revoked.');
+        if (!$allowRevoked && (string) $r->credential_status !== 'ready') {
+            throw new RuntimeException('Credential is not ready for execution.');
         }
         return $r;
     }
@@ -105,7 +105,25 @@ final class OtaCredentialVault
     public function withPayloadForExecution(int $t, int $h, string $p, string $c, callable $consumer): mixed
     {
         $r = $this->locate($t, $h, $p, $c);
-        return $consumer($this->envelope->decrypt((string) $r->encrypted_payload, $this->scope($t, $h, $p, $c)));
+        return $consumer($this->payloadForExecution($r, $this->scope($t, $h, $p, $c)));
+    }
+
+    public function verifiedMetadataForExecution(int $t, int $h, string $p, string $c): array
+    {
+        $metadata = $this->metadata($t, $h, $p, $c);
+        $this->withPayloadForExecution($t, $h, $p, $c, static fn(array $_payload): null => null);
+        return $metadata;
+    }
+
+    /** @return array<string|int, mixed> */
+    private function payloadForExecution(OtaCredential $record, string $scope): array
+    {
+        if ((int)$record->payload_version !== 1
+            || !hash_equals($this->keyId, (string)$record->key_id)
+        ) {
+            throw new RuntimeException('Credential cryptographic metadata is not executable.');
+        }
+        return $this->envelope->decrypt((string)$record->encrypted_payload, $scope);
     }
 
     public function revoke(int $t, int $h, string $p, string $c): array

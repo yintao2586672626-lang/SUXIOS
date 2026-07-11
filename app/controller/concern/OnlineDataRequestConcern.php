@@ -13,6 +13,62 @@ use think\facade\Db;
 trait OnlineDataRequestConcern
 {
     /**
+     * @param array<string, mixed> $requestData
+     * @return array<string, scalar|array<int, scalar|null>|null>
+     */
+    private function sanitizeCtripCookieApiExecutionRequestData(array $requestData): array
+    {
+        return $this->sanitizePrimaryManualFetchRequestData($requestData, [
+            'config_id',
+            'system_hotel_id',
+            'request_url',
+            'requestUrl',
+            'url',
+            'method',
+            'hotel_id',
+            'hotelId',
+            'ctrip_hotel_id',
+            'ctripHotelId',
+            'ota_hotel_id',
+            'otaHotelId',
+            'platform_hotel_id',
+            'platformHotelId',
+            'profile_id',
+            'profileId',
+            'hotel_name',
+            'hotelName',
+            'data_date',
+            'dataDate',
+            'start_date',
+            'end_date',
+            'auto_save',
+            'request_source',
+        ], ['request_urls', 'requestUrls']);
+    }
+
+    /**
+     * @param array<string, mixed> $requestData
+     * @return array<string, scalar|array<int, scalar|null>|null>
+     */
+    private function sanitizeCtripOverviewExecutionRequestData(array $requestData): array
+    {
+        return $this->sanitizePrimaryManualFetchRequestData($requestData, [
+            'config_id',
+            'system_hotel_id',
+            'url',
+            'method',
+            'hotel_id',
+            'hotelId',
+            'ctrip_hotel_id',
+            'ctripHotelId',
+            'hotel_name',
+            'hotelName',
+            'data_date',
+            'dataDate',
+        ], ['request_urls', 'requestUrls']);
+    }
+
+    /**
      * 解析并保存美团差评数据
      */
     // Browser profile capture payload entrypoint.
@@ -77,6 +133,18 @@ trait OnlineDataRequestConcern
         $storeId = BrowserProfileCaptureRequestService::resolveMeituanStoreId($requestData);
         if ($storeId === '') {
             return $this->error('请填写美团 Store ID / 门店 ID');
+        }
+
+        if (!$systemHotelId) {
+            return $this->error('Please select the system hotel that owns this Meituan Profile.', 400);
+        }
+        try {
+            $this->assertOtaProfileBindingForHotel('meituan', (int)$systemHotelId, $storeId);
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), $e->getCode() >= 400 && $e->getCode() < 600 ? $e->getCode() : 409, [
+                'status_code' => 'ota_profile_binding_blocked',
+                'sensitive_values_exposed' => false,
+            ]);
         }
 
         $loginOnly = $this->isCtripLoginOnlyRequest($requestData);
@@ -352,6 +420,14 @@ trait OnlineDataRequestConcern
 
         $hotelId = BrowserProfileCaptureRequestService::resolveCtripHotelId($requestData);
         $profileId = BrowserProfileCaptureRequestService::resolveCtripProfileId($requestData, (int)$systemHotelId, $hotelId);
+        try {
+            $this->assertOtaProfileBindingForHotel('ctrip', (int)$systemHotelId, $profileId);
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), $e->getCode() >= 400 && $e->getCode() < 600 ? $e->getCode() : 409, [
+                'status_code' => 'ota_profile_binding_blocked',
+                'sensitive_values_exposed' => false,
+            ]);
+        }
         $loginOnly = $this->isCtripLoginOnlyRequest($requestData);
 
         $projectRoot = dirname(__DIR__, 3);
@@ -713,7 +789,14 @@ trait OnlineDataRequestConcern
         );
         $probeCookie = $this->isTruthyRequestValue($requestData['probe_cookie'] ?? $requestData['probeCookie'] ?? false);
         $probeLogin = $this->isTruthyRequestValue($requestData['probe_login'] ?? $requestData['probeLogin'] ?? false);
-        $status = $this->buildCtripProfileStatus($requestData, $systemHotelId, $probeCookie, $probeLogin);
+        try {
+            $status = $this->buildCtripProfileStatus($requestData, $systemHotelId, $probeCookie, $probeLogin);
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), $e->getCode() >= 400 && $e->getCode() < 600 ? $e->getCode() : 409, [
+                'status_code' => 'ota_profile_binding_blocked',
+                'sensitive_values_exposed' => false,
+            ]);
+        }
         if ($probeLogin && $systemHotelId !== null && !empty($status['profile_id'])) {
             $this->cachePlatformProfileStatus('ctrip', (int)$systemHotelId, (string)$status['profile_id'], [
                 'checked_at' => date('Y-m-d H:i:s'),
@@ -746,7 +829,14 @@ trait OnlineDataRequestConcern
             ?? null
         );
         $probeLogin = $this->isTruthyRequestValue($requestData['probe_login'] ?? $requestData['probeLogin'] ?? false);
-        $status = $this->buildMeituanProfileStatus($requestData, $systemHotelId, $probeLogin);
+        try {
+            $status = $this->buildMeituanProfileStatus($requestData, $systemHotelId, $probeLogin);
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), $e->getCode() >= 400 && $e->getCode() < 600 ? $e->getCode() : 409, [
+                'status_code' => 'ota_profile_binding_blocked',
+                'sensitive_values_exposed' => false,
+            ]);
+        }
 
         return $this->success(
             $status,
@@ -807,9 +897,18 @@ trait OnlineDataRequestConcern
         $sourceId = (int)($requestData['data_source_id'] ?? $requestData['source_id'] ?? 0);
 
         try {
-            $source = $sourceId > 0
-                ? Db::name('platform_data_sources')->where('id', $sourceId)->find()
-                : $this->findBrowserProfileDataSourceForUnbind((int)$systemHotelId, $platform, $profileKey);
+            if ($sourceId > 0) {
+                $source = Db::name('platform_data_sources')
+                    ->field('id,system_hotel_id,platform,ingestion_method,config_json,enabled,status')
+                    ->where('id', $sourceId)
+                    ->find();
+                if (is_array($source)) {
+                    $safeSources = $this->sanitizeBrowserProfileSourcesForSharedCache([$source]);
+                    $source = $safeSources[0] ?? [];
+                }
+            } else {
+                $source = $this->findBrowserProfileDataSourceForUnbind((int)$systemHotelId, $platform, $profileKey);
+            }
             if (!$source || !is_array($source)) {
                 if ($profileKey === '') {
                     return $this->error('未找到当前酒店可解除的平台 Profile 数据源绑定', 404);
@@ -976,18 +1075,52 @@ trait OnlineDataRequestConcern
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
 
-        $requestData = $this->requestData();
-        $systemHotelIdInput = $requestData['system_hotel_id']
-            ?? $requestData['systemHotelId']
-            ?? null;
-        $systemHotelId = ($systemHotelIdInput !== null && $systemHotelIdInput !== '')
-            ? $this->resolveOnlineDataSystemHotelId($systemHotelIdInput)
-            : null;
-        $autoSave = !array_key_exists('auto_save', $requestData) && !array_key_exists('autoSave', $requestData)
-            ? true
-            : $this->isTruthyRequestValue($requestData['auto_save'] ?? $requestData['autoSave'] ?? false);
+        $rawRequestData = $this->requestData();
+        try {
+            if (!is_array($rawRequestData)) {
+                throw new \InvalidArgumentException('Invalid Ctrip Cookie API execution request schema.', 400);
+            }
+            $requestData = $this->sanitizeCtripCookieApiExecutionRequestData($rawRequestData);
+            $configId = trim((string)($requestData['config_id'] ?? ''));
+            $systemHotelId = $this->strictPositiveOtaConfigHotelId($requestData['system_hotel_id'] ?? null);
 
-        $cookies = $this->readCtripCookieHeaderFromRequest($requestData);
+            return $this->withOtaCredentialForExecution(
+                'ctrip',
+                $configId,
+                $systemHotelId,
+                fn(array $credentialPayload): Response => $this->executeCtripCookieApiDataFetch(
+                    $requestData,
+                    $credentialPayload,
+                    $systemHotelId
+                )
+            );
+        } catch (\InvalidArgumentException) {
+            return $this->error('执行参数无效；请仅提供 config_id、system_hotel_id 与允许的业务参数', 400);
+        } catch (\RuntimeException $e) {
+            $statusCode = $e->getCode() === 403 ? 403 : 409;
+            return $this->error($statusCode === 403 ? '无权使用该门店 OTA 凭据' : 'OTA 凭据不可用', $statusCode);
+        } catch (\Throwable $e) {
+            \think\facade\Log::error('Ctrip Cookie API credential execution boundary failed.', [
+                'exception_type' => get_debug_type($e),
+            ]);
+            return $this->error('请求异常', 500);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $requestData
+     * @param array<string, mixed> $credentialPayload
+     */
+    private function executeCtripCookieApiDataFetch(
+        array $requestData,
+        array $credentialPayload,
+        int $systemHotelId
+    ): Response {
+        $autoSave = $this->isTruthyRequestValue($requestData['auto_save'] ?? true);
+        $cookies = trim((string)($credentialPayload['cookies'] ?? $credentialPayload['cookie'] ?? ''));
+        if ($cookies === '') {
+            return $this->error('OTA 凭据缺少登录 Cookies', 409);
+        }
 
         try {
             $projectRoot = dirname(__DIR__, 3);
@@ -1002,15 +1135,9 @@ trait OnlineDataRequestConcern
             }
 
             $prepared = $this->prepareCtripCookieApiCaptureFiles($requestData, $projectRoot, $systemHotelId);
-            $profileCookieMeta = null;
-            if ($cookies !== '') {
-                $cookieFile = $this->createAutoFetchCookieFile($projectRoot, 'ctrip_api', (int)($systemHotelId ?? 0), $cookies);
-            } else {
-                $profileCookieMeta = $this->createCtripCookieApiCookieFileFromProfile($requestData, $projectRoot, (int)($systemHotelId ?? 0));
-                $cookieFile = (string)($profileCookieMeta['cookie_file'] ?? '');
-            }
+            $cookieFile = $this->createAutoFetchCookieFile($projectRoot, 'ctrip_api', $systemHotelId, $cookies);
             if ($cookieFile === '') {
-                return $this->error('无法创建携程 Cookie 临时文件', 500);
+                return $this->error('无法创建 OTA 凭据临时文件', 500);
             }
 
             try {
@@ -1027,9 +1154,8 @@ trait OnlineDataRequestConcern
             }
 
             if (!$runResult['success']) {
-                return $this->error('携程 Cookie API 采集失败: ' . str_replace('美团浏览器抓取', 'Node脚本', $runResult['message']), 400, [
-                    'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
-                    'stderr' => $this->trimMeituanCaptureLog($runResult['stderr'] ?? ''),
+                return $this->error('携程 Cookie API 采集失败', 400, [
+                    'reason' => 'ctrip_cookie_api_capture_failed',
                     'output' => $prepared['output_path'],
                 ]);
             }
@@ -1049,25 +1175,7 @@ trait OnlineDataRequestConcern
                 if (!isset($prepared['config']) || !is_array($prepared['config'])) {
                     $prepared['config'] = [];
                 }
-                if ($systemHotelId === null) {
-                    $identityCheck = $this->resolveCtripSystemHotelIdentityFromPlatformIds(
-                        $this->extractCtripPayloadSelfHotelIds($payload),
-                        $prepared['config'] ?? []
-                    );
-                    if (!empty($identityCheck['ok']) && !empty($identityCheck['target_system_hotel_id'])) {
-                        $systemHotelId = $this->resolveOnlineDataSystemHotelId((int)$identityCheck['target_system_hotel_id']);
-                        $matchedHotelId = (string)(($identityCheck['expected_hotel_ids'] ?? [])[0] ?? (($identityCheck['captured_hotel_ids'] ?? [])[0] ?? ''));
-                        if ($matchedHotelId !== '') {
-                            $prepared['config']['ctrip_hotel_id'] = $matchedHotelId;
-                            $prepared['config']['ota_hotel_id'] = $matchedHotelId;
-                            $prepared['config']['platform_hotel_id'] = $matchedHotelId;
-                        }
-                    } else {
-                        $saveBlockedIdentity = $identityCheck;
-                    }
-                }
-
-                if ($saveBlockedIdentity === null && $systemHotelId !== null) {
+                if ($saveBlockedIdentity === null) {
                     $identityCheck = $this->validateCtripPayloadHotelIdentity($payload, (int)$systemHotelId, $prepared['config'] ?? []);
                     if (empty($identityCheck['ok'])) {
                         $identityStatus = (string)($identityCheck['status'] ?? '');
@@ -1147,21 +1255,18 @@ trait OnlineDataRequestConcern
                 'standard_data_type_counts' => $capturedCounts['standard_by_data_type'],
                 'standard_section_counts' => $capturedCounts['standard_by_section'],
                 'request_count' => count($prepared['config']['endpoints'] ?? []),
-                'cookie_source' => $cookies !== '' ? 'request' : 'browser_profile',
-                'profile_cookie_meta' => $profileCookieMeta ? [
-                    'profile_id' => (string)($profileCookieMeta['profile_id'] ?? ''),
-                    'cookie_count' => (int)($profileCookieMeta['cookie_count'] ?? 0),
-                    'skipped_count' => (int)($profileCookieMeta['skipped_count'] ?? 0),
-                ] : null,
+                'cookie_source' => 'credential_vault',
                 'responses' => array_slice(is_array($payload['responses'] ?? null) ? $payload['responses'] : [], 0, 20),
-                'errors' => is_array($payload['errors'] ?? null) ? $payload['errors'] : [],
+                'error_count' => count(is_array($payload['errors'] ?? null) ? $payload['errors'] : []),
                 'output' => $prepared['output_path'],
-                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
             ], $readiness['is_ready'] ? '携程 Cookie API 采集完成' : '携程 Cookie API 未达到诊断就绪');
-        } catch (\InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), 400);
+        } catch (\InvalidArgumentException) {
+            return $this->error('携程 Cookie API 业务参数无效', 400);
         } catch (\Throwable $e) {
-            return $this->error('携程 Cookie API 采集异常: ' . $e->getMessage(), 500);
+            \think\facade\Log::error('Ctrip Cookie API fetch failed.', [
+                'exception_type' => get_debug_type($e),
+            ]);
+            return $this->error('携程 Cookie API 采集异常', 500);
         }
     }
 
@@ -1307,19 +1412,61 @@ trait OnlineDataRequestConcern
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
 
-        $requestData = $this->requestData();
-        $systemHotelId = $this->resolveOnlineDataSystemHotelId(
-            $requestData['system_hotel_id']
-            ?? $requestData['systemHotelId']
-            ?? null
-        );
+        $rawRequestData = $this->requestData();
+        try {
+            if (!is_array($rawRequestData)) {
+                throw new \InvalidArgumentException('Invalid Ctrip overview execution request schema.', 400);
+            }
+            $requestData = $this->sanitizeCtripOverviewExecutionRequestData($rawRequestData);
+            $configId = trim((string)($requestData['config_id'] ?? ''));
+            $systemHotelId = $this->strictPositiveOtaConfigHotelId($requestData['system_hotel_id'] ?? null);
+
+            return $this->withOtaCredentialForExecution(
+                'ctrip',
+                $configId,
+                $systemHotelId,
+                fn(array $credentialPayload): Response => $this->executeCtripOverviewDataFetch(
+                    $requestData,
+                    $credentialPayload,
+                    $systemHotelId
+                )
+            );
+        } catch (\InvalidArgumentException) {
+            return $this->error('执行参数无效；请仅提供 config_id、system_hotel_id 与允许的业务参数', 400);
+        } catch (\RuntimeException $e) {
+            $statusCode = $e->getCode() === 403 ? 403 : 409;
+            return $this->error($statusCode === 403 ? '无权使用该门店 OTA 凭据' : 'OTA 凭据不可用', $statusCode);
+        } catch (\Throwable $e) {
+            \think\facade\Log::error('Ctrip overview credential execution boundary failed.', [
+                'exception_type' => get_debug_type($e),
+            ]);
+            return $this->error('请求异常', 500);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $requestData
+     * @param array<string, mixed> $credentialPayload
+     */
+    private function executeCtripOverviewDataFetch(
+        array $requestData,
+        array $credentialPayload,
+        int $systemHotelId
+    ): Response {
         $hotelId = trim((string)($requestData['hotel_id'] ?? $requestData['hotelId'] ?? $requestData['ctrip_hotel_id'] ?? $requestData['ctripHotelId'] ?? ''));
         $hotelName = trim((string)($requestData['hotel_name'] ?? $requestData['hotelName'] ?? ''));
-        $cookies = trim((string)($requestData['cookies'] ?? $requestData['cookie'] ?? ''));
+        $cookies = trim((string)($credentialPayload['cookies'] ?? $credentialPayload['cookie'] ?? ''));
         $requestUrls = $this->normalizeCtripOverviewRequestUrls($requestData['request_urls'] ?? $requestData['requestUrls'] ?? $requestData['url'] ?? '');
-        $payloadJson = trim((string)($requestData['payload_json'] ?? $requestData['payloadJson'] ?? ''));
         $method = strtoupper(trim((string)($requestData['method'] ?? 'GET')));
-        $spidertoken = trim((string)($requestData['spidertoken'] ?? $requestData['token'] ?? ''));
+        $authData = $credentialPayload['auth_data'] ?? $credentialPayload['authData'] ?? [];
+        if (is_string($authData)) {
+            $authData = json_decode($authData, true) ?: [];
+        }
+        $spidertoken = trim((string)(
+            $credentialPayload['spidertoken']
+            ?? $credentialPayload['spider_token']
+            ?? (is_array($authData) ? ($authData['spidertoken'] ?? $authData['spider_token'] ?? $authData['token'] ?? '') : '')
+        ));
         $dataDate = $this->normalizeOnlineDataDate($requestData['data_date'] ?? $requestData['dataDate'] ?? '');
         if ($dataDate === '') {
             $dataDate = date('Y-m-d', strtotime('-1 day'));
@@ -1335,11 +1482,7 @@ trait OnlineDataRequestConcern
             return $this->error('今日概况接口请求方式仅支持 POST 或 GET');
         }
 
-        try {
-            $basePayload = $payloadJson !== '' ? $this->parseJsonParams($payloadJson) : [];
-        } catch (\Throwable $e) {
-            return $this->error('Payload JSON格式错误');
-        }
+        $basePayload = [];
         $basePayload = $this->buildCtripOverviewRequestPayload($basePayload, $hotelId, $dataDate);
 
         $responses = [];
@@ -1347,22 +1490,22 @@ trait OnlineDataRequestConcern
         $xhrUrls = [];
         foreach ($requestUrls as $requestUrl) {
             if (preg_match('#/datacenter/inland/businessreport/outline(?:\?|$)#i', $requestUrl)) {
-                $errors[] = '不能填写今日概况页面地址，请填写 Network 中的 JSON 接口 URL';
+                $errors[] = 'overview_page_url_not_api';
                 continue;
             }
             if (!$this->isAllowedOtaRequestUrl($requestUrl, ['ctrip.com'])) {
-                $errors[] = '仅允许请求携程官方域名: ' . $requestUrl;
+                $errors[] = 'overview_host_not_allowed';
                 continue;
             }
             if (!$this->isCtripOverviewApiUrl($requestUrl)) {
-                $errors[] = '今日概况接口 URL 必须命中指定接口: ' . $requestUrl;
+                $errors[] = 'overview_api_not_allowed';
                 continue;
             }
 
             $result = $this->sendCtripOverviewRequest($requestUrl, $basePayload, $cookies, $method, $spidertoken);
             $xhrUrls[] = ['url' => $requestUrl, 'status' => (int)($result['http_code'] ?? 0), 'request_type' => strtolower($method)];
             if (!empty($result['error'])) {
-                $errors[] = $result['error'];
+                $errors[] = 'overview_request_failed';
                 continue;
             }
             $responses[] = [
@@ -1454,7 +1597,7 @@ trait OnlineDataRequestConcern
             } else {
                 return $this->error('请求失败: ' . $result['error']);
             }
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             return $this->error('请求异常: ' . $e->getMessage());
         }
     }
@@ -1524,112 +1667,149 @@ trait OnlineDataRequestConcern
 
         try {
             $requestData = $this->requestData();
-            $id = trim((string)($requestData['id'] ?? $this->request->post('id', '')));
-            $name = trim((string)($requestData['name'] ?? $this->request->post('name', '')));
-            $cookies = (string)($requestData['cookies'] ?? $this->request->post('cookies', ''));
-
-            if (trim($cookies) === '') {
-                return json(['code' => 400, 'message' => '临时 Cookie/API 辅助内容不能为空']);
-            }
-            if ($name === '') {
-                $name = '携程Cookie ' . date('Y-m-d');
-            }
-
-            // 读取现有配置，编辑时复用原 ID
-            $key = 'ctrip_config_list';
-            $existing = \think\facade\Db::name('system_configs')->where('config_key', $key)->find();
-            $list = [];
-            if ($existing) {
-                $list = json_decode($existing['config_value'], true) ?: [];
-            }
-
-            if ($id !== '') {
-                if (!isset($list[$id])) {
-                    return $this->error('配置不存在');
-                }
-                if (!$this->isOtaConfigVisibleToCurrentUser($list[$id])) {
-                    return $this->error('无权修改此配置');
-                }
-            } else {
-                $id = 'ctrip_' . date('YmdHis') . '_' . substr(md5($name . time()), 0, 8);
-            }
-
-            // 非超级管理员保存时记录 user_id；超级管理员编辑旧配置时保留原归属
-            $originalConfig = $list[$id] ?? [];
-            $userId = $this->currentUser->isSuperAdmin() ? ($originalConfig['user_id'] ?? null) : $this->currentUser->id;
-            $hotelIdInput = $requestData['hotel_id'] ?? ($originalConfig['hotel_id'] ?? ($originalConfig['system_hotel_id'] ?? null));
-            $targetHotelId = $this->positiveOtaConfigHotelId($hotelIdInput);
-            if (!empty($originalConfig)) {
-                if (!$this->currentUserCanMaintainOtaConfigItem($originalConfig, $targetHotelId)) {
-                    return $this->error('No permission to maintain this OTA config.', 403);
-                }
-                $resolvedHotelId = $targetHotelId ?? $this->otaConfigBoundSystemHotelId($originalConfig);
-            } else {
-                $resolvedHotelId = $this->resolveOnlineDataSystemHotelId($hotelIdInput);
-                $this->checkOtaConfigMaintenancePermission($resolvedHotelId);
-            }
-            $hotelIdValue = $resolvedHotelId !== null ? (string)$resolvedHotelId : '';
-            $ctripHotelId = trim((string)(
-                $requestData['ctrip_hotel_id']
-                ?? $requestData['ctripHotelId']
-                ?? $requestData['ota_hotel_id']
-                ?? $requestData['otaHotelId']
-                ?? $originalConfig['ctrip_hotel_id']
-                ?? $originalConfig['ctripHotelId']
-                ?? $originalConfig['ota_hotel_id']
-                ?? $originalConfig['otaHotelId']
-                ?? ''
-            ));
-            $captureOptions = $this->buildCtripProfileCaptureConfigOptions($requestData, $originalConfig);
-            if ($captureOptions['approved_mappings_path'] !== '') {
-                $mappingCheck = $this->resolveCtripApprovedMappingsPath(['approved_mappings_path' => $captureOptions['approved_mappings_path']], dirname(__DIR__, 3));
-                if ($mappingCheck['path'] === '') {
-                    return $this->error((string)$mappingCheck['error'], 400);
-                }
-            }
-
-            $config = array_merge($originalConfig, [
-                'id' => $id,
-                'name' => $name,
-                'cookies' => $cookies,
-                'hotel_id' => $hotelIdValue,
-                'system_hotel_id' => $resolvedHotelId,
-                'ctrip_hotel_id' => $ctripHotelId,
-                'ctripHotelId' => $ctripHotelId,
-                'ota_hotel_id' => $ctripHotelId,
-                'url' => $requestData['url'] ?? ($originalConfig['url'] ?? ''),
-                'node_id' => $requestData['node_id'] ?? ($originalConfig['node_id'] ?? ''),
-                'user_id' => $userId,
-                'update_time' => date('Y-m-d H:i:s'),
-                'created_at' => $originalConfig['created_at'] ?? date('Y-m-d H:i:s'),
-            ], $captureOptions);
-            $config = $this->normalizeOtaConfigHotelBinding($config, 'ctrip');
-
-            $list[$id] = $config;
-
-            $jsonValue = json_encode($list, JSON_UNESCAPED_UNICODE);
-
-            if ($existing) {
-                \think\facade\Db::name('system_configs')->where('config_key', $key)->update([
-                    'config_value' => $jsonValue,
-                    'update_time' => date('Y-m-d H:i:s'),
-                ]);
-            } else {
-                \think\facade\Db::name('system_configs')->insert([
-                    'config_key' => $key,
-                    'config_value' => $jsonValue,
-                    'description' => '携程配置列表',
-                    'create_time' => date('Y-m-d H:i:s'),
-                    'update_time' => date('Y-m-d H:i:s'),
-                ]);
-            }
-
+            $config = $this->saveCtripConfigPayload($requestData);
             $this->clearAutoFetchLightConfigListCache('ctrip');
             return json(['code' => 200, 'message' => '配置保存成功', 'data' => $this->sanitizeSecretConfig($config)]);
-        } catch (\Exception $e) {
-            \think\facade\Log::error('保存携程配置异常: ' . $e->getMessage());
-            return json(['code' => 500, 'message' => '保存失败: ' . $e->getMessage()]);
+        } catch (\think\exception\HttpException $e) {
+            return $this->error($e->getMessage(), $e->getStatusCode());
+        } catch (\InvalidArgumentException $e) {
+            return json(['code' => 400, 'message' => $e->getMessage()]);
+        } catch (\Throwable $e) {
+            \think\facade\Log::error(sprintf(
+                '保存携程配置异常 [%s]: %s',
+                get_debug_type($e),
+                $e->getMessage()
+            ));
+            return $this->error('保存失败', 500);
         }
+    }
+
+    /**
+     * @param array<string, mixed> $requestData
+     * @return array<string, mixed>
+     */
+    private function saveCtripConfigPayload(array $requestData): array
+    {
+        $idField = trim((string)($requestData['id'] ?? ''));
+        $configIdField = trim((string)($requestData['config_id'] ?? $requestData['configId'] ?? ''));
+        if ($idField !== '' && $configIdField !== '' && !hash_equals($idField, $configIdField)) {
+            throw new \InvalidArgumentException('配置 ID 冲突');
+        }
+        $id = $idField !== '' ? $idField : $configIdField;
+        if ($id !== '' && preg_match('/^[A-Za-z0-9._-]{1,100}$/D', $id) !== 1) {
+            throw new \InvalidArgumentException('配置 ID 无效');
+        }
+
+        $row = Db::name('system_configs')->where('config_key', 'ctrip_config_list')->find();
+        $list = [];
+        if ($row) {
+            $decoded = json_decode((string)($row['config_value'] ?? ''), true, 512, JSON_THROW_ON_ERROR);
+            if (!is_array($decoded)) {
+                throw new \RuntimeException('携程配置列表格式无效');
+            }
+            $list = $decoded;
+        }
+
+        $isUpdate = $id !== '';
+        if ($isUpdate && (!isset($list[$id]) || !is_array($list[$id]))) {
+            throw new \InvalidArgumentException('配置不存在');
+        }
+        $originalConfig = $isUpdate ? $list[$id] : [];
+        $storedConfigId = trim((string)($originalConfig['config_id'] ?? $originalConfig['id'] ?? $id));
+        if ($isUpdate && ($storedConfigId === '' || !hash_equals($id, $storedConfigId))) {
+            throw new \InvalidArgumentException('配置 ID 绑定冲突');
+        }
+        if ($isUpdate && $this->otaConfigHasHotelBindingConflict($originalConfig)) {
+            throw new \InvalidArgumentException('配置的酒店绑定冲突，需要先迁移');
+        }
+
+        $hotelCandidates = [];
+        foreach (['system_hotel_id', 'systemHotelId', 'hotel_id'] as $field) {
+            if (!array_key_exists($field, $requestData) || $requestData[$field] === null || $requestData[$field] === '') {
+                continue;
+            }
+            $hotelCandidates[] = $this->strictPositiveOtaConfigHotelId($requestData[$field]);
+        }
+        $hotelCandidates = array_values(array_unique($hotelCandidates));
+        if (count($hotelCandidates) > 1) {
+            throw new \InvalidArgumentException('系统酒店绑定冲突');
+        }
+        $requestedHotelId = $hotelCandidates[0] ?? null;
+
+        if ($isUpdate) {
+            $originalHotelId = $this->otaConfigBoundSystemHotelId($originalConfig);
+            if ($originalHotelId === null) {
+                throw new \InvalidArgumentException('配置未绑定系统酒店，需要先迁移');
+            }
+            if ($requestedHotelId !== null && $requestedHotelId !== $originalHotelId) {
+                throw new \InvalidArgumentException('不允许变更已有凭据的系统酒店绑定');
+            }
+            if (!$this->isOtaConfigVisibleToCurrentUser($originalConfig)
+                || !$this->currentUserCanMaintainOtaConfigItem($originalConfig, $originalHotelId)) {
+                throw new \think\exception\HttpException(403, '无权修改此配置');
+            }
+            $resolvedHotelId = $originalHotelId;
+        } else {
+            $resolvedHotelId = $this->resolveOnlineDataSystemHotelId($requestedHotelId);
+            if ($resolvedHotelId === null || $resolvedHotelId <= 0) {
+                throw new \InvalidArgumentException('请选择系统酒店');
+            }
+            $this->checkOtaConfigMaintenancePermission($resolvedHotelId);
+            $id = 'ctrip_' . date('YmdHis') . '_' . substr(hash('sha256', random_bytes(16)), 0, 8);
+        }
+
+        $name = trim((string)($requestData['name'] ?? $originalConfig['name'] ?? ''));
+        if ($name === '') {
+            $name = '携程Cookie ' . date('Y-m-d');
+        }
+        [, $secretPayload] = $this->splitOtaConfigSecrets($requestData);
+        if (!$isUpdate && !$this->otaSecretPayloadHasNonEmptyScalar($secretPayload)) {
+            throw new \InvalidArgumentException('临时 Cookie/API 辅助内容不能为空');
+        }
+
+        $ctripHotelId = trim((string)(
+            $requestData['ctrip_hotel_id']
+            ?? $requestData['ctripHotelId']
+            ?? $requestData['ota_hotel_id']
+            ?? $requestData['otaHotelId']
+            ?? $originalConfig['ctrip_hotel_id']
+            ?? $originalConfig['ctripHotelId']
+            ?? $originalConfig['ota_hotel_id']
+            ?? $originalConfig['otaHotelId']
+            ?? ''
+        ));
+        $captureOptions = $this->buildCtripProfileCaptureConfigOptions($requestData, $originalConfig);
+        if ($captureOptions['approved_mappings_path'] !== '') {
+            $mappingCheck = $this->resolveCtripApprovedMappingsPath(
+                ['approved_mappings_path' => $captureOptions['approved_mappings_path']],
+                dirname(__DIR__, 3)
+            );
+            if ($mappingCheck['path'] === '') {
+                throw new \InvalidArgumentException((string)$mappingCheck['error']);
+            }
+        }
+
+        $safeOriginal = $this->sanitizeSecretConfig($originalConfig);
+        $userId = $this->currentUser->isSuperAdmin()
+            ? ($safeOriginal['user_id'] ?? null)
+            : $this->currentUser->id;
+        $config = array_merge($safeOriginal, [
+            'id' => $id,
+            'config_id' => $id,
+            'name' => $name,
+            'hotel_id' => (string)$resolvedHotelId,
+            'system_hotel_id' => $resolvedHotelId,
+            'ctrip_hotel_id' => $ctripHotelId,
+            'ctripHotelId' => $ctripHotelId,
+            'ota_hotel_id' => $ctripHotelId,
+            'url' => $requestData['url'] ?? ($safeOriginal['url'] ?? ''),
+            'node_id' => $requestData['node_id'] ?? ($safeOriginal['node_id'] ?? ''),
+            'user_id' => $userId,
+            'update_time' => date('Y-m-d H:i:s'),
+            'created_at' => $safeOriginal['created_at'] ?? date('Y-m-d H:i:s'),
+        ], $captureOptions, $secretPayload);
+
+        return $this->persistCtripConfigMetadata($config, (int)$this->currentUser->id, $isUpdate);
     }
 
     /**
@@ -1645,19 +1825,20 @@ trait OnlineDataRequestConcern
         try {
             $key = 'ctrip_config_list';
             $raw = \think\facade\Db::name('system_configs')->where('config_key', $key)->value('config_value');
-            $list = $raw ? json_decode($raw, true) : [];
+            $list = $raw ? json_decode((string)$raw, true, 512, JSON_THROW_ON_ERROR) : [];
             if (!is_array($list)) {
                 $list = [];
             }
             $list = $this->normalizeStoredOtaConfigList('system_configs', $key, $list, 'ctrip');
 
             $list = $this->filterOtaConfigListForCurrentUser($list);
+            $list = $this->sanitizeStoredOtaConfigListForRuntime($list);
 
             usort($list, function($a, $b) {
                 return strcmp($b['update_time'] ?? '', $a['update_time'] ?? '');
             });
 
-            return $this->success(array_map([$this, 'sanitizeSecretConfig'], array_values($list)));
+            return $this->success(array_values($list));
         } catch (\Throwable $e) {
             \think\facade\Log::error('获取携程配置列表失败: ' . $e->getMessage(), ['exception' => $e]);
             return $this->error('获取携程配置列表失败', 500);
@@ -1675,7 +1856,7 @@ trait OnlineDataRequestConcern
 
         $key = 'ctrip_config_list';
         $raw = \think\facade\Db::name('system_configs')->where('config_key', $key)->value('config_value');
-        $list = $raw ? json_decode((string)$raw, true) : [];
+        $list = $raw ? json_decode((string)$raw, true, 512, JSON_THROW_ON_ERROR) : [];
         if (!is_array($list)) {
             $list = [];
         }
@@ -1684,6 +1865,10 @@ trait OnlineDataRequestConcern
         if (!isset($list[$id])) {
             return $this->error('Config not found.', 404);
         }
+        $storedConfigId = trim((string)($list[$id]['config_id'] ?? $list[$id]['id'] ?? $id));
+        if ($storedConfigId === '' || !hash_equals($id, $storedConfigId)) {
+            return $this->error('Config binding conflict.', 409);
+        }
         if (!$this->isOtaConfigVisibleToCurrentUser($list[$id])) {
             return $this->error('Forbidden', 403);
         }
@@ -1691,7 +1876,8 @@ trait OnlineDataRequestConcern
             return $this->error('Forbidden', 403);
         }
 
-        return $this->success($list[$id]);
+        $safeList = $this->sanitizeStoredOtaConfigListForRuntime([$id => $list[$id]]);
+        return $this->success($safeList[$id] ?? []);
     }
 
     /**
@@ -1700,43 +1886,90 @@ trait OnlineDataRequestConcern
     public function deleteCtripConfig(): Response
     {
         $this->checkPermission();
-        $id = $this->request->param('id', '');
-        if (empty($id)) {
+        $id = trim((string)$this->request->param('id', ''));
+        if ($id === '') {
             return $this->error('配置ID不能为空');
         }
-
-        $key = 'ctrip_config_list';
-        $existing = \think\facade\Db::name('system_configs')->where('config_key', $key)->find();
-        if (!$existing) {
-            return $this->error('配置不存在');
+        if (preg_match('/^[A-Za-z0-9._-]{1,100}$/D', $id) !== 1) {
+            return $this->error('配置ID无效');
         }
 
-        $list = json_decode($existing['config_value'], true) ?: [];
-        $list = $this->normalizeStoredOtaConfigList('system_configs', $key, $list, 'ctrip');
+        try {
+            $key = 'ctrip_config_list';
+            $existing = Db::name('system_configs')->where('config_key', $key)->find();
+            if (!$existing) {
+                return $this->error('配置不存在', 404);
+            }
 
-        if (!isset($list[$id])) {
-            return $this->error('配置不存在');
+            $list = json_decode((string)$existing['config_value'], true, 512, JSON_THROW_ON_ERROR);
+            if (!is_array($list) || !isset($list[$id]) || !is_array($list[$id])) {
+                return $this->error('配置不存在', 404);
+            }
+            $config = $list[$id];
+            $storedConfigId = trim((string)($config['config_id'] ?? $config['id'] ?? $id));
+            if ($storedConfigId === '' || !hash_equals($id, $storedConfigId)) {
+                return $this->error('配置 ID 绑定冲突，拒绝删除', 409);
+            }
+            if ($this->otaConfigHasHotelBindingConflict($config)) {
+                return $this->error('配置的酒店绑定冲突，拒绝删除', 409);
+            }
+            $systemHotelId = $this->otaConfigBoundSystemHotelId($config);
+            if ($systemHotelId === null) {
+                return $this->error('配置未绑定系统酒店，拒绝删除', 409);
+            }
+
+            if (!$this->isOtaConfigVisibleToCurrentUser($config)) {
+                return $this->error('无权删除此配置', 403);
+            }
+            if (!$this->currentUserCanMaintainOtaConfigItem($config, $systemHotelId)) {
+                $this->checkActionPermission('can_delete_online_data');
+            }
+
+            $name = (string)($config['name'] ?? '');
+            Db::transaction(function () use ($key, $id, $systemHotelId): void {
+                $locked = Db::name('system_configs')->where('config_key', $key)->lock(true)->find();
+                if (!$locked) {
+                    throw new \RuntimeException('Ctrip config list disappeared during delete.');
+                }
+                $lockedList = json_decode((string)$locked['config_value'], true, 512, JSON_THROW_ON_ERROR);
+                if (!is_array($lockedList) || !isset($lockedList[$id]) || !is_array($lockedList[$id])) {
+                    throw new \RuntimeException('Ctrip config disappeared during delete.');
+                }
+                $lockedConfig = $lockedList[$id];
+                $lockedConfigId = trim((string)($lockedConfig['config_id'] ?? $lockedConfig['id'] ?? $id));
+                if ($this->otaConfigHasHotelBindingConflict($lockedConfig)
+                    || $this->otaConfigBoundSystemHotelId($lockedConfig) !== $systemHotelId
+                    || $lockedConfigId === ''
+                    || !hash_equals($id, $lockedConfigId)) {
+                    throw new \RuntimeException('Ctrip config hotel binding changed during delete.');
+                }
+
+                $this->deleteOtaConfigCredential($systemHotelId, 'ctrip', $id);
+                unset($lockedList[$id]);
+                $jsonValue = json_encode(
+                    $lockedList,
+                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                );
+                Db::name('system_configs')->where('config_key', $key)->update([
+                    'config_value' => $jsonValue,
+                    'update_time' => date('Y-m-d H:i:s'),
+                ]);
+            });
+
+            \app\model\SystemConfig::clearProtectedOtaCaches();
+            $this->clearAutoFetchLightConfigListCache('ctrip');
+
+            OperationLog::record('online_data', 'delete_ctrip_config', "删除携程配置: {$name}", $this->currentUser->id);
+
+            return $this->success(null, '删除成功');
+        } catch (\think\exception\HttpException $e) {
+            return $this->error($e->getMessage(), $e->getStatusCode());
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 400);
+        } catch (\Throwable $e) {
+            \think\facade\Log::error('删除携程配置失败: ' . $e->getMessage(), ['exception' => $e]);
+            return $this->error('删除携程配置失败', 500);
         }
-
-        if (!$this->isOtaConfigVisibleToCurrentUser($list[$id])) {
-            return $this->error('无权删除此配置');
-        }
-
-        if (!$this->currentUserCanMaintainOtaConfigItem($list[$id])) {
-            $this->checkActionPermission('can_delete_online_data');
-        }
-
-        $name = $list[$id]['name'] ?? '';
-        unset($list[$id]);
-        \think\facade\Db::name('system_configs')->where('config_key', $key)->update([
-            'config_value' => json_encode($list, JSON_UNESCAPED_UNICODE),
-            'update_time' => date('Y-m-d H:i:s'),
-        ]);
-        $this->clearAutoFetchLightConfigListCache('ctrip');
-
-        OperationLog::record('online_data', 'delete_ctrip_config', "删除携程配置: {$name}", $this->currentUser->id);
-
-        return $this->success(null, '删除成功');
     }
 
     /**
@@ -1762,30 +1995,10 @@ trait OnlineDataRequestConcern
      */
     public function autoCaptureCtripCookie(): Response
     {
-        // 允许跨域请求
-        header('Access-Control-Allow-Origin: https://ebooking.ctrip.com');
-        header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
-        header('Access-Control-Allow-Headers: Content-Type, Authorization');
-        header('Access-Control-Allow-Credentials: true');
-
-        // 处理 OPTIONS 预检请求
-        if ($this->request->method() === 'OPTIONS') {
-            return $this->success([]);
-        }
-
-        // 从请求头中获取 Cookie
-        $cookieHeader = $this->request->header('cookie', '');
-
-        if (empty($cookieHeader)) {
-            return $this->error('未能获取到Cookie，请确保在携程页面执行此操作');
-        }
-
-        // 检查关键 Cookie
-        if (strpos($cookieHeader, 'usertoken') === false && strpos($cookieHeader, 'usersign') === false) {
-            return $this->error('Cookie中缺少关键认证信息(usertoken/usersign)，请确保已登录携程ebooking');
-        }
-
-        return $this->error('此方法已弃用，请使用书签脚本');
+        return $this->error(
+            '旧版携程 Cookie 自动捕获入口已禁用。请使用平台采集源凭据或门店浏览器 Profile。',
+            410
+        );
     }
 
     /**
@@ -1793,100 +2006,12 @@ trait OnlineDataRequestConcern
      */
     public function saveCtripConfigByBookmark(): Response
     {
-        // 允许跨域请求
-        header('Access-Control-Allow-Origin: https://ebooking.ctrip.com');
-        header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
-        header('Access-Control-Allow-Headers: Content-Type, Authorization');
-        header('Access-Control-Allow-Credentials: true');
-
-        // 处理 OPTIONS 预检请求
-        if ($this->request->method() === 'OPTIONS') {
-            return $this->success([]);
-        }
-
         $this->checkPermission();
         $this->checkActionPermission('can_fetch_online_data');
-
-        // 获取请求数据
-        $rawInput = file_get_contents('php://input');
-        $data = json_decode($rawInput, true);
-
-        if (!$data) {
-            return $this->error('无效的请求数据');
-        }
-
-        $name = $data['name'] ?? '携程配置_' . date('Y-m-d');
-        $cookies = $data['cookies'] ?? '';
-        $authData = $data['auth_data'] ?? [];
-        $uid = $data['uid'] ?? null;
-        $resolvedHotelId = $this->resolveOnlineDataSystemHotelId($data['hotel_id'] ?? ($data['system_hotel_id'] ?? null));
-        $hotelIdValue = $resolvedHotelId !== null ? (string)$resolvedHotelId : '';
-        $userId = $this->currentUser->isSuperAdmin() ? null : $this->currentUser->id;
-
-        if (empty($cookies)) {
-            return $this->error('Cookie不能为空');
-        }
-
-        // 获取配置列表
-        $key = 'ctrip_config_list';
-        $list = $this->getConfigList($key);
-
-        // 生成唯一ID
-        $id = 'ctrip_' . date('YmdHis') . '_' . substr(md5($name . time()), 0, 8);
-
-        // 解析Cookie为对象
-        $cookieObj = [];
-        $cookiePairs = explode(';', $cookies);
-        foreach ($cookiePairs as $pair) {
-            $kv = array_map('trim', explode('=', $pair, 2));
-            if (count($kv) === 2) {
-                $cookieObj[$kv[0]] = $kv[1];
-            }
-        }
-
-        // 构建完整的auth_data
-        if (empty($authData)) {
-            $authData = [
-                'cookieObj' => $cookieObj,
-                'xCtxCurrency' => $cookieObj['cookiePricesDisplayed'] ?? 'CNY',
-                'xCtxLocale' => 'zh-CN',
-                'xCtxUbtPageid' => $cookieObj['GUID'] ?? '',
-                'xCtxUbtVid' => $cookieObj['UBT_VID'] ?? '',
-                'xCtxUbtSid' => '',
-                'xCtxUbtPvid' => '',
-                'xCtxWclientReq' => substr(md5(uniqid()), 0, 32),
-            ];
-        }
-
-        $config = array_merge([
-            'id' => $id,
-            'name' => $name,
-            'hotel_id' => $hotelIdValue,
-            'system_hotel_id' => $resolvedHotelId,
-            'hotel_name' => '',
-            'url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
-            'node_id' => '24588',
-            'cookies' => $cookies,
-            'auth_data' => $authData,
-            'user_id' => $userId,
-            'update_time' => date('Y-m-d H:i:s'),
-            'created_at' => date('Y-m-d H:i:s'),
-        ], $this->buildCtripProfileCaptureConfigOptions($data, []));
-        $config = $this->normalizeOtaConfigHotelBinding($config, 'ctrip');
-        $list[$id] = $config;
-
-        $this->setConfigList($key, $list);
-        $this->clearAutoFetchLightConfigListCache('ctrip');
-
-        // 检查关键Cookie
-        $hasUsertoken = strpos($cookies, 'usertoken') !== false;
-        $hasUsersign = strpos($cookies, 'usersign') !== false;
-
-        return $this->success([
-            'id' => $id,
-            'has_usertoken' => $hasUsertoken,
-            'has_usersign' => $hasUsersign,
-        ], '配置保存成功');
+        return $this->error(
+            '旧版携程 Cookie 书签保存入口已禁用。请在平台采集源中保存凭据。',
+            410
+        );
     }
 
     /**

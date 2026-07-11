@@ -280,20 +280,31 @@ class AiDailyReportService
         $reviewed = 0;
         $roiReady = 0;
         $blocked = 0;
+        $investigation = 0;
+        $executionActionCount = 0;
         $missing = [];
 
         foreach ($actions as $index => $action) {
             if (!is_array($action)) {
                 continue;
             }
-            if (($action['can_create_execution_intent'] ?? true) !== false) {
+            $isInvestigation = $this->isInvestigationOnlyAction($action);
+            if ($isInvestigation) {
+                $investigation++;
+            } else {
+                $executionActionCount++;
+            }
+            if (!$isInvestigation && ($action['can_create_execution_intent'] ?? true) !== false) {
                 $transferable++;
             }
-            $executionItem = $this->executionItemForAction($action, $executionItems, $index);
-            $readiness = is_array($action['action_readiness'] ?? null)
+            $executionItem = $isInvestigation ? [] : $this->executionItemForAction($action, $executionItems, $index);
+            $readiness = !$isInvestigation && is_array($action['action_readiness'] ?? null)
                 ? $action['action_readiness']
                 : $this->buildActionReadiness($action, $executionItem);
             $stage = (string)($readiness['stage'] ?? '');
+            if ($isInvestigation) {
+                continue;
+            }
             if ((int)($action['execution_intent_id'] ?? 0) > 0 || !empty($action['execution_flow']) || !empty($executionItem)) {
                 $transferred++;
             }
@@ -348,7 +359,7 @@ class AiDailyReportService
             $missing[] = $this->readinessMissing('blocked_action', 'Blocked action', 'Review blocked action reasons before creating an execution intent.');
         }
 
-        if ($actionCount > 0 && $roiReady >= $actionCount && empty($dataGaps)) {
+        if ($executionActionCount > 0 && $roiReady >= $executionActionCount && empty($dataGaps)) {
             $stage = 'daily_loop_closed';
             $score = 100;
             $closedLoop = true;
@@ -388,6 +399,11 @@ class AiDailyReportService
             $score = 30;
             $closedLoop = false;
             $nextAction = '先处理数据缺口';
+        } elseif ($investigation > 0 && $executionActionCount === 0) {
+            $stage = 'investigation_only';
+            $score = 25;
+            $closedLoop = false;
+            $nextAction = '查看事实证据；发现明确异常后再形成可执行建议';
         } elseif ($actionCount > 0 && $blocked > 0) {
             $stage = 'blocked';
             $score = 25;
@@ -416,6 +432,8 @@ class AiDailyReportService
             'reviewed_count' => $reviewed,
             'roi_ready_count' => $roiReady,
             'blocked_count' => $blocked,
+            'investigation_count' => $investigation,
+            'execution_action_count' => $executionActionCount,
             'source_scope' => 'ai_daily_report_to_operation_execution_loop',
         ]);
     }
@@ -599,6 +617,15 @@ class AiDailyReportService
 
     private function buildActionReadiness(array $action, array $executionItem = []): array
     {
+        if ($this->isInvestigationOnlyAction($action)) {
+            return $this->withReadinessNotice($this->actionReadiness(
+                'investigation_only',
+                0,
+                false,
+                '查看事实证据；发现明确异常后再形成可执行建议'
+            ));
+        }
+
         if (($action['can_create_execution_intent'] ?? true) === false) {
             return $this->withReadinessNotice($this->actionReadiness(
                 'blocked_by_data_gap',
@@ -670,6 +697,29 @@ class AiDailyReportService
         ]));
     }
 
+    private function isInvestigationOnlyAction(array $action): bool
+    {
+        if (($action['is_investigation_only'] ?? false) === true) {
+            return true;
+        }
+        if ((string)($action['recommendation_type'] ?? '') === 'investigation') {
+            return true;
+        }
+
+        $text = strtolower(implode(' ', [
+            (string)($action['title'] ?? ''),
+            (string)($action['blocked_reason'] ?? ''),
+        ]));
+        return ($action['can_create_execution_intent'] ?? true) === false
+            && (string)($action['action_type'] ?? '') === 'manual_review'
+            && (
+                str_contains($text, 'fallback')
+                || str_contains($text, 'investigation-only')
+                || str_contains($text, 'investigation item')
+                || str_contains($text, 'review daily operating signal')
+            );
+    }
+
     private function actionReadiness(
         string $stage,
         int $score,
@@ -708,6 +758,11 @@ class AiDailyReportService
 
     private function withReadinessNotice(array $readiness): array
     {
+        if (($readiness['stage'] ?? '') === 'investigation_only') {
+            $readiness['notice'] = '仅生成调查项，未形成可执行建议。';
+            return $readiness;
+        }
+
         $missing = array_values(array_filter((array)($readiness['missing_evidence'] ?? []), 'is_array'));
         $readiness['missing_evidence'] = $missing;
         if (empty($missing)) {
@@ -731,6 +786,7 @@ class AiDailyReportService
             'execution_in_progress' => '执行推进中',
             'pending_execution_transfer' => '待转执行单',
             'data_recheck_required' => '数据缺口待处理',
+            'investigation_only' => '仅调查，不可执行',
             'blocked' => '动作受阻',
             'generated_no_action' => '已生成缺动作',
         ][$stage] ?? '状态待核验';
@@ -746,6 +802,7 @@ class AiDailyReportService
             'approved_pending_execution' => '待执行',
             'intent_pending_approval' => '待审批',
             'pending_transfer' => '待转单',
+            'investigation_only' => '调查项 / 不可执行',
             'blocked_by_data_gap' => '数据阻塞',
             'blocked' => '已阻塞',
             'rejected' => '已拒绝',
@@ -1112,19 +1169,22 @@ class AiDailyReportService
         $fallbackIndex = 1;
         while (count($actions) < 3) {
             $actions[] = [
-                'title' => 'Review daily operating signal ' . $fallbackIndex,
-                'action' => 'Confirm whether revenue, orders, conversion and competitor signal need manual follow-up.',
-                'reason' => 'No stronger abnormal signal was detected in available data.',
+                'title' => 'Investigate daily operating signal ' . $fallbackIndex,
+                'action' => 'Inspect available source evidence and record whether a stronger abnormal signal exists. Do not create an execution order from this item.',
+                'reason' => 'No stronger actionable abnormal signal was detected in available data.',
                 'source_refs' => ['operation.full_data', 'operation.root_cause'],
                 'platform' => 'internal',
-                'object_type' => 'campaign',
+                'object_type' => 'evidence',
                 'action_type' => 'manual_review',
-                'expected_metric' => 'orders',
+                'recommendation_type' => 'investigation',
+                'is_investigation_only' => true,
+                'execution_policy' => 'forbidden',
+                'expected_metric' => 'evidence_completeness',
                 'expected_delta' => 0.0,
                 'risk_level' => 'low',
-                'target_value' => ['campaign_type' => 'manual_review', 'target_metric' => 'orders'],
+                'target_value' => [],
                 'can_create_execution_intent' => false,
-                'blocked_reason' => 'Fallback manual review is investigation-only until stronger evidence is selected.',
+                'blocked_reason' => 'Fallback investigation item is evidence review only and cannot create an execution intent.',
             ];
             $fallbackIndex++;
         }

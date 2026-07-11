@@ -204,13 +204,6 @@ window.SUXI_CTRIP_STATIC = (() => {
         const configNodeId = firstCtripConfigText(config.node_id, config.nodeId) || '24588';
         if (!formNodeId || formNodeId !== configNodeId) return false;
 
-        const formCookies = normalizeCtripCookieText(form.cookies);
-        const configCookies = normalizeCtripCookieText(config.cookies || config.cookie);
-        if (!formCookies || !configCookies || formCookies !== configCookies) return false;
-
-        if (hasCtripObjectValue(config.auth_data) && !isSameCtripJsonObject(form.auth_data || {}, config.auth_data || {})) {
-            return false;
-        }
         return true;
     };
 
@@ -232,6 +225,8 @@ window.SUXI_CTRIP_STATIC = (() => {
         capture_sections: 'default',
         approved_mappings_path: '',
         cookies: '',
+        has_cookies: false,
+        credential_status: '',
         ...overrides,
     });
     const buildCtripBookmarkletSuccessState = (response = {}) => ({
@@ -385,19 +380,26 @@ window.SUXI_CTRIP_STATIC = (() => {
         if (ctripHotelId) return `携程${ctripHotelId}Cookie`;
         return '携程Cookie';
     };
-    const buildCtripConfigSavePayload = (form = {}) => ({
-        id: form.id,
-        name: normalizeCtripConfigName(form),
-        hotel_id: form.hotel_id,
-        ctrip_hotel_id: form.ctrip_hotel_id,
-        cookies: form.cookies,
-        url: form.url,
-        node_id: form.node_id,
-        capture_sections: form.capture_sections,
-        approved_mappings_path: form.approved_mappings_path,
-    });
+    const buildCtripConfigSavePayload = (form = {}) => {
+        const payload = {
+            id: form.id,
+            name: normalizeCtripConfigName(form),
+            hotel_id: form.hotel_id,
+            ctrip_hotel_id: form.ctrip_hotel_id,
+            url: form.url,
+            node_id: form.node_id,
+            capture_sections: form.capture_sections,
+            approved_mappings_path: form.approved_mappings_path,
+        };
+        const cookies = String(form.cookies || '').trim();
+        if (cookies) payload.cookies = cookies;
+        return payload;
+    };
     const validateCtripConfigSaveInput = (form = {}) => {
-        if (!String(form.cookies || '').trim()) {
+        const canKeepExisting = Boolean(form.id)
+            && form.has_cookies === true
+            && String(form.credential_status || '') === 'ready';
+        if (!String(form.cookies || '').trim() && !canKeepExisting) {
             return { ok: false, status: 'missing_cookies', level: 'error', message: '请输入临时 Cookie/API 辅助内容' };
         }
         return { ok: true, status: 'ok' };
@@ -1011,7 +1013,6 @@ window.SUXI_CTRIP_STATIC = (() => {
         hotelId = '',
         hotelName = '',
         profileId = '',
-        cookies = '',
         dataDate = '',
         form = {},
         options = {},
@@ -1022,7 +1023,6 @@ window.SUXI_CTRIP_STATIC = (() => {
             hotel_id: hotelId,
             hotel_name: hotelName,
             profile_id: profileId,
-            cookies,
             data_date: dataDate,
             sections: normalizeCtripBrowserCaptureSections(optionSections, form.sections),
             login_only: Boolean(options.loginOnly),
@@ -1061,7 +1061,6 @@ window.SUXI_CTRIP_STATIC = (() => {
             hotelId,
             hotelName,
             profileId,
-            cookies: activeConfig?.cookies || activeConfig?.cookie || '',
             dataDate: overviewForm.dataDate,
             form,
             options,
@@ -1098,7 +1097,6 @@ window.SUXI_CTRIP_STATIC = (() => {
         loadCtripConfigList = async () => {},
         getActiveCtripConfig = () => null,
         findCtripConfigByHotelId = () => null,
-        ensureCtripConfigSecret = async config => config,
         applyCtripConfigObject = () => {},
         getBrowserCaptureForm = () => ({}),
         getOverviewForm = () => ({}),
@@ -1144,7 +1142,6 @@ window.SUXI_CTRIP_STATIC = (() => {
         if (!activeConfig || String(activeConfig.hotel_id || activeConfig.system_hotel_id || '') !== String(systemHotelId)) {
             activeConfig = findCtripConfigByHotelId(systemHotelId);
         }
-        activeConfig = await ensureCtripConfigSecret(activeConfig);
         if (activeConfig) {
             applyCtripConfigObject(activeConfig);
         }
@@ -1233,9 +1230,74 @@ window.SUXI_CTRIP_STATIC = (() => {
         return { startDate, endDate };
     };
 
+    const resolveCtripExecutionConfigId = (config = null) => String(
+        config?.config_id || config?.id || ''
+    ).trim();
+    const isCtripExecutionConfigReady = (config = null) => Boolean(
+        resolveCtripExecutionConfigId(config)
+        && config?.has_cookies === true
+        && String(config?.credential_status || '') === 'ready'
+    );
+    const buildCtripManualCredentialState = (config = null) => {
+        const status = String(config?.credential_status || '').trim().toLowerCase();
+        if (isCtripExecutionConfigReady(config)) {
+            return {
+                key: 'ready',
+                canFetch: true,
+                label: '携程凭据已就绪',
+                detail: '加密凭据可用，可以获取数据。',
+                tone: 'success',
+            };
+        }
+        if (config && (config.migration_required === true || config.migration_required === 1 || status === 'migration_required')) {
+            return {
+                key: 'migration_required',
+                canFetch: false,
+                label: '旧版携程凭据待安全迁移',
+                detail: '完成凭据安全迁移或重新保存授权后，才能获取数据。',
+                tone: 'warning',
+            };
+        }
+        if (!config) {
+            return {
+                key: 'missing_config',
+                canFetch: false,
+                label: '未配置携程数据源',
+                detail: '请先保存携程授权配置。',
+                tone: 'warning',
+            };
+        }
+        return {
+            key: status || 'not_ready',
+            canFetch: false,
+            label: '携程凭据未就绪',
+            detail: '请重新登录、更新授权或完成凭据迁移后再获取数据。',
+            tone: 'warning',
+        };
+    };
+
+    const normalizeCtripExecutionRequestUrls = (value = '') => {
+        const normalizeItems = items => Array.from(new Set((Array.isArray(items) ? items : [])
+            .map(item => String(item || '').trim())
+            .filter(Boolean)));
+        if (Array.isArray(value)) return normalizeItems(value);
+        const text = String(value || '').trim();
+        if (!text) return [];
+        try {
+            const decoded = JSON.parse(text);
+            if (Array.isArray(decoded)) return normalizeItems(decoded);
+            if (decoded && typeof decoded === 'object') {
+                return normalizeItems(Object.values(decoded));
+            }
+        } catch (error) {
+            // Plain textarea input is expected to be one URL per line.
+        }
+        return normalizeItems(text.split(/\r?\n/));
+    };
+
     const buildCtripFetchRequestBody = ({
         form = {},
-        cookies = '',
+        configId = '',
         nodeId = '',
         startDate = '',
         endDate = '',
@@ -1244,8 +1306,7 @@ window.SUXI_CTRIP_STATIC = (() => {
     } = {}) => {
         const requestUrl = String(form.url || '').trim();
         const body = {
-            cookies,
-            auth_data: form.auth_data || {},
+            config_id: String(configId || '').trim(),
             start_date: startDate,
             end_date: endDate,
             auto_save: true,
@@ -1266,26 +1327,24 @@ window.SUXI_CTRIP_STATIC = (() => {
         return body;
     };
     const buildCtripFetchFormFromConfig = (form = {}, config = {}) => {
-        const configCookies = normalizeCtripCookieText(config.cookies || config.cookie);
         return {
             ...form,
             url: firstCtripConfigText(config.url, config.request_url, config.requestUrl, form.url),
             nodeId: firstCtripConfigText(config.node_id, config.nodeId, form.nodeId, '24588'),
-            cookies: configCookies || normalizeCtripCookieText(form.cookies),
-            auth_data: hasCtripObjectValue(config.auth_data) ? config.auth_data : (form.auth_data || {}),
         };
     };
     const buildCtripFetchRequestContext = ({
         form = {},
+        configId = '',
         selectedCtripHotelId = '',
         platformHotelId = '',
     } = {}) => {
-        const cookies = String(form.cookies || '').trim();
-        if (!cookies) {
+        const normalizedConfigId = String(configId || '').trim();
+        if (!normalizedConfigId) {
             return {
                 ok: false,
-                status: 'missing_cookie',
-                message: '请输入临时 Cookie/API 辅助内容',
+                status: 'missing_config',
+                message: '当前酒店未配置可执行的携程凭证',
                 level: 'error',
             };
         }
@@ -1293,7 +1352,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         const { startDate, endDate } = buildCtripFetchDateRange(form);
         const requestBody = buildCtripFetchRequestBody({
             form,
-            cookies,
+            configId: normalizedConfigId,
             nodeId,
             startDate,
             endDate,
@@ -1302,12 +1361,13 @@ window.SUXI_CTRIP_STATIC = (() => {
         });
         return {
             ok: true,
-            cookies,
+            configId: normalizedConfigId,
             nodeId,
             startDate,
             endDate,
             requestBody,
             debugMeta: {
+                config_id: normalizedConfigId,
                 system_hotel_id: selectedCtripHotelId || 'auto_resolve_from_cookie_response',
                 platform_hotel_id: platformHotelId || 'auto_resolve_from_cookie_response',
                 node_id: nodeId || 'backend_default',
@@ -1356,7 +1416,6 @@ window.SUXI_CTRIP_STATIC = (() => {
         getSelectedCtripHotelId = () => '',
         notify = () => {},
         getActiveCtripConfig = () => null,
-        ensureCtripConfigSecret = async config => config,
         applyCtripConfigObject = () => {},
         getForm = () => ({}),
         setFetching = () => {},
@@ -1386,8 +1445,13 @@ window.SUXI_CTRIP_STATIC = (() => {
         }
 
         const selectedCtripHotelId = getSelectedCtripHotelId();
-        const activeConfig = await ensureCtripConfigSecret(getActiveCtripConfig());
+        const activeConfig = getActiveCtripConfig();
+        if (!isCtripExecutionConfigReady(activeConfig)) {
+            notify('当前酒店未配置可执行的携程凭证', 'warning');
+            return { status: 'missing_config' };
+        }
         const selectedConfig = selectedCtripHotelId ? activeConfig : null;
+        const configId = resolveCtripExecutionConfigId(activeConfig);
         let form = getForm() || {};
         if (selectedConfig && !isCtripRankingFormAlignedWithConfig(form, selectedConfig, { selectedHotelId: selectedCtripHotelId })) {
             applyCtripConfigObject(selectedConfig);
@@ -1402,6 +1466,7 @@ window.SUXI_CTRIP_STATIC = (() => {
 
         const requestContext = buildCtripFetchRequestContext({
             form: requestForm,
+            configId,
             selectedCtripHotelId,
             platformHotelId,
         });
@@ -1552,7 +1617,7 @@ window.SUXI_CTRIP_STATIC = (() => {
 
     const buildCtripTrafficFetchRequestBody = ({
         form = {},
-        cookies = '',
+        configId = '',
         systemHotelId = null,
     } = {}) => {
         const trafficUrl = String(form.url || '').trim();
@@ -1561,11 +1626,16 @@ window.SUXI_CTRIP_STATIC = (() => {
             date_range: form.dateRange,
             start_date: form.startDate,
             end_date: form.endDate,
-            cookies,
+            config_id: String(configId || '').trim(),
             auto_save: true,
             system_hotel_id: systemHotelId || null,
-            extra_params: form.extraParams,
         };
+        if (String(form.fingerPrintKeys || '').trim()) {
+            body.fingerPrintKeys = String(form.fingerPrintKeys).trim();
+        }
+        if (String(form.spiderVersion || '').trim()) {
+            body.spiderVersion = String(form.spiderVersion).trim();
+        }
         if (trafficUrl) {
             body.url = trafficUrl;
         }
@@ -1606,7 +1676,6 @@ window.SUXI_CTRIP_STATIC = (() => {
         getSelectedCtripHotelId = () => '',
         notify = () => {},
         getActiveCtripConfig = () => null,
-        ensureCtripConfigSecret = async config => config,
         applyCtripConfigObject = () => {},
         getForm = () => ({}),
         setFetching = () => {},
@@ -1623,18 +1692,18 @@ window.SUXI_CTRIP_STATIC = (() => {
             notify('请选择目标酒店', 'error');
             return { status: 'missing_hotel' };
         }
-        const selectedConfig = await ensureCtripConfigSecret(getActiveCtripConfig());
-        if (!selectedConfig) {
+        const selectedConfig = getActiveCtripConfig();
+        if (!isCtripExecutionConfigReady(selectedConfig)) {
             notify('当前酒店未配置携程数据源', 'warning');
+            return { status: 'missing_config' };
+        }
+        const configId = resolveCtripExecutionConfigId(selectedConfig);
+        if (!configId) {
+            notify('当前酒店携程配置缺少可执行标识', 'warning');
             return { status: 'missing_config' };
         }
         applyCtripConfigObject(selectedConfig);
         const form = getForm() || {};
-        const cookies = String(form.cookies || '').trim();
-        if (!cookies) {
-            notify('请提供携程 Cookie', 'error');
-            return { status: 'missing_cookies' };
-        }
         if (form.dateRange === 'custom' && (!form.startDate || !form.endDate)) {
             notify('请选择自定义开始日期和结束日期', 'error');
             return { status: 'missing_custom_dates' };
@@ -1643,7 +1712,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         setFetching(true);
         const requestBody = buildCtripTrafficFetchRequestBody({
             form,
-            cookies,
+            configId,
             systemHotelId: selectedCtripHotelId || null,
         });
         const directRequestBody = { ...requestBody, async: false, background: false };
@@ -1702,21 +1771,19 @@ window.SUXI_CTRIP_STATIC = (() => {
     };
 
     const buildCtripOverviewFetchRequestBody = ({
+        configId = '',
         systemHotelId = null,
         hotelId = '',
         hotelName = '',
-        cookies = '',
-        requestUrls = '',
+        requestUrls = [],
         form = {},
         defaultMethod = 'POST',
     } = {}) => ({
+        config_id: String(configId || '').trim(),
         system_hotel_id: systemHotelId,
         hotel_id: hotelId,
         hotel_name: hotelName,
-        cookies,
-        request_urls: requestUrls,
-        payload_json: form.payloadJson,
-        spidertoken: form.spidertoken,
+        request_urls: normalizeCtripExecutionRequestUrls(requestUrls),
         method: form.method || defaultMethod,
         data_date: form.dataDate,
     });
@@ -1725,10 +1792,8 @@ window.SUXI_CTRIP_STATIC = (() => {
         getSystemHotelId = () => null,
         notify = () => {},
         getActiveCtripConfig = () => null,
-        ensureCtripConfigSecret = async config => config,
         applyCtripConfigObject = () => {},
         getForm = () => ({}),
-        getCtripCookies = () => '',
         getFallbackRequestUrls = () => '',
         getHotelNameById = () => '',
         setFetching = () => {},
@@ -1748,9 +1813,14 @@ window.SUXI_CTRIP_STATIC = (() => {
             return { status: 'missing_hotel' };
         }
 
-        const activeConfig = await ensureCtripConfigSecret(getActiveCtripConfig());
-        if (!activeConfig) {
+        const activeConfig = getActiveCtripConfig();
+        if (!isCtripExecutionConfigReady(activeConfig)) {
             notify(messages.missingConfig || '当前酒店未配置携程数据源', 'warning');
+            return { status: 'missing_config' };
+        }
+        const configId = resolveCtripExecutionConfigId(activeConfig);
+        if (!configId) {
+            notify(messages.missingConfig || '当前酒店携程配置缺少可执行标识', 'warning');
             return { status: 'missing_config' };
         }
         applyCtripConfigObject(activeConfig);
@@ -1758,33 +1828,24 @@ window.SUXI_CTRIP_STATIC = (() => {
         const hotelId = String(activeConfig?.ota_hotel_id || activeConfig?.ctrip_hotel_id || activeConfig?.ctripHotelId || '').trim();
         const form = getForm() || {};
         form.hotelId = String(form.hotelId || hotelId || '').trim();
-        form.cookies = String(form.cookies || getCtripCookies() || activeConfig.cookies || '').trim();
-        form.requestUrls = String(form.requestUrls || '').trim();
-        form.payloadJson = String(form.payloadJson || '').trim();
-        form.spidertoken = String(form.spidertoken || '').trim();
-        const requestUrls = form.requestUrls || String(getFallbackRequestUrls() || '');
-        if (!requestUrls) {
+        const requestUrls = normalizeCtripExecutionRequestUrls(form.requestUrls || getFallbackRequestUrls());
+        if (requestUrls.length === 0) {
             notify(messages.missingRequestUrls || '请填写接口 Request URL', 'error');
             return { status: 'missing_request_urls', form };
         }
-        if (requestUrls.includes('/datacenter/inland/businessreport/outline')) {
+        if (requestUrls.some(url => url.includes('/datacenter/inland/businessreport/outline'))) {
             notify(messages.invalidPageUrl || '请填写 Network 中的 JSON 接口 URL，不是页面地址', 'error');
             return { status: 'invalid_page_url', form, requestUrls };
         }
-        if (!form.cookies) {
-            notify(messages.missingCookies || '请提供携程 Cookie', 'error');
-            return { status: 'missing_cookies', form, requestUrls };
-        }
-
         setFetching(true);
         setGlobalFetching(true);
         setResult(null);
         try {
             const requestBody = buildCtripOverviewFetchRequestBody({
+                configId,
                 systemHotelId,
                 hotelId: form.hotelId,
                 hotelName: getHotelNameById(systemHotelId),
-                cookies: form.cookies,
                 requestUrls,
                 form,
                 defaultMethod,
@@ -1815,18 +1876,18 @@ window.SUXI_CTRIP_STATIC = (() => {
     };
 
     const buildCtripAdsFetchRequestBody = ({
+        configId = '',
         systemHotelId = null,
         hotelId = '',
         hotelName = '',
         url = '',
-        cookies = '',
         form = {},
     } = {}) => ({
+        config_id: String(configId || '').trim(),
         system_hotel_id: systemHotelId,
         hotel_id: hotelId,
         hotel_name: hotelName,
         url,
-        cookies,
         api_type: normalizeCtripAdsApiType(form.apiType),
         date_range: form.dateRange,
         start_date: form.startDate,
@@ -1838,11 +1899,9 @@ window.SUXI_CTRIP_STATIC = (() => {
         getSystemHotelId = () => null,
         notify = () => {},
         getActiveCtripConfig = () => null,
-        ensureCtripConfigSecret = async config => config,
         applyCtripConfigObject = () => {},
         syncAdsDirectConfig = async () => {},
         getForm = () => ({}),
-        getCtripCookies = () => '',
         getHotelNameById = () => '',
         defaultAdsUrl = defaultCtripAdsEffectReportUrl,
         adsUrlHint = ctripAdsApiUrlHint,
@@ -1861,9 +1920,14 @@ window.SUXI_CTRIP_STATIC = (() => {
             return { status: 'missing_hotel' };
         }
 
-        const activeConfig = await ensureCtripConfigSecret(getActiveCtripConfig());
-        if (!activeConfig) {
+        const activeConfig = getActiveCtripConfig();
+        if (!isCtripExecutionConfigReady(activeConfig)) {
             notify('当前酒店未配置携程数据源', 'warning');
+            return { status: 'missing_config' };
+        }
+        const configId = resolveCtripExecutionConfigId(activeConfig);
+        if (!configId) {
+            notify('当前酒店携程配置缺少可执行标识', 'warning');
             return { status: 'missing_config' };
         }
         applyCtripConfigObject(activeConfig);
@@ -1872,7 +1936,6 @@ window.SUXI_CTRIP_STATIC = (() => {
         const form = getForm() || {};
         const hotelId = String(activeConfig?.ota_hotel_id || activeConfig?.ctrip_hotel_id || activeConfig?.hotel_id || '').trim();
         const url = String(form.url || defaultAdsUrl).trim();
-        const cookies = String(form.cookies || getCtripCookies() || activeConfig.cookies || '').trim();
         if (url.includes('/toolcenter/cpc/pyramid')) {
             notify('请填写 Network 中 queryCampaignReportList 的 JSON 接口 URL，不是广告页面地址', 'error');
             return { status: 'invalid_page_url', url };
@@ -1880,10 +1943,6 @@ window.SUXI_CTRIP_STATIC = (() => {
         if (!isCtripAdsApiUrl(url)) {
             notify(adsUrlHint, 'error');
             return { status: 'invalid_api_url', url };
-        }
-        if (!cookies) {
-            notify('请提供携程 Cookie', 'error');
-            return { status: 'missing_cookies', url };
         }
         if (form.dateRange === 'custom' && (!form.startDate || !form.endDate)) {
             notify('请选择自定义开始日期和结束日期', 'error');
@@ -1895,11 +1954,11 @@ window.SUXI_CTRIP_STATIC = (() => {
         setResult(null);
         try {
             const requestBody = buildCtripAdsFetchRequestBody({
+                configId,
                 systemHotelId,
                 hotelId,
                 hotelName: getHotelNameById(systemHotelId),
                 url,
-                cookies,
                 form,
             });
             const directRequestBody = { ...requestBody, async: false, background: false };
@@ -1947,6 +2006,7 @@ window.SUXI_CTRIP_STATIC = (() => {
     };
 
     const buildCtripCookieApiFetchRequestBody = ({
+        configId = '',
         systemHotelId = null,
         hotelId = '',
         hotelName = '',
@@ -1955,23 +2015,28 @@ window.SUXI_CTRIP_STATIC = (() => {
         requestUrl = '',
         form = {},
         endpointsJson = '',
-        cookies = '',
-    } = {}) => ({
-        system_hotel_id: systemHotelId,
-        hotel_id: hotelId,
-        ctrip_hotel_id: hotelId,
-        ota_hotel_id: hotelId,
-        platform_hotel_id: hotelId,
-        hotel_name: hotelName,
-        profile_id: profileId,
-        data_date: dataDate,
-        request_url: requestUrl,
-        method: String(form.method || 'GET').toUpperCase(),
-        payload_json: String(form.payloadJson || '').trim(),
-        endpoints_json: endpointsJson,
-        cookies,
-        auto_save: true,
-    });
+    } = {}) => {
+        const requestUrls = normalizeCtripExecutionRequestUrls(endpointsJson);
+        const normalizedRequestUrl = String(requestUrl || '').trim();
+        if (normalizedRequestUrl && !requestUrls.includes(normalizedRequestUrl)) {
+            requestUrls.unshift(normalizedRequestUrl);
+        }
+        return {
+            config_id: String(configId || '').trim(),
+            system_hotel_id: systemHotelId,
+            hotel_id: hotelId,
+            ctrip_hotel_id: hotelId,
+            ota_hotel_id: hotelId,
+            platform_hotel_id: hotelId,
+            hotel_name: hotelName,
+            profile_id: profileId,
+            data_date: dataDate,
+            request_url: normalizedRequestUrl,
+            request_urls: requestUrls,
+            method: String(form.method || 'GET').toUpperCase(),
+            auto_save: true,
+        };
+    };
 
     const runCtripCookieApiCaptureFlow = async ({
         getSelectedCtripHotelId = () => '',
@@ -1982,7 +2047,6 @@ window.SUXI_CTRIP_STATIC = (() => {
         loadCtripConfigList = async () => {},
         getActiveCtripConfig = () => null,
         findCtripConfigByHotelId = () => null,
-        ensureCtripConfigSecret = async config => config,
         applyCtripConfigObject = () => {},
         getForm = () => ({}),
         getOverviewForm = () => ({}),
@@ -2003,13 +2067,12 @@ window.SUXI_CTRIP_STATIC = (() => {
         refreshDataHealthPanel = async () => {},
     } = {}) => {
         const form = getForm() || {};
-        const pastedCookies = String(form.cookies || '').trim();
         const targetContext = buildCtripBrowserCaptureTargetContext({
             selectedCtripHotelId: getSelectedCtripHotelId(),
             autoFetchHotelId: getAutoFetchHotelId(),
             userHotelId: getUserHotelId(),
         });
-        if (!targetContext.ok && !pastedCookies) {
+        if (!targetContext.ok) {
             notify(targetContext.result.message, 'error');
             return { status: 'missing_hotel', result: targetContext.result };
         }
@@ -2031,22 +2094,24 @@ window.SUXI_CTRIP_STATIC = (() => {
         if (!activeConfig || String(activeConfig.hotel_id || activeConfig.system_hotel_id || '') !== String(systemHotelId)) {
             activeConfig = findCtripConfigByHotelId(systemHotelId);
         }
-        activeConfig = await ensureCtripConfigSecret(activeConfig);
-        if (activeConfig) {
-            applyCtripConfigObject(activeConfig, false);
+        if (!isCtripExecutionConfigReady(activeConfig)) {
+            notify('当前酒店未配置携程数据源', 'warning');
+            return { status: 'missing_config' };
         }
+        const configId = resolveCtripExecutionConfigId(activeConfig);
+        if (!configId) {
+            notify('当前酒店携程配置缺少可执行标识', 'warning');
+            return { status: 'missing_config' };
+        }
+        applyCtripConfigObject(activeConfig, false);
 
-        const cookies = String(pastedCookies || activeConfig?.cookies || activeConfig?.cookie || '').trim();
         const profileId = resolveProfileId(systemHotelId, activeConfig);
-        if (!profileId && !cookies) {
-            notify('请填写携程浏览器 Profile 标识，或先绑定账号使用者本机授权数据源', 'error');
-            return { status: 'missing_profile' };
-        }
         setProfileId(profileId);
 
         const overviewForm = getOverviewForm() || {};
         const requestHotelId = resolveRequestHotelId(systemHotelId, activeConfig);
         const requestBody = buildCtripCookieApiFetchRequestBody({
+            configId,
             systemHotelId,
             hotelId: requestHotelId,
             hotelName: getHotelNameById(systemHotelId),
@@ -2055,7 +2120,6 @@ window.SUXI_CTRIP_STATIC = (() => {
             requestUrl,
             form,
             endpointsJson,
-            cookies,
         });
 
         setRunning(true);
@@ -2975,6 +3039,10 @@ window.SUXI_CTRIP_STATIC = (() => {
         normalizeCtripBrowserCaptureErrorResult,
         runCtripBrowserCaptureFlow,
         buildCtripFetchDateRange,
+        resolveCtripExecutionConfigId,
+        isCtripExecutionConfigReady,
+        buildCtripManualCredentialState,
+        normalizeCtripExecutionRequestUrls,
         buildCtripFetchRequestBody,
         buildCtripFetchRequestContext,
         selectCtripFetchResponsePayload,

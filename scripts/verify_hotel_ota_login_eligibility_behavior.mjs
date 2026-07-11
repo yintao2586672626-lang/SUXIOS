@@ -53,6 +53,7 @@ const rollups = Array.isArray(report.hotel_rollup) ? report.hotel_rollup : [];
 
 const rowsByStatus = (status) => rows.filter((row) => row.status === status);
 const readyForManualLogin = rowsByStatus('ready_for_manual_login');
+const readyForSessionProbe = rowsByStatus('ready_for_session_probe');
 const readyToCollect = rowsByStatus('ready_to_collect');
 const staleTaskRows = rowsByStatus('blocked_stale_running_task');
 const inactiveRows = rowsByStatus('blocked_inactive_hotel');
@@ -79,11 +80,14 @@ if (activeBlockedRows.length > 0) {
 check('summary keeps OTA-only scope', report.summary?.scope === 'ota_channel_only', report.summary?.scope);
 check('summary keeps platform metadata read-only policy', report.summary?.source_policy === 'read_platform_data_sources_metadata_only', report.summary?.source_policy);
 check('summary does not expose sensitive values', report.summary?.sensitive_values_exposed === false, String(report.summary?.sensitive_values_exposed));
+check('read-only verifier never performs a current session probe', report.summary?.current_session_probe_performed === false, String(report.summary?.current_session_probe_performed));
+check('read-only verifier never claims collect-ready platforms', Number(report.summary?.ready_to_collect_platforms || 0) === 0 && readyToCollect.length === 0, `${report.summary?.ready_to_collect_platforms || 0} vs ${readyToCollect.length}`);
 check('manual login policy does not touch profiles', report.manual_login_policy?.profile_directories_touched === false, String(report.manual_login_policy?.profile_directories_touched));
 check('manual login policy does not clear cookies or localStorage', report.manual_login_policy?.cookies_or_local_storage_cleared === false, String(report.manual_login_policy?.cookies_or_local_storage_cleared));
 check('summary platform row count matches emitted rows', Number(report.summary?.platform_rows || 0) === rows.length, `${report.summary?.platform_rows || 0} vs ${rows.length}`);
 check('summary hotel count matches emitted rollups', Number(report.summary?.hotel_count || 0) === rollups.length, `${report.summary?.hotel_count || 0} vs ${rollups.length}`);
 check('summary manual-login count matches emitted rows', Number(report.summary?.ready_for_manual_login_platforms || 0) === readyForManualLogin.length, `${report.summary?.ready_for_manual_login_platforms || 0} vs ${readyForManualLogin.length}`);
+check('summary session-probe count matches emitted rows', Number(report.summary?.ready_for_session_probe_platforms || 0) === readyForSessionProbe.length, `${report.summary?.ready_for_session_probe_platforms || 0} vs ${readyForSessionProbe.length}`);
 check('summary collect-ready count matches emitted rows', Number(report.summary?.ready_to_collect_platforms || 0) === readyToCollect.length, `${report.summary?.ready_to_collect_platforms || 0} vs ${readyToCollect.length}`);
 check('summary blocked count matches emitted rows', Number(report.summary?.blocked_platforms || 0) === blockedRows.length, `${report.summary?.blocked_platforms || 0} vs ${blockedRows.length}`);
 check('summary strategy candidate count matches emitted rows', Number(report.summary?.strategy_candidate_hotels || 0) === strategies.length, `${report.summary?.strategy_candidate_hotels || 0} vs ${strategies.length}`);
@@ -100,14 +104,20 @@ for (const row of readyForManualLogin) {
   check(`manual login row ${row.hotel_id}/${row.platform} has no blockers`, String(row.blockers || '') === '', String(row.blockers || ''));
   check(`manual login row ${row.hotel_id}/${row.platform} has entry URL`, String(row.manual_login_entry || '').startsWith('https://'), String(row.manual_login_entry || ''));
   check(`manual login row ${row.hotel_id}/${row.platform} does not expose verified-login timestamp`, String(row.last_login_verified_at || '') === '', String(row.last_login_verified_at || ''));
+  check(`manual login row ${row.hotel_id}/${row.platform} keeps current session unverified`, row.current_session_verified === false && row.current_session_status === 'unverified', `${row.current_session_verified}/${row.current_session_status}`);
 }
 
-for (const row of readyToCollect) {
-  check(`collect row ${row.hotel_id}/${row.platform} has no manual login URL`, String(row.manual_login_entry || '') === '', String(row.manual_login_entry || ''));
-  check(`collect row ${row.hotel_id}/${row.platform} has verified profile`, Number(row.profile_verified_count || 0) > 0, String(row.profile_verified_count || 0));
-  check(`collect row ${row.hotel_id}/${row.platform} has login verification timestamp`, String(row.last_login_verified_at || '') !== '', String(row.last_login_verified_at || ''));
-  check(`collect row ${row.hotel_id}/${row.platform} has no blockers`, String(row.blockers || '') === '', String(row.blockers || ''));
+for (const row of readyForSessionProbe) {
+  check(`session probe row ${row.hotel_id}/${row.platform} has no manual login URL`, String(row.manual_login_entry || '') === '', String(row.manual_login_entry || ''));
+  check(`session probe row ${row.hotel_id}/${row.platform} preserves historical profile metadata`, Number(row.historical_profile_verified_count || 0) > 0, String(row.historical_profile_verified_count || 0));
+  check(`session probe row ${row.hotel_id}/${row.platform} preserves historical login timestamp`, String(row.last_login_verified_at || '') !== '', String(row.last_login_verified_at || ''));
+  check(`session probe row ${row.hotel_id}/${row.platform} has no blockers`, String(row.blockers || '') === '', String(row.blockers || ''));
+  check(`session probe row ${row.hotel_id}/${row.platform} does not claim a current session`, row.current_session_verified === false && row.current_session_status === 'unverified', `${row.current_session_verified}/${row.current_session_status}`);
+  check(`session probe row ${row.hotel_id}/${row.platform} requests an explicit probe`, String(row.next_action || '').includes('会话探测'), String(row.next_action || ''));
 }
+
+check('every emitted row keeps current session unverified', rows.every((row) => row.current_session_verified === false && row.current_session_status === 'unverified'), rows.filter((row) => row.current_session_verified !== false || row.current_session_status !== 'unverified').map((row) => `${row.hotel_id}/${row.platform}`).join(','));
+check('historical profile count remains explicit', rows.every((row) => Number(row.historical_profile_verified_count || 0) === Number(row.profile_verified_count || 0)), rows.filter((row) => Number(row.historical_profile_verified_count || 0) !== Number(row.profile_verified_count || 0)).map((row) => `${row.hotel_id}/${row.platform}`).join(','));
 
 for (const row of blockedRows) {
   check(`blocked row ${row.hotel_id}/${row.platform} has no manual login URL`, String(row.manual_login_entry || '') === '', String(row.manual_login_entry || ''));

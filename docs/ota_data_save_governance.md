@@ -28,6 +28,7 @@
 
 - `historical_daily`：同一天同门店同平台同指标只保留一条最终历史数据。
 - `realtime_snapshot`：按 `snapshot_bucket` 保留多次快照，不覆盖历史快照。
+- `next_30_days`：未来需求预测窗口，`is_final=0`；只作为 OTA 渠道预测信号，不计入当日/历史流量事实。
 - `dimension` 允许较长来源路径，避免字段截断造成误判重复。
 - 缺失字段写入 `validation_status` 和 `validation_flags`，不补假值。
 
@@ -39,6 +40,7 @@
 | 08:00 后 | 昨日最终数据 | `historical_daily` / `is_final=1` | 日报、正式分析、AI 诊断使用此口径 |
 | 白天每 2 小时左右 | 当天实时快照 | `realtime_snapshot` / `is_final=0` | 用于巡检，不作为昨日最终结论 |
 | 历史补存 | 可查询日期范围内的历史数据 | `historical_daily` | 按业务键去重，保留缺口记录 |
+| 预测窗口更新 | OTA 未来需求预测 | `next_30_days` / `is_final=0` | 可滚动覆盖同业务键预测，不替代当日或历史事实 |
 
 ## 保存入口
 

@@ -30,7 +30,6 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
     public function fetch(array $source, array $options = []): array
     {
         $config = is_array($source['config'] ?? null) ? $source['config'] : [];
-        $secret = is_array($source['secret'] ?? null) ? $source['secret'] : [];
         $systemHotelId = (int)($source['system_hotel_id'] ?? 0);
         $storeId = $this->firstString($options, $config, ['store_id', 'storeId', 'poi_id', 'poiId']);
         if ($storeId === '') {
@@ -130,17 +129,9 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
             $args[] = '--snapshot-time=' . $snapshotTime;
         }
 
-        $cookieFile = $this->createCookieFile((string)($secret['cookies'] ?? $secret['cookie'] ?? ''));
-        if ($cookieFile !== '') {
-            $args[] = '--cookies-file=' . $cookieFile;
-        }
-
         try {
             $runResult = $this->runProcess($args, $this->projectRoot, $timeoutSeconds);
         } finally {
-            if ($cookieFile !== '' && is_file($cookieFile)) {
-                @unlink($cookieFile);
-            }
             $this->releaseLock($lock);
         }
 
@@ -450,27 +441,6 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
 
         return ['success' => true, 'message' => 'ok', 'stdout' => $stdout, 'stderr' => $stderr];
-    }
-
-    private function createCookieFile(string $cookies): string
-    {
-        $cookies = trim($cookies);
-        if ($cookies === '') {
-            return '';
-        }
-        $dir = $this->projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'secret';
-        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
-            return '';
-        }
-        $path = $dir . DIRECTORY_SEPARATOR . 'meituan_browser_profile_cookie_' . bin2hex(random_bytes(6)) . '.txt';
-        if (file_put_contents($path, $cookies, LOCK_EX) === false) {
-            return '';
-        }
-        if (!chmod($path, 0600)) {
-            @unlink($path);
-            return '';
-        }
-        return $path;
     }
 
     private function acquireLock(string $platform, string $profileId)

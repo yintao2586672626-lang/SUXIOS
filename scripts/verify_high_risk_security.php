@@ -74,6 +74,20 @@ function extract_method_source(string $source, string $methodName): string
     return '';
 }
 
+function returns_sanitized_ota_config_detail(string $source): bool
+{
+    $directSanitizedReturn = preg_match(
+        '/success\s*\(\s*\$this->sanitizeSecretConfig\s*\(\s*\$list\s*\[\s*\$id\s*\]\s*\)\s*\)/',
+        $source
+    ) === 1;
+    $runtimeSanitizedReturn = preg_match(
+        '/(\$[A-Za-z_][A-Za-z0-9_]*)\s*=\s*\$this->sanitizeStoredOtaConfigListForRuntime\s*\(\s*\[\s*\$id\s*=>\s*\$list\s*\[\s*\$id\s*\]\s*\]\s*\)\s*;[\s\S]*?success\s*\(\s*\1\s*\[\s*\$id\s*\]\s*(?:\?\?\s*\[\s*\])?\s*\)/',
+        $source
+    ) === 1;
+
+    return $directSanitizedReturn || $runtimeSanitizedReturn;
+}
+
 $onlineRef = new ReflectionClass(OnlineData::class);
 $online = $onlineRef->newInstanceWithoutConstructor();
 $hotelUser = new class {
@@ -180,6 +194,11 @@ $tenantMigrationSource = file_get_contents(__DIR__ . '/../database/migrations/20
 $initFullSource = file_get_contents(__DIR__ . '/../database/init_full.sql');
 $commandSource = file_get_contents(__DIR__ . '/../app/command/AutoFetchOnlineData.php');
 $legacyCronSource = file_get_contents(__DIR__ . '/auto_fetch_online_data.php');
+$systemConfigModelSource = file_get_contents(__DIR__ . '/../app/model/SystemConfig.php');
+$otaConfigConcernSource = file_get_contents(__DIR__ . '/../app/controller/concern/OtaConfigConcern.php');
+$otaMigrationCommandSource = file_get_contents(__DIR__ . '/../app/command/MigrateOtaCredentials.php');
+$otaMigrationServiceSource = file_get_contents(__DIR__ . '/../app/service/OtaCredentialMigrationService.php');
+$packageSource = file_get_contents(__DIR__ . '/../package.json');
 $competitorTaskSource = extract_method_source($competitorSource, 'task');
 $competitorReportSource = extract_method_source($competitorSource, 'report');
 $competitorReportTokenSource = extract_method_source($competitorSource, 'isValidReportToken');
@@ -227,6 +246,12 @@ assert_true(str_contains($competitorSource, 'SCREENSHOT_ALLOWED_MIME_EXTENSIONS'
 foreach ([
     'Ctrip browser Profile adapter' => $ctripBrowserAdapterSource,
     'Meituan browser Profile adapter' => $meituanBrowserAdapterSource,
+] as $label => $source) {
+    assert_true(!str_contains($source, "['secret']"), $label . ' must not hydrate stored credential material');
+    assert_true(!str_contains($source, '--cookies-file='), $label . ' must not inject a durable credential through a temporary file');
+    assert_true(!str_contains($source, 'createCookieFile('), $label . ' must not create a temporary stored-Cookie file');
+}
+foreach ([
     'Profile capture concern' => $platformProfileCaptureSource,
     'Chromium Cookie extractor' => $chromiumCookieExtractorSource,
 ] as $label => $source) {
@@ -295,6 +320,38 @@ foreach ($tenantScopedTables as $table) {
 assert_true(!str_contains($onlineSource, "getConfigList('online_data_cookies_list')"), 'controller auto fetch must not fall back to global cookie list');
 assert_true(!str_contains($commandSource, "Cache::get('online_data_cookies_list'"), 'scheduled auto fetch must not fall back to global cookie list');
 
+$durableCacheKeysMatch = [];
+assert_true(
+    preg_match('/private const DURABLE_VALUE_CACHE_KEYS\s*=\s*\[([\s\S]*?)\];/', $systemConfigModelSource, $durableCacheKeysMatch) === 1,
+    'SystemConfig must declare a durable-cache allowlist'
+);
+$durableCacheKeysSource = (string)($durableCacheKeysMatch[1] ?? '');
+assert_true(str_contains($systemConfigModelSource, "'ctrip_config_list' => true") && str_contains($systemConfigModelSource, "'meituan_config_list' => true"), 'SystemConfig must declare protected OTA config keys');
+assert_true(!str_contains($durableCacheKeysSource, 'ctrip_config_list') && !str_contains($durableCacheKeysSource, 'meituan_config_list'), 'protected OTA config keys must not enter durable cache');
+assert_true(str_contains($systemConfigControllerSource, 'guardProtectedOtaKey($requestedKey)') && str_contains($systemConfigControllerSource, 'guardProtectedOtaKeys($data)'), 'generic system config read/update must reject protected OTA keys');
+assert_true(str_contains($systemConfigControllerSource, 'getAllConfigsWithoutProtectedOtaCache()'), 'generic system config index must filter protected OTA keys');
+
+$getCtripConfigDetail = extract_method_source($onlineSource, 'getCtripConfigDetail');
+$getMeituanConfigDetail = extract_method_source($onlineSource, 'getMeituanConfigDetail');
+assert_true(returns_sanitized_ota_config_detail($getCtripConfigDetail), 'Ctrip config detail must return sanitized metadata only');
+assert_true(returns_sanitized_ota_config_detail($getMeituanConfigDetail), 'Meituan config detail must return sanitized metadata only');
+assert_true(!preg_match('/success\s*\(\s*\$list\s*\[\s*\$id\s*\]\s*(?:\?\?\s*\[\s*\])?\s*\)/', $getCtripConfigDetail . $getMeituanConfigDetail), 'OTA config detail endpoints must not return raw list items');
+assert_true(str_contains($otaConfigConcernSource, 'withPayloadForExecution('), 'OTA execution must cross the vault callback boundary');
+foreach (['ctrip_config_list', 'meituan_config_list', 'online_data_cookies_', 'data_config_'] as $legacySecretStore) {
+    assert_true(!str_contains($commandSource, $legacySecretStore), 'scheduled OTA execution must not parse legacy secret store ' . $legacySecretStore);
+}
+assert_true(str_contains($commandSource, 'withPayloadForExecution('), 'scheduled OTA execution must decrypt only inside the vault callback');
+
+$migrationRunSource = extract_method_source($otaMigrationServiceSource, 'run');
+$migrationSummarySource = extract_method_source($otaMigrationServiceSource, 'safeSummary');
+$migrationDryRunOffset = strpos($migrationRunSource, 'if (!$execute)');
+$migrationTransactionOffset = strpos($migrationRunSource, 'Db::transaction(');
+assert_true(str_contains($otaMigrationCommandSource, "addOption('execute', null, Option::VALUE_NONE") && str_contains($otaMigrationCommandSource, "getOption('execute')"), 'OTA migration mutation must require an explicit --execute flag');
+assert_true($migrationDryRunOffset !== false && $migrationTransactionOffset !== false && $migrationDryRunOffset < $migrationTransactionOffset, 'OTA migration must return a dry-run summary before any transaction');
+assert_true(!preg_match('/[\'\"](?:cookies?|auth_data|authorization|token|api_key|password|secret_payload|fingerprint_payload|encrypted_payload|ciphertext|config_id|key_id|payload_version)[\'\"]\s*=>/i', $migrationSummarySource), 'OTA migration summary must not expose secret-valued or raw locator fields');
+assert_true(!str_contains($otaMigrationCommandSource, 'getMessage('), 'OTA migration command must not print exception text');
+assert_true(str_contains($packageSource, '"verify:ota-credential-vault": "node scripts/verify_ota_credential_vault.mjs"'), 'package scripts must register the OTA credential vault verifier');
+
 assert_true(str_contains($aiConfigSource, 'checkSuperAdmin()'), 'AI config controller must have a super admin guard');
 assert_true(substr_count($aiConfigSource, '$this->checkSuperAdmin();') >= 6, 'all AI model config endpoints must require super admin');
 assert_true((bool)preg_match('/function\s+read\s*\([^)]*\)[\s\S]*isSuperAdmin\(\)[\s\S]*hotel_id/s', $userSource), 'User::read must enforce hotel scope for non-super admins');
@@ -315,38 +372,51 @@ $sendMeituanRequest = extract_method_source($onlineSource, 'sendMeituanRequest')
 $sendCtripJsonRequest = extract_method_source($onlineSource, 'sendCtripJsonRequest');
 $getMeituanCommentConfigList = extract_method_source($onlineSource, 'getMeituanCommentConfigList');
 $getCtripCommentConfigList = extract_method_source($onlineSource, 'getCtripCommentConfigList');
+$saveCookies = extract_method_source($onlineSource, 'saveCookies');
+$getCookiesList = extract_method_source($onlineSource, 'getCookiesList');
+$getCookiesDetail = extract_method_source($onlineSource, 'getCookiesDetail');
 $deleteCookies = extract_method_source($onlineSource, 'deleteCookies');
+$batchDeleteCookies = extract_method_source($onlineSource, 'batchDeleteCookies');
+$autoCaptureCtripCookie = extract_method_source($onlineSource, 'autoCaptureCtripCookie');
+$saveCtripConfigByBookmark = extract_method_source($onlineSource, 'saveCtripConfigByBookmark');
 $deleteMeituanConfig = extract_method_source($onlineSource, 'deleteMeituanConfig');
 $deleteCtripConfig = extract_method_source($onlineSource, 'deleteCtripConfig');
 $isOtaConfigVisible = extract_method_source($onlineSource, 'isOtaConfigVisibleToCurrentUser');
+$getCookieAlerts = extract_method_source($onlineSource, 'getCookieAlerts');
 
 assert_true(str_contains($dailyDataSummary, "whereIn('system_hotel_id'"), 'dailyDataSummary must enforce hotel scope for non-super admins');
 assert_true(!str_contains($dataAnalysis, "where('hotel_id', \$hotelId)"), 'dataAnalysis must not treat OTA platform hotel_id as system hotel id');
 assert_true(!str_contains($applyHistoryHotelFilter, "whereOr('hotel_id'"), 'history hotel filter must not OR system hotel id with OTA hotel_id');
 assert_true(!str_contains($applyCtripHotelScope, "whereOr('hotel_id'"), 'Ctrip hotel scope must not OR system hotel id with OTA hotel_id');
-assert_true(str_contains($saveMeituanCommentConfig, "checkActionPermission('can_fetch_online_data')"), 'Meituan comment config save must require online data fetch permission');
+assert_true(str_contains($saveMeituanCommentConfig, '$this->checkPermission();') && str_contains($saveMeituanCommentConfig, 'return $this->error('), 'Meituan comment Cookie/API config must remain explicitly disabled');
 assert_true(str_contains($saveCtripCommentConfig, "checkActionPermission('can_fetch_online_data')"), 'Ctrip comment config save must require online data fetch permission');
-assert_true(str_contains($saveMeituanCommentConfig, "saveOtaDataConfigValue('meituan-comments'"), 'Meituan comment config save must persist only the aggregate comment data config');
-assert_true(str_contains($saveCtripCommentConfig, "saveOtaDataConfigValue('ctrip-comments'"), 'Ctrip comment config save must persist only the aggregate comment data config');
-assert_true(str_contains($saveMeituanCommentConfig, "'capture_sections' => 'reviews'"), 'Meituan comment config save must force aggregate review capture sections');
-assert_true(str_contains($saveCtripCommentConfig, "'capture_sections' => 'comment_review'"), 'Ctrip comment config save must force aggregate comment_review sections');
-assert_true(str_contains($saveMeituanCommentConfig, 'aggregate_metrics_only_no_review_text'), 'Meituan comment config save must document no-review-text privacy boundary');
-assert_true(str_contains($saveCtripCommentConfig, 'aggregate_metrics_only_no_review_text'), 'Ctrip comment config save must document no-review-text privacy boundary');
-assert_true(str_contains($saveMeituanCommentConfig, 'sanitizeSecretConfig'), 'Meituan comment config response must be secret-sanitized');
-assert_true(str_contains($saveCtripCommentConfig, 'sanitizeSecretConfig'), 'Ctrip comment config response must be secret-sanitized');
+assert_true(!str_contains($saveMeituanCommentConfig, "saveOtaDataConfigValue('meituan-comments'"), 'Meituan comment Cookie/API config must not be persisted');
+assert_true(str_contains($saveCtripCommentConfig, 'return $this->error(') && str_contains($saveCtripCommentConfig, 'Legacy Ctrip comment Cookie/API config storage is disabled.'), 'Ctrip comment Cookie/API config must remain explicitly disabled');
+assert_true(!str_contains($saveCtripCommentConfig, "saveOtaDataConfigValue('ctrip-comments'") && !str_contains($saveCtripCommentConfig, "'cookies'") && !str_contains($saveCtripCommentConfig, "'spidertoken'"), 'Ctrip comment config must not persist reusable credential fields');
 assert_true(str_contains($fetchCustom, "checkActionPermission('can_fetch_online_data')"), 'custom OTA fetch must require online data fetch permission');
 assert_true(str_contains($fetchCustom, 'isAllowedOtaRequestUrl'), 'custom OTA fetch must restrict target hosts');
 assert_true(str_contains($sendHttpRequest, 'isAllowedOtaRequestUrl'), 'Ctrip HTTP requests must restrict target hosts');
 assert_true(str_contains($sendCtripJsonRequest, 'isAllowedOtaRequestUrl'), 'Ctrip JSON requests must restrict target hosts');
 assert_true(str_contains($sendMeituanRequest, 'isAllowedOtaRequestUrl'), 'Meituan HTTP requests must restrict target hosts');
 assert_true(str_contains($commandSource, 'isAllowedCtripRequestUrl'), 'scheduled Ctrip command must restrict target hosts');
-assert_true(str_contains($getMeituanCommentConfigList, "readOtaDataConfigValue('meituan-comments')"), 'Meituan comment config list must read the aggregate config key');
-assert_true(str_contains($getCtripCommentConfigList, "readOtaDataConfigValue('ctrip-comments')"), 'Ctrip comment config list must read the aggregate config key');
-assert_true(str_contains($getMeituanCommentConfigList, 'sanitizeSecretConfig'), 'Meituan comment config list must sanitize secrets');
-assert_true(str_contains($getCtripCommentConfigList, 'sanitizeSecretConfig'), 'Ctrip comment config list must sanitize secrets');
+assert_true(str_contains($getMeituanCommentConfigList, 'return $this->success([]);') && !str_contains($getMeituanCommentConfigList, "readOtaDataConfigValue('meituan-comments')"), 'Meituan comment config list must expose no legacy Cookie/API config');
+assert_true(str_contains($getCtripCommentConfigList, 'return $this->success([]);') && !str_contains($getCtripCommentConfigList, "readOtaDataConfigValue('ctrip-comments')"), 'Ctrip comment config list must expose no legacy Cookie/API config');
+assert_true(str_contains($saveCookies, 'Legacy Cookie storage is disabled.') && !str_contains($saveCookies, 'setConfigList'), 'legacy Cookie save endpoint must not persist plaintext');
+assert_true(str_contains($getCookiesList, 'return $this->success([]);') && !str_contains($getCookiesList, 'getConfigList'), 'legacy Cookie list endpoint must not read plaintext');
+assert_true(str_contains($getCookiesDetail, 'Legacy Cookie detail access is disabled.') && !str_contains($getCookiesDetail, 'getConfigList'), 'legacy Cookie detail endpoint must never return plaintext');
 assert_true(!str_contains($isOtaConfigVisible, "\$item['hotel_id']"), 'config visibility must not treat OTA platform hotel_id as system hotel id');
+assert_true(str_contains($getCookieAlerts, 'sanitizeCookieAlertsForStorage($data)'), 'historical OTA credential alerts must be sanitized on every read');
 assert_true(str_contains($deleteCookies, "checkActionPermission('can_delete_online_data')"), 'cookie deletion must require online data delete permission');
-assert_true(!str_contains($deleteCookies, '$globalList'), 'cookie deletion must not fall back from hotel cookies to global cookies');
+assert_true(str_contains($deleteCookies, 'Legacy Cookie deletion is disabled.') && !str_contains($deleteCookies, 'getConfigList'), 'legacy Cookie deletion must not parse generic Cookie storage');
+assert_true(str_contains($batchDeleteCookies, 'Legacy Cookie batch deletion is disabled.') && !str_contains($batchDeleteCookies, 'getConfigList'), 'legacy Cookie batch deletion must not parse generic Cookie storage');
+assert_true(str_contains($autoCaptureCtripCookie, '410') && !str_contains($autoCaptureCtripCookie, "request->header('cookie'"), 'legacy Ctrip auto-capture endpoint must not read browser Cookie headers');
+assert_true(
+    str_contains($saveCtripConfigByBookmark, '410')
+    && str_contains($saveCtripConfigByBookmark, '$this->checkPermission();')
+    && !str_contains($saveCtripConfigByBookmark, "file_get_contents('php://input')")
+    && !str_contains($saveCtripConfigByBookmark, 'saveCtripConfigPayload('),
+    'legacy Ctrip bookmark save endpoint must not ingest or persist Cookie payloads'
+);
 assert_true(str_contains($deleteMeituanConfig, "checkActionPermission('can_delete_online_data')"), 'Meituan config deletion must require online data delete permission');
 assert_true(str_contains($deleteCtripConfig, "checkActionPermission('can_delete_online_data')"), 'Ctrip config deletion must require online data delete permission');
 assert_true(!str_contains($legacyCronSource, "online_data_cookies_list"), 'legacy cron script must not use global cookie list');

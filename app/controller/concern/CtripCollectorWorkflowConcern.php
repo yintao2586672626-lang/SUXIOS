@@ -18,13 +18,15 @@ trait CtripCollectorWorkflowConcern
         $sourceId = (int)($query['source_id'] ?? $query['sourceId'] ?? 0);
         $source = [];
         if ($sourceId > 0) {
-            $row = Db::name('platform_data_sources')->where('id', $sourceId)->find();
+            $row = Db::name('platform_data_sources')
+                ->field('id,system_hotel_id,platform,status,enabled,config_json')
+                ->where('id', $sourceId)
+                ->find();
             if (!$row) {
                 return $this->error('Ctrip data source not found.', 404);
             }
             $config = json_decode((string)($row['config_json'] ?? ''), true);
             $row['config'] = is_array($config) ? $config : [];
-            unset($row['secret_json']);
             $source = $row;
         }
 

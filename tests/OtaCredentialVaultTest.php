@@ -56,6 +56,56 @@ final class OtaCredentialVaultTest extends TestCase
     public function testTamperedCiphertextFails(): void { $v=$this->vault(); $v->store(7,101,'ctrip','main',['token'=>'secret'],3); Db::name('ota_credentials')->where('tenant_id',7)->update(['encrypted_payload'=>'tampered']); $this->expectException(\RuntimeException::class); $v->withPayloadForExecution(7,101,'ctrip','main',fn()=>null); }
     public function testRevokeIsIdempotentAndMetadataVisible(): void { $v=$this->vault(); $v->store(7,101,'ctrip','main',['token'=>'secret'],3); self::assertSame('revoked',$v->revoke(7,101,'ctrip','main')['credential_status']); self::assertSame('revoked',$v->revoke(7,101,'ctrip','main')['credential_status']); self::assertSame('revoked',$v->metadata(7,101,'ctrip','main')['credential_status']); }
     public function testRevokedExecutionIsBlocked(): void { $v=$this->vault(); $v->store(7,101,'ctrip','main',['token'=>'secret'],3); $v->revoke(7,101,'ctrip','main'); $this->expectException(\RuntimeException::class); $v->withPayloadForExecution(7,101,'ctrip','main',fn()=>null); }
+    public function testEveryNonReadyCredentialStatusIsBlockedFromExecution(): void
+    {
+        $vault = $this->vault();
+        foreach (['unknown', 'expired', 'invalid'] as $status) {
+            $configId = 'status-' . $status;
+            $vault->store(7, 101, 'ctrip', $configId, ['token' => 'secret'], 3);
+            Db::name('ota_credentials')
+                ->where('tenant_id', 7)
+                ->where('system_hotel_id', 101)
+                ->where('platform', 'ctrip')
+                ->where('config_id', $configId)
+                ->update(['credential_status' => $status]);
+
+            $exception = null;
+            try {
+                $vault->withPayloadForExecution(7, 101, 'ctrip', $configId, fn(array $payload): array => $payload);
+            } catch (\RuntimeException $caught) {
+                $exception = $caught;
+            }
+
+            self::assertInstanceOf(\RuntimeException::class, $exception, "Credential status {$status} must not be executable.");
+            self::assertSame('Credential is not ready for execution.', $exception->getMessage());
+        }
+    }
+    public function testExecutionRejectsMismatchedCryptographicMetadata(): void
+    {
+        $vault = $this->vault();
+        foreach ([
+            'wrong-key' => ['key_id' => 'retired-key'],
+            'wrong-version' => ['payload_version' => 2],
+        ] as $configId => $mutation) {
+            $vault->store(7, 101, 'ctrip', $configId, ['token' => 'secret'], 3);
+            Db::name('ota_credentials')
+                ->where('tenant_id', 7)
+                ->where('system_hotel_id', 101)
+                ->where('platform', 'ctrip')
+                ->where('config_id', $configId)
+                ->update($mutation);
+
+            $exception = null;
+            try {
+                $vault->withPayloadForExecution(7, 101, 'ctrip', $configId, fn(array $payload): array => $payload);
+            } catch (\RuntimeException $caught) {
+                $exception = $caught;
+            }
+
+            self::assertInstanceOf(\RuntimeException::class, $exception, "{$configId} must not be executable.");
+            self::assertSame('Credential cryptographic metadata is not executable.', $exception->getMessage());
+        }
+    }
     public function testDeleteRevoked(): void { $v=$this->vault(); $v->store(7,101,'ctrip','main',['token'=>'secret'],3); $v->revoke(7,101,'ctrip','main'); self::assertTrue($v->delete(7,101,'ctrip','main')); }
     public function testDeleteIsIdempotent(): void { $v=$this->vault(); $v->store(7,101,'ctrip','main',['token'=>'secret'],3); self::assertTrue($v->delete(7,101,'ctrip','main')); self::assertFalse($v->delete(7,101,'ctrip','main')); }
 }

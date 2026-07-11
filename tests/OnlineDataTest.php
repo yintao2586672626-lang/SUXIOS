@@ -300,6 +300,32 @@ final class OnlineDataTest extends TestCase
         self::assertStringNotContainsString('plain-cookie-value', $encoded);
     }
 
+    public function testPublicEndpointAuditSanitizesSecretsHiddenInOrdinaryTextFields(): void
+    {
+        $controller = $this->controller();
+        $raw = 'source=manual Cookie: sid=cookie-secret; session=session-secret Authorization: Bearer auth-secret token=token-secret';
+        $safeText = $this->invokeNonPublic($controller, 'safePublicEndpointText', [$raw]);
+        $safeExtra = $this->invokeNonPublic($controller, 'sanitizePublicEndpointExtra', [[
+            'source' => 'Authorization: Bearer nested-auth-secret',
+            'name' => 'session=nested-session-secret',
+            'origin' => 'https://example.test/?token=query-token-secret',
+        ]]);
+
+        $encoded = (string)json_encode([$safeText, $safeExtra], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        foreach ([
+            'cookie-secret',
+            'session-secret',
+            'auth-secret',
+            'token-secret',
+            'nested-auth-secret',
+            'nested-session-secret',
+            'query-token-secret',
+        ] as $secret) {
+            self::assertStringNotContainsString($secret, $encoded);
+        }
+        self::assertStringContainsString('****', $encoded);
+    }
+
     public function testPublicEndpointSecuritySummaryIncludesCompetitorPublicApis(): void
     {
         $controller = $this->controller();
@@ -895,7 +921,7 @@ final class OnlineDataTest extends TestCase
         self::assertArrayNotHasKey('reviews', $summary);
     }
 
-    public function testAutoFetchTaskPlanQueuesAggregateCommentModules(): void
+    public function testAutoFetchTaskPlanIgnoresLegacyCommentCredentialConfigs(): void
     {
         $controller = $this->controller();
 
@@ -903,96 +929,55 @@ final class OnlineDataTest extends TestCase
             7,
             '2026-05-03',
             [
-                'cookies' => 'configured',
+                'id' => 'ctrip-7',
+                'config_id' => 'ctrip-7',
+                'system_hotel_id' => 7,
+                'credential_status' => 'ready',
+                'has_cookies' => true,
                 'node_id' => '24588',
+                'url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
             ],
             [
-                'cookies' => 'configured',
+                'id' => 'meituan-7',
+                'config_id' => 'meituan-7',
+                'system_hotel_id' => 7,
+                'credential_status' => 'ready',
+                'has_cookies' => true,
                 'partner_id' => 'partner-1',
                 'poi_id' => 'poi-1',
-            ],
-            [
-                'ctrip-comments' => [
-                    'enabled' => true,
-                    'system_hotel_id' => 7,
-                    'request_url' => 'https://ebooking.ctrip.com/comment/getCommentList',
-                    'cookies' => 'configured',
-                    'spidertoken' => 'configured',
-                    'payload_json' => '{"pageIndex":1}',
-                ],
-                'meituan-comments' => [
-                    'enabled' => true,
-                    'system_hotel_id' => 7,
-                    'request_url' => 'https://eb.meituan.com/api/v1/ebooking/comments/commentsInfo',
-                    'cookies' => 'configured',
-                    'partner_id' => 'partner-1',
-                    'poi_id' => 'poi-1',
-                ],
+                'url' => 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail',
             ],
         ]);
 
         $labels = array_column($tasks, 'label');
-        self::assertContains('ctrip-comments', $labels);
-        self::assertContains('meituan-comments', $labels);
-        self::assertContains('comments', array_column($tasks, 'module'));
+        self::assertNotContains('ctrip-comments', $labels);
+        self::assertNotContains('meituan-comments', $labels);
+        self::assertNotContains('comments', array_column($tasks, 'module'));
         self::assertContains('business', array_column($tasks, 'module'));
         self::assertContains('ranking', array_column($tasks, 'module'));
-
-        $ctripCommentsTask = $tasks[array_search('ctrip-comments', $labels, true)];
-        self::assertSame('comment_review', $ctripCommentsTask['body']['capture_sections']);
-        $meituanCommentsTask = $tasks[array_search('meituan-comments', $labels, true)];
-        self::assertSame('reviews', $meituanCommentsTask['body']['capture_sections']);
+        foreach ($tasks as $task) {
+            self::assertArrayHasKey('config_id', $task['body']);
+            self::assertArrayNotHasKey('cookies', $task['body']);
+            self::assertArrayNotHasKey('auth_data', $task['body']);
+        }
     }
 
-    public function testAutoFetchTaskPlanQueuesCtripCookieApiRequestListWithoutCookie(): void
+    public function testAutoFetchTaskPlanNeverDerivesCookieApiTasksFromBrowserProfiles(): void
     {
-        $controller = $this->controller();
-        $projectRoot = dirname(__DIR__);
-        $profileId = 'phpunit_ctrip_plan_' . bin2hex(random_bytes(4));
-        $profileDir = $projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'ctrip_profile_' . $profileId;
-        if (!is_dir($profileDir)) {
-            mkdir($profileDir, 0775, true);
-        }
+        $tasks = $this->invokeNonPublic($this->controller(), 'buildAutoFetchConfigTaskPlan', [
+            7,
+            '2026-05-03',
+            [
+                'profile_id' => 'profile-7',
+                'manual_login_state_verified' => true,
+                'profile_status' => 'logged_in',
+                'last_login_verified_at' => '2026-05-03 09:00:00',
+            ],
+            [],
+        ]);
 
-        try {
-            $tasks = $this->invokeNonPublic($controller, 'buildAutoFetchConfigTaskPlan', [
-                7,
-                '2026-05-03',
-                [
-                    'profile_id' => $profileId,
-                    'manual_login_state_verified' => true,
-                    'profile_status' => 'logged_in',
-                    'last_login_verified_at' => '2026-05-03 09:00:00',
-                ],
-                [],
-                [
-                    'ctrip-cookie-api' => [
-                        'enabled' => true,
-                        'system_hotel_id' => 7,
-                        'request_urls' => "https://ebooking.ctrip.com/restapi/soa2/24588/queryHotCalendarInfo\nhttps://ebooking.ctrip.com/restapi/soa2/24588/queryScanFlowDetailsV2",
-                        'hotel_id' => '24588',
-                    ],
-                ],
-            ]);
-        } finally {
-            @rmdir($profileDir);
-        }
-
-        $labels = array_column($tasks, 'label');
-        self::assertContains('ctrip-cookie-api', $labels);
-
-        $task = $tasks[array_search('ctrip-cookie-api', $labels, true)];
-        self::assertSame('ctrip', $task['platform']);
-        self::assertSame('cookie_api', $task['module']);
-        self::assertSame('cookie_api', $task['strategy']);
-        self::assertSame($profileId, $task['body']['profile_id']);
-        self::assertSame('24588', $task['body']['hotel_id']);
-        self::assertSame(7, $task['body']['system_hotel_id']);
-        self::assertSame('2026-05-03', $task['body']['start_date']);
-        self::assertSame('2026-05-03', $task['body']['end_date']);
-        self::assertArrayNotHasKey('cookies', $task['body']);
-        self::assertSame('browser_profile', $task['body']['cookie_source']);
-        self::assertTrue($task['body']['profile_cookie_source']);
+        self::assertNotContains('ctrip-cookie-api', array_column($tasks, 'label'));
+        self::assertSame([], $tasks);
     }
 
     public function testAutoFetchTaskPlanDoesNotUseUnverifiedCtripProfileAsCookieSource(): void
@@ -1031,27 +1016,19 @@ final class OnlineDataTest extends TestCase
         self::assertNotContains('ctrip-cookie-api', array_column($tasks, 'label'));
     }
 
-    public function testProfileDerivedCookieExtractionRequiresVerifiedManualLoginState(): void
+    public function testProfileDerivedCookieExtractionRequiresCurrentSessionProof(): void
     {
         $controller = $this->controller();
-        $projectRoot = dirname(__DIR__);
-        $profileId = 'phpunit_ctrip_extract_gate_' . bin2hex(random_bytes(4));
-        $profileDir = $projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'ctrip_profile_' . $profileId;
-        if (!is_dir($profileDir)) {
-            mkdir($profileDir, 0775, true);
-        }
 
-        try {
-            $this->expectException(\InvalidArgumentException::class);
-            $this->expectExceptionMessage('manual_login_state_verified');
-            $this->invokeNonPublic($controller, 'createCtripCookieApiCookieFileFromProfile', [[
-                'profile_id' => $profileId,
+        self::assertSame(['current_session_verified'], $this->invokeNonPublic(
+            $controller,
+            'profileCookieSourceLoginMissingRequirements',
+            [[
+                'manual_login_state_verified' => true,
                 'profile_status' => 'logged_in',
                 'last_login_verified_at' => '2026-05-03 09:00:00',
-            ], $projectRoot, 7]);
-        } finally {
-            @rmdir($profileDir);
-        }
+            ]]
+        ));
     }
 
     public function testExtractCtripTrafficRowsExpandsDailyMetricSeries(): void
@@ -2694,12 +2671,13 @@ final class OnlineDataTest extends TestCase
         self::assertArrayNotHasKey('cookies', $sanitized);
         self::assertArrayNotHasKey('token', $sanitized);
         self::assertTrue($sanitized['has_cookies']);
-        self::assertSame('abcd...hijk', $sanitized['cookies_preview']);
-        self::assertSame('********', $sanitized['token_preview']);
-        self::assertFalse($sanitized['has_spidertoken']);
+        self::assertSame('********', $sanitized['secret_mask']);
+        self::assertArrayNotHasKey('cookies_preview', $sanitized);
+        self::assertArrayNotHasKey('token_preview', $sanitized);
+        self::assertArrayNotHasKey('has_spidertoken', $sanitized);
     }
 
-    public function testAutoFetchConfigTaskPlanMirrorsAutomationMode(): void
+    public function testAutoFetchConfigTaskPlanUsesVaultLocatorsOnly(): void
     {
         $controller = $this->controller();
 
@@ -2707,74 +2685,54 @@ final class OnlineDataTest extends TestCase
             7,
             '2026-05-18',
             [
+                'id' => 'ctrip-7',
+                'config_id' => 'ctrip-7',
+                'system_hotel_id' => 7,
+                'credential_status' => 'ready',
+                'has_cookies' => true,
                 'url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportCompeteHotelReport',
                 'node_id' => 'node-7',
-                'cookies' => 'ctrip-cookie',
-                'auth_data' => ['xCtxLocale' => 'zh-CN'],
             ],
             [
+                'id' => 'meituan-7',
+                'config_id' => 'meituan-7',
+                'system_hotel_id' => 7,
+                'credential_status' => 'ready',
+                'has_cookies' => true,
                 'url' => 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail',
                 'partner_id' => 'partner-7',
                 'poi_id' => 'poi-7',
-                'cookies' => 'meituan-cookie',
-                'auth_data' => ['token' => 'token-7'],
-            ],
-            [
-                'ctrip-traffic' => [
-                    'system_hotel_id' => 7,
-                    'url' => 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1',
-                    'cookies' => 'ctrip-traffic-cookie',
-                    'spiderkey' => 'spider-7',
-                ],
-                'ctrip-comments' => [
-                    'system_hotel_id' => '7',
-                    'request_url' => 'https://ebooking.ctrip.com/api/getCommentList',
-                    'hotel_id' => 'ctrip-hotel-7',
-                    'cookies' => 'ctrip-comment-cookie',
-                    'spidertoken' => 'spider-token-7',
-                    'payload_json' => '{"hotelId":"ctrip-hotel-7"}',
-                ],
-                'meituan-traffic' => [
-                    'hotelId' => 7,
-                    'url' => 'https://eb.meituan.com/api/v1/ebooking/traffic',
-                    'partner_id' => 'partner-traffic-7',
-                    'poi_id' => 'poi-traffic-7',
-                    'cookies' => 'meituan-traffic-cookie',
-                ],
-                'meituan-comments' => [
-                    'system_hotel_id' => 8,
-                    'partner_id' => 'partner-8',
-                    'poi_id' => 'poi-8',
-                    'cookies' => 'meituan-comment-cookie',
-                ],
             ],
         ]);
 
         $labels = array_column($tasks, 'label');
         self::assertContains('ctrip-business', $labels);
-        self::assertContains('ctrip-traffic', $labels);
-        self::assertContains('ctrip-comments', $labels);
         self::assertContains('meituan-P_RZ', $labels);
         self::assertContains('meituan-P_XS', $labels);
         self::assertContains('meituan-P_ZH', $labels);
         self::assertContains('meituan-P_LL', $labels);
-        self::assertContains('meituan-traffic', $labels);
+        self::assertNotContains('ctrip-traffic', $labels);
+        self::assertNotContains('ctrip-comments', $labels);
+        self::assertNotContains('meituan-traffic', $labels);
         self::assertNotContains('meituan-comments', $labels);
-        self::assertContains('comments', array_column($tasks, 'module'));
+        self::assertNotContains('comments', array_column($tasks, 'module'));
 
         foreach ($tasks as $task) {
             self::assertSame(7, $task['body']['system_hotel_id']);
             self::assertTrue($task['body']['auto_save']);
             self::assertSame('2026-05-18', $task['body']['start_date']);
             self::assertSame('2026-05-18', $task['body']['end_date']);
+            self::assertArrayHasKey('config_id', $task['body']);
+            foreach (['cookies', 'cookie', 'auth_data', 'authorization', 'token', 'headers'] as $forbidden) {
+                self::assertArrayNotHasKey($forbidden, $task['body']);
+            }
         }
 
         $rankTask = $tasks[array_search('meituan-P_RZ', $labels, true)];
         self::assertSame('P_RZ', $rankTask['body']['rank_type']);
-
     }
 
-    public function testAutoFetchTaskRoutesCtripCookieApiMissingRequestListAsNeedsPayload(): void
+    public function testAutoFetchTaskRejectsCtripCookieApiWithoutCredentialLocator(): void
     {
         $controller = $this->controller();
 
@@ -2793,9 +2751,9 @@ final class OnlineDataTest extends TestCase
         self::assertSame('ctrip-cookie-api', $result['module']);
         self::assertSame('cookie_api', $result['strategy']);
         self::assertFalse($result['success']);
-        self::assertTrue($result['skipped']);
-        self::assertSame('needs_payload', $result['status_code']);
-        self::assertStringContainsString('request_url', $result['message']);
+        self::assertArrayNotHasKey('skipped', $result);
+        self::assertSame('failed', $result['status_code']);
+        self::assertSame('credential_execution_failed', $result['message']);
     }
 
     public function testCookieHealthMessagesAreActionableChinesePrompts(): void
@@ -3148,7 +3106,7 @@ final class OnlineDataTest extends TestCase
             'last_error' => "Cannot find package 'cloakbrowser' imported from D:\\project\\scripts\\lib\\cloakbrowser_launcher.mjs",
             'ingestion_method' => 'browser_profile',
         ], []]);
-        $verifiedLoginWithStaleError = $this->invokeNonPublic($controller, 'phase1TrafficSourceIssueCode', [[
+        $historicalLoginWithStaleError = $this->invokeNonPublic($controller, 'phase1TrafficSourceIssueCode', [[
             'enabled' => 1,
             'status' => 'ready',
             'last_sync_status' => 'waiting_config',
@@ -3163,7 +3121,7 @@ final class OnlineDataTest extends TestCase
         self::assertSame('profile_not_prepared', $profileMissing);
         self::assertSame('login_session_not_ready', $loginMissing);
         self::assertSame('browser_dependency_missing', $dependencyMissing);
-        self::assertSame('no_target_date_rows_after_success', $verifiedLoginWithStaleError);
+        self::assertSame('login_session_not_ready', $historicalLoginWithStaleError);
     }
 
     public function testPlatformProfileLoginVerifiedConfigMarksTrafficSourceWithoutSensitiveValues(): void
@@ -3223,6 +3181,119 @@ final class OnlineDataTest extends TestCase
         self::assertStringNotContainsString('must-not-store', $encoded);
         self::assertStringNotContainsString('ebooking.ctrip.com/path', $encoded);
         self::assertArrayNotHasKey('data_type', $config);
+        $this->invokeNonPublic($command, 'assertProfileSourceMetadataIsSafe', [$config]);
+    }
+
+    public function testPlatformProfileLoginAcceptsMetadataOnlySourceConfig(): void
+    {
+        $config = $this->invokeNonPublic($this->profileLoginCommand(), 'decodeSafeProfileSourceConfig', [
+            json_encode([
+                'profile_id' => 'profile-58',
+                'capture_sections' => ['traffic', 'orders'],
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ]);
+
+        self::assertSame('profile-58', $config['profile_id']);
+        self::assertSame(['traffic', 'orders'], $config['capture_sections']);
+    }
+
+    public function testPlatformProfileLoginRejectsLegacySecretsInsideSourceConfig(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('credential migration is required');
+        $this->invokeNonPublic($this->profileLoginCommand(), 'decodeSafeProfileSourceConfig', [
+            json_encode([
+                'profile_id' => 'profile-58',
+                'nested' => ['authorization' => 'Bearer legacy-profile-token'],
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ]);
+    }
+
+    public function testCtripProfileFieldMetadataRejectsCredentialMaterial(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('字段元数据不得包含');
+        $this->invokeNonPublic($this->controller(), 'normalizeCtripProfileCaptureField', [[
+            'id' => 'unsafe-field',
+            'field_key' => 'unsafe_field',
+            'field_name' => 'Unsafe field',
+            'section' => 'traffic_report',
+            'source_interface' => 'Authorization: Bearer profile-field-secret',
+            'source_keys' => 'metric.value',
+            'enabled' => true,
+        ]]);
+    }
+
+    public function testPlatformProfileLoginTaskRequestUsesMetadataAllowlist(): void
+    {
+        $prepared = $this->invokeNonPublic($this->controller(), 'preparePlatformProfileLoginRequest', [
+            'ctrip',
+            [
+                'source_id' => 91,
+                'profile_id' => 'profile-58',
+                'hotel_id' => 'ctrip-hotel-58',
+                'hotel_name' => '测试门店',
+                'captureSections' => ['traffic', 'business_overview'],
+                'syncAfterLogin' => true,
+                'targetDate' => '2026-07-09',
+                'debug_note' => 'must-not-enter-task-file',
+            ],
+            58,
+            'profile-58',
+        ]);
+
+        self::assertSame('ctrip', $prepared['platform']);
+        self::assertSame(58, $prepared['system_hotel_id']);
+        self::assertSame(91, $prepared['data_source_id']);
+        self::assertSame('traffic,business_overview', $prepared['capture_sections']);
+        self::assertSame('2026-07-09', $prepared['data_date']);
+        self::assertTrue($prepared['sync_after_login']);
+        self::assertArrayNotHasKey('debug_note', $prepared);
+    }
+
+    public function testPlatformProfileLoginTaskRequestRejectsReusableSecrets(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('只接受元数据');
+        $this->invokeNonPublic($this->controller(), 'preparePlatformProfileLoginRequest', [
+            'ctrip',
+            [
+                'profile_id' => 'profile-58',
+                'cookies' => 'sid=profile-login-secret',
+            ],
+            58,
+            'profile-58',
+        ]);
+    }
+
+    public function testPlatformProfileLoginCachesRedactNestedCredentialMaterial(): void
+    {
+        $payload = [
+            'status' => 'failed',
+            'auth_status' => [
+                'status' => 'login_required',
+                'message' => 'Cookie: sid=cache-cookie-secret; session=cache-session-secret',
+                'raw_token' => 'cache-raw-token-secret',
+            ],
+            'capture_gate' => [
+                'checks' => [[
+                    'id' => 'auth',
+                    'message' => 'Authorization: Bearer cache-auth-secret',
+                ]],
+            ],
+        ];
+
+        $controllerSafe = $this->invokeNonPublic($this->controller(), 'sanitizePlatformProfileLoginCachePayload', [$payload]);
+        $commandSafe = $this->invokeNonPublic($this->profileLoginCommand(), 'sanitizeProfileLoginCachePayload', [$payload]);
+        foreach ([$controllerSafe, $commandSafe] as $safe) {
+            $encoded = (string)json_encode($safe, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            self::assertSame('login_required', $safe['auth_status']['status']);
+            self::assertSame('[redacted]', $safe['auth_status']['raw_token']);
+            foreach (['cache-cookie-secret', 'cache-session-secret', 'cache-raw-token-secret', 'cache-auth-secret'] as $secret) {
+                self::assertStringNotContainsString($secret, $encoded);
+            }
+        }
     }
 
     public function testPlatformProfileProbeKeepsAntiBotAndSessionExpiredStates(): void
@@ -3307,12 +3378,6 @@ final class OnlineDataTest extends TestCase
     {
         $controller = $this->controller();
 
-        self::assertFalse($this->invokeNonPublic($controller, 'platformProfileConfigHasVerifiedLogin', [[
-            'profile_daily_reuse_enabled' => true,
-        ]]));
-        self::assertTrue($this->invokeNonPublic($controller, 'platformProfileConfigHasVerifiedLogin', [[
-            'manual_login_state_verified' => true,
-        ]]));
         self::assertSame('waiting_login', $this->invokeNonPublic($controller, 'resolvePlatformProfileStatusCode', [
             'profile-58',
             true,
@@ -5985,7 +6050,7 @@ final class OnlineDataTest extends TestCase
             ],
         ]);
 
-        self::assertSame('logged_in', $nonAuthFailure);
+        self::assertSame('capture_failed', $nonAuthFailure);
     }
 
     public function testPlatformProfileLoginExpiredPromotesReloginAction(): void
@@ -6094,9 +6159,12 @@ final class OnlineDataTest extends TestCase
         self::assertSame('missing_cookie', $missing['credential_status']);
 
         $complete = $this->invokeNonPublic($controller, 'meituanAutoFetchConfigStatus', [[
+            'config_id' => 'meituan-7',
+            'system_hotel_id' => 7,
+            'credential_status' => 'ready',
+            'has_cookies' => true,
             'partnerId' => 'partner-7',
             'poiId' => 'poi-7',
-            'cookie' => 'meituan-cookie',
         ]]);
 
         self::assertTrue($complete['api_configured']);
@@ -6104,7 +6172,7 @@ final class OnlineDataTest extends TestCase
         self::assertSame('ready', $complete['credential_status']);
     }
 
-    public function testMeituanAutoFetchConfigStatusAllowsCookieOnlyConfigButMarksResourceIdMissing(): void
+    public function testMeituanAutoFetchConfigStatusRejectsLegacyInlineCookieWithoutLocator(): void
     {
         $controller = $this->controller();
 
@@ -6115,17 +6183,17 @@ final class OnlineDataTest extends TestCase
         ]]);
 
         self::assertFalse($status['api_configured']);
-        self::assertTrue($status['has_cookies']);
+        self::assertFalse($status['has_cookies']);
         self::assertFalse($status['has_partner_id']);
         self::assertFalse($status['has_poi_id']);
-        self::assertSame(['Partner ID', 'POI ID'], $status['missing_fields']);
-        self::assertSame('missing_resource_id', $status['credential_status']);
-        self::assertSame('需补充一次性门店标识', $status['credential_status_label']);
+        self::assertSame(['Partner ID', 'POI ID', 'Cookies'], $status['missing_fields']);
+        self::assertSame('missing_cookie', $status['credential_status']);
+        self::assertSame('缺少 Cookie', $status['credential_status_label']);
         self::assertSame(['Cookie'], $status['daily_required_fields']);
         self::assertSame(['Partner ID', 'POI ID'], $status['one_time_required_fields']);
     }
 
-    public function testMeituanAutoFetchConfigStatusUsesBrowserProfileAsCookieSource(): void
+    public function testMeituanAutoFetchConfigStatusDoesNotUseHistoricalProfileFlagsAsCookieSource(): void
     {
         $controller = $this->controller();
         $projectRoot = dirname(__DIR__);
@@ -6146,11 +6214,11 @@ final class OnlineDataTest extends TestCase
                 'last_login_verified_at' => '2026-05-18 09:00:00',
             ]]);
 
-            self::assertTrue($status['api_configured']);
-            self::assertTrue($status['has_cookies']);
-            self::assertTrue($status['has_profile_cookie_source']);
-            self::assertSame('browser_profile', $status['cookie_source']);
-            self::assertSame([], $status['missing_fields']);
+            self::assertFalse($status['api_configured']);
+            self::assertFalse($status['has_cookies']);
+            self::assertFalse($status['has_profile_cookie_source']);
+            self::assertContains('current_session_verified', $status['profile_cookie_missing_requirements']);
+            self::assertContains('current_session_verified', $status['missing_fields']);
         } finally {
             @rmdir($profileDir);
         }
@@ -6180,14 +6248,14 @@ final class OnlineDataTest extends TestCase
             self::assertFalse($status['has_cookies']);
             self::assertFalse($status['has_profile_cookie_source']);
             self::assertTrue($status['profile_cookie_source_candidate']);
-            self::assertContains('manual_login_state_verified', $status['profile_cookie_missing_requirements']);
-            self::assertContains('manual_login_state_verified', $status['missing_fields']);
+            self::assertContains('current_session_verified', $status['profile_cookie_missing_requirements']);
+            self::assertContains('current_session_verified', $status['missing_fields']);
         } finally {
             @rmdir($profileDir);
         }
     }
 
-    public function testAutoFetchTaskPlanQueuesMeituanProfileDerivedCookieTasks(): void
+    public function testAutoFetchTaskPlanNeverDerivesMeituanCookieTasksFromProfile(): void
     {
         $controller = $this->controller();
         $projectRoot = dirname(__DIR__);
@@ -6223,20 +6291,9 @@ final class OnlineDataTest extends TestCase
             ]);
 
             $labels = array_column($tasks, 'label');
-            self::assertContains('meituan-P_RZ', $labels);
-            self::assertContains('meituan-traffic', $labels);
-
-            $rankTask = $tasks[array_search('meituan-P_RZ', $labels, true)];
-            self::assertArrayNotHasKey('cookies', $rankTask['body']);
-            self::assertSame('browser_profile', $rankTask['body']['cookie_source']);
-            self::assertTrue($rankTask['body']['profile_cookie_source']);
-            self::assertSame($storeId, $rankTask['body']['store_id']);
-
-            $trafficTask = $tasks[array_search('meituan-traffic', $labels, true)];
-            self::assertArrayNotHasKey('cookies', $trafficTask['body']);
-            self::assertSame('browser_profile', $trafficTask['body']['cookie_source']);
-            self::assertTrue($trafficTask['body']['profile_cookie_source']);
-            self::assertSame($storeId, $trafficTask['body']['store_id']);
+            self::assertNotContains('meituan-P_RZ', $labels);
+            self::assertNotContains('meituan-traffic', $labels);
+            self::assertSame([], $tasks);
         } finally {
             @rmdir($profileDir);
         }
@@ -8338,7 +8395,7 @@ final class OnlineDataTest extends TestCase
 
         $filtered = $this->invokeNonPublic($controller, 'filterCollectableBrowserProfileDataSources', [$sources, 'ctrip']);
 
-        self::assertSame([13, 12], array_column($filtered, 'id'));
+        self::assertSame([], array_column($filtered, 'id'));
     }
 
     public function testCtripSoftCoverageGateFailureCanContinueWithWarning(): void

@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 use app\service\OtaRevenueMetricService;
+use app\service\OtaProfileSessionProofService;
 use app\service\OtaStandardEtlService;
 use think\App;
 use think\facade\Db;
@@ -1923,7 +1924,9 @@ function query_latest_available_source_rows(array $columns, string $platform, ar
         ];
     }
 
+    $currentDate = (new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
     $latestRow = scoped_source_query($columns, $platform, $options)
+        ->where('data_date', '<=', $currentDate)
         ->field('MAX(data_date) AS latest_data_date')
         ->find();
     $latestDate = (string)($latestRow['latest_data_date'] ?? '');
@@ -3948,16 +3951,9 @@ function inspection_traffic_source_accumulate_latest_sync_task(array &$summary, 
     }
 }
 
-function inspection_traffic_source_profile_login_state_verified(array $config): bool
+function inspection_traffic_source_profile_login_state_verified(array $source): bool
 {
-    foreach (['manual_login_state_verified', 'login_state_verified', 'profile_login_verified'] as $key) {
-        $value = $config[$key] ?? null;
-        if ($value === true || $value === 1 || $value === '1' || strtolower(trim((string)$value)) === 'true') {
-            return true;
-        }
-    }
-
-    return false;
+    return (new OtaProfileSessionProofService())->isCurrentVerified($source);
 }
 
 function inspection_traffic_source_profile_login_trigger_action(string $platform, int $dataSourceId, int $systemHotelId, string $targetDate): array
@@ -3983,7 +3979,7 @@ function inspection_traffic_source_profile_login_trigger_action(string $platform
             'data_date' => $targetDate,
             'capture_sections' => 'traffic',
         ],
-        'request_policy' => 'account owner completes OTA login, SMS/captcha, and permission checks on their own computer; diagnostics do not expose raw platform identifiers; sync_after_login runs only after manual_login_state_verified=true.',
+        'request_policy' => 'account owner completes OTA login, SMS/captcha, and permission checks on their own computer; diagnostics do not expose raw platform identifiers; sync_after_login runs only after current_session_verified=true on the same data source Profile session.',
         'after_login_sync' => [
             'method' => 'POST',
             'entry' => '/api/online-data/data-sources/' . $dataSourceId . '/sync',
@@ -4129,6 +4125,7 @@ function inspection_traffic_source_readiness_for_platform(string $platform, arra
 
     $fields = existing_columns('platform_data_sources', [
         'id',
+        'tenant_id',
         'platform',
         'data_type',
         'ingestion_method',
@@ -4139,7 +4136,6 @@ function inspection_traffic_source_readiness_for_platform(string $platform, arra
         'last_sync_time',
         'last_error',
         'config_json',
-        'secret_json',
     ]);
     if ($fields === []) {
         $base['status'] = 'source_schema_missing';
@@ -4188,9 +4184,9 @@ function inspection_traffic_source_readiness_for_platform(string $platform, arra
 
         $config = json_decode((string)($row['config_json'] ?? ''), true);
         $config = is_array($config) ? $config : [];
-        $manualLoginStateVerified = inspection_traffic_source_profile_login_state_verified($config);
+        $currentSessionVerified = inspection_traffic_source_profile_login_state_verified($row);
         $profileLoginTrigger = inspection_traffic_source_profile_login_trigger_action($platform, (int)($row['id'] ?? 0), (int)($row['system_hotel_id'] ?? 0), $targetDate);
-        if ($manualLoginStateVerified) {
+        if ($currentSessionVerified) {
             $base['p0_manual_login_state_verified_count']++;
         }
         if ((string)($profileLoginTrigger['status'] ?? '') === 'available') {
@@ -4269,8 +4265,12 @@ function inspection_traffic_source_readiness_for_platform(string $platform, arra
                 $base['p0_payload_candidate_latest_captured_at'] = $capturedAt;
             }
         }
-        $secret = json_decode((string)($row['secret_json'] ?? ''), true);
-        if (is_array($secret) ? $secret !== [] : trim((string)($row['secret_json'] ?? '')) !== '') {
+        $credentialRef = (int)($config['credential_ref'] ?? 0);
+        $credentialStatus = strtolower(trim((string)($config['credential_status'] ?? $config['status'] ?? '')));
+        $hasSecret = array_key_exists('has_secret', $config)
+            ? in_array($config['has_secret'], [true, 1, '1', 'true', 'yes', 'on'], true)
+            : $credentialRef > 0;
+        if ($credentialRef > 0 && $credentialStatus === 'ready' && $hasSecret) {
             $base['traffic_secret_configured_count']++;
         }
     }

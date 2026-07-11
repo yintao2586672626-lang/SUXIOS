@@ -1289,7 +1289,7 @@ trait CtripProfileConfigConcern
             $status = 'paused';
         }
 
-        return [
+        $normalized = [
             'id' => $id,
             'field_key' => $fieldKey,
             'field_name' => trim((string)($item['field_name'] ?? $item['fieldName'] ?? $original['field_name'] ?? '')),
@@ -1330,6 +1330,24 @@ trait CtripProfileConfigConcern
             'deleted_at' => $deletedAt,
             'deleted_by' => $deletedBy,
         ];
+        $this->assertCtripProfileFieldRuntimeMetadataSafe($normalized);
+        return $normalized;
+    }
+
+    private function assertCtripProfileFieldRuntimeMetadataSafe(array $field): void
+    {
+        foreach (['field_name', 'source_interface', 'source_keys'] as $key) {
+            $value = trim((string)($field[$key] ?? ''));
+            if ($value === '') {
+                continue;
+            }
+            if (
+                preg_match('/["\']?(?:cookie|set-cookie|authorization|proxy-authorization|x-api-key|api-key|auth_data|token|access_token|refresh_token|spidertoken|spiderkey|mtgsig|usertoken|usersign|password)["\']?\s*[:=]/i', $value) === 1
+                || preg_match('/\bbearer\s+[A-Za-z0-9._~+\/=:-]{8,}/i', $value) === 1
+            ) {
+                throw new \InvalidArgumentException('携程 Profile 字段元数据不得包含 Cookie、token 或 Authorization 等凭据内容');
+            }
+        }
     }
 
     private function classifyCtripProfileCaptureSectionByPageUrl(string $pageUrl, string $currentSection): string

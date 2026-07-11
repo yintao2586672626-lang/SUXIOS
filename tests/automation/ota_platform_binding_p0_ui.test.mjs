@@ -154,11 +154,17 @@ test('OTA platform Profile flow uses login-state and target-date evidence as the
   }
   assert.match(flowBuilder, /账号使用者先在自己的电脑完成平台授权/);
   assert.match(flowBuilder, /账号使用者自己的浏览器内完成人工登录/);
-  assert.match(flowBuilder, /manual_login_state_verified/);
+  assert.match(flowBuilder, /current_session_verified/);
   assert.match(flowBuilder, /binding_contract/);
-  assert.match(flowBuilder, /manualLoginVerified/);
-  assert.match(flowBuilder, /bindingContract\.manual_login_state_verified === true/);
-  assert.match(html, /manual_login_state_verified=/);
+  assert.match(flowBuilder, /currentSessionVerified/);
+  assert.match(flowBuilder, /bindingContract\.current_session_verified === true/);
+  assert.match(flowBuilder, /profile\.current_session_verified === true/);
+  assert.doesNotMatch(flowBuilder, /profile\.currentSessionVerified === true/);
+  assert.match(flowBuilder, /const loginVerified = currentSessionVerified && statusCode === 'logged_in';/);
+  assert.doesNotMatch(flowBuilder, /manual_login_state_verified\|logged_in/);
+  assert.doesNotMatch(flowBuilder, /manual_login_state_verified\/i\.test\(currentStatus\)/);
+  assert.match(html, /current_session_verified=/);
+  assert.match(html, /historical_manual_login_state_verified=/);
   assert.match(html, /item\.binding_checks \|\| item\.checks/);
   assert.match(flowBuilder, /const collectionDone = collectionStatus === 'collected'/);
   assert.match(flowBuilder, /targetTrafficRows > 0/);

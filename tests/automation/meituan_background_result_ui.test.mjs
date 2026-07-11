@@ -12,12 +12,14 @@ const sliceFrom = (source, needle, endNeedle) => {
   return end > start ? source.slice(start, end) : source.slice(start);
 };
 
-test('Meituan ranking fetch submits in background mode and keeps direct-result display compatibility', () => {
+test('Meituan ranking fetch uses a vault locator in direct mode and keeps truthful background-response compatibility', () => {
   const resultPanel = sliceFrom(html, '<!-- 获取结果显示 -->', '<!-- 原始JSON数据 -->');
+  const taskBuilder = sliceFrom(meituanStatic, 'const buildMeituanBatchFetchTasks = ({', 'const buildMeituanBatchFetchResultEntry');
   const fetchFlow = sliceFrom(meituanStatic, 'const runMeituanBatchFetchFlow = async ({', 'const buildMeituanRankDisplayRows');
   const pendingSetup = sliceFrom(meituanStatic, 'const results = fetchTasks.map', 'let totalSavedCount = 0;');
-  const acceptedLoopUpdate = sliceFrom(meituanStatic, 'results[index] = buildMeituanBatchFetchResultEntry', 'if (res.code === 200 && !accepted)');
+  const acceptedLoopUpdate = sliceFrom(meituanStatic, 'results[index] = buildMeituanBatchFetchResultEntry', '            }));');
   const acceptedBranch = sliceFrom(meituanStatic, 'if (acceptedCount > 0) {', 'const modelRes = await requestDisplayModel');
+  const failedBranch = sliceFrom(meituanStatic, 'if (fetchTasks.length > 0 && failedCount === fetchTasks.length) {', 'const modelRes = await requestDisplayModel');
 
   assert.match(meituanStatic, /const buildMeituanBatchFetchPendingEntry = \(task\) => \(\{/);
   assert.match(meituanStatic, /status: 'fetching'/);
@@ -27,16 +29,23 @@ test('Meituan ranking fetch submits in background mode and keeps direct-result d
   assert.match(fetchFlow, /skipIfAligned: true/);
   assert.match(fetchFlow, /form = getForm\(\) \|\| form;/);
   assert.doesNotMatch(fetchFlow, /await applyMeituanHotelConfig\(false, \{ resolvedConfig: selectedMeituanConfig, refreshList: false \}\);/);
+  assert.match(taskBuilder, /config_id: String\(configId \|\| ''\)\.trim\(\)/);
+  assert.match(taskBuilder, /system_hotel_id: form\.hotelId/);
+  assert.doesNotMatch(taskBuilder, /\b(?:cookies?|auth_data|authorization|token|spidertoken|mtgsig|headers)\s*:/i);
   assert.match(fetchFlow, /await Promise\.all\(fetchTasks\.map\(async \(task, index\) => \{/);
-  assert.match(fetchFlow, /const requestBody = \{ \.\.\.task\.body, async: true, background: true \};/);
-  assert.doesNotMatch(fetchFlow, /const requestBody = \{ \.\.\.task\.body, async: false, background: false \};/);
+  assert.match(fetchFlow, /const requestBody = \{ \.\.\.task\.body, async: false, background: false \};/);
+  assert.doesNotMatch(fetchFlow, /const requestBody = \{ \.\.\.task\.body, async: true, background: true \};/);
   assert.doesNotMatch(fetchFlow, /setHotelsList\(\[\]\);/);
-  assert.doesNotMatch(fetchFlow, /setBusinessSummary\(getEmptyBusinessSummary\(\)\);/);
+  assert.doesNotMatch(pendingSetup, /setBusinessSummary\(getEmptyBusinessSummary\(\)\);/);
+  assert.match(failedBranch, /setBusinessSummary\(getEmptyBusinessSummary\(\)\);/);
+  assert.match(failedBranch, /return \{ status: loginFailed \? 'login_required' : 'failed'/);
   assert.match(pendingSetup, /setOnlineDataResult\(\[\.\.\.results\]\);/);
   assert.match(pendingSetup, /setFetchSuccess\(true\);/);
 
-  assert.match(html, /const isMeituanPendingResult = \(result = \{\}\)/);
-  assert.match(html, /const isMeituanBackgroundResult = \(result = \{\}\)/);
+  assert.match(meituanStatic, /const isMeituanPendingResult = \(result = \{\}\)/);
+  assert.match(meituanStatic, /const isMeituanBackgroundResult = \(result = \{\}\)/);
+  assert.match(html, /const isMeituanPendingResult = requireMeituanStatic\('isMeituanPendingResult'\);/);
+  assert.match(html, /const isMeituanBackgroundResult = requireMeituanStatic\('isMeituanBackgroundResult'\);/);
   assert.match(html, /const meituanFetchInProgress = computed/);
   assert.match(html, /const meituanFetchBackgroundAccepted = computed/);
   assert.match(resultPanel, /meituanFetchSuccess \|\| meituanFetchInProgress \|\| meituanFetchBackgroundAccepted/);
@@ -48,6 +57,7 @@ test('Meituan ranking fetch submits in background mode and keeps direct-result d
   assert.match(meituanStatic, /message: response\.message \|\| ''/);
   assert.match(meituanStatic, /taskId: responseData\.task_id \|\| ''/);
   assert.match(meituanStatic, /status: responseData\.status \|\| responseStatus \|\| 'running'/);
+  assert.match(meituanStatic, /return \['accepted', 'running', 'queued'\]\.includes\(status\);/);
   assert.match(fetchFlow, /const scheduleResultUpdate = \(\) => \{/);
   assert.match(fetchFlow, /requestAnimationFrame\(commit\)/);
   assert.match(fetchFlow, /const flushResultUpdate = \(\) => \{/);

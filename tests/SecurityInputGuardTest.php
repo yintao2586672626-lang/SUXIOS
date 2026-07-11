@@ -87,12 +87,25 @@ final class SecurityInputGuardTest extends TestCase
         self::assertTrue($this->invokeNonPublic($controller, 'isValidReportPrice', [388.0]));
     }
 
-    public function testTemporaryOtaCookieFilesArePermissionRestricted(): void
+    public function testBrowserProfileAdaptersNeverCreateCookieFiles(): void
     {
         $projectRoot = dirname(__DIR__);
         $sources = [
             'Ctrip browser Profile adapter' => $projectRoot . '/app/service/platform/CtripBrowserProfileDataSourceAdapter.php',
             'Meituan browser Profile adapter' => $projectRoot . '/app/service/platform/MeituanBrowserProfileDataSourceAdapter.php',
+        ];
+
+        foreach ($sources as $label => $path) {
+            $source = (string)file_get_contents($path);
+            self::assertStringNotContainsString('--cookies-file', $source, $label . ' must not pass Cookie files to a capture process');
+            self::assertStringNotContainsString('createCookieFile', $source, $label . ' must not materialize stored Cookie values');
+        }
+    }
+
+    public function testLegacyCookieFileWritersArePermissionRestricted(): void
+    {
+        $projectRoot = dirname(__DIR__);
+        $sources = [
             'Profile capture concern' => $projectRoot . '/app/controller/concern/PlatformProfileCaptureConcern.php',
             'Chromium Cookie extractor' => $projectRoot . '/scripts/extract_chromium_cookie_header.php',
         ];
@@ -140,10 +153,18 @@ final class SecurityInputGuardTest extends TestCase
             'system_name' => 'SUXIOS',
             'ctrip_config_list' => 'ctrip-cookie-secret',
             'meituan_config_list' => 'meituan-token-secret',
+            'data_config_ctrip_comments' => 'legacy-comment-secret',
+            'data_config_internal_notes' => '{"cookies":"legacy-unknown-platform-secret"}',
+            'online_data_cookies_global' => 'legacy-global-cookie-secret',
         ];
 
         self::assertTrue(SystemConfig::isProtectedOtaKey('ctrip_config_list'));
         self::assertTrue(SystemConfig::isProtectedOtaKey(' MEITUAN_CONFIG_LIST '));
+        self::assertTrue(SystemConfig::isProtectedOtaKey('data_config_ctrip_comments'));
+        self::assertTrue(SystemConfig::isProtectedOtaKey('data_config_meituan_business'));
+        self::assertTrue(SystemConfig::isProtectedOtaKey('online_data_cookies_hotel_58'));
+        self::assertTrue(SystemConfig::isProtectedOtaKey('online_data_cookies_global'));
+        self::assertTrue(SystemConfig::isProtectedOtaKey('data_config_internal_notes'));
         self::assertFalse(SystemConfig::isProtectedOtaKey('system_name'));
         self::assertFalse($this->invokeNonPublic($controller, 'canReadConfigKey', ['ctrip_config_list']));
         self::assertSame(
@@ -187,6 +208,7 @@ final class SecurityInputGuardTest extends TestCase
             'meituan_config_list' => ['found' => true, 'value' => 'meituan-token-secret'],
             'CTRIP_CONFIG_LIST' => ['found' => true, 'value' => 'uppercase-ctrip-secret'],
             ' meituan_config_list ' => ['found' => true, 'value' => 'spaced-meituan-secret'],
+            'data_config_internal_notes' => ['found' => true, 'value' => 'unknown-platform-secret'],
             'system_name' => ['found' => true, 'value' => 'SUXIOS'],
         ]);
 
@@ -197,18 +219,19 @@ final class SecurityInputGuardTest extends TestCase
             self::assertArrayNotHasKey('meituan_config_list', $cache);
             self::assertArrayNotHasKey('CTRIP_CONFIG_LIST', $cache);
             self::assertArrayNotHasKey(' meituan_config_list ', $cache);
+            self::assertArrayNotHasKey('data_config_internal_notes', $cache);
             self::assertSame(['found' => true, 'value' => 'SUXIOS'], $cache['system_name']);
         } finally {
             $property->setValue(null, $original);
         }
     }
 
-    public function testGeneralConfigFullReadsUseProtectedCacheClearingWrapper(): void
+    public function testGeneralConfigFullReadsExcludeProtectedOtaRowsAtDatabaseBoundary(): void
     {
         $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/SystemConfigController.php');
         $helper = 'getAllConfigsWithoutProtectedOtaCache';
 
-        self::assertSame(1, substr_count($source, 'SystemConfig::getAllConfigs()'));
+        self::assertSame(0, substr_count($source, 'SystemConfig::getAllConfigs()'));
         self::assertSame(3, substr_count($source, '$this->' . $helper . '()'));
         $helperPosition = strpos($source, 'private function ' . $helper . '()');
         $finallyPosition = strpos($source, 'finally', (int)$helperPosition);
@@ -216,6 +239,10 @@ final class SecurityInputGuardTest extends TestCase
         self::assertNotFalse($helperPosition);
         self::assertNotFalse($finallyPosition);
         self::assertNotFalse($clearPosition);
+        self::assertStringContainsString("LOWER(config_key) NOT LIKE 'data_config_%'", $source);
+        self::assertStringNotContainsString("LOWER(config_key) NOT LIKE 'data_config_ctrip%'", $source);
+        self::assertStringNotContainsString("LOWER(config_key) NOT LIKE 'data_config_meituan%'", $source);
+        self::assertStringContainsString("LOWER(config_key) NOT LIKE 'online_data_cookies_%'", $source);
         self::assertLessThan($clearPosition, $finallyPosition);
     }
 

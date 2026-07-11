@@ -63,7 +63,7 @@
 - Create: `app/service/OtaCredentialEnvelope.php`
 - Modify: `.example.env`
 
-- [ ] **Step 1: Write the failing envelope tests**
+- [x] **Step 1: Write the failing envelope tests**
 
 ```php
 <?php
@@ -117,7 +117,7 @@ final class OtaCredentialEnvelopeTest extends TestCase
 }
 ```
 
-- [ ] **Step 2: Run the tests and verify RED**
+- [x] **Step 2: Run the tests and verify RED**
 
 Run:
 
@@ -127,7 +127,7 @@ C:\xampp\php\php.exe vendor\bin\phpunit --colors=never --do-not-cache-result tes
 
 Expected: FAIL because `app\service\OtaCredentialEnvelope` does not exist.
 
-- [ ] **Step 3: Implement the envelope**
+- [x] **Step 3: Implement the envelope**
 
 ```php
 <?php
@@ -210,7 +210,7 @@ OTA_CREDENTIAL_KEY_B64 =
 OTA_CREDENTIAL_KEY_ID = primary-v1
 ```
 
-- [ ] **Step 4: Verify GREEN and syntax**
+- [x] **Step 4: Verify GREEN and syntax**
 
 Run:
 
@@ -239,7 +239,7 @@ git commit -m "[安全] 增加OTA凭据认证加密封装"
 - Create: `tests/OtaCredentialVaultTest.php`
 - Modify: `database/init_full.sql`
 
-- [ ] **Step 1: Write failing SQLite-backed vault tests**
+- [x] **Step 1: Write failing SQLite-backed vault tests**
 
 The test must create `ota_credentials` and `hotels` in a temporary SQLite database, then assert:
 
@@ -260,7 +260,7 @@ Add negative assertions for wrong tenant, wrong hotel, wrong platform, duplicate
 
 Before `store()` or `findRequired()` succeeds, the vault must verify that `hotels.id = system_hotel_id` exists and its `tenant_id` equals the locator tenant. A caller-provided tenant ID is never trusted by itself.
 
-- [ ] **Step 2: Run the vault tests and verify RED**
+- [x] **Step 2: Run the vault tests and verify RED**
 
 ```powershell
 C:\xampp\php\php.exe vendor\bin\phpunit --colors=never --do-not-cache-result tests\OtaCredentialVaultTest.php
@@ -268,7 +268,7 @@ C:\xampp\php\php.exe vendor\bin\phpunit --colors=never --do-not-cache-result tes
 
 Expected: FAIL because the model, vault, and table contract do not exist.
 
-- [ ] **Step 3: Add the schema**
+- [x] **Step 3: Add the schema**
 
 ```sql
 CREATE TABLE IF NOT EXISTS `ota_credentials` (
@@ -294,7 +294,7 @@ CREATE TABLE IF NOT EXISTS `ota_credentials` (
 
 Add its `SOURCE` line after the tenant migration and system config table are available in `database/init_full.sql`.
 
-- [ ] **Step 4: Implement the hidden model and scoped vault**
+- [x] **Step 4: Implement the hidden model and scoped vault**
 
 `OtaCredential` must define `$hidden = ['encrypted_payload']` and integer casts. `OtaCredentialVault` must build the envelope AAD from all four locator fields:
 
@@ -325,7 +325,7 @@ public function withPayloadForExecution(
 
 `metadata()` must build an explicit allowlist rather than call `toArray()`.
 
-- [ ] **Step 5: Verify GREEN and schema wiring**
+- [x] **Step 5: Verify GREEN and schema wiring**
 
 ```powershell
 C:\xampp\php\php.exe -l app\model\OtaCredential.php
@@ -351,7 +351,7 @@ git commit -m "[安全] 建立OTA凭据租户保险库"
 - Modify: `tests/OnlineDataTest.php`
 - Modify: `app/controller/concern/OtaConfigConcern.php`
 
-- [ ] **Step 1: Extend the existing dirty test file before production edits**
+- [x] **Step 1: Extend the existing dirty test file before production edits**
 
 Add failing tests that assert:
 
@@ -368,7 +368,7 @@ self::assertFalse($this->invokeNonPublic($controller, 'isOtaConfigVisibleToUser'
 
 Also add a query-spy assertion proving `normalizeStoredOtaConfigList()` performs no `update`, and an assertion that an unbound owner-only config remains invisible until an explicit permitted target hotel is supplied to a migration/binding operation.
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 ```powershell
 C:\xampp\php\php.exe vendor\bin\phpunit --colors=never --do-not-cache-result tests\OnlineDataTest.php --filter "OtaConfig|StoredOtaConfig"
@@ -376,7 +376,7 @@ C:\xampp\php\php.exe vendor\bin\phpunit --colors=never --do-not-cache-result tes
 
 Expected: FAIL because the conflict helper is absent and normalization still writes.
 
-- [ ] **Step 3: Make binding strict and reads pure**
+- [x] **Step 3: Make binding strict and reads pure**
 
 Add:
 
@@ -391,7 +391,7 @@ private function otaConfigHasHotelBindingConflict(array $item): bool
 
 Every visibility, maintenance, and collector resolver must reject conflicts before reading either ID. `normalizeStoredOtaConfigList()` must only return normalized values and must not call `Db::name(...)->update()`. Binding writes move exclusively to the migration service in Task 6.
 
-- [ ] **Step 4: Verify GREEN without staging user changes**
+- [x] **Step 4: Verify GREEN without staging user changes**
 
 ```powershell
 C:\xampp\php\php.exe vendor\bin\phpunit --colors=never --do-not-cache-result tests\OnlineDataTest.php --filter "OtaConfig|StoredOtaConfig"
@@ -412,7 +412,7 @@ Expected: focused tests PASS. Do not commit these two files independently becaus
 - Modify: `app/controller/SystemConfigController.php`
 - Modify: `tests/SecurityInputGuardTest.php`
 
-- [ ] **Step 1: Write failing response and storage tests**
+- [x] **Step 1: Write failing response and storage tests**
 
 Use sentinel values `ctrip-cookie-secret` and `meituan-token-secret`. Assert all list, detail, save, and generic config response JSON excludes both sentinels, excludes the encrypted envelope, and contains only:
 
@@ -427,7 +427,7 @@ Use sentinel values `ctrip-cookie-secret` and `meituan-token-secret`. Assert all
 
 Assert stored `system_configs.config_value` contains `credential_ref` but contains none of `cookies`, `cookie`, `auth_data`, `authorization`, `spidertoken`, `mtgsig`, `usertoken`, or `usersign` at any nesting level.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 ```powershell
 C:\xampp\php\php.exe vendor\bin\phpunit --colors=never --do-not-cache-result tests\OtaCredentialResponseTest.php tests\SecurityInputGuardTest.php
@@ -435,7 +435,7 @@ C:\xampp\php\php.exe vendor\bin\phpunit --colors=never --do-not-cache-result tes
 
 Expected: FAIL because detail and generic config endpoints still expose raw values.
 
-- [ ] **Step 3: Add recursive split and sanitize helpers**
+- [x] **Step 3: Add recursive split and sanitize helpers**
 
 `OtaConfigConcern` must define an explicit recursive secret-key matcher and return `[metadata, secretPayload]`. The secret set is:
 
@@ -448,7 +448,7 @@ private const OTA_SECRET_FIELDS = [
 
 Nested matching is case-insensitive and treats `set-cookie`, `access_token`, `refresh_token`, and authorization header names as sensitive. `sanitizeSecretConfig()` must never include ciphertext.
 
-- [ ] **Step 4: Make Ctrip and Meituan writes transactional**
+- [x] **Step 4: Make Ctrip and Meituan writes transactional**
 
 For create/update:
 
@@ -467,7 +467,7 @@ $metadata = Db::transaction(function () use ($platform, $metadata, $secretPayloa
 
 Delete removes both metadata and the exact scoped vault row in one transaction. Detail returns only sanitized metadata. Bookmark and comment-config saves use the same path.
 
-- [ ] **Step 5: Harden generic SystemConfig access**
+- [x] **Step 5: Harden generic SystemConfig access**
 
 - Remove `ctrip_config_list` and `meituan_config_list` from `DURABLE_VALUE_CACHE_KEYS`.
 - Add `SystemConfig::isProtectedOtaKey(string $key): bool` and `SystemConfig::clearProtectedOtaCaches(): void`; OTA-specific controllers may write metadata, while generic controllers call the predicate to reject reads and writes.
@@ -478,7 +478,7 @@ Delete removes both metadata and the exact scoped vault row in one transaction. 
 
 `clearProtectedOtaCaches()` must unset the two process-cache entries and delete `system_config_value_<sha1>` cache keys for both config lists. It must not clear unrelated configuration caches.
 
-- [ ] **Step 6: Verify GREEN**
+- [x] **Step 6: Verify GREEN**
 
 ```powershell
 C:\xampp\php\php.exe vendor\bin\phpunit --colors=never --do-not-cache-result tests\OtaCredentialResponseTest.php tests\SecurityInputGuardTest.php tests\OnlineDataTest.php --filter "OtaConfig|SystemConfig|Credential"
@@ -509,7 +509,7 @@ Expected: all tests PASS and no sentinel secret appears in response or generic s
 - Modify: `public/ota-diagnosis-static.js`
 - Modify: `tests/automation/manual_minimum_credential_ui.test.mjs`
 
-- [ ] **Step 1: Write failing read-path and UI contract tests**
+- [x] **Step 1: Write failing read-path and UI contract tests**
 
 Assert source files no longer directly read `ctrip_config_list`, `meituan_config_list`, `online_data_cookies_*`, or `data_config_*` for reusable secret material outside `OtaCredentialMigrationService`. Assert frontend fetch bodies contain `config_id` and omit `cookies`, `auth_data`, `spidertoken`, and `mtgsig` loaded from saved configuration.
 
@@ -519,7 +519,7 @@ assert.doesNotMatch(indexHtml, /ensureCtripConfigSecret/);
 assert.doesNotMatch(ctripStatic, /activeConfig\.cookies/);
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 ```powershell
 C:\xampp\php\php.exe vendor\bin\phpunit --colors=never --do-not-cache-result tests\OtaCredentialReadPathTest.php
@@ -528,7 +528,7 @@ node --test tests\automation\manual_minimum_credential_ui.test.mjs
 
 Expected: FAIL because direct reads and frontend secret hydration still exist.
 
-- [ ] **Step 3: Add one internal execution boundary**
+- [x] **Step 3: Add one internal execution boundary**
 
 Add to `OtaConfigConcern`:
 
@@ -561,14 +561,14 @@ Manual endpoints accept `config_id` and execute the downstream request inside th
 
 `PlatformDataSyncService` stores only `credential_ref` in source metadata and sets legacy `secret_json` to an empty object after successful vault storage. Its collector path uses `withPayloadForExecution()`; API serialization never receives the decrypted payload.
 
-- [ ] **Step 4: Remove frontend credential hydration**
+- [x] **Step 4: Remove frontend credential hydration**
 
 - Replace `loadCtripConfigDetail`/`ensureCtripConfigSecret` with metadata readiness checks.
 - Fetch bodies send `config_id` and `system_hotel_id`.
 - UI continues to accept a newly entered credential only in the save request; after save it clears the local secret field.
 - Stored credential editing is replace-only: blank means keep current encrypted credential, explicit revoke uses a dedicated action.
 
-- [ ] **Step 5: Verify GREEN and static guards**
+- [x] **Step 5: Verify GREEN and static guards**
 
 ```powershell
 C:\xampp\php\php.exe vendor\bin\phpunit --colors=never --do-not-cache-result tests\OtaCredentialReadPathTest.php
@@ -589,7 +589,7 @@ Expected: all commands PASS; no saved secret is returned to or cached by the bro
 - Modify: `config/console.php`
 - Modify: `package.json`
 
-- [ ] **Step 1: Write failing migration tests**
+- [x] **Step 1: Write failing migration tests**
 
 Seed both `system_config` and `system_configs` variants with:
 
@@ -619,7 +619,7 @@ Assert execute migrates only `bound_verified`, atomically removes plaintext, and
 
 The inventory must scan both `system_config` and `system_configs`, all `data_config_*` keys, `platform_data_sources.secret_json`, and the two known per-hotel legacy cache key patterns. It must not enumerate unrelated cache namespaces.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 ```powershell
 C:\xampp\php\php.exe vendor\bin\phpunit --colors=never --do-not-cache-result tests\OtaCredentialMigrationServiceTest.php
@@ -627,7 +627,7 @@ C:\xampp\php\php.exe vendor\bin\phpunit --colors=never --do-not-cache-result tes
 
 Expected: FAIL because the service and command do not exist.
 
-- [ ] **Step 3: Implement inventory and execute modes**
+- [x] **Step 3: Implement inventory and execute modes**
 
 The service public contract is:
 
@@ -654,7 +654,7 @@ public function run(bool $execute): array
 
 No normal service or controller may call `inventoryLegacyConfigs()`.
 
-- [ ] **Step 4: Register commands**
+- [x] **Step 4: Register commands**
 
 `config/console.php`:
 
@@ -670,7 +670,7 @@ No normal service or controller may call `inventoryLegacyConfigs()`.
 "verify:ota-credential-vault": "node scripts/verify_ota_credential_vault.mjs"
 ```
 
-- [ ] **Step 5: Verify GREEN in isolated tests only**
+- [x] **Step 5: Verify GREEN in isolated tests only**
 
 ```powershell
 C:\xampp\php\php.exe vendor\bin\phpunit --colors=never --do-not-cache-result tests\OtaCredentialMigrationServiceTest.php
@@ -689,7 +689,7 @@ Expected: tests PASS and the command is registered. Do not execute against the u
 - Modify: `scripts/verify_public_entry_guard.mjs`
 - Modify: `package.json`
 
-- [ ] **Step 1: Write the failing repository verifier**
+- [x] **Step 1: Write the failing repository verifier**
 
 It must fail unless all are true:
 
@@ -701,7 +701,7 @@ It must fail unless all are true:
 - frontend does not contain `ensureCtripConfigSecret` or saved-config secret caching;
 - migration is dry-run by default and contains no secret-valued output fields.
 
-- [ ] **Step 2: Verify RED, then wire all guards**
+- [x] **Step 2: Verify RED, then wire all guards**
 
 ```powershell
 node scripts\verify_ota_credential_vault.mjs
@@ -709,7 +709,7 @@ node scripts\verify_ota_credential_vault.mjs
 
 Expected before wiring: FAIL with named missing contracts. After updating the guard files: PASS.
 
-- [ ] **Step 3: Run focused P0 acceptance**
+- [x] **Step 3: Run focused P0 acceptance**
 
 ```powershell
 C:\xampp\php\php.exe vendor\bin\phpunit --colors=never --do-not-cache-result tests\OtaCredentialEnvelopeTest.php tests\OtaCredentialVaultTest.php tests\OtaCredentialMigrationServiceTest.php tests\OtaCredentialResponseTest.php tests\OtaCredentialReadPathTest.php
@@ -723,7 +723,7 @@ git diff --check
 
 Expected: every command PASS. If a command writes reports or runtime state, rerun only after confirming its output target remains excluded from Git and record that it was not used as source evidence.
 
-- [ ] **Step 4: Review the complete diff before any save point**
+- [x] **Step 4: Review the complete diff before any save point**
 
 ```powershell
 git status --short
@@ -742,3 +742,11 @@ P0 is complete only when:
 3. legacy plaintext is accessible only to the migration service;
 4. unbound or conflicting legacy records remain explicit migration blockers;
 5. all Task 7 commands pass without relying on static source matches alone.
+
+## Execution status (2026-07-11)
+
+- Credential/Vault implementation and the credential-specific P0 completion gate are complete.
+- Final verification: `1135` PHPUnit tests / `11077` assertions, `verify:p0-guards`, `148` Vault contracts, high-risk security, `562` importer checks, and migration dry-run all passed.
+- Migration dry-run reports `53` inventories already migrated, `0` blockers, `0` eligible rows, `0` remaining issues, and `0` metadata relocations.
+- The two commit steps remain intentionally unchecked because the user did not request a save point; unrelated worktree changes were preserved.
+- This credential gate is separate from the live OTA field-loop gate. The latter remains `incomplete` until an authorized same-day Profile session and target-date traffic evidence exist.

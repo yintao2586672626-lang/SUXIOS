@@ -6,6 +6,8 @@ import vm from 'node:vm';
 const html = readFileSync('public/index.html', 'utf8');
 const ctripStatic = readFileSync('public/ctrip-static.js', 'utf8');
 const meituanStatic = readFileSync('public/meituan-static.js', 'utf8');
+const autoFetchStatic = readFileSync('public/auto-fetch-static.js', 'utf8');
+const otaDiagnosisStatic = readFileSync('public/ota-diagnosis-static.js', 'utf8');
 const platformAutoSettingsPanels = readFileSync('public/components/online-data/platform-auto-settings-panels.js', 'utf8');
 const ctripProfileFieldConfigPanel = readFileSync('public/components/online-data/ctrip-profile-field-config-panel.js', 'utf8');
 const businessDisplayConcern = readFileSync('app/controller/concern/BusinessDisplayConcern.php', 'utf8');
@@ -16,6 +18,12 @@ const ctripStaticApi = ctripStaticSandbox.__ctripStatic;
 const meituanStaticSandbox = { console, window: {} };
 vm.runInNewContext(`${meituanStatic}\nthis.__meituanStatic = window.SUXI_MEITUAN_STATIC;`, meituanStaticSandbox);
 const meituanStaticApi = meituanStaticSandbox.__meituanStatic;
+const autoFetchStaticSandbox = { console, window: {} };
+vm.runInNewContext(`${autoFetchStatic}\nthis.__autoFetchStatic = window.SUXI_AUTO_FETCH_STATIC;`, autoFetchStaticSandbox);
+const autoFetchStaticApi = autoFetchStaticSandbox.__autoFetchStatic;
+const otaDiagnosisStaticSandbox = { console, window: {} };
+vm.runInNewContext(`${otaDiagnosisStatic}\nthis.__otaDiagnosisStatic = window.SUXI_OTA_DIAGNOSIS_STATIC;`, otaDiagnosisStaticSandbox);
+const otaDiagnosisStaticApi = otaDiagnosisStaticSandbox.__otaDiagnosisStatic;
 
 const sliceFrom = (needle, endNeedle) => {
   const start = html.indexOf(needle);
@@ -68,10 +76,226 @@ const mainSetupReturnSource = () => {
 const functionSlice = (name) => sliceFrom(`const ${name} = async () => {`, `\n            const `);
 const constSlice = (needle, endNeedle = '\n            const ') => sliceFrom(needle, endNeedle);
 
-test('Ctrip manual ranking and traffic use platform authorization as the daily credential', () => {
+const assertNoExecutionSecretFields = (body) => {
+  const forbidden = [
+    'cookies', 'cookie', 'auth_data', 'authData', 'spidertoken', 'mtgsig', '_mtsi_eb_u',
+    'payload_json', 'extra_params', 'endpoints_json', 'authorization', 'api_key', 'token',
+  ];
+  forbidden.forEach(key => assert.equal(Object.prototype.hasOwnProperty.call(body, key), false, `execution body leaked ${key}`));
+};
+
+test('OTA execution request builders send config locators and never browser-held secrets', () => {
+  const ctripBodies = [
+    ctripStaticApi.buildCtripFetchRequestBody({
+      form: { url: 'https://ebooking.ctrip.com/api/rank', cookies: 'secret', auth_data: { token: 'secret' } },
+      configId: 'ctrip-58', nodeId: '24588', startDate: '2026-07-09', endDate: '2026-07-09', systemHotelId: 58,
+    }),
+    ctripStaticApi.buildCtripTrafficFetchRequestBody({
+      form: { url: 'https://ebooking.ctrip.com/api/traffic', cookies: 'secret', extraParams: '{"token":"secret"}' },
+      configId: 'ctrip-58', systemHotelId: 58,
+    }),
+    ctripStaticApi.buildCtripOverviewFetchRequestBody({
+      configId: 'ctrip-58', systemHotelId: 58, requestUrls: 'https://ebooking.ctrip.com/api/overview',
+      form: { payloadJson: '{"token":"secret"}', spidertoken: 'secret' },
+    }),
+    ctripStaticApi.buildCtripAdsFetchRequestBody({
+      configId: 'ctrip-58', systemHotelId: 58, url: 'https://ebooking.ctrip.com/api/ads',
+      form: { cookies: 'secret', apiType: 'effect_report' },
+    }),
+    ctripStaticApi.buildCtripCookieApiFetchRequestBody({
+      configId: 'ctrip-58', systemHotelId: 58, requestUrl: 'https://ebooking.ctrip.com/api/core',
+      endpointsJson: '["https://ebooking.ctrip.com/api/secondary"]', form: { payloadJson: 'secret' },
+    }),
+  ];
+  ctripBodies.forEach(body => {
+    assert.equal(body.config_id, 'ctrip-58');
+    assert.equal(body.system_hotel_id, 58);
+    assertNoExecutionSecretFields(body);
+  });
+  assert.equal(Array.isArray(ctripBodies[2].request_urls), true);
+  assert.equal(Array.isArray(ctripBodies[4].request_urls), true);
+
+  const meituanTasks = meituanStaticApi.buildMeituanBatchFetchTasks({
+    configId: 'meituan-58', partnerId: 'partner', poiId: 'poi',
+    form: { hotelId: 58, url: 'https://eb.meituan.com/api/rank', dateRanges: ['1'], cookies: 'secret', auth_data: { token: 'secret' } },
+  });
+  const meituanBodies = [
+    ...meituanTasks.map(task => task.body),
+    meituanStaticApi.buildMeituanTrafficFetchRequestBody({ configId: 'meituan-58', systemHotelId: 58, form: { url: 'https://eb.meituan.com/api/traffic', partnerId: 'partner', poiId: 'poi', cookies: 'secret', extraParams: 'secret' } }),
+    meituanStaticApi.buildMeituanOrderFetchRequestBody({ configId: 'meituan-58', systemHotelId: 58, form: { url: 'https://eb.meituan.com/api/orders', method: 'GET', partnerId: 'partner', poiId: 'poi', cookies: 'secret', payloadJson: 'secret', extraParams: 'secret' } }),
+    meituanStaticApi.buildMeituanAdsFetchRequestBody({ configId: 'meituan-58', systemHotelId: 58, form: { url: 'https://eb.meituan.com/api/ads', method: 'GET', partnerId: 'partner', poiId: 'poi', shopId: 'shop', cookies: 'secret', payloadJson: 'secret', extraParams: 'secret' } }),
+  ];
+  meituanBodies.forEach(body => {
+    assert.equal(body.config_id, 'meituan-58');
+    assert.equal(body.system_hotel_id, 58);
+    assertNoExecutionSecretFields(body);
+  });
+  assert.doesNotMatch(html, /ensureCtripConfigSecret|ensureMeituanConfigSecret|loadCtripConfigDetail|loadMeituanConfigDetail/);
+});
+
+test('legacy data-config test builder resolves vault locators and strips reusable secrets', () => {
+  const types = [
+    'ctrip-ebooking', 'meituan-ebooking', 'ctrip-traffic', 'ctrip-cookie-api',
+    'meituan-traffic', 'ctrip-comments', 'meituan-comments', 'ctrip-ads', 'meituan-ads',
+  ];
+  types.forEach(type => {
+    const body = autoFetchStaticApi.buildDataConfigRequestBody(type, {
+      id: type.startsWith('meituan-') ? 'meituan-58' : 'ctrip-58',
+      system_hotel_id: 58,
+      url: type.startsWith('meituan-') ? 'https://eb.meituan.com/api/test' : 'https://ebooking.ctrip.com/api/test',
+      node_id: '24588', partner_id: 'partner', poi_id: 'poi', request_urls: 'https://ebooking.ctrip.com/api/a',
+      cookies: 'BROWSER_SECRET', cookie: 'BROWSER_SECRET', auth_data: { token: 'BROWSER_SECRET' },
+      spidertoken: 'BROWSER_SECRET', mtgsig: 'BROWSER_SECRET', headers_json: '{"Cookie":"BROWSER_SECRET"}',
+      payload_json: '{"token":"BROWSER_SECRET"}', extra_params: '{"token":"BROWSER_SECRET"}',
+      endpoints_json: '[{"headers":{"Cookie":"BROWSER_SECRET"}}]',
+    });
+    assert.equal(body.config_id, type.startsWith('meituan-') ? 'meituan-58' : 'ctrip-58');
+    assert.equal(body.system_hotel_id, 58);
+    assertNoExecutionSecretFields(body);
+  });
+
+  assert.equal(autoFetchStaticApi.buildDataConfigTestRequest({
+    type: 'ctrip-ebooking', form: { system_hotel_id: 58 },
+  }).status, 'credential_not_ready');
+  assert.equal(autoFetchStaticApi.buildDataConfigTestRequest({
+    type: 'ctrip-ebooking', form: { config_id: 'ctrip-58', system_hotel_id: 58, node_id: '24588' },
+  }).status, 'ready');
+});
+
+test('OTA manual credential states expose migration blockers without weakening execution gates', () => {
+  assert.equal(typeof ctripStaticApi.buildCtripManualCredentialState, 'function');
+  assert.equal(typeof meituanStaticApi.buildMeituanManualCredentialState, 'function');
+
+  assert.equal(JSON.stringify(ctripStaticApi.buildCtripManualCredentialState({
+    id: 'ctrip-58',
+    config_id: 'ctrip-58',
+    credential_status: 'migration_required',
+    migration_required: true,
+    has_cookies: false,
+  })), JSON.stringify({
+    key: 'migration_required',
+    canFetch: false,
+    label: '旧版携程凭据待安全迁移',
+    detail: '完成凭据安全迁移或重新保存授权后，才能获取数据。',
+    tone: 'warning',
+  }));
+  assert.equal(ctripStaticApi.buildCtripManualCredentialState({
+    id: 'ctrip-58',
+    config_id: 'ctrip-58',
+    credential_status: 'ready',
+    has_cookies: true,
+  }).canFetch, true);
+
+  assert.equal(JSON.stringify(meituanStaticApi.buildMeituanManualCredentialState({
+    id: 'meituan-58',
+    config_id: 'meituan-58',
+    credential_status: 'migration_required',
+    migration_required: true,
+    has_cookies: false,
+  })), JSON.stringify({
+    key: 'migration_required',
+    canFetch: false,
+    label: '旧版美团凭据待安全迁移',
+    detail: '完成凭据安全迁移或重新保存授权后，才能获取数据。',
+    tone: 'warning',
+  }));
+  assert.equal(meituanStaticApi.buildMeituanManualCredentialState({
+    id: 'meituan-58',
+    config_id: 'meituan-58',
+    credential_status: 'ready',
+    has_cookies: true,
+  }).canFetch, true);
+
+  for (const [platform, buildState] of [
+    ['ctrip', ctripStaticApi.buildCtripManualCredentialState],
+    ['meituan', meituanStaticApi.buildMeituanManualCredentialState],
+  ]) {
+    const readyConfig = {
+      id: `${platform}-58`,
+      config_id: `${platform}-58`,
+      credential_status: 'ready',
+      has_cookies: true,
+    };
+    assert.equal(buildState(readyConfig).canFetch, true, `${platform} ready credential must be executable`);
+    assert.equal(buildState(null).canFetch, false, `${platform} missing config must fail closed`);
+    for (const status of ['pending', 'loading', 'unknown', 'revoked', 'migration_required']) {
+      assert.equal(buildState({ ...readyConfig, credential_status: status }).canFetch, false, `${platform} ${status} credential must fail closed`);
+    }
+    assert.equal(buildState({ ...readyConfig, has_cookies: false }).canFetch, false, `${platform} ready metadata without stored Cookie must fail closed`);
+    assert.equal(buildState({ credential_status: 'ready', has_cookies: true }).canFetch, false, `${platform} ready metadata without config id must fail closed`);
+  }
+
+  const ctripCredentialStateSource = ctripStatic.slice(
+    ctripStatic.indexOf('const buildCtripManualCredentialState = (config = null) => {'),
+    ctripStatic.indexOf('\n\n    const normalizeCtripExecutionRequestUrls', ctripStatic.indexOf('const buildCtripManualCredentialState = (config = null) => {')),
+  );
+  const meituanCredentialStateSource = meituanStatic.slice(
+    meituanStatic.indexOf('const buildMeituanManualCredentialState = (config = null) => {'),
+    meituanStatic.indexOf('\n\n    const resolveCanFetchMeituanRankingData', meituanStatic.indexOf('const buildMeituanManualCredentialState = (config = null) => {')),
+  );
+  const forbiddenSecretRead = /config\?\.(?:cookies|cookie|auth_data|authorization|token|spidertoken|mtgsig)\b/;
+  assert.doesNotMatch(ctripCredentialStateSource, forbiddenSecretRead);
+  assert.doesNotMatch(meituanCredentialStateSource, forbiddenSecretRead);
+
+  assert.match(html, /selectedCtripManualCredentialState\.label/);
+  assert.match(html, /selectedCtripManualCredentialState\.detail/);
+  assert.match(html, /selectedMeituanManualCredentialState\.label/);
+  assert.match(html, /selectedMeituanManualCredentialState\.detail/);
+  assert.match(html, /ctrip-static\.js\?v=20260710-credential-state-hf2eb12fa58/);
+  assert.match(html, /meituan-static\.js\?v=20260710-credential-state-h2d4959b678/);
+  assert.doesNotMatch(html, /携程已配置｜上次更新/);
+  assert.doesNotMatch(html, /美团已配置｜上次更新/);
+});
+
+test('OTA diagnosis fetch planning is metadata-only and never reads browser-held credentials', async () => {
+  const ctripConfig = {
+    id: 'ctrip-58', config_id: 'ctrip-58', credential_status: 'ready', has_cookies: true,
+    system_hotel_id: 58, node_id: '24588', cookies: 'CTRIP_SECRET', auth_data: { token: 'CTRIP_SECRET' },
+  };
+  const meituanConfig = {
+    id: 'meituan-58', config_id: 'meituan-58', credential_status: 'ready', has_cookies: true,
+    system_hotel_id: 58, partner_id: 'partner', poi_id: 'poi', cookies: 'MEITUAN_SECRET', mtgsig: 'MEITUAN_SECRET',
+  };
+  const context = otaDiagnosisStaticApi.buildOtaDiagnosisFetchContext({
+    selectedHotel: { system_hotel_id: 58 },
+    form: { start_date: '2026-07-09', end_date: '2026-07-09' },
+    ctripConfig,
+    meituanConfig,
+    ctripTrafficConfig: { enabled: true, system_hotel_id: 58, url: 'https://ebooking.ctrip.com/api/traffic', cookies: 'LEGACY_SECRET', spiderkey: 'LEGACY_SECRET' },
+    ctripCookieApiConfig: { enabled: true, system_hotel_id: 58, request_urls: 'https://ebooking.ctrip.com/api/core', headers_json: '{"Cookie":"LEGACY_SECRET"}' },
+    meituanTrafficConfig: { enabled: true, system_hotel_id: 58, url: 'https://eb.meituan.com/api/traffic', partner_id: 'partner', poi_id: 'poi', cookies: 'LEGACY_SECRET' },
+  });
+  const tasks = otaDiagnosisStaticApi.buildOtaDiagnosisFetchTasks({ context });
+  assert.ok(tasks.length >= 7);
+  tasks.forEach(task => {
+    assert.equal(task.body.system_hotel_id, '58');
+    assert.ok(['ctrip-58', 'meituan-58'].includes(task.body.config_id));
+    assertNoExecutionSecretFields(task.body);
+    assert.doesNotMatch(JSON.stringify(task.body), /SECRET/);
+  });
+
+  let legacyReadCount = 0;
+  const flowResult = await otaDiagnosisStaticApi.runOtaDiagnosisHotelFetchFlow({
+    selectedHotel: { system_hotel_id: 58 },
+    form: { start_date: '2026-07-09', end_date: '2026-07-09' },
+    findCtripConfigByHotelId: () => ctripConfig,
+    findMeituanConfigByHotelId: () => meituanConfig,
+    readSavedOtaDataConfig: async () => { legacyReadCount += 1; return { cookies: 'LEGACY_SECRET' }; },
+    readSavedGenericCookieForDiagnosis: async () => { legacyReadCount += 1; return { cookies: 'LEGACY_SECRET' }; },
+    requestTask: async task => {
+      assertNoExecutionSecretFields(task.body);
+      return { code: 200, data: { saved_count: 1 } };
+    },
+  });
+  assert.equal(legacyReadCount, 0);
+  assert.equal(flowResult.failed, 0);
+});
+
+test('Ctrip manual execution uses platform authorization and legacy Cookie storage stays disabled', () => {
   const fetchCtripData = sliceFrom('const fetchCtripData = async () => {', 'const fetchMeituanData = async () => {');
   const fetchCtripTrafficData = sliceFrom('const fetchCtripTrafficData = async () => {', 'const fetchCtripComments = async () => {');
   const ctripManualFetchConfigGuard = sliceFrom('const ctripManualFetchConfigProofPending = () => {', '\n\n            const saveCtripConfig');
+  const canFetchCtripManualDataSource = sliceFrom('const canFetchCtripManualData = () => {', '\n\n            const resolveCtripManualFetchConfig');
   const loadCtripConfigList = sliceFrom('const loadCtripConfigList = async (options = {}) => {', '\n\n            const ctripManualFetchConfigProofPending');
   const returnToCtripRankingAfterConfigSave = constSlice(
     'const returnToCtripRankingAfterConfigSave = async (hotelId) => {',
@@ -97,6 +321,26 @@ test('Ctrip manual ranking and traffic use platform authorization as the daily c
     'const batchDeleteCookiesConfig = async () => {',
     '\n\n            const useCookies'
   );
+  const loadCookiesList = constSlice(
+    'const loadCookiesList = async () => {',
+    '\n\n            const loadCookieDetail'
+  );
+  const loadCookieDetail = constSlice(
+    'const loadCookieDetail = async (item) => {',
+    '\n\n            const cookieStatusClass'
+  );
+  const saveCookiesConfig = constSlice(
+    'const saveCookiesConfig = async () => {',
+    '\n\n            const deleteCookiesConfig'
+  );
+  const useCookies = constSlice(
+    'const useCookies = async (item) => {',
+    '\n\n            // AI智能分析相关函数'
+  );
+  const saveQuickCookies = constSlice(
+    'const saveQuickCookies = async () => {',
+    '\n\n            // 查看线上数据详情'
+  );
   const ctripFetchFlow = ctripStatic.slice(
     ctripStatic.indexOf('const runCtripFetchDataFlow = async ({'),
     ctripStatic.indexOf('const buildLatestCtripSnapshotModel')
@@ -116,17 +360,9 @@ test('Ctrip manual ranking and traffic use platform authorization as the daily c
   assert.match(html, /requireCtripStatic\('buildCtripBookmarkletSuccessState'\)/);
   assert.match(html, /requireCtripStatic\('buildCtripBookmarkletFailureState'\)/);
   assert.match(html, /requireCtripStatic\('buildCtripBatchDeleteConfigResultState'\)/);
-  assert.match(html, /requireCtripStatic\('buildCookieConfigRowKey'\)/);
-  assert.match(html, /requireCtripStatic\('buildCookieConfigDeleteSuccessState'\)/);
-  assert.match(html, /requireCtripStatic\('buildCookieConfigDeleteFailureState'\)/);
-  assert.match(html, /requireCtripStatic\('buildCookieConfigBatchDeleteSuccessState'\)/);
-  assert.match(html, /requireCtripStatic\('buildCookieConfigBatchDeleteFailureState'\)/);
   assert.match(ctripStatic, /const buildCtripBookmarkletSuccessState = \(response = \{\}\) => \(\{/);
   assert.match(ctripStatic, /const buildCtripBookmarkletFailureState = \(\{/);
   assert.match(ctripStatic, /const buildCtripBatchDeleteConfigResultState = \(results = \[\]\) => \{/);
-  assert.match(ctripStatic, /const buildCookieConfigRowKey = \(item = \{\}\) =>/);
-  assert.match(ctripStatic, /const buildCookieConfigDeleteSuccessState = \(\{/);
-  assert.match(ctripStatic, /const buildCookieConfigBatchDeleteSuccessState = \(\{/);
   assert.equal(JSON.stringify(ctripStaticApi.buildCtripBatchDeleteConfigResultState([
     { id: '1', success: true },
     { id: '2', success: false },
@@ -152,33 +388,31 @@ test('Ctrip manual ranking and traffic use platform authorization as the daily c
   assert.match(batchDeleteCtripConfigs, /showToast\(deleteResultState\.toastMessage, deleteResultState\.toastLevel\);/);
   assert.doesNotMatch(batchDeleteCtripConfigs, /const failedIds = results\.filter/);
   assert.doesNotMatch(batchDeleteCtripConfigs, /const deletedCount = results\.length - failedIds\.length/);
-  assert.equal(ctripStaticApi.buildCookieConfigRowKey({ hotel_id: '', name: 'global-cookie' }), 'global::global-cookie');
-  const cookieDeleteSuccessState = ctripStaticApi.buildCookieConfigDeleteSuccessState({ name: 'cookie-a', hotelId: 7 });
-  assert.equal(cookieDeleteSuccessState.selectedKeyToRemove, '7::cookie-a');
-  assert.equal(cookieDeleteSuccessState.shouldReloadList, true);
-  assert.equal(cookieDeleteSuccessState.toastLevel, 'success');
-  assert.equal(JSON.stringify(ctripStaticApi.buildCookieConfigDeleteFailureState({ response: { message: 'denied' } })), JSON.stringify({
-    toastMessage: 'denied',
-    toastLevel: 'error',
-  }));
-  const cookieBatchDeleteSuccessState = ctripStaticApi.buildCookieConfigBatchDeleteSuccessState({
-    response: { data: { deleted_count: 3 } },
-    rows: [{}, {}, {}, {}],
-  });
-  assert.equal(cookieBatchDeleteSuccessState.deletedCount, 3);
-  assert.equal(JSON.stringify(cookieBatchDeleteSuccessState.selectedCookieKeys), JSON.stringify([]));
-  assert.equal(cookieBatchDeleteSuccessState.shouldReloadList, true);
-  assert.equal(cookieBatchDeleteSuccessState.toastLevel, 'success');
-  assert.match(deleteCookiesConfig, /const deleteSuccessState = buildCookieConfigDeleteSuccessState\(\{ name, hotelId \}\);/);
-  assert.match(deleteCookiesConfig, /selectedCookieKeys\.value = selectedCookieKeys\.value\.filter\(key => key !== deleteSuccessState\.selectedKeyToRemove\);/);
-  assert.match(deleteCookiesConfig, /const deleteFailureState = buildCookieConfigDeleteFailureState\(\{ response: res \}\);/);
-  assert.match(batchDeleteCookiesConfig, /const batchDeleteSuccessState = buildCookieConfigBatchDeleteSuccessState\(\{ response: res, rows \}\);/);
-  assert.match(batchDeleteCookiesConfig, /selectedCookieKeys\.value = batchDeleteSuccessState\.selectedCookieKeys;/);
-  assert.match(batchDeleteCookiesConfig, /const batchDeleteFailureState = buildCookieConfigBatchDeleteFailureState\(\{ response: res \}\);/);
-  assert.doesNotMatch(deleteCookiesConfig, /showToast\('删除成功'\);/);
-  assert.doesNotMatch(deleteCookiesConfig, /selectedCookieKeys\.value = selectedCookieKeys\.value\.filter\(key => key !== `\$\{hotelId \|\| 'global'\}::\$\{name\}`\);/);
-  assert.doesNotMatch(batchDeleteCookiesConfig, /const deletedCount = res\.data\?\.deleted_count \?\? rows\.length;/);
-  assert.doesNotMatch(batchDeleteCookiesConfig, /selectedCookieKeys\.value = \[\];/);
+  assert.match(html, /凭据统一由平台配置保管/);
+  assert.match(html, /旧 Cookie 列表、明文详情和快速保存入口已停用/);
+  assert.match(html, /@click="openPlatformSourcesTab"/);
+  assert.match(loadCookiesList, /cookiesList\.value = \[\];/);
+  assert.match(loadCookiesList, /selectedCookieKeys\.value = \[\];/);
+  assert.doesNotMatch(loadCookiesList, /request\(/);
+  assert.match(loadCookieDetail, /旧 Cookie 明文详情已停用，请在平台采集源中更换凭据/);
+  assert.doesNotMatch(loadCookieDetail, /request\(/);
+  assert.match(saveCookiesConfig, /旧 Cookie 保存已停用，请在平台采集源中更换凭据/);
+  assert.match(saveCookiesConfig, /openPlatformSourcesTab\(\);/);
+  assert.doesNotMatch(saveCookiesConfig, /request\(/);
+  assert.match(deleteCookiesConfig, /旧 Cookie 删除入口已停用，请在平台配置中吊销对应凭据/);
+  assert.match(deleteCookiesConfig, /openPlatformSourcesTab\(\);/);
+  assert.doesNotMatch(deleteCookiesConfig, /request\(/);
+  assert.match(batchDeleteCookiesConfig, /selectedCookieKeys\.value = \[\];/);
+  assert.match(batchDeleteCookiesConfig, /旧 Cookie 批量删除入口已停用，请在平台配置中逐项吊销凭据/);
+  assert.match(batchDeleteCookiesConfig, /openPlatformSourcesTab\(\);/);
+  assert.doesNotMatch(batchDeleteCookiesConfig, /request\(/);
+  assert.match(useCookies, /浏览器不再读取已保存的完整 Cookie，请选择平台配置凭据/);
+  assert.match(useCookies, /openPlatformSourcesTab\(\);/);
+  assert.doesNotMatch(useCookies, /request\(/);
+  assert.match(saveQuickCookies, /旧 Cookie 快速保存已停用，请在平台采集源中更换凭据/);
+  assert.match(saveQuickCookies, /openPlatformSourcesTab\(\);/);
+  assert.doesNotMatch(saveQuickCookies, /request\(/);
+  assert.doesNotMatch(html, /request\(['"]\/online-data\/(?:save-cookies|cookies-list|cookies-detail|delete-cookies|batch-delete-cookies)/);
   assert.match(generateCtripBookmarklet, /const successState = buildCtripBookmarkletSuccessState\(res\);/);
   assert.match(generateCtripBookmarklet, /ctripBookmarklet\.value = successState\.bookmarklet;/);
   assert.match(generateCtripBookmarklet, /showToast\(successState\.toastMessage, successState\.toastLevel\);/);
@@ -190,12 +424,13 @@ test('Ctrip manual ranking and traffic use platform authorization as the daily c
   assert.doesNotMatch(generateCtripBookmarklet, /showToast\('生成失败: ' \+ e\.message, 'error'\);/);
   assert.match(fetchCtripData, /runCtripFetchDataFlow\(\{/);
   assert.match(fetchCtripData, /const preparingConfig = ctripManualFetchConfigProofPending\(\);/);
-  assert.match(fetchCtripData, /ensureCtripConfigSecret: async config => ensureCtripConfigSecret\(await resolveCtripManualFetchConfig\(config\)\)/);
+  assert.doesNotMatch(fetchCtripData, /ensureCtripConfigSecret|cookies|auth_data/);
   assert.match(fetchCtripData, /finally \{\s*if \(preparingConfig\) \{\s*fetchingData\.value = false;\s*\}\s*\}/);
   assert.match(fetchCtripData, /body: JSON\.stringify\(requestBody\)/);
   assert.match(ctripStatic, /const isCtripRankingFormAlignedWithConfig = \(form = \{\}, config = \{\}, options = \{\}\) =>/);
   assert.match(ctripStatic, /if \(selectedConfig && !isCtripRankingFormAlignedWithConfig\(form, selectedConfig, \{ selectedHotelId: selectedCtripHotelId \}\)\) \{/);
-  assert.match(ctripStatic, /const activeConfig = await ensureCtripConfigSecret\(getActiveCtripConfig\(\)\);/);
+  assert.match(ctripStatic, /const activeConfig = getActiveCtripConfig\(\);/);
+  assert.match(ctripStatic, /const configId = resolveCtripExecutionConfigId\(activeConfig\);/);
   assert.match(ctripStatic, /const requestForm = !selectedCtripHotelId && activeConfig\s*\?\s*buildCtripFetchFormFromConfig\(form, activeConfig\)\s*:\s*form;/);
   assert.match(ctripStatic, /const requestBody = \{ \.\.\.requestContext\.requestBody, async: false, background: false \};/);
   assert.match(ctripStatic, /const requestContext = buildCtripFetchRequestContext\(\{/);
@@ -203,14 +438,17 @@ test('Ctrip manual ranking and traffic use platform authorization as the daily c
   assert.match(html, /requireCtripStatic\('runCtripTrafficFetchFlow'\)/);
   assert.match(fetchCtripTrafficData, /runCtripTrafficFetchFlow\(\{/);
   assert.match(fetchCtripTrafficData, /const preparingConfig = ctripManualFetchConfigProofPending\(\);/);
-  assert.match(fetchCtripTrafficData, /ensureCtripConfigSecret: async config => ensureCtripConfigSecret\(await resolveCtripManualFetchConfig\(config\)\)/);
+  assert.doesNotMatch(fetchCtripTrafficData, /ensureCtripConfigSecret|cookies|auth_data/);
   assert.match(ctripStatic, /const requestBody = buildCtripTrafficFetchRequestBody\(\{/);
   assert.match(html, /:disabled="fetchingData \|\| !canFetchCtripManualData\(\)"/);
   assert.match(ctripManualFetchConfigGuard, /return !!ctripConfigListLoadingPromise\s*\|\| \(!ctripConfigListLoaded\.value && !ctripConfigListLoadFailed\.value\);/);
   assert.match(ctripManualFetchConfigGuard, /const ctripManualFetchConfigCandidate = \(\) => \{/);
   assert.match(ctripManualFetchConfigGuard, /const canFetchCtripManualData = \(\) => \{/);
-  assert.match(ctripManualFetchConfigGuard, /if \(String\(activeCookies \|\| ''\)\.trim\(\)\) return true;/);
-  assert.match(ctripManualFetchConfigGuard, /if \(ctripManualFetchConfigCandidate\(\)\) return true;/);
+  assert.doesNotMatch(ctripManualFetchConfigGuard, /activeCookies|config\.cookies|config\.cookie/);
+  assert.match(ctripManualFetchConfigGuard, /return buildCtripManualCredentialState\(config\)\.canFetch;/);
+  assert.match(canFetchCtripManualDataSource, /if \(selectedCtripHotelId\.value\) return selectedCtripManualCredentialState\.value\.canFetch;/);
+  assert.match(canFetchCtripManualDataSource, /return buildCtripManualCredentialState\(ctripManualFetchConfigCandidate\(\)\)\.canFetch;/);
+  assert.doesNotMatch(canFetchCtripManualDataSource, /ctripManualFetchConfigProofPending|ctripConfigListLoadingPromise|ctripConfigListLoaded|ctripConfigListLoadFailed/);
   assert.match(ctripManualFetchConfigGuard, /await loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);/);
   assert.match(ctripManualFetchConfigGuard, /return ctripManualFetchConfigCandidate\(\);/);
   assert.match(loadCtripConfigList, /const force = options\.force === true;/);
@@ -233,7 +471,7 @@ test('Ctrip manual ranking and traffic use platform authorization as the daily c
   assert.match(ctripFetchFlow, /const selectedConfig = selectedCtripHotelId \? activeConfig : null;/);
   assert.match(ctripFetchFlow, /if \(selectedConfig && !isCtripRankingFormAlignedWithConfig/);
   assert.doesNotMatch(fetchCtripData, /scheduleOnlineHistoryRefresh\(1400\)/);
-  assert.match(html, /已保存 Cookie\/API 辅助；入库归属由返回酒店ID自动匹配/);
+  assert.match(html, /采集方式：凭据库授权；仅凭据状态就绪时可执行，旧配置需先安全迁移/);
 });
 
 test('Ctrip config list actions route to visible destinations', () => {
@@ -318,7 +556,9 @@ test('Meituan ranking uses selected hotel config without exposing temporary fiel
   assert.match(meituanFetchFlow, /status:\s*loginFailed \? 'login_required' : 'failed'/);
   assert.match(meituanFetchFlow, /credentialStatus === 'login_required'/);
   assert.match(meituanFetchFlow, /Cookie\/API/);
-  assert.match(meituanFetchFlow, /const selectedMeituanConfig = form\.hotelId\s*\?\s*await ensureMeituanConfigSecret\(getSelectedConfig\(\)\)\s*:\s*null;/);
+  assert.match(meituanFetchFlow, /const selectedMeituanConfig = form\.hotelId\s*\?\s*getSelectedConfig\(\)\s*:\s*null;/);
+  assert.match(meituanFetchFlow, /const configId = isMeituanExecutionConfigReady\(selectedMeituanConfig\)/);
+  assert.doesNotMatch(meituanFetchFlow, /ensureMeituanConfigSecret|form\.cookies|auth_data/);
   assert.match(fetchMeituanData, /refreshOnlineHistory:\s*\(\)\s*=>\s*schedulePostFetchRefresh\('online-history',[\s\S]*,\s*1400\)/);
 });
 
@@ -1135,12 +1375,14 @@ test('Meituan batch fetch keeps backend display summary after model build', asyn
       dateRanges: ['1'],
     }),
     getSelectedConfig: () => ({
+      id: 'meituan-58',
+      config_id: 'meituan-58',
       hotel_id: 58,
       partner_id: '4517495',
       poi_id: '1022727174',
-      cookies: 'token=ok',
+      has_cookies: true,
+      credential_status: 'ready',
     }),
-    ensureMeituanConfigSecret: async config => config,
     requestFetch: async () => ({
       code: 200,
       data: {
@@ -1231,7 +1473,7 @@ test('Meituan batch fetch only requests self metric supplements once per date ra
     },
     partnerId: '4517495',
     poiId: '1022727174',
-    cookies: 'token=ok',
+    configId: 'meituan-58',
   });
 
   assert.equal(tasks.length, 12);
@@ -1256,7 +1498,7 @@ test('Meituan ranking rejects future custom dates before platform requests', () 
     },
     partnerId: '4517495',
     poiId: '1022727174',
-    cookies: 'token=ok',
+    configId: 'meituan-58',
   });
 
   assert.equal(validation.ok, false);
@@ -1278,6 +1520,15 @@ test('Meituan batch fetch stops display model when every rank request needs logi
       poiId: '1022727174',
       dateRanges: ['1'],
       cookies: 'token=expired',
+    }),
+    getSelectedConfig: () => ({
+      id: 'meituan-58',
+      config_id: 'meituan-58',
+      hotel_id: 58,
+      partner_id: '4517495',
+      poi_id: '1022727174',
+      has_cookies: true,
+      credential_status: 'ready',
     }),
     requestFetch: async () => ({
       code: 400,
@@ -1365,7 +1616,8 @@ test('Meituan config saves cookie-only and no longer treats room counts as crede
     '\n\n            const fetchCustomData'
   );
 
-  assert.match(saveMeituanConfigItem, /const cookieState = resolveMeituanConfigSaveCookieState\(meituanConfigForm\.value\.cookies\);/);
+  assert.match(saveMeituanConfigItem, /const cookieState = resolveMeituanConfigSaveCookieState\(meituanConfigForm\.value\.cookies, \{/);
+  assert.match(saveMeituanConfigItem, /keepExisting: Boolean\(meituanConfigForm\.value\.id\)/);
   assert.match(saveMeituanConfigItem, /if \(!cookieState\.canSave\) \{/);
   assert.match(saveMeituanConfigItem, /showToast\(cookieState\.message, cookieState\.level\);/);
   assert.doesNotMatch(saveMeituanConfigItem, /String\(meituanConfigForm\.value\.cookies \|\| ''\)\.trim\(\)/);
@@ -1386,7 +1638,7 @@ test('Meituan config saves cookie-only and no longer treats room counts as crede
   assert.doesNotMatch(html, /const buildMeituanConfigEditForm = requireMeituanStatic\('buildMeituanConfigEditForm'\);/);
   assert.match(html, /const buildMeituanBookmarkletSuccessState = requireMeituanStatic\('buildMeituanBookmarkletSuccessState'\);/);
   assert.match(html, /const buildMeituanBookmarkletFailureState = requireMeituanStatic\('buildMeituanBookmarkletFailureState'\);/);
-  assert.match(meituanStatic, /const resolveMeituanConfigSaveCookieState = \(cookies = ''\) => \{/);
+  assert.match(meituanStatic, /const resolveMeituanConfigSaveCookieState = \(cookies = '', options = \{\}\) => \{/);
   assert.match(meituanStatic, /const buildMeituanConfigAutoName = \(form = \{\}, options = \{\}\) =>/);
   assert.match(meituanStatic, /const buildMeituanConfigSaveRequestBody = \(\{/);
   assert.match(meituanStatic, /const resolveMeituanConfigSaveRequestHotelId = \(\{/);
@@ -1411,6 +1663,8 @@ test('Meituan config saves cookie-only and no longer treats room counts as crede
   assert.equal(meituanStaticApi.resolveMeituanConfigSaveCookieState('').cookies, '');
   assert.equal(meituanStaticApi.resolveMeituanConfigSaveCookieState('').level, 'error');
   assert.match(meituanStaticApi.resolveMeituanConfigSaveCookieState('').message, /Cookie\/API/);
+  assert.equal(meituanStaticApi.resolveMeituanConfigSaveCookieState('', { keepExisting: true }).canSave, true);
+  assert.equal(meituanStaticApi.resolveMeituanConfigSaveCookieState('', { keepExisting: true }).keepExisting, true);
   assert.equal(meituanStaticApi.buildMeituanConfigAutoName({}, { hotelName: '湖滨店', fallbackDate: '2026-07-08' }), '湖滨店美团Cookie');
   assert.equal(meituanStaticApi.buildMeituanConfigAutoName({ poi_id: '12345' }, { fallbackDate: '2026-07-08' }), '美团12345Cookie');
   assert.equal(meituanStaticApi.buildMeituanConfigAutoName({}, { fallbackDate: '2026-07-08' }), '美团Cookie 2026-07-08');
@@ -1467,6 +1721,8 @@ test('Meituan config saves cookie-only and no longer treats room counts as crede
     partner_id: '',
     poi_id: '',
     cookies: '',
+    has_cookies: false,
+    credential_status: '',
     hotel_room_count: '',
     competitor_room_count: '',
   }));
@@ -1525,6 +1781,8 @@ test('Meituan config saves cookie-only and no longer treats room counts as crede
       partner_id: '',
       poi_id: '',
       cookies: '',
+      has_cookies: false,
+      credential_status: '',
       hotel_room_count: '',
       competitor_room_count: '',
     },
@@ -1567,8 +1825,6 @@ test('Meituan config saves cookie-only and no longer treats room counts as crede
     hotelId: '58',
     partnerId: 'partner',
     poiId: 'poi',
-    cookies: 'cookie',
-    auth_data: { token: 'masked' },
     hotelRoomCount: '88',
     competitorRoomCount: '188',
   }));
@@ -1589,8 +1845,6 @@ test('Meituan config saves cookie-only and no longer treats room counts as crede
       hotelId: '58',
       partnerId: 'partner',
       poiId: 'poi',
-      cookies: 'cookie',
-      auth_data: { token: 'masked' },
       hotelRoomCount: '88',
       competitorRoomCount: '188',
     },
@@ -1604,6 +1858,8 @@ test('Meituan config saves cookie-only and no longer treats room counts as crede
     partner_id: 'partner',
     poi_id: 'poi',
     cookies: 'cookie',
+    has_cookies: true,
+    credential_status: 'ready',
     hotel_room_count: '88',
     competitor_room_count: '188',
   })), JSON.stringify({
@@ -1612,7 +1868,9 @@ test('Meituan config saves cookie-only and no longer treats room counts as crede
     hotel_id: '58',
     partner_id: 'partner',
     poi_id: 'poi',
-    cookies: 'cookie',
+    cookies: '',
+    has_cookies: true,
+    credential_status: 'ready',
     hotel_room_count: '88',
     competitor_room_count: '188',
   }));
@@ -1624,6 +1882,8 @@ test('Meituan config saves cookie-only and no longer treats room counts as crede
       partner_id: 'partner',
       poi_id: 'poi',
       cookies: 'cookie',
+      has_cookies: true,
+      credential_status: 'ready',
       hotel_room_count: '88',
       competitor_room_count: '188',
     },
@@ -1634,7 +1894,9 @@ test('Meituan config saves cookie-only and no longer treats room counts as crede
       hotel_id: '58',
       partner_id: 'partner',
       poi_id: 'poi',
-      cookies: 'cookie',
+      cookies: '',
+      has_cookies: true,
+      credential_status: 'ready',
       hotel_room_count: '88',
       competitor_room_count: '188',
     },
@@ -2161,10 +2423,10 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
   assert.equal(meituanStaticApi.resolveCanFetchMeituanRankingData({
     form: { cookies: 'temporary-cookie' },
     selectedConfig: null,
-  }), true);
+  }), false);
   assert.equal(meituanStaticApi.resolveCanFetchMeituanRankingData({
     form: { hotelId: '58' },
-    selectedConfig: { id: 1 },
+    selectedConfig: { id: 'meituan-58', config_id: 'meituan-58', has_cookies: true, credential_status: 'ready' },
   }), true);
   assert.equal(meituanStaticApi.resolveCanFetchMeituanRankingData({
     form: { hotelId: '58' },
@@ -2176,19 +2438,19 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
   }), false);
   assert.equal(meituanStaticApi.resolveMeituanManualFetchConfigProofPending({
     form: { hotelId: '58' },
-    selectedConfig: { id: 1 },
+    selectedConfig: { id: 'meituan-58', config_id: 'meituan-58', has_cookies: true, credential_status: 'ready' },
   }), true);
   assert.equal(meituanStaticApi.resolveMeituanManualFetchConfigProofPending({
     form: { hotelId: '58' },
     selectedConfig: null,
   }), false);
-  const explicitMeituanConfig = { id: 12 };
+  const explicitMeituanConfig = { id: 'meituan-12', config_id: 'meituan-12', has_cookies: true, credential_status: 'ready' };
   assert.equal(meituanStaticApi.resolveMeituanManualFetchConfigCandidate({
     config: explicitMeituanConfig,
     form: { hotelId: '58' },
-    selectedConfig: { id: 1 },
+    selectedConfig: { id: 'meituan-58', config_id: 'meituan-58', has_cookies: true, credential_status: 'ready' },
   }), explicitMeituanConfig);
-  const selectedMeituanConfig = { id: 1 };
+  const selectedMeituanConfig = { id: 'meituan-58', config_id: 'meituan-58', has_cookies: true, credential_status: 'ready' };
   assert.equal(meituanStaticApi.resolveMeituanManualFetchConfigCandidate({
     form: { hotelId: '58' },
     selectedConfig: selectedMeituanConfig,
@@ -2555,7 +2817,8 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
   assert.doesNotMatch(meituanHotelSelectPanel, /!meituanConfigListLoading && !meituanConfigListLoaded && !meituanConfigListLoadFailed && !selectedMeituanHotelConfig/);
   assert.match(meituanHotelSelectPanel, /:disabled="fetchingData \|\| !canFetchMeituanRankingData\(\)"/);
   assert.match(fetchMeituanData, /const preparingConfig = meituanManualFetchConfigProofPending\(\);/);
-  assert.match(fetchMeituanData, /ensureMeituanConfigSecret: async config => ensureMeituanConfigSecret\(await resolveMeituanManualFetchConfig\(config\)\)/);
+  assert.doesNotMatch(fetchMeituanData, /ensureMeituanConfigSecret|cookies|auth_data/);
+  assert.match(fetchMeituanData, /getSelectedConfig: \(\) => selectedMeituanHotelConfig\.value/);
   assert.match(fetchMeituanData, /finally \{\s*if \(preparingConfig\) \{\s*fetchingData\.value = false;\s*\}\s*\}/);
   assert.match(meituanManualFetchConfigGuard, /return resolveMeituanManualFetchConfigProofPending\(\{\s*form: meituanForm\.value,\s*selectedConfig: selectedMeituanHotelConfig\.value,\s*\}\);/);
   assert.match(meituanManualFetchConfigGuard, /const canFetchMeituanRankingData = \(\) => \{/);
@@ -2624,55 +2887,9 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
   assert.doesNotMatch(loadMeituanConfigList, /if \(res\.code === 200\) \{/);
   assert.doesNotMatch(loadMeituanConfigList, /meituanConfigList\.value = res\.data \|\| \[\];/);
   assert.match(meituanHotelWatcher, /if \(suppressNextMeituanHotelConfigApply\) \{[\s\S]*suppressNextMeituanHotelConfigApply = false;[\s\S]*return;/);
-  assert.match(loadMeituanConfigDetail, /const meituanConfigDetailCache = new Map\(\);/);
-  assert.match(loadMeituanConfigDetail, /const clearMeituanConfigDetailCache = \(id = ''\) => \{/);
-  assert.match(loadMeituanConfigDetail, /const clearTarget = resolveMeituanConfigDetailClearTarget\(id\);/);
-  assert.match(loadMeituanConfigDetail, /if \(!clearTarget\.clearAll\) \{/);
-  assert.match(loadMeituanConfigDetail, /const cacheKey = clearTarget\.cacheKey;/);
-  assert.match(loadMeituanConfigDetail, /meituanConfigDetailCache\.delete\(cacheKey\);/);
-  assert.match(loadMeituanConfigDetail, /meituanConfigDetailLoadingPromises\.delete\(cacheKey\);/);
-  assert.match(loadMeituanConfigDetail, /meituanConfigDetailCache\.clear\(\);/);
-  assert.match(loadMeituanConfigDetail, /meituanConfigDetailLoadingPromises\.clear\(\);/);
-  assert.match(loadMeituanConfigDetail, /const loadTarget = resolveMeituanConfigDetailLoadTarget\(\{ id, loadingPromises: meituanConfigDetailLoadingPromises \}\);/);
-  assert.match(loadMeituanConfigDetail, /if \(loadTarget\.status === 'missing_key'\) return null;/);
-  assert.match(loadMeituanConfigDetail, /if \(loadTarget\.status === 'loading'\) \{/);
-  assert.match(loadMeituanConfigDetail, /return loadTarget\.promise;/);
-  assert.match(loadMeituanConfigDetail, /const cacheKey = loadTarget\.cacheKey;/);
-  assert.match(loadMeituanConfigDetail, /request\(buildMeituanConfigDetailRequestUrl\(cacheKey\)\)/);
-  assert.match(loadMeituanConfigDetail, /const detailResult = resolveMeituanConfigDetailResponse\(res\);/);
-  assert.match(loadMeituanConfigDetail, /if \(!detailResult\.ok\) \{/);
-  assert.match(loadMeituanConfigDetail, /throw new Error\(detailResult\.message\);/);
-  assert.match(loadMeituanConfigDetail, /return detailResult\.data;/);
-  assert.doesNotMatch(loadMeituanConfigDetail, /get-meituan-config-detail\?id=\$\{encodeURIComponent\(cacheKey\)\}/);
-  assert.doesNotMatch(loadMeituanConfigDetail, /res\.code !== 200/);
-  assert.doesNotMatch(loadMeituanConfigDetail, /const cacheKey = buildMeituanConfigDetailCacheKey\(config\.id\);/);
-  assert.doesNotMatch(loadMeituanConfigDetail, /const listVersion = getMeituanConfigDetailVersion\(config\);/);
-  assert.doesNotMatch(loadMeituanConfigDetail, /const cached = cacheKey \? meituanConfigDetailCache\.get\(cacheKey\) : null;/);
-  assert.doesNotMatch(loadMeituanConfigDetail, /const cachedResult = resolveMeituanConfigDetailCachedResult\(\{ cached, listVersion \}\);/);
-  assert.doesNotMatch(loadMeituanConfigDetail, /if \(meituanConfigDetailLoadingPromises\.has\(cacheKey\)\) \{/);
-  assert.doesNotMatch(loadMeituanConfigDetail, /return meituanConfigDetailLoadingPromises\.get\(cacheKey\);/);
-  assert.match(loadMeituanConfigDetail, /const cacheLookup = resolveMeituanConfigDetailCacheLookup\(\{ config, cache: meituanConfigDetailCache \}\);/);
-  assert.match(loadMeituanConfigDetail, /if \(cacheLookup\.cachedResult\.hit\) \{/);
-  assert.match(loadMeituanConfigDetail, /return cacheLookup\.cachedResult\.data;/);
-  assert.match(loadMeituanConfigDetail, /const cacheEntry = buildMeituanConfigDetailCacheEntry\(\{ detail, listVersion: cacheLookup\.listVersion \}\);/);
-  assert.match(loadMeituanConfigDetail, /const storePlan = resolveMeituanConfigDetailCacheStorePlan\(\{ cacheKey: cacheLookup\.cacheKey, cacheEntry \}\);/);
-  assert.match(loadMeituanConfigDetail, /if \(storePlan\.shouldStore\) \{/);
-  assert.match(loadMeituanConfigDetail, /meituanConfigDetailCache\.set\(storePlan\.cacheKey, storePlan\.cacheEntry\);/);
-  assert.doesNotMatch(loadMeituanConfigDetail, /if \(cacheEntry && cacheLookup\.cacheKey\) \{/);
-  assert.doesNotMatch(loadMeituanConfigDetail, /meituanConfigDetailCache\.set\(cacheLookup\.cacheKey, cacheEntry\);/);
-  assert.match(loadMeituanConfigDetail, /const failureAction = resolveMeituanConfigDetailFailureAction\(\{ error: e, silent: options\.silent \}\);/);
-  assert.match(loadMeituanConfigDetail, /if \(failureAction\.type === 'log'\) \{/);
-  assert.match(loadMeituanConfigDetail, /console\.error\(failureAction\.label, failureAction\.error\);/);
-  assert.match(loadMeituanConfigDetail, /showToast\(failureAction\.message, failureAction\.level\);/);
-  assert.doesNotMatch(loadMeituanConfigDetail, /console\.error\('\[Meituan\] 预热完整配置失败:', e\);/);
-  assert.doesNotMatch(loadMeituanConfigDetail, /showToast\(e\.message \|\| '加载美团完整配置失败', 'error'\);/);
-  assert.match(loadMeituanConfigDetail, /if \(shouldSkipMeituanConfigDetailLoad\(config\)\) return config;/);
-  assert.match(loadMeituanConfigDetail, /const prewarmPlan = resolveMeituanConfigDetailPrewarmPlan\(\{ config, delayMs: 80 \}\);/);
-  assert.match(loadMeituanConfigDetail, /if \(!prewarmPlan\.shouldPrewarm\) return;/);
-  assert.match(loadMeituanConfigDetail, /deferUiTask\(\(\) => ensureMeituanConfigSecret\(prewarmPlan\.config, \{ silent: true \}\), prewarmPlan\.delayMs\);/);
-  assert.doesNotMatch(loadMeituanConfigDetail, /if \(shouldSkipMeituanConfigDetailLoad\(config\)\) return;\s*deferUiTask\(\(\) => ensureMeituanConfigSecret\(config, \{ silent: true \}\), 80\);/);
-  assert.match(html, /clearMeituanConfigDetailCache\(saveSuccessState\.clearConfigDetailId\);/);
-  assert.match(html, /clearMeituanConfigDetailCache\(deleteSuccessState\.clearConfigDetailId\);/);
+  assert.match(loadMeituanConfigDetail, /const findMeituanConfigMetadataById = \(id\) => \{/);
+  assert.match(loadMeituanConfigDetail, /const resolveMeituanConfigMetadata = \(config\) => config \|\| null;/);
+  assert.doesNotMatch(loadMeituanConfigDetail, /request\(|ensureMeituanConfigSecret|config\.cookies|auth_data/);
   assert.match(loadMeituanConfigList, /const force = options\.force === true;/);
   assert.match(loadMeituanConfigList, /const cachedResult = resolveMeituanConfigListCachedResult\(\{/);
   assert.match(loadMeituanConfigList, /loaded: meituanConfigListLoaded\.value/);

@@ -40,9 +40,20 @@ function p0_parse_args(array $argv): array
     }
     unset($options['system_hotel_id']);
 
-    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$options['date'])) {
-        throw new InvalidArgumentException('Invalid --date, expected YYYY-MM-DD.');
+    $dateText = (string)$options['date'];
+    $timezone = new DateTimeZone('Asia/Shanghai');
+    $date = DateTimeImmutable::createFromFormat('!Y-m-d', $dateText, $timezone);
+    $dateErrors = DateTimeImmutable::getLastErrors();
+    if ($date === false
+        || ($dateErrors !== false && ((int)$dateErrors['warning_count'] > 0 || (int)$dateErrors['error_count'] > 0))
+        || $date->format('Y-m-d') !== $dateText
+    ) {
+        throw new InvalidArgumentException('Invalid --date, expected a real calendar date in YYYY-MM-DD.');
     }
+    if ($date > new DateTimeImmutable('today', $timezone)) {
+        throw new InvalidArgumentException('--date must not be later than the current Asia/Shanghai date.');
+    }
+    $options['date'] = $date->format('Y-m-d');
     if ((string)$options['system-hotel-id'] !== '') {
         if (!is_numeric($options['system-hotel-id']) || (int)$options['system-hotel-id'] <= 0) {
             throw new InvalidArgumentException('Invalid --system-hotel-id, expected a positive integer.');
@@ -69,6 +80,10 @@ function p0_expected_platforms(string $value): array
         static fn(string $platform): string => strtolower(trim($platform)),
         explode(',', $value)
     ))));
+
+    if ($platforms === []) {
+        throw new InvalidArgumentException('Invalid --platform, expected at least one of ctrip or meituan.');
+    }
 
     foreach ($platforms as $platform) {
         if (!in_array($platform, ['ctrip', 'meituan'], true)) {
@@ -1078,6 +1093,209 @@ function p0_platform_hotel_identifier_present(array $row, string $platform): boo
 }
 
 /**
+ * Keys are normalized before comparison, so snake_case and camelCase remain
+ * equivalent without widening the accepted identifier families.
+ *
+ * @return array<int, string>
+ */
+function p0_platform_hotel_identifier_keys(string $platform): array
+{
+    return strtolower(trim($platform)) === 'meituan'
+        ? ['poiid', 'storeid', 'shopid', 'mtpoiid', 'partnerid']
+        : ['hotelid', 'ctriphotelid', 'masterhotelid', 'nodeid'];
+}
+
+/**
+ * Return only one-way hashes. Raw OTA hotel/POI identifiers never leave this
+ * internal collector or enter verifier output.
+ *
+ * @param array<string|int, mixed> $container
+ * @return array<int, string>
+ */
+function p0_platform_hotel_identifier_hashes(array $container, string $platform): array
+{
+    $platform = strtolower(trim($platform));
+    if (!in_array($platform, ['ctrip', 'meituan'], true)) {
+        return [];
+    }
+    $priorityGroups = $platform === 'meituan'
+        ? [['poiid', 'mtpoiid'], ['storeid', 'shopid'], ['partnerid']]
+        : [['hotelid', 'ctriphotelid', 'masterhotelid'], ['nodeid']];
+    $acceptedKeys = array_fill_keys(p0_platform_hotel_identifier_keys($platform), true);
+    $keyPriorities = [];
+    foreach ($priorityGroups as $priority => $keys) {
+        foreach ($keys as $key) {
+            $keyPriorities[$key] = $priority;
+        }
+    }
+    $hashesByPriority = array_fill(0, count($priorityGroups), []);
+    $visited = 0;
+    $visit = static function (array $value, int $depth) use (&$visit, &$hashesByPriority, &$visited, $acceptedKeys, $keyPriorities, $platform): void {
+        if ($depth > 12 || $visited >= 10000) {
+            return;
+        }
+        foreach ($value as $key => $item) {
+            $visited++;
+            if ($visited > 10000) {
+                return;
+            }
+            $normalizedKey = strtolower((string)preg_replace('/[^a-z0-9]+/i', '', (string)$key));
+            if (isset($acceptedKeys[$normalizedKey]) && (is_string($item) || is_int($item) || is_float($item))) {
+                $identifier = trim((string)$item);
+                if ($identifier !== '') {
+                    $priority = (int)($keyPriorities[$normalizedKey] ?? 0);
+                    $hashesByPriority[$priority][hash('sha256', $platform . "\0" . $identifier)] = true;
+                }
+            }
+            if (is_array($item)) {
+                $visit($item, $depth + 1);
+            }
+        }
+    };
+    $visit($container, 0);
+    foreach ($hashesByPriority as $hashes) {
+        if ($hashes !== []) {
+            $result = array_keys($hashes);
+            sort($result, SORT_STRING);
+            return $result;
+        }
+    }
+    return [];
+}
+
+/**
+ * Resolve one unambiguous OTA hotel/POI identity from safe Profile source
+ * metadata. The caller supplies only projected config metadata and an already
+ * evaluated binding status; this pure function never reads a Vault payload.
+ *
+ * @param array<int, array<string, mixed>> $sources
+ * @return array<string, mixed>
+ */
+function p0_authoritative_profile_identifier_resolution(string $platform, int $systemHotelId, int $tenantId, array $sources): array
+{
+    $platform = strtolower(trim($platform));
+    $base = [
+        'status' => 'missing',
+        'reason' => 'authoritative_profile_source_missing',
+        'candidate_source_count' => 0,
+        'authoritative_source_count' => 0,
+        'identifier_count' => 0,
+        'sensitive_values_exposed' => false,
+    ];
+    if (!in_array($platform, ['ctrip', 'meituan'], true) || $systemHotelId <= 0 || $tenantId <= 0) {
+        $base['reason'] = 'authoritative_profile_scope_invalid';
+        return $base;
+    }
+
+    $identifierHashes = [];
+    $tenantScopeMismatchCount = 0;
+    $bindingUnverifiedCount = 0;
+    foreach ($sources as $source) {
+        if (!is_array($source)
+            || strtolower(trim((string)($source['platform'] ?? ''))) !== $platform
+            || (int)($source['system_hotel_id'] ?? 0) !== $systemHotelId
+            || !in_array(strtolower(trim((string)($source['data_type'] ?? ''))), ['traffic', 'flow', 'conversion'], true)
+            || !in_array(strtolower(trim((string)($source['ingestion_method'] ?? ''))), ['browser_profile', 'profile_browser'], true)
+            || !in_array(strtolower(trim((string)($source['enabled'] ?? ''))), ['1', 'true'], true)
+            || strtolower(trim((string)($source['status'] ?? ''))) === 'disabled'
+        ) {
+            continue;
+        }
+        $base['candidate_source_count']++;
+        if ((int)($source['tenant_id'] ?? 0) !== $tenantId) {
+            $tenantScopeMismatchCount++;
+            continue;
+        }
+        if (strtolower(trim((string)($source['profile_binding_status'] ?? ''))) !== 'ready') {
+            $bindingUnverifiedCount++;
+            continue;
+        }
+        $base['authoritative_source_count']++;
+        foreach (p0_platform_hotel_identifier_hashes((array)($source['config'] ?? []), $platform) as $hash) {
+            $identifierHashes[$hash] = true;
+        }
+    }
+
+    $base['identifier_count'] = count($identifierHashes);
+    if ($tenantScopeMismatchCount > 0) {
+        $base['status'] = 'blocked';
+        $base['reason'] = 'profile_source_tenant_scope_mismatch';
+        return $base;
+    }
+    if ((int)$base['candidate_source_count'] === 0) {
+        return $base;
+    }
+    if ($bindingUnverifiedCount > 0 || (int)$base['authoritative_source_count'] === 0) {
+        $base['status'] = 'blocked';
+        $base['reason'] = 'profile_binding_unverified';
+        return $base;
+    }
+    if ($identifierHashes === []) {
+        $base['reason'] = 'authoritative_profile_identifier_missing';
+        return $base;
+    }
+    if (count($identifierHashes) !== 1) {
+        $base['status'] = 'ambiguous';
+        $base['reason'] = 'authoritative_profile_identifier_ambiguous';
+        return $base;
+    }
+
+    $base['status'] = 'ready';
+    $base['reason'] = '';
+    $base['expected_identifier_hash'] = (string)array_key_first($identifierHashes);
+    return $base;
+}
+
+/**
+ * @param array<string, mixed> $rawData
+ * @param array<string, mixed> $authority
+ * @return array<string, mixed>
+ */
+function p0_compare_row_platform_hotel_identifier(array $rawData, string $platform, array $authority): array
+{
+    $base = [
+        'status' => 'authority_unavailable',
+        'reason' => (string)($authority['reason'] ?? 'authoritative_profile_source_missing'),
+        'matched' => false,
+        'authoritative_source_count' => (int)($authority['authoritative_source_count'] ?? 0),
+        'expected_identifier_count' => (int)($authority['identifier_count'] ?? 0),
+        'row_identifier_count' => 0,
+        'sensitive_values_exposed' => false,
+    ];
+    if ((string)($authority['status'] ?? '') !== 'ready'
+        || trim((string)($authority['expected_identifier_hash'] ?? '')) === ''
+    ) {
+        return $base;
+    }
+
+    $rowHashes = p0_platform_hotel_identifier_hashes($rawData, $platform);
+    $base['expected_identifier_hash'] = (string)$authority['expected_identifier_hash'];
+    $base['row_identifier_count'] = count($rowHashes);
+    if ($rowHashes === []) {
+        $base['status'] = 'missing';
+        $base['reason'] = 'stored_platform_hotel_identifier_missing';
+        return $base;
+    }
+    if (count($rowHashes) !== 1) {
+        $base['status'] = 'ambiguous';
+        $base['reason'] = 'stored_platform_hotel_identifier_ambiguous';
+        return $base;
+    }
+
+    $base['row_identifier_hash'] = $rowHashes[0];
+    if (!hash_equals((string)$authority['expected_identifier_hash'], $rowHashes[0])) {
+        $base['status'] = 'mismatch';
+        $base['reason'] = 'platform_hotel_identifier_mismatch';
+        return $base;
+    }
+
+    $base['status'] = 'matched';
+    $base['reason'] = '';
+    $base['matched'] = true;
+    return $base;
+}
+
+/**
  * @param array<string, mixed> $options
  * @param array<int, string> $platforms
  * @return array<string, mixed>
@@ -1504,6 +1722,325 @@ function p0_existing_columns(string $table, array $fields): array
     ));
 }
 
+/**
+ * @param array<string, mixed> $config
+ * @return array<string, mixed>
+ */
+function p0_safe_platform_config_projection(array $config): array
+{
+    $allowedScalarKeys = [
+        'credential_ref', 'credential_status', 'config_id', 'source_config_id', 'source_config_key',
+        'profile_id', 'profileId',
+        'hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId', 'master_hotel_id', 'masterHotelId', 'node_id', 'nodeId',
+        'store_id', 'storeId', 'poi_id', 'poiId', 'shop_id', 'shopId', 'mt_poi_id', 'mtPoiId', 'partner_id', 'partnerId',
+        'hotel_name', 'name', 'poi_name', 'poiName',
+        'manual_login_state_verified', 'login_state_verified', 'profile_login_verified',
+        'profile_status', 'login_status', 'profile_login_status',
+        'last_login_verified_at', 'profile_login_verified_at', 'last_profile_login_at',
+        'historical_login_metadata_present', 'login_evidence_scope',
+        'current_session_probe_performed', 'current_session_verified', 'current_session_status',
+        'current_session_probe_at', 'current_session_probe_data_source_id',
+        'registered_by', 'registered_from', 'source_scope',
+    ];
+    $projection = [];
+    foreach ($allowedScalarKeys as $key) {
+        if (!array_key_exists($key, $config) || (!is_scalar($config[$key]) && $config[$key] !== null)) {
+            continue;
+        }
+        $projection[$key] = $config[$key];
+    }
+
+    foreach (['capture_sections', 'captureSections'] as $key) {
+        if (!array_key_exists($key, $config)) {
+            continue;
+        }
+        if (is_scalar($config[$key]) || $config[$key] === null) {
+            $projection[$key] = $config[$key];
+            continue;
+        }
+        if (is_array($config[$key]) && count($config[$key]) <= 32) {
+            $values = array_values(array_filter(
+                $config[$key],
+                static fn(mixed $value): bool => is_scalar($value) || $value === null
+            ));
+            if (count($values) === count($config[$key])) {
+                $projection[$key] = $values;
+            }
+        }
+    }
+    return $projection;
+}
+
+/**
+ * @param array<string, mixed> $projection
+ */
+function p0_platform_projection_has_identity_conflict(string $platform, array $projection): bool
+{
+    $groups = [
+        ['config_id', 'source_config_id', 'source_config_key'],
+        ['profile_id', 'profileId'],
+    ];
+    if ($platform === 'ctrip') {
+        $groups[] = ['hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId'];
+        $groups[] = ['node_id', 'nodeId'];
+    } else {
+        $groups[] = ['store_id', 'storeId'];
+        $groups[] = ['poi_id', 'poiId'];
+        $groups[] = ['partner_id', 'partnerId'];
+    }
+
+    foreach ($groups as $keys) {
+        $values = [];
+        foreach ($keys as $key) {
+            $raw = $projection[$key] ?? '';
+            if (!is_scalar($raw) && $raw !== null) {
+                continue;
+            }
+            $value = trim((string)$raw);
+            if ($value !== '') {
+                $values[$value] = true;
+            }
+        }
+        if (count($values) > 1) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function p0_credential_metadata_snapshot(string $platform, int $scopeSystemHotelId = 0): array
+{
+    static $cache = [];
+    $cacheKey = $platform . ':' . max(0, $scopeSystemHotelId);
+    if (isset($cache[$cacheKey])) {
+        return $cache[$cacheKey];
+    }
+
+    $base = [
+        'table_present' => false,
+        'hotel_table_present' => p0_table_exists('hotels'),
+        'rows' => [],
+        'hotel_tenants' => [],
+        'tenant_mismatch_count' => 0,
+        'hotel_metadata_missing_count' => 0,
+        'ready_count' => 0,
+        'not_ready_count' => 0,
+        'status' => 'migration_required',
+        'reason' => 'ota_credentials_table_missing',
+        'sensitive_values_exposed' => false,
+        'source_policy' => 'ota_credentials_metadata_only_tenant_id_from_hotels',
+    ];
+    if (!p0_table_exists('ota_credentials')) {
+        return $cache[$cacheKey] = $base;
+    }
+    $base['table_present'] = true;
+    if (!$base['hotel_table_present']) {
+        $base['reason'] = 'hotels_table_missing';
+        return $cache[$cacheKey] = $base;
+    }
+
+    $fields = p0_existing_columns('ota_credentials', [
+        'id', 'tenant_id', 'system_hotel_id', 'platform', 'config_id', 'credential_status',
+        'rotated_at', 'create_time', 'update_time',
+    ]);
+    $required = ['id', 'tenant_id', 'system_hotel_id', 'platform', 'config_id', 'credential_status'];
+    if (array_diff($required, $fields) !== []) {
+        $base['reason'] = 'ota_credentials_metadata_schema_incomplete';
+        return $cache[$cacheKey] = $base;
+    }
+
+    $query = Db::name('ota_credentials')
+        ->field(implode(',', $fields))
+        ->where('platform', $platform);
+    if ($scopeSystemHotelId > 0) {
+        $query->where('system_hotel_id', $scopeSystemHotelId);
+    }
+    $rows = $query->order('id', 'asc')->select()->toArray();
+    $hotelIds = array_values(array_unique(array_filter(array_map(
+        static fn(array $row): int => (int)($row['system_hotel_id'] ?? 0),
+        $rows
+    ), static fn(int $hotelId): bool => $hotelId > 0)));
+    $hotelRows = $hotelIds === [] ? [] : Db::name('hotels')
+        ->field('id,tenant_id')
+        ->whereIn('id', $hotelIds)
+        ->select()
+        ->toArray();
+    foreach ($hotelRows as $hotelRow) {
+        $hotelId = (int)($hotelRow['id'] ?? 0);
+        $tenantId = (int)($hotelRow['tenant_id'] ?? 0);
+        if ($hotelId > 0 && $tenantId > 0) {
+            $base['hotel_tenants'][$hotelId] = $tenantId;
+        }
+    }
+
+    foreach ($rows as $row) {
+        $hotelId = (int)($row['system_hotel_id'] ?? 0);
+        $hotelTenantId = (int)($base['hotel_tenants'][$hotelId] ?? 0);
+        if ($hotelTenantId <= 0) {
+            $base['hotel_metadata_missing_count']++;
+            continue;
+        }
+        if ((int)($row['tenant_id'] ?? 0) !== $hotelTenantId) {
+            $base['tenant_mismatch_count']++;
+            continue;
+        }
+        $row['tenant_id'] = $hotelTenantId;
+        $base['rows'][] = $row;
+        if (strtolower(trim((string)($row['credential_status'] ?? ''))) === 'ready') {
+            $base['ready_count']++;
+        } else {
+            $base['not_ready_count']++;
+        }
+    }
+
+    if ($base['tenant_mismatch_count'] > 0) {
+        $base['status'] = 'blocked';
+        $base['reason'] = 'credential_tenant_scope_mismatch';
+    } elseif ($base['hotel_metadata_missing_count'] > 0) {
+        $base['status'] = 'migration_required';
+        $base['reason'] = 'hotel_tenant_metadata_missing';
+    } elseif ($base['ready_count'] > 0) {
+        $base['status'] = 'ready';
+        $base['reason'] = '';
+    } elseif ($base['not_ready_count'] > 0) {
+        $base['status'] = 'blocked';
+        $base['reason'] = 'credential_not_ready';
+    } else {
+        $base['reason'] = 'credential_metadata_missing';
+    }
+
+    return $cache[$cacheKey] = $base;
+}
+
+function p0_hotel_tenant_id(int $hotelId): int
+{
+    static $cache = [];
+    if ($hotelId <= 0 || !p0_table_exists('hotels')) {
+        return 0;
+    }
+    if (!array_key_exists($hotelId, $cache)) {
+        $cache[$hotelId] = (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id');
+    }
+    return (int)$cache[$hotelId];
+}
+
+function p0_is_browser_profile_ingestion_method(mixed $method): bool
+{
+    $method = strtolower(trim((string)$method));
+    return in_array($method, ['browser_profile', 'profile_browser'], true);
+}
+
+/**
+ * @param array<string, mixed> $row
+ * @param array<string, mixed> $config
+ * @param array<string, mixed> $snapshot
+ * @return array<string, mixed>
+ */
+function p0_resolve_source_credential_metadata(string $platform, array $row, array $config, array $snapshot): array
+{
+    $isBrowserProfileSource = p0_is_browser_profile_ingestion_method($row['ingestion_method'] ?? '');
+    if (!(bool)($snapshot['hotel_table_present'] ?? false)) {
+        return [
+            'status' => 'migration_required',
+            'reason' => (string)($snapshot['reason'] ?? 'hotels_table_missing'),
+            'credential_ref' => null,
+        ];
+    }
+    if (!$isBrowserProfileSource && !(bool)($snapshot['table_present'] ?? false)) {
+        return [
+            'status' => 'migration_required',
+            'reason' => (string)($snapshot['reason'] ?? 'ota_credentials_table_missing'),
+            'credential_ref' => null,
+        ];
+    }
+    if (!$isBrowserProfileSource && (string)($snapshot['reason'] ?? '') === 'ota_credentials_metadata_schema_incomplete') {
+        return [
+            'status' => 'migration_required',
+            'reason' => 'ota_credentials_metadata_schema_incomplete',
+            'credential_ref' => null,
+        ];
+    }
+    $hotelId = (int)($row['system_hotel_id'] ?? 0);
+    $tenantId = p0_hotel_tenant_id($hotelId);
+    if ($hotelId <= 0 || $tenantId <= 0) {
+        return ['status' => 'migration_required', 'reason' => 'hotel_tenant_metadata_missing', 'credential_ref' => null];
+    }
+    $sourceTenantId = (int)($row['tenant_id'] ?? 0);
+    if ($sourceTenantId > 0 && $sourceTenantId !== $tenantId) {
+        return ['status' => 'blocked', 'reason' => 'data_source_tenant_scope_mismatch', 'credential_ref' => null];
+    }
+    if (p0_platform_projection_has_identity_conflict($platform, $config)) {
+        return ['status' => 'blocked', 'reason' => 'source_config_projection_conflict', 'credential_ref' => null];
+    }
+    if ($isBrowserProfileSource) {
+        return [
+            'status' => 'not_required',
+            'reason' => 'browser_profile_vault_not_required',
+            'credential_ref' => null,
+            'credential_status' => 'not_required',
+            'tenant_id' => $tenantId,
+        ];
+    }
+
+    $credentialRef = (int)($config['credential_ref'] ?? 0);
+    $configId = '';
+    foreach (['config_id', 'source_config_id', 'source_config_key'] as $key) {
+        if (!is_scalar($config[$key] ?? null) && ($config[$key] ?? null) !== null) {
+            continue;
+        }
+        $candidate = trim((string)($config[$key] ?? ''));
+        if ($candidate !== '') {
+            $configId = $candidate;
+            break;
+        }
+    }
+    if ($credentialRef <= 0 && $configId === '') {
+        return ['status' => 'migration_required', 'reason' => 'credential_reference_missing', 'credential_ref' => null];
+    }
+
+    $matches = array_values(array_filter(
+        (array)($snapshot['rows'] ?? []),
+        static function (array $credential) use ($platform, $hotelId, $tenantId, $credentialRef, $configId): bool {
+            if ((string)($credential['platform'] ?? '') !== $platform
+                || (int)($credential['system_hotel_id'] ?? 0) !== $hotelId
+                || (int)($credential['tenant_id'] ?? 0) !== $tenantId
+            ) {
+                return false;
+            }
+            if ($credentialRef > 0) {
+                return (int)($credential['id'] ?? 0) === $credentialRef;
+            }
+            return trim((string)($credential['config_id'] ?? '')) === $configId;
+        }
+    ));
+    if ($matches === []) {
+        return ['status' => 'migration_required', 'reason' => 'credential_metadata_not_found', 'credential_ref' => $credentialRef > 0 ? $credentialRef : null];
+    }
+    if (count($matches) !== 1) {
+        return ['status' => 'blocked', 'reason' => 'credential_metadata_ambiguous', 'credential_ref' => null];
+    }
+
+    $credential = $matches[0];
+    if ($credentialRef > 0
+        && $configId !== ''
+        && trim((string)($credential['config_id'] ?? '')) !== $configId
+    ) {
+        return ['status' => 'blocked', 'reason' => 'credential_reference_config_mismatch', 'credential_ref' => $credentialRef];
+    }
+    $credentialStatus = strtolower(trim((string)($credential['credential_status'] ?? '')));
+    return [
+        'status' => $credentialStatus === 'ready' ? 'ready' : 'blocked',
+        'reason' => $credentialStatus === 'ready' ? '' : 'credential_not_ready',
+        'credential_ref' => (int)($credential['id'] ?? 0),
+        'credential_status' => $credentialStatus,
+        'config_id' => trim((string)($credential['config_id'] ?? '')),
+        'tenant_id' => $tenantId,
+    ];
+}
+
 function p0_value_present(mixed $value): bool
 {
     if (is_string($value)) {
@@ -1521,36 +2058,129 @@ function p0_value_present(mixed $value): bool
 /**
  * @return array<int, array<string, mixed>>
  */
-function p0_config_items(string $platform): array
+function p0_config_items(string $platform, int $scopeSystemHotelId = 0): array
 {
-    $tableCandidates = $platform === 'meituan'
-        ? ['system_config', 'system_configs']
-        : ['system_configs', 'system_config'];
-    $key = $platform === 'meituan' ? 'meituan_config_list' : 'ctrip_config_list';
-
-    foreach ($tableCandidates as $table) {
-        if (!p0_table_exists($table)) {
-            continue;
-        }
-        $raw = (string)Db::name($table)->where('config_key', $key)->value('config_value');
-        if (trim($raw) === '') {
-            continue;
-        }
-        $decoded = json_decode($raw, true);
-        if (!is_array($decoded)) {
-            continue;
-        }
-
-        $items = [];
-        foreach ($decoded as $item) {
-            if (is_array($item)) {
-                $items[] = $item;
-            }
-        }
-        return $items;
+    $snapshot = p0_credential_metadata_snapshot($platform, $scopeSystemHotelId);
+    $credentialRows = (array)($snapshot['rows'] ?? []);
+    if ($credentialRows === []) {
+        return [];
+    }
+    if (!p0_table_exists('platform_data_sources')) {
+        return array_values(array_map(static function (array $credential): array {
+            $credential['credential_ref'] = (int)($credential['id'] ?? 0);
+            $credential['safe_source_projection_ids'] = [];
+            $credential['safe_source_projection_status'] = 'migration_required';
+            $credential['safe_source_projection_reason'] = 'platform_data_sources_table_missing';
+            return $credential;
+        }, $credentialRows));
     }
 
-    return [];
+    $sourceFields = p0_existing_columns('platform_data_sources', [
+        'id', 'tenant_id', 'system_hotel_id', 'platform', 'config_json',
+    ]);
+    if (!in_array('system_hotel_id', $sourceFields, true)
+        || !in_array('platform', $sourceFields, true)
+        || !in_array('config_json', $sourceFields, true)
+    ) {
+        return array_values(array_map(static function (array $credential): array {
+            $credential['credential_ref'] = (int)($credential['id'] ?? 0);
+            $credential['safe_source_projection_ids'] = [];
+            $credential['safe_source_projection_status'] = 'migration_required';
+            $credential['safe_source_projection_reason'] = 'platform_data_sources_metadata_schema_incomplete';
+            return $credential;
+        }, $credentialRows));
+    }
+    $sourceQuery = Db::name('platform_data_sources')
+        ->field(implode(',', $sourceFields))
+        ->where('platform', $platform);
+    if ($scopeSystemHotelId > 0) {
+        $sourceQuery->where('system_hotel_id', $scopeSystemHotelId);
+    }
+    $sourceRows = $sourceQuery->order('id', 'asc')->select()->toArray();
+
+    $items = [];
+    foreach ($credentialRows as $credential) {
+        $hotelId = (int)($credential['system_hotel_id'] ?? 0);
+        $tenantId = (int)($snapshot['hotel_tenants'][$hotelId] ?? 0);
+        $credentialRef = (int)($credential['id'] ?? 0);
+        $configId = trim((string)($credential['config_id'] ?? ''));
+        $projection = [];
+        $sourceIds = [];
+        $projectionConflict = false;
+        $projectionKeys = [
+            'config_id', 'source_config_id', 'source_config_key',
+            'profile_id', 'profileId',
+            'hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId', 'node_id', 'nodeId',
+            'store_id', 'storeId', 'poi_id', 'poiId', 'partner_id', 'partnerId',
+            'hotel_name', 'name', 'poi_name', 'poiName',
+        ];
+        foreach ($sourceRows as $sourceRow) {
+            if ((int)($sourceRow['system_hotel_id'] ?? 0) !== $hotelId) {
+                continue;
+            }
+            $sourceTenantId = (int)($sourceRow['tenant_id'] ?? 0);
+            if ($sourceTenantId > 0 && $sourceTenantId !== $tenantId) {
+                continue;
+            }
+            $decoded = json_decode((string)($sourceRow['config_json'] ?? ''), true);
+            $safeConfig = p0_safe_platform_config_projection(is_array($decoded) ? $decoded : []);
+            $sourceCredentialRef = (int)($safeConfig['credential_ref'] ?? 0);
+            $sourceConfigId = '';
+            foreach (['config_id', 'source_config_id', 'source_config_key'] as $key) {
+                $value = trim((string)($safeConfig[$key] ?? ''));
+                if ($value !== '') {
+                    $sourceConfigId = $value;
+                    break;
+                }
+            }
+            $hasCredentialRef = $sourceCredentialRef > 0;
+            $hasConfigId = $sourceConfigId !== '';
+            $credentialRefMatches = $hasCredentialRef && $sourceCredentialRef === $credentialRef;
+            $configIdMatches = $hasConfigId && $sourceConfigId === $configId;
+            if ($hasCredentialRef && $hasConfigId && $credentialRefMatches !== $configIdMatches) {
+                $projectionConflict = true;
+                continue;
+            }
+            if (!$credentialRefMatches && !$configIdMatches) {
+                continue;
+            }
+
+            $sourceIds[] = (int)($sourceRow['id'] ?? 0);
+            foreach ($safeConfig as $key => $value) {
+                if (!in_array($key, $projectionKeys, true)) {
+                    continue;
+                }
+                $currentValue = $projection[$key] ?? null;
+                $currentEmpty = !array_key_exists($key, $projection)
+                    || (is_array($currentValue) ? $currentValue === [] : trim((string)$currentValue) === '');
+                if ($currentEmpty) {
+                    $projection[$key] = $value;
+                    continue;
+                }
+                $incomingEmpty = is_array($value) ? $value === [] : trim((string)$value) === '';
+                if (!$incomingEmpty && json_encode($currentValue) !== json_encode($value)) {
+                    $projectionConflict = true;
+                }
+            }
+        }
+        if (p0_platform_projection_has_identity_conflict($platform, $projection)) {
+            $projectionConflict = true;
+        }
+
+        $item = array_merge($credential, $projection);
+        $item['credential_ref'] = $credentialRef;
+        $item['tenant_id'] = $tenantId;
+        $item['safe_source_projection_ids'] = array_values(array_filter(array_unique($sourceIds), static fn(int $id): bool => $id > 0));
+        $item['safe_source_projection_status'] = $projectionConflict
+            ? 'blocked'
+            : ($item['safe_source_projection_ids'] === [] ? 'migration_required' : 'ready');
+        $item['safe_source_projection_reason'] = $projectionConflict
+            ? 'source_config_projection_conflict'
+            : ($item['safe_source_projection_ids'] === [] ? 'credential_source_projection_missing' : '');
+        $items[] = $item;
+    }
+
+    return $items;
 }
 
 /**
@@ -1608,23 +2238,65 @@ function p0_count_items_with_traffic_url(array $items, array $keys): int
 /**
  * @return array<string, mixed>
  */
-function p0_config_availability(string $platform): array
+function p0_config_availability(string $platform, int $scopeSystemHotelId = 0): array
 {
-    $items = p0_config_items($platform);
-    $urlKeys = ['traffic_url', 'trafficUrl', 'flow_url', 'flowUrl', 'url', 'endpoint', 'request_url'];
-    $payloadKeys = ['traffic_payload', 'trafficPayload', 'flow_payload', 'flowPayload', 'payload', 'params', 'extra_params', 'query_params'];
-    $authKeys = ['cookies', 'cookie', 'auth_data', 'headers', 'authorization'];
+    $snapshot = p0_credential_metadata_snapshot($platform, $scopeSystemHotelId);
+    $items = p0_config_items($platform, $scopeSystemHotelId);
     $idKeys = $platform === 'meituan'
-        ? ['partner_id', 'poi_id', 'store_id', 'hotel_id']
-        : ['node_id', 'hotel_id', 'platform_hotel_id', 'ota_hotel_id'];
+        ? ['partner_id', 'partnerId', 'poi_id', 'poiId', 'store_id', 'storeId']
+        : ['node_id', 'nodeId', 'hotel_id', 'hotelId', 'ctrip_hotel_id', 'ctripHotelId'];
+    $readyCredentialCount = count(array_filter(
+        $items,
+        static fn(array $item): bool => strtolower(trim((string)($item['credential_status'] ?? ''))) === 'ready'
+    ));
+    $projectionMigrationRequiredCount = count(array_filter(
+        $items,
+        static fn(array $item): bool => (string)($item['safe_source_projection_status'] ?? '') === 'migration_required'
+    ));
+    $projectionBlockedCount = count(array_filter(
+        $items,
+        static fn(array $item): bool => (string)($item['safe_source_projection_status'] ?? '') === 'blocked'
+    ));
+    $snapshotStatus = (string)($snapshot['status'] ?? 'migration_required');
+    $blocked = $snapshotStatus === 'blocked' || $projectionBlockedCount > 0;
+    $migrationRequired = !$blocked && (
+        $snapshotStatus === 'migration_required'
+        || $readyCredentialCount === 0
+        || $projectionMigrationRequiredCount > 0
+    );
+    $credentialMetadataReason = (string)($snapshot['reason'] ?? '');
+    if ($projectionBlockedCount > 0) {
+        $credentialMetadataReason = 'source_config_projection_conflict';
+    } elseif ($projectionMigrationRequiredCount > 0 && $credentialMetadataReason === '') {
+        foreach ($items as $item) {
+            if ((string)($item['safe_source_projection_status'] ?? '') === 'migration_required') {
+                $credentialMetadataReason = (string)($item['safe_source_projection_reason'] ?? 'credential_source_projection_missing');
+                break;
+            }
+        }
+    } elseif ($readyCredentialCount === 0 && $credentialMetadataReason === '') {
+        $credentialMetadataReason = 'credential_metadata_missing';
+    }
 
     return [
         'config_count' => count($items),
-        'with_any_url_count' => p0_count_items_with_any_key($items, $urlKeys),
-        'with_traffic_url_count' => p0_count_items_with_traffic_url($items, $urlKeys),
-        'with_payload_context_count' => p0_count_items_with_any_key($items, $payloadKeys),
-        'with_auth_context_count' => p0_count_items_with_any_key($items, $authKeys),
+        'with_any_url_count' => 0,
+        'with_traffic_url_count' => 0,
+        'with_payload_context_count' => 0,
+        'with_auth_context_count' => $readyCredentialCount,
         'with_platform_id_count' => p0_count_items_with_any_key($items, $idKeys),
+        'credential_metadata_table_present' => (bool)($snapshot['table_present'] ?? false),
+        'credential_metadata_status' => $blocked ? 'blocked' : ($migrationRequired ? 'migration_required' : 'ready'),
+        'credential_metadata_reason' => $blocked || $migrationRequired ? $credentialMetadataReason : '',
+        'ready_credential_count' => $readyCredentialCount,
+        'credential_not_ready_count' => (int)($snapshot['not_ready_count'] ?? 0),
+        'credential_tenant_mismatch_count' => (int)($snapshot['tenant_mismatch_count'] ?? 0),
+        'credential_hotel_metadata_missing_count' => (int)($snapshot['hotel_metadata_missing_count'] ?? 0),
+        'source_projection_migration_required_count' => $projectionMigrationRequiredCount,
+        'source_projection_blocked_count' => $projectionBlockedCount,
+        'migration_required' => $migrationRequired,
+        'blocked' => $blocked,
+        'source_policy' => 'ota_credentials_metadata_plus_safe_platform_data_source_projection_tenant_id_from_hotels',
         'sensitive_values_exposed' => false,
     ];
 }
@@ -1648,15 +2320,85 @@ function p0_profile_dir_availability(string $platform): array
 /**
  * @param array<string, mixed> $config
  */
-function p0_traffic_profile_login_state_verified(array $config): bool
+function p0_traffic_profile_dir_present(string $platform, array $config): bool
+{
+    global $root;
+
+    if (!in_array($platform, ['ctrip', 'meituan'], true)) {
+        return false;
+    }
+    $profileKeys = $platform === 'meituan'
+        ? ['store_id', 'storeId', 'profile_id', 'profileId']
+        : ['profile_id', 'profileId'];
+    $profileId = '';
+    foreach ($profileKeys as $key) {
+        $profileId = trim((string)($config[$key] ?? ''));
+        if ($profileId !== '') {
+            break;
+        }
+    }
+    if ($profileId === '') {
+        return false;
+    }
+    $safeProfileId = preg_replace('/[^a-zA-Z0-9_.-]+/', '_', $profileId) ?: 'default';
+    $profileDir = $root . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . $platform . '_profile_' . $safeProfileId;
+    return is_dir($profileDir);
+}
+
+/**
+ * @param array<string, mixed> $config
+ */
+function p0_truthy_config_value(mixed $value): bool
+{
+    if (is_bool($value)) {
+        return $value;
+    }
+    if (is_int($value)) {
+        return $value === 1;
+    }
+    return is_string($value) && in_array(strtolower(trim($value)), ['1', 'true', 'yes', 'verified'], true);
+}
+
+/**
+ * Historical flags and timestamps are reference metadata only. They never
+ * prove that the current browser session is still authorized.
+ *
+ * @param array<string, mixed> $config
+ */
+function p0_traffic_historical_login_metadata_present(array $config): bool
 {
     foreach (['manual_login_state_verified', 'login_state_verified', 'profile_login_verified'] as $key) {
-        if (($config[$key] ?? false) === true) {
+        if (p0_truthy_config_value($config[$key] ?? false)) {
             return true;
         }
     }
-
+    foreach (['last_login_verified_at', 'profile_login_verified_at', 'last_profile_login_at'] as $key) {
+        if (trim((string)($config[$key] ?? '')) !== '') {
+            return true;
+        }
+    }
     return false;
+}
+
+/**
+ * Current-session proof is owned by the runtime proof service. The verifier
+ * must not maintain a weaker parallel interpretation of the same metadata.
+ *
+ * @param array<string, mixed> $row
+ * @param array<string, mixed> $config
+ */
+function p0_traffic_current_session_verified(array $row, array $config): bool
+{
+    try {
+        $source = $row;
+        $source['config_json'] = json_encode(
+            $config,
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+        );
+        return (new \app\service\OtaProfileSessionProofService())->isCurrentVerified($source);
+    } catch (Throwable) {
+        return false;
+    }
 }
 
 function p0_traffic_platform_hotel_identifier_present(string $platform, array $config): bool
@@ -1672,17 +2414,429 @@ function p0_traffic_platform_hotel_identifier_present(string $platform, array $c
     return false;
 }
 
-function p0_traffic_source_issue_code(array $row, array $config): string
+/**
+ * @param array<string, mixed> $config
+ */
+function p0_profile_key_from_config(string $platform, array $config): string
+{
+    $keys = $platform === 'meituan'
+        ? ['store_id', 'storeId', 'profile_id', 'profileId']
+        : ['profile_id', 'profileId'];
+    foreach ($keys as $key) {
+        $value = trim((string)($config[$key] ?? ''));
+        if ($value !== '') {
+            return $value;
+        }
+    }
+    return '';
+}
+
+function p0_profile_key_hash(string $profileKey): string
+{
+    $profileKey = trim($profileKey);
+    if ($profileKey === '') {
+        return '';
+    }
+    $safeFilePart = \app\service\BrowserProfileCaptureRequestService::safeFilePart($profileKey);
+    if ($safeFilePart === '' || $safeFilePart === 'default') {
+        return '';
+    }
+    return hash('sha256', $safeFilePart);
+}
+
+/**
+ * Return only conflicted source ids. Raw Profile keys and their hashes never
+ * leave this internal ownership check.
+ *
+ * @return array<int, bool>
+ */
+function p0_profile_scope_conflicted_source_ids(string $platform): array
+{
+    static $cache = [];
+    if (isset($cache[$platform])) {
+        return $cache[$platform];
+    }
+    if (!p0_table_exists('platform_data_sources')) {
+        return $cache[$platform] = [];
+    }
+    $fields = p0_existing_columns('platform_data_sources', [
+        'id', 'tenant_id', 'system_hotel_id', 'platform', 'ingestion_method', 'status', 'enabled', 'config_json',
+    ]);
+    if (array_diff(['id', 'system_hotel_id', 'platform', 'ingestion_method', 'status', 'enabled', 'config_json'], $fields) !== []) {
+        return $cache[$platform] = [];
+    }
+    $rows = Db::name('platform_data_sources')
+        ->field(implode(',', $fields))
+        ->where('platform', $platform)
+        ->whereIn('ingestion_method', ['browser_profile', 'profile_browser'])
+        ->where('enabled', 1)
+        ->where('status', '<>', 'disabled')
+        ->select()
+        ->toArray();
+    $groups = [];
+    foreach ($rows as $row) {
+        $decoded = json_decode((string)($row['config_json'] ?? ''), true);
+        $config = p0_safe_platform_config_projection(is_array($decoded) ? $decoded : []);
+        $profileKeyHash = p0_profile_key_hash(p0_profile_key_from_config($platform, $config));
+        $sourceId = (int)($row['id'] ?? 0);
+        $hotelId = (int)($row['system_hotel_id'] ?? 0);
+        if ($profileKeyHash === '' || $sourceId <= 0 || $hotelId <= 0) {
+            continue;
+        }
+        $hotelTenantId = p0_hotel_tenant_id($hotelId);
+        $tenantId = $hotelTenantId > 0 ? $hotelTenantId : (int)($row['tenant_id'] ?? 0);
+        $scope = $tenantId . ':' . $hotelId;
+        $groups[$profileKeyHash]['scopes'][$scope] = true;
+        $groups[$profileKeyHash]['source_ids'][$sourceId] = true;
+    }
+
+    $conflicted = [];
+    foreach ($groups as $group) {
+        if (count((array)($group['scopes'] ?? [])) <= 1) {
+            continue;
+        }
+        foreach (array_keys((array)($group['source_ids'] ?? [])) as $sourceId) {
+            $conflicted[(int)$sourceId] = true;
+        }
+    }
+    return $cache[$platform] = $conflicted;
+}
+
+/**
+ * @param array<string, mixed> $row
+ * @param array<string, mixed> $config
+ * @param array<int, bool> $conflictedSourceIds
+ * @return array{status:string,reason:string}
+ */
+function p0_profile_binding_scope_status(string $platform, array $row, array $config, array $conflictedSourceIds): array
+{
+    $profileKeyHash = p0_profile_key_hash(p0_profile_key_from_config($platform, $config));
+    if ($profileKeyHash === '') {
+        return ['status' => 'migration_required', 'reason' => 'profile_key_missing'];
+    }
+    if (!p0_table_exists('ota_profile_bindings')) {
+        return ['status' => 'migration_required', 'reason' => 'profile_binding_table_missing'];
+    }
+    $fields = p0_existing_columns('ota_profile_bindings', [
+        'id', 'tenant_id', 'system_hotel_id', 'platform', 'profile_key_hash', 'binding_status',
+    ]);
+    if (array_diff(['id', 'tenant_id', 'system_hotel_id', 'platform', 'profile_key_hash', 'binding_status'], $fields) !== []) {
+        return ['status' => 'migration_required', 'reason' => 'profile_binding_schema_incomplete'];
+    }
+
+    $activeBindings = Db::name('ota_profile_bindings')
+        ->field(implode(',', $fields))
+        ->where('platform', $platform)
+        ->where('profile_key_hash', $profileKeyHash)
+        ->where('binding_status', 'active')
+        ->select()
+        ->toArray();
+    if ($activeBindings === []) {
+        $bindingExists = (int)Db::name('ota_profile_bindings')
+            ->where('platform', $platform)
+            ->where('profile_key_hash', $profileKeyHash)
+            ->count() > 0;
+        return [
+            'status' => $bindingExists ? 'blocked' : 'migration_required',
+            'reason' => $bindingExists ? 'profile_binding_not_active' : 'profile_binding_missing',
+        ];
+    }
+    if (count($activeBindings) !== 1) {
+        return ['status' => 'blocked', 'reason' => 'profile_binding_ambiguous'];
+    }
+
+    $sourceId = (int)($row['id'] ?? 0);
+    $hotelId = (int)($row['system_hotel_id'] ?? 0);
+    $tenantId = p0_hotel_tenant_id($hotelId);
+    $binding = $activeBindings[0];
+    if ($tenantId <= 0
+        || (int)($binding['tenant_id'] ?? 0) !== $tenantId
+        || (int)($binding['system_hotel_id'] ?? 0) !== $hotelId
+    ) {
+        return ['status' => 'blocked', 'reason' => 'profile_binding_scope_mismatch'];
+    }
+    if ($sourceId <= 0 || isset($conflictedSourceIds[$sourceId])) {
+        return ['status' => 'blocked', 'reason' => 'profile_scope_conflict_across_hotel_or_tenant'];
+    }
+
+    return ['status' => 'ready', 'reason' => ''];
+}
+
+/**
+ * Active Profile bindings define the hotel denominator. Enabled same-scope
+ * Profile sources validate each binding but never remove a bound hotel.
+ *
+ * @param array<int, array<string, mixed>> $hotelRows
+ * @param array<int, array<string, mixed>> $bindingRows
+ * @param array<int, array<string, mixed>> $sourceRows
+ * @return array<string, mixed>
+ */
+function p0_resolve_profile_scope_denominator(
+    string $platform,
+    int $scopeSystemHotelId,
+    array $hotelRows,
+    array $bindingRows,
+    array $sourceRows
+): array {
+    $platform = strtolower(trim($platform));
+    $validHotels = [];
+    foreach ($hotelRows as $hotel) {
+        $hotelId = (int)($hotel['id'] ?? 0);
+        $tenantId = (int)($hotel['tenant_id'] ?? 0);
+        if ($hotelId <= 0
+            || $tenantId <= 0
+            || (int)($hotel['status'] ?? 0) !== 1
+            || ($scopeSystemHotelId > 0 && $hotelId !== $scopeSystemHotelId)
+        ) {
+            continue;
+        }
+        $validHotels[$hotelId] = $tenantId;
+    }
+
+    $bindingScopeKeysByHotel = [];
+    foreach ($bindingRows as $binding) {
+        $hotelId = (int)($binding['system_hotel_id'] ?? 0);
+        $tenantId = (int)($binding['tenant_id'] ?? 0);
+        $profileKeyHash = strtolower(trim((string)($binding['profile_key_hash'] ?? '')));
+        if (strtolower(trim((string)($binding['platform'] ?? ''))) !== $platform
+            || strtolower(trim((string)($binding['binding_status'] ?? ''))) !== 'active'
+            || ($validHotels[$hotelId] ?? 0) !== $tenantId
+            || !preg_match('/^[a-f0-9]{64}$/', $profileKeyHash)
+        ) {
+            continue;
+        }
+        $scopeKey = $tenantId . ':' . $hotelId . ':' . $profileKeyHash;
+        $bindingScopeKeysByHotel[$hotelId][$scopeKey] = true;
+    }
+
+    $matchedScopeKeys = [];
+    foreach ($sourceRows as $source) {
+        $hotelId = (int)($source['system_hotel_id'] ?? 0);
+        $tenantId = (int)($source['tenant_id'] ?? 0);
+        $profileKeyHash = strtolower(trim((string)($source['profile_key_hash'] ?? '')));
+        $scopeKey = $tenantId . ':' . $hotelId . ':' . $profileKeyHash;
+        if (strtolower(trim((string)($source['platform'] ?? ''))) !== $platform
+            || ($validHotels[$hotelId] ?? 0) !== $tenantId
+            || !in_array(strtolower(trim((string)($source['ingestion_method'] ?? ''))), ['browser_profile', 'profile_browser'], true)
+            || (int)($source['enabled'] ?? 0) !== 1
+            || strtolower(trim((string)($source['status'] ?? ''))) === 'disabled'
+            || !preg_match('/^[a-f0-9]{64}$/', $profileKeyHash)
+            || !isset($bindingScopeKeysByHotel[$hotelId][$scopeKey])
+        ) {
+            continue;
+        }
+        $matchedScopeKeys[$scopeKey] = true;
+    }
+
+    $systemHotelIds = array_values(array_map('intval', array_keys($bindingScopeKeysByHotel)));
+    sort($systemHotelIds);
+    $matchedHotelIds = [];
+    $missingHotelIds = [];
+    $bindingScopeCount = 0;
+    foreach ($systemHotelIds as $hotelId) {
+        $scopeKeys = array_keys($bindingScopeKeysByHotel[$hotelId]);
+        $bindingScopeCount += count($scopeKeys);
+        $missingScopeKeys = array_filter(
+            $scopeKeys,
+            static fn(string $scopeKey): bool => !isset($matchedScopeKeys[$scopeKey])
+        );
+        if ($missingScopeKeys === []) {
+            $matchedHotelIds[] = $hotelId;
+        } else {
+            $missingHotelIds[] = $hotelId;
+        }
+    }
+
+    return [
+        'status' => $systemHotelIds === []
+            ? 'no_active_profile_bindings'
+            : ($missingHotelIds === [] ? 'ready' : 'incomplete'),
+        'system_hotel_ids' => $systemHotelIds,
+        'matched_profile_source_hotel_ids' => $matchedHotelIds,
+        'missing_profile_source_hotel_ids' => $missingHotelIds,
+        'binding_scope_count' => $bindingScopeCount,
+        'matched_profile_source_scope_count' => count($matchedScopeKeys),
+        'missing_profile_source_scope_count' => max(0, $bindingScopeCount - count($matchedScopeKeys)),
+        'source_policy' => 'active_profile_bindings_define_denominator; enabled_same_tenant_hotel_platform_profile_sources_any_data_type_validate_each_scope',
+        'sensitive_values_exposed' => false,
+    ];
+}
+
+/** @return array<string, mixed> */
+function p0_profile_scope_denominator(string $platform, int $scopeSystemHotelId = 0): array
+{
+    foreach (['hotels', 'ota_profile_bindings', 'platform_data_sources'] as $table) {
+        if (!p0_table_exists($table)) {
+            return [
+                'status' => 'unavailable',
+                'reason' => $table . '_table_missing',
+                'system_hotel_ids' => [],
+                'matched_profile_source_hotel_ids' => [],
+                'missing_profile_source_hotel_ids' => [],
+                'sensitive_values_exposed' => false,
+            ];
+        }
+    }
+
+    $hotelFields = p0_existing_columns('hotels', ['id', 'tenant_id', 'status']);
+    $bindingFields = p0_existing_columns('ota_profile_bindings', [
+        'tenant_id', 'system_hotel_id', 'platform', 'profile_key_hash', 'binding_status',
+    ]);
+    $sourceFields = p0_existing_columns('platform_data_sources', [
+        'tenant_id', 'system_hotel_id', 'platform', 'data_type', 'ingestion_method', 'enabled', 'status', 'config_json',
+    ]);
+    if (array_diff(['id', 'tenant_id', 'status'], $hotelFields) !== []
+        || array_diff(['tenant_id', 'system_hotel_id', 'platform', 'profile_key_hash', 'binding_status'], $bindingFields) !== []
+        || array_diff(['tenant_id', 'system_hotel_id', 'platform', 'data_type', 'ingestion_method', 'enabled', 'status', 'config_json'], $sourceFields) !== []
+    ) {
+        return [
+            'status' => 'unavailable',
+            'reason' => 'profile_scope_schema_incomplete',
+            'system_hotel_ids' => [],
+            'matched_profile_source_hotel_ids' => [],
+            'missing_profile_source_hotel_ids' => [],
+            'sensitive_values_exposed' => false,
+        ];
+    }
+
+    $hotelQuery = Db::name('hotels')
+        ->field(implode(',', $hotelFields))
+        ->where('tenant_id', '>', 0)
+        ->where('status', 1);
+    if ($scopeSystemHotelId > 0) {
+        $hotelQuery->where('id', $scopeSystemHotelId);
+    }
+    $hotelRows = $hotelQuery->select()->toArray();
+    $hotelIds = array_values(array_filter(array_map(
+        static fn(array $hotel): int => (int)($hotel['id'] ?? 0),
+        $hotelRows
+    ), static fn(int $hotelId): bool => $hotelId > 0));
+    if ($hotelIds === []) {
+        return p0_resolve_profile_scope_denominator($platform, $scopeSystemHotelId, $hotelRows, [], []);
+    }
+
+    $bindingRows = Db::name('ota_profile_bindings')
+        ->field(implode(',', $bindingFields))
+        ->where('platform', $platform)
+        ->whereIn('system_hotel_id', $hotelIds)
+        ->where('binding_status', 'active')
+        ->select()
+        ->toArray();
+    $sourceRows = Db::name('platform_data_sources')
+        ->field(implode(',', $sourceFields))
+        ->where('platform', $platform)
+        ->whereIn('system_hotel_id', $hotelIds)
+        ->whereIn('ingestion_method', ['browser_profile', 'profile_browser'])
+        ->select()
+        ->toArray();
+    foreach ($sourceRows as &$source) {
+        $decoded = json_decode((string)($source['config_json'] ?? ''), true);
+        $config = p0_safe_platform_config_projection(is_array($decoded) ? $decoded : []);
+        $source['profile_key_hash'] = p0_profile_key_hash(p0_profile_key_from_config($platform, $config));
+        unset($source['config_json']);
+    }
+    unset($source);
+
+    return p0_resolve_profile_scope_denominator(
+        $platform,
+        $scopeSystemHotelId,
+        $hotelRows,
+        $bindingRows,
+        $sourceRows
+    );
+}
+
+/** @return array<string, mixed> */
+function p0_profile_scope_traffic_closure(array $profileScope, array $sources, array $trafficFieldFacts): array
+{
+    $expectedHotelIds = array_values(array_unique(array_filter(array_map(
+        'intval',
+        (array)($profileScope['system_hotel_ids'] ?? [])
+    ), static fn(int $hotelId): bool => $hotelId > 0)));
+    sort($expectedHotelIds);
+    $trafficSourceHotelIds = [];
+    foreach ((array)($sources['traffic_source_rows'] ?? []) as $source) {
+        if (!is_array($source)
+            || empty($source['enabled'])
+            || !in_array(strtolower(trim((string)($source['ingestion_method'] ?? ''))), ['browser_profile', 'profile_browser'], true)
+            || strtolower(trim((string)($source['profile_binding_status'] ?? ''))) !== 'ready'
+        ) {
+            continue;
+        }
+        $hotelId = (int)($source['system_hotel_id'] ?? 0);
+        if ($hotelId > 0) {
+            $trafficSourceHotelIds[] = $hotelId;
+        }
+    }
+    $trafficSourceHotelIds = array_values(array_unique($trafficSourceHotelIds));
+    sort($trafficSourceHotelIds);
+    $storedHotelIds = array_values(array_unique(array_filter(array_map(
+        'intval',
+        (array)($trafficFieldFacts['system_hotel_ids'] ?? [])
+    ), static fn(int $hotelId): bool => $hotelId > 0)));
+    sort($storedHotelIds);
+    $missingProfileSourceHotelIds = array_values(array_intersect(
+        $expectedHotelIds,
+        array_map('intval', (array)($profileScope['missing_profile_source_hotel_ids'] ?? []))
+    ));
+    $missingTrafficSourceHotelIds = array_values(array_diff($expectedHotelIds, $trafficSourceHotelIds));
+    $missingTargetDateTrafficHotelIds = array_values(array_diff($expectedHotelIds, $storedHotelIds));
+    $hotelScopedFieldFactStatus = (string)($trafficFieldFacts['hotel_scoped_closure_status'] ?? 'not_loaded');
+    if ($hotelScopedFieldFactStatus !== 'ready'
+        && count($expectedHotelIds) === 1
+        && $storedHotelIds === $expectedHotelIds
+        && (string)($trafficFieldFacts['status'] ?? '') === 'ready'
+    ) {
+        $hotelScopedFieldFactStatus = 'ready';
+    }
+    $ready = $expectedHotelIds !== []
+        && (string)($profileScope['status'] ?? '') === 'ready'
+        && $missingProfileSourceHotelIds === []
+        && $missingTrafficSourceHotelIds === []
+        && $missingTargetDateTrafficHotelIds === []
+        && $hotelScopedFieldFactStatus === 'ready';
+
+    return [
+        'status' => $ready ? 'ready' : 'incomplete',
+        'system_hotel_ids' => $expectedHotelIds,
+        'profile_scope_hotel_count' => count($expectedHotelIds),
+        'matched_profile_source_hotel_ids' => array_values(array_diff($expectedHotelIds, $missingProfileSourceHotelIds)),
+        'missing_profile_source_hotel_ids' => $missingProfileSourceHotelIds,
+        'traffic_source_hotel_ids' => $trafficSourceHotelIds,
+        'missing_traffic_source_hotel_ids' => $missingTrafficSourceHotelIds,
+        'target_date_traffic_hotel_ids' => $storedHotelIds,
+        'missing_target_date_traffic_hotel_ids' => $missingTargetDateTrafficHotelIds,
+        'hotel_scoped_field_fact_status' => $hotelScopedFieldFactStatus,
+        'policy' => 'every active Profile binding hotel requires a matching enabled Profile source, traffic source, target-date traffic rows, and ready hotel-scoped field facts',
+    ];
+}
+
+function p0_traffic_source_issue_code(array $row, array $config, array $credentialMetadata, array $profileBinding): string
 {
     if ((int)($row['enabled'] ?? 0) !== 1) {
         return 'source_disabled';
+    }
+    if ((string)($credentialMetadata['status'] ?? '') === 'migration_required') {
+        return 'credential_metadata_migration_required';
+    }
+    if ((string)($credentialMetadata['status'] ?? '') === 'blocked') {
+        return 'credential_metadata_blocked';
     }
 
     $status = strtolower(trim((string)($row['status'] ?? '')));
     $lastSyncStatus = strtolower(trim((string)($row['last_sync_status'] ?? '')));
     $lastError = strtolower(trim((string)($row['last_error'] ?? '')));
-    $isBrowserProfileSource = in_array((string)($row['ingestion_method'] ?? ''), ['browser_profile', 'profile_browser'], true);
-    $loginStateVerified = $isBrowserProfileSource && p0_traffic_profile_login_state_verified($config);
+    $isBrowserProfileSource = p0_is_browser_profile_ingestion_method($row['ingestion_method'] ?? '');
+    $currentSessionVerified = $isBrowserProfileSource && p0_traffic_current_session_verified($row, $config);
+    if ($isBrowserProfileSource && (string)($profileBinding['status'] ?? '') !== 'ready') {
+        return (string)($profileBinding['reason'] ?? 'profile_binding_unverified');
+    }
+    if ($isBrowserProfileSource && !p0_traffic_profile_dir_present((string)($row['platform'] ?? ''), $config)) {
+        return 'profile_not_prepared';
+    }
+    if ($isBrowserProfileSource && !p0_traffic_platform_hotel_identifier_present((string)($row['platform'] ?? ''), $config)) {
+        return 'platform_hotel_identifier_missing';
+    }
     if ($lastError !== '') {
         if (str_contains($lastError, 'cannot find package')
             || str_contains($lastError, 'err_module_not_found')
@@ -1695,7 +2849,7 @@ function p0_traffic_source_issue_code(array $row, array $config): string
             || str_contains($lastError, 'profile_not_prepared')
             || str_contains($lastError, 'profile directory')
         ) {
-            if (!$loginStateVerified) {
+            if (!$currentSessionVerified) {
                 return 'profile_not_prepared';
             }
         }
@@ -1705,19 +2859,17 @@ function p0_traffic_source_issue_code(array $row, array $config): string
             || str_contains($lastError, 'login expired')
             || str_contains($lastError, '登录')
         ) {
-            if (!$loginStateVerified) {
-                return 'login_session_not_ready';
-            }
+            return $currentSessionVerified ? 'no_target_date_rows_after_success' : 'ready_for_session_probe';
         }
     }
 
     if (in_array($lastSyncStatus, ['failed', 'capture_failed'], true) || $status === 'failed') {
         return 'capture_failed';
     }
-    if ($isBrowserProfileSource && !$loginStateVerified) {
-        return 'manual_login_state_unverified';
+    if ($isBrowserProfileSource && !$currentSessionVerified) {
+        return 'ready_for_session_probe';
     }
-    if ($status === 'waiting_config' || ($lastSyncStatus === 'waiting_config' && !$loginStateVerified)) {
+    if ($status === 'waiting_config' || ($lastSyncStatus === 'waiting_config' && !$currentSessionVerified)) {
         return 'waiting_config';
     }
     if ($lastSyncStatus === 'success' || $status === 'success' || $status === 'ready') {
@@ -2003,7 +3155,7 @@ function p0_accumulate_latest_sync_task(array &$summary, array $task): void
 /**
  * @return array<string, mixed>
  */
-function p0_platform_data_source_availability(string $platform, string $targetDate = ''): array
+function p0_platform_data_source_availability(string $platform, string $targetDate = '', int $scopeSystemHotelId = 0): array
 {
     if (!p0_table_exists('platform_data_sources')) {
         return [
@@ -2018,7 +3170,21 @@ function p0_platform_data_source_availability(string $platform, string $targetDa
             'traffic_waiting_config_count' => 0,
             'traffic_managed_count' => 0,
             'traffic_secret_configured_count' => 0,
+            'traffic_credential_ready_count' => 0,
+            'traffic_credential_migration_required_count' => 0,
+            'traffic_credential_blocked_count' => 0,
+            'traffic_credential_not_required_count' => 0,
+            'traffic_credential_required_count' => 0,
+            'traffic_browser_profile_count' => 0,
+            'traffic_profile_dir_present_count' => 0,
             'traffic_profile_login_verified_count' => 0,
+            'traffic_historical_login_metadata_count' => 0,
+            'traffic_current_session_verified_count' => 0,
+            'traffic_profile_binding_ready_count' => 0,
+            'traffic_profile_binding_blocked_count' => 0,
+            'traffic_profile_prepared_for_probe_count' => 0,
+            'traffic_profile_flow_ready_count' => 0,
+            'traffic_profile_platform_hotel_identifier_count' => 0,
             'traffic_source_issue_counts' => [],
             'traffic_source_issue_codes' => [],
             'traffic_last_sync_status_counts' => [],
@@ -2032,6 +3198,10 @@ function p0_platform_data_source_availability(string $platform, string $targetDa
             'traffic_source_rows' => [],
             'method_counts' => [],
             'status_counts' => [],
+            'credential_metadata_status' => 'migration_required',
+            'credential_metadata_reason' => 'platform_data_sources_table_missing',
+            'credential_metadata_issue_counts' => ['platform_data_sources_table_missing' => 1],
+            'source_policy' => 'ota_credentials_metadata_plus_safe_platform_data_source_projection_tenant_id_from_hotels',
         ];
     }
 
@@ -2047,13 +3217,15 @@ function p0_platform_data_source_availability(string $platform, string $targetDa
         'last_sync_time',
         'last_error',
         'config_json',
-        'secret_json',
+        'tenant_id',
     ]);
-    $rows = Db::name('platform_data_sources')
+    $sourceQuery = Db::name('platform_data_sources')
         ->field(implode(',', $fields))
-        ->where('platform', $platform)
-        ->select()
-        ->toArray();
+        ->where('platform', $platform);
+    if ($scopeSystemHotelId > 0) {
+        $sourceQuery->where('system_hotel_id', $scopeSystemHotelId);
+    }
+    $rows = $sourceQuery->select()->toArray();
 
     $methodCounts = [];
     $statusCounts = [];
@@ -2067,7 +3239,22 @@ function p0_platform_data_source_availability(string $platform, string $targetDa
     $trafficWaitingConfigCount = 0;
     $trafficManagedCount = 0;
     $trafficSecretConfiguredCount = 0;
+    $trafficCredentialReadyCount = 0;
+    $trafficCredentialMigrationRequiredCount = 0;
+    $trafficCredentialBlockedCount = 0;
+    $trafficCredentialNotRequiredCount = 0;
+    $trafficCredentialRequiredCount = 0;
+    $trafficCredentialIssueReasons = [];
+    $trafficBrowserProfileCount = 0;
+    $trafficProfileDirPresentCount = 0;
     $trafficProfileLoginVerifiedCount = 0;
+    $trafficHistoricalLoginMetadataCount = 0;
+    $trafficCurrentSessionVerifiedCount = 0;
+    $trafficProfileBindingReadyCount = 0;
+    $trafficProfileBindingBlockedCount = 0;
+    $trafficProfilePreparedForProbeCount = 0;
+    $trafficProfileFlowReadyCount = 0;
+    $trafficProfilePlatformHotelIdentifierCount = 0;
     $trafficSourceIssueCounts = [];
     $trafficLatestSyncTaskSummary = [
         'traffic_latest_sync_task_count' => 0,
@@ -2079,6 +3266,8 @@ function p0_platform_data_source_availability(string $platform, string $targetDa
     ];
     $trafficSourceSamples = [];
     $trafficSourceRows = [];
+    $credentialSnapshot = p0_credential_metadata_snapshot($platform, $scopeSystemHotelId);
+    $profileScopeConflictedSourceIds = p0_profile_scope_conflicted_source_ids($platform);
     foreach ($rows as $row) {
         $dataType = strtolower((string)($row['data_type'] ?? ''));
         $method = strtolower((string)($row['ingestion_method'] ?? 'unknown'));
@@ -2103,13 +3292,33 @@ function p0_platform_data_source_availability(string $platform, string $targetDa
                 $trafficLastSyncStatusCounts[$lastSyncStatus] = ($trafficLastSyncStatusCounts[$lastSyncStatus] ?? 0) + 1;
             }
 
-            $config = json_decode((string)($row['config_json'] ?? ''), true);
-            $config = is_array($config) ? $config : [];
-            $secret = json_decode((string)($row['secret_json'] ?? ''), true);
-            $secretConfigured = is_array($secret) ? $secret !== [] : trim((string)($row['secret_json'] ?? '')) !== '';
+            $decodedConfig = json_decode((string)($row['config_json'] ?? ''), true);
+            $sourceConfig = is_array($decodedConfig) ? $decodedConfig : [];
+            $config = p0_safe_platform_config_projection($sourceConfig);
+            $credentialMetadata = p0_resolve_source_credential_metadata($platform, $row, $config, $credentialSnapshot);
+            $isBrowserProfileSource = p0_is_browser_profile_ingestion_method($method);
+            $credentialRequired = !$isBrowserProfileSource;
+            $credentialReady = (string)($credentialMetadata['status'] ?? '') === 'ready';
+            $credentialNotRequired = (string)($credentialMetadata['status'] ?? '') === 'not_required';
+            $credentialMetadataAllowsActions = $credentialReady || $credentialNotRequired;
+            $secretConfigured = $credentialRequired && $credentialReady;
             $managedByP0 = ($config['registered_by'] ?? '') === 'p0_ota_field_loop';
-            $loginStateVerified = $method === 'browser_profile' && p0_traffic_profile_login_state_verified($config);
-            $issueCode = p0_traffic_source_issue_code($row, $config);
+            $profileDirPresent = $isBrowserProfileSource && p0_traffic_profile_dir_present($platform, $config);
+            $historicalLoginMetadataPresent = $isBrowserProfileSource && p0_traffic_historical_login_metadata_present($config);
+            $currentSessionVerified = $isBrowserProfileSource && p0_traffic_current_session_verified($row, $sourceConfig);
+            $platformHotelIdentifierPresent = p0_traffic_platform_hotel_identifier_present($platform, $config);
+            $profileBinding = $isBrowserProfileSource
+                ? p0_profile_binding_scope_status($platform, $row, $config, $profileScopeConflictedSourceIds)
+                : ['status' => 'not_required', 'reason' => ''];
+            $profileBindingReady = (string)($profileBinding['status'] ?? '') === 'ready';
+            $profilePreparedForProbe = $isBrowserProfileSource
+                && $enabled
+                && $profileDirPresent
+                && $platformHotelIdentifierPresent
+                && $profileBindingReady
+                && $credentialMetadataAllowsActions;
+            $profileFlowReady = $profilePreparedForProbe && $currentSessionVerified;
+            $issueCode = p0_traffic_source_issue_code($row, $sourceConfig, $credentialMetadata, $profileBinding);
             $latestSyncTask = p0_latest_sync_task((int)($row['id'] ?? 0), $targetDate);
             p0_accumulate_latest_sync_task($trafficLatestSyncTaskSummary, $latestSyncTask);
             if ($issueCode !== '') {
@@ -2118,11 +3327,53 @@ function p0_platform_data_source_availability(string $platform, string $targetDa
             if ($managedByP0) {
                 $trafficManagedCount++;
             }
-            if ($secretConfigured) {
-                $trafficSecretConfiguredCount++;
+            if ($credentialRequired) {
+                $trafficCredentialRequiredCount++;
+                if ($secretConfigured) {
+                    $trafficSecretConfiguredCount++;
+                    $trafficCredentialReadyCount++;
+                } elseif ((string)($credentialMetadata['status'] ?? '') === 'migration_required') {
+                    $trafficCredentialMigrationRequiredCount++;
+                    $reason = (string)($credentialMetadata['reason'] ?? 'credential_metadata_migration_required');
+                    $trafficCredentialIssueReasons[$reason] = ($trafficCredentialIssueReasons[$reason] ?? 0) + 1;
+                } else {
+                    $trafficCredentialBlockedCount++;
+                    $reason = (string)($credentialMetadata['reason'] ?? 'credential_metadata_blocked');
+                    $trafficCredentialIssueReasons[$reason] = ($trafficCredentialIssueReasons[$reason] ?? 0) + 1;
+                }
+            } elseif ($credentialNotRequired) {
+                $trafficCredentialNotRequiredCount++;
+            } else {
+                $trafficCredentialBlockedCount++;
+                $reason = (string)($credentialMetadata['reason'] ?? 'credential_metadata_blocked');
+                $trafficCredentialIssueReasons[$reason] = ($trafficCredentialIssueReasons[$reason] ?? 0) + 1;
             }
-            if ($loginStateVerified) {
+            if ($isBrowserProfileSource) {
+                $trafficBrowserProfileCount++;
+            }
+            if ($profileDirPresent) {
+                $trafficProfileDirPresentCount++;
+            }
+            if ($historicalLoginMetadataPresent) {
+                $trafficHistoricalLoginMetadataCount++;
+            }
+            if ($currentSessionVerified) {
                 $trafficProfileLoginVerifiedCount++;
+                $trafficCurrentSessionVerifiedCount++;
+            }
+            if ($profileBindingReady) {
+                $trafficProfileBindingReadyCount++;
+            } elseif ($isBrowserProfileSource) {
+                $trafficProfileBindingBlockedCount++;
+            }
+            if ($profilePreparedForProbe) {
+                $trafficProfilePreparedForProbeCount++;
+            }
+            if ($profileFlowReady) {
+                $trafficProfileFlowReadyCount++;
+            }
+            if ($isBrowserProfileSource && $platformHotelIdentifierPresent) {
+                $trafficProfilePlatformHotelIdentifierCount++;
             }
             $captureSections = $config['capture_sections'] ?? $config['captureSections'] ?? [];
             $captureSectionsText = is_array($captureSections)
@@ -2140,9 +3391,25 @@ function p0_platform_data_source_availability(string $platform, string $targetDa
                 'issue_code' => $issueCode,
                 'managed_by_p0' => $managedByP0,
                 'capture_sections_has_traffic' => str_contains($captureSectionsText, 'traffic'),
-                'manual_login_state_verified' => $loginStateVerified,
-                'platform_hotel_identifier_present' => p0_traffic_platform_hotel_identifier_present($platform, $config),
+                'profile_dir_present' => $profileDirPresent,
+                'historical_login_metadata_present' => $historicalLoginMetadataPresent,
+                'login_evidence_scope' => $currentSessionVerified ? 'current_session_probe' : 'historical_metadata_only',
+                'current_session_probe_performed' => p0_truthy_config_value($config['current_session_probe_performed'] ?? false),
+                'current_session_verified' => $currentSessionVerified,
+                'current_session_status' => $currentSessionVerified ? 'verified' : 'unverified',
+                'manual_login_state_verified' => $currentSessionVerified,
+                'profile_binding_status' => (string)($profileBinding['status'] ?? 'migration_required'),
+                'profile_binding_reason' => (string)($profileBinding['reason'] ?? 'profile_binding_unverified'),
+                'profile_flow_ready' => $profileFlowReady,
+                'platform_hotel_identifier_present' => $platformHotelIdentifierPresent,
                 'secret_configured' => $secretConfigured,
+                'credential_required' => $credentialRequired,
+                'credential_ready' => $credentialReady,
+                'credential_ref' => $credentialMetadata['credential_ref'] ?? null,
+                'credential_status' => (string)($credentialMetadata['credential_status'] ?? ''),
+                'credential_metadata_status' => (string)($credentialMetadata['status'] ?? 'migration_required'),
+                'credential_metadata_reason' => (string)($credentialMetadata['reason'] ?? ''),
+                'credential_source_policy' => 'ota_credentials_metadata_only_tenant_id_from_hotels_no_legacy_secret_column_read',
                 'latest_sync_task' => $latestSyncTask,
                 'last_error_exposed' => false,
             ];
@@ -2157,7 +3424,7 @@ function p0_platform_data_source_availability(string $platform, string $targetDa
         if ($status === 'ready') {
             $readyCount++;
         }
-        if ($method === 'browser_profile') {
+        if (p0_is_browser_profile_ingestion_method($method)) {
             $browserProfileCount++;
         }
     }
@@ -2166,6 +3433,7 @@ function p0_platform_data_source_availability(string $platform, string $targetDa
     ksort($statusCounts);
     ksort($trafficLastSyncStatusCounts);
     ksort($trafficSourceIssueCounts);
+    ksort($trafficCredentialIssueReasons);
     ksort($trafficLatestSyncTaskSummary['traffic_latest_sync_task_status_counts']);
     ksort($trafficLatestSyncTaskSummary['traffic_latest_sync_task_message_code_counts']);
 
@@ -2181,7 +3449,21 @@ function p0_platform_data_source_availability(string $platform, string $targetDa
         'traffic_waiting_config_count' => $trafficWaitingConfigCount,
         'traffic_managed_count' => $trafficManagedCount,
         'traffic_secret_configured_count' => $trafficSecretConfiguredCount,
+        'traffic_credential_ready_count' => $trafficCredentialReadyCount,
+        'traffic_credential_migration_required_count' => $trafficCredentialMigrationRequiredCount,
+        'traffic_credential_blocked_count' => $trafficCredentialBlockedCount,
+        'traffic_credential_not_required_count' => $trafficCredentialNotRequiredCount,
+        'traffic_credential_required_count' => $trafficCredentialRequiredCount,
+        'traffic_browser_profile_count' => $trafficBrowserProfileCount,
+        'traffic_profile_dir_present_count' => $trafficProfileDirPresentCount,
         'traffic_profile_login_verified_count' => $trafficProfileLoginVerifiedCount,
+        'traffic_historical_login_metadata_count' => $trafficHistoricalLoginMetadataCount,
+        'traffic_current_session_verified_count' => $trafficCurrentSessionVerifiedCount,
+        'traffic_profile_binding_ready_count' => $trafficProfileBindingReadyCount,
+        'traffic_profile_binding_blocked_count' => $trafficProfileBindingBlockedCount,
+        'traffic_profile_prepared_for_probe_count' => $trafficProfilePreparedForProbeCount,
+        'traffic_profile_flow_ready_count' => $trafficProfileFlowReadyCount,
+        'traffic_profile_platform_hotel_identifier_count' => $trafficProfilePlatformHotelIdentifierCount,
         'traffic_source_issue_counts' => $trafficSourceIssueCounts,
         'traffic_source_issue_codes' => array_keys($trafficSourceIssueCounts),
         'traffic_last_sync_status_counts' => $trafficLastSyncStatusCounts,
@@ -2195,6 +3477,20 @@ function p0_platform_data_source_availability(string $platform, string $targetDa
         'traffic_source_rows' => $trafficSourceRows,
         'method_counts' => $methodCounts,
         'status_counts' => $statusCounts,
+        'credential_metadata_status' => $trafficCredentialBlockedCount > 0
+            ? 'blocked'
+            : ($trafficCredentialMigrationRequiredCount > 0
+                ? 'migration_required'
+                : ($trafficCredentialRequiredCount > 0
+                    ? 'ready'
+                    : ($trafficCredentialNotRequiredCount > 0 ? 'not_required' : ((string)($credentialSnapshot['status'] ?? 'migration_required'))))),
+        'credential_metadata_reason' => $trafficCredentialIssueReasons !== []
+            ? (string)array_key_first($trafficCredentialIssueReasons)
+            : ($trafficCredentialNotRequiredCount > 0 && $trafficCredentialRequiredCount === 0
+                ? 'browser_profile_vault_not_required'
+                : (string)($credentialSnapshot['reason'] ?? '')),
+        'credential_metadata_issue_counts' => $trafficCredentialIssueReasons,
+        'source_policy' => 'browser_profile_uses_safe_profile_metadata_manual_api_uses_ota_credentials_tenant_id_from_hotels',
     ];
 }
 
@@ -2322,10 +3618,31 @@ function p0_traffic_required_inputs(string $platform, array $config, array $prof
     }
 
     $required = [];
-    if ((int)($profile['profile_dir_count'] ?? 0) === 0) {
-        $required[] = 'authorized_' . $platform . '_profile_dir';
-    } elseif ((int)($sources['traffic_profile_login_verified_count'] ?? 0) === 0) {
-        $required[] = 'manual_login_state_verified';
+    $hasBrowserProfileSource = (int)($sources['traffic_browser_profile_count'] ?? 0) > 0;
+    if ($hasBrowserProfileSource) {
+        if ((int)($sources['traffic_profile_dir_present_count'] ?? 0) === 0) {
+            $required[] = 'authorized_' . $platform . '_profile_dir';
+        }
+        if ((int)($sources['traffic_profile_platform_hotel_identifier_count'] ?? 0) === 0) {
+            $required[] = 'platform_hotel_or_poi_id';
+        }
+        if ((int)($sources['traffic_profile_binding_ready_count'] ?? 0) === 0) {
+            $required[] = 'active_hotel_scoped_profile_binding';
+        }
+        if ((int)($sources['traffic_current_session_verified_count'] ?? 0) === 0) {
+            $required[] = 'current_session_probe_verified';
+        }
+        if ((int)($sources['traffic_profile_flow_ready_count'] ?? 0) === 0) {
+            $required[] = 'same_source_profile_flow_ready';
+        }
+    } elseif ((bool)($config['blocked'] ?? false)
+        || (string)($sources['credential_metadata_status'] ?? '') === 'blocked'
+    ) {
+        $required[] = 'ota_credential_metadata_blocked';
+    } elseif ((bool)($config['migration_required'] ?? false)
+        || (string)($sources['credential_metadata_status'] ?? '') === 'migration_required'
+    ) {
+        $required[] = 'ota_credential_metadata_migration_required';
     }
     $hasTrafficEvidenceEntry = (int)($template['traffic_template_count'] ?? 0) > 0
         || (int)($template['traffic_catalog_endpoint_count'] ?? 0) > 0
@@ -2379,13 +3696,15 @@ function p0_traffic_input_contract(string $platform, string $mode): array
             'required_inputs' => [
                 'target_date',
                 'system_hotel_id',
+                'config_id',
                 $platform === 'ctrip' ? 'ctrip_hotel_id_or_node_id' : 'meituan_poi_id_or_partner_id',
-                'authorized_cookie_or_headers',
+                'ready_ota_credential_metadata',
                 'traffic_request_url_or_cdp_endpoint_evidence',
                 'traffic_payload_or_query_params',
                 'desensitized_traffic_response_sample_or_source_trace_id',
             ],
             'forbidden_inputs' => [
+                'inline_cookie_or_headers',
                 'raw_cookie_value_in_report',
                 'raw_token_value_in_report',
                 'raw_profile_path_in_report',
@@ -2399,7 +3718,8 @@ function p0_traffic_input_contract(string $platform, string $mode): array
                 'target_date',
                 'system_hotel_id',
                 'authorized_' . $platform . '_profile_dir',
-                'manual_login_state_verified',
+                'active_hotel_scoped_profile_binding',
+                'current_session_probe_verified_on_same_data_source',
                 'traffic_response_listener',
                 'desensitized_traffic_response_sample_or_source_trace_id',
             ],
@@ -2458,6 +3778,15 @@ function p0_traffic_closure_path_options(string $platform, array $config, array 
     }
 
     $manualMissing = [];
+    if ((bool)($config['blocked'] ?? false)
+        || (string)($sources['credential_metadata_status'] ?? '') === 'blocked'
+    ) {
+        $manualMissing[] = 'ota_credential_metadata_blocked';
+    } elseif ((bool)($config['migration_required'] ?? false)
+        || (string)($sources['credential_metadata_status'] ?? '') === 'migration_required'
+    ) {
+        $manualMissing[] = 'ota_credential_metadata_migration_required';
+    }
     $hasManualTrafficUrl = (int)($config['with_traffic_url_count'] ?? 0) > 0
         || (bool)($template['default_traffic_url_available'] ?? false);
     if (!$hasManualTrafficUrl) {
@@ -2466,8 +3795,11 @@ function p0_traffic_closure_path_options(string $platform, array $config, array 
     if ((int)($config['with_payload_context_count'] ?? 0) === 0) {
         $manualMissing[] = 'traffic_payload_or_query_params';
     }
-    if ((int)($config['with_auth_context_count'] ?? 0) === 0) {
-        $manualMissing[] = 'authorized_cookie_or_headers';
+    if ((int)($config['with_auth_context_count'] ?? 0) === 0
+        && !in_array('ota_credential_metadata_blocked', $manualMissing, true)
+        && !in_array('ota_credential_metadata_migration_required', $manualMissing, true)
+    ) {
+        $manualMissing[] = 'ready_ota_credential_metadata';
     }
     if ((int)($config['with_platform_id_count'] ?? 0) === 0) {
         $manualMissing[] = 'platform_hotel_or_poi_id';
@@ -2476,18 +3808,36 @@ function p0_traffic_closure_path_options(string $platform, array $config, array 
         $manualMissing[] = 'registered_traffic_data_source';
     }
 
-    $profileMissing = [];
-    if ((int)($profile['profile_dir_count'] ?? 0) === 0) {
-        $profileMissing[] = 'authorized_' . $platform . '_profile_dir';
-    } elseif ((int)($sources['traffic_profile_login_verified_count'] ?? 0) === 0) {
-        $profileMissing[] = 'manual_login_state_verified';
+    $profilePreparationMissing = [];
+    if ((int)($sources['traffic_browser_profile_count'] ?? 0) === 0) {
+        $profilePreparationMissing[] = 'registered_browser_profile_data_source';
+    }
+    if ((int)($sources['traffic_profile_dir_present_count'] ?? 0) === 0) {
+        $profilePreparationMissing[] = 'authorized_' . $platform . '_profile_dir';
+    }
+    if ((int)($sources['traffic_profile_platform_hotel_identifier_count'] ?? 0) === 0) {
+        $profilePreparationMissing[] = 'platform_hotel_or_poi_id';
+    }
+    if ((int)($sources['traffic_profile_binding_ready_count'] ?? 0) === 0) {
+        $profilePreparationMissing[] = 'active_hotel_scoped_profile_binding';
+    }
+    if ((int)($sources['traffic_profile_prepared_for_probe_count'] ?? 0) === 0) {
+        $profilePreparationMissing[] = 'same_source_profile_preparation_ready';
     }
     if (!(bool)($template['profile_capture_script_present'] ?? false)) {
-        $profileMissing[] = $platform . '_profile_capture_script';
+        $profilePreparationMissing[] = $platform . '_profile_capture_script';
     }
     if (!(bool)($template['profile_capture_sections_include_traffic'] ?? false)) {
-        $profileMissing[] = 'profile_capture_traffic_section';
+        $profilePreparationMissing[] = 'profile_capture_traffic_section';
     }
+    $profileFlowReady = (int)($sources['traffic_profile_flow_ready_count'] ?? 0) > 0;
+    $profileMissing = $profilePreparationMissing;
+    if ($profilePreparationMissing === [] && !$profileFlowReady) {
+        $profileMissing[] = 'current_session_probe_verified';
+    }
+    $profileStatus = $profilePreparationMissing !== []
+        ? 'missing_inputs'
+        : ($profileFlowReady ? 'ready_for_sync' : 'ready_for_session_probe');
 
     $evidenceMissing = [];
     $hasTrafficEvidenceEntry = (int)($template['traffic_template_count'] ?? 0) > 0
@@ -2501,10 +3851,12 @@ function p0_traffic_closure_path_options(string $platform, array $config, array 
         [
             'mode' => 'browser_profile',
             'entry' => $platform === 'ctrip' ? '/api/online-data/capture-ctrip-browser' : '/api/online-data/capture-meituan-browser',
-            'status' => $profileMissing === [] ? 'ready_to_attempt' : 'missing_inputs',
+            'status' => $profileStatus,
             'missing_inputs' => array_values(array_unique($profileMissing)),
-            'can_run_now' => $profileMissing === [],
-            'reason' => 'Default mainline: use a local authorized browser Profile after login state has been manually verified, then capture platform page traffic responses.',
+            'can_run_now' => $profileFlowReady,
+            'reason' => $profileFlowReady
+                ? 'Default mainline: the same hotel-scoped source has an active binding, Profile directory, current-session proof, and platform identity; it may proceed to sync.'
+                : 'Default mainline: historical login metadata is reference only; run a current-session probe on the same bound hotel-scoped source before sync.',
             'boundary' => 'Does not bypass captcha, SMS, human verification, or platform permissions.',
             'input_contract' => p0_traffic_input_contract($platform, 'browser_profile'),
             'acceptance_contract' => p0_traffic_acceptance_contract(),
@@ -2520,8 +3872,8 @@ function p0_traffic_closure_path_options(string $platform, array $config, array 
             'status' => $manualMissing === [] && $evidenceMissing === [] ? 'ready_to_attempt' : 'missing_inputs',
             'missing_inputs' => array_values(array_unique(array_merge($manualMissing, $evidenceMissing))),
             'can_run_now' => $manualMissing === [] && $evidenceMissing === [],
-            'reason' => 'Temporary fallback only when a real traffic URL, payload/query params, auth context, and platform hotel/POI id are already available.',
-            'boundary' => 'Not the daily mainline; does not auto-login to OTA and does not infer missing payload fields.',
+            'reason' => 'Temporary fallback only when a real traffic URL, payload/query params, ready vault-backed credential reference, and platform hotel/POI id are already available.',
+            'boundary' => 'Not the daily mainline; accepts config_id instead of inline reusable credentials and does not infer missing payload fields.',
             'input_contract' => p0_traffic_input_contract($platform, 'manual_cookie_api'),
             'acceptance_contract' => p0_traffic_acceptance_contract(),
         ],
@@ -2543,7 +3895,10 @@ function p0_recommended_traffic_action(string $platform, array $pathOptions): ar
         $missingCount = count(array_values(array_filter((array)($option['missing_inputs'] ?? []), static fn($item): bool => trim((string)$item) !== '')));
         $ranked[] = [
             'index' => $index,
-            'ready_rank' => (bool)($option['can_run_now'] ?? false) || (string)($option['status'] ?? '') === 'ready_to_attempt' ? 0 : 1,
+            'ready_rank' => (bool)($option['can_run_now'] ?? false)
+                || in_array((string)($option['status'] ?? ''), ['ready_for_session_probe', 'ready_for_sync', 'ready_to_attempt'], true)
+                ? 0
+                : 1,
             'missing_count' => $missingCount,
             'preferred_rank' => (string)($option['mode'] ?? '') === $preferredMode ? 0 : 1,
             'option' => $option,
@@ -2612,7 +3967,7 @@ function p0_hotel_scoped_profile_login_trigger_action(string $platform, string $
     }
 
     return [
-        'status' => 'client_local_authorization_required',
+        'status' => 'ready_for_session_probe',
         'method' => 'CLIENT_OPEN',
         'entry' => $platform === 'meituan' ? 'https://me.meituan.com/ebooking/' : 'https://ebooking.ctrip.com/home/mainland',
         'authorization_policy' => 'account_owner_local_computer_only',
@@ -2623,7 +3978,7 @@ function p0_hotel_scoped_profile_login_trigger_action(string $platform, string $
             'data_date' => $targetDate,
             'capture_sections' => 'traffic',
         ],
-        'request_policy' => 'account owner completes OTA login, SMS/captcha, and permission checks on their own computer; verifier does not expose raw platform identifiers; sync_after_login runs only after manual_login_state_verified=true.',
+        'request_policy' => 'account owner performs a current-session probe and completes OTA login, SMS/captcha, and permission checks on their own computer; historical login metadata is reference only; verifier does not expose raw platform identifiers.',
         'after_login_sync' => [
             'method' => 'POST',
             'entry' => '/api/online-data/data-sources/' . $dataSourceId . '/sync',
@@ -2694,7 +4049,8 @@ function p0_hotel_scoped_capture_bridge_contract(string $platform, string $targe
         ],
         'post_import_verifier_command' => 'npm.cmd run verify:p0-ota-field-loop -- --date=' . $targetDate . ' --platform=' . $platform . ' --system-hotel-id=' . $systemHotelId,
         'manual_gates' => [
-            'manual_login_state_verified',
+            'active_hotel_scoped_profile_binding',
+            'current_session_probe_verified_on_same_data_source',
             'authorized_profile_matches_selected_hotel',
             'authorized_platform_hotel_identifier_provided',
             'target_date_traffic_response_captured',
@@ -2935,7 +4291,14 @@ function p0_hotel_scoped_traffic_payload_contract(string $platform, string $targ
  * @param array<string, mixed> $sources
  * @return array<int, array<string, mixed>>
  */
-function p0_hotel_scoped_traffic_sources(string $platform, string $targetDate, int $scopeSystemHotelId, array $sources, array $targetTrafficSystemHotelIds = []): array
+function p0_hotel_scoped_traffic_sources(
+    string $platform,
+    string $targetDate,
+    int $scopeSystemHotelId,
+    array $sources,
+    array $targetTrafficSystemHotelIds = [],
+    array $profileScope = []
+): array
 {
     $rows = [];
     $seen = [];
@@ -2970,8 +4333,24 @@ function p0_hotel_scoped_traffic_sources(string $platform, string $targetDate, i
             'last_sync_status' => (string)($sample['last_sync_status'] ?? ''),
             'managed_by_p0' => (bool)($sample['managed_by_p0'] ?? false),
             'capture_sections_has_traffic' => (bool)($sample['capture_sections_has_traffic'] ?? false),
+            'profile_dir_present' => (bool)($sample['profile_dir_present'] ?? false),
+            'historical_login_metadata_present' => (bool)($sample['historical_login_metadata_present'] ?? false),
+            'login_evidence_scope' => (string)($sample['login_evidence_scope'] ?? 'historical_metadata_only'),
+            'current_session_probe_performed' => (bool)($sample['current_session_probe_performed'] ?? false),
+            'current_session_verified' => (bool)($sample['current_session_verified'] ?? false),
+            'current_session_status' => (string)($sample['current_session_status'] ?? 'unverified'),
             'manual_login_state_verified' => (bool)($sample['manual_login_state_verified'] ?? false),
+            'profile_binding_status' => (string)($sample['profile_binding_status'] ?? 'migration_required'),
+            'profile_binding_reason' => (string)($sample['profile_binding_reason'] ?? 'profile_binding_unverified'),
+            'profile_flow_ready' => (bool)($sample['profile_flow_ready'] ?? false),
+            'platform_hotel_identifier_present' => (bool)($sample['platform_hotel_identifier_present'] ?? false),
             'secret_configured' => (bool)($sample['secret_configured'] ?? false),
+            'credential_required' => (bool)($sample['credential_required'] ?? true),
+            'credential_ready' => (bool)($sample['credential_ready'] ?? false),
+            'credential_ref' => $sample['credential_ref'] ?? null,
+            'credential_status' => (string)($sample['credential_status'] ?? ''),
+            'credential_metadata_status' => (string)($sample['credential_metadata_status'] ?? 'migration_required'),
+            'credential_metadata_reason' => (string)($sample['credential_metadata_reason'] ?? ''),
             'latest_sync_task' => p0_array($sample['latest_sync_task'] ?? null),
             'profile_login_trigger' => p0_hotel_scoped_profile_login_trigger_action($platform, $targetDate, $systemHotelId, $dataSourceId > 0 ? $dataSourceId : null),
             'payload_candidate_scan' => p0_hotel_scoped_payload_candidate_scan($platform, $targetDate, $systemHotelId),
@@ -2987,24 +4366,48 @@ function p0_hotel_scoped_traffic_sources(string $platform, string $targetDate, i
         if ($scopeSystemHotelId > 0 && $targetHotelId !== $scopeSystemHotelId) {
             continue;
         }
+        $profileSourceMissing = in_array(
+            $targetHotelId,
+            array_map('intval', (array)($profileScope['missing_profile_source_hotel_ids'] ?? [])),
+            true
+        );
+        $missingReason = $profileSourceMissing
+            ? 'profile_source_missing_for_active_binding'
+            : 'registered_traffic_data_source_missing';
         $rows[] = array_merge([
             'platform' => $platform,
             'system_hotel_id' => $targetHotelId,
             'data_source_id' => null,
             'ingestion_method' => '',
-            'status' => 'not_registered',
+            'status' => $profileSourceMissing ? 'profile_source_missing' : 'not_registered',
             'enabled' => false,
             'last_sync_status' => '',
             'managed_by_p0' => false,
             'capture_sections_has_traffic' => false,
+            'profile_dir_present' => false,
+            'historical_login_metadata_present' => false,
+            'login_evidence_scope' => 'historical_metadata_only',
+            'current_session_probe_performed' => false,
+            'current_session_verified' => false,
+            'current_session_status' => 'unverified',
             'manual_login_state_verified' => false,
+            'profile_binding_status' => 'migration_required',
+            'profile_binding_reason' => $missingReason,
+            'profile_flow_ready' => false,
+            'platform_hotel_identifier_present' => false,
             'secret_configured' => false,
+            'credential_required' => true,
+            'credential_ready' => false,
+            'credential_ref' => null,
+            'credential_status' => '',
+            'credential_metadata_status' => 'migration_required',
+            'credential_metadata_reason' => $missingReason,
             'latest_sync_task' => p0_latest_sync_task(0, $targetDate),
             'profile_login_trigger' => p0_hotel_scoped_profile_login_trigger_action($platform, $targetDate, $targetHotelId, null),
             'payload_candidate_scan' => p0_hotel_scoped_payload_candidate_scan($platform, $targetDate, $targetHotelId),
             'capture_bridge' => p0_hotel_scoped_capture_bridge_contract($platform, $targetDate, $targetHotelId),
             'payload_contract' => p0_hotel_scoped_traffic_payload_contract($platform, $targetDate, $targetHotelId),
-            'target_date_traffic_without_profile_step' => true,
+            'profile_scope_traffic_source_missing' => true,
         ], p0_hotel_scoped_traffic_commands($platform, $targetDate, $targetHotelId));
     }
 
@@ -3019,8 +4422,24 @@ function p0_hotel_scoped_traffic_sources(string $platform, string $targetDate, i
             'last_sync_status' => '',
             'managed_by_p0' => false,
             'capture_sections_has_traffic' => false,
+            'profile_dir_present' => false,
+            'historical_login_metadata_present' => false,
+            'login_evidence_scope' => 'historical_metadata_only',
+            'current_session_probe_performed' => false,
+            'current_session_verified' => false,
+            'current_session_status' => 'unverified',
             'manual_login_state_verified' => false,
+            'profile_binding_status' => 'migration_required',
+            'profile_binding_reason' => 'registered_traffic_data_source_missing',
+            'profile_flow_ready' => false,
+            'platform_hotel_identifier_present' => false,
             'secret_configured' => false,
+            'credential_required' => true,
+            'credential_ready' => false,
+            'credential_ref' => null,
+            'credential_status' => '',
+            'credential_metadata_status' => 'migration_required',
+            'credential_metadata_reason' => 'registered_traffic_data_source_missing',
             'latest_sync_task' => p0_latest_sync_task(0, $targetDate),
             'profile_login_trigger' => p0_hotel_scoped_profile_login_trigger_action($platform, $targetDate, $scopeSystemHotelId, null),
             'payload_candidate_scan' => p0_hotel_scoped_payload_candidate_scan($platform, $targetDate, $scopeSystemHotelId),
@@ -3041,11 +4460,33 @@ function p0_traffic_availability_status(array $summary, array $config, array $pr
     if ((int)($summary['traffic_rows'] ?? 0) > 0) {
         return 'ready';
     }
-    if ((int)($profile['profile_dir_count'] ?? 0) > 0) {
-        if ((int)($sources['traffic_profile_login_verified_count'] ?? 0) > 0) {
-            return 'profile_login_verified_without_target_date_rows';
+    if ((int)($sources['traffic_browser_profile_count'] ?? 0) > 0) {
+        if ((int)($sources['traffic_profile_binding_ready_count'] ?? 0) === 0) {
+            return 'profile_binding_unverified';
         }
-        return 'profile_context_present_unverified';
+        if ((int)($sources['traffic_profile_dir_present_count'] ?? 0) === 0) {
+            return 'profile_source_missing_authorized_profile_dir';
+        }
+        if ((int)($sources['traffic_profile_platform_hotel_identifier_count'] ?? 0) === 0) {
+            return 'profile_source_missing_platform_hotel_identifier';
+        }
+        if ((int)($sources['traffic_profile_prepared_for_probe_count'] ?? 0) === 0) {
+            return 'profile_source_scope_components_split_across_sources';
+        }
+        if ((int)($sources['traffic_profile_flow_ready_count'] ?? 0) > 0) {
+            return 'profile_current_session_verified_without_target_date_rows';
+        }
+        return 'ready_for_session_probe';
+    }
+    if ((bool)($config['blocked'] ?? false)
+        || (string)($sources['credential_metadata_status'] ?? '') === 'blocked'
+    ) {
+        return 'blocked_credential_metadata';
+    }
+    if ((bool)($config['migration_required'] ?? false)
+        || (string)($sources['credential_metadata_status'] ?? '') === 'migration_required'
+    ) {
+        return 'migration_required_credential_metadata';
     }
     $hasManualTrafficUrl = (int)($config['with_traffic_url_count'] ?? 0) > 0;
     $hasManualPayload = (int)($config['with_payload_context_count'] ?? 0) > 0;
@@ -3368,6 +4809,103 @@ function p0_standard_fact_summary(array $requiredMetricKeys, array $requiredStor
 }
 
 /**
+ * Resolve the expected OTA hotel/POI identifier from enabled, hotel-scoped
+ * Profile traffic sources. Only safe config metadata is projected; credential
+ * payloads are outside this verifier boundary.
+ *
+ * @return array<string, mixed>
+ */
+function p0_authoritative_profile_identifier_from_db(string $platform, int $systemHotelId): array
+{
+    static $cache = [];
+    $platform = strtolower(trim($platform));
+    $cacheKey = $platform . ':' . $systemHotelId;
+    if (isset($cache[$cacheKey])) {
+        return $cache[$cacheKey];
+    }
+
+    $missing = [
+        'status' => 'missing',
+        'reason' => 'authoritative_profile_source_missing',
+        'candidate_source_count' => 0,
+        'authoritative_source_count' => 0,
+        'identifier_count' => 0,
+        'sensitive_values_exposed' => false,
+        'source_policy' => 'enabled_same_tenant_hotel_platform_profile_traffic_source_safe_metadata_only',
+    ];
+    if (!in_array($platform, ['ctrip', 'meituan'], true) || $systemHotelId <= 0) {
+        $missing['reason'] = 'authoritative_profile_scope_invalid';
+        return $cache[$cacheKey] = $missing;
+    }
+    $tenantId = p0_hotel_tenant_id($systemHotelId);
+    if ($tenantId <= 0) {
+        $missing['reason'] = 'hotel_tenant_metadata_missing';
+        return $cache[$cacheKey] = $missing;
+    }
+    if (!p0_table_exists('platform_data_sources')) {
+        $missing['reason'] = 'platform_data_sources_table_missing';
+        return $cache[$cacheKey] = $missing;
+    }
+
+    $requiredFields = [
+        'id', 'tenant_id', 'system_hotel_id', 'platform', 'data_type',
+        'ingestion_method', 'status', 'enabled', 'config_json',
+    ];
+    $fields = p0_existing_columns('platform_data_sources', $requiredFields);
+    if (array_diff($requiredFields, $fields) !== []) {
+        $missing['status'] = 'blocked';
+        $missing['reason'] = 'platform_profile_source_schema_incomplete';
+        return $cache[$cacheKey] = $missing;
+    }
+
+    try {
+        $rows = Db::name('platform_data_sources')
+            ->field(implode(',', $fields))
+            ->where('platform', $platform)
+            ->where('system_hotel_id', $systemHotelId)
+            ->whereIn('data_type', ['traffic', 'flow', 'conversion'])
+            ->whereIn('ingestion_method', ['browser_profile', 'profile_browser'])
+            ->where('enabled', 1)
+            ->where('status', '<>', 'disabled')
+            ->select()
+            ->toArray();
+    } catch (Throwable) {
+        $missing['status'] = 'blocked';
+        $missing['reason'] = 'authoritative_profile_source_read_failed';
+        return $cache[$cacheKey] = $missing;
+    }
+
+    $conflictedSourceIds = p0_profile_scope_conflicted_source_ids($platform);
+    $safeSources = [];
+    foreach ($rows as $row) {
+        $decodedConfig = json_decode((string)($row['config_json'] ?? ''), true);
+        $config = p0_safe_platform_config_projection(is_array($decodedConfig) ? $decodedConfig : []);
+        $profileBinding = p0_profile_binding_scope_status($platform, $row, $config, $conflictedSourceIds);
+        $safeSources[] = [
+            'id' => (int)($row['id'] ?? 0),
+            'tenant_id' => (int)($row['tenant_id'] ?? 0),
+            'system_hotel_id' => (int)($row['system_hotel_id'] ?? 0),
+            'platform' => strtolower(trim((string)($row['platform'] ?? ''))),
+            'data_type' => strtolower(trim((string)($row['data_type'] ?? ''))),
+            'ingestion_method' => strtolower(trim((string)($row['ingestion_method'] ?? ''))),
+            'status' => strtolower(trim((string)($row['status'] ?? ''))),
+            'enabled' => (int)($row['enabled'] ?? 0) === 1,
+            'profile_binding_status' => (string)($profileBinding['status'] ?? 'migration_required'),
+            'config' => $config,
+        ];
+    }
+
+    $resolution = p0_authoritative_profile_identifier_resolution(
+        $platform,
+        $systemHotelId,
+        $tenantId,
+        $safeSources
+    );
+    $resolution['source_policy'] = 'enabled_same_tenant_hotel_platform_profile_traffic_source_safe_metadata_only';
+    return $cache[$cacheKey] = $resolution;
+}
+
+/**
  * @return array<string, mixed>
  */
 function p0_traffic_field_fact_closure(string $platform, string $targetDate, int $systemHotelId = 0): array
@@ -3397,8 +4935,17 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
         'platform_hotel_identifier_status' => 'not_loaded',
         'platform_hotel_identifier_rows' => 0,
         'missing_platform_hotel_identifier_rows' => 0,
+        'platform_hotel_identifier_match_status' => 'not_loaded',
+        'platform_hotel_identifier_matched_rows' => 0,
+        'platform_hotel_identifier_mismatch_rows' => 0,
+        'platform_hotel_identifier_match_reason_counts' => [],
         'system_hotel_ids' => [],
         'system_hotel_row_counts' => [],
+        'missing_system_hotel_id_rows' => 0,
+        'hotel_scoped_field_fact_closures' => [],
+        'hotel_scoped_closure_status' => 'not_loaded',
+        'hotel_scoped_ready_count' => 0,
+        'hotel_scoped_incomplete_count' => 0,
         'desensitized_capture_evidence_count' => 0,
         'matched_capture_evidence_count' => 0,
         'capture_evidence_mismatch_count' => 0,
@@ -3428,6 +4975,13 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
         ->where('source', $platform)
         ->where('data_date', $targetDate)
         ->whereIn('data_type', ['traffic', 'flow', 'conversion']);
+    if (isset($columns['data_period'])) {
+        $query->where(static function ($periodQuery): void {
+            $periodQuery
+                ->whereNull('data_period')
+                ->whereOr('data_period', 'not in', ['next_7_days', 'next_30_days', 'forecast', 'future_forecast']);
+        });
+    }
     if ($systemHotelId > 0 && isset($columns['system_hotel_id'])) {
         $query->where('system_hotel_id', $systemHotelId);
     } elseif ($systemHotelId > 0) {
@@ -3464,13 +5018,41 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
     $incomplete = [];
     $fieldLoopMatrix = p0_traffic_field_loop_matrix_index($requiredMetricKeys, $requiredStorageFields);
     foreach ($rows as $row) {
-        $raw = json_decode((string)($row['raw_data'] ?? ''), true);
-        if (!is_array($raw)) {
-            continue;
-        }
+        $decodedRaw = json_decode((string)($row['raw_data'] ?? ''), true);
+        $raw = is_array($decodedRaw) ? $decodedRaw : [];
         $rowSystemHotelId = (int)($row['system_hotel_id'] ?? 0);
         if ($rowSystemHotelId > 0) {
             $base['system_hotel_row_counts'][(string)$rowSystemHotelId] = (int)($base['system_hotel_row_counts'][(string)$rowSystemHotelId] ?? 0) + 1;
+        } else {
+            $base['missing_system_hotel_id_rows']++;
+        }
+        $rowIdentifierHashes = p0_platform_hotel_identifier_hashes($raw, $platform);
+        if ($rowIdentifierHashes !== []) {
+            $base['platform_hotel_identifier_rows']++;
+        } else {
+            $base['missing_platform_hotel_identifier_rows']++;
+        }
+        if ($rowSystemHotelId > 0) {
+            $identifierAuthority = p0_authoritative_profile_identifier_from_db($platform, $rowSystemHotelId);
+            $identifierMatch = p0_compare_row_platform_hotel_identifier($raw, $platform, $identifierAuthority);
+        } else {
+            $identifierMatch = [
+                'status' => 'authority_unavailable',
+                'reason' => 'system_hotel_id_missing',
+                'matched' => false,
+                'sensitive_values_exposed' => false,
+            ];
+        }
+        if (($identifierMatch['matched'] ?? false) === true) {
+            $base['platform_hotel_identifier_matched_rows']++;
+        } else {
+            $base['platform_hotel_identifier_mismatch_rows']++;
+            $identifierReason = trim((string)($identifierMatch['reason'] ?? 'platform_hotel_identifier_unverified'));
+            $base['platform_hotel_identifier_match_reason_counts'][$identifierReason] = (int)($base['platform_hotel_identifier_match_reason_counts'][$identifierReason] ?? 0) + 1;
+        }
+        if (!is_array($decodedRaw)) {
+            $base['ui_status_incomplete_rows']++;
+            continue;
         }
         $metrics = p0_required_traffic_metric_values($row);
         $hasNonzeroRequiredMetric = p0_has_nonzero_required_traffic_metric($metrics);
@@ -3493,11 +5075,6 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
         $rowEvidence = p0_external_desensitized_capture_evidence($raw);
         $rowSourceTraceId = trim((string)($row['source_trace_id'] ?? $raw['source_trace_id'] ?? $rowEvidence['source_trace_id'] ?? ''));
         $rowSourceUrlHash = trim((string)($rowEvidence['source_url_hash'] ?? ''));
-        if (p0_platform_hotel_identifier_present($raw, $platform)) {
-            $base['platform_hotel_identifier_rows']++;
-        } else {
-            $base['missing_platform_hotel_identifier_rows']++;
-        }
         $uiStatus = p0_required_traffic_ui_status(
             $facts,
             $row,
@@ -3610,17 +5187,22 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
     $base['system_hotel_ids'] = array_values(array_map('intval', array_keys((array)$base['system_hotel_row_counts'])));
     $base['ui_statuses'] = array_values(array_keys((array)$base['ui_statuses']));
     $base['required_metric_value_status'] = (int)$base['nonzero_required_metric_rows'] > 0 ? 'ready' : 'zero_value_unverified';
-    $base['platform_hotel_identifier_status'] = (int)$base['missing_platform_hotel_identifier_rows'] === 0
-        && (int)$base['platform_hotel_identifier_rows'] > 0
+    ksort($base['platform_hotel_identifier_match_reason_counts']);
+    $allIdentifiersMatched = (int)$base['traffic_row_count'] > 0
+        && $base['platform_hotel_identifier_matched_rows'] === (int)$base['traffic_row_count']
+        && (int)$base['platform_hotel_identifier_mismatch_rows'] === 0;
+    $base['platform_hotel_identifier_match_status'] = $allIdentifiersMatched ? 'matched' : 'unmatched';
+    $base['platform_hotel_identifier_status'] = $allIdentifiersMatched
         ? 'ready'
-        : 'missing';
+        : ((int)$base['missing_platform_hotel_identifier_rows'] > 0 ? 'missing' : 'mismatch');
     p0_finalize_traffic_field_loop_matrix($fieldLoopMatrix);
     $base['field_loop_matrix'] = p0_traffic_field_loop_matrix_values($fieldLoopMatrix);
     $base = array_merge($base, p0_standard_fact_summary($requiredMetricKeys, $requiredStorageFields, (array)$base['field_loop_matrix'], (int)$base['traffic_row_count']));
     $standardFactsReady = (string)($base['standard_fact_status'] ?? '') === 'ready';
     $uiClosureReady = (int)$base['ui_status_ready_rows'] > 0
-        && ($standardFactsReady || (int)$base['ui_status_incomplete_rows'] === 0);
-    $base['ui_status_closure_policy'] = 'P0 traffic UI closure is ready when the required metric matrix is ready and at least one target-date row has ready UI field-fact status; incomplete extra rows remain diagnostic evidence.';
+        && $standardFactsReady
+        && (int)$base['ui_status_incomplete_rows'] === 0;
+    $base['ui_status_closure_policy'] = 'P0 traffic UI closure requires the metric matrix and every target-date traffic row in scope to be ready; incomplete rows cannot be ignored.';
     $base['status'] = $missingKeys === []
         && $incompleteKeys === []
         && (int)$base['nonzero_required_metric_rows'] > 0
@@ -3633,11 +5215,59 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
     } elseif (!$uiClosureReady) {
         $base['status'] = 'ui_status_incomplete';
     } elseif ((string)$base['platform_hotel_identifier_status'] !== 'ready') {
-        $base['status'] = 'platform_hotel_identifier_missing';
+        if ((string)$base['platform_hotel_identifier_status'] === 'mismatch') {
+            $base['status'] = 'platform_hotel_identifier_mismatch';
+        } else {
+            $base['status'] = 'platform_hotel_identifier_missing';
+        }
     } elseif ((int)$base['nonzero_required_metric_rows'] === 0) {
         $base['status'] = 'zero_value_unverified';
         $base['standard_fact_status'] = 'zero_value_unverified';
         $base['standard_fact_status_counts']['zero_value_unverified'] = (int)$base['traffic_row_count'];
+    }
+
+    if ($systemHotelId <= 0 && isset($columns['system_hotel_id'])) {
+        $hotelScopedClosures = [];
+        $hotelScopedReadyCount = 0;
+        foreach ((array)$base['system_hotel_ids'] as $hotelIdValue) {
+            $hotelId = (int)$hotelIdValue;
+            if ($hotelId <= 0) {
+                continue;
+            }
+            $hotelClosure = p0_traffic_field_fact_closure($platform, $targetDate, $hotelId);
+            $hotelStatus = (string)($hotelClosure['status'] ?? 'incomplete');
+            if ($hotelStatus === 'ready') {
+                $hotelScopedReadyCount++;
+            }
+            $hotelScopedClosures[] = [
+                'system_hotel_id' => $hotelId,
+                'status' => $hotelStatus,
+                'traffic_row_count' => (int)($hotelClosure['traffic_row_count'] ?? 0),
+                'complete_metric_keys' => array_values(array_map('strval', (array)($hotelClosure['complete_metric_keys'] ?? []))),
+                'missing_metric_keys' => array_values(array_map('strval', (array)($hotelClosure['missing_metric_keys'] ?? []))),
+                'incomplete_metric_keys' => array_values(array_map('strval', (array)($hotelClosure['incomplete_metric_keys'] ?? []))),
+                'ui_status_ready_rows' => (int)($hotelClosure['ui_status_ready_rows'] ?? 0),
+                'ui_status_incomplete_rows' => (int)($hotelClosure['ui_status_incomplete_rows'] ?? 0),
+                'platform_hotel_identifier_status' => (string)($hotelClosure['platform_hotel_identifier_status'] ?? 'not_loaded'),
+                'platform_hotel_identifier_match_status' => (string)($hotelClosure['platform_hotel_identifier_match_status'] ?? 'not_loaded'),
+                'platform_hotel_identifier_matched_rows' => (int)($hotelClosure['platform_hotel_identifier_matched_rows'] ?? 0),
+                'platform_hotel_identifier_mismatch_rows' => (int)($hotelClosure['platform_hotel_identifier_mismatch_rows'] ?? 0),
+                'platform_hotel_identifier_match_reason_counts' => p0_array($hotelClosure['platform_hotel_identifier_match_reason_counts'] ?? null),
+            ];
+        }
+        $hotelScopedIncompleteCount = count($hotelScopedClosures) - $hotelScopedReadyCount;
+        $hotelScopedReady = $hotelScopedClosures !== []
+            && $hotelScopedIncompleteCount === 0
+            && (int)$base['missing_system_hotel_id_rows'] === 0;
+        $base['hotel_scoped_field_fact_closures'] = $hotelScopedClosures;
+        $base['hotel_scoped_ready_count'] = $hotelScopedReadyCount;
+        $base['hotel_scoped_incomplete_count'] = $hotelScopedIncompleteCount;
+        $base['hotel_scoped_closure_status'] = $hotelScopedReady
+            ? 'ready'
+            : ((int)$base['missing_system_hotel_id_rows'] > 0 ? 'system_hotel_scope_missing' : 'incomplete');
+        if (!$hotelScopedReady && $base['status'] === 'ready') {
+            $base['status'] = 'hotel_scoped_incomplete';
+        }
     }
 
     return $base;
@@ -3663,21 +5293,26 @@ function p0_traffic_evidence_availability(array $sourceSummaryMap, array $platfo
     $externalPlatforms = p0_array($externalTrafficEvidence['platforms'] ?? null);
     foreach ($platforms as $platform) {
         $summary = p0_array($sourceSummaryMap[$platform] ?? null);
-        $config = p0_config_availability($platform);
+        $config = p0_config_availability($platform, $systemHotelId);
         $profile = p0_profile_dir_availability($platform);
-        $sources = p0_platform_data_source_availability($platform, $targetDate);
+        $profileScope = p0_profile_scope_denominator($platform, $systemHotelId);
+        $sources = p0_platform_data_source_availability($platform, $targetDate, $systemHotelId);
         $template = p0_endpoint_template_availability($platform);
         $externalPlatformEvidence = p0_array($externalPlatforms[$platform] ?? null);
         $trafficFieldFactClosure = p0_traffic_field_fact_closure($platform, $targetDate, $systemHotelId);
+        $profileScopeTrafficClosure = p0_profile_scope_traffic_closure($profileScope, $sources, $trafficFieldFactClosure);
         $requiredInputs = p0_traffic_required_inputs($platform, $config, $profile, $sources, $template, $summary);
         $pathOptions = p0_traffic_closure_path_options($platform, $config, $profile, $sources, $template, $summary);
         $recommendedAction = p0_recommended_traffic_action($platform, $pathOptions);
+        $profileScopeHotelIds = array_values(array_map('intval', (array)($profileScope['system_hotel_ids'] ?? [])));
+        $trafficRowHotelIds = array_values(array_map('intval', (array)($trafficFieldFactClosure['system_hotel_ids'] ?? [])));
         $hotelScopedSources = p0_hotel_scoped_traffic_sources(
             $platform,
             $targetDate,
             $systemHotelId,
             $sources,
-            array_values(array_map('intval', (array)($trafficFieldFactClosure['system_hotel_ids'] ?? [])))
+            array_values(array_unique(array_merge($profileScopeHotelIds, $trafficRowHotelIds))),
+            $profileScope
         );
         $hotelScopedCommands = [];
         $hotelScopedPayloadContracts = [];
@@ -3718,6 +5353,8 @@ function p0_traffic_evidence_availability(array $sourceSummaryMap, array $platfo
             'manual_context' => $config,
             'automatic_context' => $profile,
             'registered_sources' => $sources,
+            'profile_scope' => $profileScope,
+            'profile_scope_traffic_closure' => $profileScopeTrafficClosure,
             'evidence_template' => $template,
             'traffic_field_fact_closure' => $trafficFieldFactClosure,
             'required_next_inputs' => $requiredInputs,
@@ -4003,7 +5640,20 @@ function p0_platform_traffic_gate_next_steps(array $traffic): array
             'data_source_status' => (string)($source['status'] ?? ''),
             'last_sync_status' => (string)($source['last_sync_status'] ?? ''),
             'capture_sections_has_traffic' => (bool)($source['capture_sections_has_traffic'] ?? false),
+            'profile_dir_present' => (bool)($source['profile_dir_present'] ?? false),
+            'historical_login_metadata_present' => (bool)($source['historical_login_metadata_present'] ?? false),
+            'login_evidence_scope' => (string)($source['login_evidence_scope'] ?? 'historical_metadata_only'),
+            'current_session_probe_performed' => (bool)($source['current_session_probe_performed'] ?? false),
+            'current_session_verified' => (bool)($source['current_session_verified'] ?? false),
+            'current_session_status' => (string)($source['current_session_status'] ?? 'unverified'),
             'manual_login_state_verified' => (bool)($source['manual_login_state_verified'] ?? false),
+            'profile_binding_status' => (string)($source['profile_binding_status'] ?? 'migration_required'),
+            'profile_binding_reason' => (string)($source['profile_binding_reason'] ?? 'profile_binding_unverified'),
+            'profile_flow_ready' => (bool)($source['profile_flow_ready'] ?? false),
+            'platform_hotel_identifier_present' => (bool)($source['platform_hotel_identifier_present'] ?? false),
+            'credential_required' => (bool)($source['credential_required'] ?? true),
+            'credential_metadata_status' => (string)($source['credential_metadata_status'] ?? 'migration_required'),
+            'credential_metadata_reason' => (string)($source['credential_metadata_reason'] ?? ''),
             'payload_candidate_status' => (string)($payloadCandidateScan['status'] ?? ''),
             'payload_candidate_ready_to_execute' => (bool)($payloadCandidateScan['ready_to_execute'] ?? false),
             'payload_candidate_path' => (string)($payloadCandidateScan['payload_path'] ?? ''),
@@ -4086,6 +5736,7 @@ function p0_platform_traffic_gate(array $traffic): array
 {
     $targetDate = p0_array($traffic['target_date'] ?? null);
     $trafficFieldFacts = p0_array($traffic['traffic_field_fact_closure'] ?? null);
+    $profileScopeTrafficClosure = p0_array($traffic['profile_scope_traffic_closure'] ?? null);
     $externalEvidence = p0_array($traffic['external_traffic_evidence'] ?? null);
     $sourceTrafficRows = (int)($targetDate['traffic_rows'] ?? 0);
     $storedTrafficRows = (int)($trafficFieldFacts['traffic_row_count'] ?? 0);
@@ -4100,6 +5751,10 @@ function p0_platform_traffic_gate(array $traffic): array
     $platformHotelIdentifierSource = (string)($trafficFieldFacts['platform_hotel_identifier_source'] ?? '');
     $platformHotelIdentifierRows = (int)($trafficFieldFacts['platform_hotel_identifier_rows'] ?? 0);
     $missingPlatformHotelIdentifierRows = (int)($trafficFieldFacts['missing_platform_hotel_identifier_rows'] ?? 0);
+    $platformHotelIdentifierMatchStatus = (string)($trafficFieldFacts['platform_hotel_identifier_match_status'] ?? 'not_loaded');
+    $platformHotelIdentifierMatchedRows = (int)($trafficFieldFacts['platform_hotel_identifier_matched_rows'] ?? 0);
+    $platformHotelIdentifierMismatchRows = (int)($trafficFieldFacts['platform_hotel_identifier_mismatch_rows'] ?? 0);
+    $platformHotelIdentifierMatchReasonCounts = p0_array($trafficFieldFacts['platform_hotel_identifier_match_reason_counts'] ?? null);
     $nonzeroRequiredMetricRows = (int)($trafficFieldFacts['nonzero_required_metric_rows'] ?? 0);
     $zeroRequiredMetricRows = (int)($trafficFieldFacts['zero_required_metric_rows'] ?? 0);
     $requiredMetricValueStatus = (string)($trafficFieldFacts['required_metric_value_status'] ?? 'not_loaded');
@@ -4170,6 +5825,7 @@ function p0_platform_traffic_gate(array $traffic): array
     }
     $ready = $availabilityStatus === 'ready'
         && $fieldFactStatus === 'ready'
+        && (string)($profileScopeTrafficClosure['status'] ?? '') === 'ready'
         && $requiredMetricValuesReady
         && $trafficRows > 0
         && (bool)($traffic['sensitive_values_exposed'] ?? false) === false;
@@ -4185,6 +5841,8 @@ function p0_platform_traffic_gate(array $traffic): array
         $status = 'zero_value_unverified';
     } elseif ($fieldFactStatus !== 'ready') {
         $status = 'traffic_field_fact_closure_incomplete';
+    } elseif ((string)($profileScopeTrafficClosure['status'] ?? '') !== 'ready') {
+        $status = 'profile_scope_traffic_closure_incomplete';
     }
 
     return [
@@ -4212,8 +5870,17 @@ function p0_platform_traffic_gate(array $traffic): array
         'platform_hotel_identifier_status' => $platformHotelIdentifierStatus,
         'platform_hotel_identifier_rows' => $platformHotelIdentifierRows,
         'missing_platform_hotel_identifier_rows' => $missingPlatformHotelIdentifierRows,
+        'platform_hotel_identifier_match_status' => $platformHotelIdentifierMatchStatus,
+        'platform_hotel_identifier_matched_rows' => $platformHotelIdentifierMatchedRows,
+        'platform_hotel_identifier_mismatch_rows' => $platformHotelIdentifierMismatchRows,
+        'platform_hotel_identifier_match_reason_counts' => $platformHotelIdentifierMatchReasonCounts,
         'system_hotel_ids' => array_values(array_map('intval', (array)($trafficFieldFacts['system_hotel_ids'] ?? []))),
         'system_hotel_row_counts' => array_map('intval', (array)($trafficFieldFacts['system_hotel_row_counts'] ?? [])),
+        'profile_scope_traffic_closure_status' => (string)($profileScopeTrafficClosure['status'] ?? 'not_loaded'),
+        'profile_scope_system_hotel_ids' => array_values(array_map('intval', (array)($profileScopeTrafficClosure['system_hotel_ids'] ?? []))),
+        'profile_scope_missing_profile_source_hotel_ids' => array_values(array_map('intval', (array)($profileScopeTrafficClosure['missing_profile_source_hotel_ids'] ?? []))),
+        'profile_scope_missing_traffic_source_hotel_ids' => array_values(array_map('intval', (array)($profileScopeTrafficClosure['missing_traffic_source_hotel_ids'] ?? []))),
+        'profile_scope_missing_target_date_traffic_hotel_ids' => array_values(array_map('intval', (array)($profileScopeTrafficClosure['missing_target_date_traffic_hotel_ids'] ?? []))),
         'nonzero_required_metric_rows' => $nonzeroRequiredMetricRows,
         'zero_required_metric_rows' => $zeroRequiredMetricRows,
         'required_metric_value_status' => $requiredMetricValueStatus,
@@ -4265,6 +5932,7 @@ function p0_platform_traffic_gate(array $traffic): array
             ],
             'platform_hotel_identifier' => [
                 'status' => $platformHotelIdentifierStatus,
+                'match_status' => $platformHotelIdentifierMatchStatus,
                 'required' => $platformHotelIdentifierSource,
             ],
             'verifier' => [

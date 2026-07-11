@@ -20,13 +20,15 @@ const systemStaticSource = readFileSync('public/system-static.js', 'utf8');
 const meituanStaticSource = existsSync('public/meituan-static.js') ? readFileSync('public/meituan-static.js', 'utf8') : '';
 const source = [indexSource, otaDiagnosisStaticSource, autoFetchStaticSource, platformAutoSettingsSource, ctripStaticSource, systemStaticSource, meituanStaticSource].join('\n');
 const controllerSource = readBackendSource();
+const requestConcernSource = readFileSync('app/controller/concern/OnlineDataRequestConcern.php', 'utf8');
+const cookieEndpointSource = readFileSync('app/controller/concern/CookieEndpointConcern.php', 'utf8');
+const ctripCommentsSource = readFileSync('app/controller/concern/CtripCommentsConcern.php', 'utf8');
+const meituanConfigSource = readFileSync('app/controller/concern/MeituanConfigConcern.php', 'utf8');
 const routeSource = readFileSync('route/app.php', 'utf8');
 const ctripBrowserScriptPath = 'scripts/ctrip_browser_capture.mjs';
 const ctripBrowserScript = existsSync(ctripBrowserScriptPath) ? readFileSync(ctripBrowserScriptPath, 'utf8') : '';
 const ctripCookieApiScriptPath = 'scripts/ctrip_cookie_api_capture.mjs';
 const ctripCookieApiScript = existsSync(ctripCookieApiScriptPath) ? readFileSync(ctripCookieApiScriptPath, 'utf8') : '';
-const chromiumCookieExtractorPath = 'scripts/extract_chromium_cookie_header.php';
-const chromiumCookieExtractor = existsSync(chromiumCookieExtractorPath) ? readFileSync(chromiumCookieExtractorPath, 'utf8') : '';
 const ctripCatalogSource = existsSync('scripts/lib/ctrip_capture_catalog.mjs') ? readFileSync('scripts/lib/ctrip_capture_catalog.mjs', 'utf8') : '';
 
 const sliceBetween = (text, startText, endText) => {
@@ -45,8 +47,32 @@ const runFetchBody = [
   sliceBetween(otaDiagnosisStaticSource, 'const buildOtaDiagnosisFetchTasks = ({', 'const buildEmptyOtaDiagnosisFetchSummary'),
   sliceBetween(otaDiagnosisStaticSource, 'const runOtaDiagnosisHotelFetchFlow = async ({', 'const buildOtaDiagnosisGenerateRequestBody'),
 ].join('\n');
-const autoFetchTaskPlanMatch = controllerSource.match(/private function buildAutoFetchConfigTaskPlan[\s\S]*?\n    private function executeCtripAutoFetch/);
-const autoFetchTaskPlanBody = autoFetchTaskPlanMatch ? autoFetchTaskPlanMatch[0] : '';
+const cookieApiSanitizerBody = sliceBetween(
+  requestConcernSource,
+  'private function sanitizeCtripCookieApiExecutionRequestData',
+  'private function sanitizeCtripOverviewExecutionRequestData'
+);
+const cookieApiEndpointBody = sliceBetween(
+  requestConcernSource,
+  'public function fetchCtripCookieApiData',
+  'private function executeCtripCookieApiDataFetch'
+);
+const ctripBrowserCaptureBody = sliceBetween(
+  requestConcernSource,
+  'public function captureCtripBrowserData',
+  'public function validateCtripEndpointEvidence'
+);
+const ctripBrowserCapturePayloadBody = sliceBetween(
+  ctripStaticSource,
+  'const buildCtripBrowserCapturePayload = ({',
+  'const buildCtripBrowserCaptureRequestContext = ({'
+);
+const ctripOverviewRequestBody = sliceBetween(
+  ctripStaticSource,
+  'const buildCtripOverviewFetchRequestBody = ({',
+  'const runCtripOverviewFetchFlow = async ({'
+);
+const reusableOtaSecretTaskField = /['"](?:cookies?|auth_data|authorization|token|access_token|refresh_token|spidertoken|spider_token|spiderkey|spider_key|mtgsig|headers|headers_json|password|api_key)['"]\s*:/i;
 
 const checks = [
   {
@@ -61,48 +87,61 @@ const checks = [
   },
   {
     name: 'diagnosis fallback fetch includes Ctrip business data',
-    pass: source.includes("url: '/online-data/fetch-ctrip'"),
+    pass: runFetchBody.includes("label: 'ctrip-business'")
+      && runFetchBody.includes("url: '/online-data/fetch-ctrip'")
+      && runFetchBody.includes("required: ['config_id', 'node_id']")
+      && runFetchBody.includes('config_id: ctripConfigId')
+      && runFetchBody.includes('system_hotel_id: systemHotelId'),
   },
   {
     name: 'diagnosis fallback fetch includes Ctrip traffic data',
-    pass: source.includes("url: '/online-data/ctrip/traffic'"),
+    pass: runFetchBody.includes("label: 'ctrip-traffic'")
+      && runFetchBody.includes("url: '/online-data/ctrip/traffic'")
+      && runFetchBody.includes("required: ['config_id']")
+      && runFetchBody.includes('config_id: ctripConfigId')
+      && runFetchBody.includes('system_hotel_id: systemHotelId'),
   },
   {
-    name: 'diagnosis fallback fetch includes Ctrip Cookie API request list',
-    pass: runFetchBody.includes("readSavedOtaDataConfig('ctrip-cookie-api')")
+    name: 'diagnosis Ctrip Cookie API task uses saved request metadata and the vault locator only',
+    pass: runFetchBody.includes('context.hasCtripCookieApiRequests && isOtaDiagnosisCredentialReady(ctripConfig)')
       && runFetchBody.includes("label: 'ctrip-cookie-api'")
       && runFetchBody.includes("url: '/online-data/fetch-ctrip-cookie-api'")
+      && runFetchBody.includes("required: ['config_id']")
+      && runFetchBody.includes('config_id: ctripConfigId')
+      && runFetchBody.includes('system_hotel_id: systemHotelId')
       && runFetchBody.includes('request_urls:')
-      && runFetchBody.includes('endpoints_json:')
-      && runFetchBody.includes('profile_id:')
-      && runFetchBody.includes('ctripCookieApiProfileId'),
+      && runFetchBody.includes("request_source: 'saved_metadata'")
+      && !reusableOtaSecretTaskField.test(runFetchBody),
   },
   {
-    name: 'diagnosis fallback fetch can use Ctrip core preset from Cookie or saved Profile',
-    pass: runFetchBody.includes('useCtripCorePresetForDiagnosis')
-      && runFetchBody.includes('getCtripCookieApiCorePresetJson()')
-      && source.includes('/online-data/ctrip-profile-status')
-      && runFetchBody.includes('ctripCookieApiConfig.ota_hotel_id')
-      && runFetchBody.includes('ctripConfig?.ota_hotel_id')
-      && runFetchBody.includes("request_source: context.hasCtripCookieApiRequests ? 'saved_config' : `core_preset:${ctripCorePresetReason || 'unknown'}`"),
+    name: 'diagnosis fetch resolves hotel-scoped platform metadata without generic Cookie fallback',
+    pass: runFetchBody.includes('findCtripConfigByHotelId(initialSystemHotelId)')
+      && runFetchBody.includes('findMeituanConfigByHotelId(initialSystemHotelId)')
+      && runFetchBody.includes('isOtaDiagnosisCredentialReady')
+      && !runFetchBody.includes('readSavedOtaDataConfig')
+      && !runFetchBody.includes('readSavedGenericCookieForDiagnosis')
+      && !runFetchBody.includes('loadCookieDetail'),
   },
   {
-    name: 'Ctrip Cookie API accepts pasted Cookie header formats',
-    pass: controllerSource.includes('readCtripCookieHeaderFromRequest')
-      && controllerSource.includes('normalizeCtripCookieHeaderText')
-      && controllerSource.includes('cleanCtripCookieHeaderCandidate')
-      && runFetchBody.includes("readOtaDiagnosisHeaderValue(ctripCookieApiConfig.headers_json, 'cookie')")
-      && source.includes('Cookie: ...')
-      && source.includes('Request Headers'),
+    name: 'Ctrip Cookie API execution rejects inline Cookie and header fields before vault access',
+    pass: cookieApiSanitizerBody.includes("'config_id'")
+      && cookieApiSanitizerBody.includes("'system_hotel_id'")
+      && !cookieApiSanitizerBody.includes("'cookies'")
+      && !cookieApiSanitizerBody.includes("'cookie'")
+      && !cookieApiSanitizerBody.includes("'headers'")
+      && cookieApiEndpointBody.includes('sanitizeCtripCookieApiExecutionRequestData($rawRequestData)')
+      && cookieApiEndpointBody.includes('$this->withOtaCredentialForExecution('),
   },
   {
-    name: 'diagnosis fallback fetch can reuse hotel-scoped generic Cookie',
-    pass: source.includes('readSavedGenericCookieForDiagnosis')
-      && source.includes('/online-data/cookies-list?hotel_id=')
-      && source.includes('loadCookieDetail(ctripLike)')
-      && runFetchBody.includes('genericCtripCookie')
-      && runFetchBody.includes("ctripCorePresetReason = genericCtripCookie ? 'generic_cookie' : 'cookie'")
-      && runFetchBody.includes('cookies: firstOtaDiagnosisValue(context.ctripCookieApiCookies, genericCtripCookie?.cookies)'),
+    name: 'legacy generic Cookie storage fails closed and frontend never calls it',
+    pass: cookieEndpointSource.includes('public function saveCookies(): Response')
+      && cookieEndpointSource.includes('Legacy Cookie storage is disabled.')
+      && cookieEndpointSource.includes('public function getCookiesDetail(): Response')
+      && cookieEndpointSource.includes('Legacy Cookie detail access is disabled.')
+      && cookieEndpointSource.includes('410')
+      && !source.includes('/online-data/save-cookies')
+      && !source.includes('/online-data/cookies-list')
+      && !source.includes('/online-data/cookies-detail'),
   },
   {
     name: 'Ctrip Cookie API exposes not-ready diagnosis state',
@@ -115,25 +154,32 @@ const checks = [
   },
   {
     name: 'diagnosis fallback fetch includes Meituan ranking data',
-    pass: source.includes("url: '/online-data/fetch-meituan'"),
+    pass: runFetchBody.includes("url: '/online-data/fetch-meituan'")
+      && runFetchBody.includes("required: ['config_id', 'partner_id', 'poi_id']")
+      && runFetchBody.includes('config_id: meituanConfigId')
+      && runFetchBody.includes('system_hotel_id: systemHotelId'),
   },
   {
     name: 'diagnosis fallback fetch includes Meituan traffic data',
-    pass: source.includes("url: '/online-data/fetch-meituan-traffic'"),
+    pass: runFetchBody.includes("label: 'meituan-traffic'")
+      && runFetchBody.includes("url: '/online-data/fetch-meituan-traffic'")
+      && runFetchBody.includes("required: ['config_id', 'url', 'partner_id', 'poi_id']")
+      && runFetchBody.includes('config_id: meituanConfigId')
+      && runFetchBody.includes('system_hotel_id: systemHotelId'),
   },
   {
-    name: 'auto-fetch can queue Ctrip aggregate comments through browser Profile',
-    pass: /label'\s*=>\s*'ctrip-comments'/.test(autoFetchTaskPlanBody)
-      && /module'\s*=>\s*'comments'/.test(autoFetchTaskPlanBody)
-      && autoFetchTaskPlanBody.includes("'capture_sections' => 'comment_review'")
-      && controllerSource.includes("'ctrip:comments' => $this->executeCtripBrowserProfileAutoFetch("),
+    name: 'Ctrip aggregate comments stay on browser Profile collection and legacy Cookie config is disabled',
+    pass: controllerSource.includes("'ctrip:comments' => $this->executeCtripBrowserProfileAutoFetch(")
+      && controllerSource.includes("array_merge($body, ['capture_sections' => 'comment_review'])")
+      && ctripCommentsSource.includes('Legacy Ctrip comment Cookie/API config storage is disabled.')
+      && ctripCommentsSource.includes('410'),
   },
   {
-    name: 'auto-fetch can queue Meituan aggregate comments through browser Profile',
-    pass: /label'\s*=>\s*'meituan-comments'/.test(autoFetchTaskPlanBody)
-      && /module'\s*=>\s*'comments'/.test(autoFetchTaskPlanBody)
-      && autoFetchTaskPlanBody.includes("'capture_sections' => 'reviews'")
-      && controllerSource.includes("'meituan:comments' => $this->executeMeituanBrowserProfileAutoFetch("),
+    name: 'Meituan aggregate comments stay on browser Profile collection and reject Cookie/API config',
+    pass: controllerSource.includes("'meituan:comments' => $this->executeMeituanBrowserProfileAutoFetch(")
+      && controllerSource.includes("array_merge($body, ['capture_sections' => 'reviews'])")
+      && meituanConfigSource.includes('美团点评聚合仅支持受控浏览器 Profile 采集，不接受 Cookie/API 配置。')
+      && meituanConfigSource.includes('422'),
   },
   {
     name: 'auto-fetch writes fetched rows to selected system hotel',
@@ -186,12 +232,13 @@ const checks = [
       && source.includes('diagnosis_summary?.groups'),
   },
   {
-    name: 'Ctrip manual browser capture can inject configured Cookie',
-    pass: controllerSource.includes("trim((string)($requestData['cookies'] ?? $requestData['cookie'] ?? ''))")
-      && controllerSource.includes("'ctrip',")
-      && controllerSource.includes("$args[] = '--cookies-file=' . $cookieFile")
-      && controllerSource.includes('$this->removeAutoFetchCookieFile($cookieFile)')
-      && source.includes("cookies: activeConfig?.cookies || activeConfig?.cookie || ''"),
+    name: 'Ctrip manual browser capture is Profile-bound and never carries reusable credentials',
+    pass: ctripBrowserCapturePayloadBody.includes('system_hotel_id: systemHotelId')
+      && ctripBrowserCapturePayloadBody.includes('profile_id: profileId')
+      && ctripBrowserCapturePayloadBody.includes('bind_data_source: options.bindDataSource !== false')
+      && !reusableOtaSecretTaskField.test(ctripBrowserCapturePayloadBody)
+      && ctripBrowserCaptureBody.includes('BrowserProfileCaptureRequestService::buildCtripBasePlan(')
+      && !ctripBrowserCaptureBody.includes('--cookies-file='),
   },
   {
     name: 'Ctrip diagnosis snapshot is available in app without rerunning browser',
@@ -212,23 +259,23 @@ const checks = [
       && source.includes("request('/online-data/fetch-ctrip-overview'"),
   },
   {
-    name: 'Ctrip Cookie API capture can fetch catalog endpoints without Chromium',
+    name: 'Ctrip Cookie API capture uses the vault locator and redacted catalog pipeline',
     pass: routeSource.includes("Route::post('/fetch-ctrip-cookie-api', 'OnlineData/fetchCtripCookieApiData')")
-      && controllerSource.includes('public function fetchCtripCookieApiData')
-      && controllerSource.includes('ctrip_cookie_api_capture.mjs')
-      && controllerSource.includes('prepareCtripCookieApiCaptureFiles')
-      && controllerSource.includes('$this->removeAutoFetchCookieFile($cookieFile)')
-      && controllerSource.includes('@unlink($prepared[\'input_path\'])')
+      && cookieApiEndpointBody.includes('sanitizeCtripCookieApiExecutionRequestData($rawRequestData)')
+      && cookieApiEndpointBody.includes('$this->withOtaCredentialForExecution(')
+      && requestConcernSource.includes('ctrip_cookie_api_capture.mjs')
+      && requestConcernSource.includes('prepareCtripCookieApiCaptureFiles')
+      && requestConcernSource.includes('$this->removeAutoFetchCookieFile($cookieFile)')
+      && requestConcernSource.includes('@unlink($prepared[\'input_path\'])')
       && ctripCookieApiScript.includes('runCtripCookieApiCapture')
       && ctripCookieApiScript.includes('findCtripEndpointByUrl')
       && ctripCookieApiScript.includes('extractCtripCatalogFacts')
       && ctripCookieApiScript.includes('buildCtripStandardRowsFromFacts')
       && ctripCookieApiScript.includes("source: 'ctrip_cookie_api'")
       && ctripCookieApiScript.includes('redactHeaders')
-      && source.includes('ctripCookieApiForm')
-      && source.includes('ctripCookieApiRunning')
-      && source.includes('runCtripCookieApiCapture')
-      && source.includes('endpoints_json: endpointsJson'),
+      && runFetchBody.includes('config_id: ctripConfigId')
+      && runFetchBody.includes('system_hotel_id: systemHotelId')
+      && !reusableOtaSecretTaskField.test(runFetchBody),
   },
   {
     name: 'Ctrip Cookie API exposes a core diagnosis endpoint preset',
@@ -268,54 +315,40 @@ const checks = [
       && source.includes('填入核心诊断接口'),
   },
   {
-    name: 'Ctrip Cookie API config can be saved and tested from data config modal',
+    name: 'Ctrip Cookie API request metadata can be tested only with a ready platform credential locator',
     pass: source.includes("openDataConfigModal('ctrip-cookie-api')")
       && source.includes("case 'ctrip-cookie-api':")
       && source.includes("currentDataConfigType === 'ctrip-cookie-api'")
       && source.includes('dataConfigTestEndpointMap')
       && source.includes("'ctrip-cookie-api': '/online-data/fetch-ctrip-cookie-api'")
-      && source.includes('request_urls')
-      && source.includes('endpoints_json')
-      && source.includes('profile_id')
-      && source.includes('fillDataConfigCtripCookieApiCorePreset')
-      && source.includes('dataConfigForm.value.endpoints_json = ctripCookieApiForm.value.endpointsJson'),
+      && autoFetchStaticSource.includes('const buildDataConfigTestRequest = ({')
+      && autoFetchStaticSource.includes("status: 'credential_not_ready'")
+      && autoFetchStaticSource.includes("!String(body.config_id || '').trim() || !String(body.system_hotel_id || '').trim()")
+      && indexSource.includes('const buildDataConfigForSave = () => stripDataConfigCredentialFields('),
   },
   {
-    name: 'Ctrip Cookie API can reuse an already logged-in browser Profile',
-    pass: controllerSource.includes('createCtripCookieApiCookieFileFromProfile')
-      && controllerSource.includes('extract_chromium_cookie_header.php')
-      && controllerSource.includes("'cookie_source' => $cookies !== '' ? 'request' : 'browser_profile'")
-      && source.includes('probe_cookie')
-      && source.includes('cookie_extractable')
-      && source.includes('const resolveCtripCookieApiProfileId = (systemHotelId = \'\', activeConfig = null) => String(')
-      && source.includes('/online-data/ctrip-profile-status')
-      && source.includes('checkCtripProfileStatus')
-      && source.includes('activeConfig?.profile_id')
-      && source.includes('activeConfig?.browserProfileId')
-      && source.includes('activeConfig?.ota_hotel_id')
-      && (source.includes('activeConfig?.nodeId') || source.includes('resolveCtripBrowserProfileId({'))
-      && (source.includes('profile_id: profileId') || source.includes('profile_id: context.ctripCookieApiProfileId'))
-      && !source.includes("showToast('请填写 Cookie，或先保存当前酒店的携程配置'")
-      && chromiumCookieExtractor.includes('decrypt_chrome_master_key')
-      && chromiumCookieExtractor.includes('ProtectedData')
-      && chromiumCookieExtractor.includes('pdo_sqlite')
-      && chromiumCookieExtractor.includes('openssl_decrypt')
-      && chromiumCookieExtractor.includes('cookie_count')
-      && !chromiumCookieExtractor.includes('echo implode'),
+    name: 'Ctrip Cookie API execution does not extract browser Profile secrets or accept profile-derived Cookie payloads',
+    pass: cookieApiEndpointBody.includes('$this->withOtaCredentialForExecution(')
+      && !cookieApiEndpointBody.includes('createCtripCookieApiCookieFileFromProfile')
+      && !cookieApiEndpointBody.includes('readCtripCookieHeaderFromRequest')
+      && !runFetchBody.includes('profile_id:')
+      && !runFetchBody.includes('probe_cookie')
+      && !runFetchBody.includes('cookie_extractable'),
   },
   {
-    name: 'Ctrip overview manual fetch uses cookies and API URLs without browser capture',
-    pass: controllerSource.includes('fetchCtripOverviewData')
-      && controllerSource.includes('sendCtripOverviewRequest')
-      && controllerSource.includes('queryFlowTransforNewV1')
-      && controllerSource.includes('getCompeteHotelReportV1')
-      && controllerSource.includes('getLastWeekReportV1')
-      && source.includes('ctripOverviewForm.requestUrls')
-      && source.includes('ctripOverviewForm.cookies')
+    name: 'Ctrip overview manual fetch uses vault locator plus API URLs without browser capture',
+    pass: requestConcernSource.includes('fetchCtripOverviewData')
+      && requestConcernSource.includes('sanitizeCtripOverviewExecutionRequestData')
+      && requestConcernSource.includes('$this->withOtaCredentialForExecution(')
+      && requestConcernSource.includes('sendCtripOverviewRequest')
+      && ctripOverviewRequestBody.includes("config_id: String(configId || '').trim()")
+      && ctripOverviewRequestBody.includes('system_hotel_id: systemHotelId')
+      && ctripOverviewRequestBody.includes('request_urls: normalizeCtripExecutionRequestUrls(requestUrls)')
+      && !reusableOtaSecretTaskField.test(ctripOverviewRequestBody)
       && (source + ctripStaticSource).includes('queryFlowTransforNewV1')
       && (source + ctripStaticSource).includes('getTrafficReportV1')
       && !source.includes("request('/online-data/capture-ctrip-overview-browser'")
-      && !controllerSource.includes('captureCtripOverviewBrowserData'),
+      && !requestConcernSource.includes('captureCtripOverviewBrowserData'),
   },
   {
     name: 'manual auto-fetch shows persistent in-panel progress and result',
@@ -325,15 +358,14 @@ const checks = [
       && source.includes('autoFetchRunState.active'),
   },
   {
-    name: 'Meituan auto-fetch config accepts manual Cookie or browser Profile derived Cookie source',
-    legacyPass: (/const meituanConfigMissingFields = \(config\) => \{[\s\S]*Partner ID[\s\S]*POI ID[\s\S]*Cookies/.test(source)
-      || /const meituanConfigMissingFields = \(config\) => \{[\s\S]*平台接口标识[\s\S]*平台门店标识[\s\S]*Cookie\/API 辅助/.test(source))
-      && /const hasMeituanFetchConfigByHotelId = \(hotelId\) => \{[\s\S]*meituanConfigMissingFields\(config\)\.length === 0/.test(source),
-    pass: source.includes('const meituanConfigHasProfileCookieSource = (config) => (')
-      && source.includes("String(config?.cookie_source || '').trim() === 'browser_profile'")
-      && source.includes('config?.has_profile_cookie_source || config?.profile_cookie_source')
-      && /const meituanConfigMissingFields = \(config\) => \{[\s\S]*meituanConfigHasCookies\(config\)/.test(source)
-      && /const hasMeituanFetchConfigByHotelId = \(hotelId\) => \{[\s\S]*meituanConfigMissingFields\(config\)\.length === 0/.test(source),
+    name: 'Meituan auto-fetch requires metadata-ready vault configuration',
+    pass: meituanStaticSource.includes('const isMeituanExecutionConfigReady = (config = null) => Boolean(')
+      && meituanStaticSource.includes('resolveMeituanExecutionConfigId(config)')
+      && meituanStaticSource.includes("String(config?.credential_status || '') === 'ready'")
+      && meituanStaticSource.includes('config?.has_cookies === true')
+      && runFetchBody.includes('isOtaDiagnosisCredentialReady(meituanConfig)')
+      && runFetchBody.includes('config_id: meituanConfigId')
+      && !reusableOtaSecretTaskField.test(runFetchBody),
   },
   {
     name: 'Meituan auto-fetch missing fields are visible in page',

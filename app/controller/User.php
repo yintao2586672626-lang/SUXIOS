@@ -14,6 +14,7 @@ use think\facade\Db;
 class User extends Base
 {
     private array $tableColumnCache = [];
+    private array $tenantColumnCache = [];
 
     /**
      * 用户列表
@@ -171,6 +172,12 @@ class User extends Base
             }
         }
 
+        $tenantContext = $this->resolveHotelTenantContext($hotelIds);
+        if (!empty($tenantContext['invalid_hotel_ids'])) {
+            return $this->error('酒店租户归属无效: ' . implode(',', $tenantContext['invalid_hotel_ids']), 422);
+        }
+        $hotelTenantIds = $tenantContext['tenant_ids'];
+
         $user = new UserModel();
         $user->username = $data['username'];
         $user->password = $data['password'];
@@ -179,10 +186,13 @@ class User extends Base
         $user->phone = $data['phone'] ?? '';
         $user->role_id = $roleId;
         $user->hotel_id = $hotelId;
+        if ($this->strictTenantColumnExists('users')) {
+            $user->tenant_id = $hotelId !== null ? ($hotelTenantIds[(int)$hotelId] ?? null) : null;
+        }
         $user->status = $data['status'] ?? UserModel::STATUS_ENABLED;
-        Db::transaction(function () use ($user, $hotelIds, $targetRole): void {
+        Db::transaction(function () use ($user, $hotelIds, $targetRole, $hotelTenantIds): void {
             $user->save();
-            $this->syncUserHotelPermissions($user, $hotelIds, $targetRole);
+            $this->syncUserHotelPermissions($user, $hotelIds, $targetRole, $hotelTenantIds);
         });
 
         OperationLog::record('user', 'create', '创建用户: ' . $user->username, $this->currentUser->id);
@@ -285,10 +295,30 @@ class User extends Base
             }
         }
 
-        Db::transaction(function () use ($user, $syncHotelIds, $targetRole): void {
+        $hotelTenantIds = [];
+        if ($syncHotelIds !== null) {
+            $tenantContext = $this->resolveHotelTenantContext($syncHotelIds);
+            if (!empty($tenantContext['invalid_hotel_ids'])) {
+                return $this->error('酒店租户归属无效: ' . implode(',', $tenantContext['invalid_hotel_ids']), 422);
+            }
+            $hotelTenantIds = $tenantContext['tenant_ids'];
+
+            if ($this->strictTenantColumnExists('users')) {
+                $primaryHotelId = (int)($user->hotel_id ?? 0);
+                if ($primaryHotelId > 0) {
+                    $user->tenant_id = $hotelTenantIds[$primaryHotelId] ?? null;
+                } elseif ($this->strictTenantColumnNullable('users')) {
+                    $user->tenant_id = null;
+                } else {
+                    return $this->error('用户租户字段不允许为空，无法移除主酒店', 422);
+                }
+            }
+        }
+
+        Db::transaction(function () use ($user, $syncHotelIds, $targetRole, $hotelTenantIds): void {
             $user->save();
             if ($syncHotelIds !== null && $targetRole instanceof Role) {
-                $this->syncUserHotelPermissions($user, $syncHotelIds, $targetRole);
+                $this->syncUserHotelPermissions($user, $syncHotelIds, $targetRole, $hotelTenantIds);
             }
         });
 
@@ -471,6 +501,45 @@ class User extends Base
         }
 
         return null;
+    }
+
+    /**
+     * @param array<int, int> $hotelIds
+     * @return array{tenant_ids: array<int, int>, invalid_hotel_ids: array<int, int>}
+     */
+    private function resolveHotelTenantContext(array $hotelIds): array
+    {
+        $hotelIds = $this->mergeHotelIds($hotelIds);
+        $hotelTenantColumn = $this->strictTenantColumnExists('hotels');
+        $userTenantColumn = $this->strictTenantColumnExists('users');
+        $permissionTenantColumn = $this->strictTenantColumnExists('user_hotel_permissions');
+        $tenantColumnsPresent = $hotelTenantColumn || $userTenantColumn || $permissionTenantColumn;
+
+        if (!$tenantColumnsPresent || empty($hotelIds)) {
+            return ['tenant_ids' => [], 'invalid_hotel_ids' => []];
+        }
+
+        if (!$hotelTenantColumn) {
+            return ['tenant_ids' => [], 'invalid_hotel_ids' => $hotelIds];
+        }
+
+        $rows = HotelModel::whereIn('id', $hotelIds)
+            ->field('id,tenant_id')
+            ->select()
+            ->toArray();
+        $tenantIds = [];
+        foreach ($rows as $row) {
+            $hotelId = (int)($row['id'] ?? 0);
+            $tenantId = (int)($row['tenant_id'] ?? 0);
+            if ($hotelId > 0 && $tenantId > 0) {
+                $tenantIds[$hotelId] = $tenantId;
+            }
+        }
+
+        return [
+            'tenant_ids' => $tenantIds,
+            'invalid_hotel_ids' => array_values(array_diff($hotelIds, array_keys($tenantIds))),
+        ];
     }
 
     private function validateExternalUserIssueBoundary(Role $role, array $hotelIds): ?Response
@@ -669,7 +738,7 @@ class User extends Base
     /**
      * @param array<int, int> $hotelIds
      */
-    private function syncUserHotelPermissions(UserModel $targetUser, array $hotelIds, Role $targetRole): void
+    private function syncUserHotelPermissions(UserModel $targetUser, array $hotelIds, Role $targetRole, array $hotelTenantIds = []): void
     {
         $userId = (int)$targetUser->id;
         if ($userId <= 0 || !$this->tableColumnExists('user_hotel_permissions', 'user_id')) {
@@ -682,7 +751,7 @@ class User extends Base
         foreach ($hotelIds as $index => $hotelId) {
             $payload = $this->filterExistingColumns(
                 'user_hotel_permissions',
-                $this->buildHotelPermissionPayload($targetUser, $targetRole, $hotelId, $index === 0)
+                $this->buildHotelPermissionPayload($targetUser, $targetRole, $hotelId, $index === 0, $hotelTenantIds)
             );
             if (!empty($payload)) {
                 Db::name('user_hotel_permissions')->insert($payload);
@@ -690,7 +759,13 @@ class User extends Base
         }
     }
 
-    private function buildHotelPermissionPayload(UserModel $targetUser, Role $targetRole, int $hotelId, bool $isPrimary): array
+    private function buildHotelPermissionPayload(
+        UserModel $targetUser,
+        Role $targetRole,
+        int $hotelId,
+        bool $isPrimary,
+        array $hotelTenantIds = []
+    ): array
     {
         $permissions = $targetRole->getPermissionList();
         $allows = static fn(string $permission): int => Role::permissionListAllows($permissions, $permission) ? 1 : 0;
@@ -703,7 +778,7 @@ class User extends Base
         $canDeleteOta = $allows('ota.delete');
         $canExport = $allows('ota.export') || $allows('report.export') ? 1 : 0;
 
-        return [
+        $payload = [
             'user_id' => (int)$targetUser->id,
             'hotel_id' => $hotelId,
             'scope_type' => $this->userOwnsHotel((int)$targetUser->id, $hotelId) ? 'owner' : 'granted',
@@ -731,6 +806,16 @@ class User extends Base
             'create_time' => date('Y-m-d H:i:s'),
             'update_time' => date('Y-m-d H:i:s'),
         ];
+
+        if ($this->strictTenantColumnExists('user_hotel_permissions')) {
+            $tenantId = (int)($hotelTenantIds[$hotelId] ?? 0);
+            if ($tenantId <= 0) {
+                throw new \RuntimeException('Hotel tenant binding is required before permission creation.');
+            }
+            $payload['tenant_id'] = $tenantId;
+        }
+
+        return $payload;
     }
 
     private function userOwnsHotel(int $userId, int $hotelId): bool
@@ -899,6 +984,76 @@ class User extends Base
         return $columns;
     }
 
+    private function strictTenantColumnExists(string $table): bool
+    {
+        if (!in_array($table, ['hotels', 'users', 'user_hotel_permissions'], true)) {
+            throw new \InvalidArgumentException('Unsupported tenant schema table.');
+        }
+        if (array_key_exists($table, $this->tenantColumnCache)) {
+            return $this->tenantColumnCache[$table];
+        }
+
+        try {
+            $exists = !empty($this->querySchema("SHOW COLUMNS FROM `{$table}` LIKE 'tenant_id'"));
+        } catch (\Throwable $mysqlError) {
+            try {
+                $rows = $this->querySchema("PRAGMA table_info(`{$table}`)");
+            } catch (\Throwable $sqliteError) {
+                throw new \RuntimeException(
+                    "Unable to inspect required tenant schema for {$table}.tenant_id",
+                    0,
+                    $sqliteError
+                );
+            }
+
+            $exists = false;
+            foreach ($rows as $row) {
+                if (($row['name'] ?? '') === 'tenant_id') {
+                    $exists = true;
+                    break;
+                }
+            }
+        }
+
+        $this->tenantColumnCache[$table] = $exists;
+        return $exists;
+    }
+
+    private function strictTenantColumnNullable(string $table): bool
+    {
+        if ($table !== 'users') {
+            throw new \InvalidArgumentException('Unsupported nullable tenant schema table.');
+        }
+
+        try {
+            $columns = $this->querySchema("SHOW COLUMNS FROM `{$table}` LIKE 'tenant_id'");
+            return !empty($columns) && strtoupper((string)($columns[0]['Null'] ?? '')) === 'YES';
+        } catch (\Throwable $mysqlError) {
+            try {
+                $columns = $this->querySchema("PRAGMA table_info(`{$table}`)");
+            } catch (\Throwable $sqliteError) {
+                throw new \RuntimeException(
+                    "Unable to inspect required tenant schema nullability for {$table}.tenant_id",
+                    0,
+                    $sqliteError
+                );
+            }
+
+            foreach ($columns as $definition) {
+                if ((string)($definition['name'] ?? '') === 'tenant_id') {
+                    return (int)($definition['notnull'] ?? 1) === 0;
+                }
+            }
+
+            return false;
+        }
+    }
+
+    protected function querySchema(string $sql): array
+    {
+        return Db::query($sql);
+    }
+
     private function tableColumnExists(string $table, string $column): bool
     {
         $table = str_replace('`', '', $table);
@@ -920,6 +1075,18 @@ class User extends Base
 
             return strtoupper((string)($columns[0]['Null'] ?? '')) === 'YES';
         } catch (\Throwable $e) {
+            try {
+                $columns = Db::query("PRAGMA table_info(`{$table}`)");
+            } catch (\Throwable $ignored) {
+                return false;
+            }
+
+            foreach ($columns as $definition) {
+                if ((string)($definition['name'] ?? '') === $column) {
+                    return (int)($definition['notnull'] ?? 1) === 0;
+                }
+            }
+
             return false;
         }
     }

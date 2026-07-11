@@ -271,7 +271,7 @@ function hotel_ota_status_from_blockers(array $blockers, bool $profileVerified):
         return 'ready_for_manual_login';
     }
 
-    return 'ready_to_collect';
+    return 'ready_for_session_probe';
 }
 
 function hotel_ota_platform_login_entry(string $platform): string
@@ -331,8 +331,8 @@ function hotel_ota_next_action(string $status, array $blockers, int $hotelId, st
     if ($status === 'ready_for_manual_login') {
         return '可做单店人工登录；完成后只重跑该门店该平台资格检查。';
     }
-    if ($status === 'ready_to_collect') {
-        return '可进入单店采集或 P0 字段闭环验证；仍只代表 OTA 渠道口径。';
+    if ($status === 'ready_for_session_probe') {
+        return '历史登录元数据和 Profile 已就绪；先由账号持有人执行当前会话探测，探测通过后再进入单店采集或 P0 字段闭环验证。';
     }
 
     return '保留当前阻断状态，先按 blockers 字段逐项处理。';
@@ -343,7 +343,7 @@ function hotel_ota_next_action(string $status, array $blockers, int $hotelId, st
  */
 function hotel_ota_platform_actionable(array $row): bool
 {
-    return in_array((string)($row['status'] ?? ''), ['ready_to_collect', 'ready_for_manual_login'], true);
+    return in_array((string)($row['status'] ?? ''), ['ready_for_session_probe', 'ready_for_manual_login'], true);
 }
 
 /**
@@ -416,7 +416,7 @@ function hotel_ota_strategy_candidate(string $strategy, array $platformRows): ar
             'candidate_strategy' => 'ctrip_only',
             'available_platform' => 'ctrip',
             'blocked_platform' => 'meituan',
-            'reason' => 'ctrip_ready_or_manual_login_meituan_source_missing',
+            'reason' => 'ctrip_session_probe_or_manual_login_meituan_source_missing',
             'next_action' => 'Confirm whether this store should stay dual. If not, update ota_channel_strategy to ctrip_only instead of adding a placeholder Meituan source.',
         ];
     }
@@ -426,7 +426,7 @@ function hotel_ota_strategy_candidate(string $strategy, array $platformRows): ar
             'candidate_strategy' => 'meituan_only',
             'available_platform' => 'meituan',
             'blocked_platform' => 'ctrip',
-            'reason' => 'meituan_ready_or_manual_login_ctrip_source_missing',
+            'reason' => 'meituan_session_probe_or_manual_login_ctrip_source_missing',
             'next_action' => 'Confirm whether this store should stay dual. If not, update ota_channel_strategy to meituan_only instead of adding a placeholder Ctrip source.',
         ];
     }
@@ -664,7 +664,7 @@ try {
         ];
         $fetchUserCount = (int)($permissionEvidence['active_fetch_permission_user_count'] ?? 0);
 
-        $readyToCollectCount = 0;
+        $readyForSessionProbeCount = 0;
         $readyForManualLoginCount = 0;
         $platformCount = 0;
         $hotelPlatformRows = [];
@@ -741,6 +741,11 @@ try {
                 'enabled_source_count' => count($enabledSources),
                 'ready_source_count' => count($readySources),
                 'profile_verified_count' => count($profileVerifiedSources),
+                'historical_profile_verified_count' => count($profileVerifiedSources),
+                'login_evidence_scope' => 'historical_metadata_only',
+                'current_session_probe_performed' => false,
+                'current_session_verified' => false,
+                'current_session_status' => 'unverified',
                 'task_state' => $taskState,
                 'running_task_count' => $taskEvidence['running_task_count'],
                 'stale_running_task_count' => $taskEvidence['stale_running_task_count'],
@@ -798,8 +803,8 @@ try {
         foreach ($outputHotelPlatformRows as $row) {
             $status = (string)($row['status'] ?? '');
             $statusCounts[$status] = ($statusCounts[$status] ?? 0) + 1;
-            if ($status === 'ready_to_collect') {
-                $readyToCollectCount++;
+            if ($status === 'ready_for_session_probe') {
+                $readyForSessionProbeCount++;
             }
             if ($status === 'ready_for_manual_login') {
                 $readyForManualLoginCount++;
@@ -818,9 +823,11 @@ try {
             'ota_channel_strategy' => $strategy,
             'rollup_scope' => $rollupScope,
             'applicable_platform_count' => $platformCount,
-            'ready_to_collect_platform_count' => $readyToCollectCount,
+            'ready_to_collect_platform_count' => 0,
+            'ready_for_session_probe_platform_count' => $readyForSessionProbeCount,
             'ready_for_manual_login_platform_count' => $readyForManualLoginCount,
-            'hotel_ready_to_collect' => $platformCount > 0 && $readyToCollectCount === $platformCount ? 1 : 0,
+            'hotel_ready_to_collect' => 0,
+            'hotel_ready_for_session_probe' => $platformCount > 0 && $readyForSessionProbeCount === $platformCount ? 1 : 0,
             'strategy_candidate' => (string)($visibleStrategyCandidate['candidate_strategy'] ?? ''),
         ];
     }
@@ -876,14 +883,18 @@ try {
         'orphan_source_scope' => $platformFilter === 'all' ? 'ctrip_meituan_only' : $platformFilter,
         'source_policy' => 'read_platform_data_sources_metadata_only',
         'sensitive_values_exposed' => false,
+        'current_session_probe_performed' => false,
+        'current_session_policy' => 'historical_login_metadata_is_not_current_session_proof',
         'hotel_count' => count($hotels),
         'active_hotels' => count($activeHotelIds),
         'inactive_hotels' => count($hotels) - count($activeHotelIds),
         'platform_rows' => count($platformRows),
-        'ready_to_collect_platforms' => count(array_filter($platformRows, static fn(array $row): bool => ($row['status'] ?? '') === 'ready_to_collect')),
+        'ready_to_collect_platforms' => 0,
+        'ready_for_session_probe_platforms' => count(array_filter($platformRows, static fn(array $row): bool => ($row['status'] ?? '') === 'ready_for_session_probe')),
         'ready_for_manual_login_platforms' => count(array_filter($platformRows, static fn(array $row): bool => ($row['status'] ?? '') === 'ready_for_manual_login')),
-        'blocked_platforms' => count(array_filter($platformRows, static fn(array $row): bool => !in_array(($row['status'] ?? ''), ['ready_to_collect', 'ready_for_manual_login'], true))),
-        'hotels_ready_to_collect' => count(array_filter($hotelRollup, static fn(array $row): bool => (int)($row['hotel_ready_to_collect'] ?? 0) === 1)),
+        'blocked_platforms' => count(array_filter($platformRows, static fn(array $row): bool => !in_array(($row['status'] ?? ''), ['ready_for_session_probe', 'ready_for_manual_login'], true))),
+        'hotels_ready_to_collect' => 0,
+        'hotels_ready_for_session_probe' => count(array_filter($hotelRollup, static fn(array $row): bool => (int)($row['hotel_ready_for_session_probe'] ?? 0) === 1)),
         'strategy_candidate_hotels' => count($strategyCandidates),
         'orphan_source_groups' => count($orphanSources),
     ];
@@ -903,6 +914,8 @@ try {
         'manual_login_policy' => [
             'profile_directories_touched' => false,
             'cookies_or_local_storage_cleared' => false,
+            'current_session_probe_performed' => false,
+            'historical_login_metadata_is_current_session_proof' => false,
             'manual_login_before_collection' => 'Confirm no running task for the same hotel/platform, then use account-owner local browser authorization.',
         ],
     ];
@@ -943,13 +956,13 @@ try {
 
         echo '## Hotel Rollup' . PHP_EOL . PHP_EOL;
         echo ota_inventory_markdown_table(
-            ['hotel_id', 'hotel_name', 'hotel_status', 'hotel_lifecycle_state', 'inactive_hotel_blocks_ota_flow', 'downstream_setup_suppressed', 'ota_channel_strategy', 'rollup_scope', 'applicable_platform_count', 'ready_to_collect_platform_count', 'ready_for_manual_login_platform_count', 'hotel_ready_to_collect', 'strategy_candidate'],
+            ['hotel_id', 'hotel_name', 'hotel_status', 'hotel_lifecycle_state', 'inactive_hotel_blocks_ota_flow', 'downstream_setup_suppressed', 'ota_channel_strategy', 'rollup_scope', 'applicable_platform_count', 'ready_to_collect_platform_count', 'ready_for_session_probe_platform_count', 'ready_for_manual_login_platform_count', 'hotel_ready_to_collect', 'hotel_ready_for_session_probe', 'strategy_candidate'],
             array_slice($hotelRollup, 0, $limit)
         ) . PHP_EOL . PHP_EOL;
 
         echo '## Platform Eligibility' . PHP_EOL . PHP_EOL;
         echo ota_inventory_markdown_table(
-            ['hotel_id', 'hotel_name', 'platform', 'hotel_lifecycle_state', 'inactive_hotel_blocks_ota_flow', 'downstream_setup_suppressed', 'fetch_user_count', 'permission_user_count', 'fetch_permission_user_count', 'active_fetch_permission_user_count', 'permission_blocker_reason', 'enabled_source_count', 'ready_source_count', 'profile_verified_count', 'task_state', 'running_task_count', 'stale_running_task_count', 'missing_task_id_count', 'task_id_evidence_complete', 'blocking_task_ids', 'oldest_stale_task_at', 'status', 'primary_blocker', 'strategy_adjustment_candidate', 'strategy_adjustment_candidate_value', 'blockers', 'next_action', 'last_login_verified_at'],
+            ['hotel_id', 'hotel_name', 'platform', 'hotel_lifecycle_state', 'inactive_hotel_blocks_ota_flow', 'downstream_setup_suppressed', 'fetch_user_count', 'permission_user_count', 'fetch_permission_user_count', 'active_fetch_permission_user_count', 'permission_blocker_reason', 'enabled_source_count', 'ready_source_count', 'profile_verified_count', 'historical_profile_verified_count', 'login_evidence_scope', 'current_session_probe_performed', 'current_session_verified', 'current_session_status', 'task_state', 'running_task_count', 'stale_running_task_count', 'missing_task_id_count', 'task_id_evidence_complete', 'blocking_task_ids', 'oldest_stale_task_at', 'status', 'primary_blocker', 'strategy_adjustment_candidate', 'strategy_adjustment_candidate_value', 'blockers', 'next_action', 'last_login_verified_at'],
             array_slice($platformRows, 0, $limit)
         ) . PHP_EOL . PHP_EOL;
 
@@ -969,7 +982,7 @@ try {
         $platformRows,
         static fn(bool $carry, array $row): bool => $carry
             || ((int)($row['hotel_status'] ?? 0) === 1
-                && !in_array((string)($row['status'] ?? ''), ['ready_to_collect', 'ready_for_manual_login'], true)),
+                && !in_array((string)($row['status'] ?? ''), ['ready_for_session_probe', 'ready_for_manual_login'], true)),
         false
     );
     $hasInvalidSpecificRequest = ($hotelIdFilter !== '' && $hotels === []) || $hasNotApplicableSpecificRequest;

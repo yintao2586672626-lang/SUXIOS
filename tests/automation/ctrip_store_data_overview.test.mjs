@@ -691,14 +691,29 @@ test('Ctrip business download canvas is owned by ctrip static helper', () => {
   assert.ok(calls.some(call => call[0] === 'scale' && call[1] === 2));
 });
 
-test('Ctrip platform authorization status supports inline view and edit', () => {
-  assert.match(ctripDiagnosticsPanel, /查看\/编辑/);
-  assert.match(html, /showCtripCookieEditorModal/);
-  assert.match(html, /ctripCookieEditorForm/);
-  assert.match(html, /openCtripCookieEditorFromHealth/);
-  assert.match(html, /saveCtripCookieFromHealth/);
-  assert.match(html, /const listConfig = ctripConfigList\.value\.find\(item => String\(item\.id \|\| ''\) === configId\);\s*const config = listConfig\s*\? await ensureCtripConfigSecret\(listConfig\)\s*: await loadCtripConfigDetail\(configId\);/);
-  assert.doesNotMatch(html, /if \(!ctripConfigList\.value\.length\) \{\s*await loadCtripConfigList\(\);\s*\}\s*const listConfig = ctripConfigList\.value\.find\(item => String\(item\.id \|\| ''\) === configId\);/);
+test('Ctrip authorization maintenance opens metadata-only replacement state with zero plaintext', () => {
+  const editorFill = sliceBetween(html, 'const fillCtripCookieEditorForm =', 'const openCtripCookieEditorFromHealth =');
+  const editorOpen = sliceBetween(html, 'const openCtripCookieEditorFromHealth =', 'const editCtripCookieFromHealth =');
+  const configApply = sliceBetween(html, 'const applyCtripConfigObject =', 'const getActiveCtripConfig =');
+  const legacyCookiePanel = sliceBetween(html, '<!-- 凭据安全入口 -->', '<!-- 携程ebooking -->');
+
+  assert.match(editorOpen, /const configId = String\(row\?\.config_id \|\| ''\)\.trim\(\)/);
+  assert.match(editorOpen, /const config = resolveCtripConfigMetadata\(listConfig \|\| findCtripConfigMetadataById\(configId\)\)/);
+  assert.doesNotMatch(editorOpen, /ensureCtripConfigSecret|loadCtripConfigDetail|get-ctrip-config-detail/);
+  assert.match(editorFill, /id:\s*config\?\.id \|\| row\?\.config_id \|\| null/);
+  assert.match(editorFill, /hotel_id:\s*config\?\.hotel_id \|\| config\?\.system_hotel_id/);
+  assert.match(editorFill, /cookies:\s*''/);
+  assert.match(editorFill, /has_cookies:\s*config\?\.has_cookies === true/);
+  assert.match(editorFill, /credential_status:\s*config\?\.credential_status \|\| ''/);
+  assert.match(configApply, /selectedCtripConfigId\.value = config\.config_id \|\| config\.id \|\| ''/);
+  assert.match(configApply, /selectedCtripHotelId\.value = String\(config\.hotel_id \|\| config\.system_hotel_id/);
+  assert.match(configApply, /ctripForm\.value\.cookies = ''/);
+  assert.match(configApply, /ctripForm\.value\.auth_data = \{\}/);
+  assert.match(configApply, /ctripCookieApiForm\.value\.cookies = ''/);
+  assert.doesNotMatch(html, /request\(\s*['"]\/online-data\/get-ctrip-config-detail/);
+  assert.match(legacyCookiePanel, /旧 Cookie 列表、明文详情和快速保存入口已停用/);
+  assert.match(legacyCookiePanel, /@click="openPlatformSourcesTab"/);
+  assert.match(legacyCookiePanel, /前往平台采集源/);
   assert.match(html, /loadCtripConfigList\(\);\s*scheduleDataHealthPanelRefresh\('light', \{ force: true \}\);/);
   assert.match(html, /await deleteCtripConfig\(configId\);\s*scheduleDataHealthPanelRefresh\('light', \{ force: true \}\);/);
   assert.doesNotMatch(html, /await loadCtripConfigList\(\);\s*await loadDataHealthPanel\('light', \{ force: true \}\);/);
@@ -706,8 +721,8 @@ test('Ctrip platform authorization status supports inline view and edit', () => 
   assert.match(html, /const results = await Promise\.all\(ids\.map\(async \(id\) => \{/);
   assert.match(html, /deferUiTask\(\(\) => loadCtripConfigList\(\), 80\);/);
   assert.doesNotMatch(html, /if \(deletedCount > 0\) \{\s*await loadCtripConfigList\(\);\s*\}/);
-  assert.match(html, /查看 \/ 编辑携程临时 Cookie\/API 辅助/);
   assert.match(html, /v-model="ctripCookieEditorForm\.cookies"/);
+  assert.match(html, /placeholder="只粘贴 Request Headers 里的 Cookie 值，不要粘贴完整 Headers、URL 或 Payload"/);
 });
 
 test('Ctrip capture coverage panel hides raw diagnostic field names', () => {

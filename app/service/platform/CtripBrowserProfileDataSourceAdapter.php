@@ -34,7 +34,6 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
     public function fetch(array $source, array $options = []): array
     {
         $config = is_array($source['config'] ?? null) ? $source['config'] : [];
-        $secret = is_array($source['secret'] ?? null) ? $source['secret'] : [];
         $workflow = new CtripCollectorWorkflowService();
         $gate = $workflow->collectionGate($source, $options);
         if (empty($gate['allowed'])) {
@@ -145,9 +144,6 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         $timeoutSeconds = max(60, min(900, (int)($options['timeout_seconds'] ?? $options['timeoutSeconds'] ?? ($interactive ? 600 : 120))));
         $sectionConcurrency = $this->resolveCtripSectionConcurrency($options, $config);
 
-        $cookieFile = $this->shouldInjectStoredCookies($options, $profilePrepared)
-            ? $this->createCookieFile((string)($secret['cookies'] ?? $secret['cookie'] ?? ''))
-            : '';
         try {
             if ($this->shouldCaptureSectionsSequentially($options, $sectionList)) {
                 return $this->runSequentialCaptureSections(
@@ -163,7 +159,6 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                     $interactive,
                     $timeoutSeconds,
                     $fieldConfigPayload,
-                    $cookieFile,
                     $notApplicableSectionList
                 );
             }
@@ -182,7 +177,6 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                 $interactive,
                 $timeoutSeconds,
                 $fieldConfigPayload,
-                $cookieFile,
                 [
                     'section_concurrency' => $sectionConcurrency,
                     'parallel_fallback' => true,
@@ -203,7 +197,6 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                     $interactive,
                     $timeoutSeconds,
                     $fieldConfigPayload,
-                    $cookieFile,
                     $notApplicableSectionList
                 );
                 if (is_array($fallback['payload'] ?? null)) {
@@ -221,9 +214,6 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
 
             return $result;
         } finally {
-            if ($cookieFile !== '' && is_file($cookieFile)) {
-                @unlink($cookieFile);
-            }
             $this->releaseLock($lock);
         }
     }
@@ -273,7 +263,6 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         bool $interactive,
         int $timeoutSeconds,
         array $fieldConfigPayload,
-        string $cookieFile,
         array $notApplicableSectionList = []
     ): array {
         $payloads = [];
@@ -296,7 +285,6 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                 $interactive,
                 $timeoutSeconds,
                 $sectionFieldConfig,
-                $cookieFile,
                 [
                     'not_applicable_sections' => $notApplicableSectionList,
                 ]
@@ -319,9 +307,13 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         if ($payloads === []) {
             $failurePayload = is_array($firstFailure['payload'] ?? null) ? $firstFailure['payload'] : [];
             $failurePayload['capture_module_results'] = $moduleResults;
+            $failureStatus = (string)($firstFailure['status'] ?? 'failed');
+            $failureMessage = (string)($firstFailure['message'] ?? 'unknown error');
             return [
-                'status' => (string)($firstFailure['status'] ?? 'failed'),
-                'message' => 'Ctrip browser Profile section capture failed: ' . (string)($firstFailure['message'] ?? 'unknown error'),
+                'status' => $failureStatus,
+                'message' => $failureStatus === 'waiting_config'
+                    ? $failureMessage
+                    : 'Ctrip browser Profile section capture failed: ' . $failureMessage,
                 'payload' => $failurePayload,
             ];
         }
@@ -368,7 +360,6 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         bool $interactive,
         int $timeoutSeconds,
         array $fieldConfigPayload,
-        string $cookieFile,
         array $captureOptions = []
     ): array {
         $args = [
@@ -412,10 +403,6 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             }
             $args[] = '--field-config=' . $fieldConfigPath;
         }
-        if ($cookieFile !== '') {
-            $args[] = '--cookies-file=' . $cookieFile;
-        }
-
         try {
             $runResult = $this->runProcess($args, $this->projectRoot, $timeoutSeconds);
         } finally {
@@ -925,40 +912,6 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
     }
 
-    private function createCookieFile(string $cookies): string
-    {
-        $cookies = trim($cookies);
-        if ($cookies === '') {
-            return '';
-        }
-        $dir = $this->projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'secret';
-        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
-            return '';
-        }
-        $path = $dir . DIRECTORY_SEPARATOR . 'ctrip_browser_profile_cookie_' . bin2hex(random_bytes(6)) . '.txt';
-        if (file_put_contents($path, $cookies, LOCK_EX) === false) {
-            return '';
-        }
-        if (!chmod($path, 0600)) {
-            @unlink($path);
-            return '';
-        }
-        return $path;
-    }
-
-    private function shouldInjectStoredCookies(array $options, bool $profilePrepared): bool
-    {
-        if (!$profilePrepared) {
-            return true;
-        }
-        return $this->truthy(
-            $options['seed_profile_cookies']
-            ?? $options['seedProfileCookies']
-            ?? $options['force_cookie_injection']
-            ?? false
-        );
-    }
-
     private function acquireLock(string $platform, string $profileId)
     {
         $dir = $this->projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'locks';
@@ -1159,7 +1112,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
 
             $allowedKeys[$fieldKey] = true;
             $allowedSections[$section] = true;
-            $fields[] = [
+            $field = [
                 'id' => (string)($item['id'] ?? ''),
                 'field_key' => $fieldKey,
                 'field_name' => (string)($item['field_name'] ?? $item['fieldName'] ?? ''),
@@ -1169,6 +1122,8 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                 'source_keys' => (string)($item['source_keys'] ?? $item['sourceKeys'] ?? ''),
                 'status' => (string)($item['status'] ?? ''),
             ];
+            $this->assertProfileFieldRuntimeMetadataSafe($field);
+            $fields[] = $field;
         }
 
         foreach (is_array($payload['allowed_field_keys'] ?? null) ? $payload['allowed_field_keys'] : [] as $key) {
@@ -1248,12 +1203,32 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
             return '';
         }
-        $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        if (!is_string($json)) {
+        $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        $path = $dir . DIRECTORY_SEPARATOR . 'ctrip_profile_field_config_' . bin2hex(random_bytes(6)) . '.json';
+        if (file_put_contents($path, $json, LOCK_EX) === false) {
             return '';
         }
-        $path = $dir . DIRECTORY_SEPARATOR . 'ctrip_profile_field_config_' . bin2hex(random_bytes(6)) . '.json';
-        return file_put_contents($path, $json, LOCK_EX) === false ? '' : $path;
+        if (!@chmod($path, 0600)) {
+            @unlink($path);
+            return '';
+        }
+        return $path;
+    }
+
+    private function assertProfileFieldRuntimeMetadataSafe(array $field): void
+    {
+        foreach (['field_name', 'source_interface', 'source_keys'] as $key) {
+            $value = trim((string)($field[$key] ?? ''));
+            if ($value === '') {
+                continue;
+            }
+            if (
+                preg_match('/["\']?(?:cookie|set-cookie|authorization|proxy-authorization|x-api-key|api-key|auth_data|token|access_token|refresh_token|spidertoken|spiderkey|mtgsig|usertoken|usersign|password)["\']?\s*[:=]/i', $value) === 1
+                || preg_match('/\bbearer\s+[A-Za-z0-9._~+\/=:-]{8,}/i', $value) === 1
+            ) {
+                throw new \RuntimeException('Ctrip Profile field metadata contains credential material.');
+            }
+        }
     }
 
     private function hasListPayload(array $payload): bool

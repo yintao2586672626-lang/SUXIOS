@@ -58,8 +58,11 @@ final class AiDailyReportReadinessServiceTest extends TestCase
         self::assertCount(3, $actions);
         foreach ($actions as $action) {
             self::assertSame('manual_review', $action['action_type']);
+            self::assertSame('investigation', $action['recommendation_type']);
+            self::assertTrue($action['is_investigation_only']);
+            self::assertSame('forbidden', $action['execution_policy']);
             self::assertFalse($action['can_create_execution_intent']);
-            self::assertSame('Fallback manual review is investigation-only until stronger evidence is selected.', $action['blocked_reason']);
+            self::assertSame('Fallback investigation item is evidence review only and cannot create an execution intent.', $action['blocked_reason']);
         }
 
         $readiness = $service->buildReportReadiness([
@@ -69,9 +72,69 @@ final class AiDailyReportReadinessServiceTest extends TestCase
         ]);
 
         self::assertSame(0, $readiness['transferable_count']);
-        self::assertSame('blocked', $readiness['stage']);
-        self::assertSame(3, $readiness['blocked_count']);
-        self::assertContains('blocked_action', array_column($readiness['missing_evidence'], 'code'));
+        self::assertSame('investigation_only', $readiness['stage']);
+        self::assertSame('仅调查，不可执行', $readiness['status_label']);
+        self::assertSame(0, $readiness['blocked_count']);
+        self::assertSame(3, $readiness['investigation_count']);
+        self::assertSame(0, $readiness['execution_action_count']);
+        self::assertSame([], $readiness['missing_evidence']);
+        self::assertSame('仅生成调查项，未形成可执行建议。', $readiness['notice']);
+    }
+
+    public function testLegacyFallbackManualReviewIsStillExcludedFromExecutionDenominator(): void
+    {
+        $service = new AiDailyReportService();
+
+        $readiness = $service->buildReportReadiness([
+            'source_refs' => [['key' => 'operation.full_data']],
+            'data_gaps' => [],
+            'recommended_actions' => [[
+                'title' => 'Review daily operating signal 1',
+                'action_type' => 'manual_review',
+                'can_create_execution_intent' => false,
+                'blocked_reason' => 'Fallback manual review is investigation-only until stronger evidence is selected.',
+            ]],
+        ]);
+
+        self::assertSame('investigation_only', $readiness['stage']);
+        self::assertSame(1, $readiness['investigation_count']);
+        self::assertSame(0, $readiness['blocked_count']);
+        self::assertSame(0, $readiness['execution_action_count']);
+    }
+
+    public function testInvestigationPaddingDoesNotPreventExecutableActionClosure(): void
+    {
+        $service = new AiDailyReportService();
+
+        $readiness = $service->buildReportReadiness([
+            'source_refs' => [['key' => 'operation.full_data']],
+            'data_gaps' => [],
+            'recommended_actions' => [[
+                'title' => 'Review conversion',
+                'execution_intent_id' => 16,
+                'can_create_execution_intent' => true,
+            ], [
+                'title' => 'Investigate daily operating signal 1',
+                'action_type' => 'manual_review',
+                'recommendation_type' => 'investigation',
+                'is_investigation_only' => true,
+                'can_create_execution_intent' => false,
+            ]],
+        ], [[
+            'id' => 16,
+            'stage' => 'reviewed',
+            'approval' => ['status' => 'approved'],
+            'execution' => ['status' => 'executed', 'task_id' => 9],
+            'evidence' => ['count' => 1],
+            'review' => ['status' => 'success'],
+            'roi' => ['status' => 'ready', 'value' => 12.5],
+        ]]);
+
+        self::assertSame('daily_loop_closed', $readiness['stage']);
+        self::assertSame(2, $readiness['action_count']);
+        self::assertSame(1, $readiness['execution_action_count']);
+        self::assertSame(1, $readiness['investigation_count']);
+        self::assertSame(1, $readiness['roi_ready_count']);
     }
 
     public function testReviewedReportStillRequiresRoiEvidence(): void

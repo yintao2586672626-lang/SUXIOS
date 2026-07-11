@@ -20,6 +20,17 @@ function outputFormat() {
   return String(argValue('format', '') || (hasFlag('json') ? 'json' : 'markdown')).trim().toLowerCase();
 }
 
+function shanghaiCalendarDate(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
 function csvArgValues(name) {
   const values = [];
   const prefix = `--${name}=`;
@@ -63,7 +74,7 @@ function readVerifierOutput() {
     };
   }
 
-  const date = argValue('date', new Date().toISOString().slice(0, 10));
+  const date = argValue('date', shanghaiCalendarDate());
   const platform = argValue('platform');
   const systemHotelId = argValue('system-hotel-id', argValue('system_hotel_id'));
   const php = argValue('php', existsSync('C:\\xampp\\php\\php.exe') ? 'C:\\xampp\\php\\php.exe' : 'php');
@@ -90,6 +101,114 @@ function readVerifierOutput() {
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
+}
+
+const supportedP0Platforms = new Set(['ctrip', 'meituan']);
+
+function platformScopeStatus(payload) {
+  const scopeHasPlatformArray = Array.isArray(payload?.scope?.platforms);
+  const resultHasPlatformArray = Array.isArray(payload?.platforms);
+  const expectedRaw = asArray(payload?.scope?.platforms)
+    .map((item) => String(item || '').trim().toLowerCase())
+    .filter(Boolean);
+  const resultRaw = asArray(payload?.platforms)
+    .map((item) => String(item?.platform || '').trim().toLowerCase())
+    .filter(Boolean);
+  const expected = Array.from(new Set(expectedRaw)).sort();
+  const actual = Array.from(new Set(resultRaw)).sort();
+  const reasonCodes = [];
+
+  if (!scopeHasPlatformArray || !resultHasPlatformArray) {
+    reasonCodes.push('platform_scope_schema_missing');
+  }
+  if (expected.length === 0 || actual.length === 0) {
+    reasonCodes.push('platform_scope_empty');
+  }
+  if (expectedRaw.length !== expected.length || resultRaw.length !== actual.length) {
+    reasonCodes.push('platform_scope_duplicate');
+  }
+  if ([...expected, ...actual].some((platform) => !supportedP0Platforms.has(platform))) {
+    reasonCodes.push('platform_scope_unsupported');
+  }
+  if (expected.length !== actual.length || expected.some((platform, index) => platform !== actual[index])) {
+    reasonCodes.push('platform_scope_mismatch');
+  }
+
+  return {
+    status: reasonCodes.length === 0 ? 'valid' : 'invalid',
+    expected_platforms: expected,
+    result_platforms: actual,
+    reason_codes: Array.from(new Set(reasonCodes)),
+  };
+}
+
+const safeCredentialMetadataStatuses = new Set(['ready', 'not_required', 'migration_required', 'blocked']);
+const safeCredentialMetadataReasonCodes = new Set([
+  'ota_credentials_table_missing',
+  'ota_credentials_metadata_schema_incomplete',
+  'hotels_table_missing',
+  'hotel_tenant_metadata_missing',
+  'data_source_tenant_scope_mismatch',
+  'source_config_projection_conflict',
+  'credential_reference_missing',
+  'credential_metadata_not_found',
+  'credential_metadata_ambiguous',
+  'credential_reference_config_mismatch',
+  'platform_data_sources_table_missing',
+  'platform_data_sources_metadata_schema_incomplete',
+  'credential_source_projection_missing',
+  'credential_metadata_missing',
+  'credential_not_ready',
+  'credential_tenant_scope_mismatch',
+  'registered_traffic_data_source_missing',
+  'browser_profile_vault_not_required',
+]);
+const safeProfileBindingStatuses = new Set(['ready', 'blocked', 'migration_required']);
+const safeProfileBindingReasonCodes = new Set([
+  'profile_binding_table_missing',
+  'profile_binding_schema_incomplete',
+  'profile_binding_missing',
+  'profile_binding_not_active',
+  'profile_binding_ambiguous',
+  'profile_binding_scope_mismatch',
+  'profile_scope_conflict_across_hotel_or_tenant',
+  'profile_key_missing',
+]);
+
+function safeCredentialMetadata(step) {
+  const candidateStatus = String(step?.credential_metadata_status || '').trim().toLowerCase();
+  const status = safeCredentialMetadataStatuses.has(candidateStatus) ? candidateStatus : 'unverified';
+  const candidateReason = String(step?.credential_metadata_reason || '').trim().toLowerCase();
+  return {
+    status,
+    reason: status === 'ready' || !safeCredentialMetadataReasonCodes.has(candidateReason)
+      ? ''
+      : candidateReason,
+  };
+}
+
+function credentialMetadataBlockingReasonCodes(step) {
+  const metadata = safeCredentialMetadata(step);
+  if (['ready', 'not_required'].includes(metadata.status)) {
+    return [];
+  }
+  if (metadata.status === 'migration_required') {
+    return ['ota_credential_metadata_migration_required', ...(metadata.reason ? [metadata.reason] : [])];
+  }
+  if (metadata.status === 'blocked') {
+    return ['ota_credential_metadata_blocked', ...(metadata.reason ? [metadata.reason] : [])];
+  }
+  return ['ota_credential_metadata_unverified'];
+}
+
+function safeProfileBinding(step) {
+  const candidateStatus = String(step?.profile_binding_status || '').trim().toLowerCase();
+  const status = safeProfileBindingStatuses.has(candidateStatus) ? candidateStatus : 'unverified';
+  const candidateReason = String(step?.profile_binding_reason || '').trim().toLowerCase();
+  return {
+    status,
+    reason: status === 'ready' || !safeProfileBindingReasonCodes.has(candidateReason) ? '' : candidateReason,
+  };
 }
 
 function isReadyStatus(status) {
@@ -173,12 +292,25 @@ function profileFlowBlockingReasonCodes(step) {
   if (dataSourceId && lastSyncStatus && !['success', 'ready'].includes(lastSyncStatus)) {
     codes.push(`last_sync_${lastSyncStatus}`);
   }
-  if (step?.manual_login_state_verified !== true) codes.push('manual_login_state_verified');
-  if (triggerStatus && !['available', 'ready', 'client_local_authorization_required'].includes(triggerStatus)) {
+  if (step?.profile_dir_present !== true) codes.push('authorized_profile_dir');
+  if (step?.platform_hotel_identifier_present !== true) codes.push('platform_hotel_or_poi_id');
+  const binding = safeProfileBinding(step);
+  const bindingStatus = binding.status;
+  if (bindingStatus !== 'ready') {
+    codes.push(binding.reason || 'profile_binding_unverified');
+  }
+  if (step?.current_session_probe_performed !== true) {
+    codes.push('current_session_probe_required');
+  } else if (step?.current_session_verified !== true) {
+    codes.push('current_session_not_verified');
+  }
+  if (triggerStatus && !['available', 'ready', 'ready_for_session_probe', 'client_local_authorization_required'].includes(triggerStatus)) {
     codes.push(`profile_login_trigger_${triggerStatus}`);
   }
   if (trigger.reason) codes.push(String(trigger.reason));
-  if (dataSourceId && !afterLoginSync.entry) codes.push('after_login_sync_entry_missing');
+  if (dataSourceId && step?.current_session_verified === true && !afterLoginSync.entry) {
+    codes.push('after_login_sync_entry_missing');
+  }
 
   return Array.from(new Set(codes));
 }
@@ -193,9 +325,8 @@ function stepBlockingReasonCodes(step, options = {}) {
   if (platformGateStatus && !isReadyStatus(platformGateStatus)) {
     codes.push(platformGateStatus);
   }
-  if (step?.manual_login_state_verified !== true) {
-    codes.push('manual_login_state_verified');
-  }
+  codes.push(...profileFlowBlockingReasonCodes(step));
+  codes.push(...credentialMetadataBlockingReasonCodes(step));
 
   const latestSyncTask = step?.latest_sync_task && typeof step.latest_sync_task === 'object'
     ? step.latest_sync_task
@@ -217,7 +348,14 @@ function stepBlockingReasonCodes(step, options = {}) {
 function compactStep(platform, step, options = {}) {
   const operatorSkipActive = options.operatorSkipActive === true;
   const platformReady = options.platformReady === true;
-  const manualLoginVerified = step?.manual_login_state_verified === true;
+  const currentSessionProbePerformed = step?.current_session_probe_performed === true;
+  const currentSessionStatus = String(step?.current_session_status || '').trim().toLowerCase();
+  const currentSessionVerified = currentSessionProbePerformed
+    && step?.current_session_verified === true
+    && ['verified', 'logged_in', 'ready'].includes(currentSessionStatus);
+  const manualLoginVerified = currentSessionVerified;
+  const historicalLoginMetadataPresent = step?.historical_login_metadata_present === true
+    || (step?.manual_login_state_verified === true && !currentSessionVerified);
   const skipWithVerifiedLogin = operatorSkipActive && manualLoginVerified;
   const trigger = step?.profile_login_trigger && typeof step.profile_login_trigger === 'object'
     ? step.profile_login_trigger
@@ -225,6 +363,20 @@ function compactStep(platform, step, options = {}) {
   const afterLoginSync = trigger.after_login_sync && typeof trigger.after_login_sync === 'object'
     ? trigger.after_login_sync
     : {};
+  const credentialMetadata = safeCredentialMetadata(step);
+  const credentialMetadataAllowsActions = ['ready', 'not_required'].includes(credentialMetadata.status);
+  const profileBinding = safeProfileBinding(step);
+  const profileBindingStatus = profileBinding.status;
+  const profileBindingReason = profileBinding.reason;
+  const profileBindingAllowsActions = profileBindingStatus === 'ready';
+  const dataSourceId = positiveInt(step?.data_source_id);
+  const profileDirPresent = step?.profile_dir_present === true;
+  const platformHotelIdentifierPresent = step?.platform_hotel_identifier_present === true;
+  const profilePreparationReady = dataSourceId > 0
+    && profileDirPresent
+    && platformHotelIdentifierPresent
+    && profileBindingAllowsActions;
+  const actionsAllowed = credentialMetadataAllowsActions && profilePreparationReady;
   const profileFlowBlockers = profileFlowBlockingReasonCodes(step);
   return {
     platform,
@@ -233,18 +385,39 @@ function compactStep(platform, step, options = {}) {
     data_source_status: step?.data_source_status ?? '',
     last_sync_status: step?.last_sync_status ?? '',
     manual_login_state_verified: manualLoginVerified,
+    historical_login_metadata_present: historicalLoginMetadataPresent,
+    login_evidence_scope: currentSessionVerified ? 'current_session_probe' : 'historical_metadata_only',
+    current_session_probe_performed: currentSessionProbePerformed,
+    current_session_verified: currentSessionVerified,
+    current_session_status: currentSessionVerified ? currentSessionStatus : 'unverified',
+    profile_dir_present: profileDirPresent,
+    platform_hotel_identifier_present: platformHotelIdentifierPresent,
+    profile_binding_status: profileBindingStatus,
+    profile_binding_reason: profileBindingReason,
+    profile_preparation_ready: profilePreparationReady,
+    operational_actions_allowed: actionsAllowed,
+    credential_metadata_status: credentialMetadata.status,
+    credential_metadata_reason: credentialMetadata.reason,
     login_trigger_status: platformReady
       ? 'already_ready_no_login'
-      : (skipWithVerifiedLogin ? 'login_verified_reference_only' : (trigger.status ?? '')),
-    login_trigger_entry: platformReady || skipWithVerifiedLogin ? '' : (trigger.entry ?? ''),
-    after_login_sync_entry: operatorSkipActive || platformReady ? '' : (afterLoginSync.entry ?? ''),
+      : (!credentialMetadataAllowsActions
+        ? `credential_metadata_${credentialMetadata.status}`
+        : (!profileBindingAllowsActions
+          ? `profile_binding_${profileBindingStatus}`
+          : (!profilePreparationReady
+            ? 'profile_preparation_missing'
+            : (skipWithVerifiedLogin
+              ? 'login_verified_reference_only'
+              : (currentSessionVerified ? 'current_session_verified' : 'ready_for_session_probe'))))),
+    login_trigger_entry: platformReady || skipWithVerifiedLogin || !actionsAllowed || currentSessionVerified ? '' : (trigger.entry ?? ''),
+    after_login_sync_entry: operatorSkipActive || platformReady || !actionsAllowed || !currentSessionVerified ? '' : (afterLoginSync.entry ?? ''),
     verifier_command: step?.p0_verifier_command ?? '',
     operator_skip_active: operatorSkipActive,
     platform_ready: platformReady,
     platform_gate_ready: options.platformGateReady === true,
     platform_gate_status: options.platformGateStatus || '',
     platform_action_status: options.platformActionStatus || '',
-    profile_flow_ready: profileFlowBlockers.length === 0,
+    profile_flow_ready: profileFlowBlockers.length === 0 && actionsAllowed && currentSessionVerified,
     profile_flow_blocking_reason_codes: profileFlowBlockers,
     blocking_reason_codes: stepBlockingReasonCodes(step, {
       stepReady: platformReady,
@@ -270,6 +443,8 @@ function scopedVerifierCommand(scope, fallbackDate) {
 function buildReport(verifier) {
   const payload = verifier.payload;
   const platforms = asArray(payload.platforms);
+  const platformScope = platformScopeStatus(payload);
+  const verifierProcessReady = verifier.exitCode == null || verifier.exitCode === 0;
   const rows = [];
   const targetDate = payload.scope?.date || argValue('date', '');
   const skipped = operatorSkippedPlatforms();
@@ -319,6 +494,15 @@ function buildReport(verifier) {
       ...profileFlowIncompleteSteps.flatMap((step) => asArray(step.profile_flow_blocking_reason_codes)),
       ...targetTrafficScopeBlockingReasonCodes,
     ]));
+    const currentSessionReadyCount = steps.filter(
+      (step) => step.current_session_verified && step.operational_actions_allowed,
+    ).length;
+    const probeReadyCount = steps.filter((step) => step.login_trigger_status === 'ready_for_session_probe' && step.login_trigger_entry).length;
+    const safeActionStatus = operatorSkipActive
+      ? 'skipped_by_operator_no_capture'
+      : (platformReady
+        ? 'ready'
+        : (currentSessionReadyCount > 0 ? 'ready_for_sync' : (probeReadyCount > 0 ? 'ready_for_session_probe' : 'missing_inputs')));
     rows.push(...steps);
     return {
       platform,
@@ -332,8 +516,8 @@ function buildReport(verifier) {
       step_hotels_missing_target_date_traffic: stepHotelsMissingTargetTraffic,
       target_date_traffic_scope_blocking_reason_codes: targetTrafficScopeBlockingReasonCodes,
       target_date_traffic_scope_reference_reason_codes: targetTrafficScopeReferenceReasonCodes,
-      action_entry: operatorSkipActive ? '' : (gate.action_entry || ''),
-      action_status: operatorSkipActive ? 'skipped_by_operator_no_capture' : (gate.action_status || ''),
+      action_entry: !operatorSkipActive && !platformReady && currentSessionReadyCount > 0 ? (gate.action_entry || '') : '',
+      action_status: safeActionStatus,
       p0_traffic_gate_status: gate.status || '',
       platform_ready: platformReady,
       hotel_scoped_ready: platformReady && hotelStepIncompleteCount === 0,
@@ -347,10 +531,7 @@ function buildReport(verifier) {
       profile_flow_blocking_reason_codes: profileFlowBlockingReasonCodes,
       missing_inputs: asArray(gate.action_missing_inputs),
       next_step_count: Number(gate.p0_next_step_count || steps.length),
-      manual_login_state_verified_count: Math.max(
-        Number(gate.p0_manual_login_state_verified_count || 0),
-        derivedManualLoginCount,
-      ),
+      manual_login_state_verified_count: derivedManualLoginCount,
       operator_skip_active: operatorSkipActive,
       operator_skip_policy: operatorSkipActive ? 'p0_skipped_by_operator_reference_only_no_collection' : '',
       profile_login_trigger_available_count: Math.max(
@@ -363,13 +544,25 @@ function buildReport(verifier) {
       ),
     };
   });
-  const hotelScopedReady = platformSummaries.every((item) => item.hotel_scoped_ready);
+  const hotelScopedReady = platformSummaries.length > 0
+    && platformSummaries.every((item) => item.hotel_scoped_ready);
   const operatorSkipped = platformSummaries.some((item) => item.operator_skip_active);
-  const reportReady = p0VerifierReady(payload.status) && hotelScopedReady && !operatorSkipped;
+  const reportReady = p0VerifierReady(payload.status)
+    && hotelScopedReady
+    && !operatorSkipped
+    && platformScope.status === 'valid'
+    && verifierProcessReady;
+  const completionStatus = platformScope.status !== 'valid'
+    ? 'invalid_platform_scope'
+    : (!verifierProcessReady
+      ? 'verifier_process_failed'
+      : (reportReady
+        ? (payload.status || '')
+        : (p0VerifierReady(payload.status) ? 'incomplete_hotel_scoped_steps' : (payload.status || ''))));
   const completionGate = {
     command: scopedVerifierCommand(payload.scope || {}, targetDate),
     required_status: 'ready',
-    current_status: reportReady ? (payload.status || '') : (p0VerifierReady(payload.status) ? 'incomplete_hotel_scoped_steps' : (payload.status || '')),
+    current_status: completionStatus,
     boundary: 'Completion requires target-date OTA rows and P0 field-loop evidence; this report is not completion proof.',
   };
 
@@ -380,6 +573,7 @@ function buildReport(verifier) {
     status: payload.status || '',
     inspector_status: payload.inspector_status || '',
     scope: payload.scope || {},
+    platform_scope: platformScope,
     summary: payload.summary || {},
     sensitive_values_policy: 'metadata_only_no_cookie_token_profile_path_or_raw_payload',
     collection_policy: buildCollectionPolicy(),
@@ -388,7 +582,7 @@ function buildReport(verifier) {
     operator_sequence: buildOperatorSequence(rows),
     completion_gate: completionGate,
     collection_flow_gate: buildCollectionFlowGate(platformSummaries),
-    downstream_gate: buildDownstreamGate(payload, completionGate, platformSummaries),
+    downstream_gate: buildDownstreamGate(payload, completionGate, platformSummaries, platformScope, verifier.exitCode),
   };
 }
 
@@ -406,7 +600,8 @@ function buildCollectionPolicy() {
     ],
     mainline_required_gates: [
       'authorized_browser_profile',
-      'manual_login_state_verified',
+      'active_hotel_scoped_profile_binding',
+      'current_session_probe_verified',
       'target_date_ota_rows',
       'target_date_traffic_rows',
       'p0_field_loop_verifier_ready',
@@ -476,25 +671,81 @@ function buildOperatorSequence(rows) {
       });
       continue;
     }
-    sequence.push({
-      type: 'manual_login',
-      platform: step.platform,
-      system_hotel_id: step.system_hotel_id,
-      data_source_id: step.data_source_id,
-      entry: step.login_trigger_entry,
-      status: step.login_trigger_status,
-      required_human_action: 'Account owner opens the OTA backend on their own computer, completes login, captcha/SMS/human verification, then imports browser-assist JSON or local collector evidence.',
-      sensitive_values_policy: 'metadata_only_no_cookie_token_profile_path_or_raw_payload',
-    });
-    sequence.push({
-      type: 'after_login_sync',
-      platform: step.platform,
-      system_hotel_id: step.system_hotel_id,
-      data_source_id: step.data_source_id,
-      entry: step.after_login_sync_entry,
-      requires: 'manual_login_state_verified=true',
-      boundary: 'Run only after the human login step succeeds; does not bypass OTA controls.',
-    });
+    if (!['ready', 'not_required'].includes(step.credential_metadata_status)) {
+      const metadataBlocked = step.credential_metadata_status === 'blocked';
+      const metadataMigration = step.credential_metadata_status === 'migration_required';
+      const metadataActionType = metadataBlocked
+        ? 'credential_metadata_blocked'
+        : (metadataMigration ? 'credential_metadata_migration' : 'credential_metadata_unverified');
+      const metadataDefaultReason = metadataBlocked
+        ? 'ota_credential_metadata_blocked'
+        : (metadataMigration ? 'ota_credential_metadata_migration_required' : 'ota_credential_metadata_unverified');
+      sequence.push({
+        type: metadataActionType,
+        platform: step.platform,
+        system_hotel_id: step.system_hotel_id,
+        data_source_id: step.data_source_id,
+        status: step.credential_metadata_status,
+        reason_code: step.credential_metadata_reason || metadataDefaultReason,
+        blocking_reason_codes: step.blocking_reason_codes,
+        required_action: `${metadataBlocked ? 'Resolve and verify' : (metadataMigration ? 'Migrate and verify' : 'Provide and verify')} the hotel-scoped OTA credential metadata before starting a session probe or data-source sync.`,
+        boundary: 'Only credential_metadata_status=ready or not_required permits an operational action; unknown metadata fails closed.',
+      });
+      sequence.push({
+        type: 'single_scope_verifier',
+        platform: step.platform,
+        system_hotel_id: step.system_hotel_id,
+        data_source_id: step.data_source_id,
+        command: step.verifier_command,
+        required_result: 'credential_metadata_status=ready|not_required and status=ready for this platform/hotel traffic gate',
+        boundary: `Session probe and sync remain blocked while credential metadata is ${step.credential_metadata_status}.`,
+      });
+      continue;
+    }
+    if (step.profile_binding_status !== 'ready') {
+      sequence.push({
+        type: 'profile_binding_blocked',
+        platform: step.platform,
+        system_hotel_id: step.system_hotel_id,
+        data_source_id: step.data_source_id,
+        status: step.profile_binding_status,
+        reason_code: step.profile_binding_reason || 'profile_binding_unverified',
+        blocking_reason_codes: step.profile_flow_blocking_reason_codes,
+        boundary: 'The active ota_profile_bindings tuple must match this platform, tenant, and hotel before any session probe or sync action is emitted.',
+      });
+    } else if (!step.profile_preparation_ready) {
+      sequence.push({
+        type: 'profile_preparation_blocked',
+        platform: step.platform,
+        system_hotel_id: step.system_hotel_id,
+        data_source_id: step.data_source_id,
+        status: 'missing_inputs',
+        blocking_reason_codes: step.profile_flow_blocking_reason_codes,
+        required_action: 'Prepare the Profile directory and platform hotel identity on this same bound data source before starting a session probe or sync.',
+        boundary: 'Profile directory, platform identity, binding, and current-session proof cannot be stitched across different sources.',
+      });
+    } else if (!step.current_session_verified) {
+      sequence.push({
+        type: 'session_probe',
+        platform: step.platform,
+        system_hotel_id: step.system_hotel_id,
+        data_source_id: step.data_source_id,
+        entry: step.login_trigger_entry,
+        status: 'ready_for_session_probe',
+        required_human_action: 'Account owner opens the OTA backend on their own computer and completes the current-session probe, including any captcha/SMS/human verification.',
+        sensitive_values_policy: 'metadata_only_no_cookie_token_profile_path_or_raw_payload',
+      });
+    } else if (step.after_login_sync_entry) {
+      sequence.push({
+        type: 'after_login_sync',
+        platform: step.platform,
+        system_hotel_id: step.system_hotel_id,
+        data_source_id: step.data_source_id,
+        entry: step.after_login_sync_entry,
+        requires: 'current_session_probe_performed=true and current_session_verified=true on this data_source_id',
+        boundary: 'Run only after the same hotel-scoped source passes the current-session probe; does not bypass OTA controls.',
+      });
+    }
     sequence.push({
       type: 'single_scope_verifier',
       platform: step.platform,
@@ -549,7 +800,7 @@ function p0VerifierReady(status) {
   return ['ready', 'passed'].includes(String(status || '').trim());
 }
 
-function buildDownstreamGate(payload, completionGate, platformSummaries = []) {
+function buildDownstreamGate(payload, completionGate, platformSummaries = [], platformScope = {}, verifierExitCode = null) {
   const status = String(payload?.status || '');
   const blockingMissingInputs = new Set();
   const operatorSkipped = asArray(platformSummaries)
@@ -559,6 +810,8 @@ function buildDownstreamGate(payload, completionGate, platformSummaries = []) {
   const hotelScopedIncomplete = asArray(platformSummaries)
     .filter((item) => Number(item?.hotel_step_incomplete_count || 0) > 0);
   const isReady = p0VerifierReady(status)
+    && platformScope?.status === 'valid'
+    && (verifierExitCode == null || verifierExitCode === 0)
     && operatorSkipped.length === 0
     && hotelScopedIncomplete.length === 0;
   const stageDefinitions = [
@@ -590,6 +843,12 @@ function buildDownstreamGate(payload, completionGate, platformSummaries = []) {
   }
   if (operatorSkipped.length > 0) {
     blockingMissingInputs.add('p0_skipped_by_operator');
+  }
+  if (platformScope?.status !== 'valid') {
+    blockingMissingInputs.add('platform_scope_missing_or_mismatch');
+  }
+  if (verifierExitCode != null && verifierExitCode !== 0) {
+    blockingMissingInputs.add('verifier_process_nonzero_exit');
   }
   for (const item of hotelScopedIncomplete) {
     const platform = String(item.platform || '').trim();
@@ -683,8 +942,11 @@ function renderMarkdown(report) {
       lines.push(
         `${index + 1}. ${platformLabel(step.platform)} system_hotel_id=${step.system_hotel_id} / data_source_id=${step.data_source_id}`,
         `   - 当前状态: source=${step.data_source_status || '-'}, last_sync=${step.last_sync_status || '-'}, manual_login_state_verified=${step.manual_login_state_verified ? 'true' : 'false'}`,
+        `   - session_probe: performed=${step.current_session_probe_performed ? 'true' : 'false'}, verified=${step.current_session_verified ? 'true' : 'false'}, status=${step.current_session_status || 'unverified'}, evidence_scope=${step.login_evidence_scope || 'historical_metadata_only'}`,
+        `   - profile_binding=${step.profile_binding_status || 'unverified'} / ${step.profile_binding_reason || '-'}`,
         `   - platform_ready=${step.platform_ready ? 'true' : 'false'}`,
         `   - profile_flow_ready=${step.profile_flow_ready ? 'true' : 'false'}, profile_flow_blockers=${step.profile_flow_blocking_reason_codes.length ? step.profile_flow_blocking_reason_codes.join(',') : '-'}`,
+        `   - credential_metadata=${step.credential_metadata_status || 'unverified'} / ${step.credential_metadata_reason || '-'}`,
         `   - operator_skip_active=${step.operator_skip_active ? 'true' : 'false'}`,
         `   - 本机授权: ${step.platform_ready ? 'already_ready_no_login' : (step.operator_skip_active && step.manual_login_state_verified ? 'login_verified_reference_only' : (step.login_trigger_entry || '-'))} (${step.login_trigger_status || '-'})`,
         `   - 登录后同步: ${step.platform_ready ? 'already_ready_no_sync' : (step.operator_skip_active ? 'skipped_by_operator_no_sync' : (step.after_login_sync_entry || '-'))}`,
@@ -695,8 +957,8 @@ function renderMarkdown(report) {
 
   lines.push('', '## 执行门禁', '');
   for (const item of report.operator_sequence) {
-    if (item.type === 'manual_login') {
-      lines.push(`- 登录: ${platformLabel(item.platform)} system_hotel_id=${item.system_hotel_id} data_source_id=${item.data_source_id} -> ${item.entry || '-'} (${item.status || '-'})`);
+    if (item.type === 'session_probe') {
+      lines.push(`- 会话探测: ${platformLabel(item.platform)} system_hotel_id=${item.system_hotel_id} data_source_id=${item.data_source_id} -> ${item.entry || '-'} (${item.status || '-'})`);
     } else if (item.type === 'after_login_sync') {
       lines.push(`- 同步: ${platformLabel(item.platform)} system_hotel_id=${item.system_hotel_id} data_source_id=${item.data_source_id} -> ${item.entry || '-'}，前置=${item.requires}`);
     } else if (item.type === 'already_ready') {
@@ -705,6 +967,8 @@ function renderMarkdown(report) {
       lines.push(`- profile_flow_gap: ${platformLabel(item.platform)} system_hotel_id=${item.system_hotel_id} data_source_id=${item.data_source_id} -> ${item.status}; blockers=${item.blocking_reason_codes?.length ? item.blocking_reason_codes.join(',') : '-'}; ${item.boundary}`);
     } else if (item.type === 'operator_skip') {
       lines.push(`- operator_skip: ${platformLabel(item.platform)} system_hotel_id=${item.system_hotel_id} data_source_id=${item.data_source_id} -> ${item.status}; ${item.boundary}`);
+    } else if (['credential_metadata_migration', 'credential_metadata_blocked', 'credential_metadata_unverified', 'profile_binding_blocked', 'profile_preparation_blocked'].includes(item.type)) {
+      lines.push(`- ${item.type}: ${platformLabel(item.platform)} system_hotel_id=${item.system_hotel_id} data_source_id=${item.data_source_id} -> ${item.reason_code || item.status}; ${item.boundary}`);
     } else if (item.type === 'single_scope_verifier') {
       lines.push(`- 复验: ${item.command || '-'}`);
     }

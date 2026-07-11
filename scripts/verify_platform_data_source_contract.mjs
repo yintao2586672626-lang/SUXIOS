@@ -19,6 +19,14 @@ function count(source, needle) {
   return source.split(needle).length - 1;
 }
 
+function sourceSection(source, startNeedle, endNeedle) {
+  const start = source.indexOf(startNeedle);
+  const end = start === -1 ? -1 : source.indexOf(endNeedle, start + startNeedle.length);
+  return start !== -1 && end !== -1 ? source.slice(start, end) : '';
+}
+
+const reusableOtaSecretTaskField = /['"](?:cookies?|auth_data|authorization|token|access_token|refresh_token|spidertoken|spider_token|spiderkey|spider_key|mtgsig|headers|headers_json|password|api_key)['"]\s*=>/i;
+
 function checkSources(files, label, predicate, detail) {
   const source = files.map((file) => read(file)).join('\n');
   checks.push({
@@ -158,9 +166,7 @@ for (const [needle, label] of [
   ['return $this->captureCtripCommentsBrowserData();', 'Ctrip comment endpoint delegates to aggregate browser capture'],
   ['return $this->captureMeituanBrowserData($requestData);', 'Meituan comment endpoint delegates to aggregate browser capture'],
   ["'capture_sections' => 'comment_review'", 'Ctrip comment capture forces aggregate comment_review section'],
-  ["'capture_sections' => 'reviews'", 'Meituan comment capture forces aggregate reviews section'],
-  ["saveOtaDataConfigValue('ctrip-comments'", 'Ctrip comment config persists aggregate capture config'],
-  ["saveOtaDataConfigValue('meituan-comments'", 'Meituan comment config persists aggregate capture config'],
+  ['Legacy Ctrip comment Cookie/API config storage is disabled.', 'legacy Ctrip comment Cookie/API config storage fails closed'],
   ['aggregate_metrics_only_no_review_text', 'comment config documents aggregate-only privacy boundary'],
   ['function sanitizeOnlineOrderRawData', 'controller sanitizes browser-captured order raw data before storage'],
   ['function sanitizeOnlineReviewRawData', 'controller sanitizes browser-captured review raw data before storage'],
@@ -184,6 +190,16 @@ for (const [needle, label] of [
     'app/controller/concern/MeituanCapturedDataConcern.php',
   ], label, (source) => source.includes(needle), needle);
 }
+
+check(
+  'app/controller/concern/MeituanConfigConcern.php',
+  'Meituan comment config is explicitly browser-Profile-only and does not persist Cookie/API material',
+  (source) => source.includes('public function saveMeituanCommentConfig')
+    && source.includes('public function getMeituanCommentConfigList')
+    && source.includes('return $this->error(')
+    && !source.includes("saveOtaDataConfigValue('meituan-comments'"),
+  'saveMeituanCommentConfig policy boundary'
+);
 
 for (const [needle, label] of [
   ['final class OnlineDataFieldFactService', 'shared online data field fact service exists'],
@@ -266,21 +282,53 @@ for (const [needle, label] of [
   ["`/online-data/data-sources/${source.id}/sync`", 'frontend can trigger immediate sync'],
   ['platformSyncLogs', 'frontend renders sync logs'],
   ['binding_contract', 'frontend renders machine-readable platform Profile binding contract'],
-  ['manual_login_state_verified=', 'frontend shows manual login verification state in Profile card'],
+  ['current_session_verified=', 'frontend shows current-session verification state in Profile card'],
+  ['historical_manual_login_state_verified=', 'frontend labels legacy manual-login metadata as historical'],
   ['item.binding_checks || item.checks', 'frontend renders backend binding checks'],
-  ['bindingContract.manual_login_state_verified === true', 'frontend flow requires explicit manual login verification when contract exists'],
+  ['bindingContract.current_session_verified === true', 'frontend flow requires current-session proof when contract exists'],
+  ['profile.current_session_verified === true', 'frontend compatibility flow only accepts an explicit current-session Profile field'],
   ["requireAutoFetchStatic('normalizeDataConfigForForm')", 'frontend reads data-config normalizer from auto-fetch static module'],
   ["requireAutoFetchStatic('buildDataConfigRequestBody')", 'frontend reads data-config request builder from auto-fetch static module'],
 ]) {
   check('public/index.html', label, (source) => source.includes(needle), needle);
 }
 
+check(
+  'public/index.html',
+  'frontend Profile flow never infers current login from historical strings',
+  (source) => {
+    const flow = sourceSection(
+      source,
+      'const platformProfileFlowRows = computed(() => {',
+      'const meituanPlatformProfileStatusRow = computed'
+    );
+    return flow.includes("const loginVerified = currentSessionVerified && statusCode === 'logged_in';")
+      && !flow.includes('manual_login_state_verified|logged_in')
+      && !flow.includes('manual_login_state_verified/i.test(currentStatus)')
+      && !flow.includes('profile.currentSessionVerified');
+  },
+  'explicit current_session_verified + logged_in; no historical string fallback'
+);
+
+check(
+  'app/service/PlatformProfileBindingReadinessService.php',
+  'Profile binding contract authorizes only the current-session status code',
+  (source) => source.includes("$currentSessionVerified = $statusCode === 'logged_in';")
+    && source.includes("$missing[] = 'current_session_verified';")
+    && source.includes("'current_session_verified' => $currentSessionVerified")
+    && source.includes("'historical_login_metadata_present' => $historicalLoginMetadataPresent")
+    && !source.includes("$missing[] = 'manual_login_state_verified';")
+    && !source.includes("$missing[] = 'last_login_verified_at';")
+    && !source.includes("$missing[] = 'profile_status_logged_in';"),
+  'statusCode logged_in is authoritative; historical flags are reference only'
+);
+
 for (const [needle, label] of [
   ['[$otaHotelId] = self::otaStoreIdFromConfig($platform, $config);', 'Profile binding checks resolve Ctrip OTA store ID through the contract helper'],
   ['[$profileId] = self::profileIdFromConfig($config, $profileKey);', 'Profile binding checks resolve Profile ID through the contract helper'],
   ["if ($profileId !== '' && $otaHotelId !== '')", 'Profile binding checks require Ctrip OTA store ID and Profile ID together'],
   ["} elseif (!$partnerConfigured) {", 'Profile binding checks do not require Meituan Partner ID for P0 Profile identity'],
-  ['Partner ID 仅影响 Cookie/API 快速路径', 'Profile binding checks keep Meituan Partner ID scoped to Cookie/API fast path'],
+  ['Browser Profile 是P0采集主线，Partner ID不是前置条件', 'Profile binding checks keep Browser Profile as the Meituan P0 collection mainline'],
 ]) {
   check('app/service/PlatformProfileBindingReadinessService.php', label, (source) => source.includes(needle), needle);
 }
@@ -340,13 +388,12 @@ for (const [needle, label] of [
   ['campaignList', 'platform sync extracts campaign envelopes'],
   ['CtripBrowserProfileDataSourceAdapter', 'platform sync registers Ctrip browser Profile adapter'],
   ['MeituanBrowserProfileDataSourceAdapter', 'platform sync registers Meituan browser Profile adapter'],
-  ['function assertBrowserProfileBackgroundSyncLoginVerified', 'platform sync gates background Profile capture by verified manual login state'],
-  ['function browserProfileBackgroundSyncLoginMissingRequirements', 'platform sync reports missing Profile login gate requirements'],
+  ['function assertBrowserProfileBackgroundSyncLoginVerified', 'platform sync gates background Profile capture by current-session proof'],
+  ['function browserProfileBackgroundSyncLoginMissingRequirements', 'platform sync reports missing current-session proof requirements'],
   ["'compare_type' => $this->stringValue($row, ['compare_type', 'compareType', 'rank_type', 'rankType'])", 'platform sync maps Meituan rank_type into compare_type for peer-rank field facts'],
-  ["$missing[] = 'manual_login_state_verified';", 'platform sync requires explicit manual login verification before background Profile capture'],
-  ["$missing[] = 'profile_status_logged_in';", 'platform sync requires logged-in Profile status before background Profile capture'],
-  ["$missing[] = 'last_login_verified_at';", 'platform sync requires last login verification time before background Profile capture'],
-  ['browser_profile background sync requires manual_login_state_verified', 'platform sync exposes explicit Profile login gate failure'],
+  ['$this->profileSessionProofService->isCurrentVerified($source)', 'platform sync delegates current-session verification to the proof service'],
+  [": ['current_session_verified'];", 'platform sync exposes the current-session requirement'],
+  ['browser_profile synchronization requires current_session_verified', 'platform sync exposes explicit current-session proof failure'],
   ['function refreshDatabaseConnectionAfterExternalFetch', 'platform sync refreshes DB connection after long external capture'],
   ['$this->refreshDatabaseConnectionAfterExternalFetch();', 'platform sync calls DB refresh before post-capture writes'],
   ['function resolveDataPeriodMetadata', 'platform sync classifies historical and realtime rows'],
@@ -392,23 +439,101 @@ check(
 );
 
 for (const [needle, label] of [
-  ['function assertProfileCookieSourceLoginVerified', 'Profile-derived Cookie extraction has a verified-login gate'],
-  ['function profileCookieSourceLoginMissingRequirements', 'Profile-derived Cookie extraction reports missing login verification requirements'],
-  ["$missing[] = 'manual_login_state_verified';", 'Profile-derived Cookie extraction requires manual login verification'],
-  ["$missing[] = 'profile_status_logged_in';", 'Profile-derived Cookie extraction requires logged-in Profile status'],
-  ["$missing[] = 'last_login_verified_at';", 'Profile-derived Cookie extraction requires last login verification time'],
+  ['function assertProfileCookieSourceLoginVerified', 'Profile-derived Cookie extraction has a current-session proof gate'],
+  ['function profileCookieSourceLoginMissingRequirements', 'Profile-derived Cookie extraction reports missing current-session proof'],
+  ['(new OtaProfileSessionProofService())->isCurrentVerified($source)', 'Profile-derived Cookie extraction delegates current-session verification to the proof service'],
+  [": ['current_session_verified'];", 'Profile-derived Cookie extraction exposes the current-session requirement'],
 ]) {
   check('app/controller/concern/PlatformProfileCaptureConcern.php', label, (source) => source.includes(needle), needle);
 }
 
-for (const [needle, label] of [
-  ['$this->profileCookieSourceLoginVerified($cookieApiSourceConfig)', 'Ctrip Cookie/API task planning only uses verified Profile Cookie sources'],
-  ['$this->profileCookieSourceLoginVerified($meituanConfig)', 'Meituan ranking task planning only uses verified Profile Cookie sources'],
-  ['$this->profileCookieSourceLoginVerified($meituanTrafficSourceConfig)', 'Meituan traffic task planning only uses verified Profile Cookie sources'],
-  ["'profile_cookie_missing_requirements' => $profileCookieMissing", 'Meituan Cookie/API readiness exposes Profile Cookie verification gaps'],
-]) {
-  check('app/controller/concern/AutoFetchConcern.php', label, (source) => source.includes(needle), needle);
-}
+check(
+  'app/controller/concern/AutoFetchConcern.php',
+  'Ctrip Cookie/API tasks require a metadata-ready vault locator and keep reusable secrets out of task bodies',
+  (source) => {
+    const taskPlan = sourceSection(
+      source,
+      'private function buildAutoFetchConfigTaskPlan',
+      'private function syncCtripBrowserProfileDataSourcesForAutoFetch'
+    );
+    const ctripPlan = sourceSection(taskPlan, '$ctripConfigId =', '$meituanConfigId =');
+    const executor = sourceSection(
+      source,
+      'private function executeCtripBusinessAutoFetchTask',
+      'private function executeCtripTrafficAutoFetchTask'
+    );
+    return ctripPlan.includes('$this->autoFetchCredentialReady($ctripConfig)')
+      && ctripPlan.includes("'required' => ['config_id', 'url', 'node_id']")
+      && ctripPlan.includes("'config_id' => $ctripConfigId")
+      && ctripPlan.includes("'system_hotel_id' => $hotelId")
+      && !reusableOtaSecretTaskField.test(ctripPlan)
+      && executor.includes("$this->withAutoFetchCredential('ctrip', $body, $hotelId");
+  },
+  'metadata readiness + config_id/system_hotel_id + vault execution; no reusable secret task fields'
+);
+
+check(
+  'app/controller/concern/AutoFetchConcern.php',
+  'Meituan ranking tasks require a metadata-ready vault locator and keep reusable secrets out of task bodies',
+  (source) => {
+    const taskPlan = sourceSection(
+      source,
+      'private function buildAutoFetchConfigTaskPlan',
+      'private function syncCtripBrowserProfileDataSourcesForAutoFetch'
+    );
+    const meituanPlan = sourceSection(taskPlan, '$meituanConfigId =', 'return $tasks;');
+    const executor = sourceSection(
+      source,
+      'private function executeMeituanRankingAutoFetchTask',
+      'private function executeMeituanRankingAutoFetchWithCredential'
+    );
+    return meituanPlan.includes('$this->autoFetchCredentialReady($meituanConfig)')
+      && meituanPlan.includes("'module' => 'ranking'")
+      && meituanPlan.includes("'required' => ['config_id', 'partner_id', 'poi_id']")
+      && meituanPlan.includes("'config_id' => $meituanConfigId")
+      && meituanPlan.includes("'system_hotel_id' => $hotelId")
+      && !reusableOtaSecretTaskField.test(meituanPlan)
+      && executor.includes("$this->withAutoFetchCredential('meituan', $body, $hotelId");
+  },
+  'metadata readiness + config_id/system_hotel_id + vault execution; no reusable secret task fields'
+);
+
+check(
+  'app/controller/concern/AutoFetchConcern.php',
+  'Meituan traffic execution requires the full vault locator and task planning excludes reusable secrets',
+  (source) => {
+    const taskPlan = sourceSection(
+      source,
+      'private function buildAutoFetchConfigTaskPlan',
+      'private function syncCtripBrowserProfileDataSourcesForAutoFetch'
+    );
+    const locatorGate = sourceSection(
+      source,
+      'private function withAutoFetchCredential',
+      'private function autoFetchCredentialCookieHeader'
+    );
+    const executor = sourceSection(
+      source,
+      'private function executeMeituanTrafficAutoFetchTask',
+      'private function executeMeituanTrafficAutoFetchWithCredential'
+    );
+    return source.includes("'meituan:traffic' => $this->executeMeituanTrafficAutoFetchTask($label, $body, $hotelId)")
+      && executor.includes("$this->withAutoFetchCredential('meituan', $body, $hotelId")
+      && locatorGate.includes("$body['config_id']")
+      && locatorGate.includes("$body['system_hotel_id']")
+      && locatorGate.includes('$boundHotelId !== $hotelId')
+      && locatorGate.includes('$this->withOtaCredentialForExecution(')
+      && !reusableOtaSecretTaskField.test(taskPlan);
+  },
+  'config_id/system_hotel_id locator gate + vault execution; no reusable secret task fields'
+);
+
+check(
+  'app/controller/concern/AutoFetchConcern.php',
+  'Meituan Cookie/API readiness exposes Profile Cookie verification gaps',
+  (source) => source.includes("'profile_cookie_missing_requirements' => $profileCookieMissing"),
+  "'profile_cookie_missing_requirements' => $profileCookieMissing"
+);
 
 for (const [needle, label] of [
   ['export function buildOtaCaptureEvidence', 'OTA capture helper builds desensitized evidence'],
@@ -523,6 +648,19 @@ check(
     && !source.includes("['store_id', 'storeId', 'profile_id', 'profileId', 'poi_id', 'poiId']")
     && !source.includes('$fallbackHotelId'),
   'Meituan Profile ID cannot replace OTA platform store/poi identity'
+);
+
+checkSources(
+  [
+    'app/service/platform/CtripBrowserProfileDataSourceAdapter.php',
+    'app/service/platform/MeituanBrowserProfileDataSourceAdapter.php',
+  ],
+  'browser Profile adapters never inject stored Cookie material into capture processes',
+  (source) => !source.includes('--cookies-file')
+    && !source.includes('createCookieFile')
+    && !source.includes('seed_profile_cookies')
+    && !source.includes('force_cookie_injection'),
+  'browser Profile only; no Cookie file or injection fallback'
 );
 
 for (const [needle, label] of [

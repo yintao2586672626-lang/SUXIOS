@@ -133,11 +133,11 @@ requireText('public/index.html', ':value="u?.id || \'\'"', 'operation log user f
 requireText('public/index.html', "{{ u?.realname || u?.username || '-' }}", 'operation log user filter handles missing names');
 requireText('public/index.html', 'vue.global.prod.js?v=', 'entry versions the local Vue runtime');
 requireText('public/index.html', 'system-static.js?v=', 'entry versions the system static helper');
-requireText('public/index.html', 'ctrip-static.js?v=20260709-cookie-delete-he2f132149b', 'entry bumps Ctrip static helper version after cookie-delete helper extraction');
+requireText('public/index.html', 'ctrip-static.js?v=20260710-credential-state-hf2eb12fa58', 'entry bumps Ctrip static helper version after truthful credential-state projection');
 requireText('public/ctrip-static.js', 'const buildCtripBusinessCanvas', 'Ctrip static owns business download canvas rendering');
 requireText('public/index.html', "const buildCtripBusinessCanvasStatic = requireCtripStatic('buildCtripBusinessCanvas')", 'entry uses extracted Ctrip business canvas renderer');
 requireText('public/index.html', 'return buildCtripBusinessCanvasStatic({', 'entry keeps Ctrip business canvas rendering as a thin adapter');
-requireText('public/index.html', 'meituan-static.js?v=20260709-meituan-bookmarklet-h7809d9d4d1', 'entry bumps Meituan static helper cache version after bookmarklet helper extraction');
+requireText('public/index.html', 'meituan-static.js?v=20260710-credential-state-h2d4959b678', 'entry bumps Meituan static helper version after truthful credential-state projection');
 requireText('public/index.html', ':data-testid="menuTestId(item)"', 'top-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(child)"', 'second-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(grandChild)"', 'third-level menu uses test id helper');
@@ -788,6 +788,10 @@ requireText('public/index.html', 'resetAutoFetchStatusResultCache();\n          
 requireText('public/index.html', '@change="schedulePlatformAutoFetchPanelLoad({ force: true, delayMs: 80 })"', 'platform auto-fetch hotel switches use the deferred non-blocking panel scheduler');
 requireNoText('public/index.html', '@change="loadAutoFetchStatus"', 'platform auto-fetch hotel switches must not directly trigger full status loading');
 requireText('public/data-health-static.js', "requireDataHealthPanelLoader(loadAutoFetchStatus, 'loadAutoFetchStatus')({ detail: isFull })", 'data-health light refresh uses light auto-fetch status');
+requireText('public/data-health-static.js', "requireDataHealthPanelLoader(loadDailyWorkbench, 'loadDailyWorkbench')({ limit: 10 })", 'read-only daily workbench facts remain available to the readiness overview');
+requireNoText('public/data-health-static.js', "requireDataHealthPanelLoader(loadDailyWorkbenchPatrols, 'loadDailyWorkbenchPatrols')", 'focused manual surface does not auto-load employee patrol snapshots');
+requireNoText('public/data-health-static.js', "requireDataHealthPanelLoader(loadPhase3OperationEffectLoop, 'loadPhase3OperationEffectLoop')", 'focused manual surface does not auto-load phase3 operation rows');
+requireNoText('public/data-health-static.js', "requireDataHealthPanelLoader(loadPhase3OperationEffectLoopLedger, 'loadPhase3OperationEffectLoopLedger')", 'focused manual surface does not auto-load phase3 ledgers');
 requireText('public/data-health-static.js', "requireDataHealthPanelLoader(loadCollectionReliability, 'loadCollectionReliability')('full')", 'data-health collection-reliability diagnostics run only in full mode');
 requireNoText('public/index.html', 'loadCollectionReliability(normalizedMode)', 'data-health light first paint must not run collection-reliability');
 requireText('public/index.html', 'const platformProfileStatusRequestPromises = new Map();', 'platform profile status requests are deduplicated by hotel');
@@ -861,30 +865,34 @@ requireText('public/index.html', '<div v-if="ctripEbookingDiagnosticsPanelsReady
 requireText('public/index.html', '}, CTRIP_EBOOKING_STARTUP_CONFIG_DELAY_MS);\n                scheduleDelayedPageTask(() => {', 'Ctrip manual startup config-list read uses the explicit short delay constant');
 requireNoText('public/index.html', "prewarmSelectedCtripConfigSecret();\n                    return null;\n                }, 1800);", 'Ctrip manual startup config-list read must not use an unlabeled hard-coded delay');
 requireText('public/index.html', 'return loadLatestCtripData({ silent: true });\n                }, CTRIP_EBOOKING_LATEST_DATA_DELAY_MS);', 'Ctrip latest-data refresh uses a long explicit delay');
-requireText('public/index.html', 'return loadCookiesList();\n                }, CTRIP_EBOOKING_COOKIE_STATUS_DELAY_MS);', 'Ctrip cookie-list refresh uses a long explicit delay');
+requireText('public/index.html', 'return loadCookiesList();\n                }, CTRIP_EBOOKING_COOKIE_STATUS_DELAY_MS);', 'Ctrip legacy Cookie local state reset stays outside the first interaction window');
 requireText('public/index.html', 'return loadBookmarklet();\n                }, CTRIP_EBOOKING_BOOKMARKLET_DELAY_MS);', 'Ctrip bookmarklet loading uses a long explicit delay');
 requireNoText('public/index.html', 'return loadLatestCtripData({ silent: true });\n                }, 2400);', 'Ctrip latest-data refresh must not compete with the first interaction window');
 requireNoText('public/index.html', 'return loadCookiesList();\n                }, 3000);', 'Ctrip cookie-list refresh must not compete with the first interaction window');
 requireNoText('public/index.html', 'return loadBookmarklet();\n                }, 3600);', 'Ctrip bookmarklet loading must not compete with the first interaction window');
-requireText('public/index.html', "const buildCookieConfigRowKey = requireCtripStatic('buildCookieConfigRowKey');", 'entry uses extracted cookie config row-key helper');
-requireText('public/index.html', "const buildCookieConfigDeleteSuccessState = requireCtripStatic('buildCookieConfigDeleteSuccessState');", 'entry uses extracted cookie config delete success state');
-requireText('public/index.html', "const buildCookieConfigDeleteFailureState = requireCtripStatic('buildCookieConfigDeleteFailureState');", 'entry uses extracted cookie config delete failure state');
-requireText('public/index.html', "const buildCookieConfigBatchDeleteSuccessState = requireCtripStatic('buildCookieConfigBatchDeleteSuccessState');", 'entry uses extracted cookie config batch-delete success state');
-requireText('public/index.html', "const buildCookieConfigBatchDeleteFailureState = requireCtripStatic('buildCookieConfigBatchDeleteFailureState');", 'entry uses extracted cookie config batch-delete failure state');
-requireText('public/ctrip-static.js', 'const buildCookieConfigRowKey = (item = {}) =>', 'Ctrip static owns cookie config row-key normalization');
-requireText('public/ctrip-static.js', 'const buildCookieConfigDeleteSuccessState = ({', 'Ctrip static owns cookie config delete success state');
-requireText('public/ctrip-static.js', 'const buildCookieConfigBatchDeleteSuccessState = ({', 'Ctrip static owns cookie config batch-delete success state');
-requireText('public/index.html', 'const cookieRowKey = buildCookieConfigRowKey;', 'entry keeps cookie config row keys as a thin adapter');
-requireText('public/index.html', 'const deleteSuccessState = buildCookieConfigDeleteSuccessState({ name, hotelId });', 'cookie config delete success handling delegates to static helper');
-requireText('public/index.html', 'selectedCookieKeys.value = selectedCookieKeys.value.filter(key => key !== deleteSuccessState.selectedKeyToRemove);', 'cookie config delete removes the helper-owned selected key');
-requireText('public/index.html', 'const deleteFailureState = buildCookieConfigDeleteFailureState({ response: res });', 'cookie config delete failure handling delegates to static helper');
-requireText('public/index.html', 'const batchDeleteSuccessState = buildCookieConfigBatchDeleteSuccessState({ response: res, rows });', 'cookie config batch-delete success handling delegates to static helper');
-requireText('public/index.html', 'selectedCookieKeys.value = batchDeleteSuccessState.selectedCookieKeys;', 'cookie config batch-delete selected keys come from helper state');
-requireText('public/index.html', 'const batchDeleteFailureState = buildCookieConfigBatchDeleteFailureState({ response: res });', 'cookie config batch-delete failure handling delegates to static helper');
-requireNoTextBetween('public/index.html', 'const deleteCookiesConfig = async (name, hotelId) => {', 'const batchDeleteCookiesConfig = async () => {', "showToast('删除成功');", 'cookie config delete success toast is not re-inlined');
-requireNoTextBetween('public/index.html', 'const deleteCookiesConfig = async (name, hotelId) => {', 'const batchDeleteCookiesConfig = async () => {', "selectedCookieKeys.value = selectedCookieKeys.value.filter(key => key !== `${hotelId || 'global'}::${name}`);", 'cookie config delete selected key is not re-inlined');
-requireNoTextBetween('public/index.html', 'const batchDeleteCookiesConfig = async () => {', 'const useCookies = async (item) => {', 'const deletedCount = res.data?.deleted_count ?? rows.length;', 'cookie config batch-delete count state is not re-inlined');
-requireNoTextBetween('public/index.html', 'const batchDeleteCookiesConfig = async () => {', 'const useCookies = async (item) => {', 'selectedCookieKeys.value = [];', 'cookie config batch-delete selected-key state is not re-inlined');
+requireText('public/index.html', '凭据统一由平台配置保管', 'legacy Cookie panel points users to the credential vault boundary');
+requireText('public/index.html', '旧 Cookie 列表、明文详情和快速保存入口已停用。请在平台采集源中新增或更换携程凭据；浏览器不会再读取已保存的完整 Cookie。', 'legacy Cookie panel explains the disabled storage boundary');
+requireText('public/index.html', '<button @click="openPlatformSourcesTab"', 'legacy Cookie panel navigates to platform sources');
+requireText('public/index.html', "showToast('旧 Cookie 保存已停用，请在平台采集源中更换凭据', 'warning');\n                openPlatformSourcesTab();", 'legacy Cookie save action is disabled and routes to platform sources');
+requireText('public/index.html', "showToast('旧 Cookie 删除入口已停用，请在平台配置中吊销对应凭据', 'warning');\n                openPlatformSourcesTab();", 'legacy Cookie delete action is disabled and routes to platform sources');
+requireText('public/index.html', "showToast('旧 Cookie 批量删除入口已停用，请在平台配置中逐项吊销凭据', 'warning');\n                openPlatformSourcesTab();", 'legacy Cookie batch-delete action is disabled and routes to platform sources');
+requireText('public/index.html', "showToast('浏览器不再读取已保存的完整 Cookie，请选择平台配置凭据', 'warning');\n                openPlatformSourcesTab();", 'legacy Cookie use action refuses browser hydration and routes to platform sources');
+requireText('public/index.html', "showToast('旧 Cookie 快速保存已停用，请在平台采集源中更换凭据', 'warning');\n                openPlatformSourcesTab();", 'legacy Cookie quick-save action is disabled and routes to platform sources');
+requireText('public/index.html', "throw new Error('旧 Cookie 明文详情已停用，请在平台采集源中更换凭据');", 'legacy Cookie detail action refuses plaintext reads');
+{
+  const source = read('public/index.html');
+  const legacyCookieRequestPattern = /request\(\s*['"]\/online-data\/(?:save-cookies|cookies-list|cookies-detail|delete-cookies|batch-delete-cookies)(?:[?'"])/;
+  checks.push({
+    file: 'public/index.html',
+    label: 'browser never calls disabled legacy Cookie persistence endpoints',
+    ok: !legacyCookieRequestPattern.test(source),
+    detail: 'save/list/detail/delete/batch legacy Cookie endpoints',
+  });
+}
+requireNoTextBetween('public/index.html', 'const saveCookiesConfig = async () => {', 'const deleteCookiesConfig = async (name, hotelId) => {', 'request(', 'disabled Cookie save action must not issue a request');
+requireNoTextBetween('public/index.html', 'const deleteCookiesConfig = async (name, hotelId) => {', 'const batchDeleteCookiesConfig = async () => {', 'request(', 'disabled Cookie delete action must not issue a request');
+requireNoTextBetween('public/index.html', 'const batchDeleteCookiesConfig = async () => {', 'const useCookies = async (item) => {', 'request(', 'disabled Cookie batch-delete action must not issue a request');
+requireNoTextBetween('public/index.html', 'const useCookies = async (item) => {', '// AI智能分析相关函数', 'request(', 'disabled Cookie use action must not issue a request');
 requireText('public/index.html', 'const MEITUAN_EBOOKING_STARTUP_CONFIG_DELAY_MS = 16;', 'Meituan manual startup config-list read starts near immediately without blocking route entry');
 requireText('public/index.html', 'const MEITUAN_EBOOKING_SECONDARY_CONFIG_DELAY_MS = 5200;', 'Meituan manual secondary config refresh stays outside the first interaction window');
 requireText('public/index.html', 'const MEITUAN_EBOOKING_HOTEL_LIST_DELAY_MS = 6400;', 'Meituan manual hotel-list refresh stays outside the first interaction window');
@@ -942,26 +950,91 @@ requireOnlineDataControllerText("'detail_loaded' => false", 'backend auto-fetch 
   });
   const lightHelperMatch = source.match(/private function buildAutoFetchPlatformLightStatus\(int \$hotelId, array \$status\): array\s+\{([\s\S]*?)\n    private function autoFetchPlatformsHaveConfig/);
   const lightHelperSource = lightHelperMatch ? lightHelperMatch[1] : '';
+  const runtimeSanitizerMatch = source.match(/private function sanitizeStoredOtaConfigListForRuntime\(array \$list\): array\s+\{([\s\S]*?)\n    private function splitOtaConfigSecrets/);
+  const runtimeSanitizerSource = runtimeSanitizerMatch ? runtimeSanitizerMatch[1] : '';
+  const secretKeyClassifierMatch = source.match(/private function isOtaSecretConfigKey\(string \$key\): bool\s+\{([\s\S]*?)\n    private function otaSecretPayloadContainsCookie/);
+  const secretKeyClassifierSource = secretKeyClassifierMatch ? secretKeyClassifierMatch[1] : '';
+  const storedCtripListMatch = source.match(/private function getStoredCtripConfigList\(\): array\s+\{([\s\S]*?)\n    private function getStoredMeituanConfigList/);
+  const storedCtripListSource = storedCtripListMatch ? storedCtripListMatch[1] : '';
+  const storedMeituanListMatch = source.match(/private function getStoredMeituanConfigList\(\): array\s+\{([\s\S]*?)\n    private function filterOtaConfigListForCurrentUser/);
+  const storedMeituanListSource = storedMeituanListMatch ? storedMeituanListMatch[1] : '';
+  const ctripLightListMatch = source.match(/private function getStoredCtripConfigListForLightCache\(\): array\s+\{([\s\S]*?)\n    private function getStoredMeituanConfigListForLightCache/);
+  const ctripLightListSource = ctripLightListMatch ? ctripLightListMatch[1] : '';
+  const meituanLightListMatch = source.match(/private function getStoredMeituanConfigListForLightCache\(\): array\s+\{([\s\S]*?)\n    private function isMeituanCommentConfigMetadata/);
+  const meituanLightListSource = meituanLightListMatch ? meituanLightListMatch[1] : '';
+  const profileSanitizerMatch = source.match(/private function sanitizeBrowserProfileSourcesForSharedCache\(array \$rows\): array\s+\{([\s\S]*?)\n    private function clearAutoFetchLightConfigListCache/);
+  const profileSanitizerSource = profileSanitizerMatch ? profileSanitizerMatch[1] : '';
+  const profileListMatch = source.match(/private function listEnabledBrowserProfileDataSources\(int \$hotelId, string \$platform = ''\): array\s+\{([\s\S]*?)\n    private function listEnabledCtripBrowserProfileDataSources/);
+  const profileListSource = profileListMatch ? profileListMatch[1] : '';
+  const credentialReadyMatch = source.match(/private function autoFetchCredentialReady\(array \$config\): bool\s+\{([\s\S]*?)\n    private function autoFetchCtripRequestUrl/);
+  const credentialReadySource = credentialReadyMatch ? credentialReadyMatch[1] : '';
   checks.push({
     file: onlineDataControllerFiles.join(' + '),
-    label: 'backend light auto-fetch platform status uses raw read-only config resolvers',
+    label: 'backend light auto-fetch platform status uses metadata-only config resolvers',
     ok: lightHelperSource.includes('resolveCtripFetchConfigForHotelLight')
       && lightHelperSource.includes('resolveMeituanFetchConfigForHotelLight')
       && !lightHelperSource.includes('resolveCtripFetchConfigForHotel($hotelId)')
       && !lightHelperSource.includes('resolveMeituanFetchConfigForHotel($hotelId)')
-      && source.includes('private function getStoredCtripConfigListRaw')
-      && source.includes('private function getStoredMeituanConfigListRaw'),
-    detail: 'buildAutoFetchPlatformLightStatus must not normalize or write stored platform config lists',
+      && source.includes('getStoredCtripConfigListForLightCache()')
+      && source.includes('getStoredMeituanConfigListForLightCache()')
+      && !source.includes('getStoredCtripConfigListRaw')
+      && !source.includes('getStoredMeituanConfigListRaw'),
+    detail: 'buildAutoFetchPlatformLightStatus reads sanitized metadata lists and never a raw legacy list',
   });
   checks.push({
     file: onlineDataControllerFiles.join(' + '),
-    label: 'backend light auto-fetch platform status short-caches read-only dependencies',
+    label: 'stored OTA config lists are sanitized row-by-row and fail closed before shared caching',
+    ok: runtimeSanitizerMatch !== null
+      && runtimeSanitizerSource.includes('foreach ($list as $index => $item)')
+      && runtimeSanitizerSource.includes('splitOtaConfigSecrets($item)')
+      && runtimeSanitizerSource.includes('sanitizeSecretConfig($item)')
+      && runtimeSanitizerSource.includes("$metadata['migration_required'] = true;")
+      && runtimeSanitizerSource.includes("$metadata['migration_reason'] = 'legacy_secret_fields_present';")
+      && runtimeSanitizerSource.includes("$metadata['credential_status'] = 'migration_required';")
+      && runtimeSanitizerSource.includes("$metadata['credential_level'] = 'blocked';")
+      && runtimeSanitizerSource.includes("$metadata['has_cookies'] = false;")
+      && credentialReadySource.includes("(string)($config['credential_status'] ?? '') === 'ready'")
+      && credentialReadySource.includes("($config['has_cookies'] ?? false) === true")
+      && storedCtripListSource.includes('sanitizeStoredOtaConfigListForRuntime($list)')
+      && storedMeituanListSource.includes('sanitizeStoredOtaConfigListForRuntime($list)')
+      && ctripLightListSource.includes('sanitizeStoredOtaConfigListForRuntime($list)')
+      && meituanLightListSource.includes('sanitizeStoredOtaConfigListForRuntime($list)')
+      && ctripLightListSource.includes('writeAutoFetchLightReadCache($cacheKey, $safeList)')
+      && meituanLightListSource.includes('writeAutoFetchLightReadCache($cacheKey, $safeList)')
+      && !ctripLightListSource.includes('writeAutoFetchLightReadCache($cacheKey, $list)')
+      && !meituanLightListSource.includes('writeAutoFetchLightReadCache($cacheKey, $list)')
+      && ['cookies', 'token', 'auth_data', 'authorization', 'headers', 'encrypted_payload']
+        .every(key => secretKeyClassifierSource.includes(`'${key}'`)),
+    detail: 'normal and light paths strip Cookie/token/auth/header/encrypted payload fields; legacy secrets become blocked migration metadata',
+  });
+  checks.push({
+    file: onlineDataControllerFiles.join(' + '),
+    label: 'browser-profile light cache uses a safe field whitelist and sanitized metadata rows',
+    ok: profileListMatch !== null
+      && profileListSource.includes("->field('id,tenant_id,name,system_hotel_id,platform,data_type,ingestion_method,config_json,enabled,status')")
+      && profileListSource.includes("->whereIn('ingestion_method', ['browser_profile', 'profile_browser'])")
+      && !profileListSource.includes('secret_json')
+      && profileListSource.includes('sanitizeBrowserProfileSourcesForSharedCache($rows)')
+      && profileListSource.includes('writeAutoFetchLightReadCache($cacheKey, $safeRows)')
+      && !profileListSource.includes('writeAutoFetchLightReadCache($cacheKey, $rows)')
+      && profileSanitizerMatch !== null
+      && profileSanitizerSource.includes("unset($row['secret_json'])")
+      && profileSanitizerSource.includes('splitOtaConfigSecrets($config)')
+      && profileSanitizerSource.includes('splitOtaConfigSecrets($row)')
+      && profileSanitizerSource.includes("$safeRow['migration_required'] = true;")
+      && profileSanitizerSource.includes("$safeRow['status'] = 'migration_required';"),
+    detail: 'platform_data_sources excludes secret_json and sanitizes config_json before any cross-request cache write',
+  });
+  checks.push({
+    file: onlineDataControllerFiles.join(' + '),
+    label: 'backend light auto-fetch platform status preserves short-cache performance constraints',
     ok: source.includes('private const AUTO_FETCH_LIGHT_READ_CACHE_TTL_SECONDS = 5;')
       && source.includes('private array $autoFetchLightReadCache = [];')
       && source.includes('readAutoFetchLightReadCache($cacheKey)')
-      && source.includes('writeAutoFetchLightReadCache($cacheKey, $list)')
-      && source.includes("writeAutoFetchLightReadCache($cacheKey, array_values(array_filter($rows, 'is_array')))"),
-    detail: 'light status reads should reuse recent config-list and browser-profile source reads without caching success/failure results',
+      && source.includes("'_config_list_metadata_v2'")
+      && source.includes('writeAutoFetchLightReadCache($cacheKey, $safeList)')
+      && source.includes('writeAutoFetchLightReadCache($cacheKey, $safeRows)'),
+    detail: 'light status reuses five-second metadata-only config/profile reads without reviving legacy raw cache keys',
   });
   const onlineDataControllerSource = readOnlineDataControllerSource();
   checks.push({
@@ -994,34 +1067,39 @@ requireText('public/index.html', 'loadConfigList: () => loadCtripConfigList({\n 
 requireText('public/index.html', 'loadConfigList: () => loadMeituanConfigList({\n                        cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\n                        applySelectedConfig: false,\n                    })', 'Meituan manual tab switching avoids repeat config-list requests and implicit config application within the short cache window');
 requireText('public/index.html', 'let ctripConfigListLoadingPromise = null;', 'entry deduplicates concurrent Ctrip config-list loads');
 requireText('public/index.html', "if (ctripConfigListLoadingPromise) {\n                    if (!force) {\n                        return ctripConfigListLoadingPromise;\n                    }\n                    await ctripConfigListLoadingPromise.catch(() => []);", 'Ctrip config-list loader reuses ordinary in-flight requests and waits before force refresh');
-requireText('public/index.html', ':disabled="fetchingData || !canFetchCtripManualData()"', 'Ctrip ranking and traffic manual fetch buttons stay clickable while config proof is pending');
+requireText('public/index.html', ':disabled="fetchingData || !canFetchCtripManualData()"', 'Ctrip ranking and traffic manual fetch buttons use the fail-closed readiness gate');
 requireText('public/index.html', 'const ctripManualFetchConfigProofPending = () => {', 'Ctrip manual fetch can recognize pending config proof');
 requireText('public/index.html', 'return !!ctripConfigListLoadingPromise', 'Ctrip manual fetch reuses an in-flight config-list proof request');
+requireText('public/index.html', 'if (selectedCtripHotelId.value) return selectedCtripManualCredentialState.value.canFetch;', 'Ctrip selected-hotel fetch readiness comes only from the credential state builder');
+requireText('public/index.html', 'return buildCtripManualCredentialState(ctripManualFetchConfigCandidate()).canFetch;', 'Ctrip auto-resolved fetch readiness comes only from a ready credential candidate');
+requireNoTextBetween('public/index.html', 'const canFetchCtripManualData = () => {', 'const resolveCtripManualFetchConfig = async (config) => {', 'ctripManualFetchConfigProofPending', 'Ctrip pending config proof must not enable the fetch button');
+requireNoTextBetween('public/index.html', 'const canFetchCtripManualData = () => {', 'const resolveCtripManualFetchConfig = async (config) => {', 'ctripConfigListLoadingPromise', 'Ctrip config-list loading must not enable the fetch button');
 requireText('public/index.html', 'const resolveCtripManualFetchConfig = async (config) => {', 'Ctrip manual fetch resolves config before backend submission');
-requireText('public/index.html', 'ensureCtripConfigSecret: async config => ensureCtripConfigSecret(await resolveCtripManualFetchConfig(config))', 'Ctrip manual fetch waits for pending config proof without misreporting missing config');
+requireText('public/index.html', 'return ctripManualFetchConfigCandidate();', 'Ctrip manual fetch resolves a ready metadata locator after pending config proof');
 requireText('public/index.html', 'let ctripConfigListLoadedAt = 0;', 'Ctrip config-list loader records recent successful loads for short tab-switch caching');
 requireText('public/index.html', 'let meituanConfigListLoadedAt = 0;', 'Meituan config-list loader records recent successful loads for short tab-switch caching');
-requireText('public/index.html', 'const ctripConfigDetailCache = new Map();', 'entry caches full Ctrip config details for manual-fetch hotel switching');
-requireText('public/index.html', 'const ctripConfigDetailLoadingPromises = new Map();', 'entry deduplicates concurrent full Ctrip config detail loads');
-requireText('public/index.html', 'const ensureCtripConfigSecret = async (config, options = {}) => {', 'Ctrip full config detail loader supports silent background prewarm');
-requireText('public/index.html', "console.error('[CTrip] 预热完整配置失败:', e);", 'Ctrip config-detail prewarm failure stays silent to the user');
-requireText('public/index.html', 'const prewarmSelectedCtripConfigSecret = (config = findCtripConfigByHotelId(selectedCtripHotelId.value)) => {', 'entry can prewarm selected Ctrip config detail without blocking manual fetch UI');
-requireText('public/index.html', 'deferUiTask(() => ensureCtripConfigSecret(config, { silent: true }), 80);', 'Ctrip selected config detail prewarm is scheduled outside the current interaction');
+requireText('public/index.html', 'const ctripConfigHasManualAuxiliary = (config = null) => {', 'Ctrip execution readiness is derived from metadata');
+requireText('public/index.html', "String(config.credential_status || '') === 'ready'", 'Ctrip metadata readiness requires a ready vault credential');
+requireText('public/index.html', 'config.has_cookies === true', 'Ctrip metadata readiness requires stored credential presence');
+requireNoText('public/index.html', 'const ensureCtripConfigSecret = async', 'Ctrip entry must not hydrate stored credentials');
+requireNoText('public/index.html', 'const loadCtripConfigDetail = async', 'Ctrip entry must not load full credential detail');
+requireNoText('public/index.html', 'const prewarmSelectedCtripConfigSecret =', 'Ctrip entry must not prewarm full credential detail');
+requireNoText('public/index.html', 'ctripConfigDetailCache.set(', 'Ctrip entry must not cache credential detail');
 requireText('public/index.html', 'const scheduleCtripHotelConfigApply = (event = null, options = {}) => {', 'Ctrip hotel selection uses a non-blocking config apply scheduler');
-requireText('public/index.html', 'const applyVersion = ++ctripHotelConfigApplyVersion;', 'Ctrip hotel selection ignores stale deferred full-config responses');
-requireText('public/index.html', 'const config = await ensureCtripConfigSecret(configSource, { silent: true });', 'Ctrip hotel selection loads full config detail only in silent deferred work');
+requireText('public/index.html', 'const applyVersion = ++ctripHotelConfigApplyVersion;', 'Ctrip hotel selection ignores stale deferred metadata responses');
+requireText('public/index.html', 'const config = resolveCtripConfigMetadata(configSource);', 'Ctrip hotel selection applies metadata without credential-detail loading');
 requireText('public/index.html', '@change="scheduleCtripHotelConfigApply"', 'Ctrip manual hotel selects use the non-blocking selection handler');
-requireNoText('public/index.html', '@change="applyCtripHotelConfig"', 'Ctrip manual hotel selects must not block on full config detail application');
-requireText('public/index.html', "clearCtripConfigDetailCache(body?.id || '');", 'entry invalidates Ctrip config detail cache after manual config saves');
+requireNoText('public/index.html', '@change="applyCtripHotelConfig"', 'Ctrip manual hotel selects must not block on metadata application');
+requireNoText('public/index.html', "request('/online-data/get-ctrip-config-detail", 'Ctrip entry must not request stored credential detail');
 requireText('public/index.html', 'const scheduleCtripEbookingDeferredStartupRefresh = () => {', 'Ctrip manual page defers non-first-paint startup refreshes');
 requireText('public/index.html', "if (currentPage.value !== 'ctrip-ebooking') return null;", 'deferred Ctrip manual startup refresh is scoped to the active page');
-requireText('public/index.html', "await loadCtripConfigList({\n                        cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\n                        applySelectedConfig: false,\n                    });\n                    if (currentPage.value !== 'ctrip-ebooking') return null;\n                    prewarmSelectedCtripConfigSecret();", 'Ctrip manual page prewarms selected config detail during delayed deferred startup refresh through the short config-list cache');
+requireText('public/index.html', "await loadCtripConfigList({\n                        cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\n                        applySelectedConfig: false,\n                    });\n                    if (currentPage.value !== 'ctrip-ebooking') return null;", 'Ctrip manual page loads only the short-cached metadata list during deferred startup refresh');
 requireText('public/index.html', "const syncCtripOverviewTargetHotel = async ({ clearDisplay = false, loadConfig = true } = {}) =>", 'Ctrip overview hotel switching stays in the shared target-hotel synchronizer');
 requireText('public/index.html', "if (!ctripConfigList.value.length) {\n                        await loadCtripConfigList({\n                            cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\n                            applySelectedConfig: false,", 'Ctrip overview hotel switching reuses the short config-list cache before applying manual fetch config');
 requireText('public/index.html', "await syncCtripOverviewTargetHotel({ clearDisplay: true, loadConfig: true });\n                scheduleDataHealthPanelRefresh('light', { force: true });", 'Ctrip overview hotel switching schedules data-health refresh without waiting on it');
 requireNoText('public/index.html', "await syncCtripOverviewTargetHotel({ clearDisplay: true, loadConfig: true });\n                await loadDataHealthPanel('light');", 'Ctrip overview hotel switching must not wait on data-health light status');
-requireText('public/index.html', "if (selectedCtripHotelId.value && shouldApplySelectedConfig) {\n                                prewarmSelectedCtripConfigSecret();\n                                deferUiTask(() => applyCtripHotelConfig(false, {\n                                    refreshList: false,\n                                    skipIfAligned: true,", 'Ctrip config-list loader does not wait for full config detail before returning');
-requireNoText('public/index.html', "if (selectedCtripHotelId.value) {\n                                await applyCtripHotelConfig(false);\n                            }\n                            return ctripConfigList.value;", 'Ctrip config-list loader must not wait for full config detail application');
+requireText('public/index.html', "if (selectedCtripHotelId.value && shouldApplySelectedConfig) {\n                                deferUiTask(() => applyCtripHotelConfig(false, {\n                                    refreshList: false,\n                                    skipIfAligned: true,\n                                    deferSecret: true,", 'Ctrip config-list loader applies selected metadata without waiting before returning');
+requireNoText('public/index.html', "if (selectedCtripHotelId.value) {\n                                await applyCtripHotelConfig(false);\n                            }\n                            return ctripConfigList.value;", 'Ctrip config-list loader must not wait for selected metadata application');
 requireText('public/index.html', 'const CTRIP_EBOOKING_DATA_HEALTH_REFRESH_DELAY_MS = 1600;', 'Ctrip manual light health status read stays outside the immediate interaction window');
 requireText('public/index.html', "runPageLoadOnce(newPage, 'main', () => {\n                        scheduleDelayedPageTask(() => {\n                            if (!isCtripEbookingDataHealthVisible()) return null;\n                            scheduleDataHealthPanelRefresh('light');\n                            return null;\n                        }, CTRIP_EBOOKING_DATA_HEALTH_REFRESH_DELAY_MS);", 'Ctrip manual page delays light health status without blocking the page switch');
 requireNoText('public/index.html', "runPageLoadOnce(newPage, 'main', async () => {\n                        await loadDataHealthPanel('light');", 'Ctrip manual page first paint must not await light health status during page switching');
@@ -1059,8 +1137,8 @@ requireText('public/index.html', "scheduleDataHealthPanelRefresh('light', { forc
 requireNoText('public/index.html', "await loadDataHealthPanel('light', { force: true });\n                } finally {\n                    ctripOverviewCoreFetchRunning.value = false;", 'Ctrip overview one-click core fetch must not wait on data-health refresh before releasing loading state');
 requireText('public/index.html', 'const openCtripCookieCreateFromHealth = () => {', 'Ctrip health Cookie create action opens the config form without waiting for config-list loading');
 requireNoText('public/index.html', 'const openCtripCookieCreateFromHealth = async () => {', 'Ctrip health Cookie create action must not be an async blocking tab switch');
-requireText('public/index.html', "const listConfig = ctripConfigList.value.find(item => String(item.id || '') === configId);\n                    const config = listConfig\n                        ? await ensureCtripConfigSecret(listConfig)\n                        : await loadCtripConfigDetail(configId);", 'Ctrip health Cookie editor reads the exact config detail when the list cache is not already available');
-requireNoText('public/index.html', "if (!ctripConfigList.value.length) {\n                        await loadCtripConfigList();\n                    }\n                    const listConfig = ctripConfigList.value.find(item => String(item.id || '') === configId);", 'Ctrip health Cookie editor must not wait for the full config list before reading an exact config detail');
+requireText('public/index.html', "const listConfig = ctripConfigList.value.find(item => String(item.id || '') === configId);\n                    const config = resolveCtripConfigMetadata(listConfig || findCtripConfigMetadataById(configId));", 'Ctrip health Cookie editor reads exact metadata and keeps replacement credentials blank');
+requireNoText('public/index.html', 'fillCtripCookieEditorForm(await loadCtripConfigDetail', 'Ctrip health Cookie editor must not read stored credential detail');
 requireText('public/index.html', "loadCtripConfigList();\n                        scheduleDataHealthPanelRefresh('light', { force: true });", 'Ctrip health Cookie save refreshes config list and schedules data-health status without waiting on it');
 requireText('public/index.html', "await deleteCtripConfig(configId);\n                scheduleDataHealthPanelRefresh('light', { force: true });", 'Ctrip health Cookie delete schedules data-health status after config delete without waiting on it');
 requireNoText('public/index.html', "await loadCtripConfigList();\n                        await loadDataHealthPanel('light', { force: true });", 'Ctrip health Cookie save must not keep the modal saving state waiting on data-health refresh');
@@ -1079,19 +1157,18 @@ requireNoText('public/index.html', "if (deletedCount > 0) {\n                   
 requireText('public/index.html', 'const scheduleMeituanEbookingDeferredStartupRefresh = () => {', 'Meituan manual page defers config matching and secondary startup refreshes');
 requireText('public/index.html', "if (currentPage.value !== 'meituan-ebooking') return null;", 'deferred Meituan manual startup refresh is scoped to the active page');
 requireText('public/index.html', 'scheduleMeituanEbookingDeferredStartupRefresh();', 'Meituan manual page schedules deferred startup refresh after route entry');
-requireText('public/index.html', 'const ensureMeituanConfigSecret = async (config, options = {}) => {', 'Meituan full config detail loader supports silent background prewarm');
-requireText('public/index.html', "console.error(failureAction.label, failureAction.error);", 'Meituan config-detail prewarm failure stays silent to the user');
-requireText('public/index.html', 'const prewarmSelectedMeituanConfigSecret = (config = selectedMeituanHotelConfig.value) => {', 'entry can prewarm selected Meituan config detail without blocking manual fetch UI');
-requireText('public/index.html', "const resolveMeituanConfigDetailPrewarmPlan = requireMeituanStatic('resolveMeituanConfigDetailPrewarmPlan');", 'Meituan selected config detail prewarm decision is owned by the static helper');
-requireText('public/meituan-static.js', 'const resolveMeituanConfigDetailPrewarmPlan = ({', 'Meituan static helper owns config detail prewarm planning');
-requireText('public/index.html', 'const prewarmPlan = resolveMeituanConfigDetailPrewarmPlan({ config, delayMs: 80 });', 'Meituan selected config detail prewarm uses a static helper plan');
-requireText('public/index.html', 'deferUiTask(() => ensureMeituanConfigSecret(prewarmPlan.config, { silent: true }), prewarmPlan.delayMs);', 'Meituan selected config detail prewarm is scheduled outside the current interaction');
-requireText('public/index.html', 'let configSource = options.resolvedConfig || selectedMeituanHotelConfig.value;', 'Meituan config apply can reuse a resolved full config from the fetch flow');
-requireText('public/index.html', 'const config = options.resolvedConfig || await ensureMeituanConfigSecret(configSource);', 'Meituan config apply avoids duplicate full config detail requests when resolved config is already available');
+requireText('public/index.html', 'const resolveMeituanConfigMetadata = (config) => config || null;', 'Meituan config application uses metadata directly');
+requireText('public/index.html', 'const config = resolveMeituanConfigMetadata(options.resolvedConfig || selectedMeituanHotelConfig.value);', 'Meituan config apply never requests full credential detail');
+requireText('public/index.html', "meituanForm.value.cookies = '';", 'Meituan metadata application clears browser Cookie state');
+requireText('public/index.html', 'meituanForm.value.auth_data = {};', 'Meituan metadata application clears browser auth state');
+requireNoText('public/index.html', 'const ensureMeituanConfigSecret = async', 'Meituan entry must not hydrate stored credentials');
+requireNoText('public/index.html', 'const loadMeituanConfigDetail = async', 'Meituan entry must not load full credential detail');
+requireNoText('public/index.html', 'const prewarmSelectedMeituanConfigSecret =', 'Meituan entry must not prewarm full credential detail');
+requireNoText('public/index.html', 'meituanConfigDetailCache.set(', 'Meituan entry must not cache credential detail');
 requireText('public/meituan-static.js', 'if (!isMeituanRankingFormAlignedWithConfig(form, selectedMeituanConfig)) {', 'Meituan batch fetch flow skips repeat config application when the form already matches the resolved config');
 requireText('public/meituan-static.js', 'skipIfAligned: true,', 'Meituan batch fetch flow passes the aligned-form guard into config apply');
 requireNoText('public/meituan-static.js', 'await applyMeituanHotelConfig(false);', 'Meituan batch fetch flow must not trigger a second full config apply after resolving config');
-requireText('public/index.html', "await loadMeituanConfigList({\n                        cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\n                        applySelectedConfig: false,\n                    });\n                    if (currentPage.value !== 'meituan-ebooking') return null;\n                    prewarmSelectedMeituanConfigSecret();", 'Meituan manual page prewarms selected config detail during delayed deferred startup refresh through the short config-list cache');
+requireText('public/index.html', "await loadMeituanConfigList({\n                        cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\n                        applySelectedConfig: false,\n                    });\n                    if (currentPage.value !== 'meituan-ebooking') return null;", 'Meituan manual page loads only the short-cached metadata list during deferred startup refresh');
 requireText('public/index.html', 'const shouldApplySelectedConfig = options.applySelectedConfig === true;', 'Meituan config-list loader only applies selected config when explicitly requested');
 requireText('public/index.html', 'const applyAction = resolveMeituanConfigListApplyAction({', 'Meituan config-list loader delegates selected config apply decision to the static helper');
 requireText('public/index.html', 'if (applyAction.shouldApply) {', 'Meituan config-list loader does not implicitly apply selected config on ordinary tab switches');
@@ -1154,40 +1231,20 @@ requireText('public/index.html', 'console.error(failureAction.label, failureActi
 requireText('public/index.html', 'const finishState = buildMeituanConfigListFinishState();', 'entry keeps Meituan config-list finish state as a thin adapter');
 requireText('public/index.html', 'meituanConfigListLoadingPromise = finishState.loadingPromise;', 'entry uses static config-list finish promise projection');
 requireText('public/index.html', 'meituanConfigListLoading.value = finishState.loading;', 'entry uses static config-list finish loading projection');
-requireText('public/index.html', "const getMeituanConfigDetailVersion = requireMeituanStatic('getMeituanConfigDetailVersion');", 'Meituan config detail version resolution is owned by the static helper');
-requireText('public/meituan-static.js', 'const getMeituanConfigDetailVersion = (config = {}) => String(', 'Meituan static helper owns config detail version resolution');
-requireText('public/index.html', "const buildMeituanConfigDetailCacheKey = requireMeituanStatic('buildMeituanConfigDetailCacheKey');", 'Meituan config detail cache-key resolution is owned by the static helper');
-requireText('public/meituan-static.js', "const buildMeituanConfigDetailCacheKey = (id = '') => (id ? String(id) : '');", 'Meituan static helper owns config detail cache-key resolution');
 requireText('public/index.html', "const resolveMeituanConfigDetailClearTarget = requireMeituanStatic('resolveMeituanConfigDetailClearTarget');", 'Meituan config detail cache-clear target resolution is owned by the static helper');
 requireText('public/meituan-static.js', "const resolveMeituanConfigDetailClearTarget = (id = '') => {", 'Meituan static helper owns config detail cache-clear target resolution');
-requireText('public/index.html', 'const clearTarget = resolveMeituanConfigDetailClearTarget(id);', 'entry keeps Meituan config detail cache clearing as a thin adapter');
-requireText('public/index.html', "const resolveMeituanConfigDetailLoadTarget = requireMeituanStatic('resolveMeituanConfigDetailLoadTarget');", 'Meituan config detail load target resolution is owned by the static helper');
-requireText('public/meituan-static.js', 'const resolveMeituanConfigDetailLoadTarget = ({', 'Meituan static helper owns config detail load target resolution');
-requireText('public/index.html', 'const loadTarget = resolveMeituanConfigDetailLoadTarget({ id, loadingPromises: meituanConfigDetailLoadingPromises });', 'entry keeps Meituan config detail inflight reuse as a thin adapter');
-requireText('public/index.html', "const buildMeituanConfigDetailRequestUrl = requireMeituanStatic('buildMeituanConfigDetailRequestUrl');", 'Meituan config detail request URL is owned by the static helper');
-requireText('public/meituan-static.js', "const buildMeituanConfigDetailRequestUrl = (cacheKey = '') => (", 'Meituan static helper owns config detail request URL construction');
-requireText('public/index.html', "const resolveMeituanConfigDetailResponse = requireMeituanStatic('resolveMeituanConfigDetailResponse');", 'Meituan config detail response parsing is owned by the static helper');
-requireText('public/meituan-static.js', 'const resolveMeituanConfigDetailResponse = (res = {}) => {', 'Meituan static helper owns config detail response parsing');
-requireText('public/index.html', "const shouldSkipMeituanConfigDetailLoad = requireMeituanStatic('shouldSkipMeituanConfigDetailLoad');", 'Meituan config detail skip-load rule is owned by the static helper');
-requireText('public/meituan-static.js', 'const shouldSkipMeituanConfigDetailLoad = (config = null) => (', 'Meituan static helper owns config detail skip-load rules');
-requireText('public/index.html', "const resolveMeituanConfigDetailCachedResult = requireMeituanStatic('resolveMeituanConfigDetailCachedResult');", 'Meituan config detail cached-result resolution is owned by the static helper');
-requireText('public/meituan-static.js', 'const resolveMeituanConfigDetailCachedResult = ({', 'Meituan static helper owns config detail cached-result resolution');
-requireText('public/index.html', "const resolveMeituanConfigDetailCacheLookup = requireMeituanStatic('resolveMeituanConfigDetailCacheLookup');", 'Meituan config detail cache lookup is owned by the static helper');
-requireText('public/meituan-static.js', 'const resolveMeituanConfigDetailCacheLookup = ({', 'Meituan static helper owns config detail cache lookup');
-requireText('public/index.html', 'const cacheLookup = resolveMeituanConfigDetailCacheLookup({ config, cache: meituanConfigDetailCache });', 'entry keeps Meituan config detail cache lookup as a thin adapter');
-requireText('public/index.html', "const buildMeituanConfigDetailCacheEntry = requireMeituanStatic('buildMeituanConfigDetailCacheEntry');", 'Meituan config detail cache-entry construction is owned by the static helper');
-requireText('public/meituan-static.js', 'const buildMeituanConfigDetailCacheEntry = ({', 'Meituan static helper owns config detail cache-entry construction');
-requireText('public/index.html', "const resolveMeituanConfigDetailCacheStorePlan = requireMeituanStatic('resolveMeituanConfigDetailCacheStorePlan');", 'Meituan config detail cache store decision is owned by the static helper');
-requireText('public/meituan-static.js', 'const resolveMeituanConfigDetailCacheStorePlan = ({', 'Meituan static helper owns config detail cache store decision');
-requireText('public/index.html', 'const storePlan = resolveMeituanConfigDetailCacheStorePlan({ cacheKey: cacheLookup.cacheKey, cacheEntry });', 'entry keeps Meituan config detail cache writes as a thin adapter');
-requireText('public/index.html', "const resolveMeituanConfigDetailFailureAction = requireMeituanStatic('resolveMeituanConfigDetailFailureAction');", 'Meituan config detail failure action is owned by the static helper');
-requireText('public/meituan-static.js', 'const resolveMeituanConfigDetailFailureAction = ({', 'Meituan static helper owns config detail failure action');
-requireText('public/index.html', 'const failureAction = resolveMeituanConfigDetailFailureAction({ error: e, silent: options.silent });', 'entry keeps Meituan config detail failure handling as a thin adapter');
-requireText('public/index.html', "console.error(failureAction.label, failureAction.error);", 'Meituan config-detail prewarm failure stays silent to the user through a static failure action');
+requireText('public/index.html', 'const clearTarget = resolveMeituanConfigDetailClearTarget(id);', 'entry keeps legacy Meituan metadata-cache clearing as a thin adapter');
+requireText('public/index.html', 'meituanConfigDetailCache.delete(cacheKey);', 'Meituan metadata cache can clear an exact locator after mutations');
+requireText('public/index.html', 'meituanConfigDetailCache.clear();', 'Meituan metadata cache can be fully cleared after mutations');
+requireNoText('public/index.html', 'meituanConfigDetailCache.set(', 'Meituan entry must not store credential detail in browser caches');
+requireNoText('public/index.html', 'meituanConfigDetailLoadingPromises.set(', 'Meituan entry must not retain full-detail loading promises');
+requireText('public/meituan-static.js', 'const isMeituanExecutionConfigReady = (config = null) => Boolean(', 'Meituan static helper owns credential metadata readiness');
+requireText('public/meituan-static.js', 'resolveMeituanExecutionConfigId(config)', 'Meituan metadata readiness requires an explicit config locator');
+requireText('public/meituan-static.js', "String(config?.credential_status || '') === 'ready'", 'Meituan metadata readiness requires a ready vault state');
 requireText('public/index.html', 'const resolveMeituanManualFetchConfig = async (config) => {', 'Meituan ranking manual fetch resolves config before backend submission');
 requireNoText('public/index.html', 'return !!meituanConfigListLoadingPromise', 'Meituan ranking manual fetch must not reuse an in-flight config-list request as a click-time wait');
 requireNoText('public/index.html', "await loadMeituanConfigList({\n                    cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\n                    applySelectedConfig: false,\n                });", 'Meituan ranking manual fetch must not wait for config-list loading before backend submission');
-requireText('public/index.html', 'ensureMeituanConfigSecret: async config => ensureMeituanConfigSecret(await resolveMeituanManualFetchConfig(config))', 'Meituan ranking manual fetch uses only the currently matched config before backend submission');
+requireText('public/index.html', 'return resolveMeituanManualFetchConfigCandidate({', 'Meituan ranking manual fetch uses only a ready matched metadata locator before backend submission');
 requireText('public/index.html', 'meituanConfigListLoaded, meituanConfigListLoadFailed', 'Meituan config-list loaded and failed states are exposed to the template');
 requireNoText('public/index.html', "await loadMeituanConfigList({\n                            cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\n                            applySelectedConfig: false,\n                        });\n                        if (requestedHotelId !== String(meituanForm.value.hotelId || '')) return;", 'Meituan hotel selection must not wait on the config-list loader during fast matching');
 requireText('public/index.html', 'let meituanHotelConfigApplyVersion = 0;', 'Meituan hotel selection tracks stale deferred config applications');
@@ -1273,8 +1330,9 @@ requireNoTextBetween('public/index.html', 'const returnToMeituanRankingAfterConf
 requireNoTextBetween('public/index.html', 'const returnToMeituanRankingAfterConfigSave = async (hotelId) => {', 'let manualOnlineFetchConfigReadyPromise', "currentPage.value = 'meituan-ebooking';", 'Meituan ranking return page literal is not re-inlined');
 requireNoTextBetween('public/index.html', 'const returnToMeituanRankingAfterConfigSave = async (hotelId) => {', 'let manualOnlineFetchConfigReadyPromise', "onlineDataTab.value = 'meituan-ranking';", 'Meituan ranking return tab literal is not re-inlined');
 requireText('public/index.html', "const resolveMeituanConfigSaveCookieState = requireMeituanStatic('resolveMeituanConfigSaveCookieState');", 'Meituan config-save Cookie state is owned by the static helper');
-requireText('public/meituan-static.js', "const resolveMeituanConfigSaveCookieState = (cookies = '') => {", 'Meituan static helper owns config-save Cookie state');
-requireText('public/index.html', 'const cookieState = resolveMeituanConfigSaveCookieState(meituanConfigForm.value.cookies);', 'entry keeps Meituan config-save Cookie state as a thin adapter');
+requireText('public/meituan-static.js', "const resolveMeituanConfigSaveCookieState = (cookies = '', options = {}) => {", 'Meituan static helper owns replace-only config-save Cookie state');
+requireText('public/index.html', 'const cookieState = resolveMeituanConfigSaveCookieState(meituanConfigForm.value.cookies, {', 'entry keeps replace-only Meituan config-save Cookie state as a thin adapter');
+requireText('public/index.html', "String(meituanConfigForm.value.credential_status || '') === 'ready'", 'blank Meituan edit keeps an existing ready vault credential without hydrating it');
 requireText('public/index.html', 'showToast(cookieState.message, cookieState.level);', 'Meituan config-save empty Cookie prompt comes from static helper state');
 requireText('public/index.html', 'cookies: cookieState.cookies,', 'Meituan config-save request body uses normalized Cookie state');
 requireNoTextBetween('public/index.html', 'const saveMeituanConfigItem = async () => {', 'const useMeituanConfig', "String(meituanConfigForm.value.cookies || '').trim()", 'Meituan config-save Cookie normalization is not re-inlined');
@@ -1698,7 +1756,7 @@ requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeAi
 requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeOperationSummary')", 'entry uses extracted Phase1 operation summary builder');
 requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeClosureSummary')", 'entry uses extracted Phase1 closure summary builder');
 requireText('public/index.html', "requireDataHealthStatic('formatOnlineHistoryRaw')", 'entry uses extracted online history raw formatter');
-requireText('public/index.html', 'data-health-static.js?v=20260704-manual-one-click-fetch', 'entry bumps data-health static helper version after manual one-click fetch update');
+requireText('public/index.html', 'data-health-static.js?v=20260704-manual-one-click-fetch-20260705-ai-workbench-meituan-comparison-data-health-refresh-state-20260708-public-endpoints-release-evidence-panel-ota-field-gap-queue-employee-ota-checklist-public-token-summary-card-manual-fetch-result-qunar-quality-action-gates-workbench-write-boundary-manual-surface-focus', 'entry bumps data-health static helper version after focusing the manual collection surface');
 requireText('public/data-health-static.js', 'const buildOnlineHistoryQueryParams', 'data-health static builds online history query parameters');
 requireText('public/data-health-static.js', 'const formatOnlineHistoryHotelOption', 'data-health static formats online history hotel options');
 requireText('public/data-health-static.js', 'const formatOnlineHistoryRaw', 'data-health static formats online history raw payloads');
@@ -2163,14 +2221,20 @@ requireNoText('app/controller/SystemNotificationController.php', 'filterRowsByCu
 {
   const source = read('app/controller/SystemConfigController.php');
   const requestedKeyOffset = source.indexOf("$requestedKey = trim((string)$this->request->get('key', ''))");
-  const firstFullConfigOffset = source.indexOf('$configs = SystemConfig::getAllConfigs();');
+  const firstFullConfigOffset = source.indexOf('$configs = $this->getAllConfigsWithoutProtectedOtaCache();');
   checks.push({
     file: 'app/controller/SystemConfigController.php',
     label: 'system config single-key reads avoid full config scan',
     ok: requestedKeyOffset >= 0
       && firstFullConfigOffset > requestedKeyOffset
-      && source.slice(requestedKeyOffset, firstFullConfigOffset).includes('SystemConfig::getValue($requestedKey'),
-    detail: 'requested key branch must return before getAllConfigs',
+      && source.slice(requestedKeyOffset, firstFullConfigOffset).includes('SystemConfig::getValue($requestedKey')
+      && source.includes('private function getAllConfigsWithoutProtectedOtaCache(): array')
+      && !source.includes('SystemConfig::getAllConfigs()')
+      && source.includes("LOWER(config_key) NOT LIKE 'data_config_%'")
+      && !source.includes("LOWER(config_key) NOT LIKE 'data_config_ctrip%'")
+      && !source.includes("LOWER(config_key) NOT LIKE 'data_config_meituan%'")
+      && source.includes("LOWER(config_key) NOT LIKE 'online_data_cookies_%'"),
+    detail: 'requested key branch must return before the bounded safe-config query',
   });
   checks.push({
     file: 'app/controller/SystemConfigController.php',
@@ -2178,15 +2242,30 @@ requireNoText('app/controller/SystemNotificationController.php', 'filterRowsByCu
     ok: source.includes("request->get('scope', '')")
       && source.includes("SystemConfig::getConfigsByKeys($publicKeys)")
       && source.indexOf("SystemConfig::getConfigsByKeys($publicKeys)") < firstFullConfigOffset,
-    detail: 'public scope must return before getAllConfigs',
+    detail: 'public scope must return before the bounded safe-config query',
   });
 }
 requireText('app/model/SystemConfig.php', 'public static function getConfigsByKeys(array $keys): array', 'system config model supports bounded key reads');
 requireText('app/model/SystemConfig.php', 'private static array $valueCache = [];', 'system config model keeps request-local value cache for repeated key reads');
-requireText('app/model/SystemConfig.php', 'private const DURABLE_VALUE_CACHE_KEYS = [', 'system config model keeps selected high-frequency keys in short cross-request cache');
-requireNoText('app/model/SystemConfig.php', "'protected_capability_policy' => true,", 'protected capability policy must not use cross-request cache');
-requireText('app/model/SystemConfig.php', "'ctrip_config_list' => true,", 'Ctrip config list uses short cross-request cache');
-requireText('app/model/SystemConfig.php', "'meituan_config_list' => true,", 'Meituan config list uses short cross-request cache');
+{
+  const source = read('app/model/SystemConfig.php');
+  const durableKeysMatch = source.match(/private const DURABLE_VALUE_CACHE_KEYS\s*=\s*\[([\s\S]*?)\];/);
+  const durableKeysSource = durableKeysMatch ? durableKeysMatch[1] : '';
+  const protectedKeysMatch = source.match(/private const PROTECTED_OTA_KEYS\s*=\s*\[([\s\S]*?)\];/);
+  const protectedKeysSource = protectedKeysMatch ? protectedKeysMatch[1] : '';
+  checks.push({
+    file: 'app/model/SystemConfig.php',
+    label: 'protected OTA config lists never enter the generic cross-request value cache',
+    ok: durableKeysMatch !== null
+      && !durableKeysSource.includes('ctrip_config_list')
+      && !durableKeysSource.includes('meituan_config_list')
+      && !durableKeysSource.includes('protected_capability_policy')
+      && protectedKeysSource.includes('ctrip_config_list')
+      && protectedKeysSource.includes('meituan_config_list')
+      && source.includes('public static function isProtectedOtaKey(string $key): bool'),
+    detail: 'DURABLE_VALUE_CACHE_KEYS excludes protected OTA keys; PROTECTED_OTA_KEYS classifies them',
+  });
+}
 requireText('app/model/SystemConfig.php', 'if (array_key_exists($key, self::$valueCache)) {', 'system config getValue checks request-local cache before querying');
 requireText('app/model/SystemConfig.php', '$cached = self::readDurableValueCache($key);', 'system config getValue checks selected cross-request cache before querying');
 requireText('app/model/SystemConfig.php', "self::where('config_key', $key)->field('config_value')->find()", 'system config getValue reads only the config_value column');
@@ -3008,6 +3087,7 @@ try {
     const ctripAdsTestRequest = buildDataConfigTestRequest({
       type: 'ctrip-ads',
       form: {
+        config_id: 'ctrip-ads-58',
         url: 'https://m.ctrip.com/restapi/soa2/18320/json/queryCampaignReportList',
         cookies: 'sid=secret',
         payload_json: '{"page":1}',
@@ -3031,6 +3111,7 @@ try {
       const result = await runDataConfigTestFlow({
         getType: () => (overrides.type === undefined ? 'ctrip-ads' : overrides.type),
         getForm: () => overrides.form || {
+          config_id: 'ctrip-ads-58',
           url: 'https://m.ctrip.com/restapi/soa2/18320/json/queryCampaignReportList',
           cookies: 'sid=secret',
           payload_json: '{"page":1}',
@@ -3207,9 +3288,10 @@ try {
       label: 'data-source config test request preserves OTA scope and URL validation',
       ok: ctripAdsTestRequest.status === 'ready'
         && ctripAdsTestRequest.apiUrl === '/online-data/fetch-ctrip-ads'
+        && ctripAdsTestRequest.body?.config_id === 'ctrip-ads-58'
         && ctripAdsTestRequest.body?.api_type === 'effect_report'
-        && ctripAdsTestRequest.body?.cookies === 'sid=secret'
-        && ctripAdsTestRequest.body?.payload_json === '{"page":1}'
+        && !Object.hasOwn(ctripAdsTestRequest.body || {}, 'cookies')
+        && !Object.hasOwn(ctripAdsTestRequest.body || {}, 'payload_json')
         && ctripAdsTestRequest.body?.system_hotel_id === 'hotel-58'
         && invalidCtripAdsTestRequest.status === 'invalid_url'
         && invalidCtripAdsTestRequest.message === 'ads url hint',
@@ -3220,7 +3302,9 @@ try {
       label: 'data-source config test flow keeps success, failed and skipped states visible',
       ok: configSuccessRun.result.status === 'success'
         && configSuccessRun.capturedApiUrl === '/online-data/fetch-ctrip-ads'
-        && configSuccessRun.capturedBody?.cookies === 'sid=secret'
+        && configSuccessRun.capturedBody?.config_id === 'ctrip-ads-58'
+        && !Object.hasOwn(configSuccessRun.capturedBody || {}, 'cookies')
+        && !Object.hasOwn(configSuccessRun.capturedBody || {}, 'payload_json')
         && configSuccessRun.events.some(event => event[0] === 'notify' && event[2] === '连接测试成功！数据获取正常')
         && configFailedRun.result.status === 'failed'
         && configFailedRun.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2] === 'connection failed')
@@ -3429,31 +3513,31 @@ try {
         endDate: '2026-06-10',
         auth_data: { token: 'demo' },
       },
+      configId: 'meituan-10',
       partnerId: 'partner-1',
       poiId: 'poi-1',
-      cookies: 'mt-cookie',
     });
-    const missingCookieValidation = validateMeituanBatchFetchInput({
+    const missingConfigValidation = validateMeituanBatchFetchInput({
       form: { hotelId: '10', dateRanges: ['1'] },
-      cookies: '',
+      configId: '',
       partnerId: 'partner-1',
       poiId: 'poi-1',
     });
     const missingResourceValidation = validateMeituanBatchFetchInput({
       form: { hotelId: '10', dateRanges: ['1'] },
-      cookies: 'mt-cookie',
+      configId: 'meituan-10',
       partnerId: '',
       poiId: '',
     });
     const missingCustomDateValidation = validateMeituanBatchFetchInput({
       form: { hotelId: '10', dateRanges: ['custom'], startDate: '', endDate: '' },
-      cookies: 'mt-cookie',
+      configId: 'meituan-10',
       partnerId: 'partner-1',
       poiId: 'poi-1',
     });
     const validBatchInput = validateMeituanBatchFetchInput({
       form: { hotelId: '10', dateRanges: ['custom'], startDate: '2026-06-01', endDate: '2026-06-10' },
-      cookies: ' mt-cookie ',
+      configId: ' meituan-10 ',
       partnerId: ' partner-1 ',
       poiId: ' poi-1 ',
     });
@@ -3461,16 +3545,17 @@ try {
     checks.push({
       file: 'public/meituan-static.js',
       label: 'Meituan batch fetch input validator keeps missing-state signals explicit',
-      ok: missingCookieValidation.ok === false
-        && missingCookieValidation.level === 'error'
-        && missingCookieValidation.message.includes('临时 Cookie/API 辅助内容缺失')
+      ok: missingConfigValidation.ok === false
+        && missingConfigValidation.status === 'missing_config'
+        && missingConfigValidation.level === 'warning'
+        && missingConfigValidation.message.includes('可执行的美团凭证')
         && missingResourceValidation.ok === false
         && missingResourceValidation.level === 'warning'
         && missingResourceValidation.message.includes('平台接口标识 / 平台门店标识')
         && missingCustomDateValidation.ok === false
         && missingCustomDateValidation.message.includes('自定义时间')
         && validBatchInput.ok === true
-        && validBatchInput.cookies === 'mt-cookie'
+        && validBatchInput.configId === 'meituan-10'
         && validBatchInput.partnerId === 'partner-1'
         && validBatchInput.poiId === 'poi-1',
       detail: 'validateMeituanBatchFetchInput sample',
@@ -3485,7 +3570,8 @@ try {
         && customTask?.body?.end_date === '2026-06-10'
         && customTask?.body?.partner_id === 'partner-1'
         && customTask?.body?.poi_id === 'poi-1'
-        && customTask?.body?.cookies === 'mt-cookie'
+        && customTask?.body?.config_id === 'meituan-10'
+        && !Object.hasOwn(customTask?.body || {}, 'cookies')
         && customTask?.body?.system_hotel_id === '10',
       detail: 'buildMeituanBatchFetchTasks sample',
     });
@@ -3524,21 +3610,20 @@ try {
         hotelId: '10',
         partnerId: 'partner-1',
         poiId: 'poi-1',
-        cookies: ' mt-cookie ',
         dateRanges: ['1'],
         auth_data: { token: 'demo' },
         competitorRoomCount: '20',
       }),
       getSelectedConfig: () => ({
+        id: 'meituan-10',
+        config_id: 'meituan-10',
         hotel_id: '10',
+        system_hotel_id: '10',
         partner_id: 'partner-1',
         poi_id: 'poi-1',
-        cookies: 'mt-cookie',
+        has_cookies: true,
+        credential_status: 'ready',
       }),
-      ensureMeituanConfigSecret: async config => {
-        flowEvents.push('ensure-config');
-        return config;
-      },
       applyMeituanHotelConfig: async showMessage => flowEvents.push(`apply:${showMessage}`),
       notify: (message, level) => flowEvents.push(`notify:${level || 'info'}:${message}`),
       setFetching: value => flowStates.push(`fetching:${value}`),
@@ -3584,16 +3669,18 @@ try {
         hotelId: '10',
         partnerId: 'partner-1',
         poiId: 'poi-1',
-        cookies: ' mt-cookie ',
         dateRanges: ['1'],
       }),
       getSelectedConfig: () => ({
+        id: 'meituan-10',
+        config_id: 'meituan-10',
         hotel_id: '10',
+        system_hotel_id: '10',
         partner_id: 'partner-1',
         poi_id: 'poi-1',
-        cookies: 'mt-cookie',
+        has_cookies: true,
+        credential_status: 'ready',
       }),
-      ensureMeituanConfigSecret: async config => config,
       applyMeituanHotelConfig: async showMessage => acceptedMeituanEvents.push(`apply:${showMessage}`),
       notify: (message, level) => acceptedMeituanEvents.push(`notify:${level || 'info'}:${message}`),
       setFetching: value => acceptedMeituanStates.push(`fetching:${value}`),
@@ -3643,7 +3730,7 @@ try {
         && modelPayload.competitor_room_count === '20'
         && flowResult.status === 'success'
         && requestedBodies.length === 4
-        && requestedBodies.every(body => body.partner_id === 'partner-1' && body.poi_id === 'poi-1' && body.cookies === 'mt-cookie' && body.async === false && body.background === false)
+        && requestedBodies.every(body => body.partner_id === 'partner-1' && body.poi_id === 'poi-1' && body.config_id === 'meituan-10' && !Object.hasOwn(body, 'cookies') && body.async === false && body.background === false)
         && flowOnlineResult.length === requestedBodies.length
         && flowDisplayPayload.display_hotels.length === 0
         && flowDisplayPayload.display_groups.length === 1
@@ -3657,7 +3744,6 @@ try {
         && flowStates.includes('success:true')
         && !flowStates.includes('hotels:0')
         && flowStates.at(-1) === 'fetching:false'
-        && flowEvents.includes('ensure-config')
         && !flowEvents.includes('apply:false')
         && flowEvents.includes('update-ai-hotels')
         && flowEvents.includes('history')
@@ -4045,16 +4131,14 @@ try {
       poiId: ' poi-traffic ',
       startDate: '2026-06-01',
       endDate: '2026-06-10',
-      cookies: '\nmt-traffic-cookie\n',
-      extraParams: 'scope=traffic',
     };
     const normalizedTrafficForm = normalizeMeituanTrafficFetchForm(trafficForm);
-    const missingTrafficUrl = validateMeituanTrafficFetchInput({ url: '', partnerId: 'p', poiId: 'poi', cookies: 'cookie' });
-    const missingTrafficPartner = validateMeituanTrafficFetchInput({ url: 'https://example.test/traffic', partnerId: '', poiId: 'poi', cookies: 'cookie' });
-    const missingTrafficPoi = validateMeituanTrafficFetchInput({ url: 'https://example.test/traffic', partnerId: 'p', poiId: '', cookies: 'cookie' });
-    const missingTrafficCookie = validateMeituanTrafficFetchInput({ url: 'https://example.test/traffic', partnerId: 'p', poiId: 'poi', cookies: '' });
+    const missingTrafficUrl = validateMeituanTrafficFetchInput({ url: '', partnerId: 'p', poiId: 'poi' });
+    const missingTrafficPartner = validateMeituanTrafficFetchInput({ url: 'https://example.test/traffic', partnerId: '', poiId: 'poi' });
+    const missingTrafficPoi = validateMeituanTrafficFetchInput({ url: 'https://example.test/traffic', partnerId: 'p', poiId: '' });
     const trafficRequestBody = buildMeituanTrafficFetchRequestBody({
       form: normalizedTrafficForm,
+      configId: 'meituan-traffic-10',
       systemHotelId: '10',
     });
     checks.push({
@@ -4063,17 +4147,16 @@ try {
       ok: normalizedTrafficForm.url === 'https://example.test/traffic'
         && normalizedTrafficForm.partnerId === 'partner-traffic'
         && normalizedTrafficForm.poiId === 'poi-traffic'
-        && normalizedTrafficForm.cookies === 'mt-traffic-cookie'
-        && normalizedTrafficForm.extraParams === 'scope=traffic'
         && missingTrafficUrl.status === 'missing_url'
         && missingTrafficPartner.status === 'missing_partner_id'
         && missingTrafficPoi.status === 'missing_poi_id'
-        && missingTrafficCookie.status === 'missing_cookies'
+        && trafficRequestBody.config_id === 'meituan-traffic-10'
         && trafficRequestBody.partner_id === 'partner-traffic'
         && trafficRequestBody.poi_id === 'poi-traffic'
         && trafficRequestBody.auto_save === true
         && trafficRequestBody.system_hotel_id === '10'
-        && trafficRequestBody.extra_params === 'scope=traffic',
+        && !Object.hasOwn(trafficRequestBody, 'cookies')
+        && !Object.hasOwn(trafficRequestBody, 'extra_params'),
       detail: 'buildMeituanTrafficFetchRequestBody sample',
     });
 
@@ -4088,11 +4171,10 @@ try {
         url: ' https://example.test/traffic ',
         partnerId: ' partner-flow ',
         poiId: ' poi-flow ',
-        cookies: ' mt-traffic-flow-cookie ',
         startDate: '2026-06-02',
         endDate: '2026-06-03',
-        extraParams: '{"scope":"flow"}',
       }),
+      getConfigId: () => 'meituan-traffic-20',
       getSystemHotelId: () => '20',
       notify: (message, level) => trafficEvents.push(`notify:${level || 'info'}:${message}`),
       setFetching: value => trafficStates.push(`fetching:${value}`),
@@ -4116,10 +4198,10 @@ try {
         url: 'https://example.test/traffic',
         partnerId: 'partner-flow',
         poiId: 'poi-flow',
-        cookies: 'mt-traffic-flow-cookie',
         startDate: '2026-06-02',
         endDate: '2026-06-03',
       }),
+      getConfigId: () => 'meituan-traffic-20',
       getSystemHotelId: () => '20',
       notify: (message, level) => acceptedTrafficEvents.push(`notify:${level || 'info'}:${message}`),
       setFetching: value => acceptedTrafficStates.push(`fetching:${value}`),
@@ -4150,8 +4232,8 @@ try {
         url: 'https://example.test/traffic',
         partnerId: 'partner-flow',
         poiId: 'poi-flow',
-        cookies: 'mt-traffic-flow-cookie',
       }),
+      getConfigId: () => 'meituan-traffic-20',
       setFetching: value => trafficEvents.push(`delayed-fetching:${value}`),
       setOnlineDataResult: () => {},
       setLatestTrafficData: () => {},
@@ -4169,14 +4251,20 @@ try {
     const delayedTrafficReturnedBeforeHistory = !delayedTrafficHistorySettled;
     const missingTrafficEvents = [];
     const missingTrafficResult = await runMeituanTrafficFetchFlow({
-      getForm: () => ({ url: '', partnerId: 'p', poiId: 'poi', cookies: 'cookie' }),
+      getForm: () => ({ url: '', partnerId: 'p', poiId: 'poi' }),
+      getConfigId: () => 'meituan-traffic-20',
       notify: (message, level) => missingTrafficEvents.push(`notify:${level}:${message}`),
       setFetching: value => missingTrafficEvents.push(`fetching:${value}`),
+    });
+    const missingTrafficConfigResult = await runMeituanTrafficFetchFlow({
+      getForm: () => ({ url: 'https://example.test/traffic', partnerId: 'p', poiId: 'poi' }),
+      notify: () => {},
     });
     const failedTrafficEvents = [];
     const failedTrafficStates = [];
     const failedTrafficResult = await runMeituanTrafficFetchFlow({
-      getForm: () => ({ url: 'https://example.test/traffic', partnerId: 'p', poiId: 'poi', cookies: 'cookie' }),
+      getForm: () => ({ url: 'https://example.test/traffic', partnerId: 'p', poiId: 'poi' }),
+      getConfigId: () => 'meituan-traffic-20',
       notify: (message, level) => failedTrafficEvents.push(`notify:${level}:${message}`),
       setFetching: value => failedTrafficStates.push(`fetching:${value}`),
       requestFetch: async () => ({ code: 500, message: 'traffic backend failed' }),
@@ -4184,7 +4272,8 @@ try {
     const exceptionTrafficEvents = [];
     const exceptionTrafficStates = [];
     const exceptionTrafficResult = await runMeituanTrafficFetchFlow({
-      getForm: () => ({ url: 'https://example.test/traffic', partnerId: 'p', poiId: 'poi', cookies: 'cookie' }),
+      getForm: () => ({ url: 'https://example.test/traffic', partnerId: 'p', poiId: 'poi' }),
+      getConfigId: () => 'meituan-traffic-20',
       notify: (message, level) => exceptionTrafficEvents.push(`notify:${level}:${message}`),
       setFetching: value => exceptionTrafficStates.push(`fetching:${value}`),
       requestFetch: async () => {
@@ -4199,7 +4288,8 @@ try {
         && trafficRequestedBody.async === false
         && trafficRequestedBody.background === false
         && trafficRequestedBody.poi_id === 'poi-flow'
-        && trafficRequestedBody.cookies === 'mt-traffic-flow-cookie'
+        && trafficRequestedBody.config_id === 'meituan-traffic-20'
+        && !Object.hasOwn(trafficRequestedBody, 'cookies')
         && trafficRequestedBody.system_hotel_id === '20'
         && trafficOnlinePayload[0].exposure === 10
         && trafficLatestPayload[0].exposure === 10
@@ -4220,6 +4310,7 @@ try {
         && acceptedTrafficEvents.includes('notify:info:traffic queued')
         && acceptedTrafficStates.join('|') === 'fetching:true|fetching:false'
         && missingTrafficResult.status === 'missing_url'
+        && missingTrafficConfigResult.status === 'missing_config'
         && missingTrafficEvents[0] === 'notify:error:需 Network 请求信息：请输入接口地址'
         && !missingTrafficEvents.some(event => event.startsWith('fetching:'))
         && failedTrafficResult.status === 'failed'
@@ -4238,16 +4329,13 @@ try {
       poiId: ' poi-10 ',
       startDate: '2026-06-01',
       endDate: '2026-06-10',
-      cookies: '\nmt-cookie\n',
-      payloadJson: ' {"pageNo":1} ',
-      extraParams: ' {"pageSize":50} ',
     };
     const normalizedOrderForm = normalizeMeituanOrderFetchForm(orderForm);
-    const missingOrderUrl = validateMeituanOrderFetchInput({ url: '', method: 'GET', partnerId: 'p', poiId: 'poi', cookies: 'cookie' });
-    const invalidOrderPageUrl = validateMeituanOrderFetchInput({ url: 'https://eb.meituan.com/order-eb/index.html', method: 'GET', partnerId: 'p', poiId: 'poi', cookies: 'cookie' });
-    const missingOrderCookie = validateMeituanOrderFetchInput({ url: 'https://example.test/orders/list', method: 'GET', partnerId: 'p', poiId: 'poi', cookies: '' });
+    const missingOrderUrl = validateMeituanOrderFetchInput({ url: '', method: 'GET', partnerId: 'p', poiId: 'poi' });
+    const invalidOrderPageUrl = validateMeituanOrderFetchInput({ url: 'https://eb.meituan.com/order-eb/index.html', method: 'GET', partnerId: 'p', poiId: 'poi' });
     const orderRequestBody = buildMeituanOrderFetchRequestBody({
       form: normalizedOrderForm,
+      configId: 'meituan-order-10',
       systemHotelId: '10',
       hotelName: 'Meituan Demo',
     });
@@ -4258,17 +4346,16 @@ try {
         && normalizedOrderForm.method === 'POST'
         && normalizedOrderForm.partnerId === 'partner-10'
         && normalizedOrderForm.poiId === 'poi-10'
-        && normalizedOrderForm.cookies === 'mt-cookie'
-        && normalizedOrderForm.payloadJson === '{"pageNo":1}'
-        && normalizedOrderForm.extraParams === '{"pageSize":50}'
         && missingOrderUrl.status === 'missing_url'
         && invalidOrderPageUrl.status === 'invalid_page_url'
-        && missingOrderCookie.status === 'missing_cookies'
+        && orderRequestBody.config_id === 'meituan-order-10'
         && orderRequestBody.partner_id === 'partner-10'
         && orderRequestBody.poi_id === 'poi-10'
         && orderRequestBody.auto_save === true
         && orderRequestBody.system_hotel_id === '10'
-        && orderRequestBody.hotel_name === 'Meituan Demo',
+        && orderRequestBody.hotel_name === 'Meituan Demo'
+        && !Object.hasOwn(orderRequestBody, 'cookies')
+        && !Object.hasOwn(orderRequestBody, 'payload_json'),
       detail: 'buildMeituanOrderFetchRequestBody sample',
     });
 
@@ -4283,12 +4370,10 @@ try {
         method: 'get',
         partnerId: ' partner-20 ',
         poiId: ' poi-20 ',
-        cookies: ' mt-cookie-20 ',
         startDate: '2026-06-02',
         endDate: '2026-06-03',
-        payloadJson: ' {"pageNo":2} ',
-        extraParams: '',
       }),
+      getConfigId: () => 'meituan-order-20',
       getSystemHotelId: () => '20',
       getHotelNameById: id => `Hotel ${id}`,
       notify: (message, level) => orderEvents.push(`notify:${level || 'info'}:${message}`),
@@ -4312,10 +4397,10 @@ try {
         method: 'get',
         partnerId: 'partner-20',
         poiId: 'poi-20',
-        cookies: 'mt-cookie-20',
         startDate: '2026-06-02',
         endDate: '2026-06-03',
       }),
+      getConfigId: () => 'meituan-order-20',
       getSystemHotelId: () => '20',
       getHotelNameById: id => `Hotel ${id}`,
       notify: (message, level) => acceptedOrderEvents.push(`notify:${level || 'info'}:${message}`),
@@ -4342,14 +4427,20 @@ try {
     });
     const missingOrderEvents = [];
     const missingOrderResult = await runMeituanOrderFetchFlow({
-      getForm: () => ({ url: '', partnerId: 'p', poiId: 'poi', cookies: 'cookie' }),
+      getForm: () => ({ url: '', partnerId: 'p', poiId: 'poi' }),
+      getConfigId: () => 'meituan-order-20',
       notify: (message, level) => missingOrderEvents.push(`notify:${level}:${message}`),
       setFetching: value => missingOrderEvents.push(`fetching:${value}`),
+    });
+    const missingOrderConfigResult = await runMeituanOrderFetchFlow({
+      getForm: () => ({ url: 'https://example.test/orders/list', partnerId: 'p', poiId: 'poi' }),
+      notify: () => {},
     });
     const failedOrderStates = [];
     const failedOrderEvents = [];
     const failedOrderResult = await runMeituanOrderFetchFlow({
-      getForm: () => ({ url: 'https://example.test/orders/list', partnerId: 'p', poiId: 'poi', cookies: 'cookie' }),
+      getForm: () => ({ url: 'https://example.test/orders/list', partnerId: 'p', poiId: 'poi' }),
+      getConfigId: () => 'meituan-order-20',
       notify: (message, level) => failedOrderEvents.push(`notify:${level}:${message}`),
       setFetching: value => failedOrderStates.push(`fetching:${value}`),
       requestFetch: async () => ({ code: 500, message: 'order backend failed' }),
@@ -4357,7 +4448,8 @@ try {
     const exceptionOrderStates = [];
     const exceptionOrderEvents = [];
     const exceptionOrderResult = await runMeituanOrderFetchFlow({
-      getForm: () => ({ url: 'https://example.test/orders/list', partnerId: 'p', poiId: 'poi', cookies: 'cookie' }),
+      getForm: () => ({ url: 'https://example.test/orders/list', partnerId: 'p', poiId: 'poi' }),
+      getConfigId: () => 'meituan-order-20',
       notify: (message, level) => exceptionOrderEvents.push(`notify:${level}:${message}`),
       setFetching: value => exceptionOrderStates.push(`fetching:${value}`),
       requestFetch: async () => {
@@ -4372,6 +4464,8 @@ try {
         && orderRequestedBody.async === false
         && orderRequestedBody.background === false
         && orderRequestedBody.method === 'GET'
+        && orderRequestedBody.config_id === 'meituan-order-20'
+        && !Object.hasOwn(orderRequestedBody, 'cookies')
         && orderRequestedBody.hotel_name === 'Hotel 20'
         && orderResultPayload.saved_count === 4
         && orderOnlinePayload.row_count === 6
@@ -4388,6 +4482,7 @@ try {
         && acceptedOrderEvents.includes('notify:info:order queued')
         && acceptedOrderStates.join('|') === 'fetching:true|fetching:false'
         && missingOrderResult.status === 'missing_url'
+        && missingOrderConfigResult.status === 'missing_config'
         && missingOrderEvents[0] === 'notify:error:需 Network 请求信息：请填写订单接口 Request URL'
         && !missingOrderEvents.some(event => event.startsWith('fetching:'))
         && failedOrderResult.status === 'failed'
@@ -4407,17 +4502,14 @@ try {
       shopId: ' shop-30 ',
       startDate: '2026-06-04',
       endDate: '2026-06-05',
-      cookies: '\nmt-ads-cookie\n',
-      payloadJson: ' {"timeUnit":"day"} ',
-      extraParams: ' {"scope":"campaign"} ',
     };
     const normalizedAdsForm = normalizeMeituanAdsFetchForm(adsForm);
-    const missingAdsUrl = validateMeituanAdsFetchInput({ url: '', shopId: 'shop', cookies: 'cookie' });
-    const invalidAdsPageUrl = validateMeituanAdsFetchInput({ url: 'https://ebmidas.dianping.com/shopdiy/account/pcCpcEntry', shopId: 'shop', cookies: 'cookie' });
-    const missingAdsTarget = validateMeituanAdsFetchInput({ url: 'https://example.test/cureShops', shopId: '', poiId: '', cookies: 'cookie' });
-    const missingAdsCookie = validateMeituanAdsFetchInput({ url: 'https://example.test/cureShops', shopId: 'shop', cookies: '' });
+    const missingAdsUrl = validateMeituanAdsFetchInput({ url: '', shopId: 'shop' });
+    const invalidAdsPageUrl = validateMeituanAdsFetchInput({ url: 'https://ebmidas.dianping.com/shopdiy/account/pcCpcEntry', shopId: 'shop' });
+    const missingAdsTarget = validateMeituanAdsFetchInput({ url: 'https://example.test/cureShops', shopId: '', poiId: '' });
     const adsRequestBody = buildMeituanAdsFetchRequestBody({
       form: normalizedAdsForm,
+      configId: 'meituan-ads-30',
       systemHotelId: '30',
       hotelName: 'Ads Hotel',
     });
@@ -4429,19 +4521,18 @@ try {
         && normalizedAdsForm.partnerId === 'partner-30'
         && normalizedAdsForm.poiId === 'poi-30'
         && normalizedAdsForm.shopId === 'shop-30'
-        && normalizedAdsForm.cookies === 'mt-ads-cookie'
-        && normalizedAdsForm.payloadJson === '{"timeUnit":"day"}'
-        && normalizedAdsForm.extraParams === '{"scope":"campaign"}'
         && missingAdsUrl.status === 'missing_url'
         && invalidAdsPageUrl.status === 'invalid_page_url'
         && missingAdsTarget.status === 'missing_shop_or_poi_id'
-        && missingAdsCookie.status === 'missing_cookies'
+        && adsRequestBody.config_id === 'meituan-ads-30'
         && adsRequestBody.partner_id === 'partner-30'
         && adsRequestBody.poi_id === 'poi-30'
         && adsRequestBody.shop_id === 'shop-30'
         && adsRequestBody.auto_save === true
         && adsRequestBody.system_hotel_id === '30'
-        && adsRequestBody.hotel_name === 'Ads Hotel',
+        && adsRequestBody.hotel_name === 'Ads Hotel'
+        && !Object.hasOwn(adsRequestBody, 'cookies')
+        && !Object.hasOwn(adsRequestBody, 'payload_json'),
       detail: 'buildMeituanAdsFetchRequestBody sample',
     });
 
@@ -4457,12 +4548,10 @@ try {
         partnerId: ' partner-40 ',
         poiId: '',
         shopId: ' shop-40 ',
-        cookies: ' mt-ads-cookie-40 ',
         startDate: '2026-06-06',
         endDate: '2026-06-07',
-        payloadJson: ' {"pageNo":1} ',
-        extraParams: '',
       }),
+      getConfigId: () => 'meituan-ads-40',
       getSystemHotelId: () => '40',
       getHotelNameById: id => `Ads Hotel ${id}`,
       notify: (message, level) => adsEvents.push(`notify:${level || 'info'}:${message}`),
@@ -4486,10 +4575,10 @@ try {
         method: 'get',
         partnerId: 'partner-40',
         shopId: 'shop-40',
-        cookies: 'mt-ads-cookie-40',
         startDate: '2026-06-06',
         endDate: '2026-06-07',
       }),
+      getConfigId: () => 'meituan-ads-40',
       getSystemHotelId: () => '40',
       getHotelNameById: id => `Ads Hotel ${id}`,
       notify: (message, level) => acceptedAdsEvents.push(`notify:${level || 'info'}:${message}`),
@@ -4516,14 +4605,20 @@ try {
     });
     const missingAdsEvents = [];
     const missingAdsResult = await runMeituanAdsFetchFlow({
-      getForm: () => ({ url: '', shopId: 'shop', cookies: 'cookie' }),
+      getForm: () => ({ url: '', shopId: 'shop' }),
+      getConfigId: () => 'meituan-ads-40',
       notify: (message, level) => missingAdsEvents.push(`notify:${level}:${message}`),
       setFetching: value => missingAdsEvents.push(`fetching:${value}`),
+    });
+    const missingAdsConfigResult = await runMeituanAdsFetchFlow({
+      getForm: () => ({ url: 'https://example.test/cureShops', shopId: 'shop' }),
+      notify: () => {},
     });
     const failedAdsStates = [];
     const failedAdsEvents = [];
     const failedAdsResult = await runMeituanAdsFetchFlow({
-      getForm: () => ({ url: 'https://example.test/cureShops', shopId: 'shop', cookies: 'cookie' }),
+      getForm: () => ({ url: 'https://example.test/cureShops', shopId: 'shop' }),
+      getConfigId: () => 'meituan-ads-40',
       notify: (message, level) => failedAdsEvents.push(`notify:${level}:${message}`),
       setFetching: value => failedAdsStates.push(`fetching:${value}`),
       requestFetch: async () => ({ code: 500, message: 'ads backend failed' }),
@@ -4531,7 +4626,8 @@ try {
     const exceptionAdsStates = [];
     const exceptionAdsEvents = [];
     const exceptionAdsResult = await runMeituanAdsFetchFlow({
-      getForm: () => ({ url: 'https://example.test/cureShops', shopId: 'shop', cookies: 'cookie' }),
+      getForm: () => ({ url: 'https://example.test/cureShops', shopId: 'shop' }),
+      getConfigId: () => 'meituan-ads-40',
       notify: (message, level) => exceptionAdsEvents.push(`notify:${level}:${message}`),
       setFetching: value => exceptionAdsStates.push(`fetching:${value}`),
       requestFetch: async () => {
@@ -4546,6 +4642,8 @@ try {
         && adsRequestedBody.async === false
         && adsRequestedBody.background === false
         && adsRequestedBody.method === 'GET'
+        && adsRequestedBody.config_id === 'meituan-ads-40'
+        && !Object.hasOwn(adsRequestedBody, 'cookies')
         && adsRequestedBody.poi_id === 'shop-40'
         && adsRequestedBody.shop_id === 'shop-40'
         && adsRequestedBody.hotel_name === 'Ads Hotel 40'
@@ -4564,6 +4662,7 @@ try {
         && acceptedAdsEvents.includes('notify:info:ads queued')
         && acceptedAdsStates.join('|') === 'fetching:true|fetching:false'
         && missingAdsResult.status === 'missing_url'
+        && missingAdsConfigResult.status === 'missing_config'
         && missingAdsEvents[0] === 'notify:error:需 Network 请求信息：请填写广告接口 Request URL'
         && !missingAdsEvents.some(event => event.startsWith('fetching:'))
         && failedAdsResult.status === 'failed'
@@ -4616,11 +4715,11 @@ try {
     const fetchContext = buildOtaDiagnosisFetchContext({
       selectedHotel: { system_hotel_id: '10', hotel_id: '10' },
       form: { hotel_id: '10', start_date: '2026-06-01', end_date: '2026-06-10' },
-      ctripConfig: { url: 'ctrip-url', node_id: '24588', cookies: 'ctrip-cookie', auth_data: { ok: true }, ctrip_hotel_id: 'ctrip-10', name: 'Ctrip Demo' },
-      ctripTrafficConfig: { url: 'traffic-url', cookies: 'traffic-cookie', platform: 'Ctrip', extra_params: 'foo=1' },
-      ctripCookieApiConfig: { endpoints_json: '[{"request_url":"u"}]', headers_json: 'Cookie: header-cookie', profile_id: 'profile-10', method: 'POST', system_hotel_id: '10', ctrip_hotel_id: 'hotel-10' },
-      meituanConfig: { url: 'meituan-url', partner_id: 'partner-1', poi_id: 'poi-1', cookies: 'meituan-cookie', data_scope: 'vpoi' },
-      meituanTrafficConfig: { url: 'meituan-traffic-url', partner_id: 'partner-1', poi_id: 'poi-1', cookies: 'mt-cookie', system_hotel_id: '10' },
+      ctripConfig: { id: 'ctrip-10', config_id: 'ctrip-10', credential_status: 'ready', has_cookies: true, url: 'https://ebooking.ctrip.com/api/business', node_id: '24588', ctrip_hotel_id: 'ctrip-10', name: 'Ctrip Demo', cookies: 'must-not-leak' },
+      ctripTrafficConfig: { enabled: true, system_hotel_id: '10', url: 'https://ebooking.ctrip.com/api/traffic', platform: 'Ctrip', cookies: 'must-not-leak' },
+      ctripCookieApiConfig: { enabled: true, system_hotel_id: '10', request_urls: 'https://ebooking.ctrip.com/api/core', method: 'POST', ctrip_hotel_id: 'hotel-10', headers_json: 'Cookie: must-not-leak' },
+      meituanConfig: { id: 'meituan-10', config_id: 'meituan-10', credential_status: 'ready', has_cookies: true, url: 'https://eb.meituan.com/api/rank', partner_id: 'partner-1', poi_id: 'poi-1', data_scope: 'vpoi', cookies: 'must-not-leak' },
+      meituanTrafficConfig: { enabled: true, system_hotel_id: '10', url: 'https://eb.meituan.com/api/traffic', partner_id: 'partner-1', poi_id: 'poi-1', cookies: 'must-not-leak' },
     });
     const tasks = buildOtaDiagnosisFetchTasks({ context: fetchContext });
     const taskLabels = tasks.map(task => task.label);
@@ -4629,7 +4728,6 @@ try {
       file: 'public/ota-diagnosis-static.js',
       label: 'OTA diagnosis fetch task builder keeps Ctrip and Meituan task coverage',
       ok: fetchContext.systemHotelId === '10'
-        && fetchContext.ctripCookieApiCookies === 'header-cookie'
         && fetchContext.hasCtripCookieApiRequests === true
         && taskLabels.includes('ctrip-business')
         && taskLabels.includes('ctrip-traffic')
@@ -4637,7 +4735,10 @@ try {
         && taskLabels.includes('meituan-P_RZ')
         && taskLabels.includes('meituan-P_LL')
         && taskLabels.includes('meituan-traffic')
-        && cookieApiTask?.body?.request_source === 'saved_config',
+        && cookieApiTask?.body?.request_source === 'saved_metadata'
+        && tasks.every(task => ['ctrip-10', 'meituan-10'].includes(task.body?.config_id))
+        && tasks.every(task => !/must-not-leak/i.test(JSON.stringify(task.body || {})))
+        && tasks.every(task => !Object.hasOwn(task.body || {}, 'cookies')),
       detail: 'buildOtaDiagnosisFetchTasks saved config sample',
     });
     const coreContext = buildOtaDiagnosisFetchContext({
@@ -4655,34 +4756,25 @@ try {
     const coreTask = coreTasks.find(task => task.label === 'ctrip-cookie-api');
     checks.push({
       file: 'public/ota-diagnosis-static.js',
-      label: 'OTA diagnosis fetch task builder keeps core preset source explicit',
-      ok: coreTask?.body?.request_source === 'core_preset:generic_cookie'
-        && coreTask?.body?.cookies === 'generic-cookie'
-        && coreTask?.body?.endpoints_json === '[{"request_url":"core"}]',
-      detail: 'core_preset',
+      label: 'OTA diagnosis fetch task builder refuses browser generic-cookie and core-preset fallbacks',
+      ok: coreTasks.length === 0
+        && coreTask === undefined,
+      detail: 'metadata-only no-core-preset sample',
     });
     const flowEvents = [];
-    const flowStatuses = [];
+    let legacyReadCount = 0;
+    const flowCtripConfig = { id: 'ctrip-30', config_id: 'ctrip-30', credential_status: 'ready', has_cookies: true, node_id: '24588', url: 'https://ebooking.ctrip.com/api/business', cookies: 'must-not-leak' };
+    const flowMeituanConfig = { id: 'meituan-30', config_id: 'meituan-30', credential_status: 'ready', has_cookies: true, partner_id: 'partner-30', poi_id: 'poi-30', url: 'https://eb.meituan.com/api/rank', cookies: 'must-not-leak' };
     const flowResult = await runOtaDiagnosisHotelFetchFlow({
       selectedHotel: { system_hotel_id: '30' },
       form: { hotel_id: '30', start_date: '2026-06-03', end_date: '2026-06-03' },
-      readSavedOtaDataConfig: async type => {
-        flowEvents.push({ type: 'config', source: type });
-        if (type === 'ctrip-cookie-api') return { profile_id: 'profile-30', system_hotel_id: '30' };
-        return {};
-      },
-      readSavedGenericCookieForDiagnosis: async systemHotelId => {
-        flowEvents.push({ type: 'generic_cookie', systemHotelId });
-        return null;
-      },
-      checkCtripProfileStatus: async ({ systemHotelId, profileId }) => {
-        flowEvents.push({ type: 'profile_status', systemHotelId, profileId });
-        return { exists: true, profile_id: profileId };
-      },
-      applyCtripProfileStatus: status => flowStatuses.push(status),
-      getCtripCookieApiCorePresetJson: () => '[{"request_url":"core-flow"}]',
+      findCtripConfigByHotelId: () => flowCtripConfig,
+      findMeituanConfigByHotelId: () => flowMeituanConfig,
+      readSavedOtaDataConfig: async () => { legacyReadCount += 1; return { cookies: 'must-not-leak' }; },
+      readSavedGenericCookieForDiagnosis: async () => { legacyReadCount += 1; return { cookies: 'must-not-leak' }; },
       requestTask: async task => {
         flowEvents.push({ type: 'task', task });
+        if (/must-not-leak/i.test(JSON.stringify(task.body || {}))) throw new Error('secret leaked');
         return { code: 200, message: 'ok', data: { saved_count: 3 } };
       },
       notify: message => flowEvents.push({ type: 'notify', message }),
@@ -4690,16 +4782,14 @@ try {
     const flowTaskEvent = flowEvents.find(event => event.type === 'task') || {};
     checks.push({
       file: 'public/ota-diagnosis-static.js',
-      label: 'OTA diagnosis fetch flow keeps profile core preset and task summary explicit',
-      ok: flowResult.attempted === 1
-        && flowResult.success === 1
+      label: 'OTA diagnosis fetch flow keeps metadata-only task summary explicit',
+      ok: flowResult.attempted === 5
+        && flowResult.success === 5
         && flowResult.failed === 0
-        && flowResult.results[0]?.label === 'ctrip-cookie-api'
+        && flowResult.results[0]?.label === 'ctrip-business'
         && flowResult.results[0]?.saved_count === 3
-        && flowResult.results[0]?.request_source === 'core_preset:profile'
-        && flowStatuses[0]?.profile_id === 'profile-30'
-        && flowTaskEvent.task?.body?.endpoints_json === '[{"request_url":"core-flow"}]'
-        && flowTaskEvent.task?.body?.request_source === 'core_preset:profile'
+        && flowTaskEvent.task?.body?.config_id === 'ctrip-30'
+        && legacyReadCount === 0
         && flowEvents.some(event => event.type === 'notify'),
       detail: 'runOtaDiagnosisHotelFetchFlow profile preset sample',
     });
@@ -6041,7 +6131,6 @@ try {
       hotelId: '24588',
       hotelName: 'Demo Hotel',
       profileId: 'profile-1',
-      cookies: 'sid=secret',
       dataDate: '2026-06-10',
       form: { sections: 'default traffic', approvedMappingsPath: '  approved.json  ' },
       options: { captureSections: 'ads reviews', loginOnly: true, bindDataSource: false },
@@ -6055,7 +6144,6 @@ try {
       activeConfig: {
         ota_hotel_id: 'ota-58',
         ctrip_hotel_id: 'ctrip-ignored',
-        cookies: 'sid=request-context',
       },
       form: { hotelId: '', sections: 'business_overview', approvedMappingsPath: ' approved.json ' },
       overviewForm: { hotelId: 'overview-58', dataDate: '2026-06-10' },
@@ -6081,7 +6169,7 @@ try {
         && requestContext.capturePayload.hotel_id === 'ota-58'
         && requestContext.capturePayload.hotel_name === 'Tiancheng Hotel'
         && requestContext.capturePayload.profile_id === 'profile-58'
-        && requestContext.capturePayload.cookies === 'sid=request-context'
+        && !Object.hasOwn(requestContext.capturePayload, 'cookies')
         && requestContext.capturePayload.data_date === '2026-06-10'
         && requestContext.capturePayload.sections[0] === 'business_overview'
         && missingProfileContext.ok === false
@@ -6090,7 +6178,7 @@ try {
         && payload.hotel_id === '24588'
         && payload.hotel_name === 'Demo Hotel'
         && payload.profile_id === 'profile-1'
-        && payload.cookies === 'sid=secret'
+        && !Object.hasOwn(payload, 'cookies')
         && payload.data_date === '2026-06-10'
         && payload.login_only === true
         && payload.bind_data_source === false
@@ -6131,12 +6219,7 @@ try {
       findCtripConfigByHotelId: systemHotelId => ({
         system_hotel_id: systemHotelId,
         ota_hotel_id: 'ota-58',
-        cookies: 'sid=flow',
       }),
-      ensureCtripConfigSecret: async config => {
-        captureFlowEvents.push('ensure-secret');
-        return config;
-      },
       applyCtripConfigObject: config => {
         captureFlowEvents.push(`apply:${config.system_hotel_id}`);
       },
@@ -6173,7 +6256,7 @@ try {
         && flowRequestedPayload.hotel_id === 'ota-58'
         && flowRequestedPayload.hotel_name === 'Hotel 58'
         && flowRequestedPayload.profile_id === 'profile-58'
-        && flowRequestedPayload.cookies === 'sid=flow'
+        && !Object.hasOwn(flowRequestedPayload, 'cookies')
         && flowRequestedPayload.data_date === '2026-06-10'
         && flowRequestedPayload.sections.join(',') === 'sales_report'
         && flowRequestedPayload.bind_data_source === true
@@ -6184,7 +6267,6 @@ try {
         && flowProfileStatus === null
         && captureFlowStates.join('|') === 'running:true|fetching:true|running:false|fetching:false'
         && captureFlowEvents.includes('load-configs')
-        && captureFlowEvents.includes('ensure-secret')
         && captureFlowEvents.includes('apply:58')
         && captureFlowEvents.includes('request-capture')
         && captureFlowEvents.includes('latest:true')
@@ -6204,7 +6286,6 @@ try {
       getUserHotelId: () => '',
       hasCtripConfigList: () => true,
       getActiveCtripConfig: () => ({ system_hotel_id: '58', ota_hotel_id: 'ota-58' }),
-      ensureCtripConfigSecret: async config => config,
       getBrowserCaptureForm: () => ({}),
       getOverviewForm: () => ({ dataDate: '2026-06-10' }),
       getHotelNameById: () => 'Hotel 58',
@@ -6286,7 +6367,7 @@ try {
     const explicitRange = buildCtripFetchDateRange({ startDate: '2026-06-01', endDate: '2026-06-10' });
     const fetchBody = buildCtripFetchRequestBody({
       form: { url: ' https://ebooking.ctrip.test/api ', auth_data: { token: 'demo' } },
-      cookies: 'sid=abc',
+      configId: 'ctrip-58',
       nodeId: '24588',
       startDate: '2026-06-01',
       endDate: '2026-06-10',
@@ -6295,35 +6376,35 @@ try {
     });
     const fallbackBody = buildCtripFetchRequestBody({
       form: { url: '   ' },
-      cookies: 'sid=abc',
+      configId: 'ctrip-58',
       startDate: '2026-06-09',
       endDate: '2026-06-09',
     });
     const fetchContext = buildCtripFetchRequestContext({
       form: {
         url: ' https://ebooking.ctrip.test/api ',
-        cookies: ' sid=context ',
         nodeId: '24588',
         startDate: '2026-06-01',
         endDate: '2026-06-10',
         auth_data: { token: 'ctx' },
       },
+      configId: 'ctrip-58',
       selectedCtripHotelId: '58',
       platformHotelId: 'ctrip-58',
     });
     const missingCredentialContext = buildCtripFetchRequestContext({
-      form: { cookies: '   ' },
+      form: {},
       selectedCtripHotelId: '58',
       platformHotelId: 'ctrip-58',
     });
     const cookieOnlyFetchContext = buildCtripFetchRequestContext({
       form: {
         url: ' https://ebooking.ctrip.test/api ',
-        cookies: ' sid=only ',
         nodeId: '24588',
         startDate: '2026-06-10',
         endDate: '2026-06-10',
       },
+      configId: 'ctrip-auto',
     });
     const multiDatePayload = selectCtripFetchResponsePayload({
       date_results: [{ date: '2026-06-09' }, { date: '2026-06-10' }],
@@ -6358,18 +6439,12 @@ try {
       isLoggedIn: () => true,
       getSelectedCtripHotelId: () => '58',
       notify: (message, level) => fetchFlowEvents.push(`notify:${level || 'info'}:${message}`),
-      getActiveCtripConfig: () => ({ id: 1, hotel_id: '58', ota_hotel_id: 'ctrip-58', cookies: 'sid=config' }),
-      ensureCtripConfigSecret: async config => {
-        fetchFlowEvents.push('ensure-config');
-        return config;
-      },
+      getActiveCtripConfig: () => ({ id: 'ctrip-58', config_id: 'ctrip-58', hotel_id: '58', ota_hotel_id: 'ctrip-58', has_cookies: true, credential_status: 'ready' }),
       applyCtripConfigObject: config => fetchFlowEvents.push(`apply:${config.hotel_id}`),
       getForm: () => ({
-        cookies: ' sid=fetch ',
         nodeId: '24588',
         startDate: '2026-06-01',
         endDate: '2026-06-10',
-        auth_data: { token: 'ctx' },
       }),
       setFetching: value => fetchFlowStates.push(`fetching:${value}`),
       setShowRawData: value => fetchFlowStates.push(`raw:${value}`),
@@ -6429,13 +6504,14 @@ try {
       notify: () => {},
       getActiveCtripConfig: () => ({
         id: 'cfg-auto',
+        config_id: 'cfg-auto',
         hotel_id: '58',
         ota_hotel_id: 'ctrip-58',
-        cookies: 'sid=config',
+        has_cookies: true,
+        credential_status: 'ready',
         url: 'https://ebooking.ctrip.test/api',
         node_id: '24588',
       }),
-      ensureCtripConfigSecret: async config => config,
       getForm: () => ({
         startDate: '2026-06-10',
         endDate: '2026-06-10',
@@ -6464,11 +6540,9 @@ try {
       isLoggedIn: () => true,
       getSelectedCtripHotelId: () => '58',
       notify: (message, level) => acceptedFetchFlowEvents.push(`notify:${level || 'info'}:${message}`),
-      getActiveCtripConfig: () => ({ id: 1, hotel_id: '58', ota_hotel_id: 'ctrip-58', cookies: 'sid=config' }),
-      ensureCtripConfigSecret: async config => config,
+      getActiveCtripConfig: () => ({ id: 'ctrip-58', config_id: 'ctrip-58', hotel_id: '58', ota_hotel_id: 'ctrip-58', has_cookies: true, credential_status: 'ready' }),
       applyCtripConfigObject: config => acceptedFetchFlowEvents.push(`apply:${config.hotel_id}`),
       getForm: () => ({
-        cookies: ' sid=fetch ',
         nodeId: '24588',
         startDate: '2026-06-10',
         endDate: '2026-06-10',
@@ -6498,9 +6572,8 @@ try {
       isLoggedIn: () => true,
       getSelectedCtripHotelId: () => '58',
       notify: (message, level) => failedFlowEvents.push(`notify:${level || 'info'}:${message}`),
-      getActiveCtripConfig: () => ({ hotel_id: '58', ota_hotel_id: 'ctrip-58' }),
-      ensureCtripConfigSecret: async config => config,
-      getForm: () => ({ cookies: 'sid=fetch', startDate: '2026-06-10', endDate: '2026-06-10' }),
+      getActiveCtripConfig: () => ({ id: 'ctrip-58', config_id: 'ctrip-58', hotel_id: '58', ota_hotel_id: 'ctrip-58', has_cookies: true, credential_status: 'ready' }),
+      getForm: () => ({ startDate: '2026-06-10', endDate: '2026-06-10' }),
       requestFetch: async () => ({
         code: 500,
         message: '授权过期',
@@ -6550,18 +6623,18 @@ try {
         url: ' https://ebooking.ctrip.test/traffic ',
         extraParams: '{"scope":"self"}',
       },
-      cookies: 'sid=traffic',
+      configId: 'ctrip-58',
       systemHotelId: '58',
     });
     const trafficBodyWithoutUrl = buildCtripTrafficFetchRequestBody({
       form: { platform: 'qunar', dateRange: 'yesterday', url: '   ' },
-      cookies: 'sid=traffic',
+      configId: 'ctrip-58',
     });
     const overviewBody = buildCtripOverviewFetchRequestBody({
+      configId: 'ctrip-58',
       systemHotelId: '58',
       hotelId: 'ctrip-hotel-1',
       hotelName: 'Tiancheng Hotel',
-      cookies: 'sid=overview',
       requestUrls: 'https://ebooking.ctrip.test/overview',
       form: {
         payloadJson: '{"page":1}',
@@ -6572,10 +6645,10 @@ try {
       defaultMethod: 'GET',
     });
     const flowOverviewBody = buildCtripOverviewFetchRequestBody({
+      configId: 'ctrip-58',
       systemHotelId: '58',
       hotelId: 'ctrip-hotel-1',
       hotelName: 'Tiancheng Hotel',
-      cookies: 'sid=flow',
       requestUrls: 'https://ebooking.ctrip.test/flow',
       form: {
         payloadJson: '',
@@ -6589,9 +6662,6 @@ try {
       const states = [];
       const form = {
         requestUrls: '',
-        cookies: '',
-        payloadJson: '',
-        spidertoken: '',
         hotelId: '',
         method: '',
         dataDate: '2026-06-10',
@@ -6605,15 +6675,10 @@ try {
         getSystemHotelId: () => (overrides.systemHotelId === undefined ? '58' : overrides.systemHotelId),
         notify: (message, level = 'success') => events.push(['notify', level, message]),
         getActiveCtripConfig: () => (overrides.activeConfig === undefined
-          ? { ota_hotel_id: 'ctrip-hotel-1', cookies: 'sid=config' }
+          ? { id: 'ctrip-58', config_id: 'ctrip-58', ota_hotel_id: 'ctrip-hotel-1', has_cookies: true, credential_status: 'ready' }
           : overrides.activeConfig),
-        ensureCtripConfigSecret: async config => {
-          events.push(['ensure-config', Boolean(config)]);
-          return config;
-        },
         applyCtripConfigObject: config => events.push(['apply-config', config?.ota_hotel_id || '']),
         getForm: () => form,
-        getCtripCookies: () => (overrides.ctripCookies === undefined ? 'sid=form' : overrides.ctripCookies),
         getFallbackRequestUrls: () => overrides.fallbackRequestUrls || '',
         getHotelNameById: hotelId => `hotel-${hotelId}`,
         setFetching: value => states.push(['fetching', value]),
@@ -6637,7 +6702,7 @@ try {
         messages: {
           missingRequestUrls: '未配置可用的流量概要直连接口',
           invalidPageUrl: '请填写 Network 中的 JSON 接口 URL，不是携程概况页面地址',
-          missingCookies: '请提供携程 Cookie',
+          missingConfig: '当前酒店未配置可执行的携程凭证',
           successPrefix: '流量概要直连获取完成',
           failure: '流量概要抓取失败',
           exceptionPrefix: '流量概要获取失败',
@@ -6649,11 +6714,11 @@ try {
       fallbackRequestUrls: 'https://ebooking.ctrip.test/flow',
     });
     const overviewFlowFailure = await runOverviewSample({
-      form: { requestUrls: 'https://ebooking.ctrip.test/flow', cookies: 'sid=flow' },
+      form: { requestUrls: 'https://ebooking.ctrip.test/flow' },
       response: { code: 500, message: 'upstream failed', data: { saved_count: 0 } },
     });
     const overviewFlowException = await runOverviewSample({
-      form: { requestUrls: 'https://ebooking.ctrip.test/flow', cookies: 'sid=flow' },
+      form: { requestUrls: 'https://ebooking.ctrip.test/flow' },
       throwRequest: true,
     });
     const overviewMissingHotel = await runOverviewSample({ systemHotelId: '' });
@@ -6661,17 +6726,16 @@ try {
     const overviewInvalidUrl = await runOverviewSample({
       form: { requestUrls: 'https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true' },
     });
-    const overviewMissingCookie = await runOverviewSample({
-      form: { requestUrls: 'https://ebooking.ctrip.test/flow', cookies: '' },
-      ctripCookies: '',
-      activeConfig: { ota_hotel_id: 'ctrip-hotel-1', cookies: '' },
+    const overviewCredentialNotReady = await runOverviewSample({
+      form: { requestUrls: 'https://ebooking.ctrip.test/flow' },
+      activeConfig: { id: 'ctrip-58', config_id: 'ctrip-58', ota_hotel_id: 'ctrip-hotel-1', has_cookies: false, credential_status: 'missing' },
     });
     const adsBody = buildCtripAdsFetchRequestBody({
+      configId: 'ctrip-58',
       systemHotelId: '58',
       hotelId: 'ctrip-hotel-1',
       hotelName: 'Tiancheng Hotel',
       url: 'https://ebooking.ctrip.com/toolcenter/api/cpc/queryCampaignReportList?hostType=HE',
-      cookies: 'sid=ads',
       form: {
         apiType: 'custom_ignored',
         dateRange: 'custom',
@@ -6684,7 +6748,6 @@ try {
       const states = [];
       const form = {
         url: 'https://ebooking.ctrip.com/toolcenter/api/cpc/queryCampaignReportList?hostType=HE',
-        cookies: '',
         apiType: 'effect_report',
         dateRange: 'custom',
         startDate: '2026-06-01',
@@ -6699,16 +6762,11 @@ try {
         getSystemHotelId: () => (overrides.systemHotelId === undefined ? '58' : overrides.systemHotelId),
         notify: (message, level = 'success') => events.push(['notify', level, message]),
         getActiveCtripConfig: () => (overrides.activeConfig === undefined
-          ? { ota_hotel_id: 'ctrip-hotel-1', cookies: 'sid=config' }
+          ? { id: 'ctrip-58', config_id: 'ctrip-58', ota_hotel_id: 'ctrip-hotel-1', has_cookies: true, credential_status: 'ready' }
           : overrides.activeConfig),
-        ensureCtripConfigSecret: async config => {
-          events.push(['ensure-config', Boolean(config)]);
-          return config;
-        },
         applyCtripConfigObject: config => events.push(['apply-config', config?.ota_hotel_id || '']),
         syncAdsDirectConfig: async showMessage => events.push(['sync-ads', showMessage]),
         getForm: () => form,
-        getCtripCookies: () => (overrides.ctripCookies === undefined ? 'sid=form' : overrides.ctripCookies),
         getHotelNameById: hotelId => `hotel-${hotelId}`,
         defaultAdsUrl: defaultCtripAdsEffectReportUrl,
         adsUrlHint: '广告接口 URL 提示',
@@ -6760,15 +6818,14 @@ try {
     const adsInvalidUrl = await runAdsSample({
       form: { url: 'https://ebooking.ctrip.com/not/ads/api' },
     });
-    const adsMissingCookie = await runAdsSample({
-      form: { cookies: '' },
-      ctripCookies: '',
-      activeConfig: { ota_hotel_id: 'ctrip-hotel-1', cookies: '' },
+    const adsCredentialNotReady = await runAdsSample({
+      activeConfig: { id: 'ctrip-58', config_id: 'ctrip-58', ota_hotel_id: 'ctrip-hotel-1', has_cookies: false, credential_status: 'missing' },
     });
     const adsMissingCustomDates = await runAdsSample({
       form: { dateRange: 'custom', startDate: '', endDate: '' },
     });
     const cookieApiBody = buildCtripCookieApiFetchRequestBody({
+      configId: 'ctrip-58',
       systemHotelId: '58',
       hotelId: 'ctrip-hotel-1',
       hotelName: 'Tiancheng Hotel',
@@ -6776,8 +6833,7 @@ try {
       dataDate: '2026-06-10',
       requestUrl: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryHomePageRealTimeData',
       form: { method: 'post', payloadJson: ' {"scope":"core"} ' },
-      endpointsJson: '[{"section":"homepage"}]',
-      cookies: 'sid=cookie-api',
+      endpointsJson: '["https://ebooking.ctrip.com/restapi/soa2/24588/querySecondary"]',
     });
     const cookieFlowEvents = [];
     const cookieFlowStates = [];
@@ -6799,22 +6855,19 @@ try {
       loadCtripConfigList: async () => cookieFlowEvents.push('load-configs'),
       getActiveCtripConfig: () => null,
       findCtripConfigByHotelId: systemHotelId => ({
+        id: `ctrip-${systemHotelId}`,
+        config_id: `ctrip-${systemHotelId}`,
         system_hotel_id: systemHotelId,
         ota_hotel_id: `ota-${systemHotelId}`,
-        cookies: 'sid=config',
         profile_id: `profile-${systemHotelId}`,
+        has_cookies: true,
+        credential_status: 'ready',
       }),
-      ensureCtripConfigSecret: async config => {
-        cookieFlowEvents.push('ensure-secret');
-        return config;
-      },
       applyCtripConfigObject: (config, showMessage) => cookieFlowEvents.push(`apply:${config.system_hotel_id}:${showMessage}`),
       getForm: () => ({
-        requestUrl: '',
-        endpointsJson: '[{"section":"homepage"}]',
-        cookies: ' sid=form ',
+        requestUrl: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryHomePageRealTimeData',
+        endpointsJson: '["https://ebooking.ctrip.com/restapi/soa2/24588/querySecondary"]',
         method: 'post',
-        payloadJson: ' {"scope":"core"} ',
       }),
       getOverviewForm: () => ({ dataDate: '2026-06-10' }),
       getHotelNameById: systemHotelId => `Hotel ${systemHotelId}`,
@@ -6841,8 +6894,7 @@ try {
     const cookieNotReadyResult = await runCtripCookieApiCaptureFlow({
       getSelectedCtripHotelId: () => '58',
       hasCtripConfigList: () => true,
-      getActiveCtripConfig: () => ({ system_hotel_id: '58', profile_id: 'profile-58' }),
-      ensureCtripConfigSecret: async config => config,
+      getActiveCtripConfig: () => ({ id: 'ctrip-58', config_id: 'ctrip-58', system_hotel_id: '58', profile_id: 'profile-58', has_cookies: true, credential_status: 'ready' }),
       getForm: () => ({ requestUrl: 'https://ebooking.ctrip.test/api', endpointsJson: '' }),
       getOverviewForm: () => ({ dataDate: '2026-06-10' }),
       resolveProfileId: () => 'profile-58',
@@ -6855,8 +6907,7 @@ try {
     const cookieFailureResult = await runCtripCookieApiCaptureFlow({
       getSelectedCtripHotelId: () => '58',
       hasCtripConfigList: () => true,
-      getActiveCtripConfig: () => ({ system_hotel_id: '58', profile_id: 'profile-58' }),
-      ensureCtripConfigSecret: async config => config,
+      getActiveCtripConfig: () => ({ id: 'ctrip-58', config_id: 'ctrip-58', system_hotel_id: '58', profile_id: 'profile-58', has_cookies: true, credential_status: 'ready' }),
       getForm: () => ({ requestUrl: 'https://ebooking.ctrip.test/api', endpointsJson: '' }),
       resolveProfileId: () => 'profile-58',
       resolveRequestHotelId: () => 'hotel-58',
@@ -6873,8 +6924,7 @@ try {
     const cookieExceptionResult = await runCtripCookieApiCaptureFlow({
       getSelectedCtripHotelId: () => '58',
       hasCtripConfigList: () => true,
-      getActiveCtripConfig: () => ({ system_hotel_id: '58', profile_id: 'profile-58' }),
-      ensureCtripConfigSecret: async config => config,
+      getActiveCtripConfig: () => ({ id: 'ctrip-58', config_id: 'ctrip-58', system_hotel_id: '58', profile_id: 'profile-58', has_cookies: true, credential_status: 'ready' }),
       getForm: () => ({ requestUrl: 'https://ebooking.ctrip.test/api', endpointsJson: '' }),
       resolveProfileId: () => 'profile-58',
       resolveRequestHotelId: () => 'hotel-58',
@@ -6886,15 +6936,13 @@ try {
       setCaptureResult: value => { cookieExceptionResultPayload = value; },
       notify: (message, level) => cookieExceptionEvents.push(`notify:${level || 'info'}:${message}`),
     });
-    const cookieMissingProfileEvents = [];
-    const cookieMissingProfileResult = await runCtripCookieApiCaptureFlow({
+    const cookieMissingConfigEvents = [];
+    const cookieMissingConfigResult = await runCtripCookieApiCaptureFlow({
       getSelectedCtripHotelId: () => '58',
       hasCtripConfigList: () => true,
       getActiveCtripConfig: () => ({ system_hotel_id: '58' }),
-      ensureCtripConfigSecret: async config => config,
       getForm: () => ({ requestUrl: 'https://ebooking.ctrip.test/api', endpointsJson: '' }),
-      resolveProfileId: () => '',
-      notify: (message, level) => cookieMissingProfileEvents.push(`notify:${level}:${message}`),
+      notify: (message, level) => cookieMissingConfigEvents.push(`notify:${level}:${message}`),
     });
     const cookieMissingSourceEvents = [];
     const cookieMissingSourceResult = await runCtripCookieApiCaptureFlow({
@@ -6927,7 +6975,6 @@ try {
         startDate: '2026-06-01',
         endDate: '2026-06-10',
         url: ' https://ebooking.ctrip.test/traffic ',
-        cookies: ' sid=traffic-flow ',
         extraParams: '{"scope":"self"}',
         ...(overrides.form || {}),
       };
@@ -6938,12 +6985,8 @@ try {
         getSelectedCtripHotelId: () => (overrides.selectedHotelId === undefined ? '58' : overrides.selectedHotelId),
         notify: (message, level = 'success') => events.push(['notify', level, message]),
         getActiveCtripConfig: () => (overrides.activeConfig === undefined
-          ? { hotel_id: '58', cookies: 'sid=config' }
+          ? { id: 'ctrip-58', config_id: 'ctrip-58', hotel_id: '58', has_cookies: true, credential_status: 'ready' }
           : overrides.activeConfig),
-        ensureCtripConfigSecret: async config => {
-          events.push(['ensure-config', Boolean(config)]);
-          return config;
-        },
         applyCtripConfigObject: config => events.push(['apply-config', config?.hotel_id || '']),
         getForm: () => form,
         setFetching: value => states.push(['fetching', value]),
@@ -7003,9 +7046,8 @@ try {
     const trafficFlowException = await runTrafficSample({ throwRequest: true });
     const trafficMissingHotel = await runTrafficSample({ selectedHotelId: '' });
     const trafficMissingConfig = await runTrafficSample({ activeConfig: null });
-    const trafficMissingCookie = await runTrafficSample({
-      form: { cookies: '   ' },
-      activeConfig: { hotel_id: '58', cookies: '' },
+    const trafficCredentialNotReady = await runTrafficSample({
+      activeConfig: { id: 'ctrip-58', config_id: 'ctrip-58', hotel_id: '58', has_cookies: false, credential_status: 'missing' },
     });
     const trafficMissingCustomDates = await runTrafficSample({
       form: { dateRange: 'custom', startDate: '', endDate: '' },
@@ -7018,7 +7060,8 @@ try {
         && explicitRange.startDate === '2026-06-01'
         && explicitRange.endDate === '2026-06-10'
         && fetchContext.ok === true
-        && fetchContext.requestBody.cookies === 'sid=context'
+        && fetchContext.requestBody.config_id === 'ctrip-58'
+        && !Object.hasOwn(fetchContext.requestBody, 'cookies')
         && fetchContext.requestBody.node_id === '24588'
         && fetchContext.requestBody.system_hotel_id === '58'
         && fetchContext.requestBody.ctrip_hotel_id === 'ctrip-58'
@@ -7028,17 +7071,19 @@ try {
         && fetchContext.requestBody.end_date === '2026-06-10'
         && fetchContext.debugMeta.node_id === '24588'
         && cookieOnlyFetchContext.ok === true
-        && cookieOnlyFetchContext.requestBody.cookies === 'sid=only'
+        && cookieOnlyFetchContext.requestBody.config_id === 'ctrip-auto'
+        && !Object.hasOwn(cookieOnlyFetchContext.requestBody, 'cookies')
         && cookieOnlyFetchContext.requestBody.system_hotel_id === null
         && cookieOnlyFetchContext.requestBody.ctrip_hotel_id === undefined
         && cookieOnlyFetchContext.debugMeta.system_hotel_id === 'auto_resolve_from_cookie_response'
         && missingCredentialContext.ok === false
-        && missingCredentialContext.message.includes('临时 Cookie/API 辅助内容')
+        && missingCredentialContext.status === 'missing_config'
         && fetchBody.url === 'https://ebooking.ctrip.test/api'
+        && fetchBody.config_id === 'ctrip-58'
         && fetchBody.node_id === '24588'
         && fetchBody.system_hotel_id === '58'
         && fetchBody.ctrip_hotel_id === 'ctrip-58'
-        && fetchBody.cookies === 'sid=abc'
+        && !Object.hasOwn(fetchBody, 'cookies')
         && fallbackBody.url === undefined
         && fallbackBody.node_id === undefined
         && fallbackBody.system_hotel_id === null,
@@ -7057,14 +7102,12 @@ try {
       auth_data: { token: 'ctx' },
     }, { selectedHotelId: '58' });
     const staleCtripRankingForm = isCtripRankingFormAlignedWithConfig({
-      url: 'https://ebooking.ctrip.test/api',
+      url: 'https://ebooking.ctrip.test/stale',
       nodeId: '24588',
-      cookies: 'sid=old',
     }, {
       hotel_id: '58',
       url: 'https://ebooking.ctrip.test/api',
       node_id: '24588',
-      cookies: 'sid=config',
     }, { selectedHotelId: '58' });
     checks.push({
       file: 'public/ctrip-static.js',
@@ -7081,7 +7124,8 @@ try {
         && fetchFlowResult.status === 'success'
         && fetchFlowRequestedBody.async === false
         && fetchFlowRequestedBody.background === false
-        && fetchFlowRequestedBody.cookies === 'sid=fetch'
+        && fetchFlowRequestedBody.config_id === 'ctrip-58'
+        && !Object.hasOwn(fetchFlowRequestedBody, 'cookies')
         && fetchFlowRequestedBody.node_id === '24588'
         && fetchFlowRequestedBody.system_hotel_id === '58'
         && fetchFlowRequestedBody.ctrip_hotel_id === 'ctrip-58'
@@ -7093,7 +7137,6 @@ try {
         && fetchFlowLatestMeta.data_date === '2026-06-01 至 2026-06-10'
         && fetchFlowTableTab === 'sales'
         && fetchFlowStates.join('|') === 'fetching:true|raw:false|success:false|saved:0|saved:4|success:true|fetching:false'
-        && fetchFlowEvents.includes('ensure-config')
         && fetchFlowEvents.includes('apply:58')
         && fetchFlowEvents.includes('request-fetch')
         && fetchFlowEvents.includes('display-hotels:1')
@@ -7102,7 +7145,8 @@ try {
         && alignedCtripRankingForm === true
         && staleCtripRankingForm === false
         && autoResolvedFetchFlowResult.status === 'success'
-        && autoResolvedFetchFlowRequestedBody.cookies === 'sid=config'
+        && autoResolvedFetchFlowRequestedBody.config_id === 'cfg-auto'
+        && !Object.hasOwn(autoResolvedFetchFlowRequestedBody, 'cookies')
         && autoResolvedFetchFlowRequestedBody.url === 'https://ebooking.ctrip.test/api'
         && autoResolvedFetchFlowRequestedBody.node_id === '24588'
         && autoResolvedFetchFlowRequestedBody.system_hotel_id === null
@@ -7159,9 +7203,10 @@ try {
         && trafficBody.date_range === 'custom'
         && trafficBody.start_date === '2026-06-01'
         && trafficBody.end_date === '2026-06-10'
-        && trafficBody.cookies === 'sid=traffic'
+        && trafficBody.config_id === 'ctrip-58'
+        && !Object.hasOwn(trafficBody, 'cookies')
         && trafficBody.system_hotel_id === '58'
-        && trafficBody.extra_params === '{"scope":"self"}'
+        && !Object.hasOwn(trafficBody, 'extra_params')
         && trafficBodyWithoutUrl.url === undefined
         && trafficBodyWithoutUrl.system_hotel_id === null
         && trafficModel.savedCount === 4
@@ -7181,9 +7226,10 @@ try {
         && trafficFlowSuccess.trafficRequestBody.url === 'https://ebooking.ctrip.test/traffic'
         && trafficFlowSuccess.trafficRequestBody.async === false
         && trafficFlowSuccess.trafficRequestBody.background === false
-        && trafficFlowSuccess.trafficRequestBody.cookies === 'sid=traffic-flow'
+        && trafficFlowSuccess.trafficRequestBody.config_id === 'ctrip-58'
+        && !Object.hasOwn(trafficFlowSuccess.trafficRequestBody, 'cookies')
         && trafficFlowSuccess.trafficRequestBody.system_hotel_id === '58'
-        && trafficFlowSuccess.trafficRequestBody.extra_params === '{"scope":"self"}'
+        && !Object.hasOwn(trafficFlowSuccess.trafficRequestBody, 'extra_params')
         && trafficFlowSuccess.trafficOnlinePayload.saved_count === 3
         && trafficFlowSuccess.trafficOnlinePayload.traffic_rows[0].row_id === 'traffic-flow-1'
         && trafficFlowSuccess.trafficDisplayArgs.displayRows[0].compareType === 'self'
@@ -7221,8 +7267,8 @@ try {
         && trafficMissingHotel.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('请选择目标酒店'))
         && trafficMissingConfig.result.status === 'missing_config'
         && trafficMissingConfig.events.some(event => event[0] === 'notify' && event[1] === 'warning' && event[2].includes('当前酒店未配置携程数据源'))
-        && trafficMissingCookie.result.status === 'missing_cookies'
-        && trafficMissingCookie.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('请提供携程 Cookie'))
+        && trafficCredentialNotReady.result.status === 'missing_config'
+        && trafficCredentialNotReady.events.some(event => event[0] === 'notify' && event[1] === 'warning')
         && trafficMissingCustomDates.result.status === 'missing_custom_dates'
         && trafficMissingCustomDates.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('请选择自定义开始日期和结束日期')),
       detail: 'runCtripTrafficFetchFlow missing-state samples',
@@ -7230,19 +7276,19 @@ try {
     checks.push({
       file: 'public/ctrip-static.js',
       label: 'Ctrip overview builder keeps request fields and method defaults',
-      ok: overviewBody.system_hotel_id === '58'
+      ok: overviewBody.config_id === 'ctrip-58'
+        && overviewBody.system_hotel_id === '58'
         && overviewBody.hotel_id === 'ctrip-hotel-1'
         && overviewBody.hotel_name === 'Tiancheng Hotel'
-        && overviewBody.cookies === 'sid=overview'
-        && overviewBody.request_urls === 'https://ebooking.ctrip.test/overview'
-        && overviewBody.payload_json === '{"page":1}'
-        && overviewBody.spidertoken === 'spider'
+        && overviewBody.request_urls[0] === 'https://ebooking.ctrip.test/overview'
+        && !Object.hasOwn(overviewBody, 'cookies')
+        && !Object.hasOwn(overviewBody, 'payload_json')
+        && !Object.hasOwn(overviewBody, 'spidertoken')
         && overviewBody.method === 'POST'
         && overviewBody.data_date === '2026-06-09'
-        && flowOverviewBody.cookies === 'sid=flow'
-        && flowOverviewBody.request_urls === 'https://ebooking.ctrip.test/flow'
-        && flowOverviewBody.payload_json === ''
-        && flowOverviewBody.spidertoken === ''
+        && flowOverviewBody.config_id === 'ctrip-58'
+        && flowOverviewBody.request_urls[0] === 'https://ebooking.ctrip.test/flow'
+        && !Object.hasOwn(flowOverviewBody, 'cookies')
         && flowOverviewBody.method === 'GET'
         && flowOverviewBody.data_date === '2026-06-10',
       detail: 'Ctrip overview request sample',
@@ -7254,8 +7300,9 @@ try {
         && overviewFlowSuccess.overviewRequestBody.system_hotel_id === '58'
         && overviewFlowSuccess.overviewRequestBody.hotel_id === 'ctrip-hotel-1'
         && overviewFlowSuccess.overviewRequestBody.hotel_name === 'hotel-58'
-        && overviewFlowSuccess.overviewRequestBody.cookies === 'sid=form'
-        && overviewFlowSuccess.overviewRequestBody.request_urls === 'https://ebooking.ctrip.test/flow'
+        && overviewFlowSuccess.overviewRequestBody.config_id === 'ctrip-58'
+        && !Object.hasOwn(overviewFlowSuccess.overviewRequestBody, 'cookies')
+        && overviewFlowSuccess.overviewRequestBody.request_urls[0] === 'https://ebooking.ctrip.test/flow'
         && overviewFlowSuccess.overviewRequestBody.method === 'GET'
         && overviewFlowSuccess.overviewResultPayload?.saved_count === 6
         && overviewFlowSuccess.overviewOnlinePayload?.saved_count === 6
@@ -7289,9 +7336,9 @@ try {
       ok: overviewMissingHotel.result.status === 'missing_hotel'
         && overviewMissingConfig.result.status === 'missing_config'
         && overviewInvalidUrl.result.status === 'invalid_page_url'
-        && overviewMissingCookie.result.status === 'missing_cookies'
+        && overviewCredentialNotReady.result.status === 'missing_config'
         && overviewInvalidUrl.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('不是携程概况页面地址'))
-        && overviewMissingCookie.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('请提供携程 Cookie')),
+        && overviewCredentialNotReady.events.some(event => event[0] === 'notify' && event[1] === 'warning' && event[2].includes('可执行的携程凭证')),
       detail: 'runCtripOverviewFetchFlow missing-state samples',
     });
     checks.push({
@@ -7301,11 +7348,12 @@ try {
         && isCtripAdsApiUrl(defaultCtripAdsEffectReportUrl) === true
         && isCtripAdsApiUrl('https://ebooking.ctrip.com/toolcenter/cpc/pyramid?microJump=true') === false
         && normalizeCtripAdsApiType('anything') === 'effect_report'
+        && adsBody.config_id === 'ctrip-58'
         && adsBody.system_hotel_id === '58'
         && adsBody.hotel_id === 'ctrip-hotel-1'
         && adsBody.hotel_name === 'Tiancheng Hotel'
         && adsBody.url.includes('queryCampaignReportList')
-        && adsBody.cookies === 'sid=ads'
+        && !Object.hasOwn(adsBody, 'cookies')
         && adsBody.api_type === 'effect_report'
         && adsBody.date_range === 'custom'
         && adsBody.start_date === '2026-06-01'
@@ -7323,7 +7371,8 @@ try {
         && adsFlowSuccess.adsRequestBody.hotel_id === 'ctrip-hotel-1'
         && adsFlowSuccess.adsRequestBody.hotel_name === 'hotel-58'
         && adsFlowSuccess.adsRequestBody.url.includes('queryCampaignReportList')
-        && adsFlowSuccess.adsRequestBody.cookies === 'sid=form'
+        && adsFlowSuccess.adsRequestBody.config_id === 'ctrip-58'
+        && !Object.hasOwn(adsFlowSuccess.adsRequestBody, 'cookies')
         && adsFlowSuccess.adsRequestBody.api_type === 'effect_report'
         && adsFlowSuccess.adsRequestBody.date_range === 'custom'
         && adsFlowSuccess.adsRequestBody.start_date === '2026-06-01'
@@ -7380,27 +7429,30 @@ try {
         && adsMissingConfig.result.status === 'missing_config'
         && adsPageUrl.result.status === 'invalid_page_url'
         && adsInvalidUrl.result.status === 'invalid_api_url'
-        && adsMissingCookie.result.status === 'missing_cookies'
+        && adsCredentialNotReady.result.status === 'missing_config'
         && adsMissingCustomDates.result.status === 'missing_custom_dates'
         && adsPageUrl.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('不是广告页面地址'))
         && adsInvalidUrl.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('广告接口 URL 提示'))
-        && adsMissingCookie.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('请提供携程 Cookie'))
+        && adsCredentialNotReady.events.some(event => event[0] === 'notify' && event[1] === 'warning')
         && adsMissingCustomDates.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2].includes('请选择自定义开始日期和结束日期')),
       detail: 'runCtripAdsFetchFlow missing-state samples',
     });
     checks.push({
       file: 'public/ctrip-static.js',
       label: 'Ctrip Cookie API builder keeps request fields and normalized payload',
-      ok: cookieApiBody.system_hotel_id === '58'
+      ok: cookieApiBody.config_id === 'ctrip-58'
+        && cookieApiBody.system_hotel_id === '58'
         && cookieApiBody.hotel_id === 'ctrip-hotel-1'
         && cookieApiBody.hotel_name === 'Tiancheng Hotel'
         && cookieApiBody.profile_id === 'profile-1'
         && cookieApiBody.data_date === '2026-06-10'
         && cookieApiBody.request_url.includes('queryHomePageRealTimeData')
         && cookieApiBody.method === 'POST'
-        && cookieApiBody.payload_json === '{"scope":"core"}'
-        && cookieApiBody.endpoints_json === '[{"section":"homepage"}]'
-        && cookieApiBody.cookies === 'sid=cookie-api'
+        && cookieApiBody.request_urls.length === 2
+        && cookieApiBody.request_urls[0].includes('queryHomePageRealTimeData')
+        && !Object.hasOwn(cookieApiBody, 'payload_json')
+        && !Object.hasOwn(cookieApiBody, 'endpoints_json')
+        && !Object.hasOwn(cookieApiBody, 'cookies')
         && cookieApiBody.auto_save === true,
       detail: 'Ctrip Cookie API request sample',
     });
@@ -7415,18 +7467,18 @@ try {
         && cookieRequestBody.hotel_name === 'Hotel 58'
         && cookieRequestBody.profile_id === 'profile-58'
         && cookieRequestBody.data_date === '2026-06-10'
-        && cookieRequestBody.request_url === ''
+        && cookieRequestBody.config_id === 'ctrip-58'
+        && cookieRequestBody.request_url.includes('queryHomePageRealTimeData')
         && cookieRequestBody.method === 'POST'
-        && cookieRequestBody.payload_json === '{"scope":"core"}'
-        && cookieRequestBody.endpoints_json === '[{"section":"homepage"}]'
-        && cookieRequestBody.cookies === 'sid=form'
+        && cookieRequestBody.request_urls.length === 2
+        && !Object.hasOwn(cookieRequestBody, 'payload_json')
+        && !Object.hasOwn(cookieRequestBody, 'cookies')
         && cookieCaptureResult.saved_count === 7
         && cookieOnlineResult.saved_count === 7
         && cookieShowRawData === false
         && cookieFlowStates.join('|') === 'running:true|fetching:true|running:false|fetching:false'
         && cookieFlowEvents.includes('selected:58')
         && cookieFlowEvents.includes('load-configs')
-        && cookieFlowEvents.includes('ensure-secret')
         && cookieFlowEvents.includes('apply:58:false')
         && cookieFlowEvents.includes('request-cookie-api')
         && cookieFlowEvents.includes('latest:true')
@@ -7445,8 +7497,8 @@ try {
         && cookieExceptionResult.status === 'exception'
         && cookieExceptionResultPayload.message === 'request blocked'
         && cookieExceptionEvents[0] === 'notify:error:request blocked'
-        && cookieMissingProfileResult.status === 'missing_profile'
-        && cookieMissingProfileEvents[0].includes('携程浏览器 Profile 标识')
+        && cookieMissingConfigResult.status === 'missing_config'
+        && cookieMissingConfigEvents[0].includes('未配置携程数据源')
         && cookieMissingSourceResult.status === 'missing_request_source'
         && cookieMissingSourceEvents[0].includes('Request URL'),
       detail: 'Ctrip Cookie API flow failure samples',

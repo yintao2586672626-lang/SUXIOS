@@ -241,7 +241,10 @@ class SystemConfig extends Model
 
     public static function isProtectedOtaKey(string $key): bool
     {
-        return isset(self::PROTECTED_OTA_KEYS[strtolower(trim($key))]);
+        $key = strtolower(trim($key));
+        return isset(self::PROTECTED_OTA_KEYS[$key])
+            || str_starts_with($key, 'data_config_')
+            || str_starts_with($key, 'online_data_cookies_');
     }
 
     public static function clearProtectedOtaCaches(): void

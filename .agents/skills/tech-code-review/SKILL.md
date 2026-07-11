@@ -1,16 +1,6 @@
 ---
-scene: "tech"
-sub_scene: "code-review"
-skills:
-  - "pr-reviewer"
-  - "critical-code-reviewer"
-  - "project-code-standard"
-  - "security-audit"
-  - "clean-code-review"
-  - "cody"
----
-
----
+name: tech-code-review
+description: Coordinate project code reviews across PR intake, critical review, coding standards, security, clean-code analysis, and report synthesis.
 scene: "tech"
 sub_scene: "code-review"
 skills:

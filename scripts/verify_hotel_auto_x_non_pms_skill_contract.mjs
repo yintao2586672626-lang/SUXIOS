@@ -152,15 +152,15 @@ requireText('scripts/verify_hotel_ota_login_eligibility.php', "'permission_user_
 requireText('scripts/verify_hotel_ota_login_eligibility.php', "'fetch_permission_user_count' => $permissionEvidence['fetch_permission_user_count']", 'eligibility verifier reports users granted OTA fetch permission');
 requireText('scripts/verify_hotel_ota_login_eligibility.php', "'permission_blocker_reason' => $permissionEvidence['permission_blocker_reason']", 'eligibility verifier reports permission blocker reason');
 requireText('scripts/verify_hotel_ota_login_eligibility.php', "&& !in_array('inactive_hotel', $blockers, true)", 'eligibility verifier does not suggest permission repair as the next action for inactive hotels');
-requireRegex('scripts/verify_p0_ota_field_loop_closure.php', /function p0_traffic_profile_login_state_verified\(array \$config\): bool[\s\S]*?manual_login_state_verified[\s\S]*?return false;\n}/, 'P0 field-loop verifier only treats explicit manual login state as verified');
-requireRegex('app/controller/concern/Phase1EmployeeConsoleConcern.php', /function phase1TrafficProfileLoginStateVerified\(array \$config\): bool[\s\S]*?manual_login_state_verified[\s\S]*?return false;\n    }/, 'employee console only treats explicit manual login state as verified');
-requireRegex('app/controller/concern/AutoFetchConcern.php', /function platformProfileConfigHasVerifiedLogin\(array \$config\): bool[\s\S]*?manual_login_state_verified[\s\S]*?return false;\n    }/, 'AutoFetch Profile config check only treats explicit manual login state as verified');
-requireText('public/index.html', 'profile.manual_login_state_verified === true || profile.manualLoginStateVerified === true || /manual_login_state_verified/i.test(currentStatus)', 'frontend Profile flow requires explicit manual login verification evidence');
-requireText('public/index.html', "const loginVerified = manualLoginVerified && statusCode === 'logged_in';", 'frontend Profile flow does not treat logged_in alone as manual verification');
+requireRegex('scripts/verify_p0_ota_field_loop_closure.php', /function p0_traffic_current_session_verified\(array \$row, array \$config\): bool[\s\S]*?OtaProfileSessionProofService[\s\S]*?isCurrentVerified\(\$source\)/, 'P0 field-loop verifier delegates same-source current-session proof to the runtime service');
+requireRegex('app/controller/concern/Phase1EmployeeConsoleConcern.php', /function phase1TrafficProfileLoginStateVerified\(array \$source\): bool[\s\S]*?OtaProfileSessionProofService[\s\S]*?isCurrentVerified\(\$source\);\n    }/, 'employee console requires same-source current-session Profile proof');
+requireRegex('app/controller/concern/AutoFetchConcern.php', /function filterCollectableBrowserProfileDataSources\(array \$sources, string \$platform = ''\): array[\s\S]*?new OtaProfileSessionProofService\(\)[\s\S]*?!\$proofService->isCurrentVerified\(\$source\)[\s\S]*?return \$verified;\r?\n    }/, 'AutoFetch only collects browser Profile sources with same-source current-session proof');
+requireText('public/index.html', 'bindingContract.current_session_verified === true', 'frontend Profile flow requires explicit current-session verification when a binding contract exists');
+requireText('public/index.html', "const loginVerified = currentSessionVerified && statusCode === 'logged_in';", 'frontend Profile flow requires both current-session proof and logged_in status');
 for (const [file, functionName] of [
-  ['scripts/verify_p0_ota_field_loop_closure.php', 'p0_traffic_profile_login_state_verified'],
+  ['scripts/verify_p0_ota_field_loop_closure.php', 'p0_traffic_current_session_verified'],
   ['app/controller/concern/Phase1EmployeeConsoleConcern.php', 'phase1TrafficProfileLoginStateVerified'],
-  ['app/controller/concern/AutoFetchConcern.php', 'platformProfileConfigHasVerifiedLogin'],
+  ['app/controller/concern/AutoFetchConcern.php', 'filterCollectableBrowserProfileDataSources'],
 ]) {
   requireFunctionBodyNoText(file, functionName, 'profile_status', `${functionName} does not use profile_status as login proof`);
   requireFunctionBodyNoText(file, functionName, 'login_status', `${functionName} does not use login_status as login proof`);
@@ -207,9 +207,15 @@ requireText('app/command/PlatformProfileLogin.php', "$config['profile_status'] =
 requireText('app/command/PlatformProfileLogin.php', "$config['last_login_verified_at'] = $now;", 'Profile login records last verification time');
 requireText('app/command/PlatformProfileLogin.php', "$config['profile_login_verification_scope'] = 'browser_profile_session_only';", 'Profile login records verification scope');
 requireText('app/service/PlatformDataSyncService.php', 'OTA account password custody is not supported', 'OTA password custody is rejected');
-requireText('app/service/PlatformDataSyncService.php', "$missing[] = 'manual_login_state_verified';", 'background Profile sync requires manual verification');
-requireText('app/service/PlatformDataSyncService.php', "$missing[] = 'profile_status_logged_in';", 'background Profile sync requires logged-in Profile status');
-requireText('app/service/PlatformDataSyncService.php', "$missing[] = 'last_login_verified_at';", 'background Profile sync requires last login verification time');
+requireRegex('app/service/PlatformDataSyncService.php', /function browserProfileBackgroundSyncLoginMissingRequirements\(array \$source, array \$options\): array[\s\S]*?\$this->profileSessionProofService->isCurrentVerified\(\$source\)[\s\S]*?: \['current_session_verified'\];\r?\n    }/, 'background Profile sync requires same-source current-session proof');
+for (const legacyProofField of ['manual_login_state_verified', 'profile_status_logged_in', 'last_login_verified_at']) {
+  requireFunctionBodyNoText(
+    'app/service/PlatformDataSyncService.php',
+    'browserProfileBackgroundSyncLoginMissingRequirements',
+    legacyProofField,
+    `background Profile sync does not authorize from legacy ${legacyProofField}`
+  );
+}
 requireText('app/service/PlatformDataSyncService.php', "return self::isStaleRunningSyncTask($task) ? 'stale_running' : $status;", 'stale running sync tasks stay explicit');
 requireText('app/service/PlatformDataSyncService.php', "private static function syncTaskLatestTimestamp", 'runtime sync task freshness uses latest valid timestamp helper');
 requireText('app/service/PlatformDataSyncService.php', "self::syncTaskLatestTimestamp($task, ['update_time', 'updated_at', 'started_at', 'create_time', 'created_at'])", 'runtime stale-running age prefers latest update timestamp over started_at');
@@ -290,10 +296,10 @@ requireTextInFiles(onlineControllerFiles, 'function commentCollectionDisabledRes
 requireTextInFiles(onlineControllerFiles, 'aggregate_metrics_only_no_review_text', 'comment capture documents aggregate-only no-review-text boundary');
 requireTextInFiles(onlineControllerFiles, 'return $this->captureCtripCommentsBrowserData();', 'Ctrip comments route delegates to aggregate browser capture');
 requireTextInFiles(onlineControllerFiles, 'return $this->captureMeituanBrowserData($requestData);', 'Meituan comments route delegates to aggregate browser capture');
-requireText('app/controller/concern/AutoFetchConcern.php', "'label' => 'ctrip-comments'", 'auto-fetch includes Ctrip comments task');
+requireRegex('app/controller/concern/AutoFetchConcern.php', /function executeCtripBrowserProfileAutoFetch\([\s\S]*?OtaProfileSessionProofService\(\)\)->isCurrentVerified\(\$profileSource \?\? \[\]\)[\s\S]*?'current_session_not_verified'/, 'auto-fetch Ctrip browser Profile execution requires same-source current-session proof');
 requireText('app/controller/concern/AutoFetchConcern.php', "'capture_sections' => 'comment_review'", 'auto-fetch Ctrip comments use comment_review section');
 requireText('app/controller/concern/AutoFetchConcern.php', "'ctrip:comments' => $this->executeCtripBrowserProfileAutoFetch(", 'auto-fetch runs Ctrip comments through browser Profile');
-requireText('app/controller/concern/AutoFetchConcern.php', "'label' => 'meituan-comments'", 'auto-fetch includes Meituan comments task');
+requireRegex('app/controller/concern/AutoFetchConcern.php', /function executeMeituanBrowserProfileAutoFetch\([\s\S]*?OtaProfileSessionProofService\(\)\)->isCurrentVerified\(\$profileSource \?\? \[\]\)[\s\S]*?'current_session_not_verified'/, 'auto-fetch Meituan browser Profile execution requires same-source current-session proof');
 requireText('app/controller/concern/AutoFetchConcern.php', "'capture_sections' => 'reviews'", 'auto-fetch Meituan comments use reviews section');
 requireText('app/controller/concern/AutoFetchConcern.php', "'meituan:comments' => $this->executeMeituanBrowserProfileAutoFetch(", 'auto-fetch runs Meituan comments through browser Profile');
 requireNoText('app/controller/concern/AutoFetchConcern.php', 'commentCollectionDisabledResponse($platform', 'auto-fetch does not disable aggregate comment modules by policy');
@@ -325,8 +331,8 @@ requireText('public/auto-fetch-static.js', "if (statusCode === 'cookies_incomple
 requireText('public/auto-fetch-static.js', "if (statusCode === 'anti_bot') return 'Anti bot';", 'auto-fetch UI labels anti_bot');
 requireText('public/auto-fetch-static.js', "if (statusCode === 'resource_busy_login') return 'Login busy';", 'auto-fetch UI labels resource_busy_login');
 requireText('public/auto-fetch-static.js', "cookies_incomplete: 'bg-red-50 text-red-700 border-red-200'", 'auto-fetch UI badges cookies_incomplete');
-requireText('scripts/verify_ota_diagnosis_auto_fetch.mjs', 'auto-fetch can queue Ctrip aggregate comments through browser Profile', 'existing diagnosis verifier covers Ctrip aggregate comments');
-requireText('scripts/verify_ota_diagnosis_auto_fetch.mjs', 'auto-fetch can queue Meituan aggregate comments through browser Profile', 'existing diagnosis verifier covers Meituan aggregate comments');
+requireText('scripts/verify_ota_diagnosis_auto_fetch.mjs', 'Ctrip aggregate comments stay on browser Profile collection and legacy Cookie config is disabled', 'existing diagnosis verifier covers Ctrip aggregate comments');
+requireText('scripts/verify_ota_diagnosis_auto_fetch.mjs', 'Meituan aggregate comments stay on browser Profile collection and reject Cookie/API config', 'existing diagnosis verifier covers Meituan aggregate comments');
 requireText('package.json', '"verify:hotel-auto-x-non-pms-skills": "node scripts/verify_hotel_auto_x_non_pms_skill_contract.mjs && node scripts/verify_hotel_ota_login_eligibility_behavior.mjs"', 'package script runs static and behavior eligibility verifiers');
 requireText('package.json', '"verify:hotel-ota-login-eligibility": "C:\\\\xampp\\\\php\\\\php.exe scripts\\\\verify_hotel_ota_login_eligibility.php"', 'package script exposes hotel OTA login eligibility verifier');
 requireText('package.json', '"verify:hotel-auto-x-ctrip-collector": "C:\\\\xampp\\\\php\\\\php.exe scripts\\\\verify_hotel_auto_x_ctrip_collector_contract.php"', 'package script exposes Ctrip collector contract verifier');
