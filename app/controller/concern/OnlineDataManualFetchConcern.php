@@ -2565,7 +2565,7 @@ trait OnlineDataManualFetchConcern
             );
             $identity = (new MeituanManualIdentityService())->resolve($requestData, $storedConfig, 'traffic');
         } catch (\InvalidArgumentException $e) {
-            return $this->error('美团门店身份无效', $e->getCode() ?: 409, ['reason' => $e->getMessage()]);
+            return $this->error('美团门店身份无效', $e->getCode() ?: 409, ['reason' => 'meituan_platform_identity_invalid']);
         }
         $partnerId = $identity['partner_id'];
         $poiId = $identity['poi_id'];
@@ -2750,7 +2750,7 @@ trait OnlineDataManualFetchConcern
             );
             $identity = (new MeituanManualIdentityService())->resolve($requestData, $storedConfig, $section);
         } catch (\InvalidArgumentException $e) {
-            return $this->error('美团门店身份无效', $e->getCode() ?: 409, ['reason' => $e->getMessage()]);
+            return $this->error('美团门店身份无效', $e->getCode() ?: 409, ['reason' => 'meituan_platform_identity_invalid']);
         }
         $partnerId = $identity['partner_id'];
         $poiId = $identity['poi_id'];

@@ -34,6 +34,26 @@ final class MeituanCapturedDataIntegrityTest extends TestCase
         ], 80]);
     }
 
+    public function testCapturedPayloadRejectsConflictingOuterAndInnerSystemHotel(): void
+    {
+        $reflection = new ReflectionClass(OnlineData::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('美团采集数据所属酒店与请求酒店不一致');
+
+        $this->invokeNonPublic($controller, 'buildMeituanCapturedDailyRows', [[
+            'system_hotel_id' => 81,
+            'storeId' => '1029642156589279',
+            'poiId' => '1029642156589279',
+            'defaultDataDate' => '2026-07-11',
+            'traffic' => [[
+                'date' => '2026-07-11',
+                'exposure_count' => 100,
+            ]],
+        ], 80]);
+    }
+
     public function testAdvertisingCaptureKeepsRoasCvrAndRoomNightsSemanticsSeparate(): void
     {
         $reflection = new ReflectionClass(OnlineData::class);

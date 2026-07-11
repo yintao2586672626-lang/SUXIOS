@@ -11,6 +11,14 @@ trait MeituanCapturedDataConcern
 {
     private function buildMeituanCapturedDailyRows(array $payload, ?int $systemHotelId = null): array
     {
+        $payloadSystemHotelId = $this->firstMeituanValue($payload, ['system_hotel_id', 'systemHotelId'], null);
+        if ($systemHotelId !== null
+            && $systemHotelId > 0
+            && is_numeric($payloadSystemHotelId)
+            && (int)$payloadSystemHotelId > 0
+            && (int)$payloadSystemHotelId !== $systemHotelId) {
+            throw new InvalidArgumentException('美团采集数据所属酒店与请求酒店不一致');
+        }
         $context = $this->buildMeituanCaptureContext($payload, $systemHotelId);
         $rows = [];
 
