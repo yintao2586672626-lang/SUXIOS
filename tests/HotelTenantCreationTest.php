@@ -140,7 +140,7 @@ final class HotelTenantCreationTest extends TestCase
             contact_phone VARCHAR(20),
             description TEXT,
             status INTEGER NOT NULL DEFAULT 1,
-            ota_channel_strategy VARCHAR(20) NOT NULL DEFAULT 'dual',
+            ota_channel_strategy VARCHAR(20) NOT NULL DEFAULT 'none',
             owner_user_id INTEGER NOT NULL DEFAULT 0,
             created_by INTEGER NOT NULL DEFAULT 0,
             create_time DATETIME,

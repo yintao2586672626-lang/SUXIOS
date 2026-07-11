@@ -1530,6 +1530,54 @@ trait OnlineDataRequestConcern
     }
 
     /**
+     * @param array<int, mixed> $requestUrls
+     * @param array<int, mixed> $xhrUrls
+     * @param array<int, mixed> $responses
+     * @return array{request_urls: array<int, string>, xhr_urls: array<int, array<string, mixed>>, responses: array<int, array<string, mixed>>}
+     */
+    private function summarizeCtripOverviewExecutionEvidence(
+        array $requestUrls,
+        array $xhrUrls,
+        array $responses
+    ): array {
+        $safeRequestUrls = [];
+        foreach ($requestUrls as $requestUrl) {
+            $url = trim((string)$requestUrl);
+            if ($url !== '' && !in_array($url, $safeRequestUrls, true)) {
+                $safeRequestUrls[] = $url;
+            }
+        }
+
+        $summarizeRows = static function (array $rows): array {
+            $summaries = [];
+            foreach ($rows as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+
+                $url = trim((string)($row['url'] ?? $row['request_url'] ?? $row['requestUrl'] ?? ''));
+                if ($url === '') {
+                    continue;
+                }
+
+                $summaries[] = [
+                    'url' => $url,
+                    'status' => (int)($row['status'] ?? $row['http_code'] ?? 0),
+                    'request_type' => strtolower(trim((string)($row['request_type'] ?? $row['method'] ?? ''))),
+                ];
+            }
+
+            return $summaries;
+        };
+
+        return [
+            'request_urls' => $safeRequestUrls,
+            'xhr_urls' => $summarizeRows($xhrUrls),
+            'responses' => $summarizeRows($responses),
+        ];
+    }
+
+    /**
      * @param array<string, mixed> $requestData
      * @param array<string, mixed> $credentialPayload
      */
@@ -1602,10 +1650,14 @@ trait OnlineDataRequestConcern
             ];
         }
 
+        $executionEvidence = $this->summarizeCtripOverviewExecutionEvidence($requestUrls, $xhrUrls, $responses);
+
         if (empty($responses) && !empty($errors)) {
             return $this->error('携程今日概况接口请求失败: ' . implode('；', array_slice($errors, 0, 3)), 400, [
                 'errors' => $errors,
-                'request_urls' => $requestUrls,
+                'request_urls' => $executionEvidence['request_urls'],
+                'xhr_urls' => $executionEvidence['xhr_urls'],
+                'responses' => $executionEvidence['responses'],
             ]);
         }
 
@@ -1647,7 +1699,9 @@ trait OnlineDataRequestConcern
                 'responses' => count($responses),
                 'xhr_urls' => count($xhrUrls),
             ],
-            'request_urls' => $requestUrls,
+            'request_urls' => $executionEvidence['request_urls'],
+            'xhr_urls' => $executionEvidence['xhr_urls'],
+            'responses' => $executionEvidence['responses'],
             'errors' => $errors,
         ], $savedCount > 0 ? '携程今日概况获取完成并已入库' : '携程今日概况获取完成，但未解析到可入库概况数据');
     }
@@ -1875,6 +1929,14 @@ trait OnlineDataRequestConcern
             ?? $originalConfig['otaHotelId']
             ?? ''
         ));
+        $hotelRoomCount = $this->requiredPositiveCtripRoomCount(
+            $requestData['hotel_room_count'] ?? $requestData['hotelRoomCount'] ?? null,
+            '酒店实际房量'
+        );
+        $competitorRoomCount = $this->requiredPositiveCtripRoomCount(
+            $requestData['competitor_room_count'] ?? $requestData['competitorRoomCount'] ?? null,
+            '竞争圈总房量'
+        );
         $captureOptions = $this->buildCtripProfileCaptureConfigOptions($requestData, $originalConfig);
         if ($captureOptions['approved_mappings_path'] !== '') {
             $mappingCheck = $this->resolveCtripApprovedMappingsPath(
@@ -1899,6 +1961,8 @@ trait OnlineDataRequestConcern
             'ctrip_hotel_id' => $ctripHotelId,
             'ctripHotelId' => $ctripHotelId,
             'ota_hotel_id' => $ctripHotelId,
+            'hotel_room_count' => $hotelRoomCount,
+            'competitor_room_count' => $competitorRoomCount,
             'url' => $requestData['url'] ?? ($safeOriginal['url'] ?? ''),
             'node_id' => $requestData['node_id'] ?? ($safeOriginal['node_id'] ?? ''),
             'user_id' => $userId,
@@ -1907,6 +1971,20 @@ trait OnlineDataRequestConcern
         ], $captureOptions, $secretPayload);
 
         return $this->persistCtripConfigMetadata($config, (int)$this->currentUser->id, $isUpdate);
+    }
+
+    private function requiredPositiveCtripRoomCount(mixed $value, string $label): int
+    {
+        if (is_bool($value) || is_float($value)) {
+            throw new \think\exception\HttpException(422, $label . '必须为正整数');
+        }
+
+        $text = trim((string)$value);
+        if (preg_match('/^[1-9]\d*$/D', $text) !== 1 || (int)$text > 1000000) {
+            throw new \think\exception\HttpException(422, $label . '必须为1-1000000之间的正整数');
+        }
+
+        return (int)$text;
     }
 
     /**

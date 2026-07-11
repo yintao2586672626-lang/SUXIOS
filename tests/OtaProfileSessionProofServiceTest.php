@@ -118,6 +118,23 @@ final class OtaProfileSessionProofServiceTest extends TestCase
             $responseRows[0]['current_session_verified'] ?? false,
             'The data-source response must expose the server-authoritative session verdict.'
         );
+        self::assertTrue($responseRows[0]['profile_reusable'] ?? false);
+        self::assertSame('reusable', $responseRows[0]['profile_reuse_status'] ?? null);
+        self::assertFalse($responseRows[0]['profile_reuse_warning'] ?? true);
+        self::assertSame(0, $responseRows[0]['profile_age_days'] ?? null);
+        self::assertSame(10, $responseRows[0]['days_until_forced_login'] ?? null);
+
+        $nextDayResponseService = new PlatformDataSyncService(
+            null,
+            null,
+            $this->service('2026-07-12 00:00:01')
+        );
+        $nextDayRows = $nextDayResponseService->listDataSources(null, ['system_hotel_id' => 10]);
+        self::assertFalse($nextDayRows[0]['current_session_verified'] ?? true);
+        self::assertTrue($nextDayRows[0]['profile_reusable'] ?? false);
+        self::assertSame('reusable', $nextDayRows[0]['profile_reuse_status'] ?? null);
+        self::assertSame(1, $nextDayRows[0]['profile_age_days'] ?? null);
+        self::assertSame(9, $nextDayRows[0]['days_until_forced_login'] ?? null);
 
         $config['current_session_probe_profile_key_hash'] = hash('sha256', 'wrong-profile');
         Db::name('platform_data_sources')->where('id', $sourceId)->update([
@@ -128,6 +145,113 @@ final class OtaProfileSessionProofServiceTest extends TestCase
             $tamperedRows[0]['current_session_verified'] ?? true,
             'A forged config flag must not be exposed as a verified current session.'
         );
+    }
+
+    public function testProfileReuseWindowKeepsSameDayProofIndependent(): void
+    {
+        $sourceId = $this->insertBoundSource(10, 1, 'ctrip', 'profile-10');
+        $this->service('2026-07-01 10:00:00')->recordVerified(
+            $sourceId,
+            10,
+            'ctrip',
+            'profile-10',
+            true,
+            ['ok' => true, 'status' => 'logged_in']
+        );
+        $source = Db::name('platform_data_sources')->where('id', $sourceId)->find();
+        self::assertIsArray($source);
+
+        $dayZeroService = $this->service('2026-07-01 23:59:59');
+        self::assertTrue($dayZeroService->isCurrentVerified($source));
+        self::assertSame([
+            'status' => 'reusable',
+            'is_reusable' => true,
+            'age_days' => 0,
+            'days_until_forced_login' => 10,
+            'warning' => false,
+            'reason' => 'profile_proof_reusable',
+        ], $dayZeroService->profileReuseState($source));
+
+        $daySixService = $this->service('2026-07-07 10:00:00');
+        self::assertFalse($daySixService->isCurrentVerified($source));
+        self::assertSame('reusable', $daySixService->profileReuseState($source)['status']);
+        self::assertSame(6, $daySixService->profileReuseState($source)['age_days']);
+        self::assertSame(4, $daySixService->profileReuseState($source)['days_until_forced_login']);
+
+        $daySeven = $this->service('2026-07-08 10:00:00')->profileReuseState($source);
+        self::assertSame('renewal_warning', $daySeven['status']);
+        self::assertTrue($daySeven['is_reusable']);
+        self::assertSame(7, $daySeven['age_days']);
+        self::assertSame(3, $daySeven['days_until_forced_login']);
+        self::assertTrue($daySeven['warning']);
+        self::assertSame('profile_reauthentication_recommended', $daySeven['reason']);
+
+        $dayNine = $this->service('2026-07-10 10:00:00')->profileReuseState($source);
+        self::assertSame('renewal_warning', $dayNine['status']);
+        self::assertTrue($dayNine['is_reusable']);
+        self::assertSame(9, $dayNine['age_days']);
+        self::assertSame(1, $dayNine['days_until_forced_login']);
+
+        $dayTen = $this->service('2026-07-11 10:00:00')->profileReuseState($source);
+        self::assertSame('expired', $dayTen['status']);
+        self::assertFalse($dayTen['is_reusable']);
+        self::assertSame(10, $dayTen['age_days']);
+        self::assertSame(0, $dayTen['days_until_forced_login']);
+        self::assertFalse($dayTen['warning']);
+        self::assertSame('profile_reauthentication_required', $dayTen['reason']);
+    }
+
+    public function testProfileReuseExpiresImmediatelyOnStoredAuthenticationFailure(): void
+    {
+        $sourceId = $this->insertBoundSource(10, 1, 'meituan', 'store-10');
+        $this->service('2026-07-01 10:00:00')->recordVerified(
+            $sourceId,
+            10,
+            'meituan',
+            'store-10',
+            true,
+            ['ok' => true, 'status' => 'authorized']
+        );
+        Db::name('platform_data_sources')->where('id', $sourceId)->update([
+            'last_sync_status' => 'failed',
+            'last_error' => 'Platform returned 401 login_required.',
+        ]);
+        $source = Db::name('platform_data_sources')->where('id', $sourceId)->find();
+        self::assertIsArray($source);
+
+        $state = $this->service('2026-07-02 10:00:00')->profileReuseState($source);
+        self::assertSame('expired', $state['status']);
+        self::assertFalse($state['is_reusable']);
+        self::assertSame(1, $state['age_days']);
+        self::assertSame('profile_session_explicitly_expired', $state['reason']);
+    }
+
+    public function testProfileReuseRejectsTamperedAuthoritativeProof(): void
+    {
+        $sourceId = $this->insertBoundSource(10, 1, 'ctrip', 'profile-10');
+        $this->service('2026-07-01 10:00:00')->recordVerified(
+            $sourceId,
+            10,
+            'ctrip',
+            'profile-10',
+            true,
+            ['ok' => true, 'status' => 'logged_in']
+        );
+        $source = Db::name('platform_data_sources')->where('id', $sourceId)->find();
+        self::assertIsArray($source);
+        $config = json_decode((string)$source['config_json'], true, 512, JSON_THROW_ON_ERROR);
+        $config['current_session_probe_tenant_id'] = 2;
+        $config['current_session_probe_profile_key_hash'] = hash('sha256', 'wrong-profile');
+        $source['config_json'] = json_encode($config, JSON_THROW_ON_ERROR);
+
+        self::assertSame([
+            'status' => 'unverified',
+            'is_reusable' => false,
+            'age_days' => null,
+            'days_until_forced_login' => 0,
+            'warning' => false,
+            'reason' => 'profile_proof_unverified',
+        ], $this->service('2026-07-02 10:00:00')->profileReuseState($source));
     }
 
     public function testRejectsFailedProcessOrUnverifiedAuthWithoutWritingProof(): void
@@ -262,6 +386,8 @@ final class OtaProfileSessionProofServiceTest extends TestCase
             status TEXT NOT NULL,
             enabled INTEGER NOT NULL DEFAULT 1,
             config_json TEXT NOT NULL,
+            last_sync_status TEXT,
+            last_error TEXT,
             update_time TEXT
         )');
         Db::execute('CREATE TABLE ota_profile_bindings (

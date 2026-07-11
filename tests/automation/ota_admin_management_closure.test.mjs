@@ -11,13 +11,15 @@ const userAdminSandbox = { window: {} };
 vm.runInNewContext(`${userAdminStatic}\nthis.__userAdminStatic = window.SUXI_USER_ADMIN_STATIC;`, userAdminSandbox);
 const userAdminStaticApi = userAdminSandbox.__userAdminStatic;
 
-test('hotel deletion is super-admin only and removes linked data after exact-name confirmation', () => {
+test('hotel archive is super-admin only, preserves linked data, and supports restore', () => {
   assert.match(hotelController, /public function delete\(int \$id\): Response[\s\S]*?\$this->checkPermission\(true\)/);
   assert.match(hotelController, /HotelCascadeDeletionService/);
   assert.match(hotelController, /confirmation_name/);
   assert.match(html, /v-model="hotelDeleteConfirmationName"/);
   assert.match(html, /请输入完整门店名称/);
-  assert.match(html, /酒店及关联数据已删除/);
+  assert.match(hotelController, /public function restore\(int \$id\): Response/);
+  assert.match(html, /历史数据和配置均已保留/);
+  assert.match(html, /const restoreHotel = async/);
 });
 
 test('hotel disable wording does not claim employee accounts are disabled', () => {
@@ -49,6 +51,22 @@ test('OTA manual config forms require an explicit store and separate save from v
   assert.doesNotMatch(meituanForm, /最新成功配置/);
   assert.match(otaConfigConcern, /OtaConfigVerificationService/);
   assert.match(otaConfigConcern, /configuration_verified/);
+});
+
+test('manual credential selection does not require browser Profile verification', () => {
+  for (const [start, end] of [
+    ['private function selectLatestSuccessfulMeituanConfig', 'private function selectLatestSuccessfulCtripConfig'],
+    ['private function selectLatestSuccessfulCtripConfig', 'private function selectLatestSuccessfulCtripConfigForHotel'],
+  ]) {
+    const startIndex = otaConfigConcern.indexOf(start);
+    const endIndex = otaConfigConcern.indexOf(end, startIndex + start.length);
+    assert.notEqual(startIndex, -1);
+    assert.notEqual(endIndex, -1);
+    const selector = otaConfigConcern.slice(startIndex, endIndex);
+    assert.doesNotMatch(selector, /configuration_verified/);
+    assert.match(selector, /credential_status/);
+    assert.match(selector, /has_cookies/);
+  }
 });
 
 test('Meituan saved config list shows collapsed history and verified-current semantics', () => {

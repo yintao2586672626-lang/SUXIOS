@@ -926,6 +926,48 @@ final class OtaStandardModuleTest extends TestCase
         }
     }
 
+    public function testMeituanAdvertisingKeepsExposureBookingsAndRoasInTheirOwnSemantics(): void
+    {
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([[
+            'id' => 8801,
+            'system_hotel_id' => 80,
+            'hotel_id' => '1029642156589279',
+            'hotel_name' => 'Dunhuang Meituan Hotel',
+            'source' => 'meituan',
+            'data_type' => 'advertising',
+            'data_date' => '2026-07-11',
+            'dimension' => 'ads',
+            'amount' => 300,
+            'quantity' => 9,
+            'book_order_num' => 9,
+            'list_exposure' => 5000,
+            'detail_exposure' => 200,
+            'flow_rate' => 4.0,
+            'data_value' => 5000,
+            'raw_data' => json_encode([
+                'spend' => 300,
+                'order_amount' => 1800,
+                'book_order_num' => 9,
+                'roas' => 6.0,
+                'exposure_count' => 5000,
+                'click_count' => 200,
+            ], JSON_UNESCAPED_UNICODE),
+        ]]);
+
+        self::assertCount(1, $dataset['fact_ota_advertising']);
+        $fact = $dataset['fact_ota_advertising'][0];
+
+        self::assertSame(300.0, $fact['spend']);
+        self::assertSame(1800.0, $fact['order_amount']);
+        self::assertSame(9, $fact['bookings']);
+        self::assertNull($fact['room_nights']);
+        self::assertSame(5000, $fact['impressions']);
+        self::assertSame(200, $fact['clicks']);
+        self::assertSame(4.0, $fact['ctr']);
+        self::assertSame(4.5, $fact['cvr']);
+        self::assertSame(6.0, $fact['roas']);
+    }
+
     /**
      * @return array<int, array<string, mixed>>
      */

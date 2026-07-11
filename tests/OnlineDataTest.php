@@ -1016,11 +1016,11 @@ final class OnlineDataTest extends TestCase
         self::assertNotContains('ctrip-cookie-api', array_column($tasks, 'label'));
     }
 
-    public function testProfileDerivedCookieExtractionRequiresCurrentSessionProof(): void
+    public function testProfileDerivedCookieExtractionRequiresAuthoritativeReusableProof(): void
     {
         $controller = $this->controller();
 
-        self::assertSame(['current_session_verified'], $this->invokeNonPublic(
+        self::assertSame(['profile_session_unverified'], $this->invokeNonPublic(
             $controller,
             'profileCookieSourceLoginMissingRequirements',
             [[
@@ -5825,6 +5825,39 @@ final class OnlineDataTest extends TestCase
         self::assertSame('7', $fallback);
     }
 
+    public function testCtripOverviewExecutionEvidenceReturnsSafeRequestAndResponseSummaries(): void
+    {
+        $controller = $this->controller();
+        $url = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportRealTimeDate';
+        $evidence = $this->invokeNonPublic($controller, 'summarizeCtripOverviewExecutionEvidence', [[
+            $url,
+        ], [[
+            'url' => $url,
+            'status' => 200,
+            'request_type' => 'post',
+            'headers' => ['Cookie' => 'secret'],
+        ]], [[
+            'url' => $url,
+            'status' => 200,
+            'request_type' => 'post',
+            'data' => ['secret' => 'response body'],
+        ]]]);
+
+        self::assertSame([$url], $evidence['request_urls']);
+        self::assertSame([[
+            'url' => $url,
+            'status' => 200,
+            'request_type' => 'post',
+        ]], $evidence['xhr_urls']);
+        self::assertSame([[
+            'url' => $url,
+            'status' => 200,
+            'request_type' => 'post',
+        ]], $evidence['responses']);
+        self::assertArrayNotHasKey('headers', $evidence['xhr_urls'][0]);
+        self::assertArrayNotHasKey('data', $evidence['responses'][0]);
+    }
+
     public function testMeituanCapturedRowsMapBrowserSectionsToOnlineDailyData(): void
     {
         $controller = $this->controller();
@@ -5899,7 +5932,7 @@ final class OnlineDataTest extends TestCase
         self::assertSame(500, $rows[2]['list_exposure']);
         self::assertSame(50, $rows[2]['detail_exposure']);
         self::assertSame(88.5, $rows[2]['amount']);
-        self::assertSame(2, $rows[2]['quantity']);
+        self::assertSame(0, $rows[2]['quantity']);
         self::assertSame(2, $rows[2]['book_order_num']);
         self::assertSame(2, $rows[2]['order_submit_num']);
         self::assertSame(10.0, $rows[2]['flow_rate']);
@@ -6432,8 +6465,8 @@ final class OnlineDataTest extends TestCase
             self::assertFalse($status['api_configured']);
             self::assertFalse($status['has_cookies']);
             self::assertFalse($status['has_profile_cookie_source']);
-            self::assertContains('current_session_verified', $status['profile_cookie_missing_requirements']);
-            self::assertContains('current_session_verified', $status['missing_fields']);
+            self::assertContains('profile_session_unverified', $status['profile_cookie_missing_requirements']);
+            self::assertContains('profile_session_unverified', $status['missing_fields']);
         } finally {
             @rmdir($profileDir);
         }
@@ -6463,8 +6496,8 @@ final class OnlineDataTest extends TestCase
             self::assertFalse($status['has_cookies']);
             self::assertFalse($status['has_profile_cookie_source']);
             self::assertTrue($status['profile_cookie_source_candidate']);
-            self::assertContains('current_session_verified', $status['profile_cookie_missing_requirements']);
-            self::assertContains('current_session_verified', $status['missing_fields']);
+            self::assertContains('profile_session_unverified', $status['profile_cookie_missing_requirements']);
+            self::assertContains('profile_session_unverified', $status['missing_fields']);
         } finally {
             @rmdir($profileDir);
         }
@@ -6615,8 +6648,8 @@ final class OnlineDataTest extends TestCase
             'approvedMappingPath' => ' docs/ctrip_approved_mapping.example.json ',
         ], []]);
 
-        self::assertSame('business,traffic,quality_psi,biztravel_bpi', $options['capture_sections']);
-        self::assertSame('business,traffic,quality_psi,biztravel_bpi', $options['profile_sections']);
+        self::assertSame('all', $options['capture_sections']);
+        self::assertSame('all', $options['profile_sections']);
         self::assertSame('docs/ctrip_approved_mapping.example.json', $options['approved_mappings_path']);
     }
 
@@ -6629,8 +6662,8 @@ final class OnlineDataTest extends TestCase
             'approved_mappings_path' => 'docs/approved.json',
         ]]);
 
-        self::assertSame('business,traffic,quality_psi', $options['capture_sections']);
-        self::assertSame('business,traffic,quality_psi', $options['profile_sections']);
+        self::assertSame('all', $options['capture_sections']);
+        self::assertSame('all', $options['profile_sections']);
         self::assertSame('docs/approved.json', $options['approved_mappings_path']);
     }
 
@@ -6640,8 +6673,33 @@ final class OnlineDataTest extends TestCase
 
         $options = $this->invokeNonPublic($controller, 'buildCtripProfileCaptureConfigOptions', [[], []]);
 
-        self::assertSame('default', $options['capture_sections']);
-        self::assertSame('default', $options['profile_sections']);
+        self::assertSame('all', $options['capture_sections']);
+        self::assertSame('all', $options['profile_sections']);
+    }
+
+    public function testCtripRoomCountRequiresPositiveCanonicalInteger(): void
+    {
+        $controller = $this->controller();
+
+        self::assertSame(88, $this->invokeNonPublic(
+            $controller,
+            'requiredPositiveCtripRoomCount',
+            ['88', '酒店实际房量']
+        ));
+
+        foreach (['', '0', '-1', '1.5', 'abc', true, 1000001] as $invalid) {
+            try {
+                $this->invokeNonPublic(
+                    $controller,
+                    'requiredPositiveCtripRoomCount',
+                    [$invalid, '酒店实际房量']
+                );
+                self::fail('Invalid Ctrip room count must fail.');
+            } catch (\think\exception\HttpException $e) {
+                self::assertSame(422, $e->getStatusCode());
+                self::assertStringContainsString('酒店实际房量', $e->getMessage());
+            }
+        }
     }
 
     public function testCtripProfileCaptureFieldDefaultsCoverLatestTaskFieldsAndGaps(): void
@@ -8890,14 +8948,14 @@ final class OnlineDataTest extends TestCase
 
         $payload = $this->invokeNonPublic($controller, 'buildCtripSearchOpportunityPayload', [$rows, '2026-07-11']);
 
-        self::assertSame('partial', $payload['status']);
+        self::assertSame('ready', $payload['status']);
         self::assertSame('ctrip_ota_channel', $payload['source_scope']);
         self::assertSame(4, $payload['scope_count']);
         self::assertSame('field_missing', $payload['order_data_status']);
         self::assertSame(['browser_profile', 'ctrip_cookie_api'], $payload['ingestion_methods']);
-        self::assertCount(30, $payload['dates']);
+        self::assertCount(1, $payload['dates']);
         self::assertSame('2026-07-12', $payload['window_start_date']);
-        self::assertSame('2026-08-10', $payload['window_end_date']);
+        self::assertSame('2026-07-12', $payload['window_end_date']);
         self::assertSame(0, $payload['dates'][0]['cumulative']['self']['pv']);
         self::assertSame(7, $payload['dates'][0]['cumulative']['competitor_avg']['uv']);
         self::assertSame(1.25, $payload['dates'][0]['yesterday']['competitor_avg']['conversion_rate']);
@@ -8909,7 +8967,7 @@ final class OnlineDataTest extends TestCase
         self::assertContains('yesterday:competitor_avg', $partial['missing_scopes']);
     }
 
-    public function testCtripSearchOpportunityUsesExactFutureThirtyDaysAndKeepsHistoricalSelfReferenceSeparate(): void
+    public function testCtripSearchOpportunityUsesObservedDatesAndKeepsHistoricalSelfReferenceSeparate(): void
     {
         $controller = $this->controller();
         $makeRow = static function (
@@ -8950,8 +9008,8 @@ final class OnlineDataTest extends TestCase
             $makeRow('2026-07-11', '2026-07-12', 'yesterday', 'competitor_avg', 7, 5),
         ];
         $referenceRows = [
-            $makeRow('2026-07-10', '2026-07-13', 'cumulative', 'self', 66, 51),
-            $makeRow('2026-07-10', '2026-07-13', 'cumulative', 'competitor_avg', 312, 205),
+            $makeRow('2026-07-10', '2026-07-12', 'cumulative', 'self', 66, 51),
+            $makeRow('2026-07-10', '2026-07-12', 'cumulative', 'competitor_avg', 312, 205),
         ];
 
         $payload = $this->invokeNonPublic($controller, 'buildCtripSearchOpportunityPayload', [
@@ -8961,14 +9019,228 @@ final class OnlineDataTest extends TestCase
             '2026-07-10',
         ]);
 
-        self::assertCount(30, $payload['dates']);
-        self::assertSame('2026-07-12', $payload['dates'][0]['target_date']);
-        self::assertSame('2026-08-10', $payload['dates'][29]['target_date']);
+        self::assertCount(2, $payload['dates']);
+        self::assertSame('2026-07-11', $payload['dates'][0]['target_date']);
+        self::assertSame('2026-07-12', $payload['dates'][1]['target_date']);
         self::assertSame('2026-07-10', $payload['reference_capture_date']);
         self::assertSame(66, $payload['dates'][1]['cumulative']['self_reference']['pv']);
         self::assertArrayNotHasKey('self_reference', $payload['dates'][0]['cumulative']);
-        self::assertSame(1, $payload['reference_covered_gap_count']);
+        self::assertSame(0, $payload['reference_covered_gap_count']);
         self::assertSame('partial', $payload['status']);
+    }
+
+    public function testCtripSearchOpportunityKeepsObservedCumulativeAndYesterdayStartDates(): void
+    {
+        $controller = $this->controller();
+        $makeRow = static function (string $targetDate, string $window, string $scope, int $pv): array {
+            return [
+                'data_date' => '2026-07-12',
+                'compare_type' => $scope === 'self' ? 'self' : 'competitor',
+                'ingestion_method' => 'ctrip_cookie_api',
+                'raw_data' => json_encode([
+                    'endpoint_id' => 'traffic_search_details',
+                    'dimension_values' => [
+                        'target_date' => $targetDate,
+                        'search_window' => $window,
+                        'compare_scope' => $scope,
+                    ],
+                    'metrics' => [
+                        'future_search_pv' => $pv,
+                        'future_search_uv' => $pv,
+                        'future_search_order_count' => null,
+                        'future_search_conversion_rate' => 1.0,
+                    ],
+                ], JSON_UNESCAPED_UNICODE),
+            ];
+        };
+        $rows = [
+            $makeRow('2026-07-11', 'cumulative', 'self', 10),
+            $makeRow('2026-07-11', 'cumulative', 'competitor_avg', 20),
+            $makeRow('2026-07-12', 'yesterday', 'self', 3),
+            $makeRow('2026-07-12', 'yesterday', 'competitor_avg', 5),
+        ];
+
+        $payload = $this->invokeNonPublic($controller, 'buildCtripSearchOpportunityPayload', [$rows, '2026-07-12']);
+
+        self::assertSame('2026-07-11', $payload['window_start_date']);
+        self::assertSame('2026-07-12', $payload['window_end_date']);
+        self::assertSame(10, $payload['dates'][0]['cumulative']['self']['pv']);
+        self::assertSame(3, $payload['dates'][1]['yesterday']['self']['pv']);
+    }
+
+    public function testCtripSearchOpportunityPromotesPreviousSnapshotIntoMissingYesterdayScopes(): void
+    {
+        $controller = $this->controller();
+        $makeRow = static function (string $dataDate, string $targetDate, string $window, string $scope, int $pv): array {
+            return [
+                'data_date' => $dataDate,
+                'compare_type' => $scope === 'self' ? 'self' : 'competitor',
+                'ingestion_method' => 'ctrip_cookie_api',
+                'raw_data' => json_encode([
+                    'endpoint_id' => 'traffic_search_details',
+                    'dimension_values' => [
+                        'target_date' => $targetDate,
+                        'search_window' => $window,
+                        'compare_scope' => $scope,
+                    ],
+                    'metrics' => [
+                        'future_search_pv' => $pv,
+                        'future_search_uv' => $pv,
+                        'future_search_order_count' => null,
+                        'future_search_conversion_rate' => 1.0,
+                    ],
+                ], JSON_UNESCAPED_UNICODE),
+            ];
+        };
+        $currentRows = [
+            $makeRow('2026-07-12', '2026-07-12', 'cumulative', 'self', 8),
+            $makeRow('2026-07-12', '2026-07-12', 'cumulative', 'competitor_avg', 10),
+        ];
+        $referenceRows = [
+            $makeRow('2026-07-11', '2026-07-12', 'yesterday', 'self', 3),
+            $makeRow('2026-07-11', '2026-07-12', 'yesterday', 'competitor_avg', 7),
+        ];
+
+        $payload = $this->invokeNonPublic($controller, 'buildCtripSearchOpportunityPayload', [
+            $currentRows,
+            '2026-07-12',
+            $referenceRows,
+            '2026-07-11',
+        ]);
+
+        self::assertSame(3, $payload['dates'][0]['yesterday']['self']['pv']);
+        self::assertSame(7, $payload['dates'][0]['yesterday']['competitor_avg']['pv']);
+        self::assertSame('historical_reference', $payload['dates'][0]['yesterday']['self']['metric_status']);
+    }
+
+    public function testCtripSearchOpportunityUsesLatestHistoricalYesterdayValueAcrossSnapshots(): void
+    {
+        $controller = $this->controller();
+        $makeRow = static function (string $dataDate, string $window, string $scope, int $pv): array {
+            return [
+                'data_date' => $dataDate,
+                'compare_type' => $scope === 'self' ? 'self' : 'competitor',
+                'ingestion_method' => 'ctrip_cookie_api',
+                'raw_data' => json_encode([
+                    'endpoint_id' => 'traffic_search_details',
+                    'dimension_values' => [
+                        'target_date' => '2026-07-11',
+                        'search_window' => $window,
+                        'compare_scope' => $scope,
+                    ],
+                    'metrics' => [
+                        'future_search_pv' => $pv,
+                        'future_search_uv' => $pv,
+                        'future_search_order_count' => null,
+                        'future_search_conversion_rate' => 1.0,
+                    ],
+                ], JSON_UNESCAPED_UNICODE),
+            ];
+        };
+        $currentRows = [
+            $makeRow('2026-07-12', 'cumulative', 'self', 20),
+            $makeRow('2026-07-12', 'cumulative', 'competitor_avg', 30),
+        ];
+        $referenceRows = [
+            $makeRow('2026-07-10', 'yesterday', 'self', 5),
+            $makeRow('2026-07-10', 'yesterday', 'competitor_avg', 8),
+            $makeRow('2026-07-11', 'yesterday', 'self', 6),
+            $makeRow('2026-07-11', 'yesterday', 'competitor_avg', 9),
+        ];
+
+        $payload = $this->invokeNonPublic($controller, 'buildCtripSearchOpportunityPayload', [
+            $currentRows,
+            '2026-07-12',
+            $referenceRows,
+            '2026-07-11',
+        ]);
+
+        self::assertSame(6, $payload['dates'][0]['yesterday']['self']['pv']);
+        self::assertSame(9, $payload['dates'][0]['yesterday']['competitor_avg']['pv']);
+        self::assertSame('2026-07-11', $payload['dates'][0]['yesterday']['self']['reference_capture_date']);
+    }
+
+    public function testCtripSearchOpportunityDerivesMissingYesterdayPvUvFromCumulativeDelta(): void
+    {
+        $controller = $this->controller();
+        $makeRow = static function (string $dataDate, string $scope, int $pv, int $uv): array {
+            return [
+                'data_date' => $dataDate,
+                'compare_type' => $scope === 'self' ? 'self' : 'competitor',
+                'ingestion_method' => 'ctrip_cookie_api',
+                'raw_data' => json_encode([
+                    'endpoint_id' => 'traffic_search_details',
+                    'dimension_values' => [
+                        'target_date' => '2026-07-11',
+                        'search_window' => 'cumulative',
+                        'compare_scope' => $scope,
+                    ],
+                    'metrics' => [
+                        'future_search_pv' => $pv,
+                        'future_search_uv' => $uv,
+                        'future_search_order_count' => null,
+                        'future_search_conversion_rate' => 2.0,
+                    ],
+                ], JSON_UNESCAPED_UNICODE),
+            ];
+        };
+        $currentRows = [
+            $makeRow('2026-07-12', 'self', 249, 144),
+            $makeRow('2026-07-12', 'competitor_avg', 162, 107),
+        ];
+        $referenceRows = [
+            $makeRow('2026-07-11', 'self', 244, 140),
+            $makeRow('2026-07-11', 'competitor_avg', 160, 105),
+        ];
+
+        $payload = $this->invokeNonPublic($controller, 'buildCtripSearchOpportunityPayload', [
+            $currentRows,
+            '2026-07-12',
+            $referenceRows,
+            '2026-07-11',
+        ]);
+
+        self::assertSame(5, $payload['dates'][0]['yesterday']['self']['pv']);
+        self::assertSame(4, $payload['dates'][0]['yesterday']['self']['uv']);
+        self::assertSame(2, $payload['dates'][0]['yesterday']['competitor_avg']['pv']);
+        self::assertSame(2, $payload['dates'][0]['yesterday']['competitor_avg']['uv']);
+        self::assertNull($payload['dates'][0]['yesterday']['self']['conversion_rate']);
+        self::assertSame('derived_from_cumulative_delta', $payload['dates'][0]['yesterday']['self']['metric_status']);
+    }
+
+    public function testCtripSearchOpportunityDoesNotPromoteUnchangedCumulativeSnapshotsAsZeroYesterdayFacts(): void
+    {
+        $controller = $this->controller();
+        $makeRow = static function (string $dataDate, string $scope): array {
+            return [
+                'data_date' => $dataDate,
+                'compare_type' => $scope === 'self' ? 'self' : 'competitor',
+                'ingestion_method' => 'ctrip_cookie_api',
+                'raw_data' => json_encode([
+                    'endpoint_id' => 'traffic_search_details',
+                    'dimension_values' => [
+                        'target_date' => '2026-07-11',
+                        'search_window' => 'cumulative',
+                        'compare_scope' => $scope,
+                    ],
+                    'metrics' => [
+                        'future_search_pv' => 100,
+                        'future_search_uv' => 80,
+                        'future_search_order_count' => null,
+                        'future_search_conversion_rate' => 2.0,
+                    ],
+                ], JSON_UNESCAPED_UNICODE),
+            ];
+        };
+
+        $payload = $this->invokeNonPublic($controller, 'buildCtripSearchOpportunityPayload', [
+            [$makeRow('2026-07-12', 'self'), $makeRow('2026-07-12', 'competitor_avg')],
+            '2026-07-12',
+            [$makeRow('2026-07-11', 'self'), $makeRow('2026-07-11', 'competitor_avg')],
+            '2026-07-11',
+        ]);
+
+        self::assertArrayNotHasKey('yesterday', $payload['dates'][0]);
     }
 
     public function testCtripSearchOpportunityDateValidationRejectsEmptyAggregateSentinel(): void

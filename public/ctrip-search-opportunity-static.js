@@ -13,6 +13,28 @@
         return (self - competitor) / competitor * 100;
     };
 
+    const formatDirectionalDifference = (value, suffix) => {
+        const normalized = finiteNumber(value);
+        if (normalized === null) return '-';
+        if (Math.abs(normalized) < 0.005) return '持平';
+        return `${normalized > 0 ? '高' : '低'} ${Math.abs(normalized).toFixed(2)}${suffix}`;
+    };
+
+    const formatRelativeComparison = value => formatDirectionalDifference(value, '%');
+    const formatPercentagePointGap = value => formatDirectionalDifference(value, ' 个百分点');
+
+    const toggleSeriesVisibility = (current = {}, key = '') => {
+        const next = {
+            self: current.self !== false,
+            competitor_avg: current.competitor_avg !== false,
+        };
+        if (!['self', 'competitor_avg'].includes(key)) return next;
+        const otherKey = key === 'self' ? 'competitor_avg' : 'self';
+        if (next[key] && !next[otherKey]) return next;
+        next[key] = !next[key];
+        return next;
+    };
+
     const formatCapturedAt = (value) => {
         const raw = String(value || '').trim();
         if (!raw) return '';
@@ -79,7 +101,8 @@
         const sourceDates = Array.isArray(safePayload.dates) ? safePayload.dates : [];
         const windows = ['cumulative', 'yesterday'];
         const scopes = ['self', 'competitor_avg', 'self_reference'];
-        const metrics = ['pv', 'uv', 'conversion_rate'];
+        const chartScopes = ['self', 'competitor_avg'];
+        const metrics = ['pv', 'uv', 'conversion_rate', 'estimated_order_count'];
         const rows = sourceDates.map(sourceRow => {
             const row = { target_date: String(sourceRow?.target_date || ''), windows: {} };
             windows.forEach(windowKey => {
@@ -93,11 +116,17 @@
                         : {};
                     const pv = finiteNumber(sourceScope.pv);
                     const uv = finiteNumber(sourceScope.uv);
+                    const conversionRate = finiteNumber(sourceScope.conversion_rate);
                     normalized[scopeKey] = {
                         pv,
                         uv,
-                        conversion_rate: finiteNumber(sourceScope.conversion_rate),
+                        conversion_rate: conversionRate,
                         order_count: finiteNumber(sourceScope.order_count),
+                        metric_status: String(sourceScope.metric_status || ''),
+                        reference_capture_date: String(sourceScope.reference_capture_date || ''),
+                        estimated_order_count: uv === null || conversionRate === null
+                            ? null
+                            : uv * conversionRate / 100,
                         browse_intensity: pv === null || uv === null || uv === 0 ? null : pv / uv,
                     };
                 });
@@ -128,13 +157,23 @@
             const total = values.reduce((sum, value) => sum + value, 0);
             return average ? total / values.length : total;
         };
-        const buildWindowSummary = (windowKey) => {
-            const selfPv = aggregate(windowKey, 'self', 'pv');
-            const competitorPv = aggregate(windowKey, 'competitor_avg', 'pv');
-            const selfUv = aggregate(windowKey, 'self', 'uv');
-            const competitorUv = aggregate(windowKey, 'competitor_avg', 'uv');
-            const selfConversion = aggregate(windowKey, 'self', 'conversion_rate', true);
-            const competitorConversion = aggregate(windowKey, 'competitor_avg', 'conversion_rate', true);
+        const buildWindowSummary = (windowKey, summaryRows = rows) => {
+            const aggregateRows = (scopeKey, metricKey, average = false) => {
+                const values = summaryRows
+                    .map(row => finiteNumber(row.windows?.[windowKey]?.[scopeKey]?.[metricKey]))
+                    .filter(value => value !== null);
+                if (!values.length) return null;
+                const total = values.reduce((sum, value) => sum + value, 0);
+                return average ? total / values.length : total;
+            };
+            const selfPv = aggregateRows('self', 'pv');
+            const competitorPv = aggregateRows('competitor_avg', 'pv');
+            const selfUv = aggregateRows('self', 'uv');
+            const competitorUv = aggregateRows('competitor_avg', 'uv');
+            const selfConversion = aggregateRows('self', 'conversion_rate', true);
+            const competitorConversion = aggregateRows('competitor_avg', 'conversion_rate', true);
+            const selfEstimatedOrders = aggregateRows('self', 'estimated_order_count');
+            const competitorEstimatedOrders = aggregateRows('competitor_avg', 'estimated_order_count');
             const hasScopeData = (row, scopeKey) => metrics.some(metricKey => (
                 finiteNumber(row.windows?.[windowKey]?.[scopeKey]?.[metricKey]) !== null
             ));
@@ -150,8 +189,11 @@
                 conversion_gap: selfConversion === null || competitorConversion === null
                     ? null
                     : selfConversion - competitorConversion,
-                self_days: rows.filter(row => hasScopeData(row, 'self')).length,
-                competitor_days: rows.filter(row => hasScopeData(row, 'competitor_avg')).length,
+                self_estimated_orders: selfEstimatedOrders,
+                competitor_estimated_orders: competitorEstimatedOrders,
+                estimated_order_gap_rate: gapRate(selfEstimatedOrders, competitorEstimatedOrders),
+                self_days: summaryRows.filter(row => hasScopeData(row, 'self')).length,
+                competitor_days: summaryRows.filter(row => hasScopeData(row, 'competitor_avg')).length,
             };
         };
         const windowSummaries = {
@@ -159,6 +201,12 @@
             yesterday: buildWindowSummary('yesterday'),
         };
         const cumulativeSummary = windowSummaries.cumulative;
+        const horizonSummaries = {
+            three_day: buildWindowSummary('cumulative', rows.slice(0, 3)),
+            seven_day: buildWindowSummary('cumulative', rows.slice(0, 7)),
+            fifteen_day: buildWindowSummary('cumulative', rows.slice(0, 15)),
+            thirty_day: buildWindowSummary('cumulative', rows.slice(0, 30)),
+        };
         const categoryCounts = rows.reduce((result, row) => {
             windows.forEach(windowKey => {
                 const key = row.windows?.[windowKey]?.opportunity?.key || 'insufficient';
@@ -166,11 +214,22 @@
             });
             return result;
         }, { cumulative: {}, yesterday: {} });
+        const windowRanges = windows.reduce((result, windowKey) => {
+            const windowRows = rows.filter(row => chartScopes.some(scopeKey => metrics.some(metricKey => (
+                finiteNumber(row.windows?.[windowKey]?.[scopeKey]?.[metricKey]) !== null
+            )))).slice(0, 30);
+            result[windowKey] = {
+                start_date: windowRows[0]?.target_date || '',
+                end_date: windowRows[windowRows.length - 1]?.target_date || '',
+                day_count: windowRows.length,
+            };
+            return result;
+        }, {});
         const maxima = {};
         windows.forEach(windowKey => {
             maxima[windowKey] = {};
             metrics.forEach(metricKey => {
-                const values = rows.flatMap(row => scopes.map(scopeKey => (
+                const values = rows.flatMap(row => chartScopes.map(scopeKey => (
                     finiteNumber(row.windows?.[windowKey]?.[scopeKey]?.[metricKey])
                 ))).filter(value => value !== null);
                 maxima[windowKey][metricKey] = values.length ? Math.max(...values, 1) : 1;
@@ -184,6 +243,7 @@
             captured_at: String(safePayload.captured_at || ''),
             window_start_date: String(safePayload.window_start_date || ''),
             window_end_date: String(safePayload.window_end_date || ''),
+            target_date_count: Number(safePayload.target_date_count || rows.length || 0),
             reference_capture_date: String(safePayload.reference_capture_date || ''),
             reference_covered_gap_count: Number(safePayload.reference_covered_gap_count || 0),
             ingestion_methods: Array.isArray(safePayload.ingestion_methods) ? safePayload.ingestion_methods : [],
@@ -191,10 +251,12 @@
             missing_scopes: Array.isArray(safePayload.missing_scopes) ? safePayload.missing_scopes : [],
             date_gaps: Array.isArray(safePayload.date_gaps) ? safePayload.date_gaps : [],
             rows,
+            window_ranges: windowRanges,
             maxima,
             category_counts: categoryCounts,
             summary: {
                 windows: windowSummaries,
+                horizons: horizonSummaries,
                 cumulative_self_pv: cumulativeSummary.self_pv,
                 cumulative_peer_pv: cumulativeSummary.competitor_pv,
                 cumulative_pv_gap_rate: cumulativeSummary.pv_gap_rate,
@@ -214,6 +276,9 @@
     window.SUXI_CTRIP_SEARCH_OPPORTUNITY_STATIC = {
         finiteNumber,
         gapRate,
+        formatRelativeComparison,
+        formatPercentagePointGap,
+        toggleSeriesVisibility,
         formatCapturedAt,
         classifyOpportunity,
         buildView,

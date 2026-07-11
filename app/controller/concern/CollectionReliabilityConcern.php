@@ -200,11 +200,7 @@ trait CollectionReliabilityConcern
             return true;
         }
 
-        $targetHotelName = $this->getSystemHotelName($systemHotelId);
         if ($this->isCtripGenericSelfHotelName((string)($row['hotel_name'] ?? ''))) {
-            return true;
-        }
-        if ($this->ctripHotelNameMatches((string)($row['hotel_name'] ?? ''), $targetHotelName)) {
             return true;
         }
 
@@ -212,7 +208,7 @@ trait CollectionReliabilityConcern
         if (is_array($raw)) {
             foreach (['metric_hotel_name', 'hotelName', 'hotel_name', 'name'] as $key) {
                 $rawHotelName = (string)($raw[$key] ?? '');
-                if ($this->isCtripGenericSelfHotelName($rawHotelName) || $this->ctripHotelNameMatches($rawHotelName, $targetHotelName)) {
+                if ($this->isCtripGenericSelfHotelName($rawHotelName)) {
                     return true;
                 }
             }
@@ -229,18 +225,6 @@ trait CollectionReliabilityConcern
         }
         $expectedSet = array_fill_keys(array_map(static fn($value): string => trim((string)$value), $expectedIds), true);
         return !isset($expectedSet[$platformHotelId]);
-    }
-
-    private function ctripHotelNameMatches(string $candidate, string $target): bool
-    {
-        $left = $this->normalizeCtripHotelNameForMatch($candidate);
-        $right = $this->normalizeCtripHotelNameForMatch($target);
-        if ($left === '' || $right === '') {
-            return false;
-        }
-        return $left === $right
-            || (mb_strlen($left, 'UTF-8') >= 3 && str_contains($right, $left))
-            || (mb_strlen($right, 'UTF-8') >= 3 && str_contains($left, $right));
     }
 
     private function isCtripGenericSelfHotelName(string $value): bool
@@ -290,10 +274,6 @@ trait CollectionReliabilityConcern
         $platformHotelId = trim((string)($row['hotel_id'] ?? ''));
         if ($platformHotelId !== '' && isset($currentIds[$platformHotelId])) {
             return true;
-        }
-        $nodeSet = array_fill_keys(array_map(static fn($value): string => trim((string)$value), $nodeIds), true);
-        if ($platformHotelId !== '' && isset($nodeSet[$platformHotelId])) {
-            return $this->ctripHotelNameMatches((string)($row['hotel_name'] ?? ''), $this->getSystemHotelName($systemHotelId));
         }
         return $this->isCtripCurrentHotelIdentityRow($row, $systemHotelId, $expectedIds, $nodeIds);
     }

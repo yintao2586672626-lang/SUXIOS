@@ -382,6 +382,30 @@ final class OtaCredentialResponseTest extends TestCase
         self::assertSame([], $this->otaConfigHarness()->storedConfigList('meituan'));
     }
 
+    public function testStoredLegacyCtripConfigGetsAllCapabilityWithoutInventingRoomCounts(): void
+    {
+        Db::name('system_configs')->insert([
+            'config_key' => 'ctrip_config_list',
+            'config_value' => json_encode([
+                'cfg-58' => [
+                    'id' => 'cfg-58',
+                    'config_id' => 'cfg-58',
+                    'hotel_id' => '58',
+                    'system_hotel_id' => 58,
+                    'capture_sections' => 'default',
+                ],
+            ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ]);
+
+        $list = $this->otaConfigHarness()->storedConfigList('ctrip');
+
+        self::assertCount(1, $list);
+        self::assertSame('all', $list[0]['capture_sections']);
+        self::assertSame('all', $list[0]['profile_sections']);
+        self::assertArrayNotHasKey('hotel_room_count', $list[0]);
+        self::assertArrayNotHasKey('competitor_room_count', $list[0]);
+    }
+
     public function testSafeCredentialMetadataExposesOnlyOpaqueReadinessFields(): void
     {
         $metadata = $this->otaConfigHarness()->safeCredentialMetadata([
@@ -632,6 +656,8 @@ final class OtaCredentialResponseTest extends TestCase
             'name' => 'Ctrip A',
             'hotel_id' => '58',
             'system_hotel_id' => 58,
+            'hotel_room_count' => 88,
+            'competitor_room_count' => 360,
             'cookies' => 'ctrip-cookie-secret',
             'auth_data' => ['token' => 'nested-secret'],
         ], 77, false);
@@ -662,6 +688,14 @@ final class OtaCredentialResponseTest extends TestCase
         }
         self::assertSame(902, $saved['credential_ref']);
         self::assertTrue($saved['has_cookies']);
+        self::assertSame(88, $saved['hotel_room_count']);
+        self::assertSame(360, $saved['competitor_room_count']);
+        self::assertSame('all', $saved['capture_sections']);
+        self::assertSame('all', $saved['profile_sections']);
+        self::assertSame(88, $stored['cfg-58']['hotel_room_count']);
+        self::assertSame(360, $stored['cfg-58']['competitor_room_count']);
+        self::assertSame('all', $stored['cfg-58']['capture_sections']);
+        self::assertSame('all', $stored['cfg-58']['profile_sections']);
     }
 
     public function testCtripPersistenceEmptySecretUpdateKeepsCredentialMetadataWithoutStore(): void
@@ -709,7 +743,7 @@ final class OtaCredentialResponseTest extends TestCase
         self::assertStringContainsString('"credential_ref":902', $raw);
     }
 
-    public function testCtripFetchResolverRejectsReadyConfigWithoutCurrentSessionProofAndKeepsHistory(): void
+    public function testCtripFetchResolverAcceptsReadyConfigWithoutCurrentSessionProofAndKeepsHistory(): void
     {
         $configs = [
             'older-ready' => [
@@ -752,7 +786,10 @@ final class OtaCredentialResponseTest extends TestCase
 
         $selected = $this->otaConfigHarness()->resolveCtripFetchConfig(58);
 
-        self::assertSame([], $selected);
+        self::assertSame('newer-ready', $selected['config_id']);
+        self::assertSame('saved_pending_verification', $selected['verification_status']);
+        self::assertTrue($selected['configuration_saved']);
+        self::assertFalse($selected['configuration_verified']);
         self::assertSame(3, count(json_decode(
             (string)Db::name('system_configs')->where('config_key', 'ctrip_config_list')->value('config_value'),
             true,
@@ -1359,7 +1396,7 @@ final class OtaCredentialResponseTest extends TestCase
         self::assertSame(912, $stored['meituan-58']['credential_ref']);
     }
 
-    public function testMeituanFetchResolverRejectsReadyConfigWithoutCurrentSessionProofAndKeepsHistory(): void
+    public function testMeituanFetchResolverAcceptsReadyConfigWithoutCurrentSessionProofAndKeepsHistory(): void
     {
         $configs = [
             'older-ready' => [
@@ -1402,7 +1439,10 @@ final class OtaCredentialResponseTest extends TestCase
 
         $selected = $this->otaConfigHarness()->resolveMeituanFetchConfig(58);
 
-        self::assertSame([], $selected);
+        self::assertSame('newer-ready', $selected['config_id']);
+        self::assertSame('saved_pending_verification', $selected['verification_status']);
+        self::assertTrue($selected['configuration_saved']);
+        self::assertFalse($selected['configuration_verified']);
         self::assertSame(3, count(json_decode(
             (string)Db::name('system_configs')->where('config_key', 'meituan_config_list')->value('config_value'),
             true,

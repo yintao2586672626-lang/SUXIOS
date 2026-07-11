@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace app\service;
 
+use DateTimeImmutable;
+use DateTimeZone;
+
 final class PlatformProfileBindingReadinessService
 {
     public static function buildContract(string $platform, int $hotelId, array $config, ?array $source, string $statusCode, bool $profileExists, string $profileKey): array
@@ -24,6 +27,16 @@ final class PlatformProfileBindingReadinessService
         ]);
         $historicalLoginMetadataPresent = $manualLoginVerified || $lastLoginVerifiedAt !== '';
         $currentSessionVerified = $statusCode === 'logged_in';
+        $profileReuseStatus = match ($statusCode) {
+            'logged_in', 'profile_reusable' => 'reusable',
+            'renewal_warning' => 'renewal_warning',
+            'login_expired', 'session_expired' => 'expired',
+            default => 'unverified',
+        };
+        $profileReusable = in_array($profileReuseStatus, ['reusable', 'renewal_warning'], true);
+        $profileReuseWarning = $profileReuseStatus === 'renewal_warning';
+        $profileAgeDays = self::profileAgeDays($config);
+        $daysUntilForcedLogin = $profileAgeDays === null ? null : max(0, 10 - $profileAgeDays);
 
         $missing = [];
         if ($hotelId <= 0) {
@@ -48,7 +61,11 @@ final class PlatformProfileBindingReadinessService
             $missing[] = 'profile_exists';
         }
         if (!$currentSessionVerified) {
-            $missing[] = 'current_session_verified';
+            $missing[] = match ($profileReuseStatus) {
+                'expired' => 'profile_session_expired',
+                'reusable', 'renewal_warning' => 'current_session_verified',
+                default => 'profile_session_unverified',
+            };
         }
 
         $isComplete = $missing === [];
@@ -72,6 +89,11 @@ final class PlatformProfileBindingReadinessService
             'profile_exists' => $profileExists,
             'profile_status' => $statusCode,
             'current_session_verified' => $currentSessionVerified,
+            'profile_reusable' => $profileReusable,
+            'profile_reuse_status' => $profileReuseStatus,
+            'profile_reuse_warning' => $profileReuseWarning,
+            'profile_age_days' => $profileAgeDays,
+            'days_until_forced_login' => $daysUntilForcedLogin,
             'historical_login_metadata_present' => $historicalLoginMetadataPresent,
             'manual_login_state_verified' => $manualLoginVerified,
             'last_login_verified_at' => $lastLoginVerifiedAt,
@@ -177,6 +199,7 @@ final class PlatformProfileBindingReadinessService
 
         $loginStatus = match ($statusCode) {
             'logged_in' => 'ok',
+            'profile_reusable', 'renewal_warning' => 'warning',
             'login_expired', 'permission_denied', 'hotel_mismatch' => 'error',
             'capture_failed' => 'error',
             'unconfigured' => 'missing',
@@ -311,10 +334,35 @@ final class PlatformProfileBindingReadinessService
         return in_array(strtolower(trim((string)$value)), ['1', 'true', 'yes', 'on', 'logged_in'], true);
     }
 
+    private static function profileAgeDays(array $config): ?int
+    {
+        $value = self::firstString($config, ['current_session_probe_at', 'currentSessionProbeAt']);
+        if ($value === '') {
+            return null;
+        }
+        $timezone = new DateTimeZone('Asia/Shanghai');
+        $probeAt = DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $value, $timezone);
+        $errors = DateTimeImmutable::getLastErrors();
+        if (!$probeAt instanceof DateTimeImmutable
+            || ($errors !== false && (($errors['warning_count'] ?? 0) > 0 || ($errors['error_count'] ?? 0) > 0))
+            || $probeAt->format('Y-m-d H:i:s') !== $value
+        ) {
+            return null;
+        }
+        $today = new DateTimeImmutable('today', $timezone);
+        $probeDay = $probeAt->setTime(0, 0);
+        if ($probeDay > $today) {
+            return null;
+        }
+        return (int)$probeDay->diff($today)->format('%a');
+    }
+
     private static function statusText(string $statusCode): string
     {
         return match ($statusCode) {
             'logged_in' => '登录态已验证',
+            'profile_reusable' => 'Profile 登录态可复用',
+            'renewal_warning' => 'Profile 登录态可用，建议续登',
             'login_expired' => '登录失效',
             'capture_failed' => '采集失败',
             'waiting_login' => '登录待验证',
@@ -327,6 +375,8 @@ final class PlatformProfileBindingReadinessService
         $name = $platform === 'meituan' ? '美团' : '携程';
         return match ($statusCode) {
             'logged_in' => '登录态已验证；执行目标日同步并检查入库结果',
+            'profile_reusable' => 'Profile 可复用；先检测当天登录态，再执行采集',
+            'renewal_warning' => 'Profile 接近续登期；先检测当天登录态，再执行采集',
             'login_expired' => '重新登录' . $name . '平台账号',
             'capture_failed' => '查看最近同步日志后重新检测登录状态',
             'waiting_login' => '点击“登录' . $name . '”完成平台验证',
@@ -339,6 +389,7 @@ final class PlatformProfileBindingReadinessService
         $name = $platform === 'meituan' ? '美团' : '携程';
         return match ($statusCode) {
             'logged_in' => ['run_profile_capture', '同步并检查入库', 'platform-auto'],
+            'profile_reusable', 'renewal_warning' => ['login_platform_profile', '检测当天登录态', 'profile-login'],
             'login_expired' => ['login_platform_profile', '重新登录' . $name, 'profile-login'],
             'capture_failed' => ['open_sync_logs', '查看日志并检测登录', 'sync-logs'],
             'waiting_login' => ['login_platform_profile', '登录' . $name, 'profile-login'],

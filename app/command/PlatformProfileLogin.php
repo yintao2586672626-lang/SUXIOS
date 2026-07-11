@@ -117,7 +117,7 @@ class PlatformProfileLogin extends Command
 
         $this->writeTask($taskId, [
             'status' => 'browser_opened',
-            'message' => ($platform === 'ctrip' ? '携程' : '美团') . '登录浏览器已打开，请在浏览器中完成平台验证',
+            'message' => ($platform === 'ctrip' ? '携程' : '美团') . '登录浏览器已打开，系统每 3 秒自动检测；登录成功后通常 10–15 秒内自动保存',
             'started_at' => (string)($task['started_at'] ?? date('Y-m-d H:i:s')),
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
@@ -399,7 +399,7 @@ class PlatformProfileLogin extends Command
 
         $loginTimeoutMs = (string)max(30000, min(600000, (int)($request['login_timeout_ms'] ?? 300000)));
         $args = [$node, $script, '--output=' . $outputPath, '--login-timeout-ms=' . $loginTimeoutMs, '--login-only=true'];
-        $postLoginWaitMs = max(0, min(600000, (int)($request['post_login_wait_ms'] ?? $request['postLoginWaitMs'] ?? 120000)));
+        $postLoginWaitMs = max(0, min(600000, (int)($request['post_login_wait_ms'] ?? $request['postLoginWaitMs'] ?? 5000)));
         $args[] = '--interactive-login=' . ($postLoginWaitMs > 0 ? 'true' : 'false');
         $args[] = '--headless=false';
         $args[] = '--post-login-wait-ms=' . (string)$postLoginWaitMs;
@@ -983,11 +983,22 @@ class PlatformProfileLogin extends Command
         if ($currentKey !== '') {
             Cache::set($currentKey, $merged, 86400);
         }
+
+        $platform = strtolower(trim((string)($merged['platform'] ?? '')));
+        $hotelId = (int)($merged['system_hotel_id'] ?? 0);
+        if (in_array($platform, ['ctrip', 'meituan'], true) && $hotelId > 0) {
+            Cache::set($this->profileLoginHotelCurrentTaskKey($platform, $hotelId), $merged, 86400);
+        }
     }
 
     private function taskKey(string $taskId): string
     {
         return 'platform_profile_login_task_' . $taskId;
+    }
+
+    private function profileLoginHotelCurrentTaskKey(string $platform, int $hotelId): string
+    {
+        return 'platform_profile_login_hotel_current_' . $platform . '_' . $hotelId;
     }
 
     private function profileStatusKey(string $platform, int $hotelId, string $profileKey): string

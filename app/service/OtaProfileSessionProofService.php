@@ -14,6 +14,8 @@ final class OtaProfileSessionProofService
     private const TIMEZONE = 'Asia/Shanghai';
     private const VERIFIED_STATUSES = ['logged_in', 'authorized'];
     private const PROFILE_METHODS = ['browser_profile', 'profile_browser'];
+    private const PROFILE_REUSE_WARNING_DAYS = 7;
+    private const PROFILE_REUSE_EXPIRY_DAYS = 10;
 
     private OtaProfileBindingService $bindingService;
     private Closure $clock;
@@ -110,6 +112,85 @@ final class OtaProfileSessionProofService
     /** @param array<string, mixed> $source */
     public function isCurrentVerified(array $source): bool
     {
+        $proof = $this->validatedAuthoritativeProof($source);
+        if ($proof === null) {
+            return false;
+        }
+
+        $today = $this->now()->format('Y-m-d');
+        return $proof['probe_at']->format('Y-m-d') === $today
+            && $proof['probe_date'] === $today;
+    }
+
+    /**
+     * Collection-only Profile reuse decision. This deliberately does not replace
+     * the same-day current-session proof used by P0 and downstream truth gates.
+     *
+     * @param array<string, mixed> $source
+     * @return array{status:string,is_reusable:bool,age_days:?int,days_until_forced_login:int,warning:bool,reason:string}
+     */
+    public function profileReuseState(array $source): array
+    {
+        $proof = $this->validatedAuthoritativeProof($source);
+        if ($proof === null) {
+            return $this->unverifiedReuseState();
+        }
+
+        $today = $this->now()->setTime(0, 0);
+        $probeDay = $proof['probe_at']->setTime(0, 0);
+        if ($probeDay > $today) {
+            return $this->unverifiedReuseState();
+        }
+        $ageDays = (int)$probeDay->diff($today)->format('%a');
+        $daysUntilForcedLogin = max(0, self::PROFILE_REUSE_EXPIRY_DAYS - $ageDays);
+
+        if ($this->hasExplicitAuthenticationFailure($source, $proof['config'])) {
+            return [
+                'status' => 'expired',
+                'is_reusable' => false,
+                'age_days' => $ageDays,
+                'days_until_forced_login' => $daysUntilForcedLogin,
+                'warning' => false,
+                'reason' => 'profile_session_explicitly_expired',
+            ];
+        }
+        if ($ageDays >= self::PROFILE_REUSE_EXPIRY_DAYS) {
+            return [
+                'status' => 'expired',
+                'is_reusable' => false,
+                'age_days' => $ageDays,
+                'days_until_forced_login' => 0,
+                'warning' => false,
+                'reason' => 'profile_reauthentication_required',
+            ];
+        }
+        if ($ageDays >= self::PROFILE_REUSE_WARNING_DAYS) {
+            return [
+                'status' => 'renewal_warning',
+                'is_reusable' => true,
+                'age_days' => $ageDays,
+                'days_until_forced_login' => $daysUntilForcedLogin,
+                'warning' => true,
+                'reason' => 'profile_reauthentication_recommended',
+            ];
+        }
+
+        return [
+            'status' => 'reusable',
+            'is_reusable' => true,
+            'age_days' => $ageDays,
+            'days_until_forced_login' => $daysUntilForcedLogin,
+            'warning' => false,
+            'reason' => 'profile_proof_reusable',
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     * @return array{config:array<string,mixed>,probe_at:DateTimeImmutable,probe_date:string}|null
+     */
+    private function validatedAuthoritativeProof(array $source): ?array
+    {
         try {
             $dataSourceId = (int)($source['id'] ?? 0);
             $systemHotelId = (int)($source['system_hotel_id'] ?? 0);
@@ -123,7 +204,7 @@ final class OtaProfileSessionProofService
                 || (int)($source['enabled'] ?? 0) !== 1
                 || strtolower(trim((string)($source['status'] ?? ''))) === 'disabled'
             ) {
-                return false;
+                return null;
             }
 
             $config = $this->decodeConfig((string)($source['config_json'] ?? ''));
@@ -138,33 +219,95 @@ final class OtaProfileSessionProofService
                 || (string)($config['current_session_probe_scope'] ?? '') !== 'same_data_source_profile_session'
                 || (string)($config['current_session_probe_producer'] ?? '') !== 'platform_profile_login_task'
             ) {
-                return false;
+                return null;
             }
 
             $probeAt = $this->parseProbeAt((string)($config['current_session_probe_at'] ?? ''));
             $probeDate = trim((string)($config['current_session_probe_date'] ?? ''));
-            $today = $this->now()->format('Y-m-d');
-            if ($probeAt === null || $probeAt->format('Y-m-d') !== $today || $probeDate !== $today) {
-                return false;
+            if ($probeAt === null || $probeDate === '' || $probeAt->format('Y-m-d') !== $probeDate) {
+                return null;
             }
 
             $profileKey = $this->sourceProfileKey($platform, $config);
             if ($profileKey === '') {
-                return false;
+                return null;
             }
             $profileKeyHash = $this->profileKeyHash($profileKey);
             if (!hash_equals($profileKeyHash, (string)($config['current_session_probe_profile_key_hash'] ?? ''))) {
-                return false;
+                return null;
             }
 
             $binding = $this->bindingService->assertBound($systemHotelId, $platform, $profileKey);
-            return (int)($binding['tenant_id'] ?? 0) === $tenantId
-                && (int)($binding['system_hotel_id'] ?? 0) === $systemHotelId
-                && strtolower((string)($binding['platform'] ?? '')) === $platform
-                && hash_equals($profileKeyHash, (string)($binding['profile_key_hash'] ?? ''));
+            if ((int)($binding['tenant_id'] ?? 0) !== $tenantId
+                || (int)($binding['system_hotel_id'] ?? 0) !== $systemHotelId
+                || strtolower((string)($binding['platform'] ?? '')) !== $platform
+                || !hash_equals($profileKeyHash, (string)($binding['profile_key_hash'] ?? ''))
+            ) {
+                return null;
+            }
+
+            return [
+                'config' => $config,
+                'probe_at' => $probeAt,
+                'probe_date' => $probeDate,
+            ];
         } catch (\Throwable) {
-            return false;
+            return null;
         }
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $config
+     */
+    private function hasExplicitAuthenticationFailure(array $source, array $config): bool
+    {
+        $statuses = [
+            $source['last_sync_status'] ?? null,
+            $config['last_sync_status'] ?? null,
+            $config['login_status'] ?? null,
+            $config['profile_status'] ?? null,
+            $config['auth_status'] ?? null,
+        ];
+        foreach ($statuses as $status) {
+            $normalized = strtolower(trim(is_scalar($status) ? (string)$status : ''));
+            if (in_array($normalized, [
+                'login_required', 'session_expired', 'login_expired', 'auth_failed',
+                'unauthorized', 'forbidden', 'not_logged_in',
+            ], true)) {
+                return true;
+            }
+        }
+
+        $messages = [
+            $source['last_error'] ?? null,
+            $config['last_error'] ?? null,
+            $config['login_error'] ?? null,
+            $config['auth_error'] ?? null,
+        ];
+        foreach ($messages as $message) {
+            $text = trim(is_scalar($message) ? (string)$message : '');
+            if ($text !== '' && preg_match(
+                '/(?:login[_\s-]?required|session[_\s-]?expired|login[_\s-]?expired|auth(?:entication)?[_\s-]?failed|not[_\s-]?logged[_\s-]?in|unauthori[sz]ed|forbidden|\b401\b|\b403\b|登录(?:态|状态|会话)?(?:已)?(?:失效|过期)|请重新登录|需要重新登录)/iu',
+                $text
+            ) === 1) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @return array{status:string,is_reusable:bool,age_days:null,days_until_forced_login:int,warning:bool,reason:string} */
+    private function unverifiedReuseState(): array
+    {
+        return [
+            'status' => 'unverified',
+            'is_reusable' => false,
+            'age_days' => null,
+            'days_until_forced_login' => 0,
+            'warning' => false,
+            'reason' => 'profile_proof_unverified',
+        ];
     }
 
     /** @param array<string, mixed> $source @param array<string, mixed> $binding */

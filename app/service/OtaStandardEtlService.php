@@ -398,8 +398,21 @@ class OtaStandardEtlService
         $impressions = (int)round($this->firstNumber($row, $detail, ['list_exposure', 'listExposure', 'impressions', 'exposure_count', 'exposureCount']));
         $clicks = (int)round($this->firstNumber($row, $detail, ['detail_exposure', 'detailExposure', 'clicks', 'click_count', 'clickCount']));
         $bookings = (int)round($this->firstNumber($row, $detail, ['book_order_num', 'bookOrderNum', 'bookings', 'bookingCount', 'orderCount']));
-        $roomNights = $this->firstNumber($row, $detail, ['quantity', 'room_nights', 'roomNights', 'nights']);
-        $roas = $this->nullableNumber($row, $detail, ['data_value', 'dataValue', 'roas', 'roi']);
+        $roomNights = $this->nullableNumber($row, $detail, ['room_nights', 'roomNights', 'nights']);
+        if ($roomNights === null && $source !== 'meituan') {
+            $roomNights = $this->nullableNumber($row, $detail, ['quantity']);
+        }
+        $roas = $this->nullableNumber($row, $detail, ['roas', 'roi']);
+        if ($roas === null) {
+            $legacyDataValue = $this->nullableNumber($row, $detail, ['data_value', 'dataValue']);
+            $isMeituanExposureAlias = $source === 'meituan'
+                && $legacyDataValue !== null
+                && $impressions > 0
+                && abs($legacyDataValue - $impressions) < 0.00001;
+            if (!$isMeituanExposureAlias) {
+                $roas = $legacyDataValue;
+            }
+        }
 
         return [
             'date_key' => $date,
@@ -409,11 +422,11 @@ class OtaStandardEtlService
             'spend' => round($spend, 2),
             'order_amount' => round($orderAmount, 2),
             'bookings' => $bookings,
-            'room_nights' => round($roomNights, 2),
+            'room_nights' => $roomNights !== null ? round($roomNights, 2) : null,
             'impressions' => $impressions,
             'clicks' => $clicks,
             'ctr' => $impressions > 0 ? round($clicks / $impressions * 100, 2) : $this->nullablePercent($row, $detail, ['ctr']),
-            'cvr' => $this->nullablePercent($row, $detail, ['flow_rate', 'flowRate', 'cvr', 'conversion_rate', 'conversionRate'])
+            'cvr' => $this->nullablePercent($row, $detail, ['cvr', 'conversion_rate', 'conversionRate', 'order_rate', 'orderRate'])
                 ?? ($clicks > 0 ? round($bookings / $clicks * 100, 2) : null),
             'roas' => $roas !== null ? round($roas, 2) : ($spend > 0 ? round($orderAmount / $spend, 2) : null),
             'raw_data' => $raw,

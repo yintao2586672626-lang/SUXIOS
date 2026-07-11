@@ -1,12 +1,17 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import vm from 'node:vm';
 
 const indexHtml = fs.readFileSync(new URL('../../public/index.html', import.meta.url), 'utf8');
 const styleCss = fs.readFileSync(new URL('../../public/style.css', import.meta.url), 'utf8');
+const systemStaticSource = fs.readFileSync(new URL('../../public/system-static.js', import.meta.url), 'utf8');
+const systemStaticSandbox = { window: {}, console, setTimeout, clearTimeout };
+vm.runInNewContext(systemStaticSource, systemStaticSandbox, { filename: 'public/system-static.js' });
+const { sortHotelManagementRows } = systemStaticSandbox.window.SUXI_SYSTEM_STATIC;
 
 assert.match(
   indexHtml,
-  /style\.css\?v=20260711-hotel-responsive-layout-v2/,
+  /style\.css\?v=20260712-sidebar-expanded-205-collapsed-72/,
   'responsive hotel styles must use a fresh browser cache key'
 );
 
@@ -62,5 +67,27 @@ assert.match(
   /@media \(min-width:\s*1280px\)\s*\{[\s\S]*\.hotel-preview-layout\s*\{\s*display:\s*none;/,
   'desktop table and compact hotel cards must never render at the same time'
 );
+
+assert.equal(typeof sortHotelManagementRows, 'function', 'hotel management must expose deterministic display sorting');
+const sourceRows = [
+  { id: 81, create_time: '2026-07-10 09:00:00' },
+  { id: 94, create_time: '2026-07-11 08:00:00' },
+  { id: 107, create_time: '2026-07-11 08:00:00' },
+  { id: 7, create_time: '' },
+];
+assert.deepEqual(
+  Array.from(sortHotelManagementRows(sourceRows), row => row.id),
+  [107, 94, 81, 7],
+  'hotels must display newest creation records first and use the real ID only as a stable tie-breaker'
+);
+assert.deepEqual(sourceRows.map(row => row.id), [81, 94, 107, 7], 'display sorting must not mutate API data or database IDs');
+assert.match(indexHtml, /const sortHotelManagementRows = requireSystemStatic\('sortHotelManagementRows'\)/);
+assert.match(indexHtml, /hotelCreatedDateText\(hotel\)/, 'the real ID must be accompanied by its creation date');
+assert.equal(
+  (indexHtml.match(/data-testid="hotel-ota-strategy"/g) || []).length,
+  2,
+  'verified OTA channel status must render beside hotel status in both desktop and compact layouts'
+);
+assert.match(indexHtml, /营业中[\s\S]{0,500}v-for="badge in hotelOtaStatusBadges\(hotel\)"[\s\S]{0,300}data-testid="hotel-ota-strategy"/, 'desktop selected-channel badges must follow the business status');
 
 console.log('hotel management responsive layout checks passed');

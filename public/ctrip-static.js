@@ -222,12 +222,15 @@ window.SUXI_CTRIP_STATIC = (() => {
         ctrip_hotel_id: '',
         url: defaultCtripConfigUrl,
         node_id: '24588',
-        capture_sections: 'default',
+        capture_sections: 'all',
+        hotel_room_count: '',
+        competitor_room_count: '',
         approved_mappings_path: '',
         cookies: '',
         has_cookies: false,
         credential_status: '',
         ...overrides,
+        capture_sections: 'all',
     });
     const buildCtripBookmarkletSuccessState = (response = {}) => ({
         bookmarklet: response?.data?.bookmarklet || '',
@@ -388,12 +391,20 @@ window.SUXI_CTRIP_STATIC = (() => {
             ctrip_hotel_id: form.ctrip_hotel_id,
             url: form.url,
             node_id: form.node_id,
-            capture_sections: form.capture_sections,
+            capture_sections: 'all',
+            hotel_room_count: Number(form.hotel_room_count),
+            competitor_room_count: Number(form.competitor_room_count),
             approved_mappings_path: form.approved_mappings_path,
         };
         const cookies = String(form.cookies || '').trim();
         if (cookies) payload.cookies = cookies;
         return payload;
+    };
+    const normalizeCtripRoomCount = (value) => {
+        const text = String(value ?? '').trim();
+        if (!/^[1-9]\d*$/.test(text)) return null;
+        const count = Number(text);
+        return Number.isSafeInteger(count) && count <= 1000000 ? count : null;
     };
     const validateCtripConfigSaveInput = (form = {}) => {
         const canKeepExisting = Boolean(form.id)
@@ -401,6 +412,12 @@ window.SUXI_CTRIP_STATIC = (() => {
             && String(form.credential_status || '') === 'ready';
         if (!String(form.cookies || '').trim() && !canKeepExisting) {
             return { ok: false, status: 'missing_cookies', level: 'error', message: '请输入临时 Cookie/API 辅助内容' };
+        }
+        if (normalizeCtripRoomCount(form.hotel_room_count) === null) {
+            return { ok: false, status: 'invalid_hotel_room_count', level: 'error', message: '请输入1-1000000之间的酒店实际房量' };
+        }
+        if (normalizeCtripRoomCount(form.competitor_room_count) === null) {
+            return { ok: false, status: 'invalid_competitor_room_count', level: 'error', message: '请输入1-1000000之间的竞争圈总房量' };
         }
         return { ok: true, status: 'ok' };
     };
@@ -1237,26 +1254,76 @@ window.SUXI_CTRIP_STATIC = (() => {
         resolveCtripExecutionConfigId(config)
         && config?.has_cookies === true
         && String(config?.credential_status || '') === 'ready'
-        && config?.configuration_verified === true
     );
+    const buildCtripCookieApiConfigReadiness = (config = null) => {
+        if (!config) {
+            return {
+                ok: false,
+                status: 'missing_config',
+                missing_fields: ['config_binding'],
+                message: '当前门店未绑定携程授权配置，请到“数据抓取设置”选择门店并保存配置。',
+            };
+        }
+
+        const configId = resolveCtripExecutionConfigId(config);
+        if (!configId) {
+            return {
+                ok: false,
+                status: 'missing_config_id',
+                missing_fields: ['config_id'],
+                message: '当前门店携程授权配置缺少配置ID，请到“数据抓取设置”重新保存该配置。',
+            };
+        }
+
+        const credentialStatus = String(config?.credential_status || '').trim().toLowerCase();
+        if (config?.migration_required === true || config?.migration_required === 1 || credentialStatus === 'migration_required') {
+            return {
+                ok: false,
+                status: 'migration_required',
+                missing_fields: ['credential_migration'],
+                message: '当前门店使用旧版携程凭据，请到“数据抓取设置”重新保存授权配置。',
+            };
+        }
+        if (config?.has_cookies !== true) {
+            return {
+                ok: false,
+                status: 'missing_cookie',
+                missing_fields: ['cookies'],
+                message: '当前门店携程授权配置未保存 Cookie，请到“数据抓取设置”更新 Cookie。',
+            };
+        }
+        if (credentialStatus !== 'ready') {
+            const expired = credentialStatus === 'revoked';
+            return {
+                ok: false,
+                status: 'credential_not_ready',
+                missing_fields: ['credential_status'],
+                message: expired
+                    ? '当前门店携程 Cookie 已失效，请到“数据抓取设置”更新 Cookie 后重试。'
+                    : `当前门店携程凭据状态未就绪（${credentialStatus || '未知'}），请到“数据抓取设置”更新授权。`,
+            };
+        }
+
+        return {
+            ok: true,
+            status: 'ready',
+            configId,
+            missing_fields: [],
+            message: '',
+        };
+    };
     const buildCtripManualCredentialState = (config = null) => {
         const status = String(config?.credential_status || '').trim().toLowerCase();
         if (isCtripExecutionConfigReady(config)) {
+            const profileVerified = config?.configuration_verified === true;
             return {
                 key: 'ready',
                 canFetch: true,
-                label: '携程配置验证成功',
-                detail: '配置已保存，且当前门店授权登录验证成功。',
+                label: '携程凭据已就绪',
+                detail: profileVerified
+                    ? '凭据已就绪，且当前门店 Profile 登录验证成功。'
+                    : '凭据已就绪，可以直接获取数据验证；Profile 自动采集仍需单独完成登录验证。',
                 tone: 'success',
-            };
-        }
-        if (config?.configuration_saved === true && config?.configuration_verified !== true) {
-            return {
-                key: 'saved_pending_verification',
-                canFetch: false,
-                label: '携程配置已保存，待验证',
-                detail: '请完成该门店的授权登录验证后再获取数据。',
-                tone: 'warning',
             };
         }
         if (config && (config.migration_required === true || config.migration_required === 1 || status === 'migration_required')) {
@@ -2119,15 +2186,16 @@ window.SUXI_CTRIP_STATIC = (() => {
         if (!activeConfig || String(activeConfig.hotel_id || activeConfig.system_hotel_id || '') !== String(systemHotelId)) {
             activeConfig = findCtripConfigByHotelId(systemHotelId);
         }
-        if (!isCtripExecutionConfigReady(activeConfig)) {
-            notify('当前酒店未配置携程数据源', 'warning');
-            return { status: 'missing_config' };
+        const configReadiness = buildCtripCookieApiConfigReadiness(activeConfig);
+        if (!configReadiness.ok) {
+            notify(configReadiness.message, 'warning');
+            return {
+                status: configReadiness.status,
+                message: configReadiness.message,
+                missing_fields: configReadiness.missing_fields,
+            };
         }
-        const configId = resolveCtripExecutionConfigId(activeConfig);
-        if (!configId) {
-            notify('当前酒店携程配置缺少可执行标识', 'warning');
-            return { status: 'missing_config' };
-        }
+        const configId = configReadiness.configId;
         applyCtripConfigObject(activeConfig, false);
 
         const profileId = resolveProfileId(systemHotelId, activeConfig);
@@ -2386,9 +2454,9 @@ window.SUXI_CTRIP_STATIC = (() => {
             return `接口请求失败：${trimCtripFlowOverviewReasonText(context.errorText)}`;
         }
         if (context.requestHitCount > 0 || context.configuredCount > 0) {
-            return '已配置但未收到接口响应，检查 Cookie 状态、请求方式、状态码或接口是否被拦截';
+            return '接口已自动加入请求清单，但未收到接口响应；请检查 Cookie 状态、请求方式、状态码或平台拦截';
         }
-        return '未在本次 Request URL 列表中配置；如需该类指标，请从 Network 补充该接口 URL 或执行 Profile 核心抓取';
+        return '本次未发现该接口请求；已保存 Cookie 只负责授权，系统会通过已知接口模板或 Profile 页面监听自动补齐';
     };
 
     const buildCtripFlowOverviewInterfaceRows = (result = {}, groups = ctripFlowOverviewApiGroups) => {
@@ -2416,8 +2484,8 @@ window.SUXI_CTRIP_STATIC = (() => {
             const requestHitCount = matchedRequestRows.length || matchedConfiguredUrls.length;
             const responseHitCount = matchedResponses.length;
             const errorText = matchedErrors[0] || (failedRequestRows[0] ? `HTTP ${failedRequestRows[0].status || failedRequestRows[0].http_code}` : '');
-            let status = 'not_configured';
-            let statusText = '未配置';
+            let status = 'not_observed';
+            let statusText = '本次未发现';
             let statusClass = 'bg-gray-100 text-gray-500';
             if (responseHitCount > 0 || responseRowCount > 0) {
                 status = 'hit';
@@ -3078,6 +3146,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         buildCtripFetchDateRange,
         resolveCtripExecutionConfigId,
         isCtripExecutionConfigReady,
+        buildCtripCookieApiConfigReadiness,
         buildCtripManualCredentialState,
         normalizeCtripExecutionRequestUrls,
         buildCtripFetchRequestBody,

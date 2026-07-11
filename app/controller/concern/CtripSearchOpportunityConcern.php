@@ -66,8 +66,9 @@ trait CtripSearchOpportunityConcern
             if ($this->isCtripSearchOpportunityDate($referenceCaptureDate)) {
                 $referenceRows = (clone $query)
                     ->field($fields)
-                    ->where('data_date', $referenceCaptureDate)
-                    ->order('id', 'asc')
+                    ->where('data_date', '<', $captureDate)
+                    ->order('data_date', 'desc')
+                    ->order('id', 'desc')
                     ->select()
                     ->toArray();
             }
@@ -109,7 +110,7 @@ trait CtripSearchOpportunityConcern
             'yesterday:self',
             'yesterday:competitor_avg',
         ];
-        $dates = $this->buildCtripSearchOpportunityDateWindow($captureDate);
+        $dates = [];
         $scopeSet = [];
         $ingestionMethods = [];
         $capturedAt = '';
@@ -136,13 +137,13 @@ trait CtripSearchOpportunityConcern
                 $scope = 'competitor_avg';
             }
             if (!$this->isCtripSearchOpportunityDate($targetDate)
-                || !isset($dates[$targetDate])
                 || !in_array($window, ['cumulative', 'yesterday'], true)
                 || !in_array($scope, ['self', 'competitor_avg'], true)
             ) {
                 continue;
             }
 
+            $dates[$targetDate] ??= ['target_date' => $targetDate];
             $hasCurrentData = true;
             $scopeKey = $window . ':' . $scope;
             $scopeSet[$scopeKey] = true;
@@ -172,6 +173,14 @@ trait CtripSearchOpportunityConcern
         }
 
         $referenceCoveredGaps = [];
+        $referenceCumulativeByTargetScope = [];
+        usort($referenceRows, static function (array $left, array $right): int {
+            $dateOrder = strcmp((string)($right['data_date'] ?? ''), (string)($left['data_date'] ?? ''));
+            if ($dateOrder !== 0) {
+                return $dateOrder;
+            }
+            return ((int)($right['id'] ?? 0)) <=> ((int)($left['id'] ?? 0));
+        });
         foreach ($referenceRows as $row) {
             if (!is_array($row)) {
                 continue;
@@ -188,7 +197,10 @@ trait CtripSearchOpportunityConcern
             $targetDate = trim((string)($dimensions['target_date'] ?? ''));
             $window = trim((string)($dimensions['search_window'] ?? ''));
             $scope = trim((string)($dimensions['compare_scope'] ?? ''));
-            if ($scope !== 'self'
+            if ($scope === 'competitor' || $scope === 'peer') {
+                $scope = 'competitor_avg';
+            }
+            if (!in_array($scope, ['self', 'competitor_avg'], true)
                 || !$this->isCtripSearchOpportunityDate($targetDate)
                 || !isset($dates[$targetDate])
                 || !in_array($window, ['cumulative', 'yesterday'], true)
@@ -197,20 +209,64 @@ trait CtripSearchOpportunityConcern
             }
 
             $missingFields = array_values(array_filter(array_map('strval', (array)($raw['missing_fields'] ?? []))));
-            $dates[$targetDate][$window] ??= [];
-            $dates[$targetDate][$window]['self_reference'] = [
+            $rowReferenceCaptureDate = trim((string)($row['data_date'] ?? $referenceCaptureDate));
+            $referenceData = [
                 'pv' => $this->ctripSearchOpportunityMetric($metrics, 'future_search_pv', true),
                 'uv' => $this->ctripSearchOpportunityMetric($metrics, 'future_search_uv', true),
                 'conversion_rate' => $this->ctripSearchOpportunityMetric($metrics, 'future_search_conversion_rate'),
                 'order_count' => $this->ctripSearchOpportunityMetric($metrics, 'future_search_order_count', true),
                 'metric_status' => 'historical_reference',
                 'missing_fields' => $missingFields,
-                'reference_capture_date' => $referenceCaptureDate,
+                'reference_capture_date' => $rowReferenceCaptureDate,
             ];
-            if (!isset($dates[$targetDate][$window]['self'])) {
-                $referenceCoveredGaps[$targetDate . ':' . $window] = true;
+            $dates[$targetDate][$window] ??= [];
+            if ($scope === 'self' && !isset($dates[$targetDate][$window]['self_reference'])) {
+                $dates[$targetDate][$window]['self_reference'] = $referenceData;
+            }
+            if ($window === 'cumulative' && !isset($referenceCumulativeByTargetScope[$targetDate][$scope])) {
+                $referenceCumulativeByTargetScope[$targetDate][$scope] = $referenceData;
+            }
+            if (!isset($dates[$targetDate][$window][$scope])) {
+                $dates[$targetDate][$window][$scope] = $referenceData;
+                $referenceCoveredGaps[$targetDate . ':' . $window . ':' . $scope] = true;
             }
         }
+
+        foreach ($dates as $targetDate => &$dateRow) {
+            foreach (['self', 'competitor_avg'] as $scope) {
+                if (isset($dateRow['yesterday'][$scope])) {
+                    continue;
+                }
+                $currentCumulative = $dateRow['cumulative'][$scope] ?? null;
+                $referenceCumulative = $referenceCumulativeByTargetScope[$targetDate][$scope] ?? null;
+                if (!is_array($currentCumulative) || !is_array($referenceCumulative)) {
+                    continue;
+                }
+                $pv = $this->ctripSearchOpportunityNonNegativeDelta($currentCumulative['pv'] ?? null, $referenceCumulative['pv'] ?? null);
+                $uv = $this->ctripSearchOpportunityNonNegativeDelta($currentCumulative['uv'] ?? null, $referenceCumulative['uv'] ?? null);
+                $orderCount = $this->ctripSearchOpportunityNonNegativeDelta($currentCumulative['order_count'] ?? null, $referenceCumulative['order_count'] ?? null);
+                if ($pv === null && $uv === null && $orderCount === null) {
+                    continue;
+                }
+                if (($pv === null || $pv == 0.0)
+                    && ($uv === null || $uv == 0.0)
+                    && ($orderCount === null || $orderCount == 0.0)) {
+                    continue;
+                }
+                $dateRow['yesterday'] ??= [];
+                $dateRow['yesterday'][$scope] = [
+                    'pv' => $pv,
+                    'uv' => $uv,
+                    'conversion_rate' => null,
+                    'order_count' => $orderCount,
+                    'metric_status' => 'derived_from_cumulative_delta',
+                    'missing_fields' => ['future_search_conversion_rate', 'future_search_order_count'],
+                    'reference_capture_date' => $referenceCaptureDate,
+                ];
+                $referenceCoveredGaps[$targetDate . ':yesterday:' . $scope . ':cumulative_delta'] = true;
+            }
+        }
+        unset($dateRow);
 
         ksort($dates);
         $missingScopes = array_values(array_filter(
@@ -253,27 +309,24 @@ trait CtripSearchOpportunityConcern
         ];
     }
 
-    private function buildCtripSearchOpportunityDateWindow(string $captureDate): array
-    {
-        if (!$this->isCtripSearchOpportunityDate($captureDate)) {
-            return [];
-        }
-
-        $capture = new \DateTimeImmutable($captureDate);
-        $dates = [];
-        for ($offset = 1; $offset <= 30; $offset++) {
-            $targetDate = $capture->modify('+' . $offset . ' day')->format('Y-m-d');
-            $dates[$targetDate] = ['target_date' => $targetDate];
-        }
-        return $dates;
-    }
-
     private function ctripSearchOpportunityMetric(array $metrics, string $key, bool $integer = false): int|float|null
     {
         if (!array_key_exists($key, $metrics) || $metrics[$key] === null || $metrics[$key] === '' || !is_numeric($metrics[$key])) {
             return null;
         }
         return $integer ? (int)round((float)$metrics[$key]) : (float)$metrics[$key];
+    }
+
+    private function ctripSearchOpportunityNonNegativeDelta(mixed $current, mixed $reference): int|float|null
+    {
+        if (!is_numeric($current) || !is_numeric($reference)) {
+            return null;
+        }
+        $delta = (float)$current - (float)$reference;
+        if ($delta <= 0) {
+            return null;
+        }
+        return floor($delta) === $delta ? (int)$delta : $delta;
     }
 
     private function isCtripSearchOpportunityDate(string $value): bool

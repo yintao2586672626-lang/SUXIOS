@@ -16,6 +16,10 @@ $changed += git diff --name-only
 $changed += git diff --name-only --cached
 $changed = $changed | Where-Object { $_ } | Sort-Object -Unique
 
+if ($changed -contains 'public/index.html') {
+    npm.cmd run verify:public-entry
+}
+
 if ($changed -contains 'public/index.html' -or $changed -contains 'public/style.css') {
     if (Test-Path scripts/verify_taste_page_coverage.mjs) {
         npm.cmd run verify:taste-coverage

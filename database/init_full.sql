@@ -38,6 +38,7 @@ SOURCE ./database/migrations/20260601_add_knowledge_unit_hotel_scope.sql;
 SOURCE ./database/migrations/20260529_add_tenant_security_fields.sql;
 SOURCE ./database/migrations/20260614_add_access_tier_hotel_owner_scope.sql;
 SOURCE ./database/migrations/20260709_add_hotel_ota_channel_strategy.sql;
+SOURCE ./database/migrations/20260712_add_hotel_archiving.sql;
 SOURCE ./database/migrations/20260710_create_ota_credentials.sql;
 SOURCE ./database/migrations/20260710_create_ota_profile_bindings.sql;
 SOURCE ./database/migrations/20260530_create_system_configs_table.sql;

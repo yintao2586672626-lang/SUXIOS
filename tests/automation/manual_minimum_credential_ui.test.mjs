@@ -249,10 +249,39 @@ test('OTA manual credential states expose migration blockers without weakening e
   assert.match(html, /selectedCtripManualCredentialState\.detail/);
   assert.match(html, /selectedMeituanManualCredentialState\.label/);
   assert.match(html, /selectedMeituanManualCredentialState\.detail/);
-  assert.match(html, /ctrip-static\.js\?v=20260711-identity-warning-owner-scope-hdbe91a6843/);
-  assert.match(html, /meituan-static\.js\?v=20260711-config-locator-no-cross-hotel-hc6b2dd9d3f-today-absolute-completeness-progress-failure-visible-fast-incomplete-partial-state-full-health/);
+  assert.match(html, /ctrip-static\.js\?v=[^"']*-h[0-9a-f]{10}/);
+  assert.match(html, /meituan-static\.js\?v=[^"']*-h[0-9a-f]{10}/);
   assert.doesNotMatch(html, /携程已配置｜上次更新/);
   assert.doesNotMatch(html, /美团已配置｜上次更新/);
+});
+
+test('ready stored OTA credentials can run manual fetch before Profile verification', () => {
+  for (const [platform, api] of [
+    ['ctrip', ctripStaticApi],
+    ['meituan', meituanStaticApi],
+  ]) {
+    const config = {
+      id: `${platform}-61`,
+      config_id: `${platform}-61`,
+      credential_status: 'ready',
+      has_cookies: true,
+      configuration_saved: true,
+      configuration_verified: false,
+    };
+    const isReady = platform === 'ctrip'
+      ? api.isCtripExecutionConfigReady(config)
+      : api.isMeituanExecutionConfigReady(config);
+    const state = platform === 'ctrip'
+      ? api.buildCtripManualCredentialState(config)
+      : api.buildMeituanManualCredentialState(config);
+
+    assert.equal(isReady, true, `${platform} ready stored credential must be allowed to verify by fetching`);
+    assert.equal(state.canFetch, true, `${platform} pending Profile proof must not block manual credential fetch`);
+    assert.match(state.detail, /可以直接获取数据验证/);
+  }
+
+  assert.doesNotMatch(html, /请完成该门店的授权登录验证后再获取数据。/);
+  assert.doesNotMatch(html, /:disabled="config\.configuration_verified !== true"/);
 });
 
 test('OTA diagnosis fetch planning is metadata-only and never reads browser-held credentials', async () => {
@@ -297,6 +326,71 @@ test('OTA diagnosis fetch planning is metadata-only and never reads browser-held
   });
   assert.equal(legacyReadCount, 0);
   assert.equal(flowResult.failed, 0);
+});
+
+test('Ctrip config defaults to all capabilities and requires both room counts', () => {
+  const defaultForm = ctripStaticApi.createCtripConfigForm();
+  assert.equal(defaultForm.capture_sections, 'all');
+  assert.equal(defaultForm.hotel_room_count, '');
+  assert.equal(defaultForm.competitor_room_count, '');
+
+  const invalidHotelRooms = ctripStaticApi.validateCtripConfigSaveInput({
+    cookies: 'cookie',
+    hotel_room_count: '0',
+    competitor_room_count: '120',
+  });
+  assert.equal(invalidHotelRooms.status, 'invalid_hotel_room_count');
+
+  const invalidCompetitorRooms = ctripStaticApi.validateCtripConfigSaveInput({
+    cookies: 'cookie',
+    hotel_room_count: '88',
+    competitor_room_count: '1.5',
+  });
+  assert.equal(invalidCompetitorRooms.status, 'invalid_competitor_room_count');
+
+  const payload = ctripStaticApi.buildCtripConfigSavePayload({
+    hotel_id: 58,
+    cookies: 'cookie',
+    capture_sections: 'default',
+    hotel_room_count: '88',
+    competitor_room_count: '360',
+  });
+  assert.equal(payload.capture_sections, 'all');
+  assert.equal(payload.hotel_room_count, 88);
+  assert.equal(payload.competitor_room_count, 360);
+});
+
+test('Ctrip config UI requires and echoes room-count fields', () => {
+  const configForm = sliceFrom('data-testid="ctrip-config-form"', '<!-- 已保存的配置列表 -->');
+  const configList = sliceFrom('<!-- 已保存的配置列表 -->', '<!-- 携程数据抓取设置 -->');
+  const healthEditorForm = sliceFrom(
+    '<form v-else @submit.prevent="saveCtripCookieFromHealth"',
+    '<!-- 智能知识中枢：单元编辑 -->'
+  );
+  const editCtripConfig = constSlice(
+    'const editCtripConfig = async (config) => {',
+    '\n\n            const toggleSelectAllCtripConfig'
+  );
+  const healthEditorSource = constSlice(
+    'const createCtripCookieEditorForm = () => ({',
+    '\n            const showCtripCookieEditorModal'
+  );
+
+  assert.match(configForm, /v-model="ctripConfigForm\.hotel_room_count"[^>]*required/);
+  assert.match(configForm, /v-model="ctripConfigForm\.competitor_room_count"[^>]*required/);
+  assert.doesNotMatch(configForm, /Profile采集范围|ctripConfigForm\.capture_sections/);
+  assert.match(configList, /hotel_room_count/);
+  assert.match(configList, /competitor_room_count/);
+  assert.match(editCtripConfig, /hotel_room_count: config\.hotel_room_count \|\| ''/);
+  assert.match(editCtripConfig, /competitor_room_count: config\.competitor_room_count \|\| ''/);
+  assert.match(editCtripConfig, /capture_sections: 'all'/);
+
+  assert.match(healthEditorForm, /v-model="ctripCookieEditorForm\.hotel_room_count"[^>]*required/);
+  assert.match(healthEditorForm, /v-model="ctripCookieEditorForm\.competitor_room_count"[^>]*required/);
+  assert.doesNotMatch(healthEditorForm, /ctripCookieEditorForm\.capture_sections|采集范围/);
+  assert.match(healthEditorSource, /hotel_room_count:/);
+  assert.match(healthEditorSource, /competitor_room_count:/);
+  assert.match(healthEditorSource, /capture_sections: 'all'/);
 });
 
 test('Ctrip manual execution uses platform authorization and legacy Cookie storage stays disabled', () => {
@@ -2679,7 +2773,7 @@ test('Login background preload does not compete with cached-auth shell', () => {
 test('Login page uses SUXIOS brand instead of legacy Guilusuli brand', () => {
   const loginPanel = sliceFrom('<div v-if="!isLoggedIn"', '<!-- 登录表单 -->');
 
-  assert.match(html, /style\.css\?v=20260711-hotel-responsive-layout/);
+  assert.match(html, /style\.css\?v=[^"']+/);
   assert.match(loginPanel, /aria-label="宿析OS登录主视觉"/);
   assert.match(loginPanel, /<p class="login-brand-mark">宿析OS<\/p>/);
   assert.match(loginPanel, /src="images\/logo\.svg" alt="宿析OS"/);

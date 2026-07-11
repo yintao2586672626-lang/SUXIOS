@@ -115,7 +115,7 @@ if (!fs.existsSync(indexPath)) {
     failures.push(`public/index.html is too small (${stat.size} bytes). It may have been overwritten by a frontend build.`);
   }
 
-if (!content.includes('system-static.js?v=20260711-hotel-merge-flow')
+if (!/<script\s+src=["']system-static\.js\?v=[^"']+["']><\/script>/.test(content)
     || !systemStaticContent.includes('const getHotelCodeNumber = (code) => {')
     || !systemStaticContent.includes('const formatHotelCode = (num) =>')
     || !systemStaticContent.includes('const normalizeOtaConfigHotelName = (value = \'\') =>')
@@ -244,6 +244,21 @@ if (!content.includes('system-static.js?v=20260711-hotel-merge-flow')
   if (!content.includes("if (appRoot.dataset.startupErrorRendered === '1') return;")
     || !content.includes("appRoot.dataset.startupErrorRendered = '1';")) {
     failures.push('public/index.html startup error renderer must be idempotent so repeated runtime errors do not keep replacing #app.');
+  }
+  const ctripFuturePanelStart = content.indexOf('data-testid="ctrip-search-opportunity-panel"');
+  const ctripFuturePanelEnd = content.indexOf("onlineDataTab === 'ctrip-ads'", ctripFuturePanelStart);
+  if (ctripFuturePanelStart >= 0 && ctripFuturePanelEnd > ctripFuturePanelStart) {
+    const ctripFuturePanel = content.slice(ctripFuturePanelStart, ctripFuturePanelEnd);
+    const startupNullableBindings = [
+      'ctripSearchOpportunityView',
+      'ctripSearchOpportunityActiveRange',
+      'ctripSearchOpportunityHorizonSummary',
+    ];
+    for (const binding of startupNullableBindings) {
+      if (new RegExp(`\\b${binding}\\.`).test(ctripFuturePanel)) {
+        failures.push(`public/index.html future-search panel must optional-chain startup-nullable binding ${binding} before reading its fields.`);
+      }
+    }
   }
   if (!content.includes("if (!u || typeof u !== 'object') return false;")
     || !content.includes("const username = String(u.username || '');")
@@ -643,7 +658,7 @@ if (!content.includes('system-static.js?v=20260711-hotel-merge-flow')
   if (/<script\s+src=["']auto-fetch-static\.js["']/.test(content)) {
     failures.push('public/index.html must lazy-load auto-fetch-static.js; the login shell and default online-data page do not need platform auto-fetch helpers.');
   }
-  if (!/const\s+autoFetchStaticScript\s*=\s*["']auto-fetch-static\.js["']/.test(content)
+  if (!/const\s+autoFetchStaticScript\s*=\s*["']auto-fetch-static\.js(?:\?[^"']+)?["']/.test(content)
     || !/const\s+loadAutoFetchStatic\s*=\s*\(\)\s*=>/.test(content)
     || !/const\s+ensureAutoFetchStaticReady\s*=\s*async\s*\(\)\s*=>/.test(content)) {
     failures.push('public/index.html must keep an explicit lazy loader and ready guard for auto-fetch-static.js.');
@@ -2948,10 +2963,18 @@ if (!content.includes('system-static.js?v=20260711-hotel-merge-flow')
       .every(key => secretKeyClassifierSource.includes(`'${key}'`))) {
     failures.push('app/controller/OnlineData.php must sanitize every stored OTA config row, block legacy secret rows for migration, and cache safe metadata only.');
   }
+  const profileSelectedFieldMatch = profileListSource.match(/->field\('([^']+)'\)/);
+  const profileSelectedFields = profileSelectedFieldMatch
+    ? profileSelectedFieldMatch[1].split(',').map(field => field.trim())
+    : [];
+  const requiredProfileSelectedFields = [
+    'id', 'tenant_id', 'name', 'system_hotel_id', 'platform', 'data_type',
+    'ingestion_method', 'config_json', 'enabled', 'status',
+  ];
   if (profileListMatch === null
-    || !profileListSource.includes("->field('id,tenant_id,name,system_hotel_id,platform,data_type,ingestion_method,config_json,enabled,status')")
+    || !requiredProfileSelectedFields.every(field => profileSelectedFields.includes(field))
+    || profileSelectedFields.includes('secret_json')
     || !profileListSource.includes("->whereIn('ingestion_method', ['browser_profile', 'profile_browser'])")
-    || profileListSource.includes('secret_json')
     || !profileListSource.includes('sanitizeBrowserProfileSourcesForSharedCache($rows)')
     || !profileListSource.includes('writeAutoFetchLightReadCache($cacheKey, $safeRows)')
     || profileListSource.includes('writeAutoFetchLightReadCache($cacheKey, $rows)')

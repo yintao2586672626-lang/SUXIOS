@@ -214,6 +214,11 @@ final class OtaCredentialReadPathTest extends TestCase
                 return $this->ctripCompetitionSelfHotelIds($identityCheck);
             }
 
+            public function isManualCtripSelfRow(array $row): bool
+            {
+                return $this->isCtripManualBusinessSelfRow($row);
+            }
+
             public function tagCompetitionRoles(array $displayHotels, array $selfHotelIds, int $systemHotelId): array
             {
                 return $this->tagCtripCompetitionDisplayRoles($displayHotels, $selfHotelIds, $systemHotelId);
@@ -310,13 +315,6 @@ final class OtaCredentialReadPathTest extends TestCase
             {
                 $value = mb_strtolower(trim($value), 'UTF-8');
                 return preg_replace('/[\s\-_\.|()（）·]+/u', '', $value) ?? $value;
-            }
-
-            private function ctripHotelNameMatches(string $candidate, string $target): bool
-            {
-                $left = $this->normalizeCtripHotelNameForMatch($candidate);
-                $right = $this->normalizeCtripHotelNameForMatch($target);
-                return $left !== '' && $right !== '' && $left === $right;
             }
 
             private function isCtripGenericSelfHotelName(string $value): bool
@@ -1620,6 +1618,24 @@ final class OtaCredentialReadPathTest extends TestCase
         self::assertSame('self', $tagged[0]['compareType']);
     }
 
+    public function testCtripCompetitorNameContainingTargetHotelNameIsNotTreatedAsSelf(): void
+    {
+        $harness = $this->identityHarness();
+
+        self::assertTrue($harness->isManualCtripSelfRow([
+            'hotelId' => '125876128',
+            'hotelName' => '我的酒店',
+        ]));
+        self::assertFalse($harness->isManualCtripSelfRow([
+            'hotelId' => '6405946',
+            'hotelName' => '杭州东站锦江都城酒店',
+        ]));
+        self::assertFalse($harness->isManualCtripSelfRow([
+            'hotelId' => '6405946',
+            'hotelName' => '杭州东站',
+        ]));
+    }
+
     public function testCtripDifferentHotelConflictNeverSuggestsMergingIndependentHotels(): void
     {
         $harness = $this->identityHarness();
@@ -2412,7 +2428,7 @@ final class OtaCredentialReadPathTest extends TestCase
         self::assertStringContainsString('_config_list_metadata_v2', $autoFetch);
         self::assertStringNotContainsString('_config_list_raw', $autoFetch);
         self::assertStringContainsString("field('id,name,system_hotel_id,platform,data_type,ingestion_method,config_json,enabled,status')", $autoFetch);
-        self::assertStringContainsString("field('id,tenant_id,name,system_hotel_id,platform,data_type,ingestion_method,config_json,enabled,status')", $autoFetch);
+        self::assertStringContainsString("field('id,tenant_id,name,system_hotel_id,platform,data_type,ingestion_method,config_json,enabled,status,last_sync_status,last_error')", $autoFetch);
         self::assertStringContainsString('sanitizeBrowserProfileSourcesForSharedCache($rows)', $autoFetch);
         self::assertStringContainsString('writeAutoFetchLightReadCache($cacheKey, $safeRows)', $autoFetch);
     }

@@ -118,6 +118,7 @@ Route::group('api/hotels', function () {
     Route::post('/batch-status', 'Hotel/batchStatus');
     Route::get('/merge-preview', 'Hotel/mergePreview');
     Route::post('/merge-execute', 'Hotel/mergeExecute');
+    Route::post('/:id/restore', 'Hotel/restore');
     Route::get('/:id', 'Hotel/read');
     Route::post('/', 'Hotel/create');
     Route::put('/:id', 'Hotel/update');

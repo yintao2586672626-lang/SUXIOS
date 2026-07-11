@@ -83,6 +83,64 @@ final class OtaMetadataSafetyTest extends TestCase
         );
     }
 
+    public function testCtripLocalRemarkNameNeverActsAsPlatformHotelIdentity(): void
+    {
+        $harness = new class {
+            use CollectionReliabilityConcern;
+
+            private function isMeaningfulCtripPlatformHotelId(string $value, int $systemHotelId = 0): bool
+            {
+                return ctype_digit($value) && (int)$value > 0 && (int)$value !== $systemHotelId;
+            }
+
+            private function decodeOnlineDataQualityRaw($rawData): array
+            {
+                if (is_array($rawData)) {
+                    return [$rawData, true];
+                }
+                $decoded = is_string($rawData) ? json_decode($rawData, true) : null;
+                return [is_array($decoded) ? $decoded : [], is_array($decoded)];
+            }
+
+            private function getSystemHotelName(int $systemHotelId): string
+            {
+                return $systemHotelId === 77 ? '杭州东站' : '';
+            }
+        };
+
+        $remarkOnlyRow = [
+            'source' => 'ctrip',
+            'hotel_id' => '6405946',
+            'hotel_name' => '杭州东站',
+            'raw_data' => ['hotelName' => '杭州东站'],
+        ];
+
+        self::assertFalse($this->invokeNonPublic($harness, 'isCtripCurrentHotelIdentityRow', [
+            $remarkOnlyRow,
+            77,
+            [],
+            [],
+        ]));
+        self::assertTrue($this->invokeNonPublic($harness, 'isCtripCurrentHotelIdentityRow', [
+            $remarkOnlyRow,
+            77,
+            ['6405946'],
+            [],
+        ]));
+        self::assertTrue($this->invokeNonPublic($harness, 'isCtripCurrentHotelIdentityRow', [[
+            'source' => 'ctrip',
+            'hotel_id' => '125876128',
+            'hotel_name' => '我的酒店',
+            'raw_data' => [],
+        ], 77, [], []]));
+        self::assertFalse($this->invokeNonPublic($harness, 'shouldKeepCtripScopedHotelRow', [[
+            'source' => 'ctrip',
+            'hotel_id' => '24588',
+            'hotel_name' => '杭州东站',
+            'raw_data' => [],
+        ], 77, [], [], ['24588']]));
+    }
+
     public function testAgentCookieWarningSanitizerWhitelistsFieldsAndRebuildsLegacyText(): void
     {
         $reflection = new ReflectionClass(Agent::class);

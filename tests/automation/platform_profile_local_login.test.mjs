@@ -5,6 +5,7 @@ import test from 'node:test';
 const frontend = readFileSync(new URL('../../public/index.html', import.meta.url), 'utf8');
 const backend = readFileSync(new URL('../../app/controller/concern/OnlineDataRequestConcern.php', import.meta.url), 'utf8');
 const autoFetchConcern = readFileSync(new URL('../../app/controller/concern/AutoFetchConcern.php', import.meta.url), 'utf8');
+const profileLoginCommand = readFileSync(new URL('../../app/command/PlatformProfileLogin.php', import.meta.url), 'utf8');
 
 const extractPhpMethod = (source, name) => {
   const start = source.indexOf(`private function ${name}`);
@@ -60,8 +61,28 @@ test('Windows auto-fetch launcher does not wait on the unrelated Profile login t
 });
 
 test('Profile login cannot report success when verified proof persistence fails', () => {
-  const command = readFileSync(new URL('../../app/command/PlatformProfileLogin.php', import.meta.url), 'utf8');
-  assert.match(command, /profile_login_persistence_failed/);
-  assert.match(command, /if \(\$bindDataSourceRequested && !is_array\(\$dataSource\)\)/);
-  assert.match(command, /登录页验证已通过，但 Profile 绑定或登录证明保存失败/);
+  assert.match(profileLoginCommand, /profile_login_persistence_failed/);
+  assert.match(profileLoginCommand, /if \(\$bindDataSourceRequested && !is_array\(\$dataSource\)\)/);
+  assert.match(profileLoginCommand, /登录页验证已通过，但 Profile 绑定或登录证明保存失败/);
+});
+
+test('successful local Profile login keeps only a five second flush window', () => {
+  assert.match(autoFetchConcern, /post_login_wait_ms[^\n]+\?\? 5000/);
+  assert.doesNotMatch(autoFetchConcern, /post_login_wait_ms[^\n]+\?\? 120000/);
+  assert.match(profileLoginCommand, /post_login_wait_ms[^\n]+\?\? 5000/);
+  assert.doesNotMatch(profileLoginCommand, /post_login_wait_ms[^\n]+\?\? 120000/);
+  assert.match(autoFetchConcern, /浏览器已打开，自动检测登录中/);
+  assert.match(profileLoginCommand, /系统每 3 秒自动检测；登录成功后通常 10–15 秒内自动保存/);
+  assert.match(frontend, /登录成功后通常 10–15 秒内自动保存/);
+});
+
+test('Profile login monitoring survives a page refresh and resumes the active hotel task', () => {
+  assert.match(autoFetchConcern, /platformProfileLoginHotelCurrentCacheKey/);
+  assert.match(autoFetchConcern, /readPlatformProfileLoginHotelCurrentTask/);
+  assert.match(autoFetchConcern, /'login_tasks'\s*=>\s*\$loginTasks/);
+  assert.match(profileLoginCommand, /profileLoginHotelCurrentTaskKey/);
+  assert.match(profileLoginCommand, /Cache::set\(\$this->profileLoginHotelCurrentTaskKey\(\$platform, \$hotelId\), \$merged, 86400\)/);
+  assert.match(frontend, /resumePlatformProfileLoginTasks\(nextStatus\)/);
+  assert.match(frontend, /const resumePlatformProfileLoginTasks = \(status\) =>/);
+  assert.match(frontend, /pollPlatformProfileLoginStatus\(platform, task\.task_id\)/);
 });

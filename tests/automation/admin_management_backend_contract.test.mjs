@@ -45,7 +45,7 @@ test('hotel batch preview deduplicates users across stores without per-store que
 
 test('duplicate hotel names are blocked and handed to the existing merge flow', () => {
   assert.match(systemStatic, /const normalizeHotelIdentityName = \(value = ''\) => String\(value \?\? ''\)\.trim\(\);/);
-  assert.match(publicEntry, /system-static\.js\?v=20260711-hotel-merge-flow-platform-login-proof-normalize-identity-export-v2/);
+  assert.match(publicEntry, /system-static\.js\?v=[^"']+/);
   assert.match(hotelController, /private function duplicateHotelByName\(string \$name, \?int \$excludeId = null\): \?HotelModel/);
   assert.match(hotelController, /'duplicate_hotels'\s*=>/);
   assert.match(hotelController, /酒店名称已存在，请先核对并合并/);

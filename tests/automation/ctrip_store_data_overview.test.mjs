@@ -499,11 +499,12 @@ test('Platform account badge treats browser profile login timeout as login expir
   assert.match(loginExpiredDetector, /需重新登录/);
   assert.match(loginExpiredDetector, /login\\s\*timeout/);
   assert.match(accountRowBuilder, /const loginExpired = isPlatformSourceLoginExpired\(source, config\)/);
-  assert.match(systemStatic, /data_source_id: profileSource\?\.id \|\| source\?\.id \|\| undefined/);
+  assert.match(systemStatic, /data_source_id: profileSource\?\.id \|\| undefined/);
+  assert.doesNotMatch(systemStatic, /data_source_id: profileSource\?\.id \|\| source\?\.id \|\| undefined/);
   assert.match(autoFetchStatic, /status === 'syncing_after_login' \|\| sync\?\.status === 'running'/);
   assert.match(autoFetchStatic, /登录后同步完成，目标日已入库/);
-  assert.match(accountRowBuilder, /loginExpired \? 'login_expired'/);
-  assert.match(accountRowBuilder, /effectiveReady \? 'logged_in'/);
+  assert.match(accountRowBuilder, /\(loginExpired \|\| reuseExpired\)[\s\S]*\? 'login_expired'/);
+  assert.match(accountRowBuilder, /effectiveReady[\s\S]*renewal_warning[\s\S]*profile_reusable/);
   assert.match(accountRowWrapper, /buildHotelPlatformBindingRowsStatic/);
   assert.match(accountRowWrapper, /platformSourceForHotel\(hotelId, 'ctrip'\)/);
   assert.match(accountRowWrapper, /platformSourceForHotel\(hotelId, 'meituan'\)/);
@@ -749,8 +750,8 @@ test('Ctrip flow overview interface misses show actionable reasons', () => {
   assert.match(ctripStatic, /const buildCtripSortedHotelRows = /);
   assert.match(ctripStatic, /const buildCtripFlowOverviewInterfaceRows = /);
   assert.match(ctripStatic, /const buildCtripFlowOverviewInterfaceReason = \(context\) =>/);
-  assert.match(ctripStatic, /未在本次 Request URL 列表中配置/);
-  assert.match(ctripStatic, /已配置但未收到接口响应/);
+  assert.match(ctripStatic, /本次未发现该接口请求/);
+  assert.match(ctripStatic, /接口已自动加入请求清单，但未收到接口响应/);
   assert.match(ctripStatic, /接口有响应但未解析到可入库行/);
   assert.match(ctripStatic, /接口请求失败/);
   assert.match(html, /requireCtripStatic\('buildCtripOverviewMetricCards'\)/);
@@ -762,6 +763,26 @@ test('Ctrip flow overview interface misses show actionable reasons', () => {
   assert.doesNotMatch(html, /const normalizeCtripTopRankItems = /);
   assert.doesNotMatch(html, /const field = ctripSortField\.value;/);
   assert.doesNotMatch(html, /本次未从响应 URL 中命中该接口/);
+});
+
+test('Ctrip flow overview distinguishes automatic templates from interfaces not observed this run', () => {
+  const api = loadCtripStaticApi();
+  const knownUrl = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportRealTimeDate';
+  const rows = api.buildCtripFlowOverviewInterfaceRows({
+    request_urls: [knownUrl],
+    xhr_urls: [{ url: knownUrl, status: 200, request_type: 'post' }],
+    responses: [{ url: knownUrl, status: 200, request_type: 'post' }],
+  }, [
+    { keyword: 'getDayReportRealTimeDate', scope: 'business', note: 'known endpoint' },
+    { keyword: 'queryScanFlowDetailsV2', scope: 'traffic', note: 'observed endpoint' },
+  ]);
+
+  assert.equal(rows[0].status, 'hit');
+  assert.equal(rows[0].requestHitCount, 1);
+  assert.equal(rows[0].responseHitCount, 1);
+  assert.equal(rows[1].status, 'not_observed');
+  assert.equal(rows[1].statusText, '本次未发现');
+  assert.match(rows[1].reasonText, /系统会通过已知接口模板或 Profile 页面监听自动补齐/);
 });
 
 test('Ctrip learning table records scope, source, conversion, missing status and real-sample requirements', () => {

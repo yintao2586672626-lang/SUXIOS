@@ -8,21 +8,104 @@ const html = readFileSync('public/index.html', 'utf8');
 const sandbox = { window: {}, console, setTimeout, clearTimeout };
 vm.runInNewContext(systemStaticSource, sandbox, { filename: 'public/system-static.js' });
 const classify = sandbox.window.SUXI_SYSTEM_STATIC.classifyPlatformCollectionReadiness;
+const buildHotelPlatformBindingRows = sandbox.window.SUXI_SYSTEM_STATIC.buildHotelPlatformBindingRows;
+
+const accountRowHelpers = {
+  hasPlatformHotelMismatch: () => false,
+  isPlatformSourceLoginExpired: () => false,
+  platformCaptureStatusCode: () => 'success',
+  platformAccountReason: () => ({ text: '', className: '' }),
+  formatHotelBindingDate: value => String(value || '-'),
+  platformLastSuccessText: () => '-',
+  platformAccountStatusText: () => '待验证',
+  platformAccountStatusClass: () => '',
+  platformCaptureStatusText: () => '最近采集成功',
+  platformCaptureStatusClass: () => '',
+};
 
 test('platform collection readiness separates automatic, manual and unverified Profile states', () => {
   assert.equal(typeof classify, 'function');
   assert.equal(classify({ hotelActive: true, accountLevel: 'ready', hasProfile: true, currentSessionVerified: true }), 'auto_ready');
+  assert.equal(classify({ hotelActive: true, accountLevel: 'ready', hasProfile: true, profileReusable: true, currentSessionVerified: false }), 'waiting_login');
+  assert.equal(classify({ hotelActive: true, accountLevel: 'ready', hasProfile: true, profileReusable: true, renewalWarning: true }), 'waiting_login');
   assert.equal(classify({ hotelActive: true, accountLevel: 'ready', hasProfile: false, hasManualAssist: true }), 'manual_ready');
   assert.equal(classify({ hotelActive: true, accountLevel: 'ready', hasProfile: true, currentSessionVerified: false, hasManualAssist: true }), 'waiting_login');
   assert.equal(classify({ hotelActive: true, accountLevel: 'ready', hasProfile: false, hasManualAssist: false }), 'unbound');
   assert.equal(classify({ hotelActive: true, permissionDenied: true, accountLevel: 'ready', hasManualAssist: true }), 'permission_denied');
 });
 
+test('Profile login never submits non-Profile source ids for either OTA platform', () => {
+  const rows = buildHotelPlatformBindingRows({
+    hotel: { id: 121, name: '西安天诚', status: 1 },
+    ctripConfig: { hotel_id: 121, has_cookies: true },
+    meituanConfig: { hotel_id: 121, store_id: 'mt-121', poi_id: 'mt-121', partner_id: 'partner-121' },
+    ctripProfile: null,
+    meituanProfile: null,
+    ctripSource: {
+      id: 63,
+      system_hotel_id: 121,
+      platform: 'ctrip',
+      ingestion_method: 'historical_backfill',
+      config: {},
+    },
+    meituanSource: {
+      id: 64,
+      system_hotel_id: 121,
+      platform: 'meituan',
+      ingestion_method: 'manual_cookie_api',
+      config: {},
+    },
+    helpers: accountRowHelpers,
+  });
+  const ctrip = rows.find(row => row.platform === 'ctrip');
+  const meituan = rows.find(row => row.platform === 'meituan');
+
+  assert.equal(ctrip.profileSource, null);
+  assert.equal(ctrip.loginItem.data_source_id, undefined);
+  assert.equal(ctrip.loginItem.profile_key, 'system_121');
+  assert.equal(meituan.profileSource, null);
+  assert.equal(meituan.loginItem.data_source_id, undefined);
+  assert.equal(meituan.loginItem.profile_key, 'mt-121');
+});
+
+test('Profile login preserves real Profile source ids for both OTA platforms', () => {
+  const ctripProfile = {
+    id: 163,
+    system_hotel_id: 121,
+    platform: 'ctrip',
+    ingestion_method: 'browser_profile',
+    config: { profile_id: 'ctrip-121' },
+  };
+  const meituanProfile = {
+    id: 164,
+    system_hotel_id: 121,
+    platform: 'meituan',
+    ingestion_method: 'browser_profile',
+    config: { store_id: 'mt-121', poi_id: 'mt-121' },
+  };
+  const rows = buildHotelPlatformBindingRows({
+    hotel: { id: 121, name: '西安天诚', status: 1 },
+    ctripProfile,
+    meituanProfile,
+    helpers: accountRowHelpers,
+  });
+  const ctrip = rows.find(row => row.platform === 'ctrip');
+  const meituan = rows.find(row => row.platform === 'meituan');
+
+  assert.equal(ctrip.loginItem.data_source_id, 163);
+  assert.equal(ctrip.loginItem.profile_key, 'ctrip-121');
+  assert.equal(meituan.loginItem.data_source_id, 164);
+  assert.equal(meituan.loginItem.profile_key, 'mt-121');
+});
+
 test('platform account UI names manual and automatic paths and routes them separately', () => {
   assert.match(html, /<option value="auto_ready">自动可采集<\/option>/);
   assert.match(html, /<option value="manual_ready">手动可采集<\/option>/);
   assert.match(html, /auto_ready:\s*'自动可采集'/);
+  assert.match(html, /renewal_warning:\s*'待检测当天登录态·建议续登'/);
   assert.match(html, /manual_ready:\s*'手动可采集'/);
+  assert.match(html, /channelCount\('auto_ready', 'renewal_warning'\)/);
+  assert.match(html, /每天自动采集前仍必须先检测当天登录态/);
   assert.match(html, /actionTarget === 'platform-manual'/);
   assert.match(html, /openHotelManualFetch/);
   assert.match(html, /readinessCode === 'waiting_login' \? '验证 Profile 登录'/);
@@ -68,5 +151,13 @@ test('hotel card next actions route collection work separately from explicit aut
     html,
     /openHotelPlatformAccountAction\(hotelFormAccountHotel\(\), account, \{ forceLogin: true \}\)/,
     'the modal authorization button must remain an explicit Profile login action',
+  );
+  const actionStart = html.indexOf('const openHotelPlatformAccountAction = async');
+  const actionEnd = html.indexOf('const unbindHotelPlatformAccount = async', actionStart);
+  const actionSource = html.slice(actionStart, actionEnd);
+  assert.match(
+    actionSource,
+    /openHotelModal\(hotel, \{ expandOta: true \}\);\s*showToast\('请先在已展开的美团配置/,
+    'an unbound Meituan authorization entry must open the OTA configuration instead of ending at a warning',
   );
 });

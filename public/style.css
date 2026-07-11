@@ -3975,8 +3975,10 @@ input[type="checkbox"].sr-only:not(.peer):disabled + div[class*="h-6"][class*="r
 
 /* Sidebar visual polish */
 aside.sidebar {
-    width: 256px;
-    min-width: 256px;
+    width: 205px;
+    min-width: 205px;
+    max-width: 205px;
+    flex: 0 0 205px;
     overflow: visible;
     isolation: isolate;
     z-index: 20;
@@ -3991,6 +3993,8 @@ aside.sidebar {
 aside.sidebar.collapsed {
     width: 72px !important;
     min-width: 72px !important;
+    max-width: 72px !important;
+    flex: 0 0 72px !important;
 }
 
 aside.sidebar::after {

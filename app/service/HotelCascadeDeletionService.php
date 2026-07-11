@@ -51,6 +51,9 @@ final class HotelCascadeDeletionService
         ['ota_ctrip_orders', 'system_hotel_id'],
         ['ota_ctrip_reviews', 'system_hotel_id'],
         ['ota_ctrip_review_order_matches', 'system_hotel_id'],
+        ['ota_meituan_orders', 'system_hotel_id'],
+        ['ota_meituan_reviews', 'system_hotel_id'],
+        ['ota_meituan_review_order_matches', 'system_hotel_id'],
         ['ota_profile_bindings', 'system_hotel_id'],
         ['platform_data_raw_records', 'system_hotel_id'],
         ['platform_data_sources', 'system_hotel_id'],
@@ -82,6 +85,11 @@ final class HotelCascadeDeletionService
                 $tables[$table] = $count;
             }
         }
+        foreach ($this->dependentChildCounts($hotelId) as $table => $count) {
+            if ($count > 0) {
+                $tables[$table] = $count;
+            }
+        }
         if ($this->tableColumnExists('user_hotel_permissions', 'hotel_id')) {
             $count = (int)Db::name('user_hotel_permissions')->where('hotel_id', $hotelId)->count();
             if ($count > 0) {
@@ -100,66 +108,157 @@ final class HotelCascadeDeletionService
                 'name' => (string)$hotel['name'],
             ],
             'tables' => $tables,
-            'users_detached' => $usersDetached,
+            'users_preserved' => $usersDetached,
             'config_entries' => $configEntries,
             'total_rows' => array_sum($tables) + $usersDetached + $configEntries,
         ];
     }
 
     /** @return array<string, mixed> */
-    public function delete(int $hotelId): array
+    public function delete(int $hotelId, int $archivedBy = 0): array
     {
-        $result = Db::transaction(function () use ($hotelId): array {
-            $hotel = Db::name('hotels')->field('id,name')->where('id', $hotelId)->lock(true)->find();
+        $result = Db::transaction(function () use ($hotelId, $archivedBy): array {
+            $hotel = Db::name('hotels')->where('id', $hotelId)->lock(true)->find();
             if (!is_array($hotel)) {
                 throw new RuntimeException('酒店不存在');
             }
 
-            $deleted = [];
-            foreach (self::HOTEL_RELATIONS as [$table, $column]) {
-                if (!$this->tableColumnExists($table, $column)) {
-                    continue;
-                }
-                $count = (int)Db::name($table)->where($column, $hotelId)->delete();
-                if ($count > 0) {
-                    $deleted[$table] = $count;
-                }
+            if (!$this->tableColumnExists('hotels', 'archived_at')) {
+                throw new RuntimeException('酒店归档字段缺失，请先执行 20260712_add_hotel_archiving.sql');
+            }
+            if (trim((string)($hotel['archived_at'] ?? '')) !== '') {
+                throw new RuntimeException('酒店已归档，无需重复操作');
             }
 
-            if ($this->tableColumnExists('user_hotel_permissions', 'hotel_id')) {
-                $count = (int)Db::name('user_hotel_permissions')->where('hotel_id', $hotelId)->delete();
-                if ($count > 0) {
-                    $deleted['user_hotel_permissions'] = $count;
-                }
+            $payload = [
+                'status' => 0,
+                'archived_at' => date('Y-m-d H:i:s'),
+            ];
+            if ($this->tableColumnExists('hotels', 'archived_by')) {
+                $payload['archived_by'] = max(0, $archivedBy);
+            }
+            $updated = (int)Db::name('hotels')->where('id', $hotelId)->update($payload);
+            if ($updated !== 1 && trim((string)($hotel['archived_at'] ?? '')) === '') {
+                throw new RuntimeException('酒店归档失败，事务已回滚');
             }
 
-            $usersDetached = 0;
-            if ($this->tableColumnExists('users', 'hotel_id')) {
-                $payload = ['hotel_id' => null];
-                if ($this->tableColumnExists('users', 'tenant_id')) {
-                    $payload['tenant_id'] = null;
-                }
-                $usersDetached = (int)Db::name('users')->where('hotel_id', $hotelId)->update($payload);
-            }
-
-            $configEntriesDeleted = $this->deleteOtaConfigEntries($hotelId);
-            $hotelDeleted = (int)Db::name('hotels')->where('id', $hotelId)->delete();
-            if ($hotelDeleted !== 1) {
-                throw new RuntimeException('酒店删除失败，事务已回滚');
-            }
+            $preview = $this->preview($hotelId);
 
             return [
                 'hotel_id' => $hotelId,
                 'hotel_name' => (string)$hotel['name'],
-                'deleted_tables' => $deleted,
-                'deleted_rows' => array_sum($deleted),
-                'users_detached' => $usersDetached,
-                'config_entries_deleted' => $configEntriesDeleted,
+                'archived' => true,
+                'archived_at' => (string)$payload['archived_at'],
+                'preserved_tables' => (array)($preview['tables'] ?? []),
+                'preserved_rows' => (int)($preview['total_rows'] ?? 0),
+                'users_preserved' => (int)($preview['users_preserved'] ?? 0),
+                'config_entries_preserved' => (int)($preview['config_entries'] ?? 0),
             ];
         });
 
         SystemConfig::clearProtectedOtaCaches();
         return $result;
+    }
+
+    /** @return array<string, mixed> */
+    public function restore(int $hotelId): array
+    {
+        $result = Db::transaction(function () use ($hotelId): array {
+            $hotel = Db::name('hotels')->where('id', $hotelId)->lock(true)->find();
+            if (!is_array($hotel)) {
+                throw new RuntimeException('酒店不存在');
+            }
+            if (!$this->tableColumnExists('hotels', 'archived_at')) {
+                throw new RuntimeException('酒店归档字段缺失，请先执行 20260712_add_hotel_archiving.sql');
+            }
+            if (trim((string)($hotel['archived_at'] ?? '')) === '') {
+                throw new RuntimeException('酒店未归档，无需恢复');
+            }
+
+            $payload = ['status' => 0, 'archived_at' => null];
+            if ($this->tableColumnExists('hotels', 'archived_by')) {
+                $payload['archived_by'] = null;
+            }
+            Db::name('hotels')->where('id', $hotelId)->update($payload);
+
+            return [
+                'hotel_id' => $hotelId,
+                'hotel_name' => (string)$hotel['name'],
+                'restored' => true,
+                'status' => 0,
+            ];
+        });
+
+        SystemConfig::clearProtectedOtaCaches();
+        return $result;
+    }
+
+    /** @return array<string, int> */
+    private function dependentChildCounts(int $hotelId): array
+    {
+        $counts = [];
+        $counts['opening_tasks'] = $this->countChildrenByParent(
+            'opening_tasks',
+            'project_id',
+            'opening_projects',
+            'id',
+            'hotel_id',
+            $hotelId
+        );
+        $counts['operation_execution_evidence'] = $this->countChildrenByParent(
+            'operation_execution_evidence',
+            'task_id',
+            'operation_execution_tasks',
+            'id',
+            'hotel_id',
+            $hotelId
+        );
+        $counts['knowledge_chunks'] = $this->countChildrenByParent(
+            'knowledge_chunks',
+            'unit_id',
+            'knowledge_units',
+            'id',
+            'hotel_id',
+            $hotelId
+        );
+        $counts['hotel_field_template_items'] = $this->countChildrenByParent(
+            'hotel_field_template_items',
+            'template_id',
+            'hotel_field_templates',
+            'id',
+            'hotel_id',
+            $hotelId
+        );
+
+        return array_filter($counts, static fn(int $count): bool => $count > 0);
+    }
+
+    private function countChildrenByParent(
+        string $childTable,
+        string $childColumn,
+        string $parentTable,
+        string $parentIdColumn,
+        string $parentHotelColumn,
+        int $hotelId
+    ): int {
+        foreach ([$childTable, $childColumn, $parentTable, $parentIdColumn, $parentHotelColumn] as $identifier) {
+            if (!preg_match('/^[A-Za-z0-9_]+$/D', $identifier)) {
+                return 0;
+            }
+        }
+        if (!$this->tableColumnExists($childTable, $childColumn)
+            || !$this->tableColumnExists($parentTable, $parentIdColumn)
+            || !$this->tableColumnExists($parentTable, $parentHotelColumn)
+        ) {
+            return 0;
+        }
+
+        $sql = "SELECT COUNT(*) AS aggregate FROM `{$childTable}` child_row "
+            . "INNER JOIN `{$parentTable}` parent_row "
+            . "ON parent_row.`{$parentIdColumn}` = child_row.`{$childColumn}` "
+            . "WHERE parent_row.`{$parentHotelColumn}` = ?";
+        $rows = Db::query($sql, [$hotelId]);
+        return (int)($rows[0]['aggregate'] ?? 0);
     }
 
     private function countOtaConfigEntries(int $hotelId): int
@@ -173,29 +272,6 @@ final class HotelCascadeDeletionService
             }
         }
         return $total;
-    }
-
-    private function deleteOtaConfigEntries(int $hotelId): int
-    {
-        $deleted = 0;
-        foreach (self::OTA_CONFIG_KEYS as $key) {
-            $row = $this->systemConfigRow($key, true);
-            if (!is_array($row)) {
-                continue;
-            }
-            $list = $this->decodeConfigList((string)($row['config_value'] ?? ''), $key);
-            foreach ($list as $index => $item) {
-                if (is_array($item) && $this->configBelongsToHotel($item, $hotelId)) {
-                    unset($list[$index]);
-                    $deleted++;
-                }
-            }
-            Db::name('system_configs')->where('config_key', $key)->update([
-                'config_value' => json_encode($list, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
-                'update_time' => date('Y-m-d H:i:s'),
-            ]);
-        }
-        return $deleted;
     }
 
     /** @return array<mixed> */

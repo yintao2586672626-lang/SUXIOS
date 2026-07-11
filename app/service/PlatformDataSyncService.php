@@ -1839,6 +1839,8 @@ final class PlatformDataSyncService
     {
         $message = strtolower($error->getMessage());
         return match (true) {
+            str_contains($message, 'profile_session_expired') => 'profile_session_expired',
+            str_contains($message, 'profile_session_unverified') => 'profile_session_unverified',
             str_contains($message, 'current_session_verified'),
             str_contains($message, 'current session proof') => 'current_session_not_verified',
             str_contains($message, 'url host is outside'),
@@ -2882,7 +2884,7 @@ final class PlatformDataSyncService
         }
 
         throw new RuntimeException(
-            'browser_profile synchronization requires current_session_verified from the same data source Profile session before capture.',
+            'browser_profile synchronization requires ' . $missing[0] . ' before capture.',
             422
         );
     }
@@ -2898,6 +2900,26 @@ final class PlatformDataSyncService
             return [];
         }
 
+        if ($this->profileSessionProofService->isCurrentVerified($source)) {
+            return [];
+        }
+        $state = $this->profileSessionProofService->profileReuseState($source);
+        return [($state['status'] ?? '') === 'expired'
+            ? 'profile_session_expired'
+            : 'current_session_verified'];
+    }
+
+    /**
+     * P0 and target-date diagnostics intentionally keep the stricter same-day proof.
+     *
+     * @param array<string, mixed> $source
+     * @return array<int, string>
+     */
+    private function browserProfileCurrentSessionProofMissingRequirements(array $source): array
+    {
+        if (!$this->isOtaBrowserProfileSource($source)) {
+            return [];
+        }
         return $this->profileSessionProofService->isCurrentVerified($source)
             ? []
             : ['current_session_verified'];
@@ -3303,7 +3325,7 @@ final class PlatformDataSyncService
         if ($requiresTraffic && $targetTrafficRows > 0 && $targetTrafficFieldFactReady <= 0) {
             $missingInputs[] = 'traffic_field_facts';
         }
-        foreach ($this->browserProfileBackgroundSyncLoginMissingRequirements($source, $options) as $missingLoginRequirement) {
+        foreach ($this->browserProfileCurrentSessionProofMissingRequirements($source) as $missingLoginRequirement) {
             if (!in_array($missingLoginRequirement, $missingInputs, true)) {
                 $missingInputs[] = $missingLoginRequirement;
             }
@@ -4146,6 +4168,20 @@ final class PlatformDataSyncService
         $row['current_session_verified'] = $isOta
             && in_array($profileMethod, ['browser_profile', 'profile_browser'], true)
             && $this->profileSessionProofService->isCurrentVerified($row);
+        $profileReuseState = $isOta && in_array($profileMethod, ['browser_profile', 'profile_browser'], true)
+            ? $this->profileSessionProofService->profileReuseState($row)
+            : [
+                'status' => 'unverified',
+                'is_reusable' => false,
+                'age_days' => null,
+                'days_until_forced_login' => 0,
+                'warning' => false,
+            ];
+        $row['profile_reusable'] = (bool)($profileReuseState['is_reusable'] ?? false);
+        $row['profile_reuse_status'] = (string)($profileReuseState['status'] ?? 'unverified');
+        $row['profile_reuse_warning'] = (bool)($profileReuseState['warning'] ?? false);
+        $row['profile_age_days'] = isset($profileReuseState['age_days']) ? (int)$profileReuseState['age_days'] : null;
+        $row['days_until_forced_login'] = max(0, (int)($profileReuseState['days_until_forced_login'] ?? 0));
         $secret = $isOta ? [] : $this->decodeConfig($row['secret_json'] ?? []);
         unset($row['config_json']);
         unset($row['secret_json']);

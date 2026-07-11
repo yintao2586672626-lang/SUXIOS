@@ -1029,7 +1029,7 @@ trait AutoFetchConcern
 
         try {
             $query = Db::name('platform_data_sources')
-                ->field('id,tenant_id,name,system_hotel_id,platform,data_type,ingestion_method,config_json,enabled,status')
+                ->field('id,tenant_id,name,system_hotel_id,platform,data_type,ingestion_method,config_json,enabled,status,last_sync_status,last_error')
                 ->where('enabled', 1)
                 ->where('status', '<>', 'disabled')
                 ->where('system_hotel_id', $hotelId)
@@ -1318,7 +1318,7 @@ trait AutoFetchConcern
             ),
             'timeout_seconds' => max(60, min(900, (int)($requestData['timeout_seconds'] ?? 600))),
             'login_timeout_ms' => max(30000, min(600000, (int)($requestData['login_timeout_ms'] ?? 300000))),
-            'post_login_wait_ms' => max(0, min(600000, (int)($requestData['post_login_wait_ms'] ?? $requestData['postLoginWaitMs'] ?? 120000))),
+            'post_login_wait_ms' => max(0, min(600000, (int)($requestData['post_login_wait_ms'] ?? $requestData['postLoginWaitMs'] ?? 5000))),
             'capture_sections' => $this->platformProfileLoginSourceCaptureSections($platform, $requestData, [], ''),
         ];
         if ($this->platformProfileLoginRequestFlag($requestData['allow_existing_local_profile_rebind'] ?? false)) {
@@ -1767,6 +1767,12 @@ trait AutoFetchConcern
         if ($currentKey !== '') {
             cache($currentKey, $task, 86400);
         }
+
+        $platform = strtolower(trim((string)($task['platform'] ?? '')));
+        $hotelId = (int)($task['system_hotel_id'] ?? 0);
+        if (in_array($platform, ['ctrip', 'meituan'], true) && $hotelId > 0) {
+            cache($this->platformProfileLoginHotelCurrentCacheKey($platform, $hotelId), $task, 86400);
+        }
     }
 
     private function readPlatformProfileLoginTask(string $taskId): array
@@ -1781,6 +1787,12 @@ trait AutoFetchConcern
         return is_array($task) ? $this->sanitizePlatformProfileLoginCachePayload($task) : [];
     }
 
+    private function readPlatformProfileLoginHotelCurrentTask(string $platform, int $hotelId): array
+    {
+        $task = cache($this->platformProfileLoginHotelCurrentCacheKey($platform, $hotelId));
+        return is_array($task) ? $this->sanitizePlatformProfileLoginCachePayload($task) : [];
+    }
+
     private function platformProfileLoginTaskCacheKey(string $taskId): string
     {
         $safeTaskId = preg_replace('/[^a-zA-Z0-9_-]+/', '_', $taskId) ?: 'default';
@@ -1790,6 +1802,11 @@ trait AutoFetchConcern
     private function platformProfileLoginCurrentCacheKey(string $platform, int $hotelId, string $profileKey): string
     {
         return 'platform_profile_login_current_' . $platform . '_' . $hotelId . '_' . BrowserProfileCaptureRequestService::safeFilePart($profileKey);
+    }
+
+    private function platformProfileLoginHotelCurrentCacheKey(string $platform, int $hotelId): string
+    {
+        return 'platform_profile_login_hotel_current_' . $platform . '_' . $hotelId;
     }
 
     private function platformProfileLoginProfileDir(string $platform, string $profileKey): string
@@ -1812,7 +1829,7 @@ trait AutoFetchConcern
         $task['done'] = in_array($status, ['logged_in', 'failed'], true);
         $task['status_text'] = match ($status) {
             'queued' => '登录任务已提交',
-            'browser_opened' => '浏览器已打开，等待人工登录',
+            'browser_opened' => '浏览器已打开，自动检测登录中',
             'running' => '正在检测登录状态',
             'syncing_after_login' => '登录已完成，正在同步目标日数据',
             'logged_in' => '登录态已验证',
@@ -1850,13 +1867,23 @@ trait AutoFetchConcern
             return false;
         }));
         $identityBlocked = count(array_filter($items, static fn(array $item): bool => ($item['p0_readiness']['status'] ?? '') === 'blocked'));
+        $loginTasks = [];
+        foreach (['ctrip', 'meituan'] as $platform) {
+            $task = $this->readPlatformProfileLoginHotelCurrentTask($platform, $hotelId);
+            if ($task !== []) {
+                $loginTasks[$platform] = $this->normalizePlatformProfileLoginTask($task);
+            }
+        }
 
         return [
             'system_hotel_id' => $hotelId,
             'items' => $items,
+            'login_tasks' => $loginTasks,
             'summary' => [
                 'configured' => count(array_filter($items, static fn(array $item): bool => $item['status_code'] !== 'unconfigured')),
                 'logged_in' => count(array_filter($items, static fn(array $item): bool => $item['status_code'] === 'logged_in')),
+                'reusable' => count(array_filter($items, static fn(array $item): bool => in_array($item['status_code'], ['logged_in', 'profile_reusable', 'renewal_warning'], true))),
+                'renewal_warning' => count(array_filter($items, static fn(array $item): bool => $item['status_code'] === 'renewal_warning')),
                 'needs_login' => count(array_filter($items, static fn(array $item): bool => in_array($item['status_code'], ['waiting_login', 'login_expired'], true))),
                 'ready_to_collect' => $readyToCollect,
                 'needs_identity_check' => $needsIdentityCheck,
@@ -2066,8 +2093,21 @@ trait AutoFetchConcern
         if (in_array((string)($cache['status_code'] ?? ''), ['session_expired', 'login_expired', 'login_required'], true)) {
             return (string)($cache['status_code'] ?? '') === 'session_expired' ? 'session_expired' : 'login_expired';
         }
-        if (is_array($source) && (new OtaProfileSessionProofService())->isCurrentVerified($source)) {
-            return 'logged_in';
+        if (is_array($source)) {
+            $proofService = new OtaProfileSessionProofService();
+            if ($proofService->isCurrentVerified($source)) {
+                return 'logged_in';
+            }
+            $reuseState = $proofService->profileReuseState($source);
+            if (($reuseState['status'] ?? '') === 'renewal_warning') {
+                return 'renewal_warning';
+            }
+            if (($reuseState['status'] ?? '') === 'reusable') {
+                return 'profile_reusable';
+            }
+            if (($reuseState['status'] ?? '') === 'expired') {
+                return 'login_expired';
+            }
         }
         if (in_array((string)($source['last_sync_status'] ?? ''), ['failed', 'partial_success'], true)) {
             return 'capture_failed';
@@ -2152,6 +2192,8 @@ trait AutoFetchConcern
     {
         return match ($statusCode) {
             'logged_in' => '登录态已验证',
+            'profile_reusable' => 'Profile 登录态可复用',
+            'renewal_warning' => 'Profile 登录态可用，建议续登',
             'session_expired' => 'session_expired',
             'login_expired' => '登录失效',
             'anti_bot' => 'anti_bot',
@@ -2166,6 +2208,8 @@ trait AutoFetchConcern
         $name = $platform === 'meituan' ? '美团' : '携程';
         return match ($statusCode) {
             'logged_in' => '登录态已验证；执行目标日同步并检查入库结果',
+            'profile_reusable' => 'Profile 可复用；先检测当天登录态，再执行采集',
+            'renewal_warning' => 'Profile 接近续登期；先检测当天登录态，再执行采集',
             'session_expired' => 'session_expired',
             'login_expired' => '重新登录' . $name . '平台账号',
             'anti_bot' => 'anti_bot',
@@ -2180,6 +2224,7 @@ trait AutoFetchConcern
         $name = $platform === 'meituan' ? '美团' : '携程';
         return match ($statusCode) {
             'logged_in' => ['run_profile_capture', '同步并检查入库', 'platform-auto'],
+            'profile_reusable', 'renewal_warning' => ['login_platform_profile', '检测当天登录态', 'profile-login'],
             'session_expired' => ['login_platform_profile', 'session_expired', 'profile-login'],
             'login_expired' => ['login_platform_profile', '重新登录' . $name, 'profile-login'],
             'anti_bot' => ['login_platform_profile', 'anti_bot', 'profile-login'],
@@ -5014,8 +5059,15 @@ trait AutoFetchConcern
             return ['success' => false, 'skipped' => true, 'message' => '未配置携程 Profile ID', 'saved_count' => 0];
         }
         $profileSource = $this->loadProfileSessionSource('ctrip', $hotelId, $profileId);
-        if (!(new OtaProfileSessionProofService())->isCurrentVerified($profileSource ?? [])) {
-            return ['success' => false, 'message' => 'current_session_not_verified', 'saved_count' => 0];
+        $proofService = new OtaProfileSessionProofService();
+        $reuseState = $proofService->profileReuseState($profileSource ?? []);
+        if (!$proofService->isCurrentVerified($profileSource ?? [])) {
+            $message = match ((string)($reuseState['status'] ?? 'unverified')) {
+                'expired' => 'profile_session_expired',
+                'reusable', 'renewal_warning' => 'current_session_verified',
+                default => 'profile_session_unverified',
+            };
+            return ['success' => false, 'message' => $message, 'saved_count' => 0];
         }
         if (!$this->ctripProfileExistsForConfig($config, $hotelId) && !$interactiveBrowser) {
             return ['success' => false, 'skipped' => true, 'message' => "未找到 storage/ctrip_profile_{$profileId}", 'saved_count' => 0];
@@ -6165,8 +6217,15 @@ trait AutoFetchConcern
             return ['success' => false, 'skipped' => true, 'message' => '未配置 Store ID / POI ID', 'saved_count' => 0];
         }
         $profileSource = $this->loadProfileSessionSource('meituan', $hotelId, $storeId);
-        if (!(new OtaProfileSessionProofService())->isCurrentVerified($profileSource ?? [])) {
-            return ['success' => false, 'message' => 'current_session_not_verified', 'saved_count' => 0];
+        $proofService = new OtaProfileSessionProofService();
+        $reuseState = $proofService->profileReuseState($profileSource ?? []);
+        if (!$proofService->isCurrentVerified($profileSource ?? [])) {
+            $message = match ((string)($reuseState['status'] ?? 'unverified')) {
+                'expired' => 'profile_session_expired',
+                'reusable', 'renewal_warning' => 'current_session_verified',
+                default => 'profile_session_unverified',
+            };
+            return ['success' => false, 'message' => $message, 'saved_count' => 0];
         }
         if (!$this->meituanProfileExistsForConfig($config) && !$interactiveBrowser) {
             return ['success' => false, 'skipped' => true, 'message' => '未发现本地美团浏览器 Profile，跳过浏览器采集', 'saved_count' => 0];

@@ -4,6 +4,7 @@ namespace app\controller\concern;
 
 use app\service\CtripTrafficDisplayService;
 use app\service\OnlineDataFieldFactService;
+use InvalidArgumentException;
 use think\facade\Db;
 
 trait MeituanCapturedDataConcern
@@ -476,9 +477,10 @@ trait MeituanCapturedDataConcern
         $orders = (int)$this->meituanNumber($item, ['book_order_num', 'bookOrderNum', 'orderNum', 'order_count', 'orders', 'booking_count', 'bookingCount'], 0);
         $conversion = $this->normalizeMeituanPercentValue($this->firstMeituanValue($item, ['conversion_rate', 'conversionRate', 'flowRate', 'orderRate'], null));
         if ($conversion === null) {
-            $conversion = CtripTrafficDisplayService::trafficRate((float)$clicks, (float)$exposure);
+            $conversion = CtripTrafficDisplayService::trafficRate((float)$orders, (float)$clicks);
         }
-        $roas = $this->normalizeMeituanPercentValue($this->firstMeituanValue($item, ['roas', 'roi'], null));
+        $roasValue = $this->firstMeituanValue($item, ['roas', 'roi'], null);
+        $roas = $roasValue !== null ? max(0.0, $this->meituanNumber($item, ['roas', 'roi'], 0.0)) : null;
         if ($roas === null && $spend > 0 && $orderAmount > 0) {
             $roas = $orderAmount / $spend;
         }
@@ -498,10 +500,10 @@ trait MeituanCapturedDataConcern
         return $this->baseMeituanCapturedRow($factSource, $context, [
             'data_date' => $dataDate,
             'amount' => $spend,
-            'quantity' => $orders,
+            'quantity' => 0,
             'book_order_num' => $orders,
             'comment_score' => 0,
-            'data_value' => $exposure,
+            'data_value' => $roas !== null ? round($roas, 2) : 0,
             'data_type' => 'advertising',
             'dimension' => 'ads',
             'platform' => 'Meituan',
@@ -526,7 +528,7 @@ trait MeituanCapturedDataConcern
             'overallScore',
             'star',
         ], 0));
-        $commentCount = (int)$this->meituanNumber($item, [
+        $commentCountKeys = [
             'comment_count',
             'commentCount',
             'commentsCount',
@@ -536,8 +538,8 @@ trait MeituanCapturedDataConcern
             'totalCount',
             'allCount',
             'quantity',
-        ], 0.0);
-        $badReviewCount = (int)$this->meituanNumber($item, [
+        ];
+        $badReviewCountKeys = [
             'bad_review_count',
             'badReviewCount',
             'negativeCommentCount',
@@ -545,14 +547,29 @@ trait MeituanCapturedDataConcern
             'badCount',
             'lowScoreCount',
             'noRecommendCount',
-        ], 0.0);
-        if ($commentCount <= 0 && $score > 0) {
+        ];
+        $commentCountValue = $this->firstMeituanValue($item, $commentCountKeys, null);
+        $badReviewCountValue = $this->firstMeituanValue($item, $badReviewCountKeys, null);
+        $commentCountKnown = $commentCountValue !== null;
+        $badReviewCountKnown = $badReviewCountValue !== null;
+        $commentCount = (int)$this->meituanNumber($item, $commentCountKeys, 0.0);
+        $badReviewCount = (int)$this->meituanNumber($item, $badReviewCountKeys, 0.0);
+        $isIndividualReview = trim((string)$this->firstMeituanValue($item, [
+            'review_id',
+            'reviewId',
+            'comment_id',
+            'commentId',
+            'id',
+        ], '')) !== '';
+        if (!$commentCountKnown && $isIndividualReview) {
             $commentCount = 1;
+            $commentCountKnown = true;
         }
-        if ($badReviewCount <= 0 && $score > 0 && $score < 4) {
+        if (!$badReviewCountKnown && $isIndividualReview && $score > 0 && $score < 4) {
             $badReviewCount = 1;
+            $badReviewCountKnown = true;
         }
-        if ($score <= 0 && $commentCount <= 0 && $badReviewCount <= 0) {
+        if ($score <= 0 && !$commentCountKnown && !$badReviewCountKnown) {
             return null;
         }
 
@@ -561,13 +578,18 @@ trait MeituanCapturedDataConcern
         $channel = trim((string)$this->firstMeituanValue($item, ['channel', 'channelName', 'platform', 'source', 'commentChannel', 'bizType'], 'meituan'));
         $dimension = $channel !== '' ? 'review:' . $channel : 'review:meituan';
 
-        $factSource = $this->sanitizeOnlineReviewRawData(array_merge($item, [
+        $normalizedMetrics = [
             'comment_score' => $score,
-            'comment_count' => $commentCount,
-            'bad_review_count' => $badReviewCount,
             'data_date' => $dataDate,
             'dimension' => $dimension,
-        ]));
+        ];
+        if ($commentCountKnown) {
+            $normalizedMetrics['comment_count'] = $commentCount;
+        }
+        if ($badReviewCountKnown) {
+            $normalizedMetrics['bad_review_count'] = $badReviewCount;
+        }
+        $factSource = $this->sanitizeOnlineReviewRawData(array_merge($item, $normalizedMetrics));
 
         return $this->baseMeituanCapturedRow($factSource, $context, [
             'data_date' => $dataDate,
@@ -589,13 +611,14 @@ trait MeituanCapturedDataConcern
         $status = (string)$this->firstMeituanValue($item, ['order_status', 'orderStatus', 'status'], 'unknown');
         $amount = $this->meituanNumber($item, ['total_amount', 'totalAmount', 'amount', 'payAmount', 'pay_amount'], 0.0);
         $basePrice = $this->meituanNumber($item, ['base_price', 'basePrice', 'bottom_price', 'bottomPrice', 'price', '底价', '底价(元)'], 0.0);
-        $roomCount = (int)$this->meituanNumber($item, ['room_count', 'roomCount', 'rooms'], 1.0);
+        $roomCount = (int)$this->meituanNumber($item, ['room_count', 'roomCount', 'rooms'], 0.0);
         $nights = (int)$this->meituanNumber($item, ['nights', 'night_count', 'nightCount'], 0.0);
         if ($nights <= 0) {
             $nights = $this->calculateMeituanOrderNights($item);
         }
-        $roomCount = max(1, $roomCount);
-        $nights = max(1, $nights);
+        if ($roomCount <= 0 && $nights > 0) {
+            $roomCount = 1;
+        }
 
         if ($orderId === '' && $amount <= 0) {
             return null;
@@ -609,15 +632,20 @@ trait MeituanCapturedDataConcern
         $avgPrice = $this->meituanNumber($item, ['avg_price', 'avgPrice'], 0.0);
         if ($avgPrice <= 0 && $basePrice > 0) {
             $avgPrice = $basePrice;
-        } elseif ($avgPrice <= 0 && $amount > 0) {
+        } elseif ($avgPrice <= 0 && $amount > 0 && $roomCount > 0 && $nights > 0) {
             $avgPrice = round($amount / ($roomCount * $nights), 2);
         }
+
+        $orderCountValue = $this->firstMeituanValue($item, ['order_count', 'orderCount'], null);
+        $orderCount = $orderCountValue !== null
+            ? max(0, (int)$this->meituanNumber($item, ['order_count', 'orderCount'], 0.0))
+            : ($orderId !== '' ? 1 : 0);
 
         return $this->baseMeituanCapturedRow($item, $context, [
             'data_date' => $dataDate,
             'amount' => round($amount, 2),
-            'quantity' => $roomCount * $nights,
-            'book_order_num' => (int)$this->meituanNumber($item, ['order_count', 'orderCount'], 1.0),
+            'quantity' => $roomCount > 0 && $nights > 0 ? $roomCount * $nights : 0,
+            'book_order_num' => $orderCount,
             'comment_score' => 0,
             'data_value' => $avgPrice,
             'data_type' => 'order',
@@ -629,9 +657,31 @@ trait MeituanCapturedDataConcern
 
     private function baseMeituanCapturedRow(array $item, array $context, array $fields): array
     {
-        $hotelId = (string)$this->firstMeituanValue($item, ['poi_id', 'poiId', 'hotel_id', 'hotelId', 'shopId', 'shop_id'], $context['poi_id'] ?: $context['store_id']);
+        $itemHotelId = trim((string)$this->firstMeituanValue($item, ['poi_id', 'poiId', 'hotel_id', 'hotelId', 'shopId', 'shop_id'], ''));
+        $boundHotelIds = array_values(array_filter(array_unique([
+            trim((string)($context['poi_id'] ?? '')),
+            trim((string)($context['store_id'] ?? '')),
+        ]), static fn(string $value): bool => $value !== ''));
+        if (($fields['compare_type'] ?? 'self') === 'self'
+            && $itemHotelId !== ''
+            && $boundHotelIds !== []
+            && !in_array($itemHotelId, $boundHotelIds, true)) {
+            throw new InvalidArgumentException('美团门店标识与当前酒店绑定不一致');
+        }
+        $hotelId = $itemHotelId !== '' ? $itemHotelId : (string)($context['poi_id'] ?: $context['store_id']);
         $hotelName = (string)$this->firstMeituanValue($item, ['poi_name', 'poiName', 'hotel_name', 'hotelName', 'shopName', 'shop_name', 'name'], $context['poi_name']);
         $dataType = (string)($fields['data_type'] ?? '');
+        $boundHotelIds = array_values(array_unique(array_filter([
+            trim((string)($context['poi_id'] ?? '')),
+            trim((string)($context['store_id'] ?? '')),
+        ], static fn(string $value): bool => $value !== '')));
+        if ($dataType !== 'peer_rank'
+            && $hotelId !== ''
+            && $boundHotelIds !== []
+            && !in_array(trim($hotelId), $boundHotelIds, true)
+        ) {
+            throw new \InvalidArgumentException('美团门店标识与当前酒店绑定不一致');
+        }
         $raw = $dataType === 'review'
             ? $this->sanitizeOnlineReviewRawData($item)
             : $this->sanitizeOnlineOrderRawData($item, $dataType === 'order');

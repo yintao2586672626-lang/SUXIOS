@@ -513,6 +513,16 @@ window.SUXI_SYSTEM_STATIC = (() => {
         if (!value) return '';
         return String(value).slice(0, 10);
     };
+    const sortHotelManagementRows = (rows = []) => [...(Array.isArray(rows) ? rows : [])].sort((a, b) => {
+        const createdA = String(a?.create_time || a?.created_at || '').trim();
+        const createdB = String(b?.create_time || b?.created_at || '').trim();
+        if (createdA !== createdB) return createdA < createdB ? 1 : -1;
+
+        const idA = Number(a?.id || 0);
+        const idB = Number(b?.id || 0);
+        if (Number.isFinite(idA) && Number.isFinite(idB) && idA !== idB) return idB - idA;
+        return String(b?.id || '').localeCompare(String(a?.id || ''), 'zh-CN', { numeric: true });
+    });
     const formatKnowledgeJson = (value) => {
         try {
             return JSON.stringify(value || {}, null, 2);
@@ -700,7 +710,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
                 contact_person: hotel.contact_person || operatorName,
                 contact_phone: hotel.contact_phone || '',
                 status: hotel.status ?? 1,
-                ota_channel_strategy: hotel.ota_channel_strategy || 'dual',
+                ota_channel_strategy: hotel.ota_channel_strategy || 'none',
                 description: parsedDescription.description || '',
             };
         }
@@ -712,7 +722,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
             contact_person: operatorName,
             contact_phone: '',
             status: 1,
-            ota_channel_strategy: 'dual',
+            ota_channel_strategy: 'none',
             description: '',
         };
     };
@@ -725,11 +735,68 @@ window.SUXI_SYSTEM_STATIC = (() => {
         contact_person: String(form.contact_person || '').trim() || operatorName,
         contact_phone: String(form.contact_phone || '').trim(),
         status: parseInt(form.status),
-        ota_channel_strategy: ['ctrip_only', 'dual', 'meituan_only'].includes(String(form.ota_channel_strategy || 'dual'))
-            ? String(form.ota_channel_strategy || 'dual')
-            : 'dual',
+        ota_channel_strategy: ['none', 'ctrip_only', 'dual', 'meituan_only'].includes(String(form.ota_channel_strategy || 'none'))
+            ? String(form.ota_channel_strategy || 'none')
+            : 'none',
         description,
     });
+    const selectedHotelOtaPlatforms = (strategy = 'none') => ({
+        ctrip_only: ['ctrip'],
+        meituan_only: ['meituan'],
+        dual: ['ctrip', 'meituan'],
+        none: [],
+    }[String(strategy || 'none').trim()] || []);
+    const hotelOtaStrategyFromPlatforms = (platforms = []) => {
+        const selected = new Set((Array.isArray(platforms) ? platforms : []).map(item => String(item || '').trim().toLowerCase()));
+        const hasCtrip = selected.has('ctrip');
+        const hasMeituan = selected.has('meituan');
+        if (hasCtrip && hasMeituan) return 'dual';
+        if (hasCtrip) return 'ctrip_only';
+        if (hasMeituan) return 'meituan_only';
+        return 'none';
+    };
+    const buildHotelVerifiedOtaState = (rows = []) => {
+        const verified = new Set((Array.isArray(rows) ? rows : [])
+            .filter(row => row?.level === 'ready' && (row?.sessionVerified === true || row?.profileReusable === true) && row?.storeIdentitySaved === true)
+            .map(row => String(row?.platform || '').trim().toLowerCase()));
+        if (verified.has('ctrip') && verified.has('meituan')) {
+            return { key: 'dual', text: '双渠道', visible: true, className: 'bg-emerald-50 text-emerald-700 border-emerald-100' };
+        }
+        if (verified.has('ctrip')) {
+            return { key: 'ctrip', text: '携程', visible: true, className: 'bg-blue-50 text-blue-700 border-blue-100' };
+        }
+        if (verified.has('meituan')) {
+            return { key: 'meituan', text: '美团', visible: true, className: 'bg-orange-50 text-orange-700 border-orange-100' };
+        }
+        return { key: 'none', text: '', visible: false, className: 'bg-gray-50 text-gray-500 border-gray-200' };
+    };
+    const buildHotelOtaStatusBadges = (rows = []) => {
+        const sourceRows = Array.isArray(rows) ? rows : [];
+        const byPlatform = new Map(sourceRows
+            .map(row => [String(row?.platform || '').trim().toLowerCase(), row])
+            .filter(([platform]) => ['ctrip', 'meituan'].includes(platform)));
+        const isVerified = row => row?.level === 'ready'
+            && (row?.sessionVerified === true || row?.profileReusable === true)
+            && row?.storeIdentitySaved === true;
+        const ctripRow = byPlatform.get('ctrip');
+        const meituanRow = byPlatform.get('meituan');
+        if (!ctripRow && !meituanRow) return [];
+        const ctripVerified = !!ctripRow && isVerified(ctripRow);
+        const meituanVerified = !!meituanRow && isVerified(meituanRow);
+        const detailParts = [];
+        if (ctripRow) detailParts.push(ctripVerified ? '携程登录态可用' : '携程待登录');
+        if (meituanRow) detailParts.push(meituanVerified ? '美团登录态可用' : '美团待登录');
+        if (ctripRow && meituanRow && isVerified(ctripRow) && isVerified(meituanRow)) {
+            return [{ key: 'dual', text: '双平台', title: detailParts.join('；'), className: 'bg-emerald-50 text-emerald-700 border-emerald-100' }];
+        }
+        if (ctripVerified) {
+            return [{ key: 'ctrip', text: '携程', title: detailParts.join('；'), className: 'bg-blue-50 text-blue-700 border-blue-100' }];
+        }
+        if (meituanVerified) {
+            return [{ key: 'meituan', text: '美团', title: detailParts.join('；'), className: 'bg-orange-50 text-orange-700 border-orange-100' }];
+        }
+        return [{ key: 'pending', text: '待登录', title: detailParts.join('；'), className: 'bg-amber-50 text-amber-700 border-amber-200' }];
+    };
     const createHotelMergeForm = () => ({
         source_hotel_id: '',
         target_hotel_id: '',
@@ -1303,6 +1370,8 @@ window.SUXI_SYSTEM_STATIC = (() => {
         unbound: 'bg-gray-50 text-gray-500 border-gray-200',
         waiting_login: 'bg-amber-50 text-amber-700 border-amber-200',
         logged_in: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        profile_reusable: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        renewal_warning: 'bg-amber-50 text-amber-700 border-amber-200',
         login_expired: 'bg-red-50 text-red-700 border-red-200',
         missing_config: 'bg-amber-50 text-amber-700 border-amber-200',
         mismatch: 'bg-red-50 text-red-700 border-red-200',
@@ -1311,6 +1380,8 @@ window.SUXI_SYSTEM_STATIC = (() => {
         unbound: '\u672a\u7ed1\u5b9a',
         waiting_login: '\u5f85\u767b\u5f55',
         logged_in: '\u5df2\u767b\u5f55',
+        profile_reusable: '\u767b\u5f55\u6001\u53ef\u590d\u7528',
+        renewal_warning: '\u53ef\u91c7\u96c6\u00b7\u5efa\u8bae\u7eed\u767b',
         login_expired: '\u767b\u5f55\u5931\u6548',
         missing_config: '\u914d\u7f6e\u7f3a\u9879',
         mismatch: '\u5e73\u53f0\u95e8\u5e97\u4e0d\u5339\u914d',
@@ -1375,7 +1446,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         if (statusCode === 'unbound') {
             return { text: `${prefix}添加`, weight: bound ? 30 : 35, className: 'bg-gray-50 text-gray-500 border-gray-200', target: 'hotel-ota', actionKey: 'bind_platform_account' };
         }
-        if (statusCode === 'logged_in' && captureCode === 'none') {
+        if (['logged_in', 'profile_reusable', 'renewal_warning'].includes(statusCode) && captureCode === 'none') {
             return { text: `${prefix}采集`, weight: 40, className: 'bg-blue-50 text-blue-700 border-blue-200', target: 'platform-auto', actionKey: 'run_trial_capture' };
         }
         return { text: '正常', weight: 99, className: 'bg-emerald-50 text-emerald-700 border-emerald-200', target: '', actionKey: '' };
@@ -1449,6 +1520,27 @@ window.SUXI_SYSTEM_STATIC = (() => {
             && String(sourceConfig.current_session_probe_timezone || '').trim() === 'Asia/Shanghai'
             && String(sourceConfig.current_session_probe_scope || '').trim() === 'same_data_source_profile_session'
             && String(sourceConfig.current_session_probe_producer || '').trim() === 'platform_profile_login_task';
+        const reuseStatus = String(profileSource?.profile_reuse_status || '').trim().toLowerCase();
+        const profileReusable = sessionVerified || (
+            profileSource?.profile_reusable === true
+            && sourceScopeValid
+            && storeIdentitySaved
+            && ['reusable', 'renewal_warning'].includes(reuseStatus)
+        );
+        const renewalWarning = profileReusable && (
+            profileSource?.profile_reuse_warning === true
+            || reuseStatus === 'renewal_warning'
+        );
+        const profileAgeDays = profileSource?.profile_age_days !== null
+            && profileSource?.profile_age_days !== undefined
+            && Number.isFinite(Number(profileSource.profile_age_days))
+            ? Math.max(0, Number(profileSource.profile_age_days))
+            : null;
+        const daysUntilForcedLogin = profileSource?.days_until_forced_login !== null
+            && profileSource?.days_until_forced_login !== undefined
+            && Number.isFinite(Number(profileSource.days_until_forced_login))
+            ? Math.max(0, Number(profileSource.days_until_forced_login))
+            : null;
         const hasManualAssist = !!(config && (
             String(config.cookies || config.cookie || '').trim()
             || config.has_cookies
@@ -1465,14 +1557,23 @@ window.SUXI_SYSTEM_STATIC = (() => {
             reasonText = 'Browser Profile 未正确绑定当前门店和平台，不能作为当前门店的登录证明。';
         } else if (!storeIdentitySaved) {
             reasonText = '已绑定 Browser Profile，但尚未保存当前门店的平台门店标识和 Profile 标识。';
-        } else if (!sessionVerified) {
+        } else if (reuseStatus === 'expired') {
+            reasonText = 'Profile 登录态已超过复用期，请重新登录后再自动采集。';
+        } else if (!profileReusable) {
             reasonText = '当前门店的平台身份已保存，但尚未形成今天有效的授权登录证明。';
+        } else if (renewalWarning) {
+            reasonText = `Profile 仍可自动采集，建议在 ${daysUntilForcedLogin ?? 0} 天内重新登录。`;
         }
 
         return {
             sourceScopeValid,
             storeIdentitySaved,
             sessionVerified,
+            profileReusable,
+            reuseStatus: sessionVerified ? 'reusable' : (reuseStatus || 'unverified'),
+            renewalWarning,
+            profileAgeDays,
+            daysUntilForcedLogin,
             hasManualAssist,
             reasonText,
         };
@@ -1504,12 +1605,17 @@ window.SUXI_SYSTEM_STATIC = (() => {
         const mismatch = hasPlatformHotelMismatch(source, config);
         const loginExpired = isPlatformSourceLoginExpired(source, config);
         const verification = platformAccountVerificationState({ hotel, platform, profileSource, config });
-        const effectiveReady = !missingConfig && verification.storeIdentitySaved && verification.sessionVerified;
+        const effectiveReady = !missingConfig && verification.storeIdentitySaved && verification.profileReusable;
         const effectivePartial = partial || !!profileSource || !!source?.id || !!config;
         const identityMissing = !!profileSource && !verification.storeIdentitySaved;
+        const reuseExpired = verification.reuseStatus === 'expired';
         const statusCode = mismatch
             ? 'mismatch'
-            : (loginExpired ? 'login_expired' : (effectiveReady ? 'logged_in' : (identityMissing ? 'missing_config' : (effectivePartial ? 'waiting_login' : 'unbound'))));
+            : ((loginExpired || reuseExpired)
+                ? 'login_expired'
+                : (effectiveReady
+                    ? (verification.renewalWarning ? 'renewal_warning' : (verification.sessionVerified ? 'logged_in' : 'profile_reusable'))
+                    : (identityMissing ? 'missing_config' : (effectivePartial ? 'waiting_login' : 'unbound'))));
         const captureCode = platformCaptureStatusCode(source, config);
         const reason = platformAccountReason(statusCode, captureCode, source, config);
         const bound = !!(profileSource || config || source?.id);
@@ -1559,7 +1665,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
             statusText: platformAccountStatusText(statusCode),
             statusClass: platformAccountStatusClass(statusCode),
             accountStoreText: verification.storeIdentitySaved ? platformAccountStoreText(label, hotel, source, config) : '-',
-            lastLoginText: verification.sessionVerified
+            lastLoginText: verification.profileReusable
                 ? formatHotelBindingDate(firstNonEmptyText(sourceConfig.current_session_probe_at, source?.last_login_time, source?.last_login_at))
                 : '-',
             lastCaptureText,
@@ -1568,6 +1674,11 @@ window.SUXI_SYSTEM_STATIC = (() => {
             captureStatusClass: platformCaptureStatusClass(captureCode),
             modules: effectiveReady && !mismatch && !loginExpired ? modules : ['无'],
             sessionVerified: verification.sessionVerified,
+            profileReusable: verification.profileReusable,
+            profileReuseStatus: verification.reuseStatus,
+            renewalWarning: verification.renewalWarning,
+            profileAgeDays: verification.profileAgeDays,
+            daysUntilForcedLogin: verification.daysUntilForcedLogin,
             storeIdentitySaved: verification.storeIdentitySaved,
             hasManualAssist: verification.hasManualAssist,
             verificationReasonText: verification.reasonText,
@@ -1582,7 +1693,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
             loginItem: {
                 platform,
                 platform_name: label,
-                data_source_id: profileSource?.id || source?.id || undefined,
+                data_source_id: profileSource?.id || undefined,
                 profile_key: firstNonEmptyText(loginBinding.profile_id, loginBinding.store_id, loginBinding.poi_id),
                 binding: loginBinding,
             },
@@ -1647,6 +1758,8 @@ window.SUXI_SYSTEM_STATIC = (() => {
         statusCode = '',
         hasProfile = false,
         currentSessionVerified = false,
+        profileReusable = false,
+        renewalWarning = false,
         hasManualAssist = false,
         accountLevel = '',
     } = {}) => {
@@ -1656,8 +1769,8 @@ window.SUXI_SYSTEM_STATIC = (() => {
         if (statusCode === 'login_expired') return 'login_expired';
         if (statusCode === 'missing_config') return 'missing_config';
         if (statusCode === 'unbound' && !hasProfile && !hasManualAssist) return 'unbound';
-        if (hasProfile && !currentSessionVerified) return 'waiting_login';
         if (hasProfile && currentSessionVerified && accountLevel === 'ready') return 'auto_ready';
+        if (hasProfile) return 'waiting_login';
         if (!hasProfile && hasManualAssist && accountLevel === 'ready') return 'manual_ready';
         return accountLevel === 'partial' ? 'waiting_login' : 'unbound';
     };
@@ -1866,6 +1979,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         formatNumber,
         formatDate,
         formatConfigDate,
+        sortHotelManagementRows,
         formatKnowledgeJson,
         formatCommentTime,
         aiRound,
@@ -1894,6 +2008,10 @@ window.SUXI_SYSTEM_STATIC = (() => {
         createHotelForm,
         normalizeHotelIdentityName,
         buildHotelSavePayload,
+        selectedHotelOtaPlatforms,
+        hotelOtaStrategyFromPlatforms,
+        buildHotelVerifiedOtaState,
+        buildHotelOtaStatusBadges,
         createHotelMergeForm,
         hotelMergeVisibleItems,
         hotelMergeSkippableConflictCount,

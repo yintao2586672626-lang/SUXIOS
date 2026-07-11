@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const html = readFileSync('public/index.html', 'utf8');
 const systemStatic = readFileSync('public/system-static.js', 'utf8');
+const style = readFileSync('public/style.css', 'utf8');
 
 test('sidebar defaults to expanded on desktop and remembers manual toggle', () => {
   assert.match(systemStatic, /const sidebarPreferenceKey = 'suxios_sidebar_collapsed'/);
@@ -17,4 +18,11 @@ test('sidebar defaults to expanded on desktop and remembers manual toggle', () =
   assert.match(html, /persistSidebarCollapsedPreferenceStatic\(sidebarCollapsed\.value, localStorage\)/);
   assert.match(html, /const sidebarCollapsed = ref\(loadSidebarCollapsedPreference\(localStorage\)\)/);
   assert.match(html, /sidebarCollapsed\.value = !sidebarCollapsed\.value;\s*\n\s*persistSidebarCollapsedPreference\(\);/);
+});
+
+test('expanded desktop sidebar is one fifth narrower without changing compact widths', () => {
+  assert.match(html, /style\.css\?v=20260712-sidebar-expanded-205-collapsed-72/);
+  assert.match(style, /aside\.sidebar\s*\{[\s\S]*?width:\s*205px;[\s\S]*?min-width:\s*205px;/);
+  assert.match(style, /aside\.sidebar\.collapsed\s*\{[\s\S]*?width:\s*72px\s*!important;[\s\S]*?min-width:\s*72px\s*!important;[\s\S]*?max-width:\s*72px\s*!important;[\s\S]*?flex:\s*0 0 72px\s*!important;/);
+  assert.match(style, /@media\s*\(max-width:\s*640px\)[\s\S]*?aside\.sidebar\.sidebar\s*\{[\s\S]*?width:\s*64px\s*!important;/);
 });

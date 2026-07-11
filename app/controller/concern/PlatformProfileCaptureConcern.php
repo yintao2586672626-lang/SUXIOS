@@ -434,9 +434,16 @@ trait PlatformProfileCaptureConcern
 
     private function profileCookieSourceLoginMissingRequirements(array $source): array
     {
-        return (new OtaProfileSessionProofService())->isCurrentVerified($source)
-            ? []
-            : ['current_session_verified'];
+        $proofService = new OtaProfileSessionProofService();
+        if ($proofService->isCurrentVerified($source)) {
+            return [];
+        }
+        $state = $proofService->profileReuseState($source);
+        return [match ((string)($state['status'] ?? 'unverified')) {
+            'expired' => 'profile_session_expired',
+            'reusable', 'renewal_warning' => 'current_session_verified',
+            default => 'profile_session_unverified',
+        }];
     }
 
     private function loadProfileSessionSource(
@@ -449,7 +456,7 @@ trait PlatformProfileCaptureConcern
         }
 
         $rows = Db::name('platform_data_sources')
-            ->field('id,tenant_id,system_hotel_id,platform,ingestion_method,enabled,status,config_json')
+            ->field('id,tenant_id,system_hotel_id,platform,ingestion_method,enabled,status,config_json,last_sync_status,last_error')
             ->where('system_hotel_id', $systemHotelId)
             ->where('platform', strtolower(trim($platform)))
             ->whereIn('ingestion_method', ['browser_profile', 'profile_browser'])
@@ -1241,12 +1248,6 @@ trait PlatformProfileCaptureConcern
 
     private function buildCtripProfileCaptureConfigOptions(array $source, array $original = []): array
     {
-        $sectionValue = $this->firstPresentCtripConfigValue(
-            $source,
-            ['profile_sections', 'capture_sections', 'captureSections'],
-            $this->firstPresentCtripConfigValue($original, ['profile_sections', 'capture_sections', 'captureSections'], 'default')
-        );
-        $sections = $this->normalizeCtripProfileCaptureSections($sectionValue);
         $mappingPath = $this->firstPresentCtripConfigValue(
             $source,
             ['approved_mappings_path', 'approved_mapping_path', 'p3_mappings_path', 'approvedMappingsPath', 'approvedMappingPath', 'p3MappingsPath'],
@@ -1258,8 +1259,8 @@ trait PlatformProfileCaptureConcern
         );
 
         return [
-            'capture_sections' => $sections,
-            'profile_sections' => $sections,
+            'capture_sections' => 'all',
+            'profile_sections' => 'all',
             'approved_mappings_path' => trim(str_replace("\0", '', is_scalar($mappingPath) ? (string)$mappingPath : '')),
         ];
     }

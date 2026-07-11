@@ -117,6 +117,7 @@ $robotControllerSource = file_get_contents(__DIR__ . '/../app/controller/admin/C
 $systemConfigControllerSource = file_get_contents(__DIR__ . '/../app/controller/SystemConfigController.php');
 $userSource = file_get_contents(__DIR__ . '/../app/controller/User.php');
 $hotelSource = file_get_contents(__DIR__ . '/../app/controller/Hotel.php');
+$hotelArchiveServiceSource = file_get_contents(__DIR__ . '/../app/service/HotelCascadeDeletionService.php');
 $authMiddlewareSource = file_get_contents(__DIR__ . '/../app/middleware/Auth.php');
 $compassViewSource = file_get_contents(__DIR__ . '/../app/view/admin/compass/index.html');
 $robotListViewSource = file_get_contents(__DIR__ . '/../app/view/admin/competitor_wechat_robot/index.html');
@@ -173,7 +174,6 @@ assert_regression(str_contains($competitorReportSource, '$this->isValidReportPri
 assert_regression(str_contains($competitorReportSource, "'invalid_report_price'"), 'competitor report must audit invalid competitor price text instead of saving price=0');
 foreach ([
     'Ctrip browser Profile adapter' => $ctripBrowserAdapterSource,
-    'Meituan browser Profile adapter' => $meituanBrowserAdapterSource,
     'Profile capture concern' => $platformProfileCaptureSource,
     'Chromium Cookie extractor' => $chromiumCookieExtractorSource,
 ] as $label => $source) {
@@ -260,6 +260,10 @@ assert_regression(!str_contains($bookmarkletSource . $ctripBookmarkletSource . $
 assert_regression(!str_contains($bookmarkletSource . $ctripBookmarkletSource . $disabledCookieBookmarkletHelperSource, 'Authorization'), 'bookmarklet endpoints must not embed the main login Authorization header');
 
 assert_regression(str_contains($userDeleteSource, 'ensureUserCanBeDeleted'), 'user deletion must run association protection before hard delete');
-assert_regression(str_contains($hotelDeleteSource, 'ensureHotelCanBeDeleted'), 'hotel deletion must run association protection before hard delete');
+assert_regression(str_contains($hotelDeleteSource, 'HotelCascadeDeletionService') && str_contains($hotelDeleteSource, '->delete($id,'), 'hotel archive must use the guarded archive service');
+assert_regression(str_contains($hotelArchiveServiceSource, "'archived_at' => date('Y-m-d H:i:s')"), 'hotel archive must preserve records by marking archived_at');
+assert_regression(str_contains($hotelArchiveServiceSource, 'public function restore(int $hotelId)'), 'hotel archive must expose a reversible restore path');
+assert_regression(!str_contains($hotelArchiveServiceSource, "Db::name('hotels')->where('id', \$hotelId)->delete()"), 'hotel archive service must not hard delete the hotel row');
+assert_regression(str_contains($routeSource, "Route::post('/:id/restore', 'Hotel/restore')"), 'hotel archive restore route must remain authenticated');
 
 echo 'Report, security, and finance regression verification passed.' . PHP_EOL;

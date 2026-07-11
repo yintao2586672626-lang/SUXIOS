@@ -1747,7 +1747,6 @@ window.SUXI_MEITUAN_STATIC = (() => {
             resolveMeituanExecutionConfigId(item)
             && item?.has_cookies === true
             && String(item?.credential_status || '') === 'ready'
-            && item?.configuration_verified === true
         ));
         const source = successful.length ? successful : candidates;
         const recencyText = item => String(
@@ -1812,26 +1811,19 @@ window.SUXI_MEITUAN_STATIC = (() => {
         resolveMeituanExecutionConfigId(config)
         && config?.has_cookies === true
         && String(config?.credential_status || '') === 'ready'
-        && config?.configuration_verified === true
     );
     const buildMeituanManualCredentialState = (config = null) => {
         const status = String(config?.credential_status || '').trim().toLowerCase();
         if (isMeituanExecutionConfigReady(config)) {
+            const profileVerified = config?.configuration_verified === true;
             return {
                 key: 'ready',
                 canFetch: true,
-                label: '美团配置验证成功',
-                detail: '配置已保存，且当前门店授权登录验证成功。',
+                label: '美团凭据已就绪',
+                detail: profileVerified
+                    ? '凭据已就绪，且当前门店 Profile 登录验证成功。'
+                    : '凭据已就绪，可以直接获取数据验证；Profile 自动采集仍需单独完成登录验证。',
                 tone: 'success',
-            };
-        }
-        if (config?.configuration_saved === true && config?.configuration_verified !== true) {
-            return {
-                key: 'saved_pending_verification',
-                canFetch: false,
-                label: '美团配置已保存，待验证',
-                detail: '请完成该门店的授权登录验证后再获取数据。',
-                tone: 'warning',
             };
         }
         if (config && (config.migration_required === true || config.migration_required === 1 || status === 'migration_required')) {

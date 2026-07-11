@@ -29,6 +29,7 @@ const permissionService = read('app/service/PermissionService.php');
 const compassController = read('app/controller/admin/Compass.php');
 const migration = read('database/migrations/20260614_add_access_tier_hotel_owner_scope.sql');
 const hotelOtaStrategyMigration = read('database/migrations/20260709_add_hotel_ota_channel_strategy.sql');
+const hotelOtaLoginEligibilityVerifier = read('scripts/verify_hotel_ota_login_eligibility.php');
 const initFull = read('database/init_full.sql');
 const seedSql = read('database/hotel_admin_mysql.sql');
 const seedNormalRoleLine = seedSql.split(/\r?\n/).find(line => line.includes("'normal_user'")) || '';
@@ -103,9 +104,53 @@ const invalidStrategyPayload = systemStaticApi.buildHotelSavePayload({
   operatorName: '管理员',
   description: '',
 });
-assert.equal(createdHotelForm.ota_channel_strategy, 'dual', 'new hotel forms must default to dual OTA channels');
+assert.equal(createdHotelForm.ota_channel_strategy, 'none', 'new hotel forms must not claim an OTA channel before the user selects one');
 assert.equal(editedHotelForm.ota_channel_strategy, 'ctrip_only', 'hotel edit forms must echo the saved OTA channel strategy');
-assert.equal(invalidStrategyPayload.ota_channel_strategy, 'dual', 'invalid UI OTA channel strategy must fall back to dual before save');
+assert.equal(invalidStrategyPayload.ota_channel_strategy, 'none', 'invalid UI OTA channel strategy must not silently claim dual channels');
+assert.deepEqual(Array.from(systemStaticApi.selectedHotelOtaPlatforms('dual')), ['ctrip', 'meituan'], 'dual selection must map to both OTA platforms');
+assert.deepEqual(Array.from(systemStaticApi.selectedHotelOtaPlatforms('none')), [], 'none selection must map to no OTA platform');
+assert.equal(systemStaticApi.hotelOtaStrategyFromPlatforms(['ctrip']), 'ctrip_only');
+assert.equal(systemStaticApi.hotelOtaStrategyFromPlatforms(['meituan']), 'meituan_only');
+assert.equal(systemStaticApi.hotelOtaStrategyFromPlatforms(['ctrip', 'meituan']), 'dual');
+assert.equal(systemStaticApi.hotelOtaStrategyFromPlatforms([]), 'none');
+assert.deepEqual(
+  JSON.parse(JSON.stringify(systemStaticApi.buildHotelVerifiedOtaState([
+    { platform: 'ctrip', level: 'ready', sessionVerified: true, storeIdentitySaved: true },
+    { platform: 'meituan', level: 'partial', sessionVerified: false, storeIdentitySaved: true },
+  ]))),
+  { key: 'ctrip', text: '携程', visible: true, className: 'bg-blue-50 text-blue-700 border-blue-100' },
+  'a planned dual strategy must only show the channel whose current login is actually verified'
+);
+assert.equal(systemStaticApi.buildHotelVerifiedOtaState([
+  { platform: 'ctrip', level: 'ready', sessionVerified: true, storeIdentitySaved: true },
+  { platform: 'meituan', level: 'ready', sessionVerified: true, storeIdentitySaved: true },
+]).text, '双渠道', 'dual-channel status requires both platform logins to be verified');
+assert.equal(systemStaticApi.buildHotelVerifiedOtaState([]).visible, false, 'no verified OTA login must hide the channel status badge');
+assert.deepEqual(
+  Array.from(systemStaticApi.buildHotelOtaStatusBadges([
+    { platform: 'ctrip', level: 'partial', sessionVerified: false, storeIdentitySaved: false },
+    { platform: 'meituan', level: 'partial', sessionVerified: false, storeIdentitySaved: true },
+  ]), badge => badge.text),
+  ['待登录'],
+  'selected channels must use one compact truthful pending-login badge'
+);
+assert.deepEqual(
+  Array.from(systemStaticApi.buildHotelOtaStatusBadges([
+    { platform: 'ctrip', level: 'ready', sessionVerified: true, storeIdentitySaved: true },
+    { platform: 'meituan', level: 'partial', sessionVerified: false, storeIdentitySaved: true },
+  ]), badge => badge.text),
+  ['携程'],
+  'the compact badge must show the only currently verified platform'
+);
+assert.deepEqual(
+  Array.from(systemStaticApi.buildHotelOtaStatusBadges([
+    { platform: 'ctrip', level: 'ready', sessionVerified: true, storeIdentitySaved: true },
+    { platform: 'meituan', level: 'ready', sessionVerified: true, storeIdentitySaved: true },
+  ]), badge => badge.text),
+  ['双平台'],
+  'two verified selected channels must collapse into one dual-platform badge'
+);
+assert.deepEqual(Array.from(systemStaticApi.buildHotelOtaStatusBadges([])), [], 'unselected channels must render no badge');
 const flattenMenu = (items = []) => items.flatMap(item => [item, ...flattenMenu(item.children || [])]);
 const visiblePathsFor = (currentUser) => flattenMenu(systemStaticApi.filterVisibleMenuItems(systemStaticApi.menuItemDefinitions, currentUser))
   .map(item => item.path)
@@ -145,9 +190,9 @@ assert.doesNotMatch(indexHtml, /testid:\s*'nav-lean-hotel-knowledge'[\s\S]{0,160
 assert.match(indexHtml, />全部门店<\/span>/, 'hotel account filter should distinguish total stores from active-store metrics');
 assert.match(indexHtml, /营业中 \{\{ hotelBindingOverview\.active \}\}/, 'hotel account filter should expose active-store count beside total stores');
 assert.match(indexHtml, />账号待补<\/span>/, 'hotel account filter should keep pending work scoped to account collection readiness');
-assert.match(indexHtml, /说明：账号待补只统计门店 OTA 策略适用的平台；携程独家不把美团缺配置算异常，主美团不把携程缺配置算异常。/, 'hotel account filter should keep pending work scoped to applicable OTA platforms');
+assert.match(indexHtml, /说明：账号待补只统计已勾选的适用渠道；未勾选的平台不展示、不计入异常。/, 'hotel account filter should keep pending work scoped to selected OTA platforms');
 assert.match(indexHtml, /const todo = activeHotels\.filter\(h => hotelAccountHealthKey\(h\) === 'todo'\)\.length;/, 'todo count should only reflect account collection readiness');
-assert.match(indexHtml, /OTA 渠道策略[\s\S]*hotelForm\.ota_channel_strategy = 'ctrip_only'[\s\S]*携程[\s\S]*hotelForm\.ota_channel_strategy = 'dual'[\s\S]*双渠道[\s\S]*hotelForm\.ota_channel_strategy = 'meituan_only'[\s\S]*主美团/, 'hotel form must expose left-middle-right OTA strategy controls with dual as the default path');
+assert.match(indexHtml, /适用 OTA 渠道（可多选）[\s\S]*hotelFormChannelSelected\('ctrip'\)[\s\S]*toggleHotelFormChannel\('ctrip'\)[\s\S]*携程[\s\S]*hotelFormChannelSelected\('meituan'\)[\s\S]*toggleHotelFormChannel\('meituan'\)[\s\S]*美团/, 'hotel form must expose independently selectable OTA channels');
 assert.match(indexHtml, /const hotelPlatformApplicable = \(hotel = \{\}, platform = ''\) => \{[\s\S]*ctrip_only[\s\S]*key === 'ctrip'[\s\S]*meituan_only[\s\S]*key === 'meituan'/, 'OTA strategy must define which platform is applicable for account readiness');
 assert.match(indexHtml, /const hotelApplicablePlatformBindingRows = \(hotel = \{\}\) => \{[\s\S]*hotelPlatformBindingRows\(hotel\)\.filter\(row => hotelPlatformApplicable\(hotel, row\.platform\)\)/, 'account health rows must filter out non-applicable OTA platforms');
 assert.match(indexHtml, /const hotelAccountHealthKey = \(hotel = \{\}\) => \{[\s\S]*if \(rows\.length === 0\) return 'todo';/, 'empty applicable OTA platform rows must not be treated as ready');
@@ -161,9 +206,9 @@ assert.doesNotMatch(indexHtml, /manual_login_state_verified\|logged_in/, 'Profil
 assert.doesNotMatch(indexHtml, /manual_login_state_verified\/i\.test\(currentStatus\)/, 'historical manual-login text must not authorize the Profile flow');
 assert.match(indexHtml, /\{\{ hotelBindingOverview\.ctripBound \}\}\/\{\{ hotelBindingOverview\.ctripApplicable \}\}/, 'Ctrip readiness KPI must show applicable denominator');
 assert.match(indexHtml, /\{\{ hotelBindingOverview\.meituanBound \}\}\/\{\{ hotelBindingOverview\.meituanApplicable \}\}/, 'Meituan readiness KPI must show applicable denominator');
-assert.match(indexHtml, />OTA策略<\/span>[\s\S]*hotelOtaStrategyText\(hotel\)/, 'store identity must expose the selected OTA strategy');
-assert.match(indexHtml, />携程不适用<\/div>[\s\S]*hotelInactivePlatformText\(hotel, 'ctrip'\)/, 'Ctrip-exclusive and Meituan-main layouts must show compact non-applicable Ctrip state instead of full card');
-assert.match(indexHtml, />美团不适用<\/div>[\s\S]*hotelInactivePlatformText\(hotel, 'meituan'\)/, 'Ctrip-exclusive and Meituan-main layouts must show compact non-applicable Meituan state instead of full card');
+assert.match(indexHtml, /v-for="badge in hotelOtaStatusBadges\(hotel\)"[^>]*data-testid="hotel-ota-strategy"/, 'store identity must expose every selected OTA channel with its truthful login state');
+assert.doesNotMatch(indexHtml, />携程不适用<\/div>/, 'unselected Ctrip must be hidden instead of rendered as a placeholder');
+assert.doesNotMatch(indexHtml, />美团不适用<\/div>/, 'unselected Meituan must be hidden instead of rendered as a placeholder');
 assert.match(indexHtml, /v-for="account in hotelApplicablePlatformBindingRows\(hotel\)"/, 'mobile hotel platform cards must omit non-applicable OTA platforms');
 assert.match(indexHtml, /v-for="account in hotelApplicablePlatformBindingRows\(hotelFormAccountHotel\(\)\)"/, 'hotel modal platform cards must omit non-applicable OTA platforms');
 assert.match(indexHtml, /hotel && !hotelPlatformApplicable\(hotel, 'meituan'\)[\s\S]*status: 'not_applicable'/, 'Meituan competitor readiness must not create work for Ctrip-exclusive hotels');
@@ -429,7 +474,8 @@ assert.match(indexHtml, /const filterUserHotelId = ref\(''\);/, 'user management
 assert.doesNotMatch(userManagementToolbarSlice, /users\.filter\(u => u\.role_id === [123]\)/, 'user management summary must not hard-code legacy role IDs 1/2/3');
 
 assert.match(hotelController, /created_by/, '酒店控制器必须使用 created_by 创建人隔离');
-assert.match(hotelController, /can_force_delete'\s*=>\s*\$canForceDelete/, '酒店强制删除能力必须按当前角色返回');
+assert.match(hotelController, /can_force_delete'\s*=>\s*\$canForceDelete/, '酒店归档确认能力必须按当前角色返回');
+assert.match(routes, /Route::post\('\/:id\/restore', 'Hotel\/restore'\)/, 'archived hotels must expose an authenticated restore route');
 
 assert.match(migration, /ADD COLUMN IF NOT EXISTS `created_by`/, '迁移必须补 hotels.created_by');
 assert.match(migration, /'beta_user'/, '迁移必须写入内测用户角色');
@@ -441,11 +487,16 @@ assert.match(routes, /Route::post\('api\/hotels\/', 'Hotel\/create'\)->middlewar
 assert.match(hotelController, /owner_user_id/, 'hotel controller must write owner_user_id');
 assert.match(migration, /ADD COLUMN IF NOT EXISTS `owner_user_id`/, 'migration must add hotels.owner_user_id');
 assert.match(hotelController, /normalizeOtaChannelStrategy/, 'hotel controller must validate OTA channel strategy before save');
+assert.match(hotelController, /OTA_CHANNEL_STRATEGIES\s*=\s*\['none', 'ctrip_only', 'dual', 'meituan_only'\]/, 'hotel controller must accept an explicit no-channel selection');
 assert.match(hotelController, /ota_channel_strategy/, 'hotel controller must persist OTA channel strategy when the column exists');
-assert.match(hotelController, /normalizeOtaChannelStrategy\(\$data, \(string\)\(\$hotel->ota_channel_strategy \?\? 'dual'\)\)/, 'hotel updates must preserve an existing OTA channel strategy when old clients omit the new field');
-assert.match(hotelController, /if \(\$value === ''\) \{[\s\S]*return in_array\(\$default, self::OTA_CHANNEL_STRATEGIES, true\) \? \$default : 'dual';[\s\S]*\}/, 'blank OTA channel strategy updates must preserve the existing strategy instead of resetting to dual');
+assert.match(hotelController, /normalizeOtaChannelStrategy\(\$data, \(string\)\(\$hotel->ota_channel_strategy \?\? 'none'\)\)/, 'hotel updates must preserve an existing OTA channel strategy when old clients omit the new field');
+assert.match(hotelController, /if \(\$value === ''\) \{[\s\S]*return in_array\(\$default, self::OTA_CHANNEL_STRATEGIES, true\) \? \$default : 'none';[\s\S]*\}/, 'blank OTA channel strategy updates must fail closed to no OTA channel when no valid persisted strategy exists');
 assert.match(hotelOtaStrategyMigration, /ADD COLUMN IF NOT EXISTS `ota_channel_strategy`/, 'migration must add hotels.ota_channel_strategy');
+assert.match(hotelOtaStrategyMigration, /DEFAULT 'none'/, 'new hotel records must not default to a false dual-channel claim');
+assert.match(hotelOtaStrategyMigration, /NOT IN \('none', 'ctrip_only', 'dual', 'meituan_only'\)/, 'migration must preserve the explicit no-channel strategy');
+assert.match(hotelOtaLoginEligibilityVerifier, /'none'\s*=>\s*\[\]/, 'eligibility verification must treat no selected OTA channel as an empty applicable scope');
 assert.match(initFull, /20260709_add_hotel_ota_channel_strategy\.sql/, 'full initialization must include hotel OTA channel strategy migration');
+assert.match(initFull, /20260712_add_hotel_archiving\.sql/, 'full initialization must include reversible hotel archiving fields');
 assert.match(migration, /can_fetch_online_data` = CASE WHEN u\.`role_id` = 2 THEN 1 ELSE 0 END/, 'normal users must not collect OTA by default');
 assert.doesNotMatch(seedNormalRoleLine, /can_fetch_online_data/, 'legacy MySQL seed normal_user role must not include OTA collection permission');
 assert.match(

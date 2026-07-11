@@ -126,6 +126,8 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
             unconfigured: '未配置',
             waiting_login: '登录待验证',
             logged_in: '登录态已验证',
+            profile_reusable: '待检测当天登录态',
+            renewal_warning: '待检测当天登录态·建议续登',
             session_expired: 'Session expired',
             login_expired: '登录失效',
             login_required: '需要登录',
@@ -156,6 +158,8 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         session_expired: 'bg-red-50 text-red-700 border-red-200',
         resource_busy_login: 'bg-amber-50 text-amber-700 border-amber-200',
         logged_in: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        profile_reusable: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        renewal_warning: 'bg-amber-50 text-amber-700 border-amber-200',
         waiting_login: 'bg-amber-50 text-amber-700 border-amber-200',
         login_expired: 'bg-red-50 text-red-700 border-red-200',
         permission_denied: 'bg-red-50 text-red-700 border-red-200',
@@ -235,7 +239,9 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         if (statusCode === 'session_expired') return '平台授权已失效；账号使用者在本机授权浏览器内重新验证后再采集。';
         if (['permission_denied', 'no_permission', 'unauthorized'].includes(statusCode)) return '当前账号无该门店采集权限，请切换账号或补授权。';
         if (statusCode === 'hotel_mismatch') return 'Profile 登录态存在，但绑定门店与当前门店不匹配，请重新绑定正确门店。';
-        if (['logged_in'].includes(statusCode)) return '登录态已验证，不等于数据已入库；请执行目标日同步并检查入库结果。';
+        if (statusCode === 'renewal_warning') return 'Profile 仍可自动采集；建议在强制续登日前重新登录。';
+        if (statusCode === 'logged_in') return '当天登录态已验证，不等于数据已入库；请执行目标日同步并检查入库结果。';
+        if (statusCode === 'profile_reusable') return 'Profile 可复用，但必须先检测当天登录态，再执行目标日同步。';
         if (['waiting_login', 'login_expired', 'login_required'].includes(statusCode) || /login|auth|cookie|登录|授权|过期|失效/i.test(raw)) {
             return '账号使用者在本机完成或刷新平台授权后，再运行现有自动采集';
         }

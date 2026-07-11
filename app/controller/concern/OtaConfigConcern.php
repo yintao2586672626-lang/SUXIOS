@@ -1214,6 +1214,8 @@ trait OtaConfigConcern
             $metadata['config_id'] = $configId;
             $metadata['hotel_id'] = (string)$systemHotelId;
             $metadata['system_hotel_id'] = $systemHotelId;
+            $metadata['capture_sections'] = 'all';
+            $metadata['profile_sections'] = 'all';
 
             $credentialMetadata = $this->storeOtaConfigCredential(
                 $systemHotelId,
@@ -2098,8 +2100,7 @@ trait OtaConfigConcern
             $configId = trim((string)($config['config_id'] ?? $config['id'] ?? ''));
             return preg_match('/^[A-Za-z0-9._-]{1,100}$/D', $configId) === 1
                 && (string)($config['credential_status'] ?? '') === 'ready'
-                && ($config['has_cookies'] ?? false) === true
-                && ($config['configuration_verified'] ?? false) === true;
+                && ($config['has_cookies'] ?? false) === true;
         }));
         if ($successful === []) {
             return [];
@@ -2129,8 +2130,7 @@ trait OtaConfigConcern
             $configId = trim((string)($config['config_id'] ?? $config['id'] ?? ''));
             return preg_match('/^[A-Za-z0-9._-]{1,100}$/D', $configId) === 1
                 && (string)($config['credential_status'] ?? '') === 'ready'
-                && ($config['has_cookies'] ?? false) === true
-                && ($config['configuration_verified'] ?? false) === true;
+                && ($config['has_cookies'] ?? false) === true;
         }));
         if ($successful === []) {
             return [];
@@ -2243,7 +2243,10 @@ trait OtaConfigConcern
         } catch (\Throwable) {
             throw new RuntimeException('Stored ctrip config metadata is unavailable.');
         }
-        $list = array_values(array_filter($this->decodeStoredOtaConfigMetadata($raw, 'ctrip'), 'is_array'));
+        $list = $this->applyCtripAllCaptureCapabilityToList(
+            $this->decodeStoredOtaConfigMetadata($raw, 'ctrip')
+        );
+        $list = array_values(array_filter($list, 'is_array'));
         $safeList = array_values($this->sanitizeStoredOtaConfigListForRuntime($list));
         return $this->writeAutoFetchLightReadCache($cacheKey, $safeList);
     }
@@ -2557,6 +2560,9 @@ trait OtaConfigConcern
 
     private function normalizeStoredOtaConfigList(string $table, string $key, array $list, string $platform): array
     {
+        if ($platform === 'ctrip') {
+            $list = $this->applyCtripAllCaptureCapabilityToList($list);
+        }
         if (empty($list)) {
             return $list;
         }
@@ -2579,6 +2585,23 @@ trait OtaConfigConcern
         }
 
         return $normalizedList;
+    }
+
+    private function applyCtripAllCaptureCapability(array $config): array
+    {
+        $config['capture_sections'] = 'all';
+        $config['profile_sections'] = 'all';
+        return $config;
+    }
+
+    private function applyCtripAllCaptureCapabilityToList(array $list): array
+    {
+        foreach ($list as $key => $config) {
+            if (is_array($config)) {
+                $list[$key] = $this->applyCtripAllCaptureCapability($config);
+            }
+        }
+        return $list;
     }
 
     /**

@@ -849,7 +849,7 @@ trait OnlineDataManualFetchConcern
             if (!is_array($dateResult)) {
                 continue;
             }
-            foreach ($this->extractCtripManualBusinessSelfHotelIds($dateResult['data'] ?? [], $systemHotelId, $targetHotelName) as $id) {
+            foreach ($this->extractCtripManualBusinessSelfHotelIds($dateResult['data'] ?? [], $systemHotelId) as $id) {
                 $idValue = (string)$id;
                 if ($this->isMeaningfulCtripPlatformHotelId($idValue, $systemHotelId) && !isset($nodeIds[$idValue])) {
                     $capturedIds[$idValue] = true;
@@ -1263,11 +1263,11 @@ trait OnlineDataManualFetchConcern
 
     private function resolveCtripManualBusinessHotelIdentityFromResponse(array $dateResults, array $requestData = []): array
     {
-        $capturedIds = $this->extractCtripManualBusinessCapturedSelfHotelIds($dateResults, 0, '', $requestData);
+        $capturedIds = $this->extractCtripManualBusinessCapturedSelfHotelIds($dateResults, 0, $requestData);
         return $this->resolveCtripSystemHotelIdentityFromPlatformIds($capturedIds, $requestData);
     }
 
-    private function extractCtripManualBusinessCapturedSelfHotelIds(array $dateResults, int $systemHotelId = 0, string $targetHotelName = '', array $requestData = []): array
+    private function extractCtripManualBusinessCapturedSelfHotelIds(array $dateResults, int $systemHotelId = 0, array $requestData = []): array
     {
         $nodeIds = array_fill_keys($this->extractCtripNodeResourceIds($requestData), true);
         $capturedIds = [];
@@ -1275,7 +1275,7 @@ trait OnlineDataManualFetchConcern
             if (!is_array($dateResult)) {
                 continue;
             }
-            foreach ($this->extractCtripManualBusinessSelfHotelIds($dateResult['data'] ?? [], $systemHotelId, $targetHotelName) as $id) {
+            foreach ($this->extractCtripManualBusinessSelfHotelIds($dateResult['data'] ?? [], $systemHotelId) as $id) {
                 $idValue = (string)$id;
                 if ($this->isMeaningfulCtripPlatformHotelId($idValue, $systemHotelId) && !isset($nodeIds[$idValue])) {
                     $capturedIds[$idValue] = true;
@@ -1458,14 +1458,14 @@ trait OnlineDataManualFetchConcern
         }
     }
 
-    private function extractCtripManualBusinessSelfHotelIds($responseData, int $systemHotelId, string $targetHotelName = ''): array
+    private function extractCtripManualBusinessSelfHotelIds($responseData, int $systemHotelId): array
     {
         $ids = [];
         foreach ($this->extractCtripBusinessDataList($responseData) as $item) {
             if (!is_array($item)) {
                 continue;
             }
-            if (!$this->isCtripManualBusinessSelfRow($item, $targetHotelName)) {
+            if (!$this->isCtripManualBusinessSelfRow($item)) {
                 continue;
             }
             $id = $this->resolveCtripPlatformHotelId($item);
@@ -1477,11 +1477,11 @@ trait OnlineDataManualFetchConcern
         return array_keys($ids);
     }
 
-    private function isCtripManualBusinessSelfRow(array $item, string $targetHotelName = ''): bool
+    private function isCtripManualBusinessSelfRow(array $item): bool
     {
         foreach (['hotelName', 'hotel_name', 'HotelName', 'name', 'metric_hotel_name'] as $key) {
             $hotelName = trim((string)($item[$key] ?? ''));
-            if ($hotelName !== '' && ($this->isCtripGenericSelfHotelName($hotelName) || $this->ctripHotelNameMatches($hotelName, $targetHotelName))) {
+            if ($hotelName !== '' && $this->isCtripGenericSelfHotelName($hotelName)) {
                 return true;
             }
         }

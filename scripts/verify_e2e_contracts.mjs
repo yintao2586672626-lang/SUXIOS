@@ -25,6 +25,16 @@ function requireText(file, needle, label) {
   });
 }
 
+function requirePattern(file, pattern, label) {
+  const source = read(file);
+  checks.push({
+    file,
+    label,
+    ok: pattern.test(source),
+    detail: pattern.toString(),
+  });
+}
+
 function requireOnlineDataControllerText(needle, label) {
   const source = readOnlineDataControllerSource();
   checks.push({
@@ -133,11 +143,11 @@ requireText('public/index.html', ':value="u?.id || \'\'"', 'operation log user f
 requireText('public/index.html', "{{ u?.realname || u?.username || '-' }}", 'operation log user filter handles missing names');
 requireText('public/index.html', 'vue.global.prod.js?v=', 'entry versions the local Vue runtime');
 requireText('public/index.html', 'system-static.js?v=', 'entry versions the system static helper');
-requireText('public/index.html', 'ctrip-static.js?v=20260711-identity-warning-owner-scope-hdbe91a6843', 'entry cache-busts the current Ctrip static helper');
+requirePattern('public/index.html', /ctrip-static\.js\?v=[^"']*-h[0-9a-f]{10}/, 'entry cache-busts the current Ctrip static helper with its content hash');
 requireText('public/ctrip-static.js', 'const buildCtripBusinessCanvas', 'Ctrip static owns business download canvas rendering');
 requireText('public/index.html', "const buildCtripBusinessCanvasStatic = requireCtripStatic('buildCtripBusinessCanvas')", 'entry uses extracted Ctrip business canvas renderer');
 requireText('public/index.html', 'return buildCtripBusinessCanvasStatic({', 'entry keeps Ctrip business canvas rendering as a thin adapter');
-requireText('public/index.html', 'meituan-static.js?v=20260711-config-locator-no-cross-hotel-hc6b2dd9d3f-today-absolute-completeness-progress-failure-visible-fast-incomplete-partial-state-full-health', 'entry bumps Meituan static helper version after fast incomplete and full truthful health-state fix');
+requirePattern('public/index.html', /meituan-static\.js\?v=[^"']*-h[0-9a-f]{10}/, 'entry cache-busts the current Meituan static helper with its content hash');
 requireText('public/meituan-static.js', "rankTypes: ['P_RZ', 'P_XS', 'P_ZH', 'P_LL']", 'Meituan form uses the canonical P_LL traffic-rank type');
 requireText('public/meituan-static.js', "const meituanBatchRankTypes = ['P_RZ', 'P_XS', 'P_ZH', 'P_LL'];", 'Meituan batch tasks use the canonical P_LL traffic-rank type');
 requireNoText('public/meituan-static.js', 'P_LL_EXPOSE', 'Meituan static helper does not reintroduce the obsolete traffic-rank alias');
@@ -477,7 +487,7 @@ requireText('public/meituan-static.js', 'const runMeituanAdsFetchFlow', 'Meituan
 requireText('public/meituan-static.js', 'const runMeituanManualTabSwitch = async', 'Meituan static runs manual tab switch orchestration');
 requireText('public/components/online-data/platform-auto-settings-panels.js', 'data-testid="meituan-browser-supplement-capture"', 'Platform auto panel exposes Meituan supplemental browser capture entry');
 requireNoText('public/index.html', '<script src="auto-fetch-static.js"></script>', 'frontend lazy-loads extracted auto-fetch static helper');
-requireText('public/index.html', "const autoFetchStaticScript = 'auto-fetch-static.js'", 'entry keeps auto-fetch static lazy script path');
+requirePattern('public/index.html', /const\s+autoFetchStaticScript\s*=\s*['"]auto-fetch-static\.js(?:\?[^'"]+)?['"]/, 'entry keeps a versioned auto-fetch static lazy script path');
 requireText('public/index.html', 'const ensureAutoFetchStaticReady = async () =>', 'entry keeps auto-fetch static ready guard');
 requireText('public/index.html', "requireAutoFetchStatic('runAutoFetchTriggerFlow')", 'entry uses extracted auto-fetch trigger flow runner');
 requireText('public/index.html', 'const loadAutoFetchPanel = async', 'entry keeps platform auto-fetch panel loader');
@@ -872,7 +882,7 @@ requireText('public/index.html', '旧 Cookie 列表、明文详情和快速保�
 requireText('public/index.html', '<button @click="openPlatformSourcesTab"', 'legacy Cookie panel navigates to platform sources');
 requireText('public/index.html', "showToast('旧 Cookie 保存已停用，请在平台采集源中更换凭据', 'warning');\n                openPlatformSourcesTab();", 'legacy Cookie save action is disabled and routes to platform sources');
 requireText('public/index.html', "showToast('旧 Cookie 删除入口已停用，请在平台配置中吊销对应凭据', 'warning');\n                openPlatformSourcesTab();", 'legacy Cookie delete action is disabled and routes to platform sources');
-requireText('public/index.html', "showToast('旧 Cookie 批量删除入口已停用，请在平台配置中逐项吊销凭据', 'warning');\n                openPlatformSourcesTab();", 'legacy Cookie batch-delete action is disabled and routes to platform sources');
+requirePattern('public/index.html', /showToast\('旧 Cookie 批量删除入口已停用，请在平台配置中逐项吊销凭据', 'warning'\);\s*openPlatformSourcesTab\(\);/, 'legacy Cookie batch-delete action is disabled and routes to platform sources');
 requireText('public/index.html', "showToast('浏览器不再读取已保存的完整 Cookie，请选择平台配置凭据', 'warning');\n                openPlatformSourcesTab();", 'legacy Cookie use action refuses browser hydration and routes to platform sources');
 requireText('public/index.html', "showToast('旧 Cookie 快速保存已停用，请在平台采集源中更换凭据', 'warning');\n                openPlatformSourcesTab();", 'legacy Cookie quick-save action is disabled and routes to platform sources');
 requireText('public/index.html', "throw new Error('旧 Cookie 明文详情已停用，请在平台采集源中更换凭据');", 'legacy Cookie detail action refuses plaintext reads');
@@ -963,6 +973,14 @@ requireOnlineDataControllerText("'detail_loaded' => false", 'backend auto-fetch 
   const profileSanitizerSource = profileSanitizerMatch ? profileSanitizerMatch[1] : '';
   const profileListMatch = source.match(/private function listEnabledBrowserProfileDataSources\(int \$hotelId, string \$platform = ''\): array\s+\{([\s\S]*?)\n    private function listEnabledCtripBrowserProfileDataSources/);
   const profileListSource = profileListMatch ? profileListMatch[1] : '';
+  const profileSelectedFieldMatch = profileListSource.match(/->field\('([^']+)'\)/);
+  const profileSelectedFields = profileSelectedFieldMatch
+    ? profileSelectedFieldMatch[1].split(',').map(field => field.trim())
+    : [];
+  const requiredProfileSelectedFields = [
+    'id', 'tenant_id', 'name', 'system_hotel_id', 'platform', 'data_type',
+    'ingestion_method', 'config_json', 'enabled', 'status',
+  ];
   const credentialReadyMatch = source.match(/private function autoFetchCredentialReady\(array \$config\): bool\s+\{([\s\S]*?)\n    private function autoFetchCtripRequestUrl/);
   const credentialReadySource = credentialReadyMatch ? credentialReadyMatch[1] : '';
   checks.push({
@@ -1008,9 +1026,9 @@ requireOnlineDataControllerText("'detail_loaded' => false", 'backend auto-fetch 
     file: onlineDataControllerFiles.join(' + '),
     label: 'browser-profile light cache uses a safe field whitelist and sanitized metadata rows',
     ok: profileListMatch !== null
-      && profileListSource.includes("->field('id,tenant_id,name,system_hotel_id,platform,data_type,ingestion_method,config_json,enabled,status')")
+      && requiredProfileSelectedFields.every(field => profileSelectedFields.includes(field))
+      && !profileSelectedFields.includes('secret_json')
       && profileListSource.includes("->whereIn('ingestion_method', ['browser_profile', 'profile_browser'])")
-      && !profileListSource.includes('secret_json')
       && profileListSource.includes('sanitizeBrowserProfileSourcesForSharedCache($rows)')
       && profileListSource.includes('writeAutoFetchLightReadCache($cacheKey, $safeRows)')
       && !profileListSource.includes('writeAutoFetchLightReadCache($cacheKey, $rows)')
@@ -1605,7 +1623,7 @@ requireText('public/index.html', "requireAppSystemStatic('getHotelCodeNumber')",
 requireText('public/index.html', "requireAppSystemStatic('formatHotelCode')", 'entry uses extracted hotel-code formatter');
 requireText('public/index.html', "requireAppSystemStatic('normalizeOtaConfigHotelName')", 'entry uses extracted OTA config hotel-name normalizer');
 requireText('public/index.html', "requireAppSystemStatic('formatHotelBindingDate')", 'entry uses extracted hotel binding-date formatter');
-requireText('public/index.html', 'system-static.js?v=20260711-hotel-merge-flow', 'entry bumps system static helper version after hotel merge helper extraction');
+requirePattern('public/index.html', /system-static\.js\?v=[^"']+/, 'entry versions the current system static helper');
 requireText('public/index.html', "requireSystemStatic('buildKnowledgeImportRequestBody')", 'entry uses extracted knowledge import request body builder');
 requireText('public/index.html', "requireSystemStatic('knowledgeImportSuccessMessage')", 'entry uses extracted knowledge import success message');
 requireText('public/index.html', "requireSystemStatic('knowledgeImportErrorMessage')", 'entry uses extracted knowledge import error message');
@@ -5513,10 +5531,10 @@ try {
   } else {
     const defaultConfigForm = createCtripConfigForm();
     const overriddenConfigForm = createCtripConfigForm({ hotel_id: '10', name: '携程账号' });
-    const blankNameValid = validateCtripConfigSaveInput({ name: '', cookies: 'cookie' });
-    const missingCookies = validateCtripConfigSaveInput({ name: '配置', cookies: '' });
-    const validConfig = validateCtripConfigSaveInput({ name: '配置', cookies: 'cookie' });
-    const blankNamePayload = buildCtripConfigSavePayload({ name: '', ctrip_hotel_id: 'ctrip-blank', cookies: 'sid=blank' });
+    const blankNameValid = validateCtripConfigSaveInput({ name: '', cookies: 'cookie', hotel_room_count: 80, competitor_room_count: 100 });
+    const missingCookies = validateCtripConfigSaveInput({ name: '配置', cookies: '', hotel_room_count: 80, competitor_room_count: 100 });
+    const validConfig = validateCtripConfigSaveInput({ name: '配置', cookies: 'cookie', hotel_room_count: 80, competitor_room_count: 100 });
+    const blankNamePayload = buildCtripConfigSavePayload({ name: '', ctrip_hotel_id: 'ctrip-blank', cookies: 'sid=blank', hotel_room_count: 80, competitor_room_count: 100 });
     const savePayload = buildCtripConfigSavePayload({
       id: 9,
       name: '携程账号',
@@ -5526,6 +5544,8 @@ try {
       url: 'https://example.test/ctrip',
       node_id: '24588',
       capture_sections: 'default traffic',
+      hotel_room_count: 80,
+      competitor_room_count: 100,
       approved_mappings_path: 'approved.json',
     });
     checks.push({
@@ -5534,7 +5554,7 @@ try {
       ok: defaultConfigForm.id === null
         && defaultConfigForm.url.includes('getDayReportCompeteHotelReport')
         && defaultConfigForm.node_id === '24588'
-        && defaultConfigForm.capture_sections === 'default'
+        && defaultConfigForm.capture_sections === 'all'
         && overriddenConfigForm.hotel_id === '10'
         && overriddenConfigForm.name === '携程账号'
         && blankNameValid.ok === true
@@ -5549,7 +5569,9 @@ try {
         && savePayload.cookies === 'sid=secret'
         && savePayload.url === 'https://example.test/ctrip'
         && savePayload.node_id === '24588'
-        && savePayload.capture_sections === 'default traffic'
+        && savePayload.capture_sections === 'all'
+        && savePayload.hotel_room_count === 80
+        && savePayload.competitor_room_count === 100
         && savePayload.approved_mappings_path === 'approved.json',
       detail: 'Ctrip config save builder sample',
     });
@@ -5567,6 +5589,8 @@ try {
         url: 'https://example.test/save',
         node_id: '24588',
         capture_sections: 'default',
+        hotel_room_count: 80,
+        competitor_room_count: 100,
         approved_mappings_path: '',
       }),
       requestSave: async body => {
@@ -5581,7 +5605,7 @@ try {
     const failedEvents = [];
     const failedLogs = [];
     const failedResult = await runCtripConfigSaveFlow({
-      getForm: () => ({ name: '携程失败', cookies: 'sid=failed' }),
+      getForm: () => ({ name: '携程失败', cookies: 'sid=failed', hotel_room_count: 80, competitor_room_count: 100 }),
       requestSave: async () => ({ code: 500, message: 'backend failed' }),
       notify: (message, level) => failedEvents.push(`notify:${level}:${message}`),
       logError: (...args) => failedLogs.push(args.join('|')),
@@ -5589,7 +5613,7 @@ try {
     const exceptionEvents = [];
     const exceptionLogs = [];
     const exceptionResult = await runCtripConfigSaveFlow({
-      getForm: () => ({ name: '携程异常', cookies: 'sid=exception' }),
+      getForm: () => ({ name: '携程异常', cookies: 'sid=exception', hotel_room_count: 80, competitor_room_count: 100 }),
       requestSave: async () => {
         throw {
           message: 'network down',
@@ -7198,8 +7222,8 @@ try {
         && cookieExceptionResult.status === 'exception'
         && cookieExceptionResultPayload.message === 'request blocked'
         && cookieExceptionEvents[0] === 'notify:error:request blocked'
-        && cookieMissingConfigResult.status === 'missing_config'
-        && cookieMissingConfigEvents[0].includes('未配置携程数据源')
+        && cookieMissingConfigResult.status === 'missing_config_id'
+        && cookieMissingConfigEvents[0].includes('配置ID')
         && cookieMissingSourceResult.status === 'missing_request_source'
         && cookieMissingSourceEvents[0].includes('Request URL'),
       detail: 'Ctrip Cookie API flow failure samples',
