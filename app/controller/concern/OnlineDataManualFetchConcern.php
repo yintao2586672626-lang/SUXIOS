@@ -8,6 +8,7 @@ use app\service\CtripCompetitionCirclePersistenceService;
 use app\service\CtripManualFetchRequestService;
 use app\service\CtripTrafficDisplayService;
 use app\service\ManualOnlineFetchTaskService;
+use app\service\MeituanManualIdentityService;
 use app\service\MeituanManualFetchRequestService;
 use app\service\OtaExecutionStageException;
 use think\Response;
@@ -2557,8 +2558,17 @@ trait OnlineDataManualFetchConcern
         if (!is_array($authData)) {
             $authData = [];
         }
-        $partnerId = trim((string)($requestData['partner_id'] ?? ''));
-        $poiId = trim((string)($requestData['poi_id'] ?? ''));
+        try {
+            $storedConfig = $this->resolveMeituanManualFetchConfigMetadata(
+                trim((string)($requestData['config_id'] ?? '')),
+                $systemHotelId
+            );
+            $identity = (new MeituanManualIdentityService())->resolve($requestData, $storedConfig, 'traffic');
+        } catch (\InvalidArgumentException $e) {
+            return $this->error('美团门店身份无效', $e->getCode() ?: 409, ['reason' => $e->getMessage()]);
+        }
+        $partnerId = $identity['partner_id'];
+        $poiId = $identity['poi_id'];
         $startDate = (string)($requestData['start_date'] ?? '');
         $endDate = (string)($requestData['end_date'] ?? '');
         $autoSave = $this->isTruthyRequestValue($requestData['auto_save'] ?? true);
@@ -2733,9 +2743,18 @@ trait OnlineDataManualFetchConcern
     ): Response {
         $url = trim((string)($requestData['url'] ?? ''));
         $cookies = trim((string)($credentialPayload['cookies'] ?? $credentialPayload['cookie'] ?? ''));
-        $partnerId = trim((string)($requestData['partner_id'] ?? ''));
-        $poiId = trim((string)($requestData['poi_id'] ?? ''));
-        $shopId = trim((string)($requestData['shop_id'] ?? ''));
+        try {
+            $storedConfig = $this->resolveMeituanManualFetchConfigMetadata(
+                trim((string)($requestData['config_id'] ?? '')),
+                $systemHotelId
+            );
+            $identity = (new MeituanManualIdentityService())->resolve($requestData, $storedConfig, $section);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error('美团门店身份无效', $e->getCode() ?: 409, ['reason' => $e->getMessage()]);
+        }
+        $partnerId = $identity['partner_id'];
+        $poiId = $identity['poi_id'];
+        $shopId = $identity['shop_id'];
         $startDate = (string)($requestData['start_date'] ?? '');
         $endDate = (string)($requestData['end_date'] ?? '');
         $method = strtoupper(trim((string)($requestData['method'] ?? 'GET'))) ?: 'GET';

@@ -231,8 +231,11 @@ test('traffic tab exposes one-click four-scope search opportunity panel', () => 
   assert.match(trafficTab, /ctripSearchOpportunityHorizon/);
   assert.match(trafficTab, /ctripSearchOpportunityHorizonLabel.*PV 差距/s);
   assert.match(trafficTab, /推算订单（UV×转化率）/);
-  assert.match(trafficTab, /bg-indigo-500/);
-  assert.match(trafficTab, /bg-orange-500/);
+  assert.match(trafficTab, /data-series="self"/);
+  assert.match(trafficTab, /data-series="competitor_avg"/);
+  assert.doesNotMatch(trafficTab, /rounded-t bg-indigo-500|rounded-t bg-orange-500/);
+  assert.match(trafficTab, /#4f46e5/);
+  assert.match(trafficTab, /#f59e0b/);
   assert.equal((trafficTab.match(/w-2\/5/g) || []).length, 2);
   assert.doesNotMatch(trafficTab, /w-\[45%\]/);
   assert.match(trafficTab, /formatCtripSearchOpportunityValue\(ctripSearchOpportunityMetricValue\(row, 'self'\)/);

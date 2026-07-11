@@ -671,17 +671,6 @@ trait MeituanCapturedDataConcern
         $hotelId = $itemHotelId !== '' ? $itemHotelId : (string)($context['poi_id'] ?: $context['store_id']);
         $hotelName = (string)$this->firstMeituanValue($item, ['poi_name', 'poiName', 'hotel_name', 'hotelName', 'shopName', 'shop_name', 'name'], $context['poi_name']);
         $dataType = (string)($fields['data_type'] ?? '');
-        $boundHotelIds = array_values(array_unique(array_filter([
-            trim((string)($context['poi_id'] ?? '')),
-            trim((string)($context['store_id'] ?? '')),
-        ], static fn(string $value): bool => $value !== '')));
-        if ($dataType !== 'peer_rank'
-            && $hotelId !== ''
-            && $boundHotelIds !== []
-            && !in_array(trim($hotelId), $boundHotelIds, true)
-        ) {
-            throw new \InvalidArgumentException('美团门店标识与当前酒店绑定不一致');
-        }
         $raw = $dataType === 'review'
             ? $this->sanitizeOnlineReviewRawData($item)
             : $this->sanitizeOnlineOrderRawData($item, $dataType === 'order');
