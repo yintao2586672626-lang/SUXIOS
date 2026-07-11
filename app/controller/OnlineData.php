@@ -15,6 +15,7 @@ use app\controller\concern\CtripDiagnosisSnapshotConcern;
 use app\controller\concern\CtripOverviewRowsConcern;
 use app\controller\concern\CtripOverviewRequestConcern;
 use app\controller\concern\CtripReviewOrderMatchConcern;
+use app\controller\concern\CtripSearchOpportunityConcern;
 use app\controller\concern\CtripProfileConfigConcern;
 use app\controller\concern\MeituanConfigConcern;
 use app\controller\concern\MeituanCapturedDataConcern;
@@ -53,6 +54,7 @@ class OnlineData extends Base
     use CtripOverviewRowsConcern;
     use CtripOverviewRequestConcern;
     use CtripReviewOrderMatchConcern;
+    use CtripSearchOpportunityConcern;
     use CtripProfileConfigConcern;
     use MeituanConfigConcern;
     use MeituanCapturedDataConcern;
@@ -76,7 +78,7 @@ class OnlineData extends Base
     use ReleaseEvidenceConcern;
 
     private const CTRIP_PROFILE_FIELDS_CONFIG_KEY = 'ctrip_profile_capture_fields';
-    private const CTRIP_PROFILE_FIELDS_CONFIG_VERSION = 30;
+    private const CTRIP_PROFILE_FIELDS_CONFIG_VERSION = 31;
     private const CTRIP_PROFILE_MODULES_CONFIG_KEY = 'ctrip_profile_capture_modules';
     private const CTRIP_PROFILE_MODULES_CONFIG_VERSION = 3;
     private const MEITUAN_COMPETITOR_BATCH_WINDOW_SECONDS = 120;

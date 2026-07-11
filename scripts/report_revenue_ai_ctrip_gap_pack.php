@@ -390,8 +390,6 @@ function ctrip_gap_pack_stages(array $overview, array $bundle, string $date, arr
     $reviewQueue = ctrip_gap_pack_map($overview['review_queue'] ?? []);
     $aiToOperation = ctrip_gap_pack_map($overview['ai_to_operation_handoff'] ?? []);
     $executionSummary = ctrip_gap_pack_map($overview['execution_summary'] ?? []);
-    $operationToInvestment = ctrip_gap_pack_map($overview['operation_to_investment_handoff'] ?? []);
-    $investmentPacket = ctrip_gap_pack_map($operationToInvestment['investment_precheck_packet'] ?? []);
 
     $p0AuthorityStatus = (string)($p0Authority['status'] ?? 'not_run');
     $p0AuthorityPassed = $p0AuthorityStatus === 'passed';
@@ -409,8 +407,8 @@ function ctrip_gap_pack_stages(array $overview, array $bundle, string $date, arr
     $requiredInputs = ctrip_gap_pack_positive_strings($preflight['required_inputs'] ?? []);
     $pendingCount = (int)($reviewQueue['pending_count'] ?? 0);
     $executionTotal = (int)($executionSummary['total_count'] ?? 0);
-    $roiReady = (int)($executionSummary['roi_ready_count'] ?? ($operationToInvestment['operation_roi_ready_count'] ?? 0));
-    $operationRoiReady = (int)($operationToInvestment['operation_roi_ready'] ?? 0) === 1 || $roiReady > 0;
+    $roiReady = (int)($executionSummary['roi_ready_count'] ?? 0);
+    $operationRoiReady = $roiReady > 0;
 
     return [
         [
@@ -497,7 +495,6 @@ function ctrip_gap_pack_stages(array $overview, array $bundle, string $date, arr
             'current_evidence' => [
                 'execution_summary_status' => $executionSummary['status'] ?? null,
                 'roi_ready_count' => $roiReady,
-                'operation_roi_ready' => $operationToInvestment['operation_roi_ready'] ?? null,
                 'roi_window' => [
                     'previous_day' => date('Y-m-d', strtotime($date . ' -1 day')),
                     'business_date' => $date,
@@ -521,18 +518,6 @@ function ctrip_gap_pack_stages(array $overview, array $bundle, string $date, arr
                 'manual_roi_evidence.roi_receipt_or_screenshot_path',
                 'operator ROI review summary',
             ],
-        ],
-        [
-            'stage' => 'investment_manual_review',
-            'status' => $operationRoiReady ? 'manual_review_only' : 'blocked_until_roi_ready',
-            'proved_by' => 'operation_to_investment_handoff',
-            'current_evidence' => [
-                'handoff_status' => $operationToInvestment['status'] ?? null,
-                'decision_allowed' => $operationToInvestment['decision_allowed'] ?? null,
-                'investment_precheck_status' => $investmentPacket['status'] ?? null,
-                'protected_boundary' => $investmentPacket['protected_boundary'] ?? 'investment_decision_requires_closed_operation_roi_not_ota_channel_only',
-            ],
-            'missing_real_inputs' => $operationRoiReady ? ['manual investment decision record readiness'] : ['operation_execution.roi_ready'],
         ],
     ];
 }

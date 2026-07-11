@@ -7,6 +7,7 @@ import {
   extractCtripCatalogFacts,
   findCtripEndpointByUrl,
 } from './lib/ctrip_capture_catalog.mjs';
+import { sanitizeOtaPayloadForStorage } from './lib/ota_capture_standard.mjs';
 
 function parseArgs(argv) {
   const args = {
@@ -395,9 +396,10 @@ function ctripBusinessError(body) {
     return { error: classifyCtripBusinessError(message), message: String(message) };
   }
 
-  const rcode = body?.resStatus?.rcode ?? body?.resultStatus?.rcode ?? body?.status?.rcode;
+  const rcode = body?.rcode ?? body?.resStatus?.rcode ?? body?.resultStatus?.rcode ?? body?.status?.rcode;
   if (rcode !== undefined && rcode !== null && String(rcode) !== '' && Number(rcode) !== 0 && Number(rcode) !== 200) {
-    const message = body?.resStatus?.rmsg
+    const message = body?.msg
+      || body?.resStatus?.rmsg
       || body?.resultStatus?.rmsg
       || body?.status?.rmsg
       || `rcode=${rcode}`;
@@ -420,6 +422,9 @@ function ctripBusinessError(body) {
 
 function classifyCtripBusinessError(message) {
   const text = normalizeBusinessStatusValue(message);
+  if (/spider|fingerprint|signature|签名|验签/.test(text)) {
+    return 'request_signature_required';
+  }
   if (/token_expired|no_token|login|未登录|登录|auth|unauthorized/.test(text)) {
     return 'cookie_or_permission_failed';
   }
@@ -510,7 +515,7 @@ export async function runCtripCookieApiCapture(config, options = {}) {
         data_type: endpoint?.dataType || item.data_type || '',
         status: response.status,
         request_type: init.method.toLowerCase(),
-        request_payload: item.payload || {},
+        request_payload: sanitizeOtaPayloadForStorage(item.payload || {}, endpoint?.dataType || section || ''),
         request_headers: redactHeaders(init.headers || {}),
         data: body,
       };
@@ -530,6 +535,7 @@ export async function runCtripCookieApiCapture(config, options = {}) {
           dataDate,
           capturedAt,
           url: requestUrl,
+          requestPayload: item.payload || {},
         };
         const facts = extractCtripCatalogFacts(body, factContext);
         const rows = buildCtripStandardRowsFromFacts(facts, {
@@ -539,7 +545,7 @@ export async function runCtripCookieApiCapture(config, options = {}) {
           profileId,
           dataDate,
           capturedAt,
-        });
+        }).map((row) => ({ ...row, ingestion_method: 'ctrip_cookie_api' }));
         payload.catalog_facts.push(...facts);
         payload.standard_rows.push(...rows);
       } else {

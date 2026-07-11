@@ -1152,7 +1152,7 @@ window.SUXI_CTRIP_STATIC = (() => {
             form: getBrowserCaptureForm(),
             overviewForm: getOverviewForm(),
             hotelName: getHotelNameById(systemHotelId),
-            profileId: resolveProfileId(activeConfig),
+            profileId: String(options.profileId || '').trim() || resolveProfileId(activeConfig),
             options,
         });
         if (!requestContext.ok) {
@@ -1237,6 +1237,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         resolveCtripExecutionConfigId(config)
         && config?.has_cookies === true
         && String(config?.credential_status || '') === 'ready'
+        && config?.configuration_verified === true
     );
     const buildCtripManualCredentialState = (config = null) => {
         const status = String(config?.credential_status || '').trim().toLowerCase();
@@ -1244,9 +1245,18 @@ window.SUXI_CTRIP_STATIC = (() => {
             return {
                 key: 'ready',
                 canFetch: true,
-                label: '携程凭据已就绪',
-                detail: '加密凭据可用，可以获取数据。',
+                label: '携程配置验证成功',
+                detail: '配置已保存，且当前门店授权登录验证成功。',
                 tone: 'success',
+            };
+        }
+        if (config?.configuration_saved === true && config?.configuration_verified !== true) {
+            return {
+                key: 'saved_pending_verification',
+                canFetch: false,
+                label: '携程配置已保存，待验证',
+                detail: '请完成该门店的授权登录验证后再获取数据。',
+                tone: 'warning',
             };
         }
         if (config && (config.migration_required === true || config.migration_required === 1 || status === 'migration_required')) {
@@ -1277,8 +1287,14 @@ window.SUXI_CTRIP_STATIC = (() => {
     };
 
     const normalizeCtripExecutionRequestUrls = (value = '') => {
+        const normalizeItem = (item) => {
+            if (item && typeof item === 'object' && !Array.isArray(item)) {
+                return String(item.request_url || item.requestUrl || item.url || '').trim();
+            }
+            return String(item || '').trim();
+        };
         const normalizeItems = items => Array.from(new Set((Array.isArray(items) ? items : [])
-            .map(item => String(item || '').trim())
+            .map(normalizeItem)
             .filter(Boolean)));
         if (Array.isArray(value)) return normalizeItems(value);
         const text = String(value || '').trim();
@@ -1515,12 +1531,18 @@ window.SUXI_CTRIP_STATIC = (() => {
                 setOnlineDataFilterDates({ startDate, endDate });
                 const savedCount = data.saved_count || 0;
                 setSavedCount(savedCount);
+                const saveBlocked = data.save_status === 'blocked';
                 const qunarVisitorGap = data.qunar_visitor_quality?.status === 'partial_qunar_visitor_gap';
+                const identityCheckWarning = data.identity_check?.warning === true;
                 const ctripRowsReturned = Number(data.display_hotel_count || allHotels.length || 0) > 0;
-                const ctripFetchReady = ctripRowsReturned && data.qunar_visitor_quality?.ready === true;
+                const ctripFetchReady = ctripRowsReturned;
                 setFetchSuccess(ctripFetchReady);
-                if (qunarVisitorGap) {
-                    notify(data.qunar_visitor_quality?.message || '去哪儿访客为 0 表示本次返回不完整，需要重抓；携程和去哪儿都返回有效值才算成功。', 'warning');
+                if (saveBlocked) {
+                    notify(res.message || '携程数据已获取并可查看，但门店归属不一致，本次未入库。', 'warning');
+                } else if (identityCheckWarning) {
+                    notify(data.identity_check?.message || '携程酒店ID需要核对，本次仍按当前选择门店保存。', 'warning');
+                } else if (qunarVisitorGap) {
+                    notify(data.qunar_visitor_quality?.message || '去哪儿访客为 0 仅作为字段缺口提示，不阻断携程竞争圈获取和入库。', 'warning');
                 } else if (!ctripFetchReady) {
                     notify(data.qunar_visitor_quality?.message || '携程竞争圈未返回可展示行，不能按成功处理。', 'warning');
                 }
@@ -1543,7 +1565,7 @@ window.SUXI_CTRIP_STATIC = (() => {
                 if (getOnlineDataTab() === 'data') {
                     refreshOnlineData();
                 }
-                return { status: ctripFetchReady ? 'success' : (qunarVisitorGap ? 'partial_qunar_visitor_gap' : 'no_saved'), response: res, meta: currentFetchMeta };
+                return { status: saveBlocked ? 'display_only' : (ctripFetchReady ? 'success' : 'no_saved'), response: res, meta: currentFetchMeta };
             }
 
             if (res.code === 401) {
@@ -2015,6 +2037,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         requestUrl = '',
         form = {},
         endpointsJson = '',
+        requestSource = '',
     } = {}) => {
         const requestUrls = normalizeCtripExecutionRequestUrls(endpointsJson);
         const normalizedRequestUrl = String(requestUrl || '').trim();
@@ -2033,6 +2056,7 @@ window.SUXI_CTRIP_STATIC = (() => {
             data_date: dataDate,
             request_url: normalizedRequestUrl,
             request_urls: requestUrls,
+            request_source: String(requestSource || form.requestSource || '').trim(),
             method: String(form.method || 'GET').toUpperCase(),
             auto_save: true,
         };
@@ -2079,7 +2103,8 @@ window.SUXI_CTRIP_STATIC = (() => {
         const systemHotelId = targetContext.ok ? targetContext.systemHotelId : null;
         const requestUrl = String(form.requestUrl || '').trim();
         const endpointsJson = String(form.endpointsJson || '').trim();
-        if (!requestUrl && !endpointsJson) {
+        const requestSource = String(form.requestSource || '').trim();
+        if (!requestUrl && !endpointsJson && !requestSource) {
             notify('请填写携程接口 Request URL 或批量接口 JSON', 'error');
             return { status: 'missing_request_source' };
         }
@@ -2120,6 +2145,7 @@ window.SUXI_CTRIP_STATIC = (() => {
             requestUrl,
             form,
             endpointsJson,
+            requestSource,
         });
 
         setRunning(true);
@@ -2703,11 +2729,22 @@ window.SUXI_CTRIP_STATIC = (() => {
             method: 'POST',
             section: 'traffic_report',
         },
-        {
-            request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/querySearchFlowDetails',
+        ...[
+            [0, '0'],
+            [3, '0'],
+            [0, '1'],
+            [3, '1'],
+        ].map(([dataType, searchType]) => ({
+            request_url: 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/querySearchFlowDetails?hostType=Ebooking',
             method: 'POST',
             section: 'traffic_report',
-        },
+            payload: {
+                platform: 'Ctrip',
+                dataType,
+                searchType,
+                spiderVersion: '2.0',
+            },
+        })),
         {
             request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryCampaignSummaryReport',
             method: 'POST',

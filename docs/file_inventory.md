@@ -97,9 +97,8 @@
 | `app/controller/MonthlyTask.php` | 月度任务 API | 保留 |
 | `app/controller/ReportConfig.php` | 报表配置 API | 保留 |
 | `app/controller/SystemConfigController.php` | 系统配置 API | 保留 |
-| `app/controller/Ai.php` | AI 策略/模拟/可行性 API | 保留 |
 | `app/controller/AiConfig.php` | AI 模型配置 API | 保留 |
-| `app/controller/Agent.php` | AI Agent、知识库、工单、收益、资产 API | 保留，核心 |
+| `app/controller/Agent.php` | OTA 诊断、收益建议、知识库与运行日志 API | 保留，核心 |
 | `app/controller/HolidayRevenue.php` | 节假日收益倒计时 API | 保留 |
 | `app/controller/MacroSignal.php` | 宏观经营信号 API | 保留 |
 | `app/controller/Lifecycle.php` | 生命周期数据 API | 保留 |
@@ -172,10 +171,7 @@
 | `app/model/ReportConfig.php` | 报表配置模型 | 保留 |
 | `app/model/AiModelConfig.php` | AI 模型配置模型 | 保留 |
 | `app/model/AgentConfig.php` | Agent 配置模型 | 保留 |
-| `app/model/AgentConversation.php` | Agent 会话模型 | 保留 |
 | `app/model/AgentLog.php` | Agent 日志模型 | 保留 |
-| `app/model/AgentTask.php` | Agent 任务模型 | 保留 |
-| `app/model/AgentWorkOrder.php` | Agent 工单模型 | 保留 |
 | `app/model/KnowledgeBase.php` | 知识库模型 | 保留 |
 | `app/model/KnowledgeCategory.php` | 知识分类模型 | 保留 |
 | `app/model/PriceSuggestion.php` | 定价建议模型 | 保留 |
@@ -184,13 +180,6 @@
 | `app/model/CompetitorDevice.php` | 竞对设备模型 | 保留 |
 | `app/model/CompetitorHotel.php` | 竞对酒店模型 | 保留 |
 | `app/model/CompetitorPriceLog.php` | 竞对价格日志模型 | 保留 |
-| `app/model/Device.php` | 设备模型 | 保留 |
-| `app/model/DeviceCategory.php` | 设备分类模型 | 保留 |
-| `app/model/DeviceMaintenance.php` | 设备维护模型 | 保留 |
-| `app/model/MaintenancePlan.php` | 维护计划模型 | 保留 |
-| `app/model/EnergyBenchmark.php` | 能耗基准模型 | 保留 |
-| `app/model/EnergyConsumption.php` | 能耗数据模型 | 保留 |
-| `app/model/EnergySavingSuggestion.php` | 节能建议模型 | 保留 |
 | `app/model/FeasibilityReport.php` | 可行性报告模型 | 保留 |
 | `app/model/StrategyDataSnapshot.php` | 策略数据快照模型 | 保留 |
 | `app/model/StrategySimulationRecord.php` | 策略推演记录模型 | 保留 |

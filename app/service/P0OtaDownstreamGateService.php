@@ -9,7 +9,6 @@ class P0OtaDownstreamGateService
         'revenue_analysis',
         'ai_decision_advice',
         'operation_closure',
-        'investment_judgment',
     ];
 
     private const ALLOWED_CLAIMS_WHEN_BLOCKED = [
@@ -137,7 +136,6 @@ class P0OtaDownstreamGateService
             'revenue_analysis' => '收益分析',
             'ai_decision_advice' => 'AI 决策建议',
             'operation_closure' => '运营闭环',
-            'investment_judgment' => '投资判断',
         ];
         $rows = [];
         foreach ($labels as $key => $label) {

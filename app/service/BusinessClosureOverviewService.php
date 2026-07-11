@@ -29,26 +29,6 @@ class BusinessClosureOverviewService
             'theory_basis' => '无真实执行回写时使用ADR、RevPAR、价差和价格弹性规则估算。',
             'closure_target' => '调价建议 -> 人工审批 -> 执行证据 -> 应用效果复盘',
         ],
-        'staff_service' => [
-            'module_group' => '运营管理（P0）',
-            'entry_page' => 'agent-center',
-            'ai_connection' => 'agent_assisted',
-            'ai_connection_label' => '智能员工可接入',
-            'data_basis' => 'work_orders_conversations_knowledge',
-            'data_basis_label' => '工单/会话/知识库',
-            'theory_basis' => '缺少闭环样本时按工单状态、情绪风险和知识引用计算成熟度。',
-            'closure_target' => '服务信号 -> 工单 -> 处理证据 -> 关闭复盘',
-        ],
-        'asset_maintenance' => [
-            'module_group' => '运营管理（P0）',
-            'entry_page' => 'agent-center',
-            'ai_connection' => 'rule_agent',
-            'ai_connection_label' => '规则诊断/节能建议',
-            'data_basis' => 'devices_energy_maintenance_records',
-            'data_basis_label' => '设备/能耗/维保记录',
-            'theory_basis' => '缺少真实节能结果时使用监测覆盖、故障、维保次数和节能建议状态。',
-            'closure_target' => '异常/建议 -> 维保执行 -> 节能或修复证据 -> 复盘',
-        ],
         'operation_execution' => [
             'module_group' => '运营管理（P0）',
             'entry_page' => 'ops-track',
@@ -59,76 +39,18 @@ class BusinessClosureOverviewService
             'theory_basis' => '未产生ROI时只显示审批、执行和证据状态，不推断收益完成。',
             'closure_target' => '建议池 -> 审批 -> 执行 -> 证据 -> 复盘/ROI',
         ],
-        'transfer_investment' => [
-            'module_group' => '转让管理（二期）',
-            'entry_page' => 'asset-pricing',
-            'ai_connection' => 'ai_or_theory',
-            'ai_connection_label' => 'AI评估/理论测算',
-            'data_basis' => 'transfer_records_and_execution_tracking',
-            'data_basis_label' => '转让测算记录',
-            'theory_basis' => '无尽调证据时使用租金、流水、回本、风险折现等投决理论口径。',
-            'closure_target' => '资产定价/时机 -> 投后跟踪 -> 尽调证据 -> 决策复盘',
-        ],
-        'expansion' => [
-            'module_group' => '扩张管理（二期）',
-            'entry_page' => 'market-evaluation',
-            'ai_connection' => 'ai_or_theory',
-            'ai_connection_label' => 'AI评估/理论模型',
-            'data_basis' => 'expansion_records_and_market_inputs',
-            'data_basis_label' => '市场评估记录',
-            'theory_basis' => '缺少实勘或外部数据时使用城市层级、客群、竞对、租金和模型评分。',
-            'closure_target' => '市场评估 -> 项目筛选 -> 执行跟踪 -> 投后复盘',
-        ],
-        'opening' => [
-            'module_group' => '开业管理（二期）',
-            'entry_page' => 'opening-overview',
-            'ai_connection' => 'checklist_assisted',
-            'ai_connection_label' => '清单/规则辅助',
-            'data_basis' => 'opening_projects_tasks',
-            'data_basis_label' => '开业项目/任务',
-            'theory_basis' => '未绑定门店或未开业时使用开业检查清单、任务进度和风险评分。',
-            'closure_target' => '开业项目 -> 检查清单 -> go-live证据 -> 开业后复盘',
-        ],
-        'strategy_simulation' => [
-            'module_group' => '筹建管理（二期）',
-            'entry_page' => 'ai-strategy',
-            'ai_connection' => 'ai_or_simulation',
-            'ai_connection_label' => 'AI推演/量化模拟',
-            'data_basis' => 'strategy_and_quant_simulation_records',
-            'data_basis_label' => '战略/量化记录',
-            'theory_basis' => 'LLM或外部数据不可用时使用投资、房量、ADR、OCC和成本模型。',
-            'closure_target' => '战略推演 -> 量化模拟 -> 人工复核 -> 执行跟踪',
-        ],
-        'feasibility_report' => [
-            'module_group' => '筹建管理（二期）',
-            'entry_page' => 'ai-feasibility',
-            'ai_connection' => 'llm_optional',
-            'ai_connection_label' => '可接入AI报告',
-            'data_basis' => 'feasibility_reports_and_input_assumptions',
-            'data_basis_label' => '可行性报告/假设',
-            'theory_basis' => 'LLM不可用时使用投资测算、租金压力、回本周期和风险清单。',
-            'closure_target' => '可行性报告 -> 尽调/复核 -> 投后跟踪 -> 收益复盘',
-        ],
     ];
 
     private const MODULE_ORDER = [
         'ai_daily_report',
         'revenue_pricing',
-        'staff_service',
-        'asset_maintenance',
         'operation_execution',
-        'transfer_investment',
-        'expansion',
-        'opening',
-        'strategy_simulation',
-        'feasibility_report',
     ];
 
     private const P0_BLOCKED_MODULE_KEYS = [
         'ai_daily_report',
         'revenue_pricing',
         'operation_execution',
-        'transfer_investment',
     ];
 
     public function overview(array $hotelIds, ?int $hotelId, int $userId = 0, bool $isSuperAdmin = false): array
@@ -142,14 +64,7 @@ class BusinessClosureOverviewService
         $modules = [
             $this->aiDailyReportSignal($hotelIds, $hotelId, $executionStats),
             $this->revenuePricingSignal($hotelIds, $hotelId, $executionStats),
-            $this->staffServiceSignal($hotelIds, $hotelId, $executionStats),
-            $this->assetMaintenanceSignal($hotelIds, $hotelId, $executionStats),
             $this->operationExecutionSignal($executionSummary, $executionFlow),
-            $this->transferInvestmentSignal($hotelIds, $hotelId, $executionStats),
-            $this->expansionSignal($userId, $isSuperAdmin, $executionStats),
-            $this->openingSignal($userId, $isSuperAdmin, $executionStats),
-            $this->strategySimulationSignal($userId, $isSuperAdmin, $executionStats),
-            $this->feasibilityReportSignal($userId, $isSuperAdmin, $executionStats),
         ];
 
         $p0DownstreamGate = (new P0OtaDownstreamGateService())->normalize([
@@ -168,6 +83,10 @@ class BusinessClosureOverviewService
             if (!is_array($signal)) {
                 continue;
             }
+            $key = (string)($signal['key'] ?? '');
+            if (!in_array($key, self::MODULE_ORDER, true)) {
+                continue;
+            }
             $modules[] = $this->summarizeModuleClosure($signal);
         }
 
@@ -177,7 +96,7 @@ class BusinessClosureOverviewService
             $modules = $this->applyP0GateToModules($modules, $p0Gate);
             $dataGaps[] = [
                 'code' => 'p0_ota_gate_not_ready',
-                'message' => 'P0 OTA field-loop verifier is not ready; downstream revenue, AI, operation and investment closure claims remain blocked.',
+                'message' => 'P0 OTA field-loop verifier is not ready; downstream revenue, AI and operation closure claims remain blocked.',
             ];
         }
 
@@ -488,242 +407,6 @@ class BusinessClosureOverviewService
         return $signal;
     }
 
-    private function staffServiceSignal(array $hotelIds, ?int $hotelId, array $executionStats): array
-    {
-        $signal = $this->baseSignal('staff_service', '智能员工 / 工单服务', 'agent_work_orders and conversations; service closure requires resolved/closed work orders', $this->mergeExecutionStats($executionStats, ['staff_service', 'agent_staff', 'agent_work_order', 'work_order']));
-        if (!$this->tableExists('agent_work_orders')) {
-            return $this->missingTableSignal($signal, 'agent_work_orders');
-        }
-
-        $conversationCount = 0;
-        $resolvedCount = 0;
-
-        try {
-            $query = Db::name('agent_work_orders');
-            $this->applyHotelScope($query, $hotelIds, $hotelId, 'hotel_id');
-            $workOrderCount = (int)(clone $query)->count();
-            $assignedCount = (int)(clone $query)->whereIn('status', [2, 3, 4, 5])->count();
-            $resolvedCount = (int)(clone $query)->whereIn('status', [4, 5])->count();
-            $closedCount = (int)(clone $query)->where('status', 5)->count();
-            $urgentOpenCount = (int)(clone $query)->whereIn('status', [1, 2, 3])->where('priority', 4)->count();
-            $escalatedCount = (int)(clone $query)->where('status', 6)->count();
-
-            $signal['record_count'] += $workOrderCount;
-            $signal['linked_execution_count'] += $workOrderCount;
-            $signal['approved_count'] += $assignedCount;
-            $signal['executed_count'] += $resolvedCount;
-            $signal['evidence_ready_count'] += $resolvedCount;
-            $signal['reviewed_count'] += $closedCount;
-            $signal['roi_ready_count'] += $closedCount;
-            $signal['blocked_count'] += $escalatedCount;
-            $signal['latest_at'] = $this->maxDateString((string)$signal['latest_at'], (string)((clone $query)->max('update_time') ?: ((clone $query)->max('create_time') ?: '')));
-            $signal['detail'] = 'work_orders=' . $workOrderCount
-                . ', assigned=' . $assignedCount
-                . ', resolved=' . $resolvedCount
-                . ', closed=' . $closedCount;
-
-            if ($workOrderCount > 0 && $resolvedCount <= 0) {
-                $signal['data_gaps'][] = ['code' => 'staff_work_order_resolution_missing', 'message' => 'Work orders exist but no resolved/closed record is available.'];
-            }
-            if ($resolvedCount > 0 && $closedCount <= 0) {
-                $signal['data_gaps'][] = ['code' => 'staff_work_order_review_missing', 'message' => 'Resolved work orders are not closed/reviewed yet.'];
-            }
-            if ($urgentOpenCount > 0) {
-                $signal['data_gaps'][] = ['code' => 'staff_urgent_order_open', 'message' => 'Urgent staff work orders are still open.'];
-            }
-        } catch (Throwable $e) {
-            $signal['table_status'] = 'read_failed';
-            $signal['data_gaps'][] = ['code' => 'agent_work_orders_read_failed', 'message' => 'Staff work order summary read failed.'];
-        }
-
-        if ($this->tableExists('agent_conversations')) {
-            try {
-                $conversationQuery = Db::name('agent_conversations');
-                $this->applyHotelScope($conversationQuery, $hotelIds, $hotelId, 'hotel_id');
-                $conversationCount = (int)(clone $conversationQuery)->count();
-                $emotionAlertCount = (int)(clone $conversationQuery)->where('emotion_score', '>=', 0.4)->count();
-                $serviceIntentCount = (int)(clone $conversationQuery)
-                    ->where(function ($q) {
-                        $q->whereIn('intent_type', [3, 5])
-                            ->whereOr('emotion_score', '>=', 0.4);
-                    })
-                    ->count();
-                $conversationLinkedOrderCount = $this->conversationLinkedWorkOrderCount($hotelIds, $hotelId);
-                $signal['record_count'] += $conversationCount;
-                $signal['latest_at'] = $this->maxDateString((string)$signal['latest_at'], (string)((clone $conversationQuery)->max('update_time') ?: ((clone $conversationQuery)->max('create_time') ?: '')));
-                $signal['detail'] = trim((string)($signal['detail'] ?? '')
-                    . ', conversations=' . $conversationCount
-                    . ', service_intents=' . $serviceIntentCount
-                    . ', conversation_work_orders=' . $conversationLinkedOrderCount
-                    . ', emotion_alerts=' . $emotionAlertCount, ', ');
-                if ($serviceIntentCount > 0 && $conversationLinkedOrderCount <= 0) {
-                    $signal['data_gaps'][] = ['code' => 'staff_conversation_work_order_bridge_missing', 'message' => 'Service/complaint conversations exist but no conversation-linked work order is visible.'];
-                }
-                if ($serviceIntentCount > $conversationLinkedOrderCount) {
-                    $signal['data_gaps'][] = ['code' => 'staff_conversation_pending_work_order', 'message' => 'Some service/complaint conversations are not yet linked to work orders.'];
-                }
-                if ($emotionAlertCount > 0 && $resolvedCount <= 0) {
-                    $signal['data_gaps'][] = ['code' => 'staff_emotion_alert_unresolved', 'message' => 'Emotion alerts exist but no resolved service work order is visible.'];
-                }
-            } catch (Throwable $e) {
-                $signal['data_gaps'][] = ['code' => 'agent_conversations_read_failed', 'message' => 'Conversation summary read failed.'];
-            }
-        } else {
-            $signal['data_gaps'][] = ['code' => 'agent_conversations_missing', 'message' => 'agent_conversations table missing; service-dialogue closure is not visible.'];
-        }
-
-        if ($this->tableExists('knowledge_base')) {
-            try {
-                $knowledgeQuery = Db::name('knowledge_base');
-                $this->applyHotelScope($knowledgeQuery, $hotelIds, $hotelId, 'hotel_id');
-                $knowledgeCount = (int)(clone $knowledgeQuery)->count();
-                $enabledKnowledge = (int)(clone $knowledgeQuery)->where('is_enabled', 1)->count();
-                $disabledKnowledge = max(0, $knowledgeCount - $enabledKnowledge);
-                $enabledKnowledgeIds = array_values(array_filter(array_map('intval', (clone $knowledgeQuery)->where('is_enabled', 1)->column('id')), static fn(int $id): bool => $id > 0));
-                $usedKnowledgeCount = 0;
-                $enabledUnusedCount = $enabledKnowledge;
-                if ($this->tableExists('agent_conversations')) {
-                    $usageQuery = Db::name('agent_conversations')->where('knowledge_id', '>', 0);
-                    $this->applyHotelScope($usageQuery, $hotelIds, $hotelId, 'hotel_id');
-                    $usedKnowledgeIds = array_values(array_filter(array_map('intval', (clone $usageQuery)->group('knowledge_id')->column('knowledge_id')), static fn(int $id): bool => $id > 0));
-                    $usedKnowledgeCount = count(array_unique($usedKnowledgeIds));
-                    if (!empty($enabledKnowledgeIds)) {
-                        $enabledUnusedCount = count(array_diff($enabledKnowledgeIds, $usedKnowledgeIds));
-                    }
-                }
-
-                $signal['record_count'] += $knowledgeCount;
-                $signal['latest_at'] = $this->maxDateString((string)$signal['latest_at'], (string)((clone $knowledgeQuery)->max('update_time') ?: ((clone $knowledgeQuery)->max('create_time') ?: '')));
-                $signal['detail'] = trim((string)($signal['detail'] ?? '')
-                    . ', knowledge_total=' . $knowledgeCount
-                    . ', knowledge_enabled=' . $enabledKnowledge
-                    . ', knowledge_disabled=' . $disabledKnowledge
-                    . ', knowledge_used=' . $usedKnowledgeCount
-                    . ', knowledge_enabled_unused=' . $enabledUnusedCount, ', ');
-                if ((int)$signal['record_count'] > 0 && $enabledKnowledge <= 0) {
-                    $signal['data_gaps'][] = ['code' => 'staff_knowledge_base_disabled', 'message' => 'Staff agent records exist but enabled knowledge-base entries are missing.'];
-                }
-                if ($conversationCount > 0 && $enabledKnowledge > 0 && $usedKnowledgeCount <= 0) {
-                    $signal['data_gaps'][] = ['code' => 'staff_knowledge_usage_missing', 'message' => 'Enabled knowledge-base entries exist but no conversation references are visible.'];
-                }
-                if ($usedKnowledgeCount > 0 && $enabledUnusedCount > 0) {
-                    $signal['data_gaps'][] = ['code' => 'staff_knowledge_entries_unused', 'message' => 'Some enabled knowledge-base entries have not been referenced by conversations.'];
-                }
-            } catch (Throwable $e) {
-                $signal['data_gaps'][] = ['code' => 'knowledge_base_read_failed', 'message' => 'Knowledge-base summary read failed.'];
-            }
-        }
-
-        return $signal;
-    }
-
-    private function assetMaintenanceSignal(array $hotelIds, ?int $hotelId, array $executionStats): array
-    {
-        $signal = $this->baseSignal('asset_maintenance', '资产运维 / 能耗维护', 'devices, energy suggestions, maintenance plans, and maintenance records', $this->mergeExecutionStats($executionStats, ['asset_maintenance', 'energy_saving', 'energy_saving_suggestion', 'maintenance_plan']));
-        if (!$this->tableExists('devices')) {
-            return $this->missingTableSignal($signal, 'devices');
-        }
-
-        try {
-            $deviceQuery = Db::name('devices');
-            $this->applyHotelScope($deviceQuery, $hotelIds, $hotelId, 'hotel_id');
-            $deviceCount = (int)(clone $deviceQuery)->count();
-            $monitoredCount = (int)(clone $deviceQuery)->where('is_monitored', 1)->count();
-            $faultCount = (int)(clone $deviceQuery)->where('status', 3)->count();
-            $signal['record_count'] += $deviceCount;
-            $signal['latest_at'] = $this->maxDateString((string)$signal['latest_at'], (string)((clone $deviceQuery)->max('update_time') ?: ((clone $deviceQuery)->max('create_time') ?: '')));
-            $signal['detail'] = 'devices=' . $deviceCount . ', monitored=' . $monitoredCount . ', faults=' . $faultCount;
-            if ($deviceCount > 0 && $monitoredCount <= 0) {
-                $signal['data_gaps'][] = ['code' => 'asset_device_monitoring_missing', 'message' => 'Devices exist but no monitored device is available for energy/anomaly closure.'];
-            }
-            if ($faultCount > 0) {
-                $signal['data_gaps'][] = ['code' => 'asset_fault_device_open', 'message' => 'Fault devices exist and need maintenance evidence.'];
-            }
-        } catch (Throwable $e) {
-            $signal['table_status'] = 'read_failed';
-            $signal['data_gaps'][] = ['code' => 'devices_read_failed', 'message' => 'Device summary read failed.'];
-        }
-
-        if ($this->tableExists('energy_saving_suggestions')) {
-            try {
-                $suggestionQuery = Db::name('energy_saving_suggestions');
-                $this->applyHotelScope($suggestionQuery, $hotelIds, $hotelId, 'hotel_id');
-                $suggestionCount = (int)(clone $suggestionQuery)->count();
-                $approvedCount = (int)(clone $suggestionQuery)->whereIn('status', [2, 3, 4])->count();
-                $implementingCount = (int)(clone $suggestionQuery)->where('status', 3)->count();
-                $completedCount = (int)(clone $suggestionQuery)->where('status', 4)->count();
-                $actualSavingReady = (int)(clone $suggestionQuery)->where('status', 4)->where('actual_saving', '>', 0)->count();
-
-                $signal['record_count'] += $suggestionCount;
-                $signal['linked_execution_count'] += $approvedCount;
-                $signal['approved_count'] += $approvedCount;
-                $signal['executed_count'] += $completedCount;
-                $signal['evidence_ready_count'] += $completedCount;
-                $signal['reviewed_count'] += $actualSavingReady;
-                $signal['roi_ready_count'] += $actualSavingReady;
-                $signal['latest_at'] = $this->maxDateString((string)$signal['latest_at'], (string)((clone $suggestionQuery)->max('update_time') ?: ((clone $suggestionQuery)->max('create_time') ?: '')));
-                $signal['detail'] = trim((string)($signal['detail'] ?? '') . ', energy_suggestions=' . $suggestionCount . ', implementing=' . $implementingCount . ', completed=' . $completedCount . ', saving_ready=' . $actualSavingReady, ', ');
-
-                if ($suggestionCount > 0 && $completedCount <= 0) {
-                    $signal['data_gaps'][] = ['code' => 'asset_energy_suggestion_not_completed', 'message' => 'Energy-saving suggestions exist but no completed implementation is visible.'];
-                }
-                if ($completedCount > 0 && $actualSavingReady <= 0) {
-                    $signal['data_gaps'][] = ['code' => 'asset_actual_saving_missing', 'message' => 'Completed energy-saving suggestions lack actual_saving evidence.'];
-                }
-            } catch (Throwable $e) {
-                $signal['data_gaps'][] = ['code' => 'energy_saving_suggestions_read_failed', 'message' => 'Energy suggestion summary read failed.'];
-            }
-        } else {
-            $signal['data_gaps'][] = ['code' => 'energy_saving_suggestions_missing', 'message' => 'energy_saving_suggestions table missing.'];
-        }
-
-        if ($this->tableExists('maintenance_plans')) {
-            try {
-                $planQuery = Db::name('maintenance_plans');
-                $this->applyHotelScope($planQuery, $hotelIds, $hotelId, 'hotel_id');
-                $planCount = (int)(clone $planQuery)->count();
-                $activePlanCount = (int)(clone $planQuery)->where('status', 1)->count();
-                $planExecutionCount = (int)((clone $planQuery)->sum('execution_count') ?: 0);
-                $signal['record_count'] += $planCount;
-                $signal['linked_execution_count'] += $activePlanCount;
-                $signal['approved_count'] += $activePlanCount;
-                $signal['executed_count'] += $planExecutionCount;
-                $signal['evidence_ready_count'] += $planExecutionCount;
-                $signal['latest_at'] = $this->maxDateString((string)$signal['latest_at'], (string)((clone $planQuery)->max('update_time') ?: ((clone $planQuery)->max('create_time') ?: '')));
-                $signal['detail'] = trim((string)($signal['detail'] ?? '') . ', maintenance_plans=' . $planCount . ', active_plans=' . $activePlanCount . ', plan_executions=' . $planExecutionCount, ', ');
-                if ($planCount > 0 && $planExecutionCount <= 0) {
-                    $signal['data_gaps'][] = ['code' => 'asset_maintenance_execution_missing', 'message' => 'Maintenance plans exist but no execution count is recorded.'];
-                }
-            } catch (Throwable $e) {
-                $signal['data_gaps'][] = ['code' => 'maintenance_plans_read_failed', 'message' => 'Maintenance plan summary read failed.'];
-            }
-        } else {
-            $signal['data_gaps'][] = ['code' => 'maintenance_plans_missing', 'message' => 'maintenance_plans table missing.'];
-        }
-
-        if ($this->tableExists('device_maintenance')) {
-            try {
-                $maintenanceQuery = Db::name('device_maintenance')->alias('m')->join('devices d', 'm.device_id = d.id');
-                $this->applyHotelScope($maintenanceQuery, $hotelIds, $hotelId, 'd.hotel_id');
-                $maintenanceCount = (int)(clone $maintenanceQuery)->count();
-                $completedMaintenanceCount = (int)(clone $maintenanceQuery)->where('m.status', 3)->count();
-                $signal['record_count'] += $maintenanceCount;
-                $signal['executed_count'] += $completedMaintenanceCount;
-                $signal['evidence_ready_count'] += $completedMaintenanceCount;
-                $signal['reviewed_count'] += $completedMaintenanceCount;
-                $signal['roi_ready_count'] += $completedMaintenanceCount;
-                $signal['latest_at'] = $this->maxDateString((string)$signal['latest_at'], (string)((clone $maintenanceQuery)->max('m.update_time') ?: ((clone $maintenanceQuery)->max('m.create_time') ?: '')));
-                $signal['detail'] = trim((string)($signal['detail'] ?? '') . ', maintenance_records=' . $maintenanceCount . ', completed_maintenance=' . $completedMaintenanceCount, ', ');
-            } catch (Throwable $e) {
-                $signal['data_gaps'][] = ['code' => 'device_maintenance_read_failed', 'message' => 'Device maintenance summary read failed.'];
-            }
-        } else {
-            $signal['data_gaps'][] = ['code' => 'device_maintenance_missing', 'message' => 'device_maintenance table missing.'];
-        }
-
-        return $signal;
-    }
-
     private function operationExecutionSignal(array $summary, array $executionFlow): array
     {
         $dataGaps = is_array($executionFlow['data_gaps'] ?? null) ? $executionFlow['data_gaps'] : [];
@@ -752,214 +435,6 @@ class BusinessClosureOverviewService
             'data_gaps' => $dataGaps,
             'empty_next_action' => 'create_execution_intent',
         ];
-    }
-
-    private function transferInvestmentSignal(array $hotelIds, ?int $hotelId, array $executionStats): array
-    {
-        $signal = $this->baseSignal('transfer_investment', '转让 / 投资测算', 'transfer_records from selected hotel scope; not full due diligence', $this->mergeExecutionStats($executionStats, ['transfer_decision', 'transfer_investment']));
-        if (!$this->tableExists('transfer_records')) {
-            return $this->missingTableSignal($signal, 'transfer_records');
-        }
-
-        try {
-            $query = Db::name('transfer_records')->whereNull('deleted_at');
-            $this->applyHotelScope($query, $hotelIds, $hotelId, 'hotel_id');
-            $signal['record_count'] = (int)(clone $query)->count();
-            $signal['latest_at'] = (string)((clone $query)->max('updated_at') ?: '');
-            $readiness = (new TransferDecisionService())->readinessSummaryFromRows((clone $query)->order('id', 'desc')->limit(30)->select()->toArray());
-            if ((int)($readiness['record_count'] ?? 0) > 0) {
-                $signal['detail'] = 'best_readiness=' . (string)($readiness['best_status_label'] ?? '')
-                    . ', score=' . (int)($readiness['best_score'] ?? 0)
-                    . ', review_ready=' . (int)($readiness['review_ready_count'] ?? 0)
-                    . ', decision_ready=' . (int)($readiness['decision_ready_count'] ?? 0);
-                foreach (array_slice((array)($readiness['missing_evidence'] ?? []), 0, 3) as $gap) {
-                    if (!is_array($gap)) {
-                        continue;
-                    }
-                    $signal['data_gaps'][] = [
-                        'code' => 'transfer_readiness_' . (string)($gap['code'] ?? 'missing'),
-                        'message' => (string)($gap['label'] ?? 'Transfer readiness evidence missing') . ': ' . (string)($gap['next_action'] ?? ''),
-                    ];
-                }
-            }
-            if ($signal['record_count'] > 0 && (int)$signal['linked_execution_count'] <= 0) {
-                $signal['data_gaps'][] = ['code' => 'transfer_due_diligence_loop_missing', 'message' => 'Transfer/investment records are calculations until due-diligence tasks and review evidence are linked.'];
-            }
-        } catch (Throwable $e) {
-            $signal['table_status'] = 'read_failed';
-            $signal['data_gaps'][] = ['code' => 'transfer_records_read_failed', 'message' => 'Transfer record summary read failed.'];
-        }
-
-        return $signal;
-    }
-
-    private function expansionSignal(int $userId, bool $isSuperAdmin, array $executionStats): array
-    {
-        $signal = $this->baseSignal('expansion', '扩张 / 市场评估', 'expansion_records; screening records only until execution evidence is linked', $this->mergeExecutionStats($executionStats, ['expansion', 'market_evaluation']));
-        if (!$this->tableExists('expansion_records')) {
-            return $this->missingTableSignal($signal, 'expansion_records');
-        }
-
-        try {
-            $query = Db::name('expansion_records')->whereNull('deleted_at');
-            $this->applyOwnerScope($query, $userId, $isSuperAdmin);
-            $signal['record_count'] = (int)(clone $query)->count();
-            $signal['latest_at'] = (string)((clone $query)->max('updated_at') ?: '');
-            $readiness = (new ExpansionService())->readinessSummaryFromRows((clone $query)->order('id', 'desc')->limit(30)->select()->toArray());
-            if ((int)($readiness['record_count'] ?? 0) > 0) {
-                $signal['detail'] = 'best_readiness=' . (string)($readiness['best_status_label'] ?? '')
-                    . ', score=' . (int)($readiness['best_score'] ?? 0)
-                    . ', review_ready=' . (int)($readiness['review_ready_count'] ?? 0)
-                    . ', project_ready=' . (int)($readiness['project_ready_count'] ?? 0);
-                foreach (array_slice((array)($readiness['missing_evidence'] ?? []), 0, 3) as $gap) {
-                    if (!is_array($gap)) {
-                        continue;
-                    }
-                    $signal['data_gaps'][] = [
-                        'code' => 'expansion_readiness_' . (string)($gap['code'] ?? 'missing'),
-                        'message' => (string)($gap['label'] ?? 'Expansion readiness evidence missing') . ': ' . (string)($gap['next_action'] ?? ''),
-                    ];
-                }
-            }
-            if ($signal['record_count'] > 0 && (int)$signal['linked_execution_count'] <= 0) {
-                $signal['data_gaps'][] = ['code' => 'expansion_execution_bridge_missing', 'message' => 'Expansion records are screening outputs until diligence/action evidence is linked.'];
-            }
-        } catch (Throwable $e) {
-            $signal['table_status'] = 'read_failed';
-            $signal['data_gaps'][] = ['code' => 'expansion_records_read_failed', 'message' => 'Expansion record summary read failed.'];
-        }
-
-        return $signal;
-    }
-
-    private function openingSignal(int $userId, bool $isSuperAdmin, array $executionStats): array
-    {
-        $signal = $this->baseSignal('opening', '开业管理', 'opening_projects/tasks; checklist loop, not OTA go-live proof', $this->mergeExecutionStats($executionStats, ['opening']));
-        if (!$this->tableExists('opening_projects')) {
-            return $this->missingTableSignal($signal, 'opening_projects');
-        }
-
-        try {
-            $query = Db::name('opening_projects')->where('status', '<>', 'archived');
-            $this->applyOwnerScope($query, $userId, $isSuperAdmin);
-            $signal['record_count'] = (int)(clone $query)->count();
-            $signal['latest_at'] = (string)((clone $query)->max('updated_at') ?: '');
-            $unbound = (int)(clone $query)->where('hotel_id', 0)->count();
-            if ($unbound > 0) {
-                $signal['data_gaps'][] = ['code' => 'opening_project_hotel_scope_missing', 'message' => 'Opening projects exist without a bound hotel_id; they cannot prove hotel/OTA go-live closure.'];
-            }
-            if ($signal['record_count'] > 0 && (int)$signal['linked_execution_count'] <= 0) {
-                $signal['data_gaps'][] = ['code' => 'opening_go_live_evidence_missing', 'message' => 'Opening checklist records are not linked to go-live evidence or post-opening performance review.'];
-            }
-        } catch (Throwable $e) {
-            $signal['table_status'] = 'read_failed';
-            $signal['data_gaps'][] = ['code' => 'opening_projects_read_failed', 'message' => 'Opening project summary read failed.'];
-        }
-
-        return $signal;
-    }
-
-    private function strategySimulationSignal(int $userId, bool $isSuperAdmin, array $executionStats): array
-    {
-        $signal = $this->baseSignal('strategy_simulation', '策略 / 量化模拟', 'strategy and quant simulation records; not executed until linked to operation execution', $this->mergeExecutionStats($executionStats, ['strategy_simulation', 'quant_simulation']));
-        $recordCount = 0;
-        $latest = '';
-        $missing = [];
-        $strategyRows = [];
-        $quantRows = [];
-
-        foreach (['strategy_simulation_records', 'quant_simulation_records'] as $table) {
-            if (!$this->tableExists($table)) {
-                $missing[] = $table;
-                continue;
-            }
-            try {
-                $query = Db::name($table)->whereNull('deleted_at');
-                $this->applyOwnerScope($query, $userId, $isSuperAdmin);
-                $recordCount += (int)(clone $query)->count();
-                $tableLatest = (string)((clone $query)->max('updated_at') ?: '');
-                if ($tableLatest !== '' && ($latest === '' || $tableLatest > $latest)) {
-                    $latest = $tableLatest;
-                }
-                $rows = (clone $query)->order('id', 'desc')->limit(30)->select()->toArray();
-                if ($table === 'strategy_simulation_records') {
-                    $strategyRows = $rows;
-                } else {
-                    $quantRows = $rows;
-                }
-            } catch (Throwable $e) {
-                $signal['table_status'] = 'read_failed';
-                $signal['data_gaps'][] = ['code' => $table . '_read_failed', 'message' => $table . ' summary read failed.'];
-            }
-        }
-
-        $signal['record_count'] = $recordCount;
-        $signal['latest_at'] = $latest;
-        foreach ($missing as $table) {
-            $signal['data_gaps'][] = ['code' => $table . '_missing', 'message' => $table . ' table missing.'];
-        }
-        if ($recordCount > 0) {
-            $readiness = (new SimulationExecutionReadinessService())->readinessSummaryFromRows($strategyRows, $quantRows);
-            if ((int)($readiness['record_count'] ?? 0) > 0) {
-                $signal['detail'] = 'best_readiness=' . (string)($readiness['best_status_label'] ?? '')
-                    . ', score=' . (int)($readiness['best_score'] ?? 0)
-                    . ', review_ready=' . (int)($readiness['review_ready_count'] ?? 0)
-                    . ', execution_ready=' . (int)($readiness['execution_ready_count'] ?? 0);
-                foreach (array_slice((array)($readiness['missing_evidence'] ?? []), 0, 3) as $gap) {
-                    if (!is_array($gap)) {
-                        continue;
-                    }
-                    $signal['data_gaps'][] = [
-                        'code' => 'simulation_readiness_' . (string)($gap['code'] ?? 'missing'),
-                        'message' => (string)($gap['label'] ?? 'Simulation readiness evidence missing') . ': ' . (string)($gap['next_action'] ?? ''),
-                    ];
-                }
-            }
-        }
-        if ($recordCount > 0 && (int)$signal['linked_execution_count'] <= 0) {
-            $signal['data_gaps'][] = ['code' => 'simulation_execution_bridge_missing', 'message' => 'Simulation records are not linked to approval/execution/evidence/ROI.'];
-        }
-
-        return $signal;
-    }
-
-    private function feasibilityReportSignal(int $userId, bool $isSuperAdmin, array $executionStats): array
-    {
-        $signal = $this->baseSignal('feasibility_report', 'AI可行性报告', 'feasibility_reports; advisory report until diligence, review, and tracking evidence exist', $this->mergeExecutionStats($executionStats, ['feasibility_report', 'agent_feasibility', 'feasibility']));
-        if (!$this->tableExists('feasibility_reports')) {
-            return $this->missingTableSignal($signal, 'feasibility_reports');
-        }
-
-        try {
-            $query = Db::name('feasibility_reports')->whereNull('deleted_at');
-            $this->applyOwnerScope($query, $userId, $isSuperAdmin);
-            $signal['record_count'] = (int)(clone $query)->count();
-            $signal['latest_at'] = (string)((clone $query)->max('updated_at') ?: ((clone $query)->max('created_at') ?: ''));
-            $readiness = (new FeasibilityReportService())->readinessSummaryFromRows((clone $query)->order('id', 'desc')->limit(30)->select()->toArray());
-            if ((int)($readiness['record_count'] ?? 0) > 0) {
-                $signal['detail'] = 'best_readiness=' . (string)($readiness['best_status_label'] ?? '')
-                    . ', score=' . (int)($readiness['best_score'] ?? 0)
-                    . ', review_ready=' . (int)($readiness['review_ready_count'] ?? 0)
-                    . ', feasibility_ready=' . (int)($readiness['feasibility_ready_count'] ?? 0);
-                foreach (array_slice((array)($readiness['missing_evidence'] ?? []), 0, 3) as $gap) {
-                    if (!is_array($gap)) {
-                        continue;
-                    }
-                    $signal['data_gaps'][] = [
-                        'code' => 'feasibility_readiness_' . (string)($gap['code'] ?? 'missing'),
-                        'message' => (string)($gap['label'] ?? 'Feasibility readiness evidence missing') . ': ' . (string)($gap['next_action'] ?? ''),
-                    ];
-                }
-            }
-            if ($signal['record_count'] > 0 && (int)$signal['linked_execution_count'] <= 0) {
-                $signal['data_gaps'][] = ['code' => 'feasibility_investment_loop_missing', 'message' => 'Feasibility reports are advisory until diligence, human review, execution/tracking, and ROI evidence are linked.'];
-            }
-        } catch (Throwable $e) {
-            $signal['table_status'] = 'read_failed';
-            $signal['data_gaps'][] = ['code' => 'feasibility_reports_read_failed', 'message' => 'Feasibility report summary read failed.'];
-        }
-
-        return $signal;
     }
 
     private function baseSignal(string $key, string $label, string $sourceScope, array $stats): array
@@ -1037,56 +512,6 @@ class BusinessClosureOverviewService
         return $stats;
     }
 
-    private function mergeExecutionStats(array $stats, array $sources): array
-    {
-        $merged = [];
-        foreach ($sources as $source) {
-            foreach (($stats[$source] ?? []) as $key => $value) {
-                $merged[$key] = (int)($merged[$key] ?? 0) + (int)$value;
-            }
-        }
-
-        return $merged;
-    }
-
-    private function conversationLinkedWorkOrderCount(array $hotelIds, ?int $hotelId): int
-    {
-        if (!$this->tableExists('agent_work_orders')) {
-            return 0;
-        }
-
-        try {
-            $query = Db::name('agent_work_orders')->field('tags');
-            $this->applyHotelScope($query, $hotelIds, $hotelId, 'hotel_id');
-            $rows = $query->whereLike('tags', '%conversation:%')->select()->toArray();
-        } catch (Throwable $e) {
-            return 0;
-        }
-
-        $conversationIds = [];
-        foreach ($rows as $row) {
-            $tags = $row['tags'] ?? [];
-            if (is_string($tags)) {
-                $decoded = json_decode($tags, true);
-                $tags = is_array($decoded) ? $decoded : [];
-            }
-            if (!is_array($tags)) {
-                continue;
-            }
-            foreach ($tags as $tag) {
-                if (!is_string($tag) || !str_starts_with($tag, 'conversation:')) {
-                    continue;
-                }
-                $conversationId = (int)substr($tag, strlen('conversation:'));
-                if ($conversationId > 0) {
-                    $conversationIds[$conversationId] = true;
-                }
-            }
-        }
-
-        return count($conversationIds);
-    }
-
     private function applyHotelScope($query, array $hotelIds, ?int $hotelId, string $field): void
     {
         if ($hotelId !== null && $hotelId > 0) {
@@ -1099,19 +524,6 @@ class BusinessClosureOverviewService
         }
 
         $query->whereRaw('1 = 0');
-    }
-
-    private function applyOwnerScope($query, int $userId, bool $isSuperAdmin): void
-    {
-        if ($isSuperAdmin) {
-            return;
-        }
-        if ($userId <= 0) {
-            $query->whereRaw('1 = 0');
-            return;
-        }
-
-        $query->where('created_by', $userId);
     }
 
     private function tableExists(string $table): bool
@@ -1163,15 +575,4 @@ class BusinessClosureOverviewService
         ][$nextAction] ?? $nextAction;
     }
 
-    private function maxDateString(string $left, string $right): string
-    {
-        if ($left === '') {
-            return $right;
-        }
-        if ($right === '') {
-            return $left;
-        }
-
-        return $right > $left ? $right : $left;
-    }
 }

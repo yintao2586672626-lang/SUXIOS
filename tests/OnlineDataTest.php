@@ -1183,8 +1183,9 @@ final class OnlineDataTest extends TestCase
         self::assertSame(0.0, $quality['visitor_total']);
         self::assertFalse($quality['ready']);
         self::assertSame('partial_qunar_visitor_gap', $quality['status']);
-        self::assertStringContainsString('需要自动重抓', $quality['message']);
-        self::assertStringContainsString('不能按整次成功处理', $quality['message']);
+        self::assertStringContainsString('仅作为字段缺口提示', $quality['message']);
+        self::assertStringContainsString('不阻断携程竞争圈获取和入库', $quality['message']);
+        self::assertStringNotContainsString('需要自动重抓', $quality['message']);
     }
 
     public function testBackendBuildsCtripBusinessDisplayDerivedMetricsForFrontend(): void
@@ -2235,6 +2236,102 @@ final class OnlineDataTest extends TestCase
         self::assertSame('20', $cardsByKey['marketInventory']['value']);
     }
 
+    public function testMeituanSevenDayTradePresetUsesWeekDateType(): void
+    {
+        $controller = $this->controller();
+
+        self::assertSame('WEEK', $this->invokeNonPublic($controller, 'meituanSelfTradeDateType', ['7', '2026-07-04', '2026-07-11']));
+        self::assertSame('MONTH', $this->invokeNonPublic($controller, 'meituanSelfTradeDateType', ['30', '2026-06-12', '2026-07-11']));
+    }
+
+    public function testMeituanSevenDayMissingTradeAnchorFallsBackToDailyTotals(): void
+    {
+        $controller = $this->controller();
+        if (!method_exists($controller, 'fetchMeituanSelfDailyTradeMetricValues')) {
+            self::fail('Missing seven-day daily trade fallback');
+        }
+
+        $requestedDates = [];
+        $result = $this->invokeNonPublic($controller, 'fetchMeituanSelfDailyTradeMetricValues', [
+            'partner-1',
+            'poi-1',
+            '2026-07-05',
+            '2026-07-11',
+            'cookie',
+            [],
+            static function (string $date) use (&$requestedDates): array {
+                $requestedDates[] = $date;
+                return [
+                    'status' => 'returned',
+                    'values' => [
+                        'roomNights' => 2,
+                        'roomRevenue' => 100,
+                        'salesRoomNights' => 3,
+                        'sales' => 120,
+                        'orderCount' => 1,
+                    ],
+                ];
+            },
+        ]);
+
+        self::assertSame([
+            '2026-07-05',
+            '2026-07-06',
+            '2026-07-07',
+            '2026-07-08',
+            '2026-07-09',
+            '2026-07-10',
+            '2026-07-11',
+        ], $requestedDates);
+        self::assertSame('returned', $result['status']);
+        self::assertSame(7, $result['days_returned']);
+        self::assertSame(14.0, $result['values']['roomNights']);
+        self::assertSame(700.0, $result['values']['roomRevenue']);
+        self::assertSame(21.0, $result['values']['salesRoomNights']);
+        self::assertSame(840.0, $result['values']['sales']);
+        self::assertSame(7.0, $result['values']['orderCount']);
+    }
+
+    public function testMeituanBooleanVipTagIsPreservedForDisplay(): void
+    {
+        $controller = $this->controller();
+
+        self::assertSame([
+            'tags' => ['VIP'],
+            'status' => 'returned',
+        ], $this->invokeNonPublic($controller, 'extractMeituanPlatformTagInfo', [['vipTag' => true]]));
+        self::assertSame([
+            'tags' => [],
+            'status' => 'returned_empty',
+        ], $this->invokeNonPublic($controller, 'extractMeituanPlatformTagInfo', [['vipTag' => false]]));
+    }
+
+    public function testMeituanMissingRoomRevenueSummaryDoesNotPretendZeroRevenue(): void
+    {
+        $controller = $this->controller();
+        $rows = $this->invokeNonPublic($controller, 'mergeMeituanBusinessDisplayHotels', [[[
+            'poiId' => 'A',
+            'hotelName' => 'A',
+            'roomNights' => 10,
+            'roomRevenue' => 1000,
+            'metricSourceStatus' => [
+                'roomNights' => '按美团百分比最小整数比例尺估算',
+                'roomRevenue' => '按美团百分比最小整数比例尺估算',
+            ],
+            'metricDerived' => [
+                'roomNights' => ['method' => 'percent_min_integer_scale'],
+                'roomRevenue' => ['method' => 'percent_min_integer_scale'],
+            ],
+        ]]]);
+        $summary = $this->invokeNonPublic($controller, 'buildMeituanBusinessDisplaySummary', [$rows, []]);
+        $cardsByKey = [];
+        foreach ($summary['cards'] as $card) {
+            $cardsByKey[$card['key']] = $card;
+        }
+
+        self::assertSame('-', $cardsByKey['totalRoomRevenue']['value']);
+    }
+
     public function testBackendBuildsMeituanRankInsightsAndGapsForFrontend(): void
     {
         $controller = $this->controller();
@@ -2472,6 +2569,58 @@ final class OnlineDataTest extends TestCase
         self::assertSame('self_value_times_row_percent_div_self_percent', $rowsByPoi['RIVAL']['metricDerived']['salesRoomNights']['method']);
         self::assertSame(1, $payload['display_summary']['metrics']['derivedMetricCount']);
         self::assertStringContainsString('推导', $payload['source_notice']);
+    }
+
+    public function testStoredMeituanSummaryReusesPersistedSelfMetricAnchor(): void
+    {
+        $controller = $this->controller();
+        $rows = [];
+        foreach ([
+            ['poi' => 'SELF', 'name' => 'Self Hotel', 'percent' => 50, 'rank' => 2],
+            ['poi' => 'RIVAL', 'name' => 'Rival Hotel', 'percent' => 100, 'rank' => 1],
+        ] as $hotel) {
+            $raw = [
+                'poiName' => $hotel['name'],
+                'dataValue' => null,
+                'percent' => $hotel['percent'],
+                'metricStatus' => 'platform_percent_only',
+                'rankType' => 'P_RZ',
+                'rank' => $hotel['rank'],
+                'dimension' => '房费收入榜',
+                'aiMetricName' => 'P_RZ_ROOM_PAY',
+                'platformTagStatus' => 'returned_empty',
+            ];
+            if ($hotel['poi'] === 'SELF') {
+                $raw['selfMetricValues'] = ['roomRevenue' => 1000];
+                $raw['selfMetricStatus'] = 'daily_trade_returned';
+            }
+            $rows[] = [
+                'system_hotel_id' => 100,
+                'hotel_id' => $hotel['poi'],
+                'hotel_name' => $hotel['name'],
+                'data_date' => '2026-07-11',
+                'data_value' => 0,
+                'quantity' => 0,
+                'amount' => 0,
+                'dimension' => '房费收入榜',
+                'raw_data' => json_encode($raw, JSON_UNESCAPED_UNICODE),
+            ];
+        }
+
+        $payload = $this->invokeNonPublic($controller, 'buildMeituanCompetitorSummaryFromStoredRows', [$rows, [
+            'system_hotel_id' => 100,
+            'target_poi_id' => 'SELF',
+        ]]);
+        $rowsByPoi = [];
+        foreach ($payload['display_hotels'] as $row) {
+            $rowsByPoi[$row['poiId']] = $row;
+        }
+
+        self::assertSame(1000.0, $rowsByPoi['SELF']['roomRevenue']);
+        self::assertSame(2000.0, $rowsByPoi['RIVAL']['roomRevenue']);
+        self::assertSame('1,000', $rowsByPoi['SELF']['roomRevenueText']);
+        self::assertSame('2,000', $rowsByPoi['RIVAL']['roomRevenueText']);
+        self::assertSame(3000.0, $payload['display_summary']['metrics']['totalRoomRevenue']);
     }
 
     public function testStoredMeituanSummaryDerivesPercentOnlyRowsFromMinimalIntegerScale(): void
@@ -4796,6 +4945,56 @@ final class OnlineDataTest extends TestCase
         ], $query->calls);
     }
 
+    public function testCtripCompetitionCircleBatchKeyDoesNotCollapseHistoricalSnapshotsByBackfillTask(): void
+    {
+        $controller = $this->controller();
+        $columns = [
+            'sync_task_id' => true,
+            'data_date' => true,
+            'snapshot_time' => true,
+            'update_time' => true,
+            'system_hotel_id' => true,
+        ];
+        $base = [
+            'sync_task_id' => 99,
+            'system_hotel_id' => 7,
+            'data_type' => 'competitor',
+            'dimension' => 'competition_circle_hotel',
+        ];
+
+        $first = $this->invokeNonPublic($controller, 'ctripLatestBatchKey', [
+            $base + ['data_date' => '2026-07-09', 'snapshot_time' => '2026-07-10 13:10:49', 'update_time' => '2026-07-10 13:10:49'],
+            $columns,
+            true,
+        ]);
+        $second = $this->invokeNonPublic($controller, 'ctripLatestBatchKey', [
+            $base + ['data_date' => '2026-07-10', 'snapshot_time' => '2026-07-11 15:43:35', 'update_time' => '2026-07-11 15:43:35'],
+            $columns,
+            true,
+        ]);
+
+        self::assertNotSame($first, $second);
+        self::assertStringContainsString('date:2026-07-10', $second);
+        self::assertStringContainsString('time:2026-07-11 15:43:35', $second);
+        self::assertStringContainsString('hotel:7', $second);
+    }
+
+    public function testCtripCompetitionCircleFallbackIsStrictlyScopedToCircleRows(): void
+    {
+        $controller = $this->controller();
+        $query = new OnlineDataQuerySpy();
+
+        $this->invokeNonPublic($controller, 'applyCtripCompetitionCircleFilter', [
+            $query,
+            ['data_type' => true, 'dimension' => true],
+        ]);
+
+        self::assertSame([
+            ['where', 'data_type', 'competitor'],
+            ['where', 'dimension', 'competition_circle_hotel'],
+        ], $query->calls);
+    }
+
     /**
      * 覆盖 normalizeOnlineDataDate/extractCtripCommentScore：
      * 验证日期输入兼容、非法值兜底、点评分数字段别名。
@@ -5841,6 +6040,22 @@ final class OnlineDataTest extends TestCase
         ]]));
     }
 
+    public function testCtripCompetitionCircleRowsBypassLegacyBusinessPersistence(): void
+    {
+        $controller = $this->controller();
+
+        self::assertFalse($this->invokeNonPublic($controller, 'canSaveCtripLegacyBusinessMetricItem', [[
+            'hotelId' => '130079194',
+            'hotelName' => '我的酒店',
+            'amount' => 1244.52,
+            'quantity' => 2,
+            'bookOrderNum' => 4,
+            'amountRank' => 25,
+            'quantityRank' => 20,
+            'bookOrderNumRank' => 16,
+        ]]));
+    }
+
     public function testCtripProfileStatusReportsReusableProfileWithoutLeakingCookie(): void
     {
         $controller = $this->controller();
@@ -6527,6 +6742,13 @@ final class OnlineDataTest extends TestCase
             'competition_profile_psi_score',
             'competition_profile_ctrip_rating',
             'seq_rank',
+            'target_date',
+            'search_window',
+            'compare_scope',
+            'future_search_pv',
+            'future_search_uv',
+            'future_search_order_count',
+            'future_search_conversion_rate',
             'list_exposure',
             'competitor_list_exposure',
             'detail_visitor',
@@ -8609,6 +8831,188 @@ final class OnlineDataTest extends TestCase
         self::assertSame('HE', $endpoints[1]['payload']['hostType'] ?? '');
         self::assertSame('2026-06-10', $endpoints[1]['payload']['startDate'] ?? '');
     }
+
+    public function testCtripCookieApiTrafficPresetBuildsFourTrustedSearchRequests(): void
+    {
+        $controller = $this->controller();
+
+        $endpoints = $this->invokeNonPublic($controller, 'buildCtripCookieApiPresetEndpoints', [
+            'traffic_report',
+            'VAULT_SPIDERKEY_SENTINEL',
+        ]);
+
+        self::assertCount(4, $endpoints);
+        self::assertSame([0, 3, 0, 3], array_column(array_column($endpoints, 'payload'), 'dataType'));
+        self::assertSame(['0', '0', '1', '1'], array_column(array_column($endpoints, 'payload'), 'searchType'));
+        foreach ($endpoints as $endpoint) {
+            self::assertSame('POST', $endpoint['method']);
+            self::assertStringContainsString('querySearchFlowDetails', $endpoint['request_url']);
+            self::assertSame('traffic_report', $endpoint['section']);
+            self::assertSame('Ctrip', $endpoint['payload']['platform']);
+            self::assertSame('', $endpoint['payload']['fingerPrintKeys']);
+            self::assertSame('2.0', $endpoint['payload']['spiderVersion']);
+            self::assertSame('VAULT_SPIDERKEY_SENTINEL', $endpoint['payload']['spiderkey']);
+        }
+    }
+
+    public function testCtripSearchOpportunityPayloadCombinesFourScopesAndPreservesZeroValues(): void
+    {
+        $controller = $this->controller();
+        $rows = [];
+        foreach ([
+            ['cumulative', 'self', 0, 3, 0.0],
+            ['cumulative', 'competitor_avg', 10, 7, 2.87],
+            ['yesterday', 'self', 0, 0, 0.0],
+            ['yesterday', 'competitor_avg', 4, 3, 1.25],
+        ] as [$window, $scope, $pv, $uv, $conversion]) {
+            $rows[] = [
+                'data_date' => '2026-07-11',
+                'compare_type' => $scope === 'self' ? 'self' : 'competitor',
+                'ingestion_method' => $window === 'cumulative' ? 'browser_profile' : 'ctrip_cookie_api',
+                'raw_data' => json_encode([
+                    'endpoint_id' => 'traffic_search_details',
+                    'captured_at' => '2026-07-11T08:00:00+08:00',
+                    'metric_status' => 'partial',
+                    'missing_fields' => ['future_search_order_count'],
+                    'dimension_values' => [
+                        'target_date' => '2026-07-12',
+                        'search_window' => $window,
+                        'compare_scope' => $scope,
+                    ],
+                    'metrics' => [
+                        'future_search_pv' => $pv,
+                        'future_search_uv' => $uv,
+                        'future_search_conversion_rate' => $conversion,
+                    ],
+                ], JSON_UNESCAPED_UNICODE),
+            ];
+        }
+
+        $payload = $this->invokeNonPublic($controller, 'buildCtripSearchOpportunityPayload', [$rows, '2026-07-11']);
+
+        self::assertSame('partial', $payload['status']);
+        self::assertSame('ctrip_ota_channel', $payload['source_scope']);
+        self::assertSame(4, $payload['scope_count']);
+        self::assertSame('field_missing', $payload['order_data_status']);
+        self::assertSame(['browser_profile', 'ctrip_cookie_api'], $payload['ingestion_methods']);
+        self::assertCount(30, $payload['dates']);
+        self::assertSame('2026-07-12', $payload['window_start_date']);
+        self::assertSame('2026-08-10', $payload['window_end_date']);
+        self::assertSame(0, $payload['dates'][0]['cumulative']['self']['pv']);
+        self::assertSame(7, $payload['dates'][0]['cumulative']['competitor_avg']['uv']);
+        self::assertSame(1.25, $payload['dates'][0]['yesterday']['competitor_avg']['conversion_rate']);
+        self::assertNull($payload['dates'][0]['yesterday']['self']['order_count']);
+
+        array_pop($rows);
+        $partial = $this->invokeNonPublic($controller, 'buildCtripSearchOpportunityPayload', [$rows, '2026-07-11']);
+        self::assertSame('partial', $partial['status']);
+        self::assertContains('yesterday:competitor_avg', $partial['missing_scopes']);
+    }
+
+    public function testCtripSearchOpportunityUsesExactFutureThirtyDaysAndKeepsHistoricalSelfReferenceSeparate(): void
+    {
+        $controller = $this->controller();
+        $makeRow = static function (
+            string $dataDate,
+            string $targetDate,
+            string $window,
+            string $scope,
+            int $pv,
+            int $uv
+        ): array {
+            return [
+                'data_date' => $dataDate,
+                'compare_type' => $scope === 'self' ? 'self' : 'competitor',
+                'ingestion_method' => 'ctrip_cookie_api',
+                'raw_data' => json_encode([
+                    'endpoint_id' => 'traffic_search_details',
+                    'captured_at' => $dataDate . 'T12:00:00Z',
+                    'dimension_values' => [
+                        'target_date' => $targetDate,
+                        'search_window' => $window,
+                        'compare_scope' => $scope,
+                    ],
+                    'metrics' => [
+                        'future_search_pv' => $pv,
+                        'future_search_uv' => $uv,
+                        'future_search_order_count' => null,
+                        'future_search_conversion_rate' => 1.5,
+                    ],
+                ], JSON_UNESCAPED_UNICODE),
+            ];
+        };
+
+        $currentRows = [
+            $makeRow('2026-07-11', '2026-07-11', 'cumulative', 'self', 99, 88),
+            $makeRow('2026-07-11', '2026-07-12', 'cumulative', 'self', 8, 6),
+            $makeRow('2026-07-11', '2026-07-12', 'cumulative', 'competitor_avg', 10, 7),
+            $makeRow('2026-07-11', '2026-07-12', 'yesterday', 'self', 3, 3),
+            $makeRow('2026-07-11', '2026-07-12', 'yesterday', 'competitor_avg', 7, 5),
+        ];
+        $referenceRows = [
+            $makeRow('2026-07-10', '2026-07-13', 'cumulative', 'self', 66, 51),
+            $makeRow('2026-07-10', '2026-07-13', 'cumulative', 'competitor_avg', 312, 205),
+        ];
+
+        $payload = $this->invokeNonPublic($controller, 'buildCtripSearchOpportunityPayload', [
+            $currentRows,
+            '2026-07-11',
+            $referenceRows,
+            '2026-07-10',
+        ]);
+
+        self::assertCount(30, $payload['dates']);
+        self::assertSame('2026-07-12', $payload['dates'][0]['target_date']);
+        self::assertSame('2026-08-10', $payload['dates'][29]['target_date']);
+        self::assertSame('2026-07-10', $payload['reference_capture_date']);
+        self::assertSame(66, $payload['dates'][1]['cumulative']['self_reference']['pv']);
+        self::assertArrayNotHasKey('self_reference', $payload['dates'][0]['cumulative']);
+        self::assertSame(1, $payload['reference_covered_gap_count']);
+        self::assertSame('partial', $payload['status']);
+    }
+
+    public function testCtripSearchOpportunityDateValidationRejectsEmptyAggregateSentinel(): void
+    {
+        $controller = $this->controller();
+
+        self::assertFalse($this->invokeNonPublic($controller, 'isCtripSearchOpportunityDate', ['0']));
+        self::assertFalse($this->invokeNonPublic($controller, 'isCtripSearchOpportunityDate', ['']));
+        self::assertTrue($this->invokeNonPublic($controller, 'isCtripSearchOpportunityDate', ['2026-07-11']));
+    }
+
+    public function testCtripSearchOpportunityLatestDateKeepsTheFullDateString(): void
+    {
+        $controller = $this->controller();
+        $query = new OnlineDataQuerySpy();
+        $query->valueResult = '2026-07-11';
+
+        $latestDate = $this->invokeNonPublic($controller, 'resolveLatestCtripSearchOpportunityDate', [$query]);
+
+        self::assertSame('2026-07-11', $latestDate);
+        self::assertSame([
+            ['order', 'data_date', 'desc'],
+            ['value', 'data_date'],
+        ], $query->calls);
+    }
+
+    public function testCtripSearchOpportunityPreviousDateUsesTheLatestEarlierCapture(): void
+    {
+        $controller = $this->controller();
+        $query = new OnlineDataQuerySpy();
+        $query->valueResult = '2026-07-10';
+
+        $previousDate = $this->invokeNonPublic($controller, 'resolvePreviousCtripSearchOpportunityDate', [
+            $query,
+            '2026-07-11',
+        ]);
+
+        self::assertSame('2026-07-10', $previousDate);
+        self::assertSame([
+            ['where', 'data_date', '<', '2026-07-11'],
+            ['order', 'data_date', 'desc'],
+            ['value', 'data_date'],
+        ], $query->calls);
+    }
 }
 
 final class OnlineDataQuerySpy
@@ -8618,9 +9022,13 @@ final class OnlineDataQuerySpy
      */
     public array $calls = [];
 
-    public function where(string $field, mixed $value): self
+    public mixed $valueResult = null;
+
+    public function where(string $field, mixed $value, mixed $thirdValue = null): self
     {
-        $this->calls[] = ['where', $field, $value];
+        $this->calls[] = func_num_args() === 3
+            ? ['where', $field, $value, $thirdValue]
+            : ['where', $field, $value];
         return $this;
     }
 
@@ -8640,5 +9048,17 @@ final class OnlineDataQuerySpy
     {
         $this->calls[] = ['whereBetween', $field, $values];
         return $this;
+    }
+
+    public function order(string $field, string $direction): self
+    {
+        $this->calls[] = ['order', $field, $direction];
+        return $this;
+    }
+
+    public function value(string $field): mixed
+    {
+        $this->calls[] = ['value', $field];
+        return $this->valueResult;
     }
 }

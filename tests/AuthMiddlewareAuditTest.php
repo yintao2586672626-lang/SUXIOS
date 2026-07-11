@@ -84,6 +84,32 @@ final class AuthMiddlewareAuditTest extends TestCase
         self::assertSame('ai_decision', $protected['capability']);
     }
 
+    public function testManualOtaFetchUsesDedicatedBatchQuota(): void
+    {
+        $middleware = new Auth();
+        $capability = [
+            'key' => 'online_data',
+            'rate_limit' => [
+                'scope' => 'protected_online_data',
+                'limit' => 60,
+                'window' => 3600,
+            ],
+        ];
+
+        foreach (['fetch-ctrip', 'fetch-meituan'] as $endpoint) {
+            $policy = $this->invokeNonPublic($middleware, 'resolveRateLimitPolicy', [
+                'POST',
+                '/api/online-data/' . $endpoint,
+                $capability,
+            ]);
+
+            self::assertSame('protected_ota_manual_fetch', $policy['scope']);
+            self::assertSame(600, $policy['limit']);
+            self::assertSame(3600, $policy['window']);
+            self::assertSame('online_data', $policy['capability']);
+        }
+    }
+
     public function testRateLimitCacheKeyIncludesTenantUserIpEndpointAndWindow(): void
     {
         $key = $this->invokeNonPublic(new Auth(), 'buildRateLimitCacheKey', [

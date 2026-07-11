@@ -32,7 +32,6 @@ test('Revenue AI static helper exposes the required display contract', () => {
     'buildRevenueAiSignalRows',
     'buildRevenueAiReviewQueueItems',
     'buildRevenueAiResolutionPlanSummary',
-    'buildRevenueAiInvestmentPrecheckSummary',
     'buildRevenueAiPricingGenerationPreflightSummary',
     'buildRevenueAiPriceSuggestionGenerateResult',
     'buildRevenueAiActionRows',
@@ -453,11 +452,11 @@ test('Revenue AI business closure preserves OTA scope and P1 metric split', () =
 
   assert.equal(closure.scopeText, 'OTA渠道口径');
   assert.equal(closure.calculationAllowed, true);
-  assert.equal(closure.summaryChips.length, 4);
+  assert.equal(closure.summaryChips.length, 3);
   assert.match(closure.nextAction, /异常判断|缺失项/);
   assert.equal(
     JSON.stringify(Array.from(closure.rows, (row) => row.stage)),
-    JSON.stringify(['OTA数据', '收益分析', 'AI决策', '运营执行', '投决边界']),
+    JSON.stringify(['OTA数据', '收益分析', 'AI决策', '运营执行']),
   );
   const revenueRow = closure.rows[1];
   assert.equal(revenueRow.title, '收入 / 订单 / 间夜 / ADR / 转化');
@@ -468,7 +467,6 @@ test('Revenue AI business closure preserves OTA scope and P1 metric split', () =
   assert.equal(revenueRow.metrics[2].value, '6.00间夜');
   assert.equal(revenueRow.metrics[3].value, '¥200.00');
   assert.equal(revenueRow.metrics[4].statusLabel, '不可计算');
-  assert.match(closure.rows[4].primary, /不进入全酒店投决/);
   assert.equal(closure.missingRows.length, 1);
   assert.match(closure.missingRows[0].code, /traffic\.avg_flow_rate/);
   assert.equal(closure.anomalyRows.length, 1);
@@ -851,78 +849,7 @@ test('Revenue AI action rows expose AI decision resolution plan as operator evid
   assert.match(html, /data-testid="revenue-ai-resolution-plan"/);
 });
 
-test('Revenue AI action rows expose readonly operation to investment precheck', () => {
-  const operationToInvestmentHandoff = {
-    status: 'investment_precheck_blocked_by_operation_roi',
-    persisted: false,
-    target_module: 'investment_decision',
-    target_page: 'investment-decision',
-    target_service: 'InvestmentDecisionSupportService::buildOverviewFromEvidence',
-    target_entry: '/api/investment-decision/overview',
-    source_scope: 'ctrip_ota_channel_to_operation_roi',
-    source_channels: ['ctrip'],
-    source_platforms: ['ctrip'],
-    upstream_operation_intake_status: 'operation_intake_blocked_by_manual_review',
-    operation_roi_ready: 0,
-    operating_gate_status: 'not_ready',
-    business_closure_chain_status: 'not_closed',
-    decision_allowed: false,
-    can_create_investment_decision: false,
-    blocked_reasons: ['closed_operating_roi_missing', 'operation_intake_not_approved'],
-    forbidden_actions: [
-      'create_investment_decision_from_ota_channel_only',
-      'create_investment_record_without_closed_operation_roi',
-    ],
-    investment_precheck_packet: {
-      status: 'blocked_by_operation_roi',
-      source_policy: 'read_only_precheck_from_closed_operation_gate',
-      required_gate: 'operation_execution.roi_ready',
-      operating_gate_status: 'not_ready',
-      business_closure_chain_status: 'not_closed',
-      missing_evidence_codes: ['operation_execution.roi_ready'],
-      protected_boundary: 'investment_decision_requires_closed_operation_roi_not_ota_channel_only',
-    },
-  };
-
-  const summary = helpers.buildRevenueAiInvestmentPrecheckSummary({
-    overview: { operation_to_investment_handoff: operationToInvestmentHandoff },
-  });
-  assert.equal(summary.visible, true);
-  assert.equal(summary.status, 'investment_precheck_blocked_by_operation_roi');
-  assert.equal(summary.targetEntry, '/api/investment-decision/overview');
-  assert.equal(summary.targetService, 'InvestmentDecisionSupportService::buildOverviewFromEvidence');
-  assert.equal(summary.requiredGate, 'operation_execution.roi_ready');
-  assert.deepEqual(summary.sourceChannels, ['ctrip']);
-  assert.equal(summary.operationRoiReady, 0);
-  assert.equal(summary.readOnly, true);
-  assert.equal(summary.autoWriteOta, false);
-  assert.equal(summary.decisionAllowed, false);
-  assert.equal(summary.canCreateInvestmentDecision, false);
-  assert(summary.missingEvidenceCodes.includes('operation_execution.roi_ready'));
-  assert(summary.blockedReasons.includes('closed_operating_roi_missing'));
-  assert(summary.forbiddenActions.includes('create_investment_decision_from_ota_channel_only'));
-  assert.equal(summary.protectedBoundary, 'investment_decision_requires_closed_operation_roi_not_ota_channel_only');
-  assert.match(summary.className, /slate/);
-
-  const rows = helpers.buildRevenueAiActionRows({
-    overview: {
-      actions: [{
-        key: 'pricing_review',
-        title: 'pricing review',
-        status: 'blocked',
-        reason: 'operation_roi_missing',
-        operation_to_investment_handoff: operationToInvestmentHandoff,
-      }],
-    },
-  });
-  assert.equal(rows[0].investmentPrecheckVisible, true);
-  assert.equal(rows[0].investmentPrecheckSummary.decisionAllowed, false);
-  assert.equal(rows[0].investmentPrecheckSummary.canCreateInvestmentDecision, false);
-  assert.equal(rows[0].investmentPrecheckSummary.autoWriteOta, false);
-  assert(rows[0].investmentPrecheckSummary.detailText.includes('operation_intake_blocked_by_manual_review'));
-});
-
-test('Revenue AI evidence workbench keeps OTA to investment gates explicit', () => {
+test('Revenue AI evidence workbench keeps OTA to operation gates explicit', () => {
   const overview = {
     source_scope: 'ctrip_ota_channel',
     data_status: 'blocked',
@@ -966,35 +893,21 @@ test('Revenue AI evidence workbench keeps OTA to investment gates explicit', () 
       evidence_ready_count: 0,
       roi_ready_count: 0,
     },
-    operation_to_investment_handoff: {
-      status: 'investment_precheck_blocked_by_operation_roi',
-      target_entry: '/api/investment-decision/overview',
-      operation_roi_ready: 0,
-      decision_allowed: false,
-      can_create_investment_decision: false,
-      protected_boundary: 'investment_decision_requires_closed_operation_roi_not_ota_channel_only',
-      investment_precheck_packet: {
-        status: 'blocked_by_operation_roi',
-        required_gate: 'operation_execution.roi_ready',
-      },
-    },
   };
 
   const rows = helpers.buildRevenueAiEvidenceWorkbenchRows({ overview });
-  assert.equal(rows.length, 5);
+  assert.equal(rows.length, 4);
   assert.equal(rows[0].key, 'ota_evidence_gate');
   assert.equal(rows[0].statusLabel, 'P0门禁未过');
   assert.match(rows[0].nextActionText, /verify:p0-ota-field-loop/);
   assert.equal(rows[1].canOpenTarget, true);
   assert.equal(rows[2].metaText, 'can_create=false / auto_create=false');
   assert.match(rows[2].policyText, /operation_intake_requires_approved_ai_review/);
-  assert.match(rows[4].metaText, /decision_allowed=false/);
-  assert.match(rows[4].policyText, /investment_decision_requires_closed_operation_roi/);
 
   const summary = helpers.buildRevenueAiEvidenceWorkbenchSummary(rows);
   assert.equal(summary.status, 'blocked');
   assert.match(summary.statusLabel, /门禁阻断/);
-  assert.match(summary.detailText, /已读 5 个环节/);
+  assert.match(summary.detailText, /已读 4 个环节/);
   assert.match(html, /data-testid="revenue-ai-evidence-workbench"/);
 });
 

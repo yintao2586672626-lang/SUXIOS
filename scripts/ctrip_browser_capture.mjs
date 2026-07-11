@@ -900,6 +900,7 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
       capturedAt,
       url,
       platform,
+      requestPayload,
     };
     const catalogFacts = filterCatalogFactsByProfileFieldConfig(extractCtripCatalogFacts(safeBody, factContext));
     const standardRows = buildCtripStandardRowsFromFacts(catalogFacts, {

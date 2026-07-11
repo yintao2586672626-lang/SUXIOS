@@ -17,7 +17,7 @@ test('Meituan ranking fetch uses a vault locator in direct mode and keeps truthf
   const taskBuilder = sliceFrom(meituanStatic, 'const buildMeituanBatchFetchTasks = ({', 'const buildMeituanBatchFetchResultEntry');
   const fetchFlow = sliceFrom(meituanStatic, 'const runMeituanBatchFetchFlow = async ({', 'const buildMeituanRankDisplayRows');
   const pendingSetup = sliceFrom(meituanStatic, 'const results = fetchTasks.map', 'let totalSavedCount = 0;');
-  const acceptedLoopUpdate = sliceFrom(meituanStatic, 'results[index] = buildMeituanBatchFetchResultEntry', '            }));');
+  const acceptedLoopUpdate = sliceFrom(meituanStatic, 'const bestEntry = buildMeituanBatchFetchResultEntry', '            }));');
   const acceptedBranch = sliceFrom(meituanStatic, 'if (acceptedCount > 0) {', 'const modelRes = await requestDisplayModel');
   const failedBranch = sliceFrom(meituanStatic, 'if (fetchTasks.length > 0 && failedCount === fetchTasks.length) {', 'const modelRes = await requestDisplayModel');
 

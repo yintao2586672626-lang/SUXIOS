@@ -7,6 +7,7 @@ use app\service\OperationManagementService;
 use app\service\OtaProfileSessionProofService;
 use app\service\OtaRevenueMetricService;
 use app\service\OtaStandardEtlService;
+use app\service\OtaTrafficAttributionService;
 use think\facade\Db;
 
 trait Phase1EmployeeConsoleConcern
@@ -3203,7 +3204,6 @@ trait Phase1EmployeeConsoleConcern
             $rows = Db::name('platform_data_sources')
                 ->field(implode(',', $fields))
                 ->where('platform', $platform)
-                ->whereIn('data_type', ['traffic', 'flow', 'conversion'])
                 ->select()
                 ->toArray();
         } catch (\Throwable $e) {
@@ -3215,6 +3215,11 @@ trait Phase1EmployeeConsoleConcern
         $lastSyncCounts = [];
         $issueCounts = [];
         foreach ($rows as $row) {
+            $config = json_decode((string)($row['config_json'] ?? ''), true);
+            $config = is_array($config) ? $config : [];
+            if (!OtaTrafficAttributionService::sourceCanProvideTraffic($row, $config)) {
+                continue;
+            }
             $base['traffic_source_count']++;
             $enabled = (int)($row['enabled'] ?? 0) === 1;
             $status = strtolower(trim((string)($row['status'] ?? 'unknown')));
@@ -3232,8 +3237,6 @@ trait Phase1EmployeeConsoleConcern
                 $lastSyncCounts[$lastSyncStatus] = ($lastSyncCounts[$lastSyncStatus] ?? 0) + 1;
             }
 
-            $config = json_decode((string)($row['config_json'] ?? ''), true);
-            $config = is_array($config) ? $config : [];
             $issueCode = $this->phase1TrafficSourceIssueCode($row, $config);
             $latestSyncTask = $this->phase1P0TrafficSourceLatestSyncTask((int)($row['id'] ?? 0), $targetDate);
             $currentSessionVerified = $this->phase1TrafficProfileLoginStateVerified($row);

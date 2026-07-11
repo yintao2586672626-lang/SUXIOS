@@ -310,9 +310,14 @@ requireText('public/index.html', 'clientLocalAuthorizationRequired', 'frontend l
 requireText('public/index.html', 'openTargetSite(localPlatformAuthorizationUrl(platform))', 'frontend opens platform authorization on current client computer');
 requireText('public/index.html', 'server_browser_launch_disabled', 'frontend records server-side browser launch disabled');
 requireText('public/index.html', 'account_owner_local_computer_only', 'frontend records account-owner local computer authorization policy');
-requireNoText('public/index.html', "`/online-data/profile-login-trigger/${platform}`", 'frontend does not trigger server-side Profile login task');
-requireText('app/controller/concern/OnlineDataRequestConcern.php', 'client_local_authorization_required', 'backend blocks legacy server-side Profile login trigger');
-requireText('app/controller/concern/OnlineDataRequestConcern.php', 'server_browser_launch_disabled', 'backend reports server-side browser launch disabled');
+requireText('public/index.html', 'const canLaunchLocalPlatformProfileBrowser = () =>', 'frontend detects account-owner loopback access before launching Profile browser');
+requireText('public/index.html', "['127.0.0.1', 'localhost', '::1'].includes(hostname)", 'frontend limits Profile browser launch to loopback hosts');
+requireText('public/index.html', "`/online-data/profile-login-trigger/${platform}`", 'frontend triggers the local Profile login task');
+requireText('app/controller/concern/OnlineDataRequestConcern.php', 'private function isLocalPlatformProfileLoginRequest(): bool', 'backend has a loopback guard for Profile login launch');
+requireText('app/controller/concern/OnlineDataRequestConcern.php', "['127.0.0.1', '::1', '::ffff:127.0.0.1']", 'backend accepts only loopback client IPs for Profile login launch');
+requireText('app/controller/concern/OnlineDataRequestConcern.php', 'client_local_authorization_required', 'backend blocks non-local Profile login launch');
+requireText('app/controller/concern/OnlineDataRequestConcern.php', 'server_browser_launch_disabled', 'backend reports browser launch disabled for non-local access');
+requireText('app/controller/concern/OnlineDataRequestConcern.php', 'launchPlatformProfileLoginTask($task)', 'backend launches the existing Profile login task from local access');
 requireText('app/controller/concern/OnlineDataRequestConcern.php', 'private function currentUserCanViewOnlineDataHotel(int $hotelId): bool', 'Profile login status has a hotel-scoped OTA view permission helper');
 requireText('app/controller/concern/OnlineDataRequestConcern.php', "$this->currentUser->hasHotelPermission($hotelId, 'can_view_online_data')", 'Profile login status helper checks can_view_online_data for the target hotel');
 requireText('app/controller/concern/OnlineDataRequestConcern.php', 'if (!$this->currentUserCanViewOnlineDataHotel((int)$systemHotelId))', 'Profile login current-task lookup checks target hotel OTA view permission');

@@ -8,11 +8,13 @@ use app\model\Hotel as HotelModel;
 use app\model\Role;
 use app\model\OperationLog;
 use app\service\PermissionService;
+use app\service\BatchStatusPreviewService;
 use think\Response;
 use think\facade\Db;
 
 class User extends Base
 {
+    private const ISSUED_DEFAULT_PASSWORD = '666666';
     private array $tableColumnCache = [];
     private array $tenantColumnCache = [];
 
@@ -30,8 +32,17 @@ class User extends Base
         $roleId = $this->request->param('role_id', '');
         $status = $this->request->param('status', '');
         $hotelId = $this->request->param('hotel_id', '');
+        $sortBy = (string)$this->request->param('sort_by', 'id');
+        $sortOrder = strtolower((string)$this->request->param('sort_order', 'desc'));
+        $allowedSorts = ['id', 'username', 'realname', 'status', 'last_login_time', 'create_time'];
+        if (!in_array($sortBy, $allowedSorts, true)) {
+            $sortBy = 'id';
+        }
+        if (!in_array($sortOrder, ['asc', 'desc'], true)) {
+            $sortOrder = 'desc';
+        }
 
-        $query = UserModel::with(['role', 'hotel'])->order('id', 'desc');
+        $query = UserModel::with(['role', 'hotel']);
 
         if ($username) {
             $query->whereLike('username', '%' . $username . '%');
@@ -43,7 +54,11 @@ class User extends Base
             $query->where('status', $status);
         }
         if ($hotelId) {
-            $query->where('hotel_id', $hotelId);
+            $userIds = $this->userIdsForHotelScope([(int)$hotelId]);
+            if (empty($userIds)) {
+                return $this->paginate([], 0, $pagination['page'], $pagination['page_size']);
+            }
+            $query->whereIn('id', $userIds);
         }
 
         // 非超级管理员只能看到自己酒店的用户
@@ -52,7 +67,16 @@ class User extends Base
             if (empty($permittedHotelIds)) {
                 return $this->paginate([], 0, $pagination['page'], $pagination['page_size']);
             }
-            $query->whereIn('hotel_id', $permittedHotelIds);
+            $permittedUserIds = $this->userIdsForHotelScope($permittedHotelIds);
+            if (empty($permittedUserIds)) {
+                return $this->paginate([], 0, $pagination['page'], $pagination['page_size']);
+            }
+            $query->whereIn('id', $permittedUserIds);
+        }
+
+        $query->order($sortBy, $sortOrder);
+        if ($sortBy !== 'id') {
+            $query->order('id', 'desc');
         }
 
         $total = $query->count();
@@ -63,6 +87,76 @@ class User extends Base
         }
 
         return $this->paginate($rows, $total, $pagination['page'], $pagination['page_size']);
+    }
+
+    /**
+     * 批量启用或暂停账号。必须先 preview，再携带 confirm=true 执行。
+     */
+    public function batchStatus(): Response
+    {
+        if (!$this->currentUser->isSuperAdmin()) {
+            return $this->error('只有超级管理员可以批量变更账号状态', 403);
+        }
+
+        $data = $this->requestData();
+        $userIds = array_values(array_unique(array_filter(array_map('intval', (array)($data['user_ids'] ?? [])), static fn (int $id): bool => $id > 0)));
+        $status = (int)($data['status'] ?? -1);
+        $confirmed = filter_var($data['confirm'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+        if (empty($userIds) || count($userIds) > 100) {
+            return $this->error('请选择 1-100 个账号', 422);
+        }
+        if (!in_array($status, [UserModel::STATUS_DISABLED, UserModel::STATUS_ENABLED], true)) {
+            return $this->error('账号状态无效', 422);
+        }
+        if (in_array((int)$this->currentUser->id, $userIds, true)) {
+            return $this->error('批量操作不能包含当前登录账号', 422);
+        }
+
+        $users = UserModel::whereIn('id', $userIds)->field('id,username,status')->select();
+        $rows = array_map(static fn ($item): array => [
+            'id' => (int)$item->id,
+            'username' => (string)$item->username,
+            'current_status' => (int)$item->status,
+            'next_status' => $status,
+        ], $users->all());
+        $foundIds = array_column($rows, 'id');
+        $missingIds = array_values(array_diff($userIds, $foundIds));
+        if ($missingIds !== []) {
+            return $this->error('包含不存在的账号，请刷新列表后重试', 422, ['missing_ids' => $missingIds]);
+        }
+
+        $previewService = new BatchStatusPreviewService();
+
+        if (!$confirmed) {
+            $preview = $previewService->issue('user_batch_status', (int)$this->currentUser->id, $userIds, $status);
+            return $this->success([
+                'preview' => true,
+                'preview_id' => $preview['preview_id'],
+                'preview_expires_in' => $preview['expires_in'],
+                'affected_count' => count($rows),
+                'rows' => $rows,
+                'missing_ids' => $missingIds,
+            ], '批量账号状态变更预览已生成');
+        }
+
+        if (empty($rows)) {
+            return $this->error('没有可变更的账号', 422);
+        }
+        $previewId = trim((string)($data['preview_id'] ?? ''));
+        if (!$previewService->consume($previewId, 'user_batch_status', (int)$this->currentUser->id, $userIds, $status)) {
+            return $this->error('批量账号预览已失效，请重新预览后确认', 409);
+        }
+
+        UserModel::whereIn('id', $foundIds)->update(['status' => $status]);
+        $statusText = $status === UserModel::STATUS_ENABLED ? '启用' : '暂停';
+        OperationLog::record('user', 'batch_status', "批量{$statusText}账号: " . implode(',', array_column($rows, 'username')), $this->currentUser->id);
+
+        return $this->success([
+            'preview' => false,
+            'affected_count' => count($rows),
+            'missing_ids' => $missingIds,
+        ], "已批量{$statusText}" . count($rows) . '个账号');
     }
 
     /**
@@ -120,7 +214,9 @@ class User extends Base
             'role_id.require' => '请选择角色',
         ]);
 
-        $passwordError = $this->validatePasswordPolicy((string)$data['password'], '密码');
+        $passwordError = $this->isIssuedDefaultPassword((string)$data['password'])
+            ? null
+            : $this->validatePasswordPolicy((string)$data['password'], '密码');
         if ($passwordError) {
             return $this->error($passwordError);
         }
@@ -244,7 +340,11 @@ class User extends Base
         }
 
         if (!empty($data['password'])) {
-            $passwordError = $this->validatePasswordPolicy((string)$data['password'], '密码');
+            $canUseIssuedDefault = $this->currentUser->isSuperAdmin()
+                && $this->isIssuedDefaultPassword((string)$data['password']);
+            $passwordError = $canUseIssuedDefault
+                ? null
+                : $this->validatePasswordPolicy((string)$data['password'], '密码');
             if ($passwordError) {
                 return $this->error($passwordError);
             }
@@ -410,6 +510,11 @@ class User extends Base
         }
 
         return null;
+    }
+
+    private function isIssuedDefaultPassword(string $password): bool
+    {
+        return hash_equals(self::ISSUED_DEFAULT_PASSWORD, $password);
     }
 
     private function canEditUserUsername(UserModel $targetUser): bool
@@ -956,6 +1061,37 @@ class User extends Base
         }
 
         return (int)Db::name($table)->where($column, $value)->count();
+    }
+
+    /**
+     * 返回在主门店或额外授权门店范围内的用户 ID。
+     *
+     * @param array<int, int> $hotelIds
+     * @return array<int, int>
+     */
+    private function userIdsForHotelScope(array $hotelIds): array
+    {
+        $hotelIds = array_values(array_unique(array_filter(array_map('intval', $hotelIds), static fn (int $id): bool => $id > 0)));
+        if (empty($hotelIds)) {
+            return [];
+        }
+
+        $userIds = array_map('intval', UserModel::whereIn('hotel_id', $hotelIds)->column('id'));
+        if ($this->tableColumnExists('user_hotel_permissions', 'hotel_id')
+            && $this->tableColumnExists('user_hotel_permissions', 'user_id')) {
+            $permissionQuery = Db::name('user_hotel_permissions')->whereIn('hotel_id', $hotelIds);
+            if ($this->tableColumnExists('user_hotel_permissions', 'status')) {
+                $permissionQuery->where('status', 1);
+            }
+            if ($this->tableColumnExists('user_hotel_permissions', 'can_view')) {
+                $permissionQuery->where('can_view', 1);
+            } elseif ($this->tableColumnExists('user_hotel_permissions', 'can_view_online_data')) {
+                $permissionQuery->where('can_view_online_data', 1);
+            }
+            $userIds = array_merge($userIds, array_map('intval', $permissionQuery->column('user_id')));
+        }
+
+        return array_values(array_unique(array_filter($userIds, static fn (int $id): bool => $id > 0)));
     }
 
     /**

@@ -888,7 +888,7 @@ function normalizeCaptureSectionName(section) {
 }
 
 function isSensitiveKey(key) {
-  return /cookie|authorization|token|api[-_]?key|secret|password|spidertoken|mtgsig/i.test(String(key || ''));
+  return /cookie|authorization|token|api[-_]?key|secret|password|spider(?:token|key|_key)|fingerprint|mtgsig/i.test(String(key || ''));
 }
 
 function isOrderContainerKey(key) {

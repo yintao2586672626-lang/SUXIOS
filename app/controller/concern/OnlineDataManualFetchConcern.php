@@ -4,11 +4,12 @@ declare(strict_types=1);
 namespace app\controller\concern;
 
 use app\model\OperationLog;
+use app\service\CtripCompetitionCirclePersistenceService;
 use app\service\CtripManualFetchRequestService;
 use app\service\CtripTrafficDisplayService;
-use app\service\HotelDataMergeService;
 use app\service\ManualOnlineFetchTaskService;
 use app\service\MeituanManualFetchRequestService;
+use app\service\OtaExecutionStageException;
 use think\Response;
 use think\facade\Db;
 
@@ -40,6 +41,9 @@ trait OnlineDataManualFetchConcern
             'ctripHotelId',
             'platform_hotel_id',
             'platformHotelId',
+            'hotel_name',
+            'hotelName',
+            'name',
         ], [], 'ctrip');
     }
 
@@ -92,6 +96,9 @@ trait OnlineDataManualFetchConcern
             'selfExposure',
             'self_views',
             'selfViews',
+            'hotel_name',
+            'hotelName',
+            'name',
         ], ['date_ranges'], 'meituan');
     }
 
@@ -257,7 +264,7 @@ trait OnlineDataManualFetchConcern
         ?string $backgroundPlatform = null
     ): array {
         if (count($requestData) > 64) {
-            throw new \InvalidArgumentException('Invalid manual OTA execution request schema.', 400);
+            throw new \InvalidArgumentException('执行参数过多', 400);
         }
         $scalarFieldSet = array_fill_keys($scalarFields, true);
         if ($backgroundPlatform !== null) {
@@ -270,12 +277,12 @@ trait OnlineDataManualFetchConcern
 
         foreach ($requestData as $field => $value) {
             if (!is_string($field)) {
-                throw new \InvalidArgumentException('Invalid manual OTA execution request schema.', 400);
+                throw new \InvalidArgumentException('执行参数字段名无效', 400);
             }
             $totalBytes += strlen($field);
             if (isset($scalarFieldSet[$field])) {
                 if (!is_scalar($value) && $value !== null) {
-                    throw new \InvalidArgumentException('Invalid manual OTA execution request schema.', 400);
+                    throw new \InvalidArgumentException('执行参数必须是简单值：' . $field, 400);
                 }
                 if (is_string($value)) {
                     $totalBytes += strlen($value);
@@ -283,12 +290,12 @@ trait OnlineDataManualFetchConcern
                 $sanitized[$field] = $value;
             } elseif (isset($safeListFieldSet[$field])) {
                 if (!is_array($value) || !$this->isContinuousManualFetchList($value) || count($value) > 32) {
-                    throw new \InvalidArgumentException('Invalid manual OTA execution request schema.', 400);
+                    throw new \InvalidArgumentException('执行参数列表无效：' . $field, 400);
                 }
                 $totalItems += count($value);
                 foreach ($value as $item) {
                     if (!is_scalar($item) && $item !== null) {
-                        throw new \InvalidArgumentException('Invalid manual OTA execution request schema.', 400);
+                        throw new \InvalidArgumentException('执行参数列表只能包含简单值：' . $field, 400);
                     }
                     if (is_string($item)) {
                         $totalBytes += strlen($item);
@@ -296,11 +303,11 @@ trait OnlineDataManualFetchConcern
                 }
                 $sanitized[$field] = array_values($value);
             } else {
-                throw new \InvalidArgumentException('Invalid manual OTA execution request schema.', 400);
+                throw new \InvalidArgumentException('不支持的执行参数：' . $field, 400);
             }
 
             if ($totalItems > 96 || $totalBytes > 65536) {
-                throw new \InvalidArgumentException('Invalid manual OTA execution request schema.', 400);
+                throw new \InvalidArgumentException('执行参数内容过大', 400);
             }
         }
 
@@ -375,23 +382,24 @@ trait OnlineDataManualFetchConcern
                     $requestData,
                     $credentialPayload,
                     $systemHotelId
-                )
+                ),
+                false,
+                true
             );
         } catch (\InvalidArgumentException) {
+            $detail = '请求包含不支持的执行字段或字段类型';
             return json([
                 'code' => 400,
-                'message' => '执行参数无效；请仅提供 config_id 与 system_hotel_id',
-                'data' => null,
+                'message' => '执行参数无效：' . $detail,
+                'data' => [
+                    'reason' => 'invalid_manual_fetch_request',
+                    'detail' => $detail,
+                ],
             ], 400);
-        } catch (\RuntimeException $e) {
-            $statusCode = $e->getCode() === 403 ? 403 : 409;
-            $message = $statusCode === 403 ? '无权使用该门店 OTA 凭据' : 'OTA 凭据不可用';
-            return json(['code' => $statusCode, 'message' => $message, 'data' => null], $statusCode);
+        } catch (OtaExecutionStageException $e) {
+            return $this->otaExecutionStageFailureResponse('ctrip_manual_fetch', $e);
         } catch (\Throwable $e) {
-            \think\facade\Log::error('Ctrip credential execution boundary failed.', [
-                'exception_type' => get_debug_type($e),
-            ]);
-            return json(['code' => 500, 'message' => '请求异常', 'data' => null], 500);
+            return $this->otaUnknownExecutionFailureResponse('ctrip_manual_fetch', $e);
         }
     }
 
@@ -470,6 +478,11 @@ trait OnlineDataManualFetchConcern
             $responseData = null;
             $rawResponse = '';
             $savedCount = 0;
+            $insertedCount = 0;
+            $updatedCount = 0;
+            $competitionDataSourceId = 0;
+            $competitionSyncTaskId = 0;
+            $competitionPersistence = null;
 
             for ($timestamp = $startTimestamp; $timestamp <= $endTimestamp; $timestamp = strtotime('+1 day', $timestamp)) {
                 $currentDate = date('Y-m-d', $timestamp);
@@ -565,7 +578,7 @@ trait OnlineDataManualFetchConcern
                         'display_summary' => $displaySummary,
                         'save_status' => 'blocked',
                     ];
-                    $responseCode = $systemHotelId ? 409 : 200;
+                    $responseCode = 200;
                     return json([
                         'code' => $responseCode,
                         'message' => (string)($identityCheck['message'] ?? '携程返回酒店身份未能自动匹配本系统门店，已获取但未入库。'),
@@ -577,18 +590,88 @@ trait OnlineDataManualFetchConcern
             }
 
             $fetchedAt = date('Y-m-d H:i:s');
-            foreach ($dateResults as &$dateResult) {
-                if ($autoSave) {
-                    $dateResult['saved_count'] = $this->parseAndSaveData(
-                        $dateResult['data'],
-                        $dateResult['date'],
-                        $dateResult['date'],
-                        $systemHotelId
-                    );
-                    $savedCount += $dateResult['saved_count'];
-                }
+            $selfHotelIds = $this->ctripCompetitionSelfHotelIds($identityCheck);
+            $displayHotels = $this->tagCtripCompetitionDisplayRoles(
+                $displayHotels,
+                $selfHotelIds,
+                $systemHotelId
+            );
+
+            if ($autoSave && $systemHotelId) {
+                $competitionPersistence = new CtripCompetitionCirclePersistenceService();
+                $competitionDataSourceId = $competitionPersistence->resolveOrCreateDataSource(
+                    (int)$systemHotelId,
+                    (int)($this->currentUser->id ?? 0),
+                    [
+                        'platform_hotel_id' => $selfHotelIds[0] ?? '',
+                        'config_id' => (string)($requestData['config_id'] ?? ''),
+                    ]
+                );
+                $competitionSyncTaskId = $competitionPersistence->startSyncTask(
+                    $competitionDataSourceId,
+                    (int)$systemHotelId,
+                    (int)($this->currentUser->id ?? 0)
+                );
             }
-            unset($dateResult);
+
+            try {
+                foreach ($dateResults as &$dateResult) {
+                    if (!$autoSave || !$systemHotelId || !$competitionPersistence) {
+                        continue;
+                    }
+                    $traceId = CtripCompetitionCirclePersistenceService::buildCaptureTraceId([
+                        'data_source_id' => $competitionDataSourceId,
+                        'sync_task_id' => $competitionSyncTaskId,
+                        'system_hotel_id' => (int)$systemHotelId,
+                        'data_date' => (string)$dateResult['date'],
+                        'fingerprint' => (string)($dateResult['fingerprint'] ?? ''),
+                    ]);
+                    $saveResult = $competitionPersistence->persistRows(
+                        $this->extractCtripBusinessDataList($dateResult['data']),
+                        (string)$dateResult['date'],
+                        (int)$systemHotelId,
+                        [
+                            'self_hotel_ids' => $selfHotelIds,
+                            'fetched_at' => $fetchedAt,
+                            'data_source_id' => $competitionDataSourceId,
+                            'sync_task_id' => $competitionSyncTaskId,
+                            'source_trace_id' => $traceId,
+                            'ingestion_method' => CtripCompetitionCirclePersistenceService::INGESTION_METHOD,
+                        ]
+                    );
+                    $dateResult['saved_count'] = (int)$saveResult['saved_count'];
+                    $dateResult['inserted_count'] = (int)$saveResult['inserted_count'];
+                    $dateResult['updated_count'] = (int)$saveResult['updated_count'];
+                    $dateResult['source_trace_id'] = $traceId;
+                    $savedCount += $dateResult['saved_count'];
+                    $insertedCount += $dateResult['inserted_count'];
+                    $updatedCount += $dateResult['updated_count'];
+                }
+                unset($dateResult);
+
+                if ($competitionPersistence && $competitionSyncTaskId > 0) {
+                    $competitionPersistence->finishSyncTask(
+                        $competitionSyncTaskId,
+                        $competitionDataSourceId,
+                        [
+                            'saved_count' => $savedCount,
+                            'inserted_count' => $insertedCount,
+                            'updated_count' => $updatedCount,
+                            'date_count' => count($dateResults),
+                            'self_hotel_ids' => $selfHotelIds,
+                        ]
+                    );
+                }
+            } catch (\Throwable $e) {
+                if ($competitionPersistence && $competitionSyncTaskId > 0) {
+                    $competitionPersistence->failSyncTask(
+                        $competitionSyncTaskId,
+                        $competitionDataSourceId,
+                        'competition_circle_persistence_failed'
+                    );
+                }
+                throw $e;
+            }
 
             $displayDataDate = $startDate === $endDate ? $startDate : $startDate . ' 至 ' . $endDate;
             $this->updateCtripLatestFetchStatus($systemHotelId, $fetchedAt, $displayDataDate, $savedCount);
@@ -606,14 +689,20 @@ trait OnlineDataManualFetchConcern
 
             return json([
                 'code' => 200,
-                'message' => $qunarVisitorGap
-                    ? '携程数据已获取；去哪儿访客为 0 表示本次返回不完整，需要自动重抓最多 3 次；携程和去哪儿都返回有效值才算成功。'
-                    : '获取成功',
+                'message' => !empty($identityCheck['warning']) && !empty($identityCheck['message'])
+                    ? (string)$identityCheck['message'] . $this->ctripCompetitionSaveSummaryText($insertedCount, $updatedCount)
+                    : ($qunarVisitorGap
+                        ? '携程数据已获取；去哪儿访客为 0 仅作为字段缺口提示，不阻断携程竞争圈获取和入库。' . $this->ctripCompetitionSaveSummaryText($insertedCount, $updatedCount)
+                        : '获取成功' . $this->ctripCompetitionSaveSummaryText($insertedCount, $updatedCount)),
                 'data' => [
                     'data' => $responseData,
                     'date_results' => $dateResults,
                     'raw_response' => $rawResponse,
                     'saved_count' => $savedCount,
+                    'inserted_count' => $insertedCount,
+                    'updated_count' => $updatedCount,
+                    'data_source_id' => $competitionDataSourceId ?: null,
+                    'sync_task_id' => $competitionSyncTaskId ?: null,
                     'fetched_at' => $fetchedAt,
                     'request_start_date' => $startDate,
                     'request_end_date' => $endDate,
@@ -625,6 +714,9 @@ trait OnlineDataManualFetchConcern
                     'save_status' => $qunarVisitorGap
                         ? ($savedCount > 0 ? 'saved_with_qunar_visitor_gap' : 'no_saved_with_qunar_visitor_gap')
                         : ($autoSave ? 'saved_or_empty' : 'skipped'),
+                    'save_operation' => $insertedCount > 0 && $updatedCount > 0
+                        ? 'inserted_and_updated'
+                        : ($insertedCount > 0 ? 'inserted' : ($updatedCount > 0 ? 'updated' : 'none')),
                 ]
             ]);
         } catch (\DomainException) {
@@ -639,6 +731,67 @@ trait OnlineDataManualFetchConcern
             ]);
             return json(['code' => 500, 'message' => '请求异常', 'data' => null], 500);
         }
+    }
+
+    private function ctripCompetitionSelfHotelIds(?array $identityCheck): array
+    {
+        $ids = [];
+        $capturedIds = (array)($identityCheck['captured_hotel_ids'] ?? []);
+        $fields = $capturedIds !== [] ? ['captured_hotel_ids'] : ['expected_hotel_ids'];
+        foreach ($fields as $field) {
+            foreach ((array)($identityCheck[$field] ?? []) as $id) {
+                if (is_array($id) || is_object($id)) {
+                    continue;
+                }
+                $value = trim((string)$id);
+                if ($value !== '') {
+                    $ids[$value] = true;
+                }
+            }
+        }
+        return array_values(array_map('strval', array_keys($ids)));
+    }
+
+    private function tagCtripCompetitionDisplayRoles(
+        array $displayHotels,
+        array $selfHotelIds,
+        int $systemHotelId
+    ): array {
+        $selfIdSet = array_fill_keys(array_map('strval', $selfHotelIds), true);
+        $systemHotelName = $systemHotelId > 0 ? $this->getSystemHotelName($systemHotelId) : '';
+
+        foreach ($displayHotels as &$hotel) {
+            if (!is_array($hotel)) {
+                continue;
+            }
+            $hotelId = trim((string)($hotel['hotelId'] ?? $hotel['poiId'] ?? ''));
+            $hotelName = trim((string)($hotel['hotelName'] ?? ''));
+            $isGenericSelf = $this->isCtripGenericSelfHotelName($hotelName);
+            $isSelf = isset($selfIdSet[$hotelId]) || $isGenericSelf;
+            $hotel['isSelf'] = $isSelf;
+            $hotel['compareType'] = $isSelf ? 'self' : 'competitor';
+            $hotel['systemHotelId'] = $systemHotelId;
+            if ($isSelf && $systemHotelName !== '') {
+                $hotel['systemHotelName'] = $systemHotelName;
+            }
+        }
+        unset($hotel);
+        return $displayHotels;
+    }
+
+    private function ctripCompetitionSaveSummaryText(int $insertedCount, int $updatedCount): string
+    {
+        if ($insertedCount <= 0 && $updatedCount <= 0) {
+            return '';
+        }
+        $parts = [];
+        if ($insertedCount > 0) {
+            $parts[] = '新增' . $insertedCount . '条';
+        }
+        if ($updatedCount > 0) {
+            $parts[] = '更新' . $updatedCount . '条';
+        }
+        return '（' . implode('，', $parts) . '）';
     }
 
     private function ctripBusinessQunarVisitorQuality(array $displayHotels): array
@@ -675,7 +828,7 @@ trait OnlineDataManualFetchConcern
             'message' => $ready
                 ? '去哪儿访客字段已返回有效值。'
                 : ($hasRows
-                    ? '去哪儿访客为 0 表示本次携程返回不完整，需要自动重抓，不能按整次成功处理。'
+                    ? '去哪儿访客为 0 仅作为字段缺口提示，不阻断携程竞争圈获取和入库。'
                     : '本次未返回可展示的竞争圈行。'),
         ];
     }
@@ -688,7 +841,7 @@ trait OnlineDataManualFetchConcern
     {
         $targetHotelName = $this->getSystemHotelName($systemHotelId);
         $config = $this->resolveCtripManualBusinessIdentityConfig($systemHotelId, $requestData);
-        $expectedIds = $this->extractExpectedCtripPlatformHotelIds($config, $systemHotelId);
+        $expectedIds = array_values(array_map('strval', $this->extractExpectedCtripPlatformHotelIds($config, $systemHotelId)));
         $nodeIds = array_fill_keys($this->extractCtripNodeResourceIds($config), true);
 
         $capturedIds = [];
@@ -710,7 +863,7 @@ trait OnlineDataManualFetchConcern
                 $capturedIds[$idValue] = true;
             }
         }
-        $capturedIds = array_keys($capturedIds);
+        $capturedIds = array_values(array_map('strval', array_keys($capturedIds)));
 
         if ($expectedIds === []) {
             return $this->resolveMissingCtripPlatformHotelIdFromCapturedData($capturedIds, $systemHotelId, $targetHotelName);
@@ -746,14 +899,16 @@ trait OnlineDataManualFetchConcern
 
         if ($expectedIds !== [] && array_intersect($expectedIds, $capturedIds) === []) {
             return [
-                'ok' => false,
-                'status' => 'expected_hotel_id_mismatch',
-                'message' => '携程返回酒店ID与当前门店配置不一致，已取消入库。当前门店：' . ($targetHotelName !== '' ? $targetHotelName : ('门店ID ' . $systemHotelId)) . '；配置hotelId：' . implode('、', $expectedIds) . '；返回hotelId：' . implode('、', $capturedIds),
+                'ok' => true,
+                'status' => 'configured_platform_hotel_id_mismatch',
+                'warning' => true,
+                'message' => '携程返回酒店ID与已保存配置不一致；本次仍按当前选择门店归属并继续入库。请核对配置ID：' . implode('、', $expectedIds) . '；返回ID：' . implode('、', $capturedIds),
                 'target_system_hotel_id' => $systemHotelId,
                 'target_hotel_name' => $targetHotelName,
                 'captured_hotel_ids' => $capturedIds,
                 'expected_hotel_ids' => $expectedIds,
                 'conflicts' => [],
+                'verification_links' => $this->buildCtripPublicHotelVerificationLinks($capturedIds),
             ];
         }
 
@@ -779,18 +934,20 @@ trait OnlineDataManualFetchConcern
                 $normalizedIds[$id] = true;
             }
         }
-        $capturedIds = array_keys($normalizedIds);
+        $capturedIds = array_values(array_map('strval', array_keys($normalizedIds)));
 
         if ($capturedIds === []) {
             return [
-                'ok' => false,
-                'status' => 'expected_platform_hotel_id_missing',
-                'message' => '当前门店未维护携程平台酒店ID，且本次返回未识别到可信本店hotelId，已取消自动入库；请先补齐平台酒店ID后重试。',
+                'ok' => true,
+                'status' => 'platform_hotel_id_incomplete',
+                'warning' => true,
+                'message' => '当前门店未维护携程平台酒店ID，本次返回也未识别到本店ID；数据仍按当前选择门店归属并继续入库，请后续补齐ID以便核验。',
                 'target_system_hotel_id' => $systemHotelId,
                 'target_hotel_name' => $targetHotelName,
                 'captured_hotel_ids' => [],
                 'expected_hotel_ids' => [],
                 'conflicts' => [],
+                'verification_links' => [],
             ];
         }
 
@@ -891,7 +1048,7 @@ trait OnlineDataManualFetchConcern
         $result = [
             'ok' => false,
             'status' => 'platform_hotel_conflict',
-            'message' => '携程返回酒店ID已绑定到其他系统门店，已取消入库，避免错店数据覆盖。',
+            'message' => '携程数据已获取并可查看；返回酒店属于其他系统门店，本次未入库，避免错店数据覆盖。',
             'target_system_hotel_id' => $systemHotelId,
             'target_hotel_name' => $targetHotelName,
             'captured_hotel_ids' => $capturedIds,
@@ -918,13 +1075,15 @@ trait OnlineDataManualFetchConcern
         $conflictHotelIds = $this->extractCtripConflictSystemHotelIds($conflicts, $systemHotelId);
         if (count($conflictHotelIds) !== 1) {
             return [
-                'action' => 'inspect_platform_hotel_conflicts',
+                'action' => 'delete_mismatched_ctrip_config',
                 'scope' => 'admin_only',
                 'can_continue_current_fetch' => false,
+                'can_display_result' => true,
+                'config_cleanup_required' => true,
                 'source_system_hotel_id' => $systemHotelId,
                 'target_system_hotel_id' => null,
-                'message' => '携程返回酒店ID存在多个系统门店冲突，管理员需先清理重复绑定或历史错店数据，不能直接入库。',
-                'next_action' => '进入酒店管理核对携程 hotelId 绑定和历史数据归属。',
+                'message' => '携程数据已获取并可查看；当前配置返回了其他门店数据，本次未入库。请删除当前错绑携程配置；不同门店不会合并。',
+                'next_action' => '删除当前门店下的错绑携程配置，再为正确门店重新配置。',
                 'conflicts' => $conflicts,
             ];
         }
@@ -970,28 +1129,28 @@ trait OnlineDataManualFetchConcern
     ): array {
         $sourceHotelName = $this->getSystemHotelName($sourceSystemHotelId) ?: ('门店ID ' . $sourceSystemHotelId);
         $targetHotelName = $this->getSystemHotelName($targetSystemHotelId) ?: ('门店ID ' . $targetSystemHotelId);
-        $confirmationText = (new HotelDataMergeService())->confirmationText($sourceSystemHotelId, $targetSystemHotelId);
-        $mergePath = '/hotels/merge-preview?source_hotel_id=' . $sourceSystemHotelId . '&target_hotel_id=' . $targetSystemHotelId;
 
         if ($canContinueCurrentFetch) {
-            $message = '当前门店已明确绑定该携程 hotelId，管理员本次可继续入库；历史数据仍在【' . $sourceHotelName . '】，请执行门店数据合并到【' . $targetHotelName . '】。';
-            $nextAction = '进入酒店管理的数据迁移，预览并确认：' . $confirmationText;
+            $action = 'clean_misbound_ctrip_history';
+            $message = '当前门店【' . $targetHotelName . '】已明确绑定该携程酒店ID，本次可继续入库；历史上该ID还出现在【' . $sourceHotelName . '】的数据中，只清理错绑历史行，两家门店不会合并。';
+            $nextAction = '核对并清理【' . $sourceHotelName . '】下属于【' . $targetHotelName . '】的错绑携程历史行。';
         } else {
-            $message = '携程返回酒店ID已归属【' . $targetHotelName . '】；管理员请先把【' . $sourceHotelName . '】的数据合并到【' . $targetHotelName . '】，再重新抓取，避免错店数据覆盖。';
-            $nextAction = '进入酒店管理的数据迁移，预览并确认：' . $confirmationText;
+            $action = 'delete_mismatched_ctrip_config';
+            $message = '携程数据已获取并可查看；【' . $sourceHotelName . '】下的当前配置实际返回【' . $targetHotelName . '】数据，本次未入库。请删除这个错绑配置，两家门店不会合并。';
+            $nextAction = '删除【' . $sourceHotelName . '】下当前错绑的携程配置，再为正确门店重新配置。';
         }
 
         return [
-            'action' => 'merge_hotel_data',
+            'action' => $action,
             'scope' => 'admin_only',
             'can_continue_current_fetch' => $canContinueCurrentFetch,
+            'can_display_result' => true,
+            'config_cleanup_required' => !$canContinueCurrentFetch,
+            'history_cleanup_required' => $canContinueCurrentFetch,
             'source_system_hotel_id' => $sourceSystemHotelId,
             'source_hotel_name' => $sourceHotelName,
             'target_system_hotel_id' => $targetSystemHotelId,
             'target_hotel_name' => $targetHotelName,
-            'confirmation_text' => $confirmationText,
-            'merge_preview_endpoint' => $mergePath,
-            'merge_execute_endpoint' => '/hotels/merge-execute',
             'message' => $message,
             'next_action' => $nextAction,
             'conflicts' => $conflicts,
@@ -1343,6 +1502,62 @@ trait OnlineDataManualFetchConcern
         return false;
     }
 
+    /**
+     * @param array<int, array<string, mixed>> $configs
+     * @return array<string, mixed>
+     */
+    private function selectMeituanManualFetchConfigMetadata(
+        array $configs,
+        string $configId,
+        int $systemHotelId
+    ): array {
+        $configId = trim($configId);
+        if ($configId === '' || $systemHotelId <= 0) {
+            return [];
+        }
+
+        $matches = [];
+        foreach ($configs as $config) {
+            if (!is_array($config)) {
+                continue;
+            }
+            $candidateIds = [];
+            foreach (['id', 'config_id'] as $field) {
+                $value = trim((string)($config[$field] ?? ''));
+                if ($value !== '') {
+                    $candidateIds[$value] = true;
+                }
+            }
+            if (count($candidateIds) !== 1 || !hash_equals($configId, (string)array_key_first($candidateIds))) {
+                continue;
+            }
+
+            $hotelIds = [];
+            foreach (['hotel_id', 'system_hotel_id'] as $field) {
+                $value = $config[$field] ?? null;
+                if (is_numeric($value) && (int)$value > 0) {
+                    $hotelIds[(int)$value] = true;
+                }
+            }
+            if (count($hotelIds) !== 1 || (int)array_key_first($hotelIds) !== $systemHotelId) {
+                continue;
+            }
+            $matches[] = $config;
+        }
+
+        return count($matches) === 1 ? $matches[0] : [];
+    }
+
+    /** @return array<string, mixed> */
+    private function resolveMeituanManualFetchConfigMetadata(string $configId, int $systemHotelId): array
+    {
+        return $this->selectMeituanManualFetchConfigMetadata(
+            $this->getStoredMeituanConfigList(),
+            $configId,
+            $systemHotelId
+        );
+    }
+
     public function fetchMeituan(): Response
     {
         $this->checkPermission();
@@ -1365,19 +1580,20 @@ trait OnlineDataManualFetchConcern
                     $requestData,
                     $credentialPayload,
                     $systemHotelId
-                )
+                ),
+                false,
+                true
             );
         } catch (\InvalidArgumentException) {
-            return $this->error('执行参数无效；请仅提供 config_id 与 system_hotel_id', 400);
-        } catch (\RuntimeException $e) {
-            $statusCode = $e->getCode() === 403 ? 403 : 409;
-            $message = $statusCode === 403 ? '无权使用该门店 OTA 凭据' : 'OTA 凭据不可用';
-            return $this->error($message, $statusCode);
-        } catch (\Throwable $e) {
-            \think\facade\Log::error('Meituan credential execution boundary failed.', [
-                'exception_type' => get_debug_type($e),
+            $detail = '请求包含不支持的执行字段或字段类型';
+            return $this->error('执行参数无效：' . $detail, 400, [
+                'reason' => 'invalid_manual_fetch_request',
+                'detail' => $detail,
             ]);
-            return $this->error('请求异常', 500);
+        } catch (OtaExecutionStageException $e) {
+            return $this->otaExecutionStageFailureResponse('meituan_manual_fetch', $e);
+        } catch (\Throwable $e) {
+            return $this->otaUnknownExecutionFailureResponse('meituan_manual_fetch', $e);
         }
     }
 
@@ -1391,12 +1607,33 @@ trait OnlineDataManualFetchConcern
         int $systemHotelId
     ): Response {
 
-        // 默认使用竞对排名数据接口
-        $url = $requestData['url'] ?? 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail';
-        $partnerId = $requestData['partner_id'] ?? '';
-        $poiId = $requestData['poi_id'] ?? '';
+        try {
+            $storedConfig = $this->resolveMeituanManualFetchConfigMetadata(
+                trim((string)($requestData['config_id'] ?? '')),
+                $systemHotelId
+            );
+        } catch (\Throwable $e) {
+            \think\facade\Log::error('Meituan manual fetch config metadata read failed.', [
+                'exception_type' => get_debug_type($e),
+                'system_hotel_id' => $systemHotelId,
+            ]);
+            return $this->error('美团门店配置读取失败', 500, [
+                'reason' => 'meituan_config_metadata_unavailable',
+            ]);
+        }
+        if ($storedConfig === []) {
+            return $this->error('美团门店配置不存在或与所选门店不匹配', 409, [
+                'reason' => 'meituan_config_locator_mismatch',
+            ]);
+        }
+
+        // 执行参数只携带配置定位；平台接口标识统一从已保存的门店配置读取。
+        $url = trim((string)($storedConfig['url'] ?? ''))
+            ?: 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail';
+        $partnerId = trim((string)($storedConfig['partner_id'] ?? $storedConfig['partnerId'] ?? ''));
+        $poiId = trim((string)($storedConfig['poi_id'] ?? $storedConfig['poiId'] ?? $storedConfig['store_id'] ?? $storedConfig['storeId'] ?? ''));
         $rankType = $requestData['rank_type'] ?? 'P_RZ';
-        $dataScope = $requestData['data_scope'] ?? 'vpoi';
+        $dataScope = $storedConfig['data_scope'] ?? $storedConfig['dataScope'] ?? 'vpoi';
         $cookies = (string)($credentialPayload['cookies'] ?? $credentialPayload['cookie'] ?? '');
         $authDataStr = $credentialPayload['auth_data'] ?? $credentialPayload['authData'] ?? '';
         $dateRange = $requestData['date_range'] ?? '1'; // 时间维度：0=今日实时，1=昨日，7=近7天，30=近30天
@@ -1578,6 +1815,28 @@ trait OnlineDataManualFetchConcern
                     $selfMetricMessage = (string)($selfBusinessResult['message'] ?? $selfMetricMessage);
                 }
             }
+            if ((string)$dateRange === '7' && (float)($selfMetricValues['roomRevenue'] ?? 0) <= 0) {
+                $dailyTradeResult = $this->fetchMeituanSelfDailyTradeMetricValues(
+                    (string)$partnerId,
+                    (string)$poiId,
+                    (string)$startDate,
+                    (string)$endDate,
+                    (string)$cookies,
+                    $authData
+                );
+                if (($dailyTradeResult['status'] ?? '') === 'returned') {
+                    foreach (($dailyTradeResult['values'] ?? []) as $field => $value) {
+                        if (!isset($selfMetricValues[$field]) || (float)$selfMetricValues[$field] <= 0) {
+                            $selfMetricValues[$field] = $value;
+                        }
+                    }
+                    $selfMetricStatus = $selfMetricStatus === 'missing'
+                        ? 'daily_trade_returned'
+                        : $selfMetricStatus . '+daily_trade_returned';
+                } elseif ($selfMetricMessage === '') {
+                    $selfMetricMessage = 'daily_trade_' . (string)($dailyTradeResult['status'] ?? 'empty');
+                }
+            }
             $savedCount = 0;
 
             $displayContext = $this->buildMeituanManualDisplayContext($requestData);
@@ -1606,6 +1865,9 @@ trait OnlineDataManualFetchConcern
                     'rank_type' => $rankType,
                     'start_date' => $startDate,
                     'end_date' => $endDate,
+                    'target_poi_id' => (string)$poiId,
+                    'self_metric_values' => $selfMetricValues,
+                    'self_metric_status' => $selfMetricStatus,
                 ]);
             }
 
@@ -1901,18 +2163,16 @@ trait OnlineDataManualFetchConcern
                     $requestData,
                     $credentialPayload,
                     $systemHotelId
-                )
+                ),
+                false,
+                true
             );
         } catch (\InvalidArgumentException) {
             return $this->error('执行参数无效；请仅提供 config_id、system_hotel_id 与允许的业务参数', 400);
-        } catch (\RuntimeException $e) {
-            $statusCode = $e->getCode() === 403 ? 403 : 409;
-            return $this->error($statusCode === 403 ? '无权使用该门店 OTA 凭据' : 'OTA 凭据不可用', $statusCode);
+        } catch (OtaExecutionStageException $e) {
+            return $this->otaExecutionStageFailureResponse('ctrip_traffic_fetch', $e);
         } catch (\Throwable $e) {
-            \think\facade\Log::error('Ctrip traffic credential execution boundary failed.', [
-                'exception_type' => get_debug_type($e),
-            ]);
-            return $this->error('请求异常', 500);
+            return $this->otaUnknownExecutionFailureResponse('ctrip_traffic_fetch', $e);
         }
     }
 
@@ -2087,18 +2347,16 @@ trait OnlineDataManualFetchConcern
                     $requestData,
                     $credentialPayload,
                     $systemHotelId
-                )
+                ),
+                false,
+                true
             );
         } catch (\InvalidArgumentException) {
             return $this->error('执行参数无效；请仅提供 config_id、system_hotel_id 与允许的业务参数', 400);
-        } catch (\RuntimeException $e) {
-            $statusCode = $e->getCode() === 403 ? 403 : 409;
-            return $this->error($statusCode === 403 ? '无权使用该门店 OTA 凭据' : 'OTA 凭据不可用', $statusCode);
+        } catch (OtaExecutionStageException $e) {
+            return $this->otaExecutionStageFailureResponse('ctrip_ads_fetch', $e);
         } catch (\Throwable $e) {
-            \think\facade\Log::error('Ctrip ads credential execution boundary failed.', [
-                'exception_type' => get_debug_type($e),
-            ]);
-            return $this->error('请求异常', 500);
+            return $this->otaUnknownExecutionFailureResponse('ctrip_ads_fetch', $e);
         }
     }
 
@@ -2268,18 +2526,16 @@ trait OnlineDataManualFetchConcern
                     $requestData,
                     $credentialPayload,
                     $systemHotelId
-                )
+                ),
+                false,
+                true
             );
         } catch (\InvalidArgumentException) {
             return $this->error('执行参数无效；请仅提供 config_id、system_hotel_id 与允许的业务参数', 400);
-        } catch (\RuntimeException $e) {
-            $statusCode = $e->getCode() === 403 ? 403 : 409;
-            return $this->error($statusCode === 403 ? '无权使用该门店 OTA 凭据' : 'OTA 凭据不可用', $statusCode);
+        } catch (OtaExecutionStageException $e) {
+            return $this->otaExecutionStageFailureResponse('meituan_traffic_fetch', $e);
         } catch (\Throwable $e) {
-            \think\facade\Log::error('Meituan traffic credential execution boundary failed.', [
-                'exception_type' => get_debug_type($e),
-            ]);
-            return $this->error('请求异常', 500);
+            return $this->otaUnknownExecutionFailureResponse('meituan_traffic_fetch', $e);
         }
     }
 
@@ -2452,19 +2708,16 @@ trait OnlineDataManualFetchConcern
                     $requestData,
                     $credentialPayload,
                     $systemHotelId
-                )
+                ),
+                false,
+                true
             );
         } catch (\InvalidArgumentException) {
             return $this->error('执行参数无效；请仅提供 config_id、system_hotel_id 与允许的业务参数', 400);
-        } catch (\RuntimeException $e) {
-            $statusCode = $e->getCode() === 403 ? 403 : 409;
-            return $this->error($statusCode === 403 ? '无权使用该门店 OTA 凭据' : 'OTA 凭据不可用', $statusCode);
+        } catch (OtaExecutionStageException $e) {
+            return $this->otaExecutionStageFailureResponse('meituan_' . $section . '_fetch', $e);
         } catch (\Throwable $e) {
-            \think\facade\Log::error('Meituan business credential execution boundary failed.', [
-                'exception_type' => get_debug_type($e),
-                'section' => in_array($section, ['orders', 'ads'], true) ? $section : 'invalid',
-            ]);
-            return $this->error('请求异常', 500);
+            return $this->otaUnknownExecutionFailureResponse('meituan_' . $section . '_fetch', $e);
         }
     }
 

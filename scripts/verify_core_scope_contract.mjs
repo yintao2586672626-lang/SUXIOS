@@ -53,17 +53,51 @@ assertContract(
   'Today operating workbench must remain the first revenue-management child while preserving compass path'
 );
 
-const lifecycleMenu = revenueChildren.find((item) => item.name === '开店/扩张/投决') || {};
+const flattenedMenu = flattenMenu(menuItems);
 assertContract(
-  lifecycleMenu.path === 'lifecycle-auxiliary' && Array.isArray(lifecycleMenu.children) && lifecycleMenu.children.length >= 8,
-  'phase-2 lifecycle modules must stay under 开店/扩张/投决 instead of top-level navigation'
+  !revenueChildren.some((item) => item.name === '开店/扩张/投决'),
+  'current navigation must not expose the retired opening, expansion, transfer, or investment group'
 );
 
-for (const phase2Name of ['筹建·战略推演', '扩张·市场评估', '转让·资产定价', '图片优化助手', '酒店AI工具箱']) {
+for (const frozenPath of [
+  'lifecycle-auxiliary',
+  'investment-decision',
+  'ai-strategy',
+  'ai-simulation',
+  'ai-feasibility',
+  'opening-overview',
+  'opening-checklist',
+  'market-evaluation',
+  'benchmark-model',
+  'collaboration-efficiency',
+  'asset-pricing',
+  'timing-strategy',
+  'decision-board',
+  'hotel-image-optimizer',
+]) {
   assertContract(
-    flattenMenu([lifecycleMenu]).some((item) => item.name === phase2Name),
-    `phase-2 module must be retained under 开店/扩张/投决: ${phase2Name}`
+    !flattenedMenu.some((item) => item.path === frozenPath),
+    `phase-1 navigation must not expose frozen lifecycle path: ${frozenPath}`
   );
+}
+
+const systemMenu = menuItems.find((item) => item.name === '系统设置') || {};
+assertContract(
+  flattenMenu([systemMenu]).some((item) => item.name === '酒店AI工具箱' && item.path === 'agent-center'),
+  'super-admin hotel AI toolbox must remain available under 系统设置 after lifecycle navigation is frozen'
+);
+
+const routeSource = read('route/app.php');
+for (const frozenRouteGroup of [
+  "Route::group('api/lifecycle'",
+  "Route::group('api/investment-decision'",
+  "Route::group('api/strategy'",
+  "Route::group('api/simulation'",
+  "Route::group('api/opening'",
+  "Route::group('api/expansion'",
+  "Route::group('api/transfer'",
+]) {
+  assertContract(routeSource.includes(frozenRouteGroup), `route/app.php must retain the frozen backend route group: ${frozenRouteGroup}`);
 }
 
 const managerMenu = systemStatic.filterVisibleMenuItems(menuItems, {

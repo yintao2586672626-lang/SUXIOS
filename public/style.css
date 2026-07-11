@@ -6890,12 +6890,85 @@ aside.sidebar:not(.collapsed) {
 }
 
 .suxi-app-shell main[data-current-page="online-data"],
-.suxi-app-shell main[data-current-page="hotel-image-optimizer"],
 .suxi-app-shell main[data-current-page="data-config"] {
     --sx-page-accent: #0f766e;
     --sx-page-accent-dark: #115e59;
     --sx-page-accent-soft: #ccfbf1;
     --sx-page-glow-rgb: 15, 118, 110;
+}
+
+/* 门店管理：卡片和 OTA 面板都按自身可用宽度排布，避免依赖固定视口断点。 */
+.hotel-preview-layout {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr));
+    align-items: start;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    background: #f8fafc;
+}
+
+.hotel-preview-card {
+    container-name: hotel-preview-card;
+    container-type: inline-size;
+    min-width: 0;
+    padding: 0.875rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.875rem;
+    background: #fff;
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+}
+
+.hotel-preview-card__header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 0.75rem;
+}
+
+.hotel-preview-card__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    margin-top: 0.5rem;
+}
+
+.hotel-preview-card__meta > div {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.hotel-preview-card__actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.375rem;
+    min-width: 0;
+}
+
+.hotel-preview-card__platforms {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+    align-items: start;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+
+/* Tailwind 的 xl:hidden 会被上面的自定义 display:grid 覆盖；桌面端只保留表格，避免两套门店视图同时出现。 */
+@media (min-width: 1280px) {
+    .hotel-preview-layout {
+        display: none;
+    }
+}
+
+@container hotel-preview-card (max-width: 27.99rem) {
+    .hotel-preview-card__header {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .hotel-preview-card__actions {
+        justify-content: flex-start;
+    }
 }
 
 .suxi-app-shell main[data-current-page="ctrip-ebooking"] {

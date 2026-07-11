@@ -244,13 +244,6 @@ class RevenueAiOverviewService
             $pricingGenerationPreflight
         );
         $pricingReadiness['ai_to_operation_handoff'] = $this->pricingAiToOperationHandoff($pricingReadiness, $executionSummary, $businessDate, $hotelId, $displaySourceChannels);
-        $pricingReadiness['operation_to_investment_handoff'] = $this->pricingOperationToInvestmentHandoff(
-            $pricingReadiness['ai_to_operation_handoff'],
-            $executionSummary,
-            $businessDate,
-            $hotelId,
-            $displaySourceChannels
-        );
         $dailyMetricStatus = $dataStatus === 'empty_confirmed' ? 'empty_confirmed' : 'empty';
         $dailyMetricReason = $dataStatus === 'empty_confirmed' ? 'ZERO_CONFIRMED' : 'online_daily_data_empty';
 
@@ -340,7 +333,6 @@ class RevenueAiOverviewService
             'agent_activity' => $agentActivity,
             'execution_summary' => $executionSummary,
             'ai_to_operation_handoff' => $pricingReadiness['ai_to_operation_handoff'],
-            'operation_to_investment_handoff' => $pricingReadiness['operation_to_investment_handoff'],
             'actions' => $this->actions($missingDatasets, $qualityIssues, $pricingReadiness, $reviewQueue, $pricingGenerationPreflight),
             'metric_summary' => [
                 'fact_table' => $metricsSummary['fact_table'] ?? [],
@@ -3668,12 +3660,6 @@ class RevenueAiOverviewService
             : $this->pricingAiToOperationHandoff(is_array($pricingReadiness) ? $pricingReadiness : [], [], '', null, []);
         $operationIntakePacket = is_array($aiToOperationHandoff['operation_intake_packet'] ?? null) ? $aiToOperationHandoff['operation_intake_packet'] : [];
         $operationPreflight = is_array($operationIntakePacket['operation_intake_preflight_contract'] ?? null) ? $operationIntakePacket['operation_intake_preflight_contract'] : [];
-        $operationToInvestmentHandoff = is_array($pricingReadiness['operation_to_investment_handoff'] ?? null)
-            ? $pricingReadiness['operation_to_investment_handoff']
-            : $this->pricingOperationToInvestmentHandoff($aiToOperationHandoff, [], '', null, []);
-        $investmentPrecheckPacket = is_array($operationToInvestmentHandoff['investment_precheck_packet'] ?? null)
-            ? $operationToInvestmentHandoff['investment_precheck_packet']
-            : [];
         $pendingReviewCount = (int)($reviewQueue['pending_count'] ?? 0);
         $reason = $pendingReviewCount > 0
             ? 'price_suggestions_pending_review'
@@ -3703,8 +3689,6 @@ class RevenueAiOverviewService
                 'ai_decision_resolution_plan' => $aiDecisionResolutionPlan,
                 'ai_to_operation_handoff' => $aiToOperationHandoff,
                 'operation_intake_preflight_contract' => $operationPreflight,
-                'operation_to_investment_handoff' => $operationToInvestmentHandoff,
-                'investment_precheck_packet' => $investmentPrecheckPacket,
                 'readiness' => $pricingReadiness,
                 'review_queue' => $reviewQueue,
                 'review_queue_summary' => (string)($reviewQueue['display'] ?? ''),
@@ -4009,146 +3993,6 @@ class RevenueAiOverviewService
         ];
     }
 
-    /**
-     * @param array<string, mixed> $aiToOperationHandoff
-     * @param array<string, mixed> $executionSummary
-     * @param array<int, string> $sourceChannels
-     * @return array<string, mixed>
-     */
-    private function pricingOperationToInvestmentHandoff(
-        array $aiToOperationHandoff,
-        array $executionSummary,
-        string $businessDate,
-        ?int $hotelId,
-        array $sourceChannels
-    ): array {
-        $roiGate = $this->pricingOperationRoiGate($executionSummary);
-        $operationRoiReady = $roiGate['ready'];
-        $sourceScope = count($sourceChannels) === 1 && $sourceChannels[0] === 'ctrip'
-            ? 'ctrip_ota_channel_to_operation_roi'
-            : 'ota_channel_to_operation_roi';
-        $upstreamStatus = (string)($aiToOperationHandoff['status'] ?? '');
-        $blockedReasons = $operationRoiReady
-            ? ['decision_record.readiness_ready']
-            : ['closed_operating_roi_missing', 'operation_process_closure_missing'];
-        if ($upstreamStatus !== 'operation_intake_waiting_human_approval' && $upstreamStatus !== 'operation_intake_ready_for_human_create') {
-            $blockedReasons[] = 'operation_intake_not_approved';
-        }
-        $blockedReasons = array_values(array_unique($blockedReasons));
-        $missingEvidence = $operationRoiReady
-            ? [
-                $this->investmentPrecheckMissingEvidence(
-                    'decision_record.readiness_ready',
-                    'InvestmentDecisionSupportService::buildOverviewFromEvidence'
-                ),
-            ]
-            : [
-                $this->investmentPrecheckMissingEvidence(
-                    'operation_execution.roi_ready',
-                    'RevenueAiOverviewService.execution_summary.effect_review'
-                ),
-            ];
-        $status = $operationRoiReady
-            ? 'investment_precheck_waiting_decision_record'
-            : 'investment_precheck_blocked_by_operation_roi';
-
-        return [
-            'status' => $status,
-            'persisted' => false,
-            'target_module' => 'investment_decision',
-            'target_page' => 'investment-decision',
-            'target_service' => 'InvestmentDecisionSupportService::buildOverviewFromEvidence',
-            'target_entry' => '/api/investment-decision/overview',
-            'business_date' => $businessDate,
-            'hotel_id' => $hotelId,
-            'source_scope' => $sourceScope,
-            'metric_scope' => 'ota_channel',
-            'source_channels' => array_values($sourceChannels),
-            'source_platforms' => array_values($sourceChannels),
-            'upstream_operation_intake_status' => $upstreamStatus,
-            'operation_execution_total' => (int)($executionSummary['total_count'] ?? 0),
-            'operation_roi_ready' => $operationRoiReady ? 1 : 0,
-            'operation_roi_ready_count' => (int)$roiGate['ready_count'],
-            'operation_roi_reason' => (string)$roiGate['reason'],
-            'operating_gate_status' => $operationRoiReady ? 'closed_operating_data_ready' : 'not_ready',
-            'business_closure_chain_status' => $operationRoiReady ? 'precheck_only_not_investment_ready' : 'not_closed',
-            'decision_allowed' => false,
-            'can_create_investment_decision' => false,
-            'blocked_reasons' => $blockedReasons,
-            'required_before_investment' => [
-                'operation_execution_intent_created_by_human_review',
-                'operation_execution_approved',
-                'execution_evidence_attached',
-                'operation_effect_review_completed',
-                'operation_execution.roi_ready',
-                'decision_record.readiness_ready',
-                'human_investment_review',
-            ],
-            'forbidden_actions' => [
-                'create_investment_decision_from_ota_channel_only',
-                'claim_investment_decision_allowed',
-                'create_investment_record_without_closed_operation_roi',
-                'use_unreviewed_ai_advice_for_investment',
-                'promote_ota_scope_to_whole_hotel_truth',
-            ],
-            'investment_precheck_packet' => [
-                'status' => $operationRoiReady ? 'waiting_decision_record_readiness' : 'blocked_by_operation_roi',
-                'source_policy' => 'read_only_precheck_from_closed_operation_gate',
-                'upstream_operation_intake_status' => $upstreamStatus,
-                'operation_roi_ready' => $operationRoiReady ? 1 : 0,
-                'operation_roi_ready_count' => (int)$roiGate['ready_count'],
-                'operating_gate_status' => $operationRoiReady ? 'closed_operating_data_ready' : 'not_ready',
-                'business_closure_chain_status' => $operationRoiReady ? 'precheck_only_not_investment_ready' : 'not_closed',
-                'required_gate' => 'operation_execution.roi_ready',
-                'required_before' => 'investment_decision.summary.decision_allowed',
-                'missing_evidence' => $missingEvidence,
-                'missing_evidence_codes' => array_column($missingEvidence, 'code'),
-                'protected_boundary' => 'investment_decision_requires_closed_operation_roi_not_ota_channel_only',
-            ],
-            'protected_boundary' => 'investment_decision_requires_closed_operation_roi_not_ota_channel_only',
-        ];
-    }
-
-    /**
-     * @param array<string, mixed> $executionSummary
-     * @return array{ready:bool,ready_count:int,reason:string}
-     */
-    private function pricingOperationRoiGate(array $executionSummary): array
-    {
-        $effectReview = is_array($executionSummary['effect_review'] ?? null) ? $executionSummary['effect_review'] : [];
-        $summaryRoiReady = (int)($executionSummary['roi_ready_count'] ?? 0);
-        $effectRoiReady = (int)($effectReview['roi_ready_count'] ?? 0);
-        $inputReadyCount = (int)($effectReview['input_ready_count'] ?? 0);
-        $nextDayInputReady = ($effectReview['next_day_input_ready'] ?? false) === true;
-        $inputReason = (string)($effectReview['input_reason'] ?? '');
-        $effectReason = (string)($effectReview['reason'] ?? '');
-        $summaryReason = (string)($executionSummary['reason'] ?? '');
-        $reasonCandidates = array_values(array_filter([$inputReason, $effectReason, $summaryReason], static fn ($reason) => is_string($reason) && $reason !== ''));
-        $readyByReason = in_array('operation_effect_review_ready', $reasonCandidates, true);
-        $ready = $summaryRoiReady > 0
-            || $effectRoiReady > 0
-            || ($readyByReason && ($nextDayInputReady || $inputReadyCount > 0));
-        $readyCount = max($summaryRoiReady, $effectRoiReady, $ready ? max(1, $inputReadyCount) : 0);
-
-        return [
-            'ready' => $ready,
-            'ready_count' => $readyCount,
-            'reason' => $ready ? 'operation_effect_review_ready' : ($reasonCandidates[0] ?? 'operation_execution_not_loaded'),
-        ];
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    private function investmentPrecheckMissingEvidence(string $code, string $source): array
-    {
-        return [
-            'code' => $code,
-            'status' => 'missing_or_blocked',
-            'source' => $source,
-            'required_before' => 'investment_decision.summary.decision_allowed',
-        ];
-    }
 
     /**
      * @param array<string, mixed> $candidate

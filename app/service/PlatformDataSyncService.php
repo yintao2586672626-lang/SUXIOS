@@ -4142,6 +4142,10 @@ final class PlatformDataSyncService
     {
         $config = $this->decodeConfig($row['config_json'] ?? []);
         $isOta = $this->isOtaPlatform((string)($row['platform'] ?? ''));
+        $profileMethod = strtolower(trim((string)($row['ingestion_method'] ?? '')));
+        $row['current_session_verified'] = $isOta
+            && in_array($profileMethod, ['browser_profile', 'profile_browser'], true)
+            && $this->profileSessionProofService->isCurrentVerified($row);
         $secret = $isOta ? [] : $this->decodeConfig($row['secret_json'] ?? []);
         unset($row['config_json']);
         unset($row['secret_json']);

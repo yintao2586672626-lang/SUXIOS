@@ -114,6 +114,19 @@ final class OtaProfileBindingServiceTest extends TestCase
         $this->service()->claim(10, 'ctrip', 'legacy-profile', 91);
     }
 
+    public function testExplicitLocalRebindCanClaimExistingUnboundDirectoryWithinTheSameScope(): void
+    {
+        $this->insertSource(10, 1, 'meituan', ['store_id' => 'legacy-store']);
+        mkdir(self::$projectRoot . DIRECTORY_SEPARATOR . 'storage' . DIRECTORY_SEPARATOR . 'meituan_profile_legacy-store');
+
+        $claimed = $this->service()->claim(10, 'meituan', 'legacy-store', 91, true);
+
+        self::assertSame('active', $claimed['binding_status']);
+        self::assertSame(10, $claimed['system_hotel_id']);
+        self::assertSame('meituan', $claimed['platform']);
+        self::assertSame('active', $this->service()->assertBound(10, 'meituan', 'legacy-store')['binding_status']);
+    }
+
     public function testRevokedBindingCanOnlyBeReactivatedByOriginalScope(): void
     {
         $this->insertSource(10, 1, 'meituan', ['store_id' => 'store-10']);
@@ -133,6 +146,25 @@ final class OtaProfileBindingServiceTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('another tenant or hotel');
         $service->claim(20, 'meituan', 'store-10', 94);
+    }
+
+    public function testOneHotelPlatformCannotClaimTwoActiveProfiles(): void
+    {
+        $this->insertSource(10, 1, 'ctrip', ['profile_id' => 'profile-primary']);
+        $this->insertSource(10, 1, 'ctrip', ['profile_id' => 'profile-secondary']);
+        $service = $this->service();
+        $service->claim(10, 'ctrip', 'profile-primary', 91);
+
+        try {
+            $service->claim(10, 'ctrip', 'profile-secondary', 92);
+            self::fail('One hotel and platform must keep a single active Profile binding.');
+        } catch (RuntimeException $e) {
+            self::assertStringContainsString('already has an active Profile binding', $e->getMessage());
+            self::assertStringNotContainsString('profile-primary', $e->getMessage());
+            self::assertStringNotContainsString('profile-secondary', $e->getMessage());
+        }
+
+        self::assertSame(1, (int)Db::name('ota_profile_bindings')->where('binding_status', 'active')->count());
     }
 
     public function testBindingMigrationUsesHashedKeysAndIsRegistered(): void
@@ -164,6 +196,7 @@ final class OtaProfileBindingServiceTest extends TestCase
         self::assertStringContainsString('assertOtaProfileBindingForHotel', $request);
         self::assertStringContainsString('OtaProfileBindingService', $login);
         self::assertStringContainsString('assertBound(', $login);
+        self::assertStringContainsString('allow_existing_local_profile_rebind', $login);
     }
 
     private function service(): OtaProfileBindingService

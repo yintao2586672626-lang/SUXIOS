@@ -381,7 +381,6 @@ function ctrip_review_decision_operation_evidence_handoff(string $date, ?int $ho
             'record_execution' => '/api/operation/execution-tasks/' . $taskPlaceholder . '/execute',
             'upload_roi_evidence' => '/api/operation/execution-tasks/' . $taskPlaceholder . '/evidence',
             'review_roi' => '/api/operation/execution-tasks/' . $taskPlaceholder . '/review',
-            'investment_review' => '/api/investment-decision/overview',
         ],
         'roi_window' => [
             'business_date' => $date,

@@ -10,16 +10,12 @@ window.SUXI_HOME_STATIC = (() => {
         operationExecutionMoneyStatusText = '',
         operationExecutionMoneyStatusClass = '',
         operationExecutionBottleneckText = '',
-        snapshot = null,
-        transferSourceDate = '',
     } = {}) => {
         const safeReadiness = readiness && typeof readiness === 'object' ? readiness : {};
         const readyPercent = Number(safeReadiness.percent || 0);
         const coreReady = readyPercent >= 100;
         const safeForecastStatus = String(forecastStatus || '');
         const aiReady = !!trendReady && !safeForecastStatus.startsWith('待');
-        const snapshotDate = snapshot?.snapshot_date || snapshot?.date || transferSourceDate || '--';
-        const snapshotStatus = snapshot?.data_status || '';
         return [
             {
                 key: 'ota-trust',
@@ -68,18 +64,6 @@ window.SUXI_HOME_STATIC = (() => {
                 actionLabel: '看执行进度',
                 entry: { page: 'ops-track' },
                 icon: 'fas fa-tasks',
-            },
-            {
-                key: 'investment-decision',
-                index: '第5步',
-                title: '沉淀到投决',
-                statusText: snapshot ? (snapshotStatus || '有经营快照') : '待取经营快照',
-                statusClass: snapshot ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-gray-50 text-gray-500 border-gray-200',
-                desc: '投资模块读取经营快照后再估值、判断时机和进入决策板，不用 OTA 渠道数据替代全酒店口径。',
-                evidence: snapshot ? `快照日期 ${snapshotDate}` : '先从投资模块获取经营快照',
-                actionLabel: '看投决辅助',
-                entry: { page: 'investment-decision' },
-                icon: 'fas fa-balance-scale',
             },
         ];
     };

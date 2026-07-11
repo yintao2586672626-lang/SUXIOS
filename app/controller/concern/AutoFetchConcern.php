@@ -306,6 +306,8 @@ trait AutoFetchConcern
         $status = is_array($status) ? $status : [];
         $runAt = date('Y-m-d H:i:s');
         $mode = $this->normalizeAutoFetchMode($fetchOptions['auto_fetch_mode'] ?? 'hybrid_auto');
+        $ctripConfigured = $this->hasCtripFetchConfigForHotel($hotelId);
+        $meituanConfigured = $this->hasMeituanFetchConfigForHotel($hotelId);
         $status['last_run_time'] = $runAt;
         $status['last_data_date'] = $dataDate;
         $status['auto_fetch_mode'] = $mode;
@@ -315,8 +317,23 @@ trait AutoFetchConcern
         $status['running_task'] = [
             'task_id' => (string)$task['task_id'],
             'started_at' => $runAt,
+            'updated_at' => $runAt,
             'data_date' => $dataDate,
             'data_period' => $dataPeriod,
+            'platforms' => [
+                'ctrip' => [
+                    'platform' => 'ctrip',
+                    'status' => $ctripConfigured ? 'queued' : 'skipped',
+                    'message' => $ctripConfigured ? '等待开始携程采集' : '未配置携程采集路径',
+                    'saved_count' => 0,
+                ],
+                'meituan' => [
+                    'platform' => 'meituan',
+                    'status' => $meituanConfigured ? 'queued' : 'skipped',
+                    'message' => $meituanConfigured ? '等待开始美团采集' : '未配置美团采集路径',
+                    'saved_count' => 0,
+                ],
+            ],
         ];
         $status['last_result'] = [
             'success' => null,
@@ -329,6 +346,54 @@ trait AutoFetchConcern
             'ctrip_section_concurrency' => $status['ctrip_section_concurrency'],
             'task_id' => (string)$task['task_id'],
         ];
+        cache($statusKey, $status, 86400 * 30);
+    }
+
+    private function updateAutoFetchRunningPlatformProgress(
+        int $hotelId,
+        string $platform,
+        string $progressStatus,
+        array $details = []
+    ): void {
+        $platform = strtolower(trim($platform));
+        $progressStatus = strtolower(trim($progressStatus));
+        if ($hotelId <= 0
+            || !in_array($platform, ['ctrip', 'meituan'], true)
+            || !in_array($progressStatus, ['queued', 'running', 'success', 'failed', 'skipped'], true)
+        ) {
+            return;
+        }
+
+        $statusKey = $this->autoFetchStatusKey($hotelId);
+        $status = cache($statusKey) ?: [];
+        if (!is_array($status) || !is_array($status['running_task'] ?? null)) {
+            return;
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $platforms = is_array($status['running_task']['platforms'] ?? null)
+            ? $status['running_task']['platforms']
+            : [];
+        $row = is_array($platforms[$platform] ?? null) ? $platforms[$platform] : [];
+        $row['platform'] = $platform;
+        $row['status'] = $progressStatus;
+        $row['updated_at'] = $now;
+        if ($progressStatus === 'running' && empty($row['started_at'])) {
+            $row['started_at'] = $now;
+        }
+        if (in_array($progressStatus, ['success', 'failed', 'skipped'], true)) {
+            $row['finished_at'] = $now;
+        }
+        if (array_key_exists('saved_count', $details)) {
+            $row['saved_count'] = max(0, (int)$details['saved_count']);
+        }
+        if (array_key_exists('message', $details)) {
+            $row['message'] = trim((string)$details['message']);
+        }
+
+        $platforms[$platform] = $row;
+        $status['running_task']['platforms'] = $platforms;
+        $status['running_task']['updated_at'] = $now;
         cache($statusKey, $status, 86400 * 30);
     }
 
@@ -1256,6 +1321,9 @@ trait AutoFetchConcern
             'post_login_wait_ms' => max(0, min(600000, (int)($requestData['post_login_wait_ms'] ?? $requestData['postLoginWaitMs'] ?? 120000))),
             'capture_sections' => $this->platformProfileLoginSourceCaptureSections($platform, $requestData, [], ''),
         ];
+        if ($this->platformProfileLoginRequestFlag($requestData['allow_existing_local_profile_rebind'] ?? false)) {
+            $prepared['allow_existing_local_profile_rebind'] = true;
+        }
         $sourceId = (int)($requestData['data_source_id'] ?? $requestData['source_id'] ?? 0);
         if ($sourceId > 0) {
             $prepared['data_source_id'] = $sourceId;
@@ -1414,7 +1482,14 @@ trait AutoFetchConcern
             if (file_put_contents($batPath, implode(PHP_EOL, $lines) . PHP_EOL) === false) {
                 return false;
             }
-            return $this->launchWindowsBatchFile($batPath);
+            if (!$this->launchWindowsBatchFile($batPath)) {
+                return false;
+            }
+            if (!$this->waitForPlatformProfileLoginTaskStart($taskId)) {
+                $this->appendWindowsLauncherDiagnostic($batPath, 'Profile login process did not leave queued state after launch.');
+                return false;
+            }
+            return true;
         }
 
         $shellPath = $dir . DIRECTORY_SEPARATOR . $taskId . '.sh';
@@ -1463,6 +1538,11 @@ trait AutoFetchConcern
 
     private function launchWindowsBatchFile(string $batPath): bool
     {
+        if ($this->launchWindowsBatchFileWithPowerShell($batPath)) {
+            return true;
+        }
+        $this->appendWindowsLauncherDiagnostic($batPath, 'PowerShell launcher failed; falling back to wscript.');
+
         $launcherPath = $this->createWindowsBatchLauncher($batPath);
         if ($launcherPath !== '' && $this->launchWindowsScriptHost($launcherPath)) {
             return true;
@@ -1474,6 +1554,71 @@ trait AutoFetchConcern
         $this->appendWindowsLauncherDiagnostic($batPath, 'wscript launcher did not confirm execution; falling back to cmd start.');
 
         return $this->launchWindowsBatchFileWithStart($batPath);
+    }
+
+    private function launchWindowsBatchFileWithPowerShell(string $batPath): bool
+    {
+        $powershell = $this->resolveWindowsPowerShellBinary();
+        if ($powershell === '') {
+            return false;
+        }
+
+        $cmd = (string)(getenv('COMSPEC') ?: 'cmd.exe');
+        $arguments = "@('/d', '/c', 'call', " . $this->quotePowerShellSingleQuotedString($batPath) . ')';
+        $script = '$process = Start-Process -FilePath '
+            . $this->quotePowerShellSingleQuotedString($cmd)
+            . ' -ArgumentList '
+            . $arguments
+            . ' -WorkingDirectory '
+            . $this->quotePowerShellSingleQuotedString(dirname($batPath))
+            . ' -WindowStyle Hidden -PassThru; if ($null -eq $process) { exit 1 }; exit 0';
+        $encoded = $this->encodeWindowsPowerShellCommand($script);
+        if ($encoded === '') {
+            return false;
+        }
+
+        $command = $this->quoteWindowsBatchArg($powershell)
+            . ' -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand '
+            . $encoded
+            . ' 2>&1';
+        $handle = @popen($command, 'r');
+        if (!is_resource($handle)) {
+            return false;
+        }
+        stream_get_contents($handle);
+        return pclose($handle) === 0;
+    }
+
+    private function resolveWindowsPowerShellBinary(): string
+    {
+        $systemRoot = rtrim((string)(getenv('SystemRoot') ?: 'C:\\Windows'), "\\/");
+        $candidates = array_filter([
+            $systemRoot !== '' ? $systemRoot . '\\System32\\WindowsPowerShell\\v1.0\\powershell.exe' : '',
+            'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+            'powershell.exe',
+        ]);
+
+        foreach ($candidates as $candidate) {
+            if ($candidate === 'powershell.exe' || is_file($candidate)) {
+                return $candidate;
+            }
+        }
+        return '';
+    }
+
+    private function waitForPlatformProfileLoginTaskStart(string $taskId, int $timeoutMs = 5000): bool
+    {
+        $deadline = microtime(true) + max(500, $timeoutMs) / 1000;
+        do {
+            $task = $this->readPlatformProfileLoginTask($taskId);
+            $status = strtolower(trim((string)($task['status'] ?? '')));
+            if ($status !== '' && $status !== 'queued') {
+                return true;
+            }
+            usleep(100000);
+        } while (microtime(true) < $deadline);
+
+        return false;
     }
 
     private function launchWindowsScriptHost(string $launcherPath): bool
@@ -3805,18 +3950,33 @@ trait AutoFetchConcern
 
         if ($this->hasCtripFetchConfigForHotel($hotelId)) {
             $attempted++;
+            $this->updateAutoFetchRunningPlatformProgress($hotelId, 'ctrip', 'running', [
+                'message' => '正在采集携程 Profile 与业务接口',
+            ]);
             try {
                 $result = $this->executeCtripAutoFetch($hotelId, $dataDate, $options);
             } catch (\Throwable $e) {
                 \think\facade\Log::warning('Ctrip auto-fetch failed', ['hotel_id' => $hotelId, 'exception_type' => get_debug_type($e)]);
                 $result = ['platform' => 'ctrip', 'success' => false, 'message' => 'ctrip_auto_fetch_failed', 'saved_count' => 0];
             }
+            $this->updateAutoFetchRunningPlatformProgress(
+                $hotelId,
+                'ctrip',
+                !empty($result['success']) ? 'success' : 'failed',
+                [
+                    'saved_count' => (int)($result['saved_count'] ?? 0),
+                    'message' => (string)($result['message'] ?? ''),
+                ]
+            );
             $platformResults[] = $result;
             $totalSaved += (int)($result['saved_count'] ?? 0);
             if (!empty($result['success'])) {
                 $successCount++;
             }
         } else {
+            $this->updateAutoFetchRunningPlatformProgress($hotelId, 'ctrip', 'skipped', [
+                'message' => '未配置携程凭证',
+            ]);
             $platformResults[] = [
                 'platform' => 'ctrip',
                 'success' => false,
@@ -3830,12 +3990,24 @@ trait AutoFetchConcern
 
         if ($this->hasMeituanFetchConfigForHotel($hotelId)) {
             $attempted++;
+            $this->updateAutoFetchRunningPlatformProgress($hotelId, 'meituan', 'running', [
+                'message' => '正在采集美团 Profile 与业务接口',
+            ]);
             try {
                 $result = $this->executeMeituanAutoFetch($hotelId, $dataDate, $options);
             } catch (\Throwable $e) {
                 \think\facade\Log::warning('Meituan auto-fetch failed', ['hotel_id' => $hotelId, 'exception_type' => get_debug_type($e)]);
                 $result = ['platform' => 'meituan', 'success' => false, 'message' => 'meituan_auto_fetch_failed', 'saved_count' => 0];
             }
+            $this->updateAutoFetchRunningPlatformProgress(
+                $hotelId,
+                'meituan',
+                !empty($result['success']) ? 'success' : 'failed',
+                [
+                    'saved_count' => (int)($result['saved_count'] ?? 0),
+                    'message' => (string)($result['message'] ?? ''),
+                ]
+            );
             $platformResults[] = $result;
             $totalSaved += (int)($result['saved_count'] ?? 0);
             if (!empty($result['success'])) {
@@ -3843,6 +4015,9 @@ trait AutoFetchConcern
             }
         } else {
             $message = '未配置美团 Partner ID / POI ID / Cookies';
+            $this->updateAutoFetchRunningPlatformProgress($hotelId, 'meituan', 'skipped', [
+                'message' => $message,
+            ]);
             $platformResults[] = [
                 'platform' => 'meituan',
                 'success' => false,
@@ -4464,7 +4639,7 @@ trait AutoFetchConcern
             \think\facade\Log::info("携程自动获取成功", ['hotel_id' => $hotelId, 'count' => $savedCount]);
             $this->updateCtripLatestFetchStatus($hotelId, date('Y-m-d H:i:s'), $dataDate, $savedCount);
 
-            return ['platform' => 'ctrip', 'success' => true, 'message' => "已入库 {$savedCount} 条；字段覆盖按配置表显示，未返回字段保留为缺口", 'saved_count' => $savedCount, 'data_period' => $options['data_period'] ?? 'historical_daily', 'auto_fetch_mode' => $mode, 'mode_label' => $this->autoFetchModeLabel($mode), 'modules' => $modules, 'timing' => is_array($browserResult['timing'] ?? null) ? $browserResult['timing'] : []];
+            return ['platform' => 'ctrip', 'success' => true, 'message' => "完成 {$savedCount} 次写入操作；写入次数不等于唯一指标数，未返回字段保留为缺口", 'saved_count' => $savedCount, 'data_period' => $options['data_period'] ?? 'historical_daily', 'auto_fetch_mode' => $mode, 'mode_label' => $this->autoFetchModeLabel($mode), 'modules' => $modules, 'timing' => is_array($browserResult['timing'] ?? null) ? $browserResult['timing'] : []];
         }
 
         $message = empty($errors)
@@ -4575,7 +4750,9 @@ trait AutoFetchConcern
                 return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'ctrip_api_rejected'];
             }
 
-            $savedCount = $this->parseAndSaveData($responseData, $startDate, $endDate, $hotelId);
+            $savedCount = $this->parseAndSaveData($responseData, $startDate, $endDate, $hotelId, [
+                'ingestion_method' => 'manual_cookie_api',
+            ]);
             return [
                 'module' => $label,
                 'saved_count' => $savedCount,
@@ -4683,7 +4860,15 @@ trait AutoFetchConcern
             ];
             if ($autoSave) {
                 $requestHotelId = trim((string)($payload['hotel_id'] ?? $prepared['config']['hotel_id'] ?? $requestData['hotel_id'] ?? $requestData['ctrip_hotel_id'] ?? $hotelId));
-                $saveResult = $this->saveCtripBrowserProfilePayload($payload, $hotelId, (string)$requestData['data_date'], $requestHotelId);
+                $saveResult = $this->saveCtripBrowserProfilePayload(
+                    $payload,
+                    $hotelId,
+                    (string)$requestData['data_date'],
+                    $requestHotelId,
+                    null,
+                    [],
+                    ['ingestion_method' => 'manual_cookie_api']
+                );
             }
 
             $savedCount = (int)($saveResult['saved_count'] ?? 0);
@@ -4982,7 +5167,19 @@ trait AutoFetchConcern
             }
         }
         $requestHotelId = $ctripHotelId !== '' ? $ctripHotelId : (string)($payload['hotel_id'] ?? '');
-        $saveResult = $this->saveCtripBrowserProfilePayload($payload, $hotelId, $dataDate, $requestHotelId, null, $periodOptions);
+        $profileDataSourceId = (int)($profileSource['id'] ?? 0);
+        $saveResult = $this->saveCtripBrowserProfilePayload(
+            $payload,
+            $hotelId,
+            $dataDate,
+            $requestHotelId,
+            $profileDataSourceId > 0 ? $profileDataSourceId : null,
+            $periodOptions,
+            [
+                'ingestion_method' => 'browser_profile',
+                'data_source_id' => $profileDataSourceId,
+            ]
+        );
         $savedCount = (int)$saveResult['saved_count'];
         $capturedCounts = $this->buildCtripCaptureCounts($payload);
         if ($savedCount > 0) {
@@ -5037,19 +5234,42 @@ trait AutoFetchConcern
         ]);
     }
 
-    private function saveCtripBrowserProfilePayload(array $payload, int $hotelId, string $dataDate, string $requestHotelId, ?int $dataSourceId = null, array $periodOptions = []): array
+    private function saveCtripBrowserProfilePayload(
+        array $payload,
+        int $hotelId,
+        string $dataDate,
+        string $requestHotelId,
+        ?int $dataSourceId = null,
+        array $periodOptions = [],
+        array $competitionPersistenceContext = []
+    ): array
     {
         $payload = $this->applyAutoFetchPeriodOptionsToPayload($payload, $periodOptions);
+        if ($dataSourceId !== null && $dataSourceId > 0 && empty($competitionPersistenceContext['data_source_id'])) {
+            $competitionPersistenceContext['data_source_id'] = $dataSourceId;
+        }
         $modules = [];
 
         $businessRows = $this->applyAutoFetchPeriodOptionsToRows($this->extractCtripCapturedSection($payload, 'business'), $periodOptions);
         $businessSaved = 0;
         if (!empty($businessRows)) {
-            $businessSaved = $this->parseAndSaveData(['data' => $businessRows], $dataDate, $dataDate, $hotelId);
+            $businessSaved = $this->parseAndSaveData(
+                ['data' => $businessRows],
+                $dataDate,
+                $dataDate,
+                $hotelId,
+                $competitionPersistenceContext
+            );
         }
         if ($businessSaved === 0) {
             foreach ($this->extractCtripCapturedResponseData($payload, 'business') as $responseData) {
-                $businessSaved += $this->parseAndSaveData($responseData, $dataDate, $dataDate, $hotelId);
+                $businessSaved += $this->parseAndSaveData(
+                    $responseData,
+                    $dataDate,
+                    $dataDate,
+                    $hotelId,
+                    $competitionPersistenceContext
+                );
             }
         }
         $modules[] = ['module' => 'browser_business', 'saved_count' => $businessSaved, 'success' => $businessSaved > 0];
@@ -5089,10 +5309,10 @@ trait AutoFetchConcern
 
     private function validateCtripPayloadHotelIdentity(array $payload, int $systemHotelId, array $config = []): array
     {
-        $capturedIds = $this->extractCtripPayloadSelfHotelIds($payload);
+        $capturedIds = array_values(array_map('strval', $this->extractCtripPayloadSelfHotelIds($payload)));
         $nodeIds = array_fill_keys($this->extractCtripNodeResourceIds($config), true);
         $capturedIds = array_values(array_filter($capturedIds, fn(string $id): bool => $this->isMeaningfulCtripPlatformHotelId($id, $systemHotelId) && !isset($nodeIds[$id])));
-        $expectedIds = $this->extractExpectedCtripPlatformHotelIds($config, $systemHotelId);
+        $expectedIds = array_values(array_map('strval', $this->extractExpectedCtripPlatformHotelIds($config, $systemHotelId)));
         $conflicts = $this->findCtripPlatformHotelIdConflicts($capturedIds, $systemHotelId);
         $blockingConflicts = array_values(array_filter($conflicts, function (array $conflict) use ($expectedIds): bool {
             return $this->shouldBlockCtripCurrentHotelIdConflict((string)($conflict['hotel_id'] ?? ''), $expectedIds);
@@ -5120,14 +5340,16 @@ trait AutoFetchConcern
 
         if ($expectedIds !== [] && $capturedIds !== [] && array_intersect($expectedIds, $capturedIds) === []) {
             return [
-                'ok' => false,
-                'status' => 'expected_hotel_id_mismatch',
-                'message' => '携程返回的酒店标识与当前门店配置不一致，已取消入库。当前选择：' . ($targetHotelName !== '' ? $targetHotelName : ('门店ID ' . $systemHotelId)) . '；配置 hotelId：' . implode('、', $expectedIds) . '；接口返回 hotelId：' . implode('、', $capturedIds),
+                'ok' => true,
+                'status' => 'configured_platform_hotel_id_mismatch',
+                'warning' => true,
+                'message' => '携程返回酒店ID与已保存配置不一致；本次仍按当前选择门店归属并继续处理。请核对配置ID：' . implode('、', $expectedIds) . '；返回ID：' . implode('、', $capturedIds),
                 'target_system_hotel_id' => $systemHotelId,
                 'target_hotel_name' => $targetHotelName,
                 'captured_hotel_ids' => $capturedIds,
                 'expected_hotel_ids' => $expectedIds,
                 'conflicts' => [],
+                'verification_links' => $this->buildCtripPublicHotelVerificationLinks($capturedIds),
             ];
         }
 
@@ -5368,9 +5590,11 @@ trait AutoFetchConcern
 
         return Db::name('online_daily_data')
             ->alias('d')
-            ->leftJoin('hotels h', 'h.id = d.system_hotel_id')
+            ->join('hotels h', 'h.id = d.system_hotel_id')
             ->field('d.hotel_id,d.system_hotel_id,MAX(h.name) AS system_hotel_name,MAX(d.hotel_name) AS captured_hotel_name,COUNT(*) AS record_count')
             ->where('d.source', 'ctrip')
+            ->where('d.compare_type', 'self')
+            ->where('h.status', 1)
             ->whereIn('d.hotel_id', $ids)
             ->whereNotNull('d.system_hotel_id')
             ->where('d.system_hotel_id', '<>', $systemHotelId)
@@ -5452,7 +5676,9 @@ trait AutoFetchConcern
                 'flow_rate' => (float)($row['flow_rate'] ?? 0),
                 'order_filling_num' => (int)round((float)($row['order_filling_num'] ?? 0)),
                 'order_submit_num' => (int)round((float)($row['order_submit_num'] ?? 0)),
-                'ingestion_method' => 'browser_profile',
+                'ingestion_method' => in_array((string)($row['ingestion_method'] ?? ''), ['browser_profile', 'ctrip_cookie_api'], true)
+                    ? (string)$row['ingestion_method']
+                    : 'browser_profile',
                 'source_trace_id' => $this->buildCtripStandardRowSourceTraceId(array_merge($row, ['source' => $source, 'platform' => $platform]), $captureSection, $dataType, $dimension, $rowDataDate, $rawDataForTrace),
                 'raw_data' => $rawData,
             ];
@@ -5801,7 +6027,7 @@ trait AutoFetchConcern
             return [
                 'platform' => 'meituan',
                 'success' => true,
-                'message' => "成功获取 {$savedCount} 条数据",
+                'message' => "完成 {$savedCount} 次写入操作；排名接口可能仅返回排名或百分比",
                 'saved_count' => $savedCount,
                 'data_period' => $options['data_period'] ?? 'historical_daily',
                 'auto_fetch_mode' => $mode,

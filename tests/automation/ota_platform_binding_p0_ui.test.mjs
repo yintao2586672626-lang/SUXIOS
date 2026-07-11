@@ -56,6 +56,21 @@ const reviewAutomation = sliceBetween(
   'const runCtripReviewMatchAutomation =',
   'const bindCtripReviewOrderMatch ='
 );
+const ctripManualFetchAction = sliceBetween(
+  html,
+  "requestFetch: requestBody => request('/online-data/fetch-ctrip'",
+  'setOnlineDataResult: value =>'
+);
+const accountCollectionCenter = sliceBetween(
+  html,
+  'data-testid="platform-account-collection-center"',
+  'data-testid="platform-account-advanced-tools"'
+);
+const hotelAccountSummary = sliceBetween(
+  html,
+  'data-testid="hotel-account-summary-table"',
+  '<!-- 空状态 -->'
+);
 
 test('OTA platform status page exposes the P0 Profile login flow without credential custody', () => {
   assert.match(flowPanel, /Profile 主线，不托管 OTA 账号密码/);
@@ -185,6 +200,33 @@ test('business request layer carries hotel tenant and platform context only for 
   assert.match(requestContextLayer, /appendContextToJsonBody/);
 });
 
+test('strict manual OTA execution endpoints never receive generic business context fields', () => {
+  for (const path of [
+    '/online-data/fetch-ctrip',
+    '/online-data/fetch-meituan',
+    '/online-data/fetch-ctrip-traffic',
+    '/online-data/ctrip/traffic',
+    '/online-data/fetch-ctrip-cookie-api',
+    '/online-data/fetch-ctrip-overview',
+    '/online-data/fetch-ctrip-ads',
+    '/online-data/fetch-meituan-traffic',
+    '/online-data/fetch-meituan-orders',
+    '/online-data/fetch-meituan-ads',
+  ]) {
+    assert.ok(requestContextLayer.includes(`'${path}'`), `missing strict manual endpoint ${path}`);
+  }
+  assert.match(requestContextLayer, /STRICT_OTA_MANUAL_EXECUTION_PATHS\.has\(path\)/);
+  assert.ok(
+    requestContextLayer.indexOf('STRICT_OTA_MANUAL_EXECUTION_PATHS.has(path)')
+      < requestContextLayer.indexOf('BUSINESS_CONTEXT_ENDPOINT_PREFIXES.some'),
+    'strict endpoint exclusion must run before prefix-based context injection'
+  );
+});
+
+test('Ctrip manual fetch keeps strict execution payload free of injected business context fields', () => {
+  assert.match(ctripManualFetchAction, /withBusinessContext:\s*false/);
+});
+
 test('collection status vocabulary exposes explicit user-visible states', () => {
   for (const marker of [
     'not_loaded',
@@ -223,6 +265,40 @@ test('platform status page separates data types and operational next actions', (
   for (const text of ['点评采集默认策略禁用', '收益/运营负责人', '运营人员', '系统管理员', '数据管理员']) {
     assert.match(typeRowBehavior, new RegExp(text), `type rows must include ${text}`);
   }
+});
+
+test('platform account page is the detailed collection-readiness center', () => {
+  for (const marker of ['自动可采集', '手动可采集', '最近采集结果', '阻塞原因', '下一步', 'filteredPlatformAccountCenterRows']) {
+    assert.match(accountCollectionCenter, new RegExp(marker), `account center must expose ${marker}`);
+  }
+  assert.match(accountCollectionCenter, /platformAccountCenterPlatform/);
+  assert.match(accountCollectionCenter, /platformAccountCenterReadiness/);
+  assert.match(accountCollectionCenter, /platformAccountCenterSearch/);
+  assert.match(html, /data-testid="platform-account-advanced-tools"/);
+});
+
+test('platform account center renders one store row with Ctrip and Meituan channel cards', () => {
+  assert.match(accountCollectionCenter, /data-testid="platform-store-row"/);
+  assert.match(accountCollectionCenter, /data-testid="platform-store-channel-ctrip"/);
+  assert.match(accountCollectionCenter, /data-testid="platform-store-channel-meituan"/);
+  assert.match(accountCollectionCenter, /row\.channels\.ctrip/);
+  assert.match(accountCollectionCenter, /row\.channels\.meituan/);
+  assert.doesNotMatch(accountCollectionCenter, /<th[^>]*>门店 \/ 平台<\/th>/);
+
+  const groupedRows = sliceBetween(
+    html,
+    'const platformStoreAccountCenterRows = computed(() => {',
+    'const filteredPlatformAccountCenterRows = computed(() => {'
+  );
+  assert.match(groupedRows, /platformAccountCenterRows\.value/);
+  assert.match(groupedRows, /channels:\s*\{\s*ctrip:\s*null,\s*meituan:\s*null\s*\}/);
+  assert.match(groupedRows, /grouped\.get\(hotelId\)/);
+});
+
+test('hotel management remains a store-level account summary', () => {
+  assert.doesNotMatch(hotelAccountSummary, /手动Cookie|采集配置|自动化采集/);
+  assert.match(hotelAccountSummary, /最近采集/);
+  assert.match(hotelAccountSummary, /下一步/);
 });
 
 test('post collection actions refresh the unified collection-status panel', () => {

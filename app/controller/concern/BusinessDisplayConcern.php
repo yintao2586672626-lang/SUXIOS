@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\controller\concern;
 
+use app\service\CtripCompetitionCirclePersistenceService;
 use app\service\MeituanManualFetchRequestService;
 use app\service\MeituanOnlineDataPersistenceService;
 use app\service\MeituanRankDataExtractionService;
@@ -192,6 +193,68 @@ trait BusinessDisplayConcern
         ];
     }
 
+    private function fetchMeituanSelfDailyTradeMetricValues(
+        string $partnerId,
+        string $poiId,
+        string $startDate,
+        string $endDate,
+        string $cookies,
+        array $authData,
+        ?callable $fetchDay = null
+    ): array {
+        $startTime = strtotime($startDate);
+        $endTime = strtotime($endDate);
+        if ($startTime === false || $endTime === false || $startTime > $endTime) {
+            return ['status' => 'invalid_range', 'values' => [], 'days_requested' => 0, 'days_returned' => 0];
+        }
+
+        $daysRequested = (int)floor(($endTime - $startTime) / 86400) + 1;
+        if ($daysRequested < 1 || $daysRequested > 7) {
+            return ['status' => 'unsupported_range', 'values' => [], 'days_requested' => $daysRequested, 'days_returned' => 0];
+        }
+
+        $totals = [
+            'roomNights' => 0.0,
+            'roomRevenue' => 0.0,
+            'salesRoomNights' => 0.0,
+            'sales' => 0.0,
+            'orderCount' => 0.0,
+        ];
+        $daysReturned = 0;
+        for ($time = $startTime; $time <= $endTime; $time += 86400) {
+            $date = date('Y-m-d', $time);
+            $result = $fetchDay !== null
+                ? $fetchDay($date)
+                : $this->fetchMeituanSelfTradeMetricValues(
+                    $partnerId,
+                    $poiId,
+                    $date,
+                    $date,
+                    $cookies,
+                    $authData,
+                    '1'
+                );
+            $values = $this->normalizeMeituanSelfMetricValues($result['values'] ?? []);
+            if (empty($values)) {
+                continue;
+            }
+            $daysReturned++;
+            foreach (array_keys($totals) as $field) {
+                $totals[$field] += (float)($values[$field] ?? 0);
+            }
+        }
+
+        $status = $daysReturned === $daysRequested
+            ? 'returned'
+            : ($daysReturned > 0 ? 'partial' : 'empty');
+        return [
+            'status' => $status,
+            'values' => $totals,
+            'days_requested' => $daysRequested,
+            'days_returned' => $daysReturned,
+        ];
+    }
+
     private function fetchMeituanSelfTrafficMetricValues(
         string $partnerId,
         string $poiId,
@@ -307,6 +370,12 @@ trait BusinessDisplayConcern
     {
         if ($dateRange === '0' || $dateRange === '1' || $startDate === $endDate) {
             return 'DAY';
+        }
+        if ($dateRange === '7') {
+            return 'WEEK';
+        }
+        if ($dateRange === '30') {
+            return 'MONTH';
         }
         $startTime = strtotime($startDate);
         $endTime = strtotime($endDate);
@@ -489,7 +558,13 @@ trait BusinessDisplayConcern
      * 解析并保存数据到数据库
      * @param int|null $systemHotelId 系统酒店ID，用于门店隔离
      */
-    private function parseAndSaveData($responseData, $startDate, $endDate, ?int $systemHotelId = null): int
+    private function parseAndSaveData(
+        $responseData,
+        $startDate,
+        $endDate,
+        ?int $systemHotelId = null,
+        array $persistenceContext = []
+    ): int
     {
         $dataList = $this->extractCtripBusinessDataList($responseData);
 
@@ -502,13 +577,26 @@ trait BusinessDisplayConcern
             return 0;
         }
 
-        $savedCount = 0;
+        $competitionRows = array_values(array_filter(
+            $dataList,
+            static fn($item): bool => is_array($item)
+                && CtripCompetitionCirclePersistenceService::hasCompetitionCircleSignature($item)
+        ));
+        $savedCount = $this->persistCtripCompetitionCircleRowsFromLegacyParser(
+            $competitionRows,
+            (string)($startDate ?: ($endDate ?: date('Y-m-d'))),
+            $systemHotelId,
+            $persistenceContext
+        );
         $dataDate = $startDate ?: ($endDate ?: date('Y-m-d'));
         $columns = $this->getOnlineDailyDataColumns();
         $now = date('Y-m-d H:i:s');
 
         foreach ($dataList as $item) {
             if (!is_array($item)) continue;
+            if (CtripCompetitionCirclePersistenceService::hasCompetitionCircleSignature($item)) {
+                continue;
+            }
             if (!$this->canSaveCtripLegacyBusinessMetricItem($item)) {
                 continue;
             }
@@ -521,11 +609,17 @@ trait BusinessDisplayConcern
             $hotelName = $item['hotelName'] ?? $item['hotel_name'] ?? $item['HotelName'] ?? $item['name'] ?? '';
 
             // 尝试多种字段名获取其他数据
-            $amount = $this->meituanNumber($item, ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount', 'orderAmount', 'gmv', 'turnover', 'bookingAmount', '成交收入', '成交金额', '销售额'], 0);
+            $amount = $this->meituanNumber($item, ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount', 'orderAmount', 'ordamount', 'gmv', 'turnover', 'bookingAmount', '成交收入', '成交金额', '销售额'], 0);
             $quantity = (int)$this->meituanNumber($item, ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity', 'roomNightCount', 'nightNum', '成交间夜', '间夜', '房晚'], 0);
-            $bookOrderNum = (int)$this->meituanNumber($item, ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count', 'orderNum', 'orders', 'bookings', '成交订单数', '订单数'], 0);
-            $commentScore = floatval($item['commentScore'] ?? $item['comment_score'] ?? $item['score'] ?? $item['avgScore'] ?? $item['ctripRatingall'] ?? 0);
-            $qunarCommentScore = floatval($item['qunarCommentScore'] ?? $item['qunar_comment_score'] ?? $item['qunarScore'] ?? 0);
+            $bookOrderNum = (int)$this->meituanNumber($item, ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count', 'orderNum', 'ordquantity', 'orders', 'bookings', '成交订单数', '订单数'], 0);
+            $commentScoreRaw = $this->firstMeituanValue($item, ['commentScore', 'comment_score', 'score', 'avgScore', 'ctripRatingall'], null);
+            $commentScore = is_numeric($commentScoreRaw) && (float)$commentScoreRaw > 0
+                ? (float)$commentScoreRaw
+                : null;
+            $qunarCommentScoreRaw = $this->firstMeituanValue($item, ['qunarCommentScore', 'qunar_comment_score', 'qunarScore'], null);
+            $qunarCommentScore = is_numeric($qunarCommentScoreRaw) && (float)$qunarCommentScoreRaw > 0
+                ? (float)$qunarCommentScoreRaw
+                : null;
             $listExposure = (int)$this->meituanNumber($item, ['self_list_exposure', 'listExposure', 'list_exposure'], 0);
             $detailExposure = (int)$this->meituanNumber($item, ['self_detail_exposure', 'detailExposure', 'detail_exposure'], 0);
             $orderFillingNum = (int)$this->meituanNumber($item, ['self_order_filling_num', 'orderFillingNum', 'order_filling_num'], 0);
@@ -555,6 +649,8 @@ trait BusinessDisplayConcern
             // 检查是否已存在（按来源、系统酒店、平台酒店、日期去重）
             $query = Db::name('online_daily_data')
                 ->where('source', 'ctrip')
+                ->where('data_type', 'business')
+                ->where('dimension', '')
                 ->where('hotel_id', (string)$hotelId)
                 ->where('data_date', $itemDate);
             $this->applyOnlineDailyDataPeriodQuery($query, $periodFilter, $columns);
@@ -580,6 +676,7 @@ trait BusinessDisplayConcern
                 'source' => 'ctrip',
                 'data_type' => 'business',
                 'dimension' => '',
+                'compare_type' => trim((string)($item['compare_type'] ?? $item['compareType'] ?? '')) ?: null,
                 'raw_data' => json_encode($item, JSON_UNESCAPED_UNICODE),
             ];
 
@@ -619,8 +716,76 @@ trait BusinessDisplayConcern
         return $savedCount;
     }
 
+    private function persistCtripCompetitionCircleRowsFromLegacyParser(
+        array $rows,
+        string $dataDate,
+        ?int $systemHotelId,
+        array $context = []
+    ): int {
+        if ($rows === []) {
+            return 0;
+        }
+        if ($systemHotelId === null || $systemHotelId <= 0) {
+            \think\facade\Log::warning('Ctrip competition-circle rows were not stored because the selected system hotel is missing', [
+                'data_date' => $dataDate,
+                'row_count' => count($rows),
+            ]);
+            return 0;
+        }
+
+        $selfHotelIds = [];
+        foreach (is_array($context['self_hotel_ids'] ?? null) ? $context['self_hotel_ids'] : [] as $hotelId) {
+            if (!is_array($hotelId) && !is_object($hotelId) && trim((string)$hotelId) !== '') {
+                $selfHotelIds[trim((string)$hotelId)] = true;
+            }
+        }
+        foreach ($rows as $row) {
+            $semantics = CtripCompetitionCirclePersistenceService::normalizeRowSemantics($row);
+            if (($semantics['compare_type'] ?? '') !== 'self') {
+                continue;
+            }
+            $hotelId = $this->resolveCtripPlatformHotelId($row);
+            if ($hotelId !== '') {
+                $selfHotelIds[$hotelId] = true;
+            }
+        }
+
+        $fingerprint = hash('sha256', (string)json_encode($rows, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        $dataSourceId = (int)($context['data_source_id'] ?? 0);
+        $syncTaskId = (int)($context['sync_task_id'] ?? 0);
+        $sourceTraceId = trim((string)($context['source_trace_id'] ?? ''));
+        if ($sourceTraceId === '') {
+            $sourceTraceId = CtripCompetitionCirclePersistenceService::buildCaptureTraceId([
+                'data_source_id' => $dataSourceId,
+                'sync_task_id' => $syncTaskId,
+                'system_hotel_id' => $systemHotelId,
+                'data_date' => $dataDate,
+                'fingerprint' => $fingerprint,
+            ]);
+        }
+
+        $result = (new CtripCompetitionCirclePersistenceService())->persistRows(
+            $rows,
+            $dataDate,
+            $systemHotelId,
+            [
+                'self_hotel_ids' => array_keys($selfHotelIds),
+                'fetched_at' => (string)($context['fetched_at'] ?? date('Y-m-d H:i:s')),
+                'data_source_id' => $dataSourceId,
+                'sync_task_id' => $syncTaskId,
+                'source_trace_id' => $sourceTraceId,
+                'ingestion_method' => trim((string)($context['ingestion_method'] ?? '')) ?: 'legacy_parser',
+            ]
+        );
+
+        return (int)($result['saved_count'] ?? 0);
+    }
+
     private function canSaveCtripLegacyBusinessMetricItem(array $item): bool
     {
+        if (CtripCompetitionCirclePersistenceService::hasCompetitionCircleSignature($item)) {
+            return false;
+        }
         $sourceUrl = strtolower((string)($item['_source_url'] ?? $item['source_url'] ?? $item['url'] ?? ''));
         $endpointId = strtolower((string)($item['_endpoint_id'] ?? $item['endpoint_id'] ?? ''));
         if ($sourceUrl === '' && $endpointId === '') {
@@ -746,10 +911,25 @@ trait BusinessDisplayConcern
 
         $bookOrderNum = (int)$this->numberFromKeys($item, ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count']);
         $hotelSeed = $hotelId !== '' ? $hotelId : $hotelName;
+        $compareType = strtolower(trim((string)($item['compareType'] ?? $item['compare_type'] ?? '')));
+        $normalizedHotelName = strtolower(preg_replace('/\s+/u', '', $hotelName) ?? '');
+        $isSelf = !empty($item['isSelf'])
+            || !empty($item['is_self'])
+            || $compareType === 'self'
+            || in_array($normalizedHotelName, ['我的酒店', '本店', 'myhotel', 'currenthotel'], true);
+        $systemHotelId = (int)($item['systemHotelId'] ?? $item['system_hotel_id'] ?? 0);
+        $systemHotelName = trim((string)($item['systemHotelName'] ?? $item['system_hotel_name'] ?? ''));
+        if ($isSelf && $systemHotelName === '' && $systemHotelId > 0 && method_exists($this, 'getSystemHotelName')) {
+            $systemHotelName = (string)$this->getSystemHotelName($systemHotelId);
+        }
 
         return [
             'hotelId' => $hotelId,
             'hotelName' => $hotelName !== '' ? $hotelName : 'unknown',
+            'systemHotelId' => $systemHotelId,
+            'systemHotelName' => $systemHotelName,
+            'compareType' => $isSelf ? 'self' : ($compareType !== '' ? $compareType : 'competitor'),
+            'isSelf' => $isSelf,
             'amount' => $this->numberFromKeys($item, ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount']),
             'quantity' => (int)$this->numberFromKeys($item, ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity', 'checkInQuantity']),
             'bookOrderNum' => $bookOrderNum,
@@ -1806,10 +1986,10 @@ trait BusinessDisplayConcern
             'badgeList', 'benefitTags', 'titleTags', 'identityTags', 'platformTags',
         ];
         $singleTagKeys = [
-            'vipTag', 'memberTag', 'rightsTag', 'platformTag', 'crownLevel', 'crownTag',
+            'memberTag', 'rightsTag', 'platformTag', 'crownLevel', 'crownTag',
             'brandTag', 'brandName', 'chainName', 'hotelBrand', 'groupName', 'starTag',
         ];
-        $booleanVipKeys = ['isVip', 'isVIP', 'vip', 'vipFlag', 'memberFlag', 'isMemberHotel'];
+        $booleanVipKeys = ['vipTag', 'isVip', 'isVIP', 'vip', 'vipFlag', 'memberFlag', 'isMemberHotel'];
 
         $tags = [];
         $returned = false;
@@ -2601,6 +2781,13 @@ trait BusinessDisplayConcern
         $hotelCount = count($rows);
         $totalRoomNights = $this->sumBusinessRows($rows, 'roomNights');
         $totalRoomRevenue = $this->sumMeituanDisplayableMoneyRows($rows, 'roomRevenue');
+        $hasDisplayableRoomRevenue = count(array_filter($rows, fn($row): bool =>
+            $this->isMeituanDisplayableMoneyMetricSource(
+                is_array($row) ? $row : [],
+                'roomRevenue',
+                (string)($row['metricSourceStatus']['roomRevenue'] ?? '')
+            )
+        )) > 0;
         $totalSalesRoomNights = $this->sumBusinessRows($rows, 'salesRoomNights');
         $totalSales = $this->sumMeituanDisplayableMoneyRows($rows, 'sales');
         $totalExposure = $this->sumBusinessRows($rows, 'exposure');
@@ -2686,7 +2873,7 @@ trait BusinessDisplayConcern
                 $this->businessSummaryCard('visitConcentration', '浏览/访客集中度', $visitHhi > 0 ? number_format($visitHhi, 2, '.', '') : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200'),
                 $this->businessSummaryCard('operationFocus', '运营重心', $operationFocus, 'text-indigo-600', 'bg-indigo-50 border border-indigo-200'),
                 $this->businessSummaryCard('totalRoomNights', '总入住间夜', number_format($totalRoomNights), 'text-red-600', 'bg-red-50 border border-red-200'),
-                $this->businessSummaryCard('totalRoomRevenue', '总房费收入', '¥' . number_format((float)floor($totalRoomRevenue)), 'text-red-600', 'bg-red-50 border border-red-200'),
+                $this->businessSummaryCard('totalRoomRevenue', '总房费收入', $hasDisplayableRoomRevenue ? ('¥' . number_format((float)floor($totalRoomRevenue))) : '-', 'text-red-600', 'bg-red-50 border border-red-200'),
                 $this->businessSummaryCard('avgRoomPrice', '商圈平均房价', $avgRoomPrice > 0 ? '¥' . number_format($avgRoomPrice, 0, '.', ',') : '-', 'text-red-600', 'bg-red-50 border border-red-200'),
                 $this->businessSummaryCard('totalSalesRoomNights', '总销售间夜', number_format($totalSalesRoomNights), 'text-green-600', 'bg-green-50 border border-green-200'),
                 $this->businessSummaryCard('totalSales', '总销售额', '¥' . number_format((float)floor($totalSales)), 'text-green-600', 'bg-green-50 border border-green-200'),
@@ -3032,7 +3219,7 @@ trait BusinessDisplayConcern
             [3, '健康', 'text-green-600'],
             [8, '良好', 'text-emerald-600'],
             [15, '激烈', 'text-orange-600'],
-            [INF, '恶化', 'text-red-600'],
+            [INF, '高分化', 'text-red-600'],
         ]);
 
         $metrics = [
@@ -3077,7 +3264,7 @@ trait BusinessDisplayConcern
                 $this->ctripBusinessSummaryCard('qunarReviewImpact', '去哪儿点评分-转化率影响因子(R)', $qunarReviewImpact > 0 ? number_format($qunarReviewImpact, 1, '.', '') : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200'),
                 $this->ctripBusinessSummaryCard('sourceStatus', '数据来源', '携程竞争圈返回', 'text-blue-600', 'bg-blue-50 border border-blue-200'),
             ],
-            'source_notice' => '仅展示携程竞争圈/榜单已返回字段；单项指标未返回时标记“系统未返回”，不把 OTA 渠道竞争圈数据当全酒店经营排名。',
+            'source_notice' => '仅展示携程竞争圈/榜单已返回字段；“全渠道AI预计总间夜数”为AI推导，非平台原始字段。竞争健康度使用当前快照的房价离散系数=价格标准差/圈内平均房价；无可比基期时不输出改善或恶化趋势。单项缺失保留“系统未返回”，不把 OTA 渠道数据当全酒店经营事实。',
         ];
     }
 
@@ -3626,6 +3813,7 @@ trait BusinessDisplayConcern
 
     private function buildMeituanCompetitorSummaryFromStoredRows(array $storedRows, array $context = []): array
     {
+        $context = $this->withMeituanStoredSelfMetricAnchor($storedRows, $context);
         $displayRows = [];
         $latestDataDate = (string)($context['data_date'] ?? '');
         $latestFetchedAt = '';
@@ -3674,6 +3862,47 @@ trait BusinessDisplayConcern
             'source_notice' => $displaySummary['source_notice'] ?? '未返回字段保持缺失。',
             'readiness' => $readiness,
         ];
+    }
+
+    private function withMeituanStoredSelfMetricAnchor(array $storedRows, array $context): array
+    {
+        $existing = $this->normalizeMeituanSelfMetricValues($context['self_metric_values'] ?? $context['selfMetricValues'] ?? []);
+        if (!empty($existing)) {
+            $context['self_metric_values'] = $existing;
+            return $context;
+        }
+
+        $targetPoiId = trim((string)($context['target_poi_id'] ?? $context['targetPoiId'] ?? ''));
+        if ($targetPoiId === '') {
+            return $context;
+        }
+
+        $values = [];
+        foreach ($storedRows as $row) {
+            if (!is_array($row) || empty($row['raw_data'])) {
+                continue;
+            }
+            $raw = json_decode((string)$row['raw_data'], true);
+            if (!is_array($raw)) {
+                continue;
+            }
+            $poiId = trim((string)($row['hotel_id'] ?? $raw['poiId'] ?? $raw['poi_id'] ?? ''));
+            if ($poiId !== $targetPoiId) {
+                continue;
+            }
+            $storedValues = $this->normalizeMeituanSelfMetricValues($raw['selfMetricValues'] ?? $raw['self_metric_values'] ?? []);
+            foreach ($storedValues as $field => $value) {
+                if (!isset($values[$field]) || (float)$values[$field] <= 0) {
+                    $values[$field] = $value;
+                }
+            }
+        }
+
+        if (!empty($values)) {
+            $context['self_metric_values'] = $values;
+            $context['self_metric_source_status'] = array_fill_keys(array_keys($values), 'meituan_persisted_self_anchor');
+        }
+        return $context;
     }
 
     private function emptyMeituanCompetitorSummaryPayload(array $context = []): array

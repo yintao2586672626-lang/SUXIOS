@@ -120,6 +120,22 @@ final class OtaCredentialReadPathTest extends TestCase
                 );
             }
 
+            public function executeManual(
+                string $platform,
+                string $configId,
+                int $hotelId,
+                callable $consumer
+            ): mixed {
+                return $this->withOtaCredentialForExecution(
+                    $platform,
+                    $configId,
+                    $hotelId,
+                    $consumer,
+                    false,
+                    true
+                );
+            }
+
             public function rejectInlineCredentials(array $requestData): void
             {
                 $this->assertNoInlineOtaExecutionCredentials($requestData);
@@ -149,7 +165,20 @@ final class OtaCredentialReadPathTest extends TestCase
     {
         return new class {
             use \app\controller\concern\OtaConfigConcern;
+            use \app\controller\concern\BusinessDisplayConcern;
             use \app\controller\concern\OnlineDataManualFetchConcern;
+
+            public ?object $currentUser;
+
+            public function __construct()
+            {
+                $this->currentUser = new class {
+                    public function isSuperAdmin(): bool
+                    {
+                        return true;
+                    }
+                };
+            }
 
             public function safeIdentityMetadata(): array
             {
@@ -175,6 +204,34 @@ final class OtaCredentialReadPathTest extends TestCase
                 );
             }
 
+            public function validateManualIdentity(array $dateResults, int $systemHotelId, array $requestData = []): array
+            {
+                return $this->validateCtripManualBusinessHotelIdentity($dateResults, $systemHotelId, $requestData);
+            }
+
+            public function competitionSelfIds(?array $identityCheck): array
+            {
+                return $this->ctripCompetitionSelfHotelIds($identityCheck);
+            }
+
+            public function tagCompetitionRoles(array $displayHotels, array $selfHotelIds, int $systemHotelId): array
+            {
+                return $this->tagCtripCompetitionDisplayRoles($displayHotels, $selfHotelIds, $systemHotelId);
+            }
+
+            public function adminIdentityConflictResolution(
+                int $sourceSystemHotelId,
+                int $targetSystemHotelId,
+                bool $canContinueCurrentFetch
+            ): array {
+                return $this->buildCtripAdminHotelMergeResolution(
+                    $sourceSystemHotelId,
+                    $targetSystemHotelId,
+                    [['system_hotel_id' => $targetSystemHotelId]],
+                    $canContinueCurrentFetch
+                );
+            }
+
             public function sanitizeCtripRequest(array $requestData): array
             {
                 return $this->sanitizeCtripManualFetchRequestData($requestData);
@@ -183,6 +240,14 @@ final class OtaCredentialReadPathTest extends TestCase
             public function sanitizeMeituanRequest(array $requestData): array
             {
                 return $this->sanitizeMeituanManualFetchRequestData($requestData);
+            }
+
+            public function selectMeituanManualConfig(array $configs, string $configId, int $hotelId): array
+            {
+                if (!method_exists($this, 'selectMeituanManualFetchConfigMetadata')) {
+                    return [];
+                }
+                return $this->selectMeituanManualFetchConfigMetadata($configs, $configId, $hotelId);
             }
 
             public function isContinuousList(array $value): bool
@@ -208,9 +273,60 @@ final class OtaCredentialReadPathTest extends TestCase
                 return array_keys($ids);
             }
 
+            private function extractCtripNodeResourceIds(array $config): array
+            {
+                $ids = [];
+                foreach (['node_id', 'nodeId'] as $field) {
+                    $value = trim((string)($config[$field] ?? ''));
+                    if ($value !== '' && $value !== '-1') {
+                        $ids[$value] = true;
+                    }
+                }
+                return array_keys($ids);
+            }
+
+            private function resolveCtripPlatformHotelId(array $row, mixed $fallback = ''): string
+            {
+                foreach (['masterHotelId', 'masterhotelid', 'master_hotel_id', 'hotelId', 'hotel_id', 'HotelId', 'hotelID', 'ota_hotel_id', 'ctrip_hotel_id'] as $field) {
+                    $value = $row[$field] ?? null;
+                    if (is_scalar($value) && trim((string)$value) !== '') {
+                        return trim((string)$value);
+                    }
+                }
+                return is_scalar($fallback) ? trim((string)$fallback) : '';
+            }
+
             private function findCtripPlatformHotelIdConflicts(array $platformHotelIds, int $systemHotelId): array
             {
                 return [];
+            }
+
+            private function shouldBlockCtripCurrentHotelIdConflict(string $platformHotelId, array $expectedIds): bool
+            {
+                return !in_array(trim($platformHotelId), array_map('strval', $expectedIds), true);
+            }
+
+            private function normalizeCtripHotelNameForMatch(string $value): string
+            {
+                $value = mb_strtolower(trim($value), 'UTF-8');
+                return preg_replace('/[\s\-_\.|()（）·]+/u', '', $value) ?? $value;
+            }
+
+            private function ctripHotelNameMatches(string $candidate, string $target): bool
+            {
+                $left = $this->normalizeCtripHotelNameForMatch($candidate);
+                $right = $this->normalizeCtripHotelNameForMatch($target);
+                return $left !== '' && $right !== '' && $left === $right;
+            }
+
+            private function isCtripGenericSelfHotelName(string $value): bool
+            {
+                return in_array($this->normalizeCtripHotelNameForMatch($value), ['我的酒店', '本店', '本酒店', 'myhotel', 'currenthotel', 'selfhotel'], true);
+            }
+
+            private function getSystemHotelName(int $systemHotelId): string
+            {
+                return [58 => '桂林漓江望月', 64 => '古镇江景'][$systemHotelId] ?? '';
             }
         };
     }
@@ -318,6 +434,134 @@ final class OtaCredentialReadPathTest extends TestCase
         self::assertStringNotContainsString('SENTINEL_', $encoded);
     }
 
+    public function testManualExecutionClassifiesAuthorizationAndCredentialFailures(): void
+    {
+        $vault = $this->fakeVault();
+        $controller = $this->readHarness($vault, $this->permittedUser([64]));
+
+        try {
+            $controller->executeManual('ctrip', 'cfg-58', 58, static fn(array $payload): array => ['ok' => true]);
+            self::fail('Manual authorization failure must be stage classified.');
+        } catch (\Throwable $e) {
+            self::assertInstanceOf(\app\service\OtaExecutionStageException::class, $e);
+            self::assertSame('authorization', $e->stage());
+            self::assertSame(403, $e->httpStatus());
+            self::assertSame('无权使用该门店 OTA 凭据', $e->safeMessage());
+        }
+        self::assertSame([], $vault->calls);
+
+        $failingVault = new class {
+            public function withPayloadForExecution(
+                int $tenantId,
+                int $hotelId,
+                string $platform,
+                string $configId,
+                callable $consumer
+            ): mixed {
+                throw new \RuntimeException('vault lookup sentinel');
+            }
+        };
+        $controller = $this->readHarness($failingVault, $this->permittedUser());
+
+        try {
+            $controller->executeManual('ctrip', 'cfg-58', 58, static fn(array $payload): array => ['ok' => true]);
+            self::fail('Manual credential failure must be stage classified.');
+        } catch (\Throwable $e) {
+            self::assertInstanceOf(\app\service\OtaExecutionStageException::class, $e);
+            self::assertSame('credential', $e->stage());
+            self::assertSame(409, $e->httpStatus());
+            self::assertSame('OTA 凭据不可用', $e->safeMessage());
+            self::assertStringNotContainsString('sentinel', $e->safeMessage());
+        }
+    }
+
+    public function testManualExecutionSeparatesPlatformAndResultInspectionFailures(): void
+    {
+        $controller = $this->readHarness($this->fakeVault(), $this->permittedUser());
+
+        try {
+            $controller->executeManual(
+                'ctrip',
+                'cfg-58',
+                58,
+                static function (array $payload): array {
+                    throw new \RuntimeException('platform runtime sentinel');
+                }
+            );
+            self::fail('Manual platform failure must be stage classified.');
+        } catch (\Throwable $e) {
+            self::assertInstanceOf(\app\service\OtaExecutionStageException::class, $e);
+            self::assertSame('platform_execution', $e->stage());
+            self::assertSame(502, $e->httpStatus());
+            self::assertSame('OTA 平台请求或数据处理失败', $e->safeMessage());
+            self::assertStringNotContainsString('sentinel', $e->safeMessage());
+        }
+
+        try {
+            $controller->executeManual(
+                'ctrip',
+                'cfg-58',
+                58,
+                static fn(array $payload): array => ['echo' => 'SENTINEL_OTA_SECRET_NEVER_LEAK']
+            );
+            self::fail('Manual result inspection failure must be stage classified.');
+        } catch (\Throwable $e) {
+            self::assertInstanceOf(\app\service\OtaExecutionStageException::class, $e);
+            self::assertSame('result_inspection', $e->stage());
+            self::assertSame(500, $e->httpStatus());
+            self::assertSame('获取结果安全检查未通过', $e->safeMessage());
+            self::assertStringNotContainsString('SENTINEL_', $e->safeMessage());
+        }
+    }
+
+    public function testAutomaticExecutionKeepsExistingRuntimeBehavior(): void
+    {
+        $controller = $this->readHarness($this->fakeVault(), $this->permittedUser());
+
+        try {
+            $controller->execute(
+                'ctrip',
+                'cfg-58',
+                58,
+                static function (array $payload): array {
+                    throw new \RuntimeException('existing automatic behavior');
+                }
+            );
+            self::fail('Expected the original runtime exception.');
+        } catch (\RuntimeException $e) {
+            self::assertNotInstanceOf(\app\service\OtaExecutionStageException::class, $e);
+            self::assertSame('existing automatic behavior', $e->getMessage());
+        }
+    }
+
+    public function testEveryManualCredentialEndpointEnablesTruthfulStageClassification(): void
+    {
+        $manualSource = (string)file_get_contents(
+            dirname(__DIR__) . '/app/controller/concern/OnlineDataManualFetchConcern.php'
+        );
+        $requestSource = (string)file_get_contents(
+            dirname(__DIR__) . '/app/controller/concern/OnlineDataRequestConcern.php'
+        );
+
+        self::assertSame(6, substr_count($manualSource, "false,\n                true\n            );"));
+        self::assertSame(2, substr_count($requestSource, "false,\n                true\n            );"));
+        foreach ([
+            'ctrip_manual_fetch',
+            'meituan_manual_fetch',
+            'ctrip_traffic_fetch',
+            'ctrip_ads_fetch',
+            'meituan_traffic_fetch',
+            "'meituan_' . \$section . '_fetch'",
+        ] as $operation) {
+            self::assertStringContainsString($operation, $manualSource);
+        }
+        foreach (['ctrip_cookie_api_fetch', 'ctrip_overview_fetch'] as $operation) {
+            self::assertStringContainsString($operation, $requestSource);
+        }
+        self::assertStringNotContainsString("'OTA 凭据不可用'", $manualSource);
+        self::assertStringNotContainsString("'OTA 凭据不可用'", $requestSource);
+    }
+
     public function testOrdinaryExecutionRejectsHotelOutsideCurrentUserScopeBeforeVaultRead(): void
     {
         $vault = $this->fakeVault();
@@ -398,6 +642,7 @@ final class OtaCredentialReadPathTest extends TestCase
                 'token' => 'REAL_AUTH_TOKEN_SENTINEL_123456',
             ],
             'cookieObj' => [
+                'feature_flag' => 'true',
                 'session' => 'REAL_COOKIE_SENTINEL_123456',
             ],
             'headers' => [
@@ -411,9 +656,10 @@ final class OtaCredentialReadPathTest extends TestCase
         $safe = $controller->execute('ctrip', 'cfg-58', 58, static fn(array $credential): array => [
             'currency' => 'CNY',
             'locale' => 'zh-CN',
+            'vipTag' => true,
             'saved_count' => 1,
         ]);
-        self::assertSame(['currency' => 'CNY', 'locale' => 'zh-CN', 'saved_count' => 1], $safe);
+        self::assertSame(['currency' => 'CNY', 'locale' => 'zh-CN', 'vipTag' => true, 'saved_count' => 1], $safe);
 
         foreach ([
             'REAL_AUTH_TOKEN_SENTINEL_123456',
@@ -569,6 +815,34 @@ final class OtaCredentialReadPathTest extends TestCase
             try {
                 $controller->execute('ctrip', 'cfg-58', 58, static fn(array $_): string => $cookieValue);
                 self::fail('An individual cookie value must be blocked from execution results.');
+            } catch (\RuntimeException $e) {
+                self::assertSame('OTA credential execution result contains protected credential material.', $e->getMessage());
+            }
+        }
+    }
+
+    public function testNumericAndBooleanCookiePreferencesDoNotBlockBusinessMetrics(): void
+    {
+        $cookies = 'rank=1; emptyRank=0; enabled=true; sid=COOKIE_SECRET_SENTINEL_123456';
+        $controller = $this->readHarness($this->fakeVault([
+            'cookies' => $cookies,
+        ]), $this->permittedUser());
+
+        $businessMetrics = [
+            'amountRank' => 1,
+            'quantityRank' => 0,
+            'enabled' => true,
+            'rankText' => '1',
+        ];
+        self::assertSame(
+            $businessMetrics,
+            $controller->execute('ctrip', 'cfg-58', 58, static fn(array $_): array => $businessMetrics)
+        );
+
+        foreach ([$cookies, 'COOKIE_SECRET_SENTINEL_123456'] as $leak) {
+            try {
+                $controller->execute('ctrip', 'cfg-58', 58, static fn(array $_): string => $leak);
+                self::fail('The complete Cookie header and real session value must remain protected.');
             } catch (\RuntimeException $e) {
                 self::assertSame('OTA credential execution result contains protected credential material.', $e->getMessage());
             }
@@ -1298,6 +1572,85 @@ final class OtaCredentialReadPathTest extends TestCase
         self::assertSame($configValue, Db::name('system_configs')->where('config_key', 'ctrip_config_list')->value('config_value'));
     }
 
+    public function testStaleConfiguredCtripHotelIdWarnsButKeepsSelectedStoreAsCircleOwner(): void
+    {
+        Db::name('system_configs')->insert([
+            'config_key' => 'ctrip_config_list',
+            'config_value' => json_encode([
+                'cfg-58' => [
+                    'id' => 'cfg-58',
+                    'config_id' => 'cfg-58',
+                    'system_hotel_id' => 58,
+                    'hotel_id' => '58',
+                    'ctrip_hotel_id' => '120820008',
+                    'name' => '新疆哈密',
+                ],
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ]);
+
+        $result = $this->identityHarness()->validateManualIdentity([[
+            'data' => [
+                'data' => [
+                    'hotelList' => [[
+                        'hotelId' => '120819980',
+                        'hotelName' => '我的酒店',
+                        'amountRank' => 1,
+                    ]],
+                ],
+            ],
+        ]], 58);
+
+        self::assertTrue($result['ok']);
+        self::assertTrue($result['warning']);
+        self::assertSame('configured_platform_hotel_id_mismatch', $result['status']);
+        self::assertSame(58, $result['target_system_hotel_id']);
+        self::assertSame(['120820008'], $result['expected_hotel_ids']);
+        self::assertSame(['120819980'], $result['captured_hotel_ids']);
+        self::assertSame(
+            'https://hotels.ctrip.com/hotels/120819980.html',
+            $result['verification_links'][0]['url'] ?? null
+        );
+        self::assertSame(['120819980'], $this->identityHarness()->competitionSelfIds($result));
+
+        $tagged = $this->identityHarness()->tagCompetitionRoles([[
+            'hotelId' => '120819980',
+            'hotelName' => '我的酒店',
+        ]], ['120820008'], 58);
+        self::assertTrue($tagged[0]['isSelf']);
+        self::assertSame('self', $tagged[0]['compareType']);
+    }
+
+    public function testCtripDifferentHotelConflictNeverSuggestsMergingIndependentHotels(): void
+    {
+        $harness = $this->identityHarness();
+        $mismatch = $harness->adminIdentityConflictResolution(58, 64, false);
+        $history = $harness->adminIdentityConflictResolution(58, 64, true);
+
+        self::assertSame('delete_mismatched_ctrip_config', $mismatch['action']);
+        self::assertTrue($mismatch['can_display_result']);
+        self::assertTrue($mismatch['config_cleanup_required']);
+        self::assertStringContainsString('不会合并', $mismatch['message']);
+        self::assertStringNotContainsString('数据合并', $mismatch['message']);
+        self::assertSame('clean_misbound_ctrip_history', $history['action']);
+        self::assertTrue($history['can_continue_current_fetch']);
+        self::assertStringContainsString('不会合并', $history['message']);
+        self::assertStringNotContainsString('数据合并', $history['message']);
+    }
+
+    public function testCtripIdentityConflictReturnsDisplayableSuccessEnvelopeWithoutSaving(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/OnlineDataManualFetchConcern.php');
+        $execute = $this->methodSource(
+            $source,
+            'private function executeCtripManualFetch',
+            'private function ctripBusinessQunarVisitorQuality'
+        );
+
+        self::assertStringContainsString("'save_status' => 'blocked'", $execute);
+        self::assertStringContainsString('$responseCode = 200;', $execute);
+        self::assertStringNotContainsString('$responseCode = $systemHotelId ? 409 : 200;', $execute);
+    }
+
     public function testCtripIdentitySourceUsesSafeReaderAndHasNoBlobUpdatePath(): void
     {
         $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/OnlineDataManualFetchConcern.php');
@@ -1387,6 +1740,37 @@ final class OtaCredentialReadPathTest extends TestCase
         }
 
         self::assertSame(0, $taskCalls);
+    }
+
+    public function testMeituanManualFetchSelectsSavedResourceIdsByConfigAndHotelLocator(): void
+    {
+        $harness = $this->identityHarness();
+        $configs = [
+            [
+                'id' => 'meituan-58',
+                'config_id' => 'meituan-58',
+                'hotel_id' => 58,
+                'system_hotel_id' => 58,
+                'partner_id' => 'partner-58',
+                'poi_id' => 'poi-58',
+            ],
+            [
+                'id' => 'meituan-59',
+                'config_id' => 'meituan-59',
+                'hotel_id' => 59,
+                'system_hotel_id' => 59,
+                'partner_id' => 'partner-59',
+                'poi_id' => 'poi-59',
+            ],
+        ];
+
+        $selected = $harness->selectMeituanManualConfig($configs, 'meituan-58', 58);
+
+        self::assertNotSame([], $selected);
+        self::assertSame('partner-58', $selected['partner_id']);
+        self::assertSame('poi-58', $selected['poi_id']);
+        self::assertSame([], $harness->selectMeituanManualConfig($configs, 'meituan-58', 59));
+        self::assertSame([], $harness->selectMeituanManualConfig($configs, 'meituan-unknown', 58));
     }
 
     public function testPrimaryManualConsumersAndAsyncTasksUseOnlySanitizedRequestData(): void

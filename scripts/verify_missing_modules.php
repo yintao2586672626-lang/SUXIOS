@@ -85,9 +85,9 @@ assert_true(str_contains($feasibility, 'LlmClient $client'), 'FeasibilityReportS
 assert_true(!str_contains($feasibility, 'OpenAIClient'), 'FeasibilityReportService must not depend on OpenAIClient');
 $checks[] = 'feasibility_llm';
 
-$ai = read_file('app/controller/Ai.php');
-assert_true(str_contains($ai, 'FeasibilityReportService'), 'Ai feasibility must use FeasibilityReportService');
-$checks[] = 'ai_controller';
+assert_true(!is_file($root . '/app/controller/Ai.php'), 'Legacy simulated AI controller must stay removed');
+assert_true(!str_contains($route, "Route::group('api/ai'"), 'Legacy simulated AI route group must stay removed');
+$checks[] = 'legacy_ai_removed';
 
 $onlineData = read_online_data_controller_source();
 assert_true(str_contains($onlineData, "\$this->request->param('id', 0)"), 'deleteData must accept id from DELETE params/body');

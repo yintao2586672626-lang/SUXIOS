@@ -640,6 +640,7 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         setFetching = () => {},
         startTimer = () => {},
         stopTimer = () => {},
+        startMonitor = () => {},
         getTimestamp = () => new Date().toLocaleString('zh-CN', { hour12: false }),
         getBrowserHeadless = () => false,
         getCtripExecutionText = () => '',
@@ -668,9 +669,9 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
             return { status: 'missing_config' };
         }
 
-        setFetching(true);
-        startTimer();
         const startedAt = getTimestamp();
+        setFetching(true);
+        startTimer(startedAt);
         const browserHeadless = !!getBrowserHeadless();
         const modePayload = buildModePayload() || {};
         setRunState(buildAutoFetchRunStartState({
@@ -687,6 +688,7 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
             browserHeadless,
             modePayload,
         });
+        let backgroundAccepted = false;
         try {
             const res = await requestAutoFetch(requestBody);
             const finishedAt = getTimestamp();
@@ -694,6 +696,7 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
             if (res.code === 200) {
                 const responseStatus = String(res.data?.status || '').toLowerCase();
                 if (['running', 'queued', 'accepted'].includes(responseStatus)) {
+                    backgroundAccepted = true;
                     const message = res.message || `自动获取已提交后台执行（启动耗时 ${durationText}）`;
                     updateLastResult(res, null, message);
                     setRunState({
@@ -704,11 +707,16 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
                         finished_at: '',
                     });
                     notify(message, 'info');
+                    runPostFetchRefresh(startMonitor, {
+                        hotelId,
+                        startedAt,
+                        taskId: String(res.data?.task_id || ''),
+                    });
                     runPostFetchRefresh(loadAutoFetchStatus);
                     runPostFetchRefresh(loadBackendGlobalNotifications);
                     return { status: 'accepted', response: res, requestBody };
                 }
-                const message = `采集完成并入库 ${res.data?.saved_count || 0} 条 OTA 指标行（耗时 ${durationText}）`;
+                const message = `采集完成，共执行 ${res.data?.saved_count || 0} 次数据写入操作（耗时 ${durationText}）`;
                 updateLastResult(res, true, res.message || message);
                 setRunState({
                     active: false,
@@ -756,8 +764,10 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
             runPostFetchRefresh(loadBackendGlobalNotifications);
             return { status: 'exception', error, requestBody };
         } finally {
-            stopTimer();
-            setFetching(false);
+            if (!backgroundAccepted) {
+                stopTimer();
+                setFetching(false);
+            }
         }
     };
 

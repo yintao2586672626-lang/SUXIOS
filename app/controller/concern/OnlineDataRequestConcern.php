@@ -5,6 +5,7 @@ namespace app\controller\concern;
 
 use app\model\OperationLog;
 use app\service\BrowserProfileCaptureRequestService;
+use app\service\OtaExecutionStageException;
 use app\service\OtaTrafficUrlNormalizer;
 use app\service\PlatformDataSyncService;
 use think\Response;
@@ -971,21 +972,104 @@ trait OnlineDataRequestConcern
             return $this->error('不支持的平台登录类型', 400);
         }
 
-        $platformName = $platform === 'ctrip' ? '携程' : '美团';
-        return $this->error(
-            $platformName . '授权必须由账号使用者在自己电脑完成。宿析不会在服务器或管理员电脑打开平台登录窗口；请在当前账号电脑打开平台后台完成短信/验证码/人机验证后，使用浏览器辅助采集 JSON 或本机采集器导入授权证据。',
-            409,
-            [
-                'status' => 'blocked',
-                'status_code' => 'client_local_authorization_required',
-                'error_code' => 'client_local_authorization_required',
-                'platform' => $platform,
-                'platform_name' => $platformName,
-                'authorization_policy' => 'account_owner_local_computer_only',
-                'server_browser_launch_disabled' => true,
-                'next_action' => 'open_platform_on_account_owner_computer_and_import_browser_assist_json',
-            ]
+        if (!$this->isLocalPlatformProfileLoginRequest()) {
+            $platformName = $platform === 'ctrip' ? '携程' : '美团';
+            return $this->error(
+                $platformName . '授权必须由账号使用者在自己电脑完成。当前不是本机访问，已禁止启动平台登录窗口；请使用浏览器辅助采集 JSON 或本机采集器导入授权证据。',
+                409,
+                [
+                    'status' => 'blocked',
+                    'status_code' => 'client_local_authorization_required',
+                    'error_code' => 'client_local_authorization_required',
+                    'platform' => $platform,
+                    'platform_name' => $platformName,
+                    'authorization_policy' => 'account_owner_local_computer_only',
+                    'server_browser_launch_disabled' => true,
+                    'next_action' => 'open_platform_on_account_owner_computer_and_import_browser_assist_json',
+                ]
+            );
+        }
+
+        $requestData = $this->requestData();
+        try {
+            $requestData = $this->applyPlatformProfileLoginDataSourceRequest($platform, $requestData);
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 400);
+        }
+        $systemHotelId = $this->resolveOnlineDataSystemHotelId(
+            $requestData['system_hotel_id']
+            ?? $requestData['systemHotelId']
+            ?? $requestData['hotel_id']
+            ?? $requestData['hotelId']
+            ?? null
         );
+        if (!$systemHotelId) {
+            return $this->error('请选择酒店后登录平台账号', 400);
+        }
+
+        $profileKey = $this->resolvePlatformProfileLoginProfileKey($platform, $requestData, (int)$systemHotelId);
+        if ($profileKey === '') {
+            return $this->error($platform === 'ctrip' ? '请填写携程 Profile ID 或酒店 ID' : '请填写美团 Store ID / POI ID', 400);
+        }
+
+        $requestData['allow_existing_local_profile_rebind'] = true;
+        $requestData = $this->preparePlatformProfileLoginRequest($platform, $requestData, (int)$systemHotelId, $profileKey);
+
+        try {
+            $currentTask = $this->readPlatformProfileLoginCurrentTask($platform, (int)$systemHotelId, $profileKey);
+            $currentStatus = strtolower(trim((string)($currentTask['status'] ?? '')));
+            if ($currentTask !== []
+                && in_array($currentStatus, ['queued', 'browser_opened', 'running', 'syncing_after_login'], true)
+                && !$this->isPlatformProfileLoginTaskStale($currentTask, $currentStatus === 'queued' ? 45 : 600)) {
+                return $this->error('同一平台 Profile 登录任务正在运行，请勿重复提交', 409, [
+                    'status' => 'blocked',
+                    'status_code' => 'resource_busy_login',
+                    'error_code' => 'resource_busy_login',
+                    'platform' => $platform,
+                    'system_hotel_id' => (int)$systemHotelId,
+                ]);
+            }
+
+            $task = $this->createPlatformProfileLoginTask($platform, (int)$systemHotelId, $profileKey, $requestData);
+            if (!$this->launchPlatformProfileLoginTask($task)) {
+                $task = array_merge($task, [
+                    'status' => 'failed',
+                    'message' => '无法启动平台登录后台任务，请检查 PHP CLI / think 命令是否可用',
+                    'finished_at' => date('Y-m-d H:i:s'),
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ]);
+                $this->cachePlatformProfileLoginTask($task);
+                return $this->error($task['message'], 500, $this->normalizePlatformProfileLoginTask($task));
+            }
+
+            OperationLog::record(
+                'online_data',
+                'trigger_profile_login',
+                '从账号使用者本机触发' . ($platform === 'ctrip' ? '携程' : '美团') . '平台账号登录: ' . $profileKey,
+                $this->currentUser->id ?? null,
+                (int)$systemHotelId
+            );
+
+            return $this->success(
+                $this->normalizePlatformProfileLoginTask($task),
+                ($platform === 'ctrip' ? '携程' : '美团') . '专用 Profile 浏览器正在打开，请在弹出的窗口中完成验证'
+            );
+        } catch (\Throwable $e) {
+            return $this->error('启动平台登录失败: ' . $e->getMessage(), 500);
+        }
+    }
+
+    private function isLocalPlatformProfileLoginRequest(): bool
+    {
+        $ip = strtolower(trim((string)$this->request->ip()));
+        $localIp = in_array($ip, ['127.0.0.1', '::1', '::ffff:127.0.0.1'], true);
+        if (!$localIp) {
+            return false;
+        }
+
+        $hostHeader = strtolower(trim((string)$this->request->server('HTTP_HOST', '')));
+        $host = (string)(parse_url('http://' . $hostHeader, PHP_URL_HOST) ?: '');
+        return in_array($host, ['127.0.0.1', 'localhost', '::1'], true);
     }
 
     public function platformProfileLoginStatus(string $platform): Response
@@ -1092,18 +1176,16 @@ trait OnlineDataRequestConcern
                     $requestData,
                     $credentialPayload,
                     $systemHotelId
-                )
+                ),
+                false,
+                true
             );
         } catch (\InvalidArgumentException) {
             return $this->error('执行参数无效；请仅提供 config_id、system_hotel_id 与允许的业务参数', 400);
-        } catch (\RuntimeException $e) {
-            $statusCode = $e->getCode() === 403 ? 403 : 409;
-            return $this->error($statusCode === 403 ? '无权使用该门店 OTA 凭据' : 'OTA 凭据不可用', $statusCode);
+        } catch (OtaExecutionStageException $e) {
+            return $this->otaExecutionStageFailureResponse('ctrip_cookie_api_fetch', $e);
         } catch (\Throwable $e) {
-            \think\facade\Log::error('Ctrip Cookie API credential execution boundary failed.', [
-                'exception_type' => get_debug_type($e),
-            ]);
-            return $this->error('请求异常', 500);
+            return $this->otaUnknownExecutionFailureResponse('ctrip_cookie_api_fetch', $e);
         }
     }
 
@@ -1134,7 +1216,12 @@ trait OnlineDataRequestConcern
                 return $this->error('未找到 Node.js，请先安装 Node.js 或配置 NODE_BINARY', 500);
             }
 
-            $prepared = $this->prepareCtripCookieApiCaptureFiles($requestData, $projectRoot, $systemHotelId);
+            $prepared = $this->prepareCtripCookieApiCaptureFiles(
+                $requestData,
+                $projectRoot,
+                $systemHotelId,
+                $credentialPayload
+            );
             $cookieFile = $this->createAutoFetchCookieFile($projectRoot, 'ctrip_api', $systemHotelId, $cookies);
             if ($cookieFile === '') {
                 return $this->error('无法创建 OTA 凭据临时文件', 500);
@@ -1429,18 +1516,16 @@ trait OnlineDataRequestConcern
                     $requestData,
                     $credentialPayload,
                     $systemHotelId
-                )
+                ),
+                false,
+                true
             );
         } catch (\InvalidArgumentException) {
             return $this->error('执行参数无效；请仅提供 config_id、system_hotel_id 与允许的业务参数', 400);
-        } catch (\RuntimeException $e) {
-            $statusCode = $e->getCode() === 403 ? 403 : 409;
-            return $this->error($statusCode === 403 ? '无权使用该门店 OTA 凭据' : 'OTA 凭据不可用', $statusCode);
+        } catch (OtaExecutionStageException $e) {
+            return $this->otaExecutionStageFailureResponse('ctrip_overview_fetch', $e);
         } catch (\Throwable $e) {
-            \think\facade\Log::error('Ctrip overview credential execution boundary failed.', [
-                'exception_type' => get_debug_type($e),
-            ]);
-            return $this->error('请求异常', 500);
+            return $this->otaUnknownExecutionFailureResponse('ctrip_overview_fetch', $e);
         }
     }
 
@@ -1715,13 +1800,6 @@ trait OnlineDataRequestConcern
             throw new \InvalidArgumentException('配置不存在');
         }
         $originalConfig = $isUpdate ? $list[$id] : [];
-        $storedConfigId = trim((string)($originalConfig['config_id'] ?? $originalConfig['id'] ?? $id));
-        if ($isUpdate && ($storedConfigId === '' || !hash_equals($id, $storedConfigId))) {
-            throw new \InvalidArgumentException('配置 ID 绑定冲突');
-        }
-        if ($isUpdate && $this->otaConfigHasHotelBindingConflict($originalConfig)) {
-            throw new \InvalidArgumentException('配置的酒店绑定冲突，需要先迁移');
-        }
 
         $hotelCandidates = [];
         foreach (['system_hotel_id', 'systemHotelId', 'hotel_id'] as $field) {
@@ -1737,6 +1815,13 @@ trait OnlineDataRequestConcern
         $requestedHotelId = $hotelCandidates[0] ?? null;
 
         if ($isUpdate) {
+            $storedConfigId = trim((string)($originalConfig['config_id'] ?? $originalConfig['id'] ?? $id));
+            if ($storedConfigId === '' || !hash_equals($id, $storedConfigId)) {
+                throw new \InvalidArgumentException('配置 ID 绑定冲突');
+            }
+            if ($this->otaConfigHasHotelBindingConflict($originalConfig)) {
+                throw new \InvalidArgumentException('配置的酒店绑定冲突，需要先迁移');
+            }
             $originalHotelId = $this->otaConfigBoundSystemHotelId($originalConfig);
             if ($originalHotelId === null) {
                 throw new \InvalidArgumentException('配置未绑定系统酒店，需要先迁移');
@@ -1755,7 +1840,19 @@ trait OnlineDataRequestConcern
                 throw new \InvalidArgumentException('请选择系统酒店');
             }
             $this->checkOtaConfigMaintenancePermission($resolvedHotelId);
-            $id = 'ctrip_' . date('YmdHis') . '_' . substr(hash('sha256', random_bytes(16)), 0, 8);
+            $primaryConfig = $this->selectLatestSuccessfulCtripConfigForHotel($list, $resolvedHotelId);
+            $primaryConfigId = trim((string)($primaryConfig['config_id'] ?? $primaryConfig['id'] ?? ''));
+            if ($primaryConfigId !== ''
+                && isset($list[$primaryConfigId])
+                && is_array($list[$primaryConfigId])
+                && $this->isOtaConfigVisibleToCurrentUser($list[$primaryConfigId])
+                && $this->currentUserCanMaintainOtaConfigItem($list[$primaryConfigId], $resolvedHotelId)) {
+                $id = $primaryConfigId;
+                $isUpdate = true;
+                $originalConfig = $list[$primaryConfigId];
+            } else {
+                $id = 'ctrip_' . date('YmdHis') . '_' . substr(hash('sha256', random_bytes(16)), 0, 8);
+            }
         }
 
         $name = trim((string)($requestData['name'] ?? $originalConfig['name'] ?? ''));
@@ -1833,10 +1930,7 @@ trait OnlineDataRequestConcern
 
             $list = $this->filterOtaConfigListForCurrentUser($list);
             $list = $this->sanitizeStoredOtaConfigListForRuntime($list);
-
-            usort($list, function($a, $b) {
-                return strcmp($b['update_time'] ?? '', $a['update_time'] ?? '');
-            });
+            $list = $this->collapseCtripConfigListByHotel($list);
 
             return $this->success(array_values($list));
         } catch (\Throwable $e) {

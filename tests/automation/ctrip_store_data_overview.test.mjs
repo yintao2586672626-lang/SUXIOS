@@ -268,14 +268,15 @@ test('Ctrip overview one-click core capture stays on overview and supplemental f
   assert.match(html, /const runCtripOverviewFetchAction = async \(tabName\) =>/);
   assert.match(html, /const runCtripOverviewCoreFetchAction = async \(\) =>/);
   assert.doesNotMatch(html, /const runCtripOverviewFetchAllActions = async \(\) =>/);
-  assert.match(html, /const runCtripOverviewCookieApiCapture = async \(sections = \[\], label = '核心数据'\) =>/);
+  assert.match(html, /const runCtripOverviewCookieApiCapture = async \(sections = \[\], label = '核心数据', options = \{\}\) =>/);
   assert.match(html, /const resolveCtripCookieApiRequestHotelId = \(systemHotelId = '', activeConfig = null, \{ allowForm = true \} = \{\}\) =>/);
   assert.match(html, /!isCtripPlaceholderHotelId\(value\)/);
   assert.match(html, /resolveCtripCookieApiRequestHotelId\(systemHotelId, activeConfig, \{ allowForm: false \}\)/);
   assert.doesNotMatch(html, /hotel_id:\s*ctripBrowserCaptureForm\.value\.hotelId[\s\S]*\|\|\s*ctripForm\.value\.nodeId/);
   assert.match(html, /'ctrip-ranking': \(\) => runCtripOverviewCookieApiCapture\(\['competitor_overview', 'competitor_rank'\]/);
   assert.match(html, /'ctrip-flow-overview': \(\) => runCtripOverviewCookieApiCapture\(\['business_overview', 'sales_report'\]/);
-  assert.match(html, /'ctrip-traffic': \(\) => runCtripOverviewCookieApiCapture\(\['traffic_report'\]/);
+  assert.match(html, /const runCtripTrafficManualCapture = async \(\) =>/);
+  assert.match(html, /'ctrip-traffic': \(\) => runCtripTrafficManualCapture\(\)/);
   assert.match(html, /'ctrip-quality': \(\) => runCtripOverviewCookieApiCapture\(\['quality_psi'\]/);
   assert.match(html, /'ctrip-ads': \(\) => runCtripOverviewCookieApiCapture\(\['ads_pyramid'\]/);
   assert.match(ctripStatic, /const optionSections = options\.sections \|\| options\.captureSections \|\| ''/);
@@ -311,7 +312,7 @@ test('Ctrip overview one-click core capture stays on overview and supplemental f
 
   const cookieApiRunner = sliceBetween(
     html,
-    'const runCtripCookieApiCapture = async () =>',
+    'const runCtripCookieApiCapture = async (options = {}) =>',
     'const validateCtripEndpointEvidence = async () =>'
   );
   const profileRunner = sliceBetween(
@@ -458,7 +459,11 @@ test('Ctrip overview and profile capture do not use nodeId as OTA hotelId', () =
   assert.match(profileLoginTrigger, /account_owner_local_computer_only/);
   assert.match(html, /const defaultMeituanLoginUrl = 'https:\/\/me\.meituan\.com\/ebooking\/';/);
   assert.match(html, /宿析不会在服务器或管理员电脑打开平台登录/);
-  assert.doesNotMatch(profileLoginTrigger, /\/online-data\/profile-login-trigger\/\$\{platform\}/);
+  assert.match(html, /const canLaunchLocalPlatformProfileBrowser = \(\) =>/);
+  assert.match(html, /\['127\.0\.0\.1', 'localhost', '::1'\]\.includes\(hostname\)/);
+  assert.match(profileLoginTrigger, /if \(!canLaunchLocalPlatformProfileBrowser\(\)\)/);
+  assert.match(profileLoginTrigger, /\/online-data\/profile-login-trigger\/\$\{platform\}/);
+  assert.match(profileLoginTrigger, /pollPlatformProfileLoginStatus\(platform, task\.task_id\)/);
   assert.doesNotMatch(profileLoginPayload, /form\.profileId \|\| hotelIdValue \|\| hotelId/);
   assert.match(profileCapture, /resolveProfileId:\s*activeConfig => resolveCtripBrowserProfileId\(\{\s*activeConfig\s*\}\)/);
   assert.doesNotMatch(profileCapture, /form\.profileId \|\| hotelId \|\| systemHotelId/);
@@ -784,4 +789,24 @@ test('Ctrip learning table records scope, source, conversion, missing status and
   assert.match(learningDoc, /"parsed_value": "宿析OS解析后的值"/);
   assert.match(learningDoc, /"captured_at": "采集时间"/);
   assert.match(learningDoc, /"store_id": "门店ID"/);
+});
+
+test('Ctrip preferred Cookie preset fetches all future-search scopes in one run', () => {
+  const api = loadCtripStaticApi();
+  const endpoints = api.getCtripCookieApiCorePresetEndpoints();
+  const searchEndpoints = endpoints.filter(item => String(item.request_url || '').includes('querySearchFlowDetails'));
+
+  assert.equal(searchEndpoints.length, 4);
+  assert.equal(
+    searchEndpoints.map(item => `${item.payload.dataType}:${item.payload.searchType}`).sort().join(','),
+    '0:0,0:1,3:0,3:1'
+  );
+  for (const item of searchEndpoints) {
+    assert.equal(item.method, 'POST');
+    assert.equal(item.section, 'traffic_report');
+    assert.equal(item.payload.platform, 'Ctrip');
+    assert.equal(item.payload.spiderVersion, '2.0');
+    assert.equal(Object.hasOwn(item.payload, 'spiderkey'), false);
+    assert.equal(Object.hasOwn(item.payload, 'fingerPrintKeys'), false);
+  }
 });

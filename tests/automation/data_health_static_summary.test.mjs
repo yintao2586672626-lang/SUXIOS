@@ -528,7 +528,7 @@ test('public endpoint security summary escalates any unconfigured public token',
   assert.match(routeApp, /api\/online-data\/daily-workbench-patrol-cron/);
 });
 
-test('manual one-click fetch result helpers keep Ctrip Qunar gaps blocking', () => {
+test('manual one-click fetch result helpers keep Ctrip Qunar gaps non-blocking', () => {
   assert.equal(helpers.manualOneClickFetchSavedCount({ data: { summary: { saved_count: 3 } } }), 3);
   assert.equal(helpers.manualOneClickFetchResultMessage({ response: { msg: '需要登录' } }), '需要登录');
 
@@ -549,6 +549,21 @@ test('manual one-click fetch result helpers keep Ctrip Qunar gaps blocking', () 
   assert.equal(noSaved.status, 'no_saved');
   assert.match(noSaved.message, /本次入库 0 条/);
 
+  const meituanFailed = helpers.summarizeManualOneClickFetchResult({
+    platform: 'meituan',
+    result: {
+      status: 'failed',
+      results: [
+        { rankName: '入住榜', status: 'login_required', credentialStatus: 'login_required', message: '登录态已失效' },
+        { rankName: '销售榜', status: 'missing_resource_id', message: '缺 partnerId / poiId' },
+      ],
+    },
+    savedCount: 0,
+  });
+  assert.equal(meituanFailed.status, 'failed');
+  assert.match(meituanFailed.message, /入住榜: 登录态已失效/);
+  assert.match(meituanFailed.message, /销售榜: 缺 partnerId \/ poiId/);
+
   const ctripQunarGap = helpers.summarizeManualOneClickFetchResult({
     platform: 'ctrip',
     result: { code: 200, message: '获取成功' },
@@ -557,9 +572,19 @@ test('manual one-click fetch result helpers keep Ctrip Qunar gaps blocking', () 
     qunarRetryCount: 3,
     qunarVisitorNeedsRetry: true,
   });
-  assert.equal(ctripQunarGap.status, 'failed');
+  assert.equal(ctripQunarGap.status, 'success');
   assert.equal(ctripQunarGap.qunarVisitorIncomplete, true);
-  assert.match(ctripQunarGap.message, /携程和去哪儿都成功才算成功/);
+  assert.match(ctripQunarGap.message, /仅作为字段缺口提示，不阻断携程补采成功/);
+
+  const ctripNoRows = helpers.summarizeManualOneClickFetchResult({
+    platform: 'ctrip',
+    result: { code: 200, message: '获取成功', data: { display_hotel_count: 0 } },
+    savedCount: 0,
+    ctripQunarQuality: { rowCount: 0, total: 0, ready: false },
+  });
+  assert.equal(ctripNoRows.status, 'no_saved');
+  assert.match(ctripNoRows.message, /携程竞争圈未返回可展示行/);
+  assert.doesNotMatch(ctripNoRows.message, /携程和去哪儿都成功才算成功/);
 });
 
 test('manual one-click fetch display helpers stay pure and status aware', () => {
@@ -630,7 +655,7 @@ test('manual one-click fetch display helpers stay pure and status aware', () => 
   assert.equal(qunarGapQuality.rowCount, 2);
   assert.equal(qunarGapQuality.total, 0);
   assert.equal(qunarGapQuality.ready, false);
-  assert.equal(helpers.manualOneClickFetchQunarVisitorNeedsRetry(qunarGapQuality), true);
+  assert.equal(helpers.manualOneClickFetchQunarVisitorNeedsRetry(qunarGapQuality), false);
 
   const qunarReadyQuality = helpers.summarizeManualOneClickFetchQunarVisitorQuality([
     { uv: '3' },

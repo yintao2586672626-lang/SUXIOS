@@ -313,7 +313,6 @@ requireIncludes('scripts/report_p0_ota_field_loop_audit.mjs', 'P0 field-loop aud
   'whole_hotel_truth_from_ota_only',
   'revenue_ai_final_decision',
   'operation_execution_completed',
-  'investment_judgment_allowed',
   'verify:p0-ota-field-loop',
   'scan-payloads',
   'process.exit(2)',

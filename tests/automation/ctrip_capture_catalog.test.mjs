@@ -183,7 +183,7 @@ test('defines Ctrip section interaction plans for tabbed capture pages', () => {
   assert.deepEqual(roomType, ['\u9500\u552e\u6570\u636e', '\u623f\u578b']);
 
   const traffic = getCtripSectionInteractionPlan('traffic_report').map(step => step.text);
-  for (const label of ['\u6d41\u91cf\u6570\u636e', '\u643a\u7a0b', '\u53bb\u54ea\u513f', '\u624b\u673aAPP', '\u7535\u8111\u7f51\u9875\u7248']) {
+  for (const label of ['\u6d41\u91cf\u6570\u636e', '\u643a\u7a0b', '\u53bb\u54ea\u513f', '\u624b\u673aAPP', '\u7535\u8111\u7f51\u9875\u7248', '累计搜索数据', '昨日搜索数据']) {
     assert.equal(traffic.includes(label), true, label);
   }
 
@@ -2414,4 +2414,76 @@ test('catalog verifier can resolve i18n terminology from SUXIOS_CTRIP_I18N_FILE 
   assert.equal(summary.i18n_reference.source, 'fixture_i18n_translations.json');
   assert.equal(summary.i18n_reference.matched_terms.includes('预订订单数'), true);
   assert.equal(summary.i18n_reference.metric_definitions.some((item) => item.term === '预订销售额'), true);
+});
+
+test('expands Ctrip future search arrays into scoped target-date rows without retaining spiderkey', () => {
+  const url = 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/querySearchFlowDetails?hostType=Ebooking&v=0.1';
+  const endpoint = findCtripEndpointByUrl(url, { preferredSection: 'traffic_report' });
+  assert.equal(endpoint?.id, 'traffic_search_details');
+
+  const response = {
+    rcode: 0,
+    data: {
+      effectDateList: ['12-31', '01-01'],
+      pvDataList: [0, 5],
+      uvDataList: [0, 3],
+      orderDataList: [null, null],
+      conversionsRatesDataList: [0, 2.5],
+    },
+  };
+
+  const cases = [
+    { dataType: 0, searchType: '0', compareType: 'self', searchWindow: 'cumulative', hotelId: '6866634' },
+    { dataType: 3, searchType: '0', compareType: 'competitor', searchWindow: 'cumulative', hotelId: '-1' },
+    { dataType: 0, searchType: '1', compareType: 'self', searchWindow: 'yesterday', hotelId: '6866634' },
+    { dataType: 3, searchType: '1', compareType: 'competitor', searchWindow: 'yesterday', hotelId: '-1' },
+  ];
+
+  for (const sample of cases) {
+    const facts = extractCtripCatalogFacts(response, {
+      endpoint,
+      section: endpoint.section,
+      dataType: endpoint.dataType,
+      hotelId: '6866634',
+      dataDate: '2026-12-31',
+      capturedAt: '2026-12-31T08:00:00.000Z',
+      url,
+      requestPayload: {
+        platform: 'Ctrip',
+        dataType: sample.dataType,
+        searchType: sample.searchType,
+        fingerPrintKeys: '',
+        spiderVersion: '2.0',
+        spiderkey: 'must-not-survive',
+      },
+    });
+    const rows = buildCtripStandardRowsFromFacts(facts, {
+      systemHotelId: 58,
+      hotelId: '6866634',
+      hotelName: '测试酒店',
+      dataDate: '2026-12-31',
+      capturedAt: '2026-12-31T08:00:00.000Z',
+    });
+
+    assert.equal(rows.length, 2, `${sample.compareType}/${sample.searchWindow}`);
+    assert.equal(rows[0].data_date, '2026-12-31');
+    assert.equal(rows[0].hotel_id, sample.hotelId);
+    assert.equal(rows[0].compare_type, sample.compareType);
+    assert.equal(rows[0].raw_data.dimension_values.target_date, '2026-12-31');
+    assert.equal(rows[1].raw_data.dimension_values.target_date, '2027-01-01');
+    assert.equal(rows[0].raw_data.dimension_values.search_window, sample.searchWindow);
+    assert.equal(rows[0].raw_data.metrics.future_search_pv, 0);
+    assert.equal(rows[1].raw_data.metrics.future_search_uv, 3);
+    assert.equal(rows[1].raw_data.metrics.future_search_conversion_rate, 2.5);
+    assert.deepEqual(rows[0].raw_data.missing_fields, ['future_search_order_count']);
+    assert.deepEqual(rows[0].raw_data.request_shape, {
+      platform: 'Ctrip',
+      dataType: sample.dataType,
+      searchType: sample.searchType,
+      spiderVersion: '2.0',
+    });
+    assert.equal(JSON.stringify(rows).includes('must-not-survive'), false);
+    assert.equal(rows[0].raw_data.metric_status, 'partial');
+    assert.notEqual(rows[0].dimension, rows[1].dimension);
+  }
 });

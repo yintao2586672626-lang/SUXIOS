@@ -227,6 +227,8 @@ test('sanitizes order payloads before capture output is written', () => {
       Cookie: 'session=secret-cookie',
       Authorization: 'Bearer secret-token',
     },
+    spiderkey: 'dynamic-spider-secret',
+    fingerPrintKeys: 'dynamic-fingerprint-secret',
   }, 'orders');
 
   const encoded = JSON.stringify(sanitized);
@@ -238,6 +240,8 @@ test('sanitizes order payloads before capture output is written', () => {
   assert.equal(encoded.includes('late arrival'), false);
   assert.equal(encoded.includes('secret-cookie'), false);
   assert.equal(encoded.includes('secret-token'), false);
+  assert.equal(encoded.includes('dynamic-spider-secret'), false);
+  assert.equal(encoded.includes('dynamic-fingerprint-secret'), false);
   assert.match(sanitized.data.orderList[0].order_id_hash, /^[a-f0-9]{64}$/);
   assert.equal(sanitized.data.orderList[0].guest_name_masked, 'A***');
   assert.equal(sanitized.data.orderList[0].guest_phone_masked, '*******5678');

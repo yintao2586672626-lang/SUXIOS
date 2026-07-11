@@ -7,7 +7,9 @@ use app\model\Hotel as HotelModel;
 use app\model\OperationLog;
 use app\model\UserHotelPermission;
 use app\service\HotelDataMergeService;
+use app\service\HotelCascadeDeletionService;
 use app\service\PermissionService;
+use app\service\BatchStatusPreviewService;
 use InvalidArgumentException;
 use RuntimeException;
 use think\Response;
@@ -31,8 +33,20 @@ class Hotel extends Base
         $pagination = $this->getPagination();
         $name = $this->request->param('name', '');
         $status = $this->request->param('status', '');
+        $sortBy = (string)$this->request->param('sort_by', 'id');
+        $sortOrder = strtolower((string)$this->request->param('sort_order', 'desc'));
+        $allowedSorts = ['id', 'name', 'code', 'status', 'create_time', 'update_time'];
+        if (!in_array($sortBy, $allowedSorts, true)) {
+            $sortBy = 'id';
+        }
+        if (!in_array($sortOrder, ['asc', 'desc'], true)) {
+            $sortOrder = 'desc';
+        }
 
-        $query = HotelModel::order('id', 'desc');
+        $query = HotelModel::order($sortBy, $sortOrder);
+        if ($sortBy !== 'id') {
+            $query->order('id', 'desc');
+        }
 
         if ($name) {
             $query->whereLike('name', '%' . $name . '%');
@@ -57,6 +71,109 @@ class Hotel extends Base
         $list = $query->page($pagination['page'], $pagination['page_size'])->select();
 
         return $this->paginate($list, $total, $pagination['page'], $pagination['page_size']);
+    }
+
+    /**
+     * 批量启用或停用门店。必须先 preview，再携带 confirm=true 执行。
+     */
+    public function batchStatus(): Response
+    {
+        $this->checkPermission();
+        $data = $this->requestData();
+        $hotelIds = array_values(array_unique(array_filter(array_map('intval', (array)($data['hotel_ids'] ?? [])), static fn (int $id): bool => $id > 0)));
+        $status = (int)($data['status'] ?? -1);
+        $confirmed = filter_var($data['confirm'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+        if (empty($hotelIds) || count($hotelIds) > 100) {
+            return $this->error('请选择 1-100 个门店', 422);
+        }
+        if (!in_array($status, [HotelModel::STATUS_DISABLED, HotelModel::STATUS_ENABLED], true)) {
+            return $this->error('门店状态无效', 422);
+        }
+
+        $hotels = HotelModel::whereIn('id', $hotelIds)->select();
+        $affectedUserIdsByHotel = array_fill_keys($hotelIds, []);
+        $affectedUserIdSet = [];
+        $primaryUsers = \app\model\User::whereIn('hotel_id', $hotelIds)
+            ->field('id,hotel_id')
+            ->select()
+            ->toArray();
+        foreach ($primaryUsers as $userRow) {
+            $rowHotelId = (int)($userRow['hotel_id'] ?? 0);
+            $rowUserId = (int)($userRow['id'] ?? 0);
+            if ($rowHotelId > 0 && $rowUserId > 0 && array_key_exists($rowHotelId, $affectedUserIdsByHotel)) {
+                $affectedUserIdsByHotel[$rowHotelId][$rowUserId] = true;
+                $affectedUserIdSet[$rowUserId] = true;
+            }
+        }
+        if ($this->tableColumnExists('user_hotel_permissions', 'hotel_id')
+            && $this->tableColumnExists('user_hotel_permissions', 'user_id')) {
+            $permissionQuery = Db::name('user_hotel_permissions')->whereIn('hotel_id', $hotelIds);
+            if ($this->tableColumnExists('user_hotel_permissions', 'status')) {
+                $permissionQuery->where('status', 1);
+            }
+            $permissionRows = $permissionQuery->field('hotel_id,user_id')->select()->toArray();
+            foreach ($permissionRows as $permissionRow) {
+                $rowHotelId = (int)($permissionRow['hotel_id'] ?? 0);
+                $rowUserId = (int)($permissionRow['user_id'] ?? 0);
+                if ($rowHotelId > 0 && $rowUserId > 0 && array_key_exists($rowHotelId, $affectedUserIdsByHotel)) {
+                    $affectedUserIdsByHotel[$rowHotelId][$rowUserId] = true;
+                    $affectedUserIdSet[$rowUserId] = true;
+                }
+            }
+        }
+        $rows = [];
+        foreach ($hotels as $hotel) {
+            if (!$this->currentUserCanManageHotelRecord($hotel)) {
+                return $this->error('包含无权管理的门店', 403, ['hotel_id' => (int)$hotel->id]);
+            }
+            $affectedUsers = count($affectedUserIdsByHotel[(int)$hotel->id] ?? []);
+            $rows[] = [
+                'id' => (int)$hotel->id,
+                'name' => (string)$hotel->name,
+                'current_status' => (int)$hotel->status,
+                'next_status' => $status,
+                'affected_users' => $affectedUsers,
+            ];
+        }
+        $foundIds = array_column($rows, 'id');
+        $missingIds = array_values(array_diff($hotelIds, $foundIds));
+        if ($missingIds !== []) {
+            return $this->error('包含不存在的门店，请刷新列表后重试', 422, ['missing_ids' => $missingIds]);
+        }
+
+        $previewService = new BatchStatusPreviewService();
+
+        if (!$confirmed) {
+            $preview = $previewService->issue('hotel_batch_status', (int)$this->currentUser->id, $hotelIds, $status);
+            return $this->success([
+                'preview' => true,
+                'preview_id' => $preview['preview_id'],
+                'preview_expires_in' => $preview['expires_in'],
+                'affected_count' => count($rows),
+                'affected_users' => count($affectedUserIdSet),
+                'rows' => $rows,
+                'missing_ids' => $missingIds,
+            ], '批量门店状态变更预览已生成');
+        }
+
+        if (empty($rows)) {
+            return $this->error('没有可变更的门店', 422);
+        }
+        $previewId = trim((string)($data['preview_id'] ?? ''));
+        if (!$previewService->consume($previewId, 'hotel_batch_status', (int)$this->currentUser->id, $hotelIds, $status)) {
+            return $this->error('批量门店预览已失效，请重新预览后确认', 409);
+        }
+
+        HotelModel::whereIn('id', $foundIds)->update(['status' => $status]);
+        $statusText = $status === HotelModel::STATUS_ENABLED ? '启用' : '停用';
+        OperationLog::record('hotel', 'batch_status', "批量{$statusText}门店: " . implode(',', array_column($rows, 'name')), $this->currentUser->id ?? null);
+
+        return $this->success([
+            'preview' => false,
+            'affected_count' => count($rows),
+            'missing_ids' => $missingIds,
+        ], "已批量{$statusText}" . count($rows) . '个门店');
     }
 
     /**
@@ -165,6 +282,12 @@ class Hotel extends Base
             'code.max' => '酒店编码最多50个字符',
         ]);
 
+        $data['name'] = trim((string)$data['name']);
+        $duplicateHotel = $this->duplicateHotelByName($data['name']);
+        if ($duplicateHotel) {
+            return $this->duplicateHotelNameResponse($duplicateHotel);
+        }
+
         // 检查编码唯一性
         if ($code !== null) {
             $exists = HotelModel::where('code', $code)->find();
@@ -255,6 +378,12 @@ class Hotel extends Base
             'code.max' => '酒店编码最多50个字符',
         ]);
 
+        $data['name'] = trim((string)$data['name']);
+        $duplicateHotel = $this->duplicateHotelByName($data['name'], $id);
+        if ($duplicateHotel) {
+            return $this->duplicateHotelNameResponse($duplicateHotel);
+        }
+
         // 检查编码唯一性
         if ($code !== null) {
             $exists = HotelModel::where('code', $code)->where('id', '<>', $id)->find();
@@ -305,13 +434,39 @@ class Hotel extends Base
             $result['status_text'] = $newStatus == HotelModel::STATUS_ENABLED ? '已启用' : '已禁用';
         }
 
-        return $this->success($result, $statusChanged ? "酒店已{$result['status_text']}，影响{$affectedUsers}个用户的权限" : '更新成功');
+        return $this->success($result, $statusChanged ? "酒店已{$result['status_text']}，涉及{$affectedUsers}个主门店归属账号" : '更新成功');
     }
 
     private function normalizeHotelCode($value): ?string
     {
         $code = trim((string)($value ?? ''));
         return $code === '' ? null : $code;
+    }
+
+    private function duplicateHotelByName(string $name, ?int $excludeId = null): ?HotelModel
+    {
+        $normalizedName = trim($name);
+        if ($normalizedName === '') {
+            return null;
+        }
+        $query = HotelModel::where('name', $normalizedName);
+        if ($excludeId !== null && $excludeId > 0) {
+            $query->where('id', '<>', $excludeId);
+        }
+        $hotel = $query->order('id', 'asc')->find();
+        return $hotel instanceof HotelModel ? $hotel : null;
+    }
+
+    private function duplicateHotelNameResponse(HotelModel $hotel): Response
+    {
+        return $this->error('酒店名称已存在，请先核对并合并', 409, [
+            'duplicate_hotels' => [[
+                'id' => (int)$hotel->id,
+                'name' => (string)$hotel->name,
+                'code' => (string)($hotel->code ?? ''),
+                'status' => (int)$hotel->status,
+            ]],
+        ]);
     }
 
     private function resolveOwnerUserId(array $data): int
@@ -395,60 +550,73 @@ class Hotel extends Base
      */
     public function delete(int $id): Response
     {
-        $this->checkPermission();
+        $this->checkPermission(true);
         $data = $this->requestData();
-        $forceDelete = $this->currentUser->isSuperAdmin() && $this->isForceDeleteRequested($data);
+        $forceDelete = $this->isForceDeleteRequested($data);
+        $canForceDelete = (bool)($this->currentUser?->isSuperAdmin() ?? false);
 
         $hotel = HotelModel::find($id);
-        $deleteAuthorization = (new PermissionService())->authorize($this->currentUser, 'hotel.delete', $id);
-        if (empty($deleteAuthorization['allowed'])) {
-            return $this->error('权限不足', 403, $deleteAuthorization);
-        }
         if (!$hotel) {
             return $this->error('酒店不存在');
         }
-        if (!$this->currentUser->isSuperAdmin() && $this->currentUser->canManageOwnHotels()) {
-            $creatorColumnError = $this->ensureCreatorColumnIfRequired();
-            if ($creatorColumnError) {
-                return $creatorColumnError;
-            }
-        }
-        if (!$this->currentUserCanManageHotelRecord($hotel)) {
-            return $this->error('权限不足', 403);
+        $hotelName = (string)$hotel->name;
+        $service = new HotelCascadeDeletionService();
+        try {
+            $preview = $service->preview($id);
+        } catch (RuntimeException $e) {
+            return $this->error($e->getMessage(), 409);
         }
 
-        $references = $this->ensureHotelCanBeDeleted($id, !$this->currentUser->isSuperAdmin());
-        if ($this->shouldBlockHotelDelete($references, $forceDelete)) {
-            $canForceDelete = $this->currentUser->isSuperAdmin();
-            return $this->error($canForceDelete ? '该酒店存在关联数据，超级管理员可以确认后强制删除；如需保留历史经营入口，请改为禁用酒店' : '该酒店存在关联数据，当前角色不能强制删除，请改为禁用酒店或联系管理员处理', 409, [
+        $references = [];
+        foreach ((array)($preview['tables'] ?? []) as $table => $count) {
+            $references[] = ['table' => (string)$table, 'label' => (string)$table, 'count' => (int)$count];
+        }
+        if ((int)($preview['config_entries'] ?? 0) > 0) {
+            $references[] = ['table' => 'ota_config_lists', 'label' => '携程/美团配置', 'count' => (int)$preview['config_entries']];
+        }
+        if ((int)($preview['users_detached'] ?? 0) > 0) {
+            $references[] = ['table' => 'users', 'label' => '解除员工门店归属', 'count' => (int)$preview['users_detached']];
+        }
+
+        if (!$forceDelete) {
+            return $this->error('删除会永久清除该酒店及全部关联数据，请核对清单后再次确认', 409, [
                 'references' => $references,
                 'can_force_delete' => $canForceDelete,
+                'requires_name_confirmation' => true,
+            ]);
+        }
+        $confirmationName = (string)($data['confirmation_name'] ?? '');
+        if (!$this->hotelDeleteConfirmationMatches($hotelName, $confirmationName)) {
+            return $this->error('请输入完整门店名称后再删除', 422, [
+                'references' => $references,
+                'can_force_delete' => $canForceDelete,
+                'requires_name_confirmation' => true,
             ]);
         }
 
-        $hotelName = $hotel->name;
-        $forcedDelete = !empty($references) && $forceDelete;
-        if (!$this->currentUser->isSuperAdmin()) {
-            UserHotelPermission::where('user_id', (int)$this->currentUser->id)
-                ->where('hotel_id', $id)
-                ->delete();
+        try {
+            $result = $service->delete($id);
+        } catch (\Throwable $e) {
+            return $this->error('酒店及关联数据删除失败，事务已回滚: ' . $e->getMessage(), 500);
         }
-        $hotel->delete();
 
         OperationLog::record(
             'hotel',
             'delete',
-            ($forcedDelete ? '强制删除酒店: ' : '删除酒店: ') . $hotelName,
+            '删除酒店及关联数据: ' . $hotelName,
             $this->currentUser->id ?? null,
-            $id,
             null,
-            $forcedDelete ? ['references' => $references] : []
+            null,
+            [
+                'deleted_hotel_id' => $id,
+                'deleted_hotel_name' => $hotelName,
+                'deleted_rows' => (int)($result['deleted_rows'] ?? 0),
+                'users_detached' => (int)($result['users_detached'] ?? 0),
+                'config_entries_deleted' => (int)($result['config_entries_deleted'] ?? 0),
+            ]
         );
 
-        return $this->success([
-            'forced' => $forcedDelete,
-            'references' => $forcedDelete ? $references : [],
-        ], $forcedDelete ? '删除成功，关联历史数据已保留' : '删除成功');
+        return $this->success($result, '酒店及关联数据已删除');
     }
 
     /**
@@ -658,6 +826,11 @@ class Hotel extends Base
     {
         $force = $data['force'] ?? $this->request->param('force', false);
         return $force === true || $force === 1 || $force === '1' || $force === 'true';
+    }
+
+    protected function hotelDeleteConfirmationMatches(string $hotelName, string $confirmation): bool
+    {
+        return trim($hotelName) !== '' && hash_equals(trim($hotelName), trim($confirmation));
     }
 
     private function isTruthy($value): bool

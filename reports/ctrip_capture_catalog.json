@@ -2,7 +2,7 @@
   "platform": "ctrip",
   "section_count": 19,
   "endpoint_count": 79,
-  "field_count": 269,
+  "field_count": 276,
   "default_sections": [
     "business_overview",
     "business_weekly_overview",
@@ -43,7 +43,7 @@
     ]
   },
   "interaction_plan_section_count": 16,
-  "interaction_plan_step_count": 80,
+  "interaction_plan_step_count": 82,
   "sections": {
     "homepage": {
       "label": "首页实时概览",
@@ -18061,17 +18061,31 @@
           "confidenceStatus": ""
         },
         {
-          "id": "page_views",
-          "label": "列表页曝光量旧映射",
+          "id": "target_date",
+          "label": "未来入住日期",
           "sourceKeys": [
-            "listExposure",
-            "pvDataList",
-            "pageViewDataList",
-            "PV",
-            "pv",
-            "pageViews"
+            "effectDateList"
           ],
-          "description": "legacy field_key：优先取 queryFlowTransforNewV1 本店行 listExposure；主字段使用 list_exposure",
+          "description": "querySearchFlowDetails 返回的未来入住日期；与采集日期分开保存",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "date",
+          "timeScope": "future_stay_date",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "search_window",
+          "label": "搜索数据口径",
+          "sourceKeys": [
+            "searchType"
+          ],
+          "description": "searchType=0 为累计，searchType=1 为昨日",
           "scope": "ota_channel",
           "unit": "",
           "required": false,
@@ -18085,17 +18099,12 @@
           "confidenceStatus": ""
         },
         {
-          "id": "visitor_count",
-          "label": "访客量",
+          "id": "compare_scope",
+          "label": "搜索对比范围",
           "sourceKeys": [
-            "lastVisitorTotal",
-            "visitorTotal",
-            "UV",
-            "uv",
-            "visitorCount",
-            "pageViews"
+            "dataType"
           ],
-          "description": "",
+          "description": "dataType=0 为我的酒店，dataType=3 为竞争圈平均",
           "scope": "ota_channel",
           "unit": "",
           "required": false,
@@ -18109,17 +18118,14 @@
           "confidenceStatus": ""
         },
         {
-          "id": "list_exposure",
-          "label": "列表页曝光量",
+          "id": "future_search_pv",
+          "label": "未来搜索详情页浏览量",
           "sourceKeys": [
-            "listExposure",
-            "exposure",
-            "exposureCount",
-            "impressions"
+            "pvDataList"
           ],
-          "description": "取 queryFlowTransforNewV1 本店行 listExposure",
+          "description": "按 effectDateList 下标对齐的携程详情页 PV",
           "scope": "ota_channel",
-          "unit": "",
+          "unit": "次",
           "required": false,
           "valueType": "",
           "timeScope": "",
@@ -18131,17 +18137,14 @@
           "confidenceStatus": ""
         },
         {
-          "id": "competitor_list_exposure",
-          "label": "竞争圈平均列表页曝光量",
+          "id": "future_search_uv",
+          "label": "未来搜索详情页访客量",
           "sourceKeys": [
-            "listExposure",
-            "competitorListExposure",
-            "competitorExposure",
-            "avgListExposure"
+            "uvDataList"
           ],
-          "description": "取 queryFlowTransforNewV1 中 hotelId=-1 的 listExposure",
+          "description": "按 effectDateList 下标对齐的携程详情页 UV",
           "scope": "ota_channel",
-          "unit": "",
+          "unit": "人",
           "required": false,
           "valueType": "",
           "timeScope": "",
@@ -18153,16 +18156,14 @@
           "confidenceStatus": ""
         },
         {
-          "id": "detail_visitor",
-          "label": "详情页访客量",
+          "id": "future_search_order_count",
+          "label": "未来搜索订单量",
           "sourceKeys": [
-            "detailExposure",
-            "detailUv",
-            "detailVisitors"
+            "orderDataList"
           ],
-          "description": "取 queryFlowTransforNewV1 本店行 detailExposure",
+          "description": "接口返回 null 时保持 field_missing，不转换为 0",
           "scope": "ota_channel",
-          "unit": "",
+          "unit": "单",
           "required": false,
           "valueType": "",
           "timeScope": "",
@@ -18174,730 +18175,14 @@
           "confidenceStatus": ""
         },
         {
-          "id": "competitor_detail_visitor",
-          "label": "竞争圈平均详情页访客量",
+          "id": "future_search_conversion_rate",
+          "label": "未来搜索订单页转化率",
           "sourceKeys": [
-            "detailExposure",
-            "competitorDetailUv",
-            "competitorDetailVisitors",
-            "avgDetailUv"
+            "conversionsRatesDataList"
           ],
-          "description": "取 queryFlowTransforNewV1 中 hotelId=-1 的 detailExposure",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "order_page_visitor",
-          "label": "订单页访客量",
-          "sourceKeys": [
-            "orderFillingNum",
-            "orderVisitors",
-            "fillUsers"
-          ],
-          "description": "取 queryFlowTransforNewV1 本店行 orderFillingNum",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "competitor_order_page_visitor",
-          "label": "竞争圈平均订单页访客量",
-          "sourceKeys": [
-            "orderFillingNum",
-            "competitorOrderFillingNum",
-            "avgOrderFillingNum",
-            "competitorOrderVisitors"
-          ],
-          "description": "取 queryFlowTransforNewV1 中 hotelId=-1 的 orderFillingNum",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "order_fill_rate",
-          "label": "下单转化率",
-          "sourceKeys": [
-            "orderFillingNum/detailExposure"
-          ],
-          "description": "本店行 orderFillingNum / detailExposure * 100",
+          "description": "按 effectDateList 下标对齐的携程订单页转化率",
           "scope": "ota_channel",
           "unit": "%",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "competitor_order_fill_rate",
-          "label": "竞争圈平均下单转化率",
-          "sourceKeys": [
-            "hotelId=-1.orderFillingNum/detailExposure"
-          ],
-          "description": "取 queryFlowTransforNewV1 中 hotelId=-1；orderFillingNum / detailExposure * 100",
-          "scope": "ota_channel",
-          "unit": "%",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "order_submit_user",
-          "label": "订单提交人数",
-          "sourceKeys": [
-            "orderSubmitNum",
-            "submitUsers",
-            "submitNum"
-          ],
-          "description": "取 queryFlowTransforNewV1 本店行 orderSubmitNum",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "competitor_order_submit_user",
-          "label": "竞争圈平均订单提交人数",
-          "sourceKeys": [
-            "orderSubmitNum",
-            "competitorOrderSubmitNum",
-            "avgOrderSubmitNum",
-            "competitorSubmitUsers"
-          ],
-          "description": "取 queryFlowTransforNewV1 中 hotelId=-1 的 orderSubmitNum",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "deal_rate",
-          "label": "成交转化率",
-          "sourceKeys": [
-            "orderSubmitNum/orderFillingNum"
-          ],
-          "description": "本店行 orderSubmitNum / orderFillingNum * 100",
-          "scope": "ota_channel",
-          "unit": "%",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "competitor_deal_rate",
-          "label": "竞争圈平均成交转化率",
-          "sourceKeys": [
-            "hotelId=-1.orderSubmitNum/orderFillingNum"
-          ],
-          "description": "取 queryFlowTransforNewV1 中 hotelId=-1；orderSubmitNum / orderFillingNum * 100",
-          "scope": "ota_channel",
-          "unit": "%",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_list_exposure",
-          "label": "去哪儿列表页曝光量",
-          "sourceKeys": [
-            "platform=Qunar.listExposure"
-          ],
-          "description": "platform=Qunar 本店行 listExposure",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_competitor_list_exposure",
-          "label": "去哪儿竞争圈平均列表页曝光量",
-          "sourceKeys": [
-            "platform=Qunar.hotelId=-1.listExposure"
-          ],
-          "description": "platform=Qunar 且 hotelId=-1 的 listExposure",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_detail_visitor",
-          "label": "去哪儿详情页访客量",
-          "sourceKeys": [
-            "platform=Qunar.detailExposure"
-          ],
-          "description": "platform=Qunar 本店行 detailExposure",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_competitor_detail_visitor",
-          "label": "去哪儿竞争圈平均详情页访客量",
-          "sourceKeys": [
-            "platform=Qunar.hotelId=-1.detailExposure"
-          ],
-          "description": "platform=Qunar 且 hotelId=-1 的 detailExposure",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_flow_rate",
-          "label": "去哪儿曝光转化率",
-          "sourceKeys": [
-            "platform=Qunar.flowRate"
-          ],
-          "description": "platform=Qunar 本店行 flowRate；可用 detailExposure / listExposure * 100 复核",
-          "scope": "ota_channel",
-          "unit": "%",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_competitor_flow_rate",
-          "label": "去哪儿竞争圈平均曝光转化率",
-          "sourceKeys": [
-            "platform=Qunar.hotelId=-1.flowRate"
-          ],
-          "description": "platform=Qunar 且 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核",
-          "scope": "ota_channel",
-          "unit": "%",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_order_page_visitor",
-          "label": "去哪儿订单页访客量",
-          "sourceKeys": [
-            "platform=Qunar.orderFillingNum"
-          ],
-          "description": "platform=Qunar 本店行 orderFillingNum",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_competitor_order_page_visitor",
-          "label": "去哪儿竞争圈平均订单页访客量",
-          "sourceKeys": [
-            "platform=Qunar.hotelId=-1.orderFillingNum"
-          ],
-          "description": "platform=Qunar 且 hotelId=-1 的 orderFillingNum",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_order_fill_rate",
-          "label": "去哪儿下单转化率",
-          "sourceKeys": [
-            "platform=Qunar.orderFillingNum/detailExposure"
-          ],
-          "description": "platform=Qunar 本店行 orderFillingNum / detailExposure * 100",
-          "scope": "ota_channel",
-          "unit": "%",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_competitor_order_fill_rate",
-          "label": "去哪儿竞争圈平均下单转化率",
-          "sourceKeys": [
-            "platform=Qunar.hotelId=-1.orderFillingNum/detailExposure"
-          ],
-          "description": "platform=Qunar 且 hotelId=-1；orderFillingNum / detailExposure * 100",
-          "scope": "ota_channel",
-          "unit": "%",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_order_submit_user",
-          "label": "去哪儿订单提交人数",
-          "sourceKeys": [
-            "platform=Qunar.orderSubmitNum"
-          ],
-          "description": "platform=Qunar 本店行 orderSubmitNum",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_competitor_order_submit_user",
-          "label": "去哪儿竞争圈平均订单提交人数",
-          "sourceKeys": [
-            "platform=Qunar.hotelId=-1.orderSubmitNum"
-          ],
-          "description": "platform=Qunar 且 hotelId=-1 的 orderSubmitNum",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_deal_rate",
-          "label": "去哪儿成交转化率",
-          "sourceKeys": [
-            "platform=Qunar.orderSubmitNum/orderFillingNum"
-          ],
-          "description": "platform=Qunar 本店行 orderSubmitNum / orderFillingNum * 100",
-          "scope": "ota_channel",
-          "unit": "%",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_competitor_deal_rate",
-          "label": "去哪儿竞争圈平均成交转化率",
-          "sourceKeys": [
-            "platform=Qunar.hotelId=-1.orderSubmitNum/orderFillingNum"
-          ],
-          "description": "platform=Qunar 且 hotelId=-1；orderSubmitNum / orderFillingNum * 100",
-          "scope": "ota_channel",
-          "unit": "%",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "weekly_order_page_visitor",
-          "label": "周报订单页访客",
-          "sourceKeys": [
-            "weeklyOrderFillingNum",
-            "weekOrderFillingNum",
-            "orderFillingNum"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "weekly_competitor_avg_order_page_visitor",
-          "label": "周报订单页访客竞圈均值",
-          "sourceKeys": [
-            "avgOrderFillingNum",
-            "competitorAvgOrderVisitors"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "weekly_top_competitor_order_page_visitor",
-          "label": "周报订单页访客最高竞品",
-          "sourceKeys": [
-            "topOrderFillingNum",
-            "topCompetitorOrderVisitors"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "weekly_submit_user",
-          "label": "周报提交人数",
-          "sourceKeys": [
-            "weeklyOrderSubmitNum",
-            "weekOrderSubmitNum",
-            "orderSubmitNum"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "weekly_competitor_avg_submit_user",
-          "label": "周报提交人数竞圈均值",
-          "sourceKeys": [
-            "avgOrderSubmitNum",
-            "competitorAvgSubmitUsers"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "weekly_top_competitor_submit_user",
-          "label": "周报提交人数最高竞品",
-          "sourceKeys": [
-            "topOrderSubmitNum",
-            "topCompetitorSubmitUsers"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "flow_rate",
-          "label": "曝光转化率",
-          "sourceKeys": [
-            "flowRate",
-            "conversionsRatesDataList",
-            "transforRate",
-            "transferRate",
-            "convertRate"
-          ],
-          "description": "取 queryFlowTransforNewV1 本店行 flowRate；可用 detailExposure / listExposure * 100 复核",
-          "scope": "ota_channel",
-          "unit": "%",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "competitor_flow_rate",
-          "label": "竞争圈平均曝光转化率",
-          "sourceKeys": [
-            "hotelId=-1.flowRate",
-            "competitorFlowRate",
-            "avgFlowRate",
-            "competitorConversionRate"
-          ],
-          "description": "取 queryFlowTransforNewV1 中 hotelId=-1 的 flowRate；可用 detailExposure / listExposure * 100 复核",
-          "scope": "ota_channel",
-          "unit": "%",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "visitor_rank",
-          "label": "访客排名",
-          "sourceKeys": [
-            "visitorRank"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "competitor_avg_visitor",
-          "label": "竞争圈平均访客",
-          "sourceKeys": [
-            "competitorAvgNumber"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_visitor_rank",
-          "label": "去哪儿访客排名",
-          "sourceKeys": [
-            "qunarCompetitorRank",
-            "qunarVisitorRank"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "qunar_competitor_avg_visitor",
-          "label": "去哪儿竞争圈平均访客",
-          "sourceKeys": [
-            "qunarCompetitorAvgNumber"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "source_name",
-          "label": "流量来源",
-          "sourceKeys": [
-            "sourceName",
-            "sourceNameTag"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
-          "required": false,
-          "valueType": "",
-          "timeScope": "",
-          "sourcePage": "",
-          "sourceInterface": "",
-          "transformRule": "",
-          "missingStatus": "",
-          "sampleValue": "",
-          "confidenceStatus": ""
-        },
-        {
-          "id": "keyword",
-          "label": "搜索关键词",
-          "sourceKeys": [
-            "keyword",
-            "searchKeyword",
-            "filterWords"
-          ],
-          "description": "",
-          "scope": "ota_channel",
-          "unit": "",
           "required": false,
           "valueType": "",
           "timeScope": "",
@@ -18910,7 +18195,7 @@
         }
       ],
       "status": "observed",
-      "notes": ""
+      "notes": "未来30天搜索热度；按请求 dataType/searchType 区分本店/竞圈与累计/昨日，数组必须按 effectDateList 对齐。"
     },
     {
       "id": "traffic_hotel_min_price",

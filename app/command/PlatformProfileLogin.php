@@ -50,7 +50,7 @@ class PlatformProfileLogin extends Command
         }
 
         try {
-            (new OtaProfileBindingService())->assertBound($hotelId, $platform, $profileKey);
+            $this->assertOrClaimProfileBinding($hotelId, $platform, $profileKey, $request);
         } catch (\RuntimeException $e) {
             $this->writeTask($taskId, [
                 'status' => 'failed',
@@ -86,6 +86,23 @@ class PlatformProfileLogin extends Command
         }
 
         return $exitCode;
+    }
+
+    private function assertOrClaimProfileBinding(int $hotelId, string $platform, string $profileKey, array $request): void
+    {
+        $bindingService = new OtaProfileBindingService();
+        try {
+            $bindingService->assertBound($hotelId, $platform, $profileKey);
+            return;
+        } catch (\RuntimeException $e) {
+            $localRebindAllowed = $this->truthy($request['allow_existing_local_profile_rebind'] ?? false);
+            $bindDataSource = $this->truthy($request['bind_data_source'] ?? $request['bindDataSource'] ?? false);
+            if (!$localRebindAllowed || !$bindDataSource) {
+                throw $e;
+            }
+        }
+
+        $bindingService->claim($hotelId, $platform, $profileKey, 0, true);
     }
 
     private function runLoginTask(string $taskId, array $task, array $request, Output $output): int
@@ -138,7 +155,8 @@ class PlatformProfileLogin extends Command
 
         $dataSource = null;
         $dataSourceError = '';
-        if ($this->truthy($request['bind_data_source'] ?? $request['bindDataSource'] ?? false)) {
+        $bindDataSourceRequested = $this->truthy($request['bind_data_source'] ?? $request['bindDataSource'] ?? false);
+        if ($bindDataSourceRequested) {
             try {
                 $dataSource = $this->bindDataSource(
                     $platform,
@@ -156,6 +174,23 @@ class PlatformProfileLogin extends Command
         $safeAuthStatus = $this->compactProfileLoginAuthStatus($authStatus);
         $rawCaptureGate = is_array($payload['capture_gate'] ?? null) ? $payload['capture_gate'] : [];
         $safeCaptureGate = $rawCaptureGate !== [] ? $this->compactProfileLoginCaptureGate($rawCaptureGate) : null;
+        if ($bindDataSourceRequested && !is_array($dataSource)) {
+            $this->writeTask($taskId, [
+                'status' => 'failed',
+                'status_code' => 'profile_login_persistence_failed',
+                'error_code' => 'profile_login_persistence_failed',
+                'message' => '登录页验证已通过，但 Profile 绑定或登录证明保存失败；本次不标记为已登录',
+                'finished_at' => date('Y-m-d H:i:s'),
+                'updated_at' => date('Y-m-d H:i:s'),
+                'auth_status' => $safeAuthStatus,
+                'capture_gate' => $safeCaptureGate,
+                'output' => $outputPath,
+                'log' => $logPath,
+                'data_source' => null,
+                'data_source_error' => $dataSourceError !== '' ? $dataSourceError : 'profile_login_proof_not_saved',
+            ]);
+            return 1;
+        }
         $profileStatus = $this->sanitizeProfileLoginCachePayload([
             'checked_at' => date('Y-m-d H:i:s'),
             'auth_status' => $safeAuthStatus,

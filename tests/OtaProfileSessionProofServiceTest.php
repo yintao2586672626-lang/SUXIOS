@@ -5,6 +5,7 @@ namespace Tests;
 
 use app\service\OtaProfileBindingService;
 use app\service\OtaProfileSessionProofService;
+use app\service\PlatformDataSyncService;
 use DateTimeImmutable;
 use DateTimeZone;
 use PHPUnit\Framework\TestCase;
@@ -109,6 +110,24 @@ final class OtaProfileSessionProofServiceTest extends TestCase
         self::assertTrue($config['manual_login_state_verified']);
         self::assertTrue($service->isCurrentVerified($source));
         self::assertFalse($this->service('2026-07-12 00:00:01')->isCurrentVerified($source));
+
+        $responseService = new PlatformDataSyncService(null, null, $service);
+        $responseRows = $responseService->listDataSources(null, ['system_hotel_id' => 10]);
+        self::assertCount(1, $responseRows);
+        self::assertTrue(
+            $responseRows[0]['current_session_verified'] ?? false,
+            'The data-source response must expose the server-authoritative session verdict.'
+        );
+
+        $config['current_session_probe_profile_key_hash'] = hash('sha256', 'wrong-profile');
+        Db::name('platform_data_sources')->where('id', $sourceId)->update([
+            'config_json' => json_encode($config, JSON_THROW_ON_ERROR),
+        ]);
+        $tamperedRows = $responseService->listDataSources(null, ['system_hotel_id' => 10]);
+        self::assertFalse(
+            $tamperedRows[0]['current_session_verified'] ?? true,
+            'A forged config flag must not be exposed as a verified current session.'
+        );
     }
 
     public function testRejectsFailedProcessOrUnverifiedAuthWithoutWritingProof(): void

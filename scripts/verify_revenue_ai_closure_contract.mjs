@@ -242,10 +242,6 @@ includesAll('scripts/verify_revenue_ai_ctrip_scope.php', 'Ctrip-only Revenue AI 
   "'agent_and_execution_state_loaded'",
   'verify_p0_ota_field_loop_closure.php',
   "'ctrip_ota_channel'",
-  "'ctrip_ota_channel_to_operation_roi'",
-  "'operation_execution.roi_ready'",
-  "'decision_allowed'",
-  "'can_create_investment_decision'",
   "'meituan_not_present'",
   "'source_policy' => 'read_current_database_revenue_ai_overview_only'",
 ]);
@@ -257,11 +253,8 @@ includesAll('scripts/verify_revenue_ai_ctrip_generation_smoke.php', 'Ctrip gener
   'ctrip_generation_insert_fixture_inputs',
   'RevenueAiOverviewService',
   'OperationManagementService',
-  'InvestmentDecisionSupportService',
   'new Agent($app)',
   'generatePriceSuggestions()',
-  'buildOverviewFromEvidence',
-  'ctrip_generation_investment_closure_overview',
   '--complete-operation-roi',
   'approveExecutionIntent(',
   'executeExecutionTask(',
@@ -296,13 +289,6 @@ includesAll('scripts/verify_revenue_ai_ctrip_generation_smoke.php', 'Ctrip gener
   "'operation_execution_records_local_roi_evidence'",
   "'operation_review_marks_roi_ready'",
   "'overview_reads_operation_roi_ready_after_review'",
-  "'investment_support_reads_closed_operation_roi_without_decision'",
-  "'investment_support_action_queue_requires_decision_readiness'",
-  "'investment_precheck_waiting_decision_record'",
-  "'closed_operating_data_only'",
-  "'operation_execution.roi_ready + decision_record.readiness_ready'",
-  "'can_use_for_investment_judgement'",
-  "'investment_overview_business_scope'",
   "'operation_execution_tasks'",
   "'operation_execution_evidence'",
   "'operation_execution.roi_ready'",
@@ -1908,23 +1894,15 @@ includesAll('app/service/RevenueAiOverviewService.php', 'Revenue AI overview sep
   'pricingAiDecisionResolutionPlan',
   'pricingAiDecisionReviewContract',
   'pricingAiToOperationHandoff',
-  'pricingOperationToInvestmentHandoff',
-  'pricingOperationRoiGate',
   'pricingOperationIntakePreflightContract',
   "'ai_decision_review_contract'",
   "'ai_decision_resolution_plan'",
   "'ai_to_operation_handoff'",
-  "'operation_to_investment_handoff'",
   "'operation_intake_preflight_contract'",
-  "'investment_precheck_packet'",
   'OperationManagementService::buildExecutionIntentPayload',
   '/api/operation/execution-intents',
-  'InvestmentDecisionSupportService::buildOverviewFromEvidence',
-  '/api/investment-decision/overview',
-  'operation_execution.roi_ready',
   'manual_review_requires_explicit_evidence_no_auto_apply',
   'operation_intake_requires_approved_ai_review_and_price_target_no_auto_create',
-  'investment_decision_requires_closed_operation_roi_not_ota_channel_only',
   'fill_missing_evidence_with_defaults',
   'provide_available_room_nights_or_mark_metric_unusable',
   'persist_or_attach_manual_review_record',
@@ -1933,8 +1911,6 @@ includesAll('app/service/RevenueAiOverviewService.php', 'Revenue AI overview sep
   "'target_revenue_tab'",
   'call_create_execution_intent_before_ai_review_approval',
   'auto_create_operation_execution_intent',
-  'create_investment_decision_from_ota_channel_only',
-  'create_investment_record_without_closed_operation_roi',
 ]);
 
 includesAll('public/revenue-ai-static.js', 'Revenue AI helper exposes manual review and effect review actions without fake closure', [
@@ -1946,7 +1922,6 @@ includesAll('public/revenue-ai-static.js', 'Revenue AI helper exposes manual rev
   'canCreateExecutionIntent',
   'actionEntry',
   'autoWriteOta',
-  'buildRevenueAiInvestmentPrecheckSummary',
   'buildRevenueAiResolutionPlanSummary',
   'buildRevenueAiPricingGenerationPreflightSummary',
   'buildRevenueAiPriceSuggestionGenerateResult',
@@ -1954,16 +1929,10 @@ includesAll('public/revenue-ai-static.js', 'Revenue AI helper exposes manual rev
   'targetRevenueTab',
   'reviewQueueTarget',
   'reviewQueueCanOpenTarget',
-  'investmentPrecheckSummary',
-  'investmentPrecheckVisible',
   'pricingGenerationPreflightSummary',
   'pricingGenerationPreflightVisible',
   'resolutionPlanSummary',
   'resolutionPlanVisible',
-  'operation_to_investment_handoff',
-  'investment_precheck_packet',
-  'investment_precheck_blocked_by_operation_roi',
-  'operation_execution.roi_ready',
   'buildRevenueAiExecutionRows',
   'buildRevenueAiEffectReviewRows',
   'inputActionKey: item.input_action_key ||',
@@ -2097,21 +2066,13 @@ includesAll('tests/RevenueAiOverviewServiceTest.php', 'overview tests prove revi
   'ai_decision_review_contract',
   'ai_decision_resolution_plan',
   'ai_to_operation_handoff',
-  'operation_to_investment_handoff',
   'operation_intake_preflight_contract',
-  'investment_precheck_packet',
   'manual_review_requires_explicit_evidence_no_auto_apply',
   'operation_intake_requires_approved_ai_review_and_price_target_no_auto_create',
-  'investment_decision_requires_closed_operation_roi_not_ota_channel_only',
   'fill_missing_evidence_with_defaults',
   'provide_floor_price_or_min_rate_guard',
   'persist_or_attach_manual_review_record',
   'OperationManagementService::buildExecutionIntentPayload',
-  'InvestmentDecisionSupportService::buildOverviewFromEvidence',
-  '/api/investment-decision/overview',
-  'operation_execution.roi_ready',
-  'create_investment_decision_from_ota_channel_only',
-  'create_investment_record_without_closed_operation_roi',
   'ctrip_ota_channel',
   "self::assertSame('record_roi_evidence'",
   "self::assertSame('record_execution_evidence'",
@@ -2124,13 +2085,9 @@ includesAll('tests/automation/revenue_ai_static.test.mjs', 'static helper tests 
   "platform: ''",
   'Revenue AI action rows expose readonly price suggestion review queue',
   'Revenue AI action rows expose AI decision resolution plan as operator evidence checklist',
-  'Revenue AI action rows expose readonly operation to investment precheck',
   'Revenue AI execution helpers keep process and effect review separate',
   'Revenue AI effect review rows expose next-day inputs without fake ROI',
   'buildRevenueAiResolutionPlanSummary',
-  'buildRevenueAiInvestmentPrecheckSummary',
-  "assert.equal(summary.decisionAllowed, false)",
-  "assert.equal(summary.canCreateInvestmentDecision, false)",
   "assert.equal(summary.autoWriteOta, false)",
   "assert.equal(rows[0].reviewQueueItems[0].canApproveWithChanges, true)",
   "assert.equal(partialRows[0].inputActionKey, 'record_roi_evidence')",
@@ -2222,43 +2179,6 @@ try {
       && approved.canApprove === false
       && approved.allowedEndpoint === '/api/revenue-ai/price-suggestions/12/execution-intent',
     JSON.stringify(approved)
-  );
-
-  const investmentSummary = helpers.buildRevenueAiInvestmentPrecheckSummary({
-    overview: {
-      operation_to_investment_handoff: {
-        status: 'investment_precheck_blocked_by_operation_roi',
-        target_service: 'InvestmentDecisionSupportService::buildOverviewFromEvidence',
-        target_entry: '/api/investment-decision/overview',
-        source_scope: 'ctrip_ota_channel_to_operation_roi',
-        source_channels: ['ctrip'],
-        upstream_operation_intake_status: 'operation_intake_blocked_by_manual_review',
-        operation_roi_ready: 0,
-        decision_allowed: false,
-        can_create_investment_decision: false,
-        blocked_reasons: ['closed_operating_roi_missing'],
-        forbidden_actions: ['create_investment_decision_from_ota_channel_only'],
-        investment_precheck_packet: {
-          status: 'blocked_by_operation_roi',
-          required_gate: 'operation_execution.roi_ready',
-          missing_evidence_codes: ['operation_execution.roi_ready'],
-          protected_boundary: 'investment_decision_requires_closed_operation_roi_not_ota_channel_only',
-        },
-      },
-    },
-  });
-  check(
-    'public/revenue-ai-static.js',
-    'runtime helper exposes investment precheck as readonly blocked state',
-    investmentSummary.visible === true
-      && investmentSummary.targetEntry === '/api/investment-decision/overview'
-      && investmentSummary.requiredGate === 'operation_execution.roi_ready'
-      && investmentSummary.decisionAllowed === false
-      && investmentSummary.canCreateInvestmentDecision === false
-      && investmentSummary.autoWriteOta === false
-      && investmentSummary.missingEvidenceCodes.includes('operation_execution.roi_ready')
-      && investmentSummary.forbiddenActions.includes('create_investment_decision_from_ota_channel_only'),
-    JSON.stringify(investmentSummary)
   );
 
   const effectRows = helpers.buildRevenueAiEffectReviewRows({

@@ -486,15 +486,6 @@ async function runApiSuite(iteration) {
   ));
   cases.push(await http('POST', '/api/online-data/ai-analysis', { token, body: { platform: 'ctrip', hotels: [] }, expect: 'any', label: 'online ai analysis empty' }));
 
-  cases.push(await http('POST', '/api/ai/strategy', { token, body: { city: '上海', area: 5000, audience: '商务' }, label: 'ai strategy' }));
-  cases.push(await http('POST', '/api/ai/simulation', { token, body: { rooms: 80, adr: 320, occ: 75 }, label: 'ai simulation' }));
-  cases.push(await http('POST', '/api/ai/feasibility', {
-    token,
-    body: { projectName: `codex_automation_feasibility_${iteration}`, city: '上海', area: 3000, rooms: 80, adr: 320, occ: 75 },
-    expect: 'any',
-    label: 'ai feasibility',
-  }));
-
   const strategy = await http('POST', '/api/strategy/simulate', {
     token,
     body: {

@@ -32,8 +32,7 @@ trait OnlineDataHistoryConcern
             $this->applyOnlineHistoryFilters($query, $currentUser);
             $this->applyOnlineHistoryKeywordFilter($query, $keyword);
 
-            $rows = (clone $query)->order('create_time', 'desc')
-                ->order('id', 'desc')
+            $rows = $this->orderOnlineDataByFetchTime(clone $query, $this->getOnlineDailyDataColumns())
                 ->select()
                 ->toArray();
 
@@ -228,7 +227,7 @@ trait OnlineDataHistoryConcern
         $decodedRows = $this->decodeOnlineRawRows($rows);
         $displayHotels = $section === 'rank' ? $this->buildCtripBusinessDisplayHotels($decodedRows) : [];
         $trafficFallback = null;
-        if ($section === 'rank' && !empty($displayHotels) && !$this->ctripBusinessDisplayHotelsHaveTraffic($displayHotels)) {
+        if ($section === 'rank' && (empty($displayHotels) || !$this->ctripBusinessDisplayHotelsHaveTraffic($displayHotels))) {
             $fallback = $this->findLatestCtripRankRowsWithTraffic($latest, $hotelId, $currentUser, $columns);
             if ($fallback !== null) {
                 $latest = $fallback['latest'];
@@ -342,6 +341,7 @@ trait OnlineDataHistoryConcern
         $query = Db::name('online_daily_data');
         $this->applyCtripStorageFilter($query, $columns);
         $this->applyCtripSectionTypeFilter($query, 'rank', $columns);
+        $this->applyCtripCompetitionCircleFilter($query, $columns);
         $this->applyCtripHotelScope($query, $hotelId, $currentUser, $columns);
         $this->applyCtripLatestPeriodScope($query, $columns, $range);
         $query->where('data_date', $dataDate);
@@ -354,6 +354,7 @@ trait OnlineDataHistoryConcern
         $rowsQuery = Db::name('online_daily_data');
         $this->applyCtripStorageFilter($rowsQuery, $columns);
         $this->applyCtripSectionTypeFilter($rowsQuery, 'rank', $columns);
+        $this->applyCtripCompetitionCircleFilter($rowsQuery, $columns);
         $this->applyCtripHotelScope($rowsQuery, $hotelId, $currentUser, $columns);
         $this->applyCtripLatestPeriodScope($rowsQuery, $columns, $range);
         $rowsQuery->where('data_date', $dataDate);
@@ -395,6 +396,7 @@ trait OnlineDataHistoryConcern
         $query = Db::name('online_daily_data');
         $this->applyCtripStorageFilter($query, $columns);
         $this->applyCtripSectionTypeFilter($query, 'rank', $columns);
+        $this->applyCtripCompetitionCircleFilter($query, $columns);
         $this->applyCtripHotelScope($query, $hotelId, $currentUser, $columns);
         $this->applyCtripLatestPeriodScope($query, $columns, $range);
 
@@ -443,16 +445,21 @@ trait OnlineDataHistoryConcern
 
     private function ctripLatestBatchKey(array $row, array $columns, bool $includeSystemHotel): string
     {
-        if (isset($columns['sync_task_id']) && (int)($row['sync_task_id'] ?? 0) > 0) {
+        $isCompetitionCircle = strtolower(trim((string)($row['data_type'] ?? ''))) === 'competitor'
+            && trim((string)($row['dimension'] ?? '')) === 'competition_circle_hotel';
+        if (!$isCompetitionCircle && isset($columns['sync_task_id']) && (int)($row['sync_task_id'] ?? 0) > 0) {
             return 'task:' . (int)$row['sync_task_id'];
         }
-        if (isset($columns['batch_no']) && trim((string)($row['batch_no'] ?? '')) !== '') {
+        if (!$isCompetitionCircle && isset($columns['batch_no']) && trim((string)($row['batch_no'] ?? '')) !== '') {
             return 'batch:' . trim((string)$row['batch_no']);
         }
 
+        $snapshotTime = $isCompetitionCircle && isset($columns['snapshot_time'])
+            ? trim((string)($row['snapshot_time'] ?? ''))
+            : '';
         $parts = [
             'date:' . (string)($row['data_date'] ?? ''),
-            'time:' . $this->onlineRowFetchedAt($row, $columns),
+            'time:' . ($snapshotTime !== '' ? $snapshotTime : $this->onlineRowFetchedAt($row, $columns)),
         ];
         if ($includeSystemHotel && isset($columns['system_hotel_id'])) {
             $parts[] = 'hotel:' . (string)($row['system_hotel_id'] ?? '');
@@ -553,7 +560,9 @@ trait OnlineDataHistoryConcern
         $section = strtolower($section);
         if (in_array($section, ['rank', 'business'], true)) {
             $query->where(function ($q) {
-                $q->where('data_type', 'business')->whereOr('data_type', '');
+                $q->where('data_type', 'business')
+                    ->whereOr('data_type', '')
+                    ->whereOr('data_type', 'competitor');
             });
             return;
         }
@@ -564,6 +573,16 @@ trait OnlineDataHistoryConcern
             return;
         }
         $query->where('data_type', $section);
+    }
+
+    private function applyCtripCompetitionCircleFilter($query, array $columns): void
+    {
+        if (isset($columns['data_type'])) {
+            $query->where('data_type', 'competitor');
+        }
+        if (isset($columns['dimension'])) {
+            $query->where('dimension', 'competition_circle_hotel');
+        }
     }
 
     private function applyCtripHotelScope($query, string $hotelId, $currentUser, array $columns): void
@@ -656,6 +675,12 @@ trait OnlineDataHistoryConcern
             $decoded['_record_id'] = (int)($row['id'] ?? 0);
             $decoded['_data_date'] = (string)($row['data_date'] ?? '');
             $decoded['_fetch_time'] = (string)($row['update_time'] ?? $row['create_time'] ?? '');
+            $decoded['compareType'] = (string)($row['compare_type'] ?? $decoded['compareType'] ?? '');
+            $decoded['isSelf'] = ($row['compare_type'] ?? '') === 'self';
+            $decoded['systemHotelId'] = (int)($row['system_hotel_id'] ?? 0);
+            if ($decoded['isSelf'] && $decoded['systemHotelId'] > 0) {
+                $decoded['systemHotelName'] = $this->getSystemHotelName($decoded['systemHotelId']);
+            }
             $payload[] = $decoded;
         }
         return $payload;
@@ -767,18 +792,11 @@ trait OnlineDataHistoryConcern
         }
 
         if ($hotelScope === 'mine') {
-            if (isset($columns['system_hotel_id'], $columns['compare_type'], $columns['hotel_name'])) {
+            if (isset($columns['compare_type'], $columns['hotel_name'])) {
                 $query->where(function ($q) {
-                    $q->whereNotNull('system_hotel_id')
-                        ->whereOr('compare_type', 'self')
+                    $q->where('compare_type', 'self')
                         ->whereOr('hotel_name', '我的酒店');
                 });
-            } elseif (isset($columns['system_hotel_id'], $columns['hotel_name'])) {
-                $query->where(function ($q) {
-                    $q->whereNotNull('system_hotel_id')->whereOr('hotel_name', '我的酒店');
-                });
-            } elseif (isset($columns['system_hotel_id'])) {
-                $query->whereNotNull('system_hotel_id');
             } elseif (isset($columns['hotel_name'])) {
                 $query->where('hotel_name', '我的酒店');
             }
@@ -901,13 +919,22 @@ trait OnlineDataHistoryConcern
         $todayRecords = 0;
         $failedRecords = 0;
 
-        if (isset($columns['create_time'])) {
+        if (isset($columns['create_time']) || isset($columns['update_time'])) {
             $today = date('Y-m-d');
-            $latestFetchTime = (string)((clone $query)->max('create_time') ?: '');
-            $todayRecords = (int)(clone $query)
-                ->where('create_time', '>=', $today . ' 00:00:00')
-                ->where('create_time', '<=', $today . ' 23:59:59')
-                ->count();
+            $createMax = isset($columns['create_time']) ? (string)((clone $query)->max('create_time') ?: '') : '';
+            $updateMax = isset($columns['update_time']) ? (string)((clone $query)->max('update_time') ?: '') : '';
+            $latestFetchTime = strcmp($updateMax, $createMax) > 0 ? $updateMax : $createMax;
+            $todayRecords = (int)(clone $query)->where(function ($q) use ($columns, $today) {
+                $hasCondition = false;
+                foreach (['update_time', 'create_time'] as $column) {
+                    if (!isset($columns[$column])) {
+                        continue;
+                    }
+                    $method = $hasCondition ? 'whereOrBetween' : 'whereBetween';
+                    $q->{$method}($column, [$today . ' 00:00:00', $today . ' 23:59:59']);
+                    $hasCondition = true;
+                }
+            })->count();
         }
 
         if (isset($columns['status'])) {
@@ -949,7 +976,9 @@ trait OnlineDataHistoryConcern
 
         $item = $row;
         $item['id'] = (int)$row['id'];
-        $item['fetch_time'] = (string)($row['create_time'] ?? '');
+        $createTime = (string)($row['create_time'] ?? '');
+        $updateTime = (string)($row['update_time'] ?? '');
+        $item['fetch_time'] = strcmp($updateTime, $createTime) > 0 ? $updateTime : $createTime;
         $item['data_date'] = (string)($row['data_date'] ?? '');
         $item['platform'] = $platformCode;
         $item['platform_label'] = $this->historyPlatformLabel($platformCode);
@@ -958,6 +987,9 @@ trait OnlineDataHistoryConcern
         $item['hotel_name'] = $displayHotelName;
         $item['original_hotel_name'] = (string)($row['hotel_name'] ?? '');
         $item['hotel_id'] = $systemHotelId;
+        $item['system_hotel_name'] = $systemHotelId && isset($hotelMap[(int)$systemHotelId])
+            ? (string)$hotelMap[(int)$systemHotelId]
+            : '';
         $item['ota_hotel_id'] = $otaHotelId;
         $item['is_my_hotel'] = $this->isMyHotelHistoryRow($row);
         $item['batch_no'] = $this->buildHistoryBatchNo($row, $rawData, $platformCode, $dataType);
@@ -997,6 +1029,10 @@ trait OnlineDataHistoryConcern
                 $groups[$groupKey]['_failed_count'] = 0;
                 $groups[$groupKey]['_empty_count'] = 0;
                 $groups[$groupKey]['_success_count'] = 0;
+                $groups[$groupKey]['_partial_count'] = 0;
+                $groups[$groupKey]['_unverified_count'] = 0;
+                $groups[$groupKey]['_self_count'] = 0;
+                $groups[$groupKey]['_competitor_count'] = 0;
             }
 
             $this->appendOnlineHistoryGroupRow($groups[$groupKey], $item);
@@ -1011,13 +1047,16 @@ trait OnlineDataHistoryConcern
 
     private function buildOnlineHistoryMergeKey(array $item): string
     {
+        $isCompetitionCircle = (string)($item['data_type'] ?? '') === 'competitor'
+            && (string)($item['dimension'] ?? '') === 'competition_circle_hotel';
         return implode('|', [
             (string)($item['data_date'] ?? ''),
             (string)($item['platform'] ?? ''),
             (string)($item['data_type'] ?? ''),
             (string)($item['hotel_id'] ?? ''),
             (string)($item['dimension'] ?? ''),
-            (string)($item['compare_type'] ?? ''),
+            $isCompetitionCircle ? 'competition_circle' : (string)($item['compare_type'] ?? ''),
+            $isCompetitionCircle ? (string)($item['fetch_time'] ?? '') : '',
         ]);
     }
 
@@ -1049,6 +1088,17 @@ trait OnlineDataHistoryConcern
         }
         if (!empty($item['is_my_hotel'])) {
             $group['is_my_hotel'] = true;
+            $group['_self_count']++;
+        } elseif (
+            (string)($item['data_type'] ?? '') === 'competitor'
+            && (string)($item['dimension'] ?? '') === 'competition_circle_hotel'
+        ) {
+            $group['_competitor_count']++;
+        }
+
+        $fetchTime = (string)($item['fetch_time'] ?? '');
+        if ($fetchTime !== '' && strcmp($fetchTime, (string)($group['fetch_time'] ?? '')) > 0) {
+            $group['fetch_time'] = $fetchTime;
         }
 
         $status = (string)($item['status'] ?? '');
@@ -1056,6 +1106,10 @@ trait OnlineDataHistoryConcern
             $group['_failed_count']++;
         } elseif ($status === 'empty') {
             $group['_empty_count']++;
+        } elseif ($status === 'unverified') {
+            $group['_unverified_count']++;
+        } elseif ($status === 'partial') {
+            $group['_partial_count']++;
         } else {
             $group['_success_count']++;
         }
@@ -1089,14 +1143,34 @@ trait OnlineDataHistoryConcern
         $failedCount = (int)($group['_failed_count'] ?? 0);
         $emptyCount = (int)($group['_empty_count'] ?? 0);
         $successCount = (int)($group['_success_count'] ?? 0);
+        $partialCount = (int)($group['_partial_count'] ?? 0);
+        $unverifiedCount = (int)($group['_unverified_count'] ?? 0);
+        $selfCount = (int)($group['_self_count'] ?? 0);
+        $competitorCount = (int)($group['_competitor_count'] ?? 0);
+        $isCompetitionCircle = (string)($group['data_type'] ?? '') === 'competitor'
+            && (string)($group['dimension'] ?? '') === 'competition_circle_hotel';
 
         $group['hotel_count'] = $hotelCount;
         $group['merged_hotel_names'] = $hotelNames;
         $group['merged_ota_hotel_ids'] = $otaHotelIds;
         $group['merged_batch_nos'] = $batchNos;
+        $group['is_competition_circle'] = $isCompetitionCircle;
+        $group['self_hotel_count'] = $selfCount;
+        $group['competitor_hotel_count'] = $competitorCount;
+        $group['role_summary'] = $isCompetitionCircle
+            ? ('本店 ' . $selfCount . ' / 竞品 ' . $competitorCount)
+            : (!empty($group['is_my_hotel']) ? '本店' : '非本店');
+        if ($isCompetitionCircle) {
+            $group['is_my_hotel'] = $selfCount > 0 && $competitorCount === 0;
+            $systemHotelName = trim((string)($group['system_hotel_name'] ?? ''));
+            $group['hotel_name'] = ($systemHotelName !== '' ? $systemHotelName : '门店')
+                . '竞争圈（' . number_format($hotelCount) . '家）';
+        }
 
         if ($recordCount > 1 || $rawRecordCount > 1) {
-            $group['hotel_name'] = $hotelCount > 1 ? '全部酒店（' . $hotelCount . '家）' : ($hotelNames[0] ?? $group['hotel_name'] ?? '-');
+            if (!$isCompetitionCircle) {
+                $group['hotel_name'] = $hotelCount > 1 ? '全部酒店（' . $hotelCount . '家）' : ($hotelNames[0] ?? $group['hotel_name'] ?? '-');
+            }
             $group['ota_hotel_id'] = count($otaHotelIds) > 1 ? '多个' : ($otaHotelIds[0] ?? $group['ota_hotel_id'] ?? '');
             $group['metrics_summary'] = $this->buildMergedHistoryMetricSummary($group);
             $group['raw_data'] = $this->buildMergedHistoryRawData($group);
@@ -1104,6 +1178,10 @@ trait OnlineDataHistoryConcern
 
         if ($failedCount > 0) {
             $group['status'] = 'failed';
+        } elseif ($unverifiedCount > 0) {
+            $group['status'] = 'unverified';
+        } elseif ($partialCount > 0) {
+            $group['status'] = 'partial';
         } elseif ($successCount > 0) {
             $group['status'] = 'success';
         } elseif ($emptyCount > 0) {
@@ -1123,7 +1201,11 @@ trait OnlineDataHistoryConcern
             $group['_data_value_total'],
             $group['_failed_count'],
             $group['_empty_count'],
-            $group['_success_count']
+            $group['_success_count'],
+            $group['_partial_count'],
+            $group['_unverified_count'],
+            $group['_self_count'],
+            $group['_competitor_count']
         );
 
         return $group;
@@ -1285,6 +1367,10 @@ trait OnlineDataHistoryConcern
         if (in_array($status, ['failed', 'fail', 'error'], true)) {
             return 'failed';
         }
+        $validationStatus = strtolower(trim((string)($row['validation_status'] ?? '')));
+        if (in_array($validationStatus, ['unverified', 'partial'], true)) {
+            return $validationStatus;
+        }
         if ($rawData !== '') {
             $decoded = json_decode($rawData, true);
             if (is_array($decoded) && (isset($decoded['error']) || isset($decoded['errors']))) {
@@ -1316,14 +1402,13 @@ trait OnlineDataHistoryConcern
             'success' => '成功',
             'failed' => '失败',
             'empty' => '数据为空',
+            'partial' => '部分数据',
+            'unverified' => '未验证',
         ][$status] ?? $status;
     }
 
     private function isMyHotelHistoryRow(array $row): bool
     {
-        if (!empty($row['system_hotel_id'])) {
-            return true;
-        }
         if (($row['compare_type'] ?? '') === 'self') {
             return true;
         }
@@ -1347,7 +1432,9 @@ trait OnlineDataHistoryConcern
             }
         }
 
-        $fetchTime = (string)($row['create_time'] ?? '');
+        $createTime = (string)($row['create_time'] ?? '');
+        $updateTime = (string)($row['update_time'] ?? '');
+        $fetchTime = strcmp($updateTime, $createTime) > 0 ? $updateTime : $createTime;
         $batchTime = $fetchTime !== '' && strtotime($fetchTime) !== false
             ? date('YmdHis', strtotime($fetchTime))
             : 'unknown';
@@ -1412,7 +1499,7 @@ trait OnlineDataHistoryConcern
             if ($fetchTime !== '' && substr($fetchTime, 0, 10) === $today) {
                 $todayRecords++;
             }
-            if (($item['status'] ?? '') !== 'success') {
+            if (($item['status'] ?? '') === 'failed') {
                 $failedRecords++;
             }
         }

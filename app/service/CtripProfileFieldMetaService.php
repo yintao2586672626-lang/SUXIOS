@@ -8,6 +8,7 @@ final class CtripProfileFieldMetaService
     private const CTRIP_BUSINESS_REPORT_PAGE_URL = 'https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true';
     private const CTRIP_FLOW_TRANSFORM_PAGE_URL = 'https://ebooking.ctrip.com/datacenter/inland/businessreport/flowdata?microJump=true';
     private const CTRIP_FLOW_TRANSFORM_REQUEST_URL = 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1?hostType=Ebooking';
+    private const CTRIP_SEARCH_FLOW_REQUEST_URL = 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/querySearchFlowDetails?hostType=Ebooking';
     private const CTRIP_PSI_PAGE_URL = 'https://ebooking.ctrip.com/psi/index?microJump=true';
     private const CTRIP_PSI_REQUEST_URL = 'https://ebooking.ctrip.com/psi/api/getHotelPsiV2';
     private const CTRIP_ADS_PAGE_URL = 'https://ebooking.ctrip.com/toolcenter/cpc/pyramid?microJump=true';
@@ -103,6 +104,13 @@ final class CtripProfileFieldMetaService
         'competition_rank_zhixing_rating',
         'competitor_rank',
         'seq_rank',
+        'target_date',
+        'search_window',
+        'compare_scope',
+        'future_search_pv',
+        'future_search_uv',
+        'future_search_order_count',
+        'future_search_conversion_rate',
         'competitor_visitor',
         'competitor_orders',
         'competitor_revenue',
@@ -382,6 +390,13 @@ final class CtripProfileFieldMetaService
             ['competition_rank_tongcheng_rating', '竞争圈榜单-同程点评分排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'tongchengCommentScoreRank, tongChengCommentScoreRank, tongchengRatingRank', 'rank', '名', 'paused', '榜单名次字段，只写 ranking/raw_data.rank_metrics，不写入点评分。', false, '用户确认该字段不需要采集；保留定义仅兼容旧配置。'],
             ['competition_rank_zhixing_rating', '竞争圈榜单-智行点评分排名', 'competitor_rank', 'ranking', 'getCompetingRank', 'zhixingCommentScoreRank, zhiXingCommentScoreRank, zhixingRatingRank', 'rank', '名', 'paused', '榜单名次字段，只写 ranking/raw_data.rank_metrics，不写入点评分。', false, '用户确认该字段不需要采集；保留定义仅兼容旧配置。'],
             ['seq_rank', '实时排名', 'business_overview', 'traffic', 'fetchCurrentHotelSeqInfoV1', 'rank, qunarRank, competitorRank, qunarCompetitorRank', 'rank', '名', 'confirmed', '直接取排名值'],
+            ['target_date', '未来入住日期', 'traffic_report', 'traffic', 'querySearchFlowDetails', 'effectDateList', 'date', '日', 'confirmed', '按 effectDateList 下标与搜索热度数组对齐；与采集日期分开保存'],
+            ['search_window', '搜索数据口径', 'traffic_report', 'traffic', 'querySearchFlowDetails', 'searchType', 'text', '', 'confirmed', 'searchType=0 为累计，searchType=1 为昨日'],
+            ['compare_scope', '搜索对比范围', 'traffic_report', 'traffic', 'querySearchFlowDetails', 'dataType', 'text', '', 'confirmed', 'dataType=0 为本店，dataType=3 为竞争圈平均'],
+            ['future_search_pv', '未来搜索详情页浏览量', 'traffic_report', 'traffic', 'querySearchFlowDetails', 'pvDataList', 'integer', '次', 'confirmed', '按 effectDateList 下标对齐的 PV'],
+            ['future_search_uv', '未来搜索详情页访客量', 'traffic_report', 'traffic', 'querySearchFlowDetails', 'uvDataList', 'integer', '人', 'confirmed', '按 effectDateList 下标对齐的 UV'],
+            ['future_search_order_count', '未来搜索订单量', 'traffic_report', 'traffic', 'querySearchFlowDetails', 'orderDataList', 'integer', '单', 'confirmed', '源值为 null 时保持 field_missing，不转换为 0'],
+            ['future_search_conversion_rate', '未来搜索订单页转化率', 'traffic_report', 'traffic', 'querySearchFlowDetails', 'conversionsRatesDataList', 'percent', '%', 'confirmed', '按 effectDateList 下标对齐的订单页转化率'],
             ['competitor_visitor', '竞品访客', 'business_overview', 'traffic', 'getDayReportFlowCompete', 'comhtluv', 'integer', '人', 'confirmed', '直接取整数'],
             ['competitor_orders', '竞品订单', 'business_overview', 'business', 'getDayReportFlowCompete', 'ordquantity', 'integer', '单', 'confirmed', '直接取整数'],
             ['competitor_revenue', '竞品收入', 'business_overview', 'business', 'getDayReportFlowCompete', 'ordamount', 'amount', '元', 'confirmed', '转金额'],
@@ -558,6 +573,31 @@ final class CtripProfileFieldMetaService
             'ownership_rule' => $ownershipRule,
             'storage_field' => $storageField,
         ]);
+    }
+
+    public static function futureSearch(string $fieldKey): array
+    {
+        $map = [
+            'target_date' => ['data.effectDateList[index]', '未来入住日期维度；与采集日期分开保存。', 'online_daily_data.raw_data.dimension_values.target_date'],
+            'search_window' => ['request.searchType', '0=累计，1=昨日。', 'online_daily_data.raw_data.dimension_values.search_window'],
+            'compare_scope' => ['request.dataType', '0=本店，3=竞争圈平均。', 'online_daily_data.compare_type + raw_data.dimension_values.compare_scope'],
+            'future_search_pv' => ['data.pvDataList[index]', '携程 OTA 详情页浏览量；按未来入住日期对齐。', 'online_daily_data.raw_data.metrics.future_search_pv'],
+            'future_search_uv' => ['data.uvDataList[index]', '携程 OTA 详情页访客量；按未来入住日期对齐。', 'online_daily_data.raw_data.metrics.future_search_uv'],
+            'future_search_order_count' => ['data.orderDataList[index]', 'null 保持 field_missing，不写 0。', 'online_daily_data.raw_data.metrics.future_search_order_count'],
+            'future_search_conversion_rate' => ['data.conversionsRatesDataList[index]', '携程 OTA 订单页转化率；按未来入住日期对齐。', 'online_daily_data.raw_data.metrics.future_search_conversion_rate'],
+        ];
+        if (!isset($map[$fieldKey])) {
+            return [];
+        }
+
+        [$jsonPath, $ownershipRule, $storageField] = $map[$fieldKey];
+        return [
+            'page_url' => self::CTRIP_FLOW_TRANSFORM_PAGE_URL,
+            'request_url' => self::CTRIP_SEARCH_FLOW_REQUEST_URL,
+            'json_path' => $jsonPath,
+            'ownership_rule' => $ownershipRule,
+            'storage_field' => $storageField,
+        ];
     }
 
     public static function weekly(string $fieldKey): array

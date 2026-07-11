@@ -115,6 +115,7 @@ Route::post('api/hotels/', 'Hotel/create')->middleware(\app\middleware\Auth::cla
 Route::group('api/hotels', function () {
     Route::get('/', 'Hotel/index');
     Route::get('/all', 'Hotel/all');
+    Route::post('/batch-status', 'Hotel/batchStatus');
     Route::get('/merge-preview', 'Hotel/mergePreview');
     Route::post('/merge-execute', 'Hotel/mergeExecute');
     Route::get('/:id', 'Hotel/read');
@@ -127,6 +128,7 @@ Route::group('api/hotels', function () {
 Route::group('api/users', function () {
     Route::get('/', 'User/index');
     Route::get('/roles', 'User/roles');
+    Route::post('/batch-status', 'User/batchStatus');
     Route::get('/:id', 'User/read');
     Route::post('/', 'User/create');
     Route::put('/:id', 'User/update');
@@ -219,6 +221,7 @@ Route::group('api/online-data', function () {
     Route::post('/capture-meituan-browser', 'OnlineData/captureMeituanBrowserData');
     Route::post('/save-meituan-captured-data', 'OnlineData/saveMeituanCapturedData');
     Route::get('/ctrip/latest', 'OnlineData/ctripLatest');
+    Route::get('/ctrip/search-opportunity', 'OnlineData/ctripSearchOpportunity');
     Route::get('/ctrip/history', 'OnlineData/ctripHistory');
     Route::post('/fetch-custom', 'OnlineData/fetchCustom');
     Route::post('/save-cookies', 'OnlineData/saveCookies');
@@ -381,13 +384,6 @@ Route::group('api/revenue-ai', function () {
     Route::post('/price-suggestions/:id/execution-intent', 'RevenueAi/createPriceSuggestionExecutionIntent');
 })->middleware(\app\middleware\Auth::class);
 
-// ==================== AI 筹建管理路由 ====================
-Route::group('api/ai', function () {
-    Route::post('/strategy', 'Ai/strategy');
-    Route::post('/simulation', 'Ai/simulation');
-    Route::post('/feasibility', 'Ai/feasibility');
-})->middleware(\app\middleware\Auth::class);
-
 // ==================== AI模型配置 API ====================
 Route::group('api/ai-config', function () {
     Route::get('/models', 'AiConfig/models');
@@ -429,12 +425,10 @@ Route::group('api/macro-signals', function () {
 Route::group('api/lifecycle', function () {
     Route::get('/overview', 'Lifecycle/overview');
 })->middleware(\app\middleware\Auth::class);
-
 // ==================== P4 投资决策辅助 API ====================
 Route::group('api/investment-decision', function () {
     Route::get('/overview', 'InvestmentDecision/overview');
 })->middleware(\app\middleware\Auth::class);
-
 // ==================== 智略·战略推演 API ====================
 Route::group('api/strategy', function () {
     Route::post('/simulate', 'StrategySimulation/simulate');
@@ -443,7 +437,6 @@ Route::group('api/strategy', function () {
     Route::get('/records/:id', 'StrategySimulation/detail');
     Route::get('/records', 'StrategySimulation/records');
 })->middleware(\app\middleware\Auth::class);
-
 // ==================== 智算·量化模拟 API ====================
 Route::group('api/simulation', function () {
     Route::post('/calculate', 'Simulation/calculate');
@@ -452,7 +445,6 @@ Route::group('api/simulation', function () {
     Route::get('/records/:id', 'Simulation/detail');
     Route::get('/records', 'Simulation/records');
 })->middleware(\app\middleware\Auth::class);
-
 // ==================== 运营管理 API ====================
 Route::group('api/operation', function () {
     Route::get('/full-data', 'OperationManagement/fullData');
@@ -486,7 +478,6 @@ Route::group('api/opening', function () {
     Route::post('/projects', 'Opening/createProject');
     Route::get('/projects', 'Opening/projects');
 })->middleware(\app\middleware\Auth::class);
-
 // ==================== 扩张管理 API ====================
 Route::group('api/expansion', function () {
     Route::post('/market-evaluation', 'Expansion/marketEvaluation');
@@ -499,7 +490,6 @@ Route::group('api/expansion', function () {
     Route::get('/records/:id', 'Expansion/detail');
     Route::get('/records', 'Expansion/records');
 })->middleware(\app\middleware\Auth::class);
-
 // ==================== 转让管理 API ====================
 Route::group('api/transfer', function () {
     Route::get('/source', 'TransferDecision/source');
@@ -511,7 +501,6 @@ Route::group('api/transfer', function () {
     Route::get('/records/:id', 'TransferDecision/detail');
     Route::get('/records', 'TransferDecision/records');
 })->middleware(\app\middleware\Auth::class);
-
 // ==================== 竞对价格监控 API ====================
 Route::post('api/competitor/task', 'CompetitorApi/task');
 Route::post('api/competitor/report', 'CompetitorApi/report');
@@ -612,31 +601,15 @@ Route::group('api/agent', function () {
     Route::post('/feasibility-report/:id/execution-intent', 'Agent/createFeasibilityExecutionIntent');
     Route::delete('/feasibility-report/:id', 'Agent/feasibilityReportArchive');
     Route::get('/feasibility-report/list', 'Agent/feasibilityReportList');
-
     // 配置管理
     Route::get('/config', 'Agent/getConfig');
     Route::post('/config', 'Agent/saveConfig');
 
-    // ========== 智能员工Agent ==========
     // 知识库
     Route::get('/knowledge', 'Agent/knowledgeList');
     Route::post('/knowledge', 'Agent/saveKnowledge');
     Route::delete('/knowledge/:id', 'Agent/deleteKnowledge');
     Route::get('/knowledge-categories', 'Agent/knowledgeCategories');
-
-    // 工单管理
-    Route::get('/work-orders', 'Agent/workOrders');
-    Route::post('/work-orders', 'Agent/createWorkOrder');
-    Route::post('/work-orders/:id/assign', 'Agent/assignWorkOrder');
-    Route::post('/work-orders/:id/resolve', 'Agent/resolveWorkOrder');
-    Route::get('/work-order-stats', 'Agent/workOrderStats');
-
-    // 对话记录
-    Route::get('/conversations', 'Agent/conversations');
-    Route::get('/conversation-stats', 'Agent/conversationStats');
-
-    // 智能员工仪表板
-    Route::get('/staff-dashboard', 'Agent/staffDashboard');
 
     // ========== 收益管理Agent ==========
     // 定价建议
@@ -662,35 +635,6 @@ Route::group('api/agent', function () {
     // 收益管理仪表板
     Route::get('/revenue-dashboard', 'Agent/revenueDashboard');
 
-    // ========== 资产运维Agent ==========
-    // 设备管理
-    Route::get('/devices', 'Agent/deviceList');
-    Route::post('/devices', 'Agent/saveDevice');
-    Route::get('/device-stats', 'Agent/deviceStats');
-
-    // 能耗管理
-    Route::get('/energy-data', 'Agent/energyData');
-    Route::get('/energy-benchmarks', 'Agent/energyBenchmarks');
-    Route::post('/energy-benchmarks', 'Agent/saveEnergyBenchmark');
-    Route::post('/energy-benchmarks/auto-calculate', 'Agent/autoCalculateBenchmark');
-
-    // 节能建议
-    Route::get('/energy-suggestions', 'Agent/energySuggestions');
-    Route::post('/energy-suggestions/generate', 'Agent/generateEnergySuggestions');
-    Route::post('/energy-suggestions/:id/update', 'Agent/updateEnergySuggestion');
-
-    // 维护计划
-    Route::get('/maintenance-plans', 'Agent/maintenancePlans');
-    Route::post('/maintenance-plans', 'Agent/createMaintenancePlan');
-    Route::post('/maintenance-plans/:id/execute', 'Agent/executeMaintenancePlan');
-    Route::get('/maintenance-reminders', 'Agent/maintenanceReminders');
-    Route::post('/maintenance-plans/auto-generate', 'Agent/autoGenerateMaintenancePlans');
-
-    // 资产运维仪表板
-    Route::get('/asset-dashboard', 'Agent/assetDashboard');
-
-    // 日志和任务
+    // 日志
     Route::get('/logs', 'Agent/logs');
-    Route::get('/tasks', 'Agent/tasks');
-    Route::post('/tasks', 'Agent/createTask');
 })->middleware(\app\middleware\Auth::class);

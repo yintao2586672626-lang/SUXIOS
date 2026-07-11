@@ -10,9 +10,14 @@ use think\facade\Db;
 
 trait PlatformProfileCaptureConcern
 {
-    private function prepareCtripCookieApiCaptureFiles(array $requestData, string $projectRoot, ?int $systemHotelId): array
+    private function prepareCtripCookieApiCaptureFiles(
+        array $requestData,
+        string $projectRoot,
+        ?int $systemHotelId,
+        array $credentialPayload = []
+    ): array
     {
-        $config = $this->buildCtripCookieApiCaptureConfigFromRequest($requestData, $systemHotelId);
+        $config = $this->buildCtripCookieApiCaptureConfigFromRequest($requestData, $systemHotelId, $credentialPayload);
         $outputDir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'ctrip_capture';
         if (!is_dir($outputDir) && !mkdir($outputDir, 0775, true) && !is_dir($outputDir)) {
             throw new \InvalidArgumentException('无法创建携程 Cookie API 采集输出目录');
@@ -554,7 +559,11 @@ trait PlatformProfileCaptureConcern
         return '';
     }
 
-    private function buildCtripCookieApiCaptureConfigFromRequest(array $requestData, ?int $systemHotelId): array
+    private function buildCtripCookieApiCaptureConfigFromRequest(
+        array $requestData,
+        ?int $systemHotelId,
+        array $credentialPayload = []
+    ): array
     {
         $dataDate = $this->normalizeOnlineDataDate($requestData['data_date'] ?? $requestData['dataDate'] ?? '');
         if ($dataDate === '') {
@@ -583,7 +592,11 @@ trait PlatformProfileCaptureConcern
             $hotelId = $platformHotelId;
         }
         $profileId = trim((string)($requestData['profile_id'] ?? $requestData['profileId'] ?? $hotelId ?: 'ctrip_cookie_api'));
-        $endpoints = $this->normalizeCtripCookieApiEndpointsFromRequest($requestData, $dataDate, $hotelId);
+        $requestSource = trim((string)($requestData['request_source'] ?? ''));
+        $spiderkey = $this->resolveCtripCookieApiSpiderkey($credentialPayload);
+        $endpoints = $requestSource !== ''
+            ? $this->buildCtripCookieApiPresetEndpoints($requestSource, $spiderkey)
+            : $this->normalizeCtripCookieApiEndpointsFromRequest($requestData, $dataDate, $hotelId);
         if ($endpoints === []) {
             throw new \InvalidArgumentException('请提供携程接口 Request URL，或 endpoints/endpoints_json 接口清单');
         }
@@ -601,6 +614,69 @@ trait PlatformProfileCaptureConcern
             'data_date' => $dataDate,
             'endpoints' => $endpoints,
         ];
+    }
+
+    private function resolveCtripCookieApiSpiderkey(array $credentialPayload): string
+    {
+        foreach (['spiderkey', 'spider_key'] as $key) {
+            if (isset($credentialPayload[$key]) && is_scalar($credentialPayload[$key])) {
+                $value = trim((string)$credentialPayload[$key]);
+                if ($value !== '') {
+                    return $value;
+                }
+            }
+        }
+
+        foreach (['auth_data', 'authData', 'extra_params', 'extraParams'] as $key) {
+            $value = $credentialPayload[$key] ?? [];
+            if (is_string($value)) {
+                $value = json_decode($value, true) ?: [];
+            }
+            if (!is_array($value)) {
+                continue;
+            }
+            foreach (['spiderkey', 'spider_key'] as $spiderkeyKey) {
+                if (isset($value[$spiderkeyKey]) && is_scalar($value[$spiderkeyKey])) {
+                    $spiderkey = trim((string)$value[$spiderkeyKey]);
+                    if ($spiderkey !== '') {
+                        return $spiderkey;
+                    }
+                }
+            }
+        }
+
+        return '';
+    }
+
+    private function buildCtripCookieApiPresetEndpoints(string $requestSource, string $spiderkey = ''): array
+    {
+        if ($requestSource !== 'traffic_report') {
+            throw new \InvalidArgumentException('未知的携程 Cookie API 采集预设');
+        }
+
+        $requestUrl = 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/querySearchFlowDetails?hostType=Ebooking';
+        $endpoints = [];
+        foreach ([[0, '0'], [3, '0'], [0, '1'], [3, '1']] as [$dataType, $searchType]) {
+            $payload = [
+                'platform' => 'Ctrip',
+                'dataType' => $dataType,
+                'searchType' => $searchType,
+                'fingerPrintKeys' => '',
+                'spiderVersion' => '2.0',
+            ];
+            if ($spiderkey !== '') {
+                $payload['spiderkey'] = $spiderkey;
+            }
+            $endpoints[] = [
+                'request_url' => $requestUrl,
+                'method' => 'POST',
+                'payload' => $payload,
+                'headers' => [],
+                'section' => 'traffic_report',
+            ];
+        }
+
+        return $endpoints;
     }
 
     private function normalizeCtripCookieApiEndpointsFromRequest(array $requestData, string $dataDate = '', string $hotelId = ''): array

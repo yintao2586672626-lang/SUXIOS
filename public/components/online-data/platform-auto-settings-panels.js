@@ -199,10 +199,20 @@
                 <div v-if="ctx.autoFetchRunState.active || ctx.autoFetchRunState.message || ctx.autoFetchStatus?.last_result" class="rounded-lg border bg-white px-4 py-3 text-sm">
                     <span class="font-medium text-gray-900">最近结果：</span>
                     <span :class="ctx.autoFetchRunState.active ? 'text-blue-700' : ((ctx.autoFetchStatus?.last_result?.success === true || ctx.autoFetchRunState.type === 'success') ? 'text-green-700' : 'text-red-700')">
-                        {{ ctx.autoFetchRunState.message || ctx.autoFetchStatus?.last_result?.message || '-' }}
+                        {{ ctx.autoFetchResultMessage(ctx.autoFetchRunState.message || ctx.autoFetchStatus?.last_result?.message) }}
                     </span>
                     <div v-if="ctx.autoFetchRunState.active" class="mt-2 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">
                         已运行 {{ ctx.formatAutoFetchElapsed(ctx.autoFetchRunElapsedSeconds) }}。{{ ctx.autoFetchRunningHint }}
+                    </div>
+                    <div v-if="ctx.autoFetchRunState.active && ctx.autoFetchPlatformProgressRows.length" class="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+                        <div v-for="row in ctx.autoFetchPlatformProgressRows" :key="'auto-fetch-progress-' + row.platform" class="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="font-medium text-slate-800">{{ row.label }}</span>
+                                <span :class="['rounded border px-2 py-0.5', row.status_class]">{{ row.status_text }}</span>
+                            </div>
+                            <div class="mt-1 text-slate-600">{{ row.message || '-' }}</div>
+                            <div v-if="row.status === 'success'" class="mt-1 text-slate-500">已写入 {{ row.saved_count }} 次数据操作</div>
+                        </div>
                     </div>
                     <div v-if="ctx.autoFetchTimingRows.length" class="mt-2 flex flex-wrap gap-1.5 text-xs">
                         <span v-for="row in ctx.autoFetchTimingRows" :key="'auto-fetch-timing-' + row.key" class="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-slate-600">
@@ -221,11 +231,11 @@
                                 <span class="font-medium text-slate-800">{{ row.platform === 'meituan' ? '美团' : '携程' }}</span>
                                 <span :class="['rounded px-2 py-0.5 text-xs', ctx.autoFetchResultStatusClass(row)]">{{ ctx.autoFetchResultStatusText(row) }}</span>
                             </div>
-                            <div class="mt-1 text-xs text-slate-500">入库 {{ row.saved_count || 0 }} 条 · {{ row.mode_label || ctx.autoFetchModeLabel(row.auto_fetch_mode) }}</div>
-                            <div class="mt-1 text-xs text-slate-600">{{ row.message || '-' }}</div>
+                            <div class="mt-1 text-xs text-slate-500">写入操作 {{ row.saved_count || 0 }} 次 · {{ row.mode_label || ctx.autoFetchModeLabel(row.auto_fetch_mode) }}</div>
+                            <div class="mt-1 text-xs text-slate-600">{{ ctx.autoFetchResultMessage(row.message, row.saved_count) }}</div>
                             <div v-if="Array.isArray(row.modules) && row.modules.length" class="mt-2 flex flex-wrap gap-1">
                                 <span v-for="(module, index) in row.modules" :key="row.platform + '-' + (module.module || 'module') + '-' + index" :class="['rounded border px-2 py-0.5 text-xs', ctx.autoFetchResultStatusClass(module)]">
-                                    {{ ctx.autoFetchModuleLabel(module.module) }} · {{ module.saved_count || 0 }}
+                                    {{ ctx.autoFetchModuleLabel(module.module) }} · 写入操作 {{ module.saved_count || 0 }} 次
                                 </span>
                             </div>
                         </div>

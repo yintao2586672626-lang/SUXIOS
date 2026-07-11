@@ -254,9 +254,26 @@ function isPlatformReady(platformPayload, gate) {
     && asArray(gate?.action_missing_inputs).length === 0;
 }
 
-function isStepReady(step, platformReady) {
+function profileStepAuthorityScore(step) {
+  const dataSourceStatus = String(step?.data_source_status || '').trim().toLowerCase();
+  const bindingStatus = safeProfileBinding(step).status;
+  const sessionVerified = step?.current_session_probe_performed === true
+    && step?.current_session_verified === true;
+  return (['success', 'ready'].includes(dataSourceStatus) ? 100 : 0)
+    + (bindingStatus === 'ready' ? 50 : 0)
+    + (sessionVerified ? 25 : 0)
+    + (positiveInt(step?.data_source_id) > 0 ? 5 : 0);
+}
+
+function isStepReady(step, platformReady, options = {}) {
   if (!platformReady) {
     return false;
+  }
+  if (options.authoritative === false) {
+    return false;
+  }
+  if (options.multiSourceHotel === true && options.authoritative === true) {
+    return true;
   }
   const latestSyncTask = step?.latest_sync_task && typeof step.latest_sync_task === 'object'
     ? step.latest_sync_task
@@ -264,11 +281,8 @@ function isStepReady(step, platformReady) {
   if (latestSyncTask.target_date_rows_proved === false) {
     return false;
   }
-  const latestTaskDiagnosis = String(latestSyncTask.diagnosis || latestSyncTask.message_code || '').trim().toLowerCase();
-  if (latestTaskDiagnosis.includes('requires_p0_target_date_verifier')) {
-    return false;
-  }
-  return true;
+  const diagnosis = String(latestSyncTask.diagnosis || latestSyncTask.message_code || '').trim().toLowerCase();
+  return !diagnosis.includes('requires_p0_target_date_verifier');
 }
 
 function profileFlowBlockingReasonCodes(step) {
@@ -455,13 +469,36 @@ function buildReport(verifier) {
       : {};
     const operatorSkipActive = skipped.skipAll || skipped.platforms.has(platform.toLowerCase());
     const platformReady = isPlatformReady(platformPayload, gate);
-    const steps = asArray(gate.hotel_scoped_next_steps).map((step) => compactStep(platform, step, {
-      operatorSkipActive,
-      platformReady: isStepReady(step, platformReady),
-      platformGateReady: platformReady,
-      platformGateStatus: gate.status || '',
-      platformActionStatus: gate.action_status || '',
-    }));
+    const rawSteps = asArray(gate.hotel_scoped_next_steps);
+    const stepIndexesByHotel = new Map();
+    rawSteps.forEach((step, index) => {
+      const hotelId = positiveInt(step?.system_hotel_id);
+      if (!stepIndexesByHotel.has(hotelId)) stepIndexesByHotel.set(hotelId, []);
+      stepIndexesByHotel.get(hotelId).push(index);
+    });
+    const authoritativeStepIndexes = new Set();
+    for (const indexes of stepIndexesByHotel.values()) {
+      const selectedIndex = [...indexes].sort((left, right) => (
+        profileStepAuthorityScore(rawSteps[right]) - profileStepAuthorityScore(rawSteps[left])
+        || positiveInt(rawSteps[right]?.data_source_id) - positiveInt(rawSteps[left]?.data_source_id)
+      ))[0];
+      if (selectedIndex !== undefined) authoritativeStepIndexes.add(selectedIndex);
+    }
+    const steps = rawSteps.map((step, index) => {
+      const hotelId = positiveInt(step?.system_hotel_id);
+      const sameHotelIndexes = stepIndexesByHotel.get(hotelId) || [];
+      const authoritative = authoritativeStepIndexes.has(index);
+      return compactStep(platform, step, {
+        operatorSkipActive,
+        platformReady: isStepReady(step, platformReady, {
+          authoritative,
+          multiSourceHotel: sameHotelIndexes.length > 1,
+        }),
+        platformGateReady: platformReady,
+        platformGateStatus: gate.status || '',
+        platformActionStatus: gate.action_status || '',
+      });
+    });
     const targetDateTrafficSystemHotelRowCounts = intRecord(gate.system_hotel_row_counts);
     const targetDateTrafficSystemHotelIds = uniquePositiveInts(
       asArray(gate.system_hotel_ids).length > 0
@@ -487,9 +524,33 @@ function buildReport(verifier) {
     const derivedLoginTriggerCount = steps.filter((step) => step.login_trigger_entry).length;
     const derivedAfterLoginSyncCount = steps.filter((step) => step.after_login_sync_entry).length;
     const hotelStepReadyCount = steps.filter((step) => step.platform_ready).length;
-    const hotelStepIncompleteCount = steps.filter((step) => !step.platform_ready && !step.operator_skip_active).length;
-    const hotelStepBlockingReasonCodes = Array.from(new Set(steps.flatMap((step) => asArray(step.blocking_reason_codes))));
-    const profileFlowIncompleteSteps = steps.filter((step) => !step.profile_flow_ready && !step.operator_skip_active);
+    const readyHotelIds = new Set(uniquePositiveInts(
+      steps.filter((step) => step.platform_ready).map((step) => step.system_hotel_id),
+    ));
+    const profileFlowReadyHotelIds = new Set(uniquePositiveInts(
+      steps.filter((step) => step.profile_flow_ready).map((step) => step.system_hotel_id),
+    ));
+    const targetHotelIds = new Set(
+      targetDateTrafficSystemHotelIds.length > 0 ? targetDateTrafficSystemHotelIds : stepSystemHotelIds,
+    );
+    const hotelStepIncompleteSteps = steps.filter((step) => {
+      const hotelId = positiveInt(step.system_hotel_id);
+      return !step.platform_ready
+        && !step.operator_skip_active
+        && targetHotelIds.has(hotelId)
+        && !readyHotelIds.has(hotelId);
+    });
+    const hotelStepIncompleteCount = hotelStepIncompleteSteps.length;
+    const hotelStepBlockingReasonCodes = Array.from(new Set(
+      hotelStepIncompleteSteps.flatMap((step) => asArray(step.blocking_reason_codes)),
+    ));
+    const profileFlowIncompleteSteps = steps.filter((step) => {
+      const hotelId = positiveInt(step.system_hotel_id);
+      return !step.profile_flow_ready
+        && !step.operator_skip_active
+        && targetHotelIds.has(hotelId)
+        && !profileFlowReadyHotelIds.has(hotelId);
+    });
     const profileFlowBlockingReasonCodes = Array.from(new Set([
       ...profileFlowIncompleteSteps.flatMap((step) => asArray(step.profile_flow_blocking_reason_codes)),
       ...targetTrafficScopeBlockingReasonCodes,
@@ -818,7 +879,6 @@ function buildDownstreamGate(payload, completionGate, platformSummaries = [], pl
     ['revenue_analysis', '收益分析'],
     ['ai_decision_advice', 'AI 决策建议'],
     ['operation_closure', '运营闭环'],
-    ['investment_judgment', '投资判断'],
   ];
 
   for (const platformPayload of asArray(payload?.platforms)) {

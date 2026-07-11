@@ -161,33 +161,6 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertSame('price', $operationPreflight['projected_payload_template']['object_type']);
         self::assertSame('price_adjust', $operationPreflight['projected_payload_template']['action_type']);
         self::assertFalse($operationPreflight['projected_payload_template']['auto_write_ota']);
-        $investmentHandoff = $overview['operation_to_investment_handoff'];
-        $investmentPrecheck = $investmentHandoff['investment_precheck_packet'];
-        self::assertSame($overview['pricing_readiness']['operation_to_investment_handoff'], $investmentHandoff);
-        self::assertSame($investmentHandoff, $overview['actions'][0]['operation_to_investment_handoff']);
-        self::assertSame($investmentPrecheck, $overview['actions'][0]['investment_precheck_packet']);
-        self::assertSame('investment_precheck_blocked_by_operation_roi', $investmentHandoff['status']);
-        self::assertSame('investment_decision', $investmentHandoff['target_module']);
-        self::assertSame('InvestmentDecisionSupportService::buildOverviewFromEvidence', $investmentHandoff['target_service']);
-        self::assertSame('/api/investment-decision/overview', $investmentHandoff['target_entry']);
-        self::assertFalse($investmentHandoff['persisted']);
-        self::assertFalse($investmentHandoff['decision_allowed']);
-        self::assertFalse($investmentHandoff['can_create_investment_decision']);
-        self::assertSame('operation_intake_blocked_by_manual_review', $investmentHandoff['upstream_operation_intake_status']);
-        self::assertSame(0, $investmentHandoff['operation_roi_ready']);
-        self::assertSame('not_ready', $investmentHandoff['operating_gate_status']);
-        self::assertSame('not_closed', $investmentHandoff['business_closure_chain_status']);
-        self::assertContains('closed_operating_roi_missing', $investmentHandoff['blocked_reasons']);
-        self::assertContains('operation_intake_not_approved', $investmentHandoff['blocked_reasons']);
-        self::assertContains('operation_execution.roi_ready', $investmentHandoff['required_before_investment']);
-        self::assertContains('decision_record.readiness_ready', $investmentHandoff['required_before_investment']);
-        self::assertContains('create_investment_decision_from_ota_channel_only', $investmentHandoff['forbidden_actions']);
-        self::assertContains('create_investment_record_without_closed_operation_roi', $investmentHandoff['forbidden_actions']);
-        self::assertSame('blocked_by_operation_roi', $investmentPrecheck['status']);
-        self::assertSame('read_only_precheck_from_closed_operation_gate', $investmentPrecheck['source_policy']);
-        self::assertSame('operation_execution.roi_ready', $investmentPrecheck['required_gate']);
-        self::assertContains('operation_execution.roi_ready', $investmentPrecheck['missing_evidence_codes']);
-        self::assertSame('investment_decision_requires_closed_operation_roi_not_ota_channel_only', $investmentPrecheck['protected_boundary']);
     }
 
     public function testFloorPriceMissingResolutionSpecRequiresExplicitGuardInput(): void
@@ -259,7 +232,7 @@ final class RevenueAiOverviewServiceTest extends TestCase
                     'required_upstream_status' => 'ready',
                     'scope_policy' => 'ota_channel_gate_before_downstream_claims',
                     'blocking_missing_inputs' => ['manual_login_state_verified', 'target_date_traffic_rows'],
-                    'blocked_stage_keys' => ['revenue_analysis', 'ai_decision_advice', 'operation_closure', 'investment_judgment'],
+                    'blocked_stage_keys' => ['revenue_analysis', 'ai_decision_advice', 'operation_closure'],
                     'allowed_claims' => ['structure_ready_or_reference_only', 'no_whole_hotel_or_downstream_closure_claim'],
                 ],
             ]
@@ -272,7 +245,6 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertSame('blocked_by_p0_ota_gate', $overview['p1_revenue_closure']['decision_use']['status']);
         self::assertFalse($overview['p1_revenue_closure']['calculation_allowed']);
         self::assertSame('blocked_by_p0_ota_gate', $gate['evidence']['p0_downstream_gate']['status']);
-        self::assertContains('investment_judgment', $gate['evidence']['p0_downstream_gate']['blocked_stage_keys']);
         self::assertTrue($gate['evidence']['collection_quality']['provided']);
         self::assertSame('unverified', $gate['evidence']['collection_quality']['primary_quality_state']);
         self::assertContains('manual_login_state_verified', $gate['evidence']['collection_quality']['quality_flags']);
@@ -458,12 +430,6 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertSame('ctrip', $overview['ai_to_operation_handoff']['operation_intake_packet']['candidate_payload_template']['platform']);
         self::assertFalse($overview['ai_to_operation_handoff']['can_create_operation_execution']);
         self::assertFalse($overview['ai_to_operation_handoff']['auto_create_operation_execution']);
-        self::assertSame('ctrip_ota_channel_to_operation_roi', $overview['operation_to_investment_handoff']['source_scope']);
-        self::assertSame(['ctrip'], $overview['operation_to_investment_handoff']['source_channels']);
-        self::assertSame(['ctrip'], $overview['operation_to_investment_handoff']['source_platforms']);
-        self::assertSame('investment_precheck_blocked_by_operation_roi', $overview['operation_to_investment_handoff']['status']);
-        self::assertFalse($overview['operation_to_investment_handoff']['decision_allowed']);
-        self::assertFalse($overview['operation_to_investment_handoff']['can_create_investment_decision']);
     }
 
     public function testCtripOnlyRequiredP0GateCommandKeepsRevenueAiScope(): void
@@ -530,9 +496,6 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertSame('ctrip_ota_channel', $overview['ai_to_operation_handoff']['source_scope']);
         self::assertSame(['ctrip'], $overview['ai_to_operation_handoff']['source_channels']);
         self::assertSame('ctrip', $overview['ai_to_operation_handoff']['operation_intake_packet']['candidate_platform']);
-        self::assertSame('ctrip_ota_channel_to_operation_roi', $overview['operation_to_investment_handoff']['source_scope']);
-        self::assertSame(['ctrip'], $overview['operation_to_investment_handoff']['source_channels']);
-        self::assertFalse($overview['operation_to_investment_handoff']['decision_allowed']);
     }
 
     public function testAdrIsNotCalculatedWhenRoomNightDenominatorIsZero(): void
@@ -855,20 +818,6 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertContains('上一轮调价效果输入', $overview['actions'][0]['decision_basis_summary']['ready_labels']);
         self::assertSame('operation_feedback_input', array_column($overview['actions'][0]['decision_basis_summary']['items'], null, 'key')['operation_feedback_input']['key']);
         self::assertSame('ops-track', array_column($overview['actions'][0]['decision_basis_summary']['items'], null, 'key')['operation_feedback_input']['target_page']);
-        $investmentHandoff = $overview['operation_to_investment_handoff'];
-        $investmentPrecheck = $investmentHandoff['investment_precheck_packet'];
-        self::assertSame('investment_precheck_waiting_decision_record', $investmentHandoff['status']);
-        self::assertSame('waiting_decision_record_readiness', $investmentPrecheck['status']);
-        self::assertSame(1, $investmentHandoff['operation_roi_ready']);
-        self::assertSame(1, $investmentPrecheck['operation_roi_ready']);
-        self::assertSame('operation_effect_review_ready', $investmentHandoff['operation_roi_reason']);
-        self::assertSame('closed_operating_data_ready', $investmentHandoff['operating_gate_status']);
-        self::assertSame('precheck_only_not_investment_ready', $investmentHandoff['business_closure_chain_status']);
-        self::assertFalse($investmentHandoff['decision_allowed']);
-        self::assertFalse($investmentHandoff['can_create_investment_decision']);
-        self::assertContains('decision_record.readiness_ready', $investmentHandoff['blocked_reasons']);
-        self::assertContains('decision_record.readiness_ready', $investmentPrecheck['missing_evidence_codes']);
-        self::assertSame('investment_decision_requires_closed_operation_roi_not_ota_channel_only', $investmentHandoff['protected_boundary']);
         self::assertContains('进入定价建议列表完成人工批准、修改后批准、拒绝或转执行；Revenue AI 首页不自动写 OTA。', $overview['actions'][0]['next_actions']);
     }
 

@@ -147,6 +147,26 @@ final class OtaCredentialResponseTest extends TestCase
                 return $this->persistMeituanConfigMetadata($config, $actorId, $isUpdate, $expectedScope);
             }
 
+            public function resolveMeituanFetchConfig(int $hotelId): array
+            {
+                return $this->resolveMeituanFetchConfigForHotel($hotelId);
+            }
+
+            public function resolveCtripFetchConfig(int $hotelId): array
+            {
+                return $this->resolveCtripFetchConfigForHotel($hotelId);
+            }
+
+            public function collapseCtripConfigsByHotel(array $configs): array
+            {
+                return $this->collapseCtripConfigListByHotel($configs);
+            }
+
+            public function collapseMeituanConfigsByHotel(array $configs): array
+            {
+                return $this->collapseMeituanConfigListByHotel($configs);
+            }
+
             public function deleteMeituan(
                 string $configId,
                 int $hotelId,
@@ -689,6 +709,158 @@ final class OtaCredentialResponseTest extends TestCase
         self::assertStringContainsString('"credential_ref":902', $raw);
     }
 
+    public function testCtripFetchResolverRejectsReadyConfigWithoutCurrentSessionProofAndKeepsHistory(): void
+    {
+        $configs = [
+            'older-ready' => [
+                'id' => 'older-ready',
+                'config_id' => 'older-ready',
+                'name' => 'Older ready',
+                'hotel_id' => '58',
+                'system_hotel_id' => 58,
+                'credential_ref' => 701,
+                'credential_status' => 'ready',
+                'has_cookies' => true,
+                'update_time' => '2026-07-10 10:00:00',
+            ],
+            'newest-not-ready' => [
+                'id' => 'newest-not-ready',
+                'config_id' => 'newest-not-ready',
+                'name' => 'Newest not ready',
+                'hotel_id' => '58',
+                'system_hotel_id' => 58,
+                'credential_status' => 'migration_required',
+                'has_cookies' => false,
+                'update_time' => '2026-07-12 10:00:00',
+            ],
+            'newer-ready' => [
+                'id' => 'newer-ready',
+                'config_id' => 'newer-ready',
+                'name' => 'Newer ready',
+                'hotel_id' => '58',
+                'system_hotel_id' => 58,
+                'credential_ref' => 702,
+                'credential_status' => 'ready',
+                'has_cookies' => true,
+                'update_time' => '2026-07-11 10:00:00',
+            ],
+        ];
+        Db::name('system_configs')->insert([
+            'config_key' => 'ctrip_config_list',
+            'config_value' => json_encode($configs, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ]);
+
+        $selected = $this->otaConfigHarness()->resolveCtripFetchConfig(58);
+
+        self::assertSame([], $selected);
+        self::assertSame(3, count(json_decode(
+            (string)Db::name('system_configs')->where('config_key', 'ctrip_config_list')->value('config_value'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        )));
+    }
+
+    public function testCtripListCollapsesSameHotelHistoryToLatestSuccessfulPrimary(): void
+    {
+        $collapsed = $this->otaConfigHarness()->collapseCtripConfigsByHotel([
+            [
+                'id' => 'older-ready',
+                'config_id' => 'older-ready',
+                'hotel_id' => 58,
+                'system_hotel_id' => 58,
+                'credential_status' => 'ready',
+                'has_cookies' => true,
+                'configuration_verified' => true,
+                'update_time' => '2026-07-10 10:00:00',
+            ],
+            [
+                'id' => 'newest-not-ready',
+                'config_id' => 'newest-not-ready',
+                'hotel_id' => 58,
+                'system_hotel_id' => 58,
+                'credential_status' => 'migration_required',
+                'has_cookies' => false,
+                'update_time' => '2026-07-12 10:00:00',
+            ],
+            [
+                'id' => 'newer-ready',
+                'config_id' => 'newer-ready',
+                'hotel_id' => 58,
+                'system_hotel_id' => 58,
+                'credential_status' => 'ready',
+                'has_cookies' => true,
+                'configuration_verified' => true,
+                'update_time' => '2026-07-11 10:00:00',
+            ],
+            [
+                'id' => 'hotel-59',
+                'config_id' => 'hotel-59',
+                'hotel_id' => 59,
+                'system_hotel_id' => 59,
+                'credential_status' => 'migration_required',
+                'has_cookies' => false,
+                'update_time' => '2026-07-09 10:00:00',
+            ],
+        ]);
+
+        self::assertCount(2, $collapsed);
+        self::assertSame('newer-ready', $collapsed[0]['id'] ?? null);
+        self::assertSame(2, $collapsed[0]['history_count'] ?? null);
+        self::assertSame('hotel-59', $collapsed[1]['id'] ?? null);
+        self::assertSame(0, $collapsed[1]['history_count'] ?? null);
+    }
+
+    public function testMeituanListCollapsesSameHotelHistoryToLatestSuccessfulPrimary(): void
+    {
+        $collapsed = $this->otaConfigHarness()->collapseMeituanConfigsByHotel([
+            [
+                'id' => 'older-ready',
+                'config_id' => 'older-ready',
+                'hotel_id' => 58,
+                'system_hotel_id' => 58,
+                'credential_status' => 'ready',
+                'has_cookies' => true,
+                'configuration_verified' => true,
+                'update_time' => '2026-07-10 10:00:00',
+            ],
+            [
+                'id' => 'newest-not-ready',
+                'config_id' => 'newest-not-ready',
+                'hotel_id' => 58,
+                'system_hotel_id' => 58,
+                'credential_status' => 'migration_required',
+                'has_cookies' => false,
+                'update_time' => '2026-07-12 10:00:00',
+            ],
+            [
+                'id' => 'newer-ready',
+                'config_id' => 'newer-ready',
+                'hotel_id' => 58,
+                'system_hotel_id' => 58,
+                'credential_status' => 'ready',
+                'has_cookies' => true,
+                'configuration_verified' => true,
+                'update_time' => '2026-07-11 10:00:00',
+            ],
+            [
+                'id' => 'hotel-59',
+                'config_id' => 'hotel-59',
+                'hotel_id' => 59,
+                'system_hotel_id' => 59,
+                'credential_status' => 'migration_required',
+                'has_cookies' => false,
+                'update_time' => '2026-07-09 10:00:00',
+            ],
+        ]);
+
+        self::assertCount(2, $collapsed);
+        self::assertSame('newer-ready', $collapsed[0]['id'] ?? null);
+        self::assertSame(2, $collapsed[0]['history_count'] ?? null);
+        self::assertSame('hotel-59', $collapsed[1]['id'] ?? null);
+        self::assertSame(0, $collapsed[1]['history_count'] ?? null);
+    }
+
     public function testCtripPersistenceJsonFailureRollsBackVaultAndMetadataTogether(): void
     {
         $vault = new OtaCredentialVault(
@@ -820,6 +992,8 @@ final class OtaCredentialResponseTest extends TestCase
         $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/OnlineDataRequestConcern.php');
 
         self::assertStringContainsString('saveCtripConfigPayload($requestData)', $source);
+        self::assertStringContainsString('selectLatestSuccessfulCtripConfigForHotel($list, $resolvedHotelId)', $source);
+        self::assertStringContainsString('$id = $primaryConfigId;', $source);
         self::assertStringContainsString('persistCtripConfigMetadata($config, (int)$this->currentUser->id, $isUpdate)', $source);
         self::assertStringContainsString('sanitizeStoredOtaConfigListForRuntime([$id => $list[$id]])', $source);
         self::assertStringContainsString('return $this->success($safeList[$id] ?? [])', $source);
@@ -1130,6 +1304,111 @@ final class OtaCredentialResponseTest extends TestCase
         self::assertSame(0, $vault->storeCalls);
         self::assertSame($original, Db::name('system_configs')->where('config_key', 'meituan_config_list')->value('config_value'));
         self::assertSame(0, Db::name('ota_credentials')->count());
+    }
+
+    public function testMeituanPersistenceDoesNotLetOrphanedHistoricalSiblingBlockValidTargetSave(): void
+    {
+        Db::name('system_configs')->insert([
+            'config_key' => 'meituan_config_list',
+            'config_value' => json_encode([
+                'orphaned-sibling' => [
+                    'id' => 'orphaned-sibling',
+                    'config_id' => 'orphaned-sibling',
+                    'name' => 'Orphaned historical config',
+                    'hotel_id' => '74',
+                    'system_hotel_id' => 74,
+                    'credential_ref' => 701,
+                    'credential_status' => 'ready',
+                    'has_cookies' => true,
+                    'secret_mask' => 'or****ed',
+                ],
+            ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ]);
+        $vault = new class {
+            public array $storeCalls = [];
+
+            public function store(int $tenantId, int $hotelId, string $platform, string $configId, array $payload, int $actorId): array
+            {
+                $this->storeCalls[] = func_get_args();
+                return [
+                    'credential_ref' => 912,
+                    'credential_status' => 'ready',
+                    'secret_mask' => 'mt****et',
+                ];
+            }
+        };
+
+        $saved = $this->otaConfigHarness($vault)->persistMeituan([
+            'id' => 'meituan-58',
+            'config_id' => 'meituan-58',
+            'name' => 'Valid target',
+            'hotel_id' => 58,
+            'system_hotel_id' => 58,
+            'cookies' => 'meituan-token-secret',
+        ], 77, false);
+
+        self::assertSame([[7, 58, 'meituan', 'meituan-58']], array_map(
+            static fn(array $args): array => array_slice($args, 0, 4),
+            $vault->storeCalls
+        ));
+        self::assertSame(912, $saved['credential_ref']);
+        $stored = json_decode((string)Db::name('system_configs')->where('config_key', 'meituan_config_list')->value('config_value'), true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame(74, $stored['orphaned-sibling']['system_hotel_id']);
+        self::assertSame(701, $stored['orphaned-sibling']['credential_ref']);
+        self::assertSame('ready', $stored['orphaned-sibling']['credential_status']);
+        self::assertSame(912, $stored['meituan-58']['credential_ref']);
+    }
+
+    public function testMeituanFetchResolverRejectsReadyConfigWithoutCurrentSessionProofAndKeepsHistory(): void
+    {
+        $configs = [
+            'older-ready' => [
+                'id' => 'older-ready',
+                'config_id' => 'older-ready',
+                'name' => 'Older ready',
+                'hotel_id' => '58',
+                'system_hotel_id' => 58,
+                'credential_ref' => 701,
+                'credential_status' => 'ready',
+                'has_cookies' => true,
+                'update_time' => '2026-07-10 10:00:00',
+            ],
+            'newest-not-ready' => [
+                'id' => 'newest-not-ready',
+                'config_id' => 'newest-not-ready',
+                'name' => 'Newest not ready',
+                'hotel_id' => '58',
+                'system_hotel_id' => 58,
+                'credential_status' => 'migration_required',
+                'has_cookies' => false,
+                'update_time' => '2026-07-12 10:00:00',
+            ],
+            'newer-ready' => [
+                'id' => 'newer-ready',
+                'config_id' => 'newer-ready',
+                'name' => 'Newer ready',
+                'hotel_id' => '58',
+                'system_hotel_id' => 58,
+                'credential_ref' => 702,
+                'credential_status' => 'ready',
+                'has_cookies' => true,
+                'update_time' => '2026-07-11 10:00:00',
+            ],
+        ];
+        Db::name('system_configs')->insert([
+            'config_key' => 'meituan_config_list',
+            'config_value' => json_encode($configs, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ]);
+
+        $selected = $this->otaConfigHarness()->resolveMeituanFetchConfig(58);
+
+        self::assertSame([], $selected);
+        self::assertSame(3, count(json_decode(
+            (string)Db::name('system_configs')->where('config_key', 'meituan_config_list')->value('config_value'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        )));
     }
 
     public function testMeituanPersistenceSanitizesSafeSiblingsWithoutChangingTheirCredentialMetadata(): void

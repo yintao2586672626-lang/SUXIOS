@@ -294,6 +294,19 @@ class Auth
             return ['scope' => 'ota_config_read', 'path' => $path, 'limit' => 0, 'window' => 60];
         }
 
+        if ($method === 'POST' && in_array($path, [
+            'api/online-data/fetch-ctrip',
+            'api/online-data/fetch-meituan',
+        ], true)) {
+            return [
+                'scope' => 'protected_ota_manual_fetch',
+                'path' => $path,
+                'limit' => 600,
+                'window' => 3600,
+                'capability' => (string)($capability['key'] ?? 'online_data'),
+            ];
+        }
+
         if (is_array($capability) && isset($capability['rate_limit']) && is_array($capability['rate_limit'])) {
             $rateLimit = $capability['rate_limit'];
             return [

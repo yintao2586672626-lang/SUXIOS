@@ -308,21 +308,17 @@ excludesAll('public/index.html', 'focused online-data panel removes employee and
   'employeeOtaChecklistRows',
 ]);
 
-includesAll('app/controller/concern/OnlineDataManualFetchConcern.php', 'Ctrip manual fetch treats zero Qunar visitors as partial capture', manualFetchConcern, [
+includesAll('app/controller/concern/OnlineDataManualFetchConcern.php', 'Ctrip manual fetch keeps zero Qunar visitors as a non-blocking field gap', manualFetchConcern, [
   'saved_with_qunar_visitor_gap',
   'no_saved_with_qunar_visitor_gap',
   'partial_qunar_visitor_gap',
-  '需要自动重抓最多 3 次',
-  '不能按整次成功处理',
-  '携程和去哪儿都返回有效值才算成功',
+  '仅作为字段缺口提示',
+  '不阻断携程竞争圈获取和入库',
 ]);
 
-includesAll('public/index.html', 'manual one-click Ctrip fetch retries partial Qunar visitor gaps before success', frontend, [
-  'CTRIP_QUNAR_VISITOR_AUTO_RETRY_LIMIT = 3',
+includesAll('public/index.html', 'manual one-click Ctrip fetch delegates the non-blocking Qunar gap decision to the static helper', frontend, [
   'manualOneClickFetchQunarVisitorNeedsRetry',
   'summarizeManualOneClickFetchQunarVisitorQuality(ctripHotelsList.value)',
-  '去哪儿访客仍为 0',
-  '自动重抓',
   "const summarizeManualOneClickFetchRows = requireDataHealthStatic('summarizeManualOneClickFetchRows')",
   'summarizeManualOneClickFetchRows(manualOneClickFetchRows.value)',
   'buildManualOneClickFetchRunningRow({',
@@ -334,21 +330,22 @@ includesAll('public/data-health-static.js', 'manual one-click fetch display summ
   'const buildManualOneClickFetchCards = ({',
   'const sortManualOneClickFetchRows = (rows = []) =>',
   'const summarizeManualOneClickFetchQunarVisitorQuality = (rows = []) =>',
-  'const manualOneClickFetchQunarVisitorNeedsRetry = (quality = null) =>',
+  'const manualOneClickFetchQunarVisitorNeedsRetry = () => false',
 ]);
 
-includesAll('public/ctrip-static.js', 'single Ctrip fetch warns on partial Qunar visitor gaps without marking success', ctripStatic, [
+includesAll('public/ctrip-static.js', 'single Ctrip fetch reports returned Ctrip rows as success while preserving the Qunar field gap', ctripStatic, [
   "data.qunar_visitor_quality?.status === 'partial_qunar_visitor_gap'",
-  'const ctripFetchReady = ctripRowsReturned && data.qunar_visitor_quality?.ready === true',
+  "const saveBlocked = data.save_status === 'blocked'",
+  'const ctripFetchReady = ctripRowsReturned',
   'setFetchSuccess(ctripFetchReady)',
-  '需要重抓；携程和去哪儿都返回有效值才算成功。',
-  "status: ctripFetchReady ? 'success' : (qunarVisitorGap ? 'partial_qunar_visitor_gap' : 'no_saved')",
+  '仅作为字段缺口提示，不阻断携程竞争圈获取和入库。',
+  "status: saveBlocked ? 'display_only' : (ctripFetchReady ? 'success' : 'no_saved')",
 ]);
 
-excludesAll('public/index.html', 'manual one-click fetch no longer soft-succeeds zero Qunar visitor gaps', frontend, [
-  '仅标记为字段缺口',
-  '不代表整次抓取失败',
-  '不按整次失败处理',
+excludesAll('app/controller/concern/OnlineDataManualFetchConcern.php', 'Ctrip manual fetch no longer blocks success on the Qunar field gap', manualFetchConcern, [
+  '需要自动重抓最多 3 次',
+  '不能按整次成功处理',
+  '携程和去哪儿都返回有效值才算成功',
 ]);
 
 excludesAll('app/controller/concern/OnlineDataManualFetchConcern.php', 'Ctrip manual fetch no longer cancels the whole save on zero Qunar visitors', manualFetchConcern, [
@@ -363,10 +360,10 @@ includesAll('public/index.html', 'manual one-click Ctrip fetch does not mark zer
   'buildManualOneClickFetchResultRow({',
 ]);
 
-includesAll('public/data-health-static.js', 'manual one-click Ctrip fetch result helper keeps zero-Qunar retry exhaustion blocking', dataHealthStatic, [
+includesAll('public/data-health-static.js', 'manual one-click Ctrip fetch result helper keeps zero-Qunar as non-blocking field gap', dataHealthStatic, [
   'const summarizeManualOneClickFetchResult = ({',
-  "normalizedPlatform === 'ctrip' && (!ctripRowsReturned || qunarVisitorIncomplete)",
-  '携程和去哪儿都成功才算成功',
+  "normalizedPlatform === 'ctrip' && count > 0",
+  'partial_qunar_visitor_gap',
 ]);
 
 includesAll('public/index.html', 'home entry points to daily workbench data-health view', frontend, [

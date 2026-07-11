@@ -25,10 +25,12 @@ test('Ctrip manual fetch uses a vault locator and keeps inferred hotel identity 
   assert.match(boundaryBody, /\$configId = trim\(\(string\)\(\$requestData\['config_id'\] \?\? ''\)\)/);
   assert.match(boundaryBody, /\$systemHotelId = \$this->strictPositiveOtaConfigHotelId\(\$requestData\['system_hotel_id'\] \?\? null\)/);
   assert.match(boundaryBody, /withOtaCredentialForExecution\(\s*'ctrip',\s*\$configId,\s*\$systemHotelId/);
-  assert.match(boundaryBody, /请仅提供 config_id 与 system_hotel_id/);
+  assert.match(boundaryBody, /请求包含不支持的执行字段或字段类型/);
 
   const identityBody = validator[0];
-  assert.match(identityBody, /expected_platform_hotel_id_missing/);
+  assert.match(identityBody, /platform_hotel_id_incomplete/);
+  assert.match(identityBody, /'ok' => true,[\s\S]{0,120}'warning' => true/);
+  assert.match(identityBody, /数据仍按当前选择门店归属并继续入库/);
   assert.match(identityBody, /captured_platform_hotel_id_ambiguous/);
   assert.match(identityBody, /findCtripSystemHotelMatchesByPlatformIds\(\$capturedIds\)/);
   assert.match(identityBody, /findCtripPlatformHotelIdConflicts\(\$capturedIds, \$systemHotelId\)/);

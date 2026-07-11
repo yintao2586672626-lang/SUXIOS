@@ -266,7 +266,6 @@ function buildReport(input) {
       'whole_hotel_truth_from_ota_only',
       'revenue_ai_final_decision',
       'operation_execution_completed',
-      'investment_judgment_allowed',
     ],
   };
 }
@@ -463,7 +462,7 @@ function renderMarkdown(report) {
   lines.push(`- operation_execution_draft: \`${report.downstream_gate.operation_execution_draft_status || 'not_ready'}\``);
   lines.push(`- investment_precheck: \`${report.downstream_gate.investment_precheck_status || 'not_ready'}\`, decision_allowed=\`${report.downstream_gate.decision_allowed}\``);
   lines.push(`- required gate: \`${report.downstream_gate.required_gate_command}\``);
-  lines.push('- forbidden until ready: `whole_hotel_truth_from_ota_only`, `revenue_ai_final_decision`, `operation_execution_completed`, `investment_judgment_allowed`');
+  lines.push('- forbidden until ready: `whole_hotel_truth_from_ota_only`, `revenue_ai_final_decision`, `operation_execution_completed`');
   return `${lines.join('\n')}\n`;
 }
 

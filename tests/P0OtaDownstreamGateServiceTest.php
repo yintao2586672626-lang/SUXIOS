@@ -23,7 +23,6 @@ final class P0OtaDownstreamGateServiceTest extends TestCase
         self::assertContains('target_date_ota_rows', $gate['blocking_missing_inputs']);
         self::assertContains('target_date_traffic_rows', $gate['blocking_missing_inputs']);
         self::assertContains('revenue_analysis', $gate['blocked_stage_keys']);
-        self::assertContains('investment_judgment', $gate['blocked_stage_keys']);
         self::assertContains('no_whole_hotel_or_downstream_closure_claim', $gate['allowed_claims']);
     }
 

@@ -161,6 +161,14 @@ final class MeituanOnlineDataPersistenceService
                     'hasVipTag' => $hasVipTag,
                     'sourceLabel' => $sourceDataValue !== null ? '美团榜单返回' : ($rankPercent !== null ? '美团仅返回百分比' : '美团榜单未返回数值'),
                 ];
+                $targetPoiId = trim((string)($context['target_poi_id'] ?? $context['targetPoiId'] ?? ''));
+                if ($targetPoiId !== '' && (string)$hotelId === $targetPoiId) {
+                    $selfMetricValues = $context['self_metric_values'] ?? $context['selfMetricValues'] ?? [];
+                    if (is_array($selfMetricValues) && !empty($selfMetricValues)) {
+                        $rawData['selfMetricValues'] = $selfMetricValues;
+                        $rawData['selfMetricStatus'] = (string)($context['self_metric_status'] ?? $context['selfMetricStatus'] ?? 'returned');
+                    }
+                }
                 $sourcePath = trim((string)($item['_source_path'] ?? ''));
                 if ($sourcePath !== '') {
                     $rawData['_source_path'] = $sourcePath;
@@ -240,10 +248,10 @@ final class MeituanOnlineDataPersistenceService
             'badgeList', 'benefitTags', 'titleTags', 'identityTags', 'platformTags',
         ];
         $singleTagKeys = [
-            'vipTag', 'memberTag', 'rightsTag', 'platformTag', 'crownLevel', 'crownTag',
+            'memberTag', 'rightsTag', 'platformTag', 'crownLevel', 'crownTag',
             'brandTag', 'brandName', 'chainName', 'hotelBrand', 'groupName', 'starTag',
         ];
-        $booleanVipKeys = ['isVip', 'isVIP', 'vip', 'vipFlag', 'memberFlag', 'isMemberHotel'];
+        $booleanVipKeys = ['vipTag', 'isVip', 'isVIP', 'vip', 'vipFlag', 'memberFlag', 'isMemberHotel'];
 
         $tags = [];
         $returned = false;

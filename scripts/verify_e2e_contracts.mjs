@@ -133,11 +133,14 @@ requireText('public/index.html', ':value="u?.id || \'\'"', 'operation log user f
 requireText('public/index.html', "{{ u?.realname || u?.username || '-' }}", 'operation log user filter handles missing names');
 requireText('public/index.html', 'vue.global.prod.js?v=', 'entry versions the local Vue runtime');
 requireText('public/index.html', 'system-static.js?v=', 'entry versions the system static helper');
-requireText('public/index.html', 'ctrip-static.js?v=20260710-credential-state-hf2eb12fa58', 'entry bumps Ctrip static helper version after truthful credential-state projection');
+requireText('public/index.html', 'ctrip-static.js?v=20260711-identity-warning-owner-scope-hdbe91a6843', 'entry cache-busts the current Ctrip static helper');
 requireText('public/ctrip-static.js', 'const buildCtripBusinessCanvas', 'Ctrip static owns business download canvas rendering');
 requireText('public/index.html', "const buildCtripBusinessCanvasStatic = requireCtripStatic('buildCtripBusinessCanvas')", 'entry uses extracted Ctrip business canvas renderer');
 requireText('public/index.html', 'return buildCtripBusinessCanvasStatic({', 'entry keeps Ctrip business canvas rendering as a thin adapter');
-requireText('public/index.html', 'meituan-static.js?v=20260710-credential-state-h2d4959b678', 'entry bumps Meituan static helper version after truthful credential-state projection');
+requireText('public/index.html', 'meituan-static.js?v=20260711-config-locator-no-cross-hotel-hc6b2dd9d3f-today-absolute-completeness-progress-failure-visible-fast-incomplete-partial-state-full-health', 'entry bumps Meituan static helper version after fast incomplete and full truthful health-state fix');
+requireText('public/meituan-static.js', "rankTypes: ['P_RZ', 'P_XS', 'P_ZH', 'P_LL']", 'Meituan form uses the canonical P_LL traffic-rank type');
+requireText('public/meituan-static.js', "const meituanBatchRankTypes = ['P_RZ', 'P_XS', 'P_ZH', 'P_LL'];", 'Meituan batch tasks use the canonical P_LL traffic-rank type');
+requireNoText('public/meituan-static.js', 'P_LL_EXPOSE', 'Meituan static helper does not reintroduce the obsolete traffic-rank alias');
 requireText('public/index.html', ':data-testid="menuTestId(item)"', 'top-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(child)"', 'second-level menu uses test id helper');
 requireText('public/index.html', ':data-testid="menuTestId(grandChild)"', 'third-level menu uses test id helper');
@@ -287,8 +290,6 @@ requireText('public/index.html', "requireAppSystemStatic('getInitialLocale')", '
 requireText('public/index.html', "requireAppSystemStatic('createAiModelConfigText')", 'entry uses extracted AI model config text factory');
 requireText('public/index.html', "requireAppSystemStatic('revenueConcentration')", 'entry uses extracted revenue concentration helper');
 requireText('public/index.html', "requireAppSystemStatic('visitConcentration')", 'entry uses extracted visit concentration helper');
-requireText('public/index.html', "requireAppSystemStatic('isExpansionStaticPage')", 'entry uses extracted expansion static page detector');
-requireText('public/index.html', "requireAppSystemStatic('isSimulationStaticPage')", 'entry uses extracted simulation static page detector');
 requireText('public/system-static.js', 'const operationExecutionStatusLabel', 'system static owns operation execution status labels');
 requireText('public/system-static.js', 'const operationClosureStatusClass', 'system static owns operation closure status classes');
 requireText('public/system-static.js', 'const operationEffectStatusClass', 'system static owns operation effect status classes');
@@ -317,8 +318,6 @@ requireText('public/system-static.js', 'const getInitialLocale', 'system static 
 requireText('public/system-static.js', 'const createAiModelConfigText', 'system static owns AI model config text factory');
 requireText('public/system-static.js', 'const revenueConcentration', 'system static owns revenue concentration helper');
 requireText('public/system-static.js', 'const visitConcentration', 'system static owns visit concentration helper');
-requireText('public/system-static.js', 'const isExpansionStaticPage', 'system static owns expansion static page detector');
-requireText('public/system-static.js', 'const isSimulationStaticPage', 'system static owns simulation static page detector');
 requireText('public/index.html', "requireCtripStatic('runCtripBrowserCaptureFlow')", 'entry uses extracted Ctrip browser capture flow runner');
 requireText('app/service/BrowserProfileCaptureRequestService.php', 'final class BrowserProfileCaptureRequestService', 'browser Profile capture request planning lives in a focused service');
 requireOnlineDataControllerText('BrowserProfileCaptureRequestService::buildMeituanPlan(', 'OnlineData delegates Meituan browser Profile capture request planning');
@@ -347,7 +346,7 @@ requireText('public/ctrip-static.js', 'const resolveCtripPlatformHotelIdFromConf
 requireText('public/ctrip-static.js', 'const runCtripFetchDataFlow', 'Ctrip static runs fetch flow');
 requireText('public/ctrip-static.js', 'const isCtripRankingFormAlignedWithConfig', 'Ctrip static skips redundant ranking config application');
 requireText('app/controller/concern/OnlineDataManualFetchConcern.php', 'private function validateCtripManualBusinessHotelIdentity', 'manual Ctrip business fetch validates returned hotel identity before autosave');
-requireText('app/controller/concern/OnlineDataManualFetchConcern.php', 'expected_platform_hotel_id_missing', 'manual Ctrip business fetch blocks autosave without configured platform hotel id');
+requireText('app/controller/concern/OnlineDataManualFetchConcern.php', 'configured_platform_hotel_id_mismatch', 'manual Ctrip business fetch warns on a stale configured platform hotel id while retaining selected-store ownership');
 requireText('app/controller/concern/OnlineDataManualFetchConcern.php', 'private function resolveCtripSystemHotelIdentityFromPlatformIds', 'manual Ctrip business fetch can auto-resolve system hotel identity from returned platform hotel id');
 requireText('app/controller/concern/OnlineDataRequestConcern.php', 'public function fetchCtripCookieApiData(): Response', 'Ctrip Cookie API fetch endpoint exists');
 requireText('app/controller/concern/OnlineDataRequestConcern.php', "$identityCheck['status'] = 'expected_platform_hotel_id_missing';", 'Ctrip Cookie API blocks autosave without configured platform hotel id');
@@ -463,8 +462,6 @@ requireText('public/meituan-static.js', 'const runMeituanBrowserCaptureFlow', 'M
 requireText('public/meituan-static.js', 'const getMeituanBrowserCapturePresets', 'Meituan static exposes browser capture operation presets');
 requireText('public/meituan-static.js', 'const getMeituanBrowserCaptureSupplementModules', 'Meituan static exposes browser capture supplemental modules');
 requireText('public/meituan-static.js', 'const buildMeituanBrowserCaptureSupplementCounts', 'Meituan static summarizes browser capture supplemental counts');
-requireText('public/index.html', '美团 Profile 采集', 'Meituan manual page exposes Profile capture panel');
-requireText('public/index.html', 'runMeituanBrowserCapturePreset(preset)', 'Meituan Profile capture panel runs preset captures');
 requireText('public/index.html', 'runMeituanBrowserProfileLoginOnly', 'Meituan Profile capture panel exposes login and binding action');
 requireText('public/meituan-static.js', 'const buildMeituanCapturedPayloadSaveContext', 'Meituan static builds captured payload save context');
 requireText('public/meituan-static.js', 'const runMeituanCapturedPayloadSaveFlow', 'Meituan static runs captured payload save flow');
@@ -529,7 +526,7 @@ requireText('public/index.html', 'const openPlatformAutoTab = (options = {}) =>'
 requireText('public/index.html', 'const openOnlinePlatformAutoTab = (options = {}) =>', 'cross-page platform auto navigation uses the deduplicated entrypoint');
 requireText('public/index.html', 'const PLATFORM_AUTO_SETTINGS_PANEL_DELAY_MS = 800;', 'platform auto-fetch delays schedule/browser settings behind immediate collect controls');
 requireText('public/index.html', 'const platformAutoSettingsPanelsReady = ref(false);', 'platform auto-fetch tracks settings readiness separately from core controls');
-requireText('public/index.html', "const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260708-local-auth-copy';", 'platform auto-fetch extension panels use a versioned lazy component script');
+requireText('public/index.html', "const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260711-live-progress-profile-hotel';", 'platform auto-fetch extension panels use a versioned lazy component script');
 requireText('public/index.html', 'const ensurePlatformAutoPanelsReady = async () => {', 'platform auto-fetch extension panels load only after the delayed panel timers fire');
 requireText('public/index.html', "requireOnlineDataComponent('PlatformAutoSettingsPanelsBody')", 'platform auto-fetch settings panel resolves the lazy body component after script load');
 requireText('public/index.html', "requireOnlineDataComponent('PlatformAutoSecondaryPanelsBody')", 'platform auto-fetch secondary panel resolves the lazy body component after script load');
@@ -1608,7 +1605,7 @@ requireText('public/index.html', "requireAppSystemStatic('getHotelCodeNumber')",
 requireText('public/index.html', "requireAppSystemStatic('formatHotelCode')", 'entry uses extracted hotel-code formatter');
 requireText('public/index.html', "requireAppSystemStatic('normalizeOtaConfigHotelName')", 'entry uses extracted OTA config hotel-name normalizer');
 requireText('public/index.html', "requireAppSystemStatic('formatHotelBindingDate')", 'entry uses extracted hotel binding-date formatter');
-requireText('public/index.html', 'system-static.js?v=20260708-hotel-merge', 'entry bumps system static helper version after hotel merge helper extraction');
+requireText('public/index.html', 'system-static.js?v=20260711-hotel-merge-flow', 'entry bumps system static helper version after hotel merge helper extraction');
 requireText('public/index.html', "requireSystemStatic('buildKnowledgeImportRequestBody')", 'entry uses extracted knowledge import request body builder');
 requireText('public/index.html', "requireSystemStatic('knowledgeImportSuccessMessage')", 'entry uses extracted knowledge import success message');
 requireText('public/index.html', "requireSystemStatic('knowledgeImportErrorMessage')", 'entry uses extracted knowledge import error message');
@@ -1756,7 +1753,7 @@ requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeAi
 requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeOperationSummary')", 'entry uses extracted Phase1 operation summary builder');
 requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeClosureSummary')", 'entry uses extracted Phase1 closure summary builder');
 requireText('public/index.html', "requireDataHealthStatic('formatOnlineHistoryRaw')", 'entry uses extracted online history raw formatter');
-requireText('public/index.html', 'data-health-static.js?v=20260704-manual-one-click-fetch-20260705-ai-workbench-meituan-comparison-data-health-refresh-state-20260708-public-endpoints-release-evidence-panel-ota-field-gap-queue-employee-ota-checklist-public-token-summary-card-manual-fetch-result-qunar-quality-action-gates-workbench-write-boundary-manual-surface-focus', 'entry bumps data-health static helper version after focusing the manual collection surface');
+requireText('public/index.html', 'data-health-static.js?v=20260704-manual-one-click-fetch-20260705-ai-workbench-meituan-comparison-data-health-refresh-state-20260708-public-endpoints-release-evidence-panel-ota-field-gap-queue-employee-ota-checklist-public-token-summary-card-manual-fetch-result-qunar-quality-action-gates-workbench-write-boundary-manual-surface-focus-20260711-ctrip-qunar-gap-nonblocking', 'entry bumps data-health static helper version after making the Qunar visitor gap non-blocking for saved Ctrip data');
 requireText('public/data-health-static.js', 'const buildOnlineHistoryQueryParams', 'data-health static builds online history query parameters');
 requireText('public/data-health-static.js', 'const formatOnlineHistoryHotelOption', 'data-health static formats online history hotel options');
 requireText('public/data-health-static.js', 'const formatOnlineHistoryRaw', 'data-health static formats online history raw payloads');
@@ -2378,95 +2375,6 @@ requireNoText('public/index.html', "system_description: '授权OTA数据驱动�
 requireNoText('public/index.html', 'const rows = [...globalNotificationBackendItems.value];', 'global notification row aggregation is not re-inlined');
 requireNoText('public/index.html', 'autoFetchRecentRuns.value.slice(0, 3).forEach', 'global notification recent-run loop is not re-inlined');
 requireNoText('public/index.html', 'const readSet = new Set(globalNotificationReadIds.value);', 'global notification read-set mapping is not re-inlined');
-requireText('public/index.html', 'history-strategy-reuse', 'strategy history reuse button has stable selector');
-requireText('public/index.html', 'history-simulation-reuse', 'simulation history reuse button has stable selector');
-requireText('public/index.html', 'history-expansion-reuse', 'expansion history reuse button has stable selector');
-requireText('public/index.html', 'history-transfer-reuse', 'transfer history reuse button has stable selector');
-requireText('public/index.html', 'field-strategy-city', 'strategy city field has stable selector');
-requireNoText('public/index.html', 'aiNumber(', 'strategy payload uses the defined numeric helper');
-requireText('public/index.html', 'field-simulation-adr', 'simulation ADR field has stable selector');
-requireText('public/index.html', 'field-market-business-area', 'market business area field has stable selector');
-requireText('public/index.html', 'field-transfer-pricing-', 'transfer pricing fields have stable selectors');
-requireText('public/index.html', "requireSimulationStatic('buildTransferDecisionLayerRows')", 'entry uses extracted transfer decision layer builder');
-requireText('public/simulation-static.js', 'const buildTransferDecisionLayerRows', 'simulation static builds transfer decision layer rows');
-requireText('public/index.html', "requireSimulationStatic('buildTransferPricingPayload')", 'entry uses extracted transfer pricing payload builder');
-requireText('public/index.html', "requireSimulationStatic('buildTransferTimingPayload')", 'entry uses extracted transfer timing payload builder');
-requireText('public/index.html', "requireSimulationStatic('buildTransferDashboardPayload')", 'entry uses extracted transfer dashboard payload builder');
-requireText('public/index.html', "requireSimulationStatic('applyDefinedFields')", 'entry uses extracted defined-field merge helper');
-requireText('public/index.html', "requireSimulationStatic('buildBenchmarkModelDetailCards')", 'entry uses extracted benchmark model detail cards builder');
-requireText('public/index.html', "requireSimulationStatic('benchmarkModelDetailCompletenessText')", 'entry uses extracted benchmark model detail completeness text');
-requireText('public/index.html', "requireSimulationStatic('benchmarkModelEstimatedFields')", 'entry uses extracted benchmark model estimated fields reader');
-requireText('public/index.html', "requireSimulationStatic('buildTransferPricingCards')", 'entry uses extracted transfer pricing cards builder');
-requireText('public/index.html', "requireSimulationStatic('buildTransferPricingValuationRows')", 'entry uses extracted transfer pricing valuation rows builder');
-requireText('public/index.html', "requireSimulationStatic('transferPricingAiEvaluationSourceLabel')", 'entry uses extracted transfer pricing AI source label');
-requireText('public/index.html', "requireSimulationStatic('resolveTransferCurrentReadiness')", 'entry uses extracted transfer readiness resolver');
-requireText('public/index.html', "requireSimulationStatic('expansionRecordTypeForPage')", 'entry uses extracted expansion record type resolver');
-requireText('public/index.html', "requireSimulationStatic('filterExpansionRecords')", 'entry uses extracted expansion record filter');
-requireText('public/index.html', "requireSimulationStatic('hasExpansionRecordType')", 'entry uses extracted expansion record type presence check');
-requireText('public/index.html', "requireSimulationStatic('hasAnyExpansionRecord')", 'entry uses extracted expansion history presence check');
-requireText('public/index.html', "requireSimulationStatic('buildSimulationMetricCards')", 'entry uses extracted simulation metric cards builder');
-requireText('public/simulation-static.js', 'const buildTransferPricingPayload', 'simulation static builds transfer pricing payloads');
-requireText('public/simulation-static.js', 'const buildTransferTimingPayload', 'simulation static builds transfer timing payloads');
-requireText('public/simulation-static.js', 'const buildTransferDashboardPayload', 'simulation static builds transfer dashboard payloads');
-requireText('public/simulation-static.js', 'const applyDefinedFields', 'simulation static merges defined transfer fields');
-requireText('public/simulation-static.js', 'function buildBenchmarkModelDetailCards', 'simulation static builds benchmark model detail cards');
-requireText('public/simulation-static.js', 'function benchmarkModelDetailCompletenessText', 'simulation static builds benchmark model detail completeness text');
-requireText('public/simulation-static.js', 'function benchmarkModelEstimatedFields', 'simulation static reads benchmark model estimated fields');
-requireText('public/simulation-static.js', 'function buildTransferPricingCards', 'simulation static builds transfer pricing cards');
-requireText('public/simulation-static.js', 'function buildTransferPricingValuationRows', 'simulation static builds transfer pricing valuation rows');
-requireText('public/simulation-static.js', 'function transferPricingAiEvaluationSourceLabel', 'simulation static builds transfer pricing AI source label');
-requireText('public/simulation-static.js', 'function resolveTransferCurrentReadiness', 'simulation static owns transfer readiness resolver');
-requireText('public/simulation-static.js', 'function expansionRecordTypeForPage', 'simulation static owns expansion record type resolver');
-requireText('public/simulation-static.js', 'function filterExpansionRecords', 'simulation static owns expansion record filter');
-requireText('public/simulation-static.js', 'function hasExpansionRecordType', 'simulation static owns expansion record type presence check');
-requireText('public/simulation-static.js', 'function hasAnyExpansionRecord', 'simulation static owns expansion history presence check');
-requireText('public/simulation-static.js', 'function buildSimulationMetricCards', 'simulation static builds simulation metric cards');
-requireText('public/index.html', "requireExpansionStaticOption('buildStrategyPayload')", 'entry uses extracted strategy payload builder');
-requireText('public/expansion-static-options.js', 'const buildStrategyPayload', 'expansion static builds strategy payloads');
-requireText('public/index.html', "requireExpansionStaticOption('buildFeasibilityPayload')", 'entry uses extracted feasibility payload builder');
-requireText('public/expansion-static-options.js', 'const buildFeasibilityPayload', 'expansion static builds feasibility payloads');
-requireText('public/index.html', "requireExpansionStaticOption('marketEvaluationRiskSeverityClass')", 'entry uses extracted market evaluation risk severity class');
-requireText('public/index.html', "requireExpansionStaticOption('formatMarketEvaluationScoreChange')", 'entry uses extracted market evaluation score change formatter');
-requireText('public/index.html', "requireExpansionStaticOption('marketEvaluationScoreChangeClass')", 'entry uses extracted market evaluation score change class');
-requireText('public/index.html', "requireExpansionStaticOption('marketEvaluationCityOptionsForTier')", 'entry uses extracted market evaluation city tier filter');
-requireText('public/index.html', "requireExpansionStaticOption('secondaryMarketEvaluationCustomerOptions')", 'entry uses extracted secondary market customer filter');
-requireText('public/index.html', "requireExpansionStaticOption('buildMarketEvaluationAiJudgementRows')", 'entry uses extracted market evaluation AI judgement rows builder');
-requireText('public/index.html', "requireExpansionStaticOption('buildMarketEvaluationAiRecommendations')", 'entry uses extracted market evaluation AI recommendations builder');
-requireText('public/index.html', "requireExpansionStaticOption('buildMarketEvaluationAiAssumptions')", 'entry uses extracted market evaluation AI assumptions builder');
-requireText('public/index.html', "requireExpansionStaticOption('buildMarketEvaluationScoreFormula')", 'entry uses extracted market evaluation score formula builder');
-requireText('public/index.html', "requireExpansionStaticOption('buildMarketEvaluationScoreBreakdown')", 'entry uses extracted market evaluation score breakdown builder');
-requireText('public/index.html', "requireExpansionStaticOption('buildMarketEvaluationScorePercent')", 'entry uses extracted market evaluation score percent builder');
-requireText('public/index.html', "requireExpansionStaticOption('buildMarketEvaluationAiRiskNote')", 'entry uses extracted market evaluation AI risk note builder');
-requireText('public/index.html', "requireExpansionStaticOption('benchmarkModelAiSourceLabelForResult')", 'entry uses extracted benchmark model AI source label builder');
-requireText('public/index.html', "requireExpansionStaticOption('buildBenchmarkModelAiRecommendations')", 'entry uses extracted benchmark model AI recommendations builder');
-requireText('public/index.html', "requireExpansionStaticOption('buildBenchmarkModelAiWatchPoints')", 'entry uses extracted benchmark model AI watch points builder');
-requireText('public/index.html', "requireExpansionStaticOption('buildBenchmarkModelAiAssumptionNote')", 'entry uses extracted benchmark model AI assumption note builder');
-requireText('public/index.html', "requireExpansionStaticOption('benchmarkModelDataNoticeForResult')", 'entry uses extracted benchmark model data notice builder');
-requireText('public/index.html', "requireExpansionStaticOption('buildBenchmarkModelAiOutcomeCards')", 'entry uses extracted benchmark model AI outcome cards builder');
-requireText('public/index.html', "requireExpansionStaticOption('resolveExpansionCurrentReadiness')", 'entry uses extracted expansion readiness resolver');
-requireText('public/expansion-static-options.js', 'const marketEvaluationRiskSeverityClass', 'expansion static owns market evaluation risk severity class');
-requireText('public/expansion-static-options.js', 'const formatMarketEvaluationScoreChange', 'expansion static owns market evaluation score change formatter');
-requireText('public/expansion-static-options.js', 'const marketEvaluationScoreChangeClass', 'expansion static owns market evaluation score change class');
-requireText('public/expansion-static-options.js', 'const marketEvaluationCityOptionsForTier', 'expansion static owns market evaluation city tier filter');
-requireText('public/expansion-static-options.js', 'const secondaryMarketEvaluationCustomerOptions', 'expansion static owns secondary market customer filter');
-requireText('public/expansion-static-options.js', 'const normalizeAiRecommendationDisplay', 'expansion static owns AI recommendation display normalizer');
-requireText('public/expansion-static-options.js', 'const buildMarketEvaluationAiJudgementRows', 'expansion static owns market evaluation AI judgement rows builder');
-requireText('public/expansion-static-options.js', 'const buildMarketEvaluationAiRecommendations', 'expansion static owns market evaluation AI recommendations builder');
-requireText('public/expansion-static-options.js', 'const buildMarketEvaluationAiAssumptions', 'expansion static owns market evaluation AI assumptions builder');
-requireText('public/expansion-static-options.js', 'const buildMarketEvaluationScoreFormula', 'expansion static owns market evaluation score formula builder');
-requireText('public/expansion-static-options.js', 'const buildMarketEvaluationScoreBreakdown', 'expansion static owns market evaluation score breakdown builder');
-requireText('public/expansion-static-options.js', 'const buildMarketEvaluationScorePercent', 'expansion static owns market evaluation score percent builder');
-requireText('public/expansion-static-options.js', 'const buildMarketEvaluationAiRiskNote', 'expansion static owns market evaluation AI risk note builder');
-requireText('public/expansion-static-options.js', 'const benchmarkModelAiSourceLabelForResult', 'expansion static owns benchmark model AI source label builder');
-requireText('public/expansion-static-options.js', 'const buildBenchmarkModelAiRecommendations', 'expansion static owns benchmark model AI recommendations builder');
-requireText('public/expansion-static-options.js', 'const buildBenchmarkModelAiWatchPoints', 'expansion static owns benchmark model AI watch points builder');
-requireText('public/expansion-static-options.js', 'const buildBenchmarkModelAiAssumptionNote', 'expansion static owns benchmark model AI assumption note builder');
-requireText('public/expansion-static-options.js', 'const benchmarkModelDataNoticeForResult', 'expansion static owns benchmark model data notice builder');
-requireText('public/expansion-static-options.js', 'const buildBenchmarkModelAiOutcomeCards', 'expansion static owns benchmark model AI outcome cards builder');
-requireText('public/expansion-static-options.js', 'function resolveExpansionCurrentReadiness', 'expansion static owns expansion readiness resolver');
-requireNoText('public/index.html', 'const pricingReady = !!transferPricingResult.value;', 'transfer decision pricing ready state is not re-inlined');
-requireNoText('public/index.html', "label: '事实数据',\n                        status: snapshot ? '有快照' : '待取数'", 'transfer decision fact row is not re-inlined');
-requireNoText('public/index.html', "evidence: `定价 ${pricingReady ? '有' : '无'} / 时机 ${timingReady ? '有' : '无'}`", 'transfer decision calculation evidence is not re-inlined');
 requireTextInFiles(['public/index.html', 'public/ota-diagnosis-static.js'], 'result.diagnosis_sections', 'OTA diagnosis UI renders backend-provided diagnosis sections');
 requireNoText('public/index.html', '<script src="ota-diagnosis-static.js', 'frontend lazy-loads extracted OTA diagnosis static helper');
 requireText('public/index.html', "const otaDiagnosisStaticScript = 'ota-diagnosis-static.js", 'entry keeps OTA diagnosis static lazy script path');
@@ -2626,96 +2534,6 @@ requireText('public/operation-static.js', "text: '过程已闭环，ROI待补'",
 requireText('public/operation-static.js', "label: '过程闭环'", 'operation closure cards expose process closure count');
 requireText('public/operation-static.js', "label: 'ROI就绪'", 'operation closure cards expose ROI readiness count');
 requireText('public/operation-static.js', 'summary.roi_ready_module_count', 'operation closure cards use ROI-ready module count');
-requireText('public/operation-static.js', 'buildOpeningCategoryProgressCards', 'opening category progress cards builder lives in operation static module');
-requireText('public/operation-static.js', 'buildOpeningPositioningImpact', 'opening positioning impact builder lives in operation static module');
-requireText('public/operation-static.js', 'buildOpeningTaskProgressCards', 'opening task progress cards builder lives in operation static module');
-requireText('public/operation-static.js', 'buildOpeningTaskProgressStages', 'opening task progress stages builder lives in operation static module');
-requireText('public/operation-static.js', 'buildOpeningStatusFilterChips', 'opening status filter chips builder lives in operation static module');
-requireText('public/operation-static.js', 'buildOpeningAttentionFilterChips', 'opening attention filter chips builder lives in operation static module');
-requireText('public/operation-static.js', 'buildOpeningTaskStats', 'opening task stats builder lives in operation static module');
-requireText('public/operation-static.js', 'filterOpeningTasks', 'opening task filter lives in operation static module');
-requireText('public/operation-static.js', 'selectOpeningTasks', 'opening task selection reader lives in operation static module');
-requireText('public/operation-static.js', 'areAllFilteredOpeningTasksSelected', 'opening all-selected check lives in operation static module');
-requireText('public/operation-static.js', 'pruneOpeningTaskIds', 'opening selected-id pruning lives in operation static module');
-requireText('public/operation-static.js', 'mergeOpeningTaskSelection', 'opening selection merge lives in operation static module');
-requireText('public/operation-static.js', 'openingTaskDueLabel', 'opening task due label lives in operation static module');
-requireText('public/operation-static.js', 'openingTaskDueClass', 'opening task due class lives in operation static module');
-requireText('public/operation-static.js', 'openingTaskProgressStage', 'opening task progress stage lives in operation static module');
-requireText('public/operation-static.js', 'openingTaskProgressTextClass', 'opening task progress text class lives in operation static module');
-requireText('public/operation-static.js', 'syncOpeningTaskProgressByStatus', 'opening task status-progress sync lives in operation static module');
-requireText('public/operation-static.js', 'syncOpeningTaskStatusByProgress', 'opening task progress-status sync lives in operation static module');
-requireText('public/operation-static.js', 'buildOpeningTaskUpdatePayload', 'opening task update payload builder lives in operation static module');
-requireText('public/operation-static.js', 'snapshotOpeningTaskForRollback', 'opening task rollback snapshot builder lives in operation static module');
-requireText('public/operation-static.js', 'openingTaskPatchHasChanges', 'opening task patch guard lives in operation static module');
-requireText('public/operation-static.js', 'applyOpeningTaskPatch', 'opening task patch applier lives in operation static module');
-requireText('public/operation-static.js', 'openingRiskText', 'opening risk text lives in operation static module');
-requireText('public/operation-static.js', 'openingRiskTextClass', 'opening risk text class lives in operation static module');
-requireText('public/operation-static.js', 'openingRiskClass', 'opening risk badge class lives in operation static module');
-requireText('public/operation-static.js', 'buildOpeningProjectFormDefaults', 'opening project default form builder lives in operation static module');
-requireText('public/operation-static.js', 'normalizeOpeningProjectFormForSubmit', 'opening project submit normalizer lives in operation static module');
-requireText('public/operation-static.js', 'buildOpeningProjectFormFromProject', 'opening project form hydration lives in operation static module');
-requireText('public/index.html', 'buildOperationDecisionCards(operationFullData.value || {}, operationDisplayFormatters)', 'operation dashboard uses extracted decision card builder');
-requireText('public/index.html', "operationCanApproveExecution = requireOperationStatic(staticConfig, 'operationCanApproveExecution')", 'operation approval action guard uses extracted helper');
-requireText('public/index.html', "operationCanExecuteWithEvidence = requireOperationStatic(staticConfig, 'operationCanExecuteWithEvidence')", 'operation evidence action guard uses extracted helper');
-requireText('public/index.html', "operationCanReviewExecution = requireOperationStatic(staticConfig, 'operationCanReviewExecution')", 'operation review action guard uses extracted helper');
-requireText('public/index.html', "operationExecutionActionAvailable = requireOperationStatic(staticConfig, 'operationExecutionActionAvailable')", 'operation action availability uses extracted helper');
-requireText('public/index.html', "buildOperationExecutionTraceRows = requireOperationStatic(staticConfig, 'buildOperationExecutionTraceRows')", 'operation execution trace rows use extracted helper');
-requireText('public/index.html', 'buildOperationExecutionTraceRows(operationExecutionFlow.value?.summary || {})', 'operation execution trace rows call extracted builder');
-requireText('public/index.html', "buildOperationExecutionSummaryCards = requireOperationStatic(staticConfig, 'buildOperationExecutionSummaryCards')", 'operation execution summary cards use extracted helper');
-requireText('public/index.html', "operationExecutionBottleneckTextForSummary = requireOperationStatic(staticConfig, 'operationExecutionBottleneckText')", 'operation execution bottleneck text uses extracted helper');
-requireText('public/index.html', "operationExecutionMoneyStatusTextForStatus = requireOperationStatic(staticConfig, 'operationExecutionMoneyStatusText')", 'operation execution money status text uses extracted helper');
-requireText('public/index.html', "operationExecutionMoneyStatusClassForStatus = requireOperationStatic(staticConfig, 'operationExecutionMoneyStatusClass')", 'operation execution money status class uses extracted helper');
-requireText('public/index.html', "operationExecutionSourceText = requireOperationStatic(staticConfig, 'operationExecutionSourceText')", 'operation execution source text uses extracted helper');
-requireText('public/index.html', "operationExecutionActionTextForItem = requireOperationStatic(staticConfig, 'operationExecutionActionText')", 'operation execution action text uses extracted helper');
-requireText('public/index.html', "operationExecutionReviewTextForItem = requireOperationStatic(staticConfig, 'operationExecutionReviewText')", 'operation execution review text uses extracted helper');
-requireText('public/index.html', "operationExecutionRoiTextForRoi = requireOperationStatic(staticConfig, 'operationExecutionRoiText')", 'operation execution ROI text uses extracted helper');
-requireText('public/index.html', 'buildOperationExecutionSummaryCards(operationExecutionFlow.value?.summary || {}, operationDisplayFormatters)', 'operation execution summary cards call extracted builder');
-requireText('public/index.html', 'operationExecutionBottleneckTextForSummary(operationExecutionFlow.value?.summary || {}, { statusLabel: operationExecutionStatusLabel })', 'operation execution bottleneck text calls extracted helper');
-requireText('public/index.html', 'operationExecutionActionTextForItem(item, { strategyTypeLabel: operationStrategyTypeLabel })', 'operation execution action text calls extracted helper');
-requireText('public/index.html', 'operationExecutionReviewTextForItem(item, { statusLabel: operationExecutionStatusLabel })', 'operation execution review text calls extracted helper');
-requireText('public/index.html', 'operationExecutionRoiTextForRoi(roi, operationDisplayFormatters)', 'operation execution ROI text calls extracted helper');
-requireText('public/index.html', "String(item?.roi?.status || '') === 'ready'", 'operation execution evidence summary only counts ready ROI evidence');
-requireText('public/index.html', "buildOperationClosureSummaryBadge = requireOperationStatic(staticConfig, 'buildOperationClosureSummaryBadge')", 'operation closure summary badge uses extracted helper');
-requireText('public/index.html', "buildOperationClosureSummaryCards = requireOperationStatic(staticConfig, 'buildOperationClosureSummaryCards')", 'operation closure summary cards use extracted helper');
-requireText('public/index.html', "operationClosureGapText = requireOperationStatic(staticConfig, 'operationClosureGapText')", 'operation closure gap text uses extracted helper');
-requireText('public/index.html', 'buildOperationClosureSummaryBadge(operationClosureOverview.value?.summary || {})', 'operation closure summary badge calls extracted builder');
-requireText('public/index.html', 'buildOperationClosureSummaryCards(operationClosureOverview.value?.summary || {})', 'operation closure summary cards call extracted builder');
-requireText('public/index.html', '{{ module.reviewed_count || 0 }}', 'operation closure module card exposes review count separately from ROI count');
-requireText('public/index.html', '{{ module.roi_ready_count || 0 }}', 'operation closure module card exposes ROI-ready count');
-requireText('public/index.html', 'buildOpeningCategoryProgressCards(openingOverview.value?.category_progress || [])', 'opening category progress cards use extracted builder');
-requireText('public/index.html', 'buildOpeningPositioningImpact(openingProjectForm.value.positioning)', 'opening positioning impact uses extracted builder');
-requireText('public/index.html', 'buildOpeningTaskProgressCards(openingTaskStats.value)', 'opening progress cards use extracted builder');
-requireText('public/index.html', 'buildOpeningTaskProgressStages(openingTaskStats.value)', 'opening progress stages use extracted builder');
-requireText('public/index.html', 'buildOpeningStatusFilterChips(openingTaskStats.value)', 'opening status filter chips use extracted builder');
-requireText('public/index.html', 'buildOpeningAttentionFilterChips(openingTaskStats.value)', 'opening attention filter chips use extracted builder');
-requireText('public/index.html', 'buildOpeningTaskStats(openingTasks.value)', 'opening task stats use extracted builder');
-requireText('public/index.html', 'filterOpeningTasks(openingTasks.value, openingTaskFilter.value)', 'opening task filtering uses extracted helper');
-requireText('public/index.html', 'selectOpeningTasks(openingTasks.value, selectedOpeningTaskIds.value)', 'opening task selection uses extracted helper');
-requireText('public/index.html', 'areAllFilteredOpeningTasksSelected(filteredOpeningTasks.value, selectedOpeningTaskIds.value)', 'opening all-selected check uses extracted helper');
-requireText('public/index.html', 'pruneOpeningTaskIds(openingTasks.value, selectedOpeningTaskIds.value)', 'opening selected-id pruning uses extracted helper');
-requireText('public/index.html', 'mergeOpeningTaskSelection(filteredOpeningTasks.value, selectedOpeningTaskIds.value, checked)', 'opening selection merge uses extracted helper');
-requireText('public/index.html', "openingTaskDueLabel = requireOperationStatic(staticConfig, 'openingTaskDueLabel')", 'opening task due label uses extracted helper');
-requireText('public/index.html', "openingTaskDueClass = requireOperationStatic(staticConfig, 'openingTaskDueClass')", 'opening task due class uses extracted helper');
-requireText('public/index.html', "openingTaskProgressStage = requireOperationStatic(staticConfig, 'openingTaskProgressStage')", 'opening task progress stage uses extracted helper');
-requireText('public/index.html', "openingTaskProgressTextClass = requireOperationStatic(staticConfig, 'openingTaskProgressTextClass')", 'opening task progress text class uses extracted helper');
-requireText('public/index.html', "syncOpeningTaskProgressByStatus = requireOperationStatic(staticConfig, 'syncOpeningTaskProgressByStatus')", 'opening task status-progress sync uses extracted helper');
-requireText('public/index.html', "syncOpeningTaskStatusByProgress = requireOperationStatic(staticConfig, 'syncOpeningTaskStatusByProgress')", 'opening task progress-status sync uses extracted helper');
-requireText('public/index.html', "buildOpeningTaskUpdatePayload = requireOperationStatic(staticConfig, 'buildOpeningTaskUpdatePayload')", 'opening task update payload uses extracted helper');
-requireText('public/index.html', "snapshotOpeningTaskForRollback = requireOperationStatic(staticConfig, 'snapshotOpeningTaskForRollback')", 'opening task rollback snapshot uses extracted helper');
-requireText('public/index.html', "openingTaskPatchHasChanges = requireOperationStatic(staticConfig, 'openingTaskPatchHasChanges')", 'opening task patch guard uses extracted helper');
-requireText('public/index.html', "applyOpeningTaskPatch = requireOperationStatic(staticConfig, 'applyOpeningTaskPatch')", 'opening task patch applier uses extracted helper');
-requireText('public/index.html', 'const payload = buildOpeningTaskUpdatePayload(task)', 'opening task save payload uses extracted helper');
-requireText('public/index.html', 'const snapshot = snapshotOpeningTaskForRollback(task)', 'opening task rollback snapshot uses extracted helper at call site');
-requireText('public/index.html', 'if (!openingTaskPatchHasChanges(patch)) return', 'opening task batch patch guard uses extracted helper');
-requireText('public/index.html', 'applyOpeningTaskPatch(task, patch)', 'opening task batch patch uses extracted helper');
-requireText('public/index.html', 'applyOpeningTaskPatch(task, { status })', 'opening task status patch uses extracted helper');
-requireText('public/index.html', 'applyOpeningTaskPatch(task, { progress_percent: value })', 'opening task quick progress patch uses extracted helper');
-requireText('public/index.html', "openingRiskText = requireOperationStatic(staticConfig, 'openingRiskText')", 'opening risk text uses extracted helper');
-requireText('public/index.html', "openingRiskTextClass = requireOperationStatic(staticConfig, 'openingRiskTextClass')", 'opening risk text class uses extracted helper');
-requireText('public/index.html', "openingRiskClass = requireOperationStatic(staticConfig, 'openingRiskClass')", 'opening risk badge class uses extracted helper');
-requireText('public/index.html', "buildOpeningProjectFormDefaults = requireOperationStatic(staticConfig, 'buildOpeningProjectFormDefaults')", 'opening project default form uses extracted helper');
-requireText('public/index.html', "normalizeOpeningProjectFormForSubmitModel = requireOperationStatic(staticConfig, 'normalizeOpeningProjectFormForSubmit')", 'opening project submit normalization uses extracted helper');
-requireText('public/index.html', "buildOpeningProjectFormFromProject = requireOperationStatic(staticConfig, 'buildOpeningProjectFormFromProject')", 'opening project form hydration uses extracted helper');
 requireNoText('public/index.html', 'const openingTaskDueLabel = (task) => {', 'opening due label helper is not re-inlined in the SPA entry');
 requireNoText('public/index.html', 'const openingTaskDueClass = (task) => {', 'opening due class helper is not re-inlined in the SPA entry');
 requireNoText('public/index.html', 'const openingTaskProgressStage = (task) => {', 'opening progress stage helper is not re-inlined in the SPA entry');
@@ -2745,72 +2563,6 @@ requireNoText('public/index.html', "label: '任务进度均值'", 'opening progr
 requireNoText('public/index.html', "label: '1%-49%'", 'opening progress stages are not re-inlined in the SPA entry');
 requireNoText('public/index.html', "activeClass: 'bg-gray-900 text-white border-gray-900'", 'opening status filter chips are not re-inlined in the SPA entry');
 requireNoText('public/index.html', "value: 'dueSoon', label: '7天内到期'", 'opening attention filter chips are not re-inlined in the SPA entry');
-{
-  const context = { window: {} };
-  vm.runInNewContext(read('public/operation-static.js'), context, {
-    filename: 'public/operation-static.js',
-  });
-  const helpers = context.window.SUXI_OPERATION_STATIC;
-  const stats = {
-    total: 4,
-    done: 2,
-    doing: 1,
-    averageProgress: 63,
-    completionRate: 50,
-    overdue: 1,
-    dueSoon: 2,
-    noOwner: 1,
-    progressEmpty: 1,
-    progressLow: 1,
-    progressHigh: 1,
-    progressDone: 1,
-  };
-  const cards = helpers.buildOpeningTaskProgressCards(stats);
-  const stages = helpers.buildOpeningTaskProgressStages(stats);
-  const categoryCards = helpers.buildOpeningCategoryProgressCards([
-    { category: '证照合规', total: 0, done: 0, completion_rate: 0 },
-    { category: 'OTA上线配置', total: 3, done: 3, completion_rate: 100 },
-    { category: '员工培训演练', total: 4, done: 1, completion_rate: 25 },
-    { category: '开业营销推广', total: 2, done: 0, completion_rate: 0 },
-  ]);
-  const positioningImpact = helpers.buildOpeningPositioningImpact('高端商务');
-  const statusChips = helpers.buildOpeningStatusFilterChips(stats);
-  const attentionChips = helpers.buildOpeningAttentionFilterChips(stats);
-  const p0ClosureBadge = helpers.buildOperationClosureSummaryBadge({
-    status: 'blocked_by_p0_ota_gate',
-    process_status: 'closed',
-    roi_status: 'closed',
-  });
-  checks.push({
-    file: 'public/operation-static.js',
-    label: 'opening progress helper preserves card and stage semantics',
-    ok: cards.length === 5
-      && cards[0]?.value === '63%'
-      && cards[1]?.hint === '2/4 项已完成，推进中 1 项'
-      && cards[2]?.value === 1
-      && cards[2]?.valueClass === 'text-red-600'
-      && stages.length === 4
-      && stages.map(stage => stage.label).join('|') === '未开始|1%-49%|50%-99%|100%'
-      && stages.every(stage => stage.percent === 25),
-    detail: 'opening progress helper must keep the original labels, values, warning classes, and percentages',
-  });
-  checks.push({
-    file: 'public/operation-static.js',
-    label: 'opening display helpers preserve category, positioning, and filter semantics',
-    ok: categoryCards.length === 4
-      && categoryCards[0]?.status === '待生成'
-      && categoryCards[1]?.progressClass === 'bg-green-600'
-      && categoryCards[2]?.status === '推进中'
-      && categoryCards[3]?.statusClass === 'bg-yellow-50 text-yellow-700'
-      && positioningImpact.summary.includes('高端商务定位会提高品质体验')
-      && positioningImpact.items.includes('品质验收')
-      && statusChips.map(item => item.value).join('|') === '|todo|doing|done|blocked'
-      && attentionChips.map(item => item.value).join('|') === 'overdue|dueSoon|high|blocked|noOwner|core'
-      && p0ClosureBadge.text === 'P0未就绪'
-      && p0ClosureBadge.className.includes('text-red-700'),
-    detail: 'opening display helper extraction must keep labels, classes, positioning branches, chip order, and P0 operation closure blocking state',
-  });
-}
 requireNoText('public/index.html', 'operationFullData.reviews', 'operation dashboard does not render disabled review data');
 requireText('app/service/OperationManagementService.php', "'service_quality' => $serviceQuality", 'operation full data returns service quality summary');
 requireNoText('app/service/OperationManagementService.php', "'reviews' => $reviews", 'operation full data does not depend on review summary');
@@ -2872,17 +2624,10 @@ requireText('tests/automation/module-smoke.spec.js', 'category: classifyError(er
 requireNoText('tests/automation/module-smoke.spec.js', 'waitForTimeout', 'module smoke avoids fixed sleeps');
 requireNoText('tests/automation/module-smoke.spec.js', 'getByText', 'module smoke avoids text-only navigation selectors');
 
-requireText('tests/automation/async-page-guard.spec.js', 'installHistoryFixtures', 'async guard uses deterministic history fixtures');
-requireText('tests/automation/async-page-guard.spec.js', 'waitForResponse', 'async guard waits for delayed detail response');
-requireNoText('tests/automation/async-page-guard.spec.js', 'waitForTimeout', 'async guard avoids fixed sleeps');
 
 requireText('tests/automation/business-chains.spec.js', 'business chain: OTA import to revenue', 'business chain covers OTA to operation');
-requireText('tests/automation/business-chains.spec.js', 'business chain: market evaluation to transfer', 'business chain covers market to transfer');
-requireText('tests/automation/business-chains.spec.js', 'business chain: strategy, quant simulation, feasibility', 'business chain covers investment decision');
 requireText('tests/automation/business-chains.spec.js', '/api/online-data/save-daily-data', 'business chain imports OTA data through API');
 requireText('tests/automation/business-chains.spec.js', '/api/operation/action-tracking', 'business chain asserts operation action tracking');
-requireText('tests/automation/business-chains.spec.js', '/api/transfer/dashboard', 'business chain asserts transfer dashboard reads upstream results');
-requireText('tests/automation/business-chains.spec.js', '/api/agent/feasibility-report/generate', 'business chain asserts feasibility report persistence');
 requireText('tests/automation/business-chains.spec.js', 'E2E_API_REQUEST_TIMEOUT_MS', 'business chain API client has configurable timeout');
 requireText('tests/automation/business-chains.spec.js', 'timeout: apiRequestTimeout', 'business chain applies API timeout to auth and business calls');
 requireText('tests/automation/business-chains.spec.js', "'test-data-invalid'", 'business chain classifies invalid test data');
@@ -2905,63 +2650,6 @@ requireText('scripts/clean_project_local_artifacts.ps1', 'function Remove-Target
 requireText('scripts/clean_project_local_artifacts.ps1', '$skippedLocked = @()', 'local slimming tracks locked near-zero residual artifacts separately');
 requireText('scripts/clean_project_local_artifacts.ps1', '$remaining.files -gt 0 -and $remaining.mb -gt 1', 'local slimming only fails when meaningful residual artifact size remains');
 requireText('scripts/clean_project_local_artifacts.ps1', 'Some near-zero-size local artifact files were left in place', 'local slimming reports locked runtime log residuals explicitly');
-
-try {
-  const context = { window: {} };
-  vm.runInNewContext(read('public/simulation-static.js'), context, {
-    filename: 'public/simulation-static.js',
-  });
-  const simulationStatic = context.window.SUXI_SIMULATION_STATIC || {};
-  const buildTransferDecisionLayerRows = simulationStatic.buildTransferDecisionLayerRows;
-  if (typeof buildTransferDecisionLayerRows !== 'function') {
-    checks.push({
-      file: 'public/simulation-static.js',
-      label: 'Simulation static exports transfer decision layer builder',
-      ok: false,
-      detail: 'buildTransferDecisionLayerRows',
-    });
-  } else {
-    const readyRows = buildTransferDecisionLayerRows({
-      snapshot: { data_status: 'verified' },
-      sourceDate: '2026-06-10',
-      pricingResult: { valuation: 280 },
-      timingResult: { window: 'now' },
-      dashboardResult: { final_judgement: '可进入谈判' },
-      pricingForm: { hotel_name: '天成酒店' },
-      timingForm: {},
-    });
-    const emptyRows = buildTransferDecisionLayerRows({});
-    checks.push({
-      file: 'public/simulation-static.js',
-      label: 'Simulation static builds transfer decision rows with explicit fact, assumption, calculation and risk states',
-      ok: readyRows.length === 4
-        && readyRows[0].key === 'facts'
-        && readyRows[0].status === '有快照'
-        && readyRows[0].detail.includes('2026-06-10')
-        && readyRows[0].evidence === 'data_status: verified'
-        && readyRows[1].status === '已填写'
-        && readyRows[1].evidence === '表单输入不自动等同于已验证事实。'
-        && readyRows[2].status === '已生成'
-        && readyRows[2].evidence === '定价 有 / 时机 有'
-        && readyRows[3].status === '可汇总'
-        && readyRows[3].evidence === '可进入谈判'
-        && emptyRows[0].status === '待取数'
-        && emptyRows[0].evidence === '暂无经营快照'
-        && emptyRows[1].status === '待填写'
-        && emptyRows[2].evidence === '定价 无 / 时机 无'
-        && emptyRows[3].status === '待汇总'
-        && emptyRows[3].evidence === '暂无最终判断',
-      detail: 'buildTransferDecisionLayerRows samples',
-    });
-  }
-} catch (error) {
-  checks.push({
-    file: 'public/simulation-static.js',
-    label: 'Simulation static VM smoke check',
-    ok: false,
-    detail: error.message,
-  });
-}
 
 try {
   const context = { window: {} };
@@ -3042,6 +2730,7 @@ try {
         setFetching: value => events.push(['fetching', value]),
         startTimer: () => events.push(['timer', 'start']),
         stopTimer: () => events.push(['timer', 'stop']),
+        startMonitor: context => events.push(['monitor', 'start', context]),
         getTimestamp: () => timestamps.shift() || '2026-06-11 10:00:09',
         getBrowserHeadless: () => (overrides.browserHeadless === undefined ? true : overrides.browserHeadless),
         getCtripExecutionText: () => '携程 3 页并发',
@@ -3204,8 +2893,9 @@ try {
         && acceptedRun.events.some(event => event[0] === 'refresh' && event[1] === 'notifications')
         && !acceptedRun.events.some(event => event[0] === 'refresh' && ['online', 'history', 'latest'].includes(event[1]))
         && acceptedRun.events.some(event => event[0] === 'timer' && event[1] === 'start')
-        && acceptedRun.events.some(event => event[0] === 'timer' && event[1] === 'stop')
-        && acceptedRun.events.some(event => event[0] === 'fetching' && event[1] === false),
+        && acceptedRun.events.some(event => event[0] === 'monitor' && event[1] === 'start' && event[2]?.taskId === 'task-1')
+        && !acceptedRun.events.some(event => event[0] === 'timer' && event[1] === 'stop')
+        && !acceptedRun.events.some(event => event[0] === 'fetching' && event[1] === false),
       detail: 'runAutoFetchTriggerFlow accepted sample',
     });
     checks.push({
@@ -3523,11 +3213,9 @@ try {
       partnerId: 'partner-1',
       poiId: 'poi-1',
     });
-    const missingResourceValidation = validateMeituanBatchFetchInput({
+    const locatorOnlyValidation = validateMeituanBatchFetchInput({
       form: { hotelId: '10', dateRanges: ['1'] },
       configId: 'meituan-10',
-      partnerId: '',
-      poiId: '',
     });
     const missingCustomDateValidation = validateMeituanBatchFetchInput({
       form: { hotelId: '10', dateRanges: ['custom'], startDate: '', endDate: '' },
@@ -3549,15 +3237,14 @@ try {
         && missingConfigValidation.status === 'missing_config'
         && missingConfigValidation.level === 'warning'
         && missingConfigValidation.message.includes('可执行的美团凭证')
-        && missingResourceValidation.ok === false
-        && missingResourceValidation.level === 'warning'
-        && missingResourceValidation.message.includes('平台接口标识 / 平台门店标识')
+        && locatorOnlyValidation.ok === true
+        && locatorOnlyValidation.configId === 'meituan-10'
         && missingCustomDateValidation.ok === false
         && missingCustomDateValidation.message.includes('自定义时间')
         && validBatchInput.ok === true
         && validBatchInput.configId === 'meituan-10'
-        && validBatchInput.partnerId === 'partner-1'
-        && validBatchInput.poiId === 'poi-1',
+        && !Object.hasOwn(validBatchInput, 'partnerId')
+        && !Object.hasOwn(validBatchInput, 'poiId'),
       detail: 'validateMeituanBatchFetchInput sample',
     });
     checks.push({
@@ -3568,9 +3255,10 @@ try {
         && tasks.some(task => task.rankType === 'P_ZH' && task.dateRange === 'custom')
         && customTask?.body?.start_date === '2026-06-01'
         && customTask?.body?.end_date === '2026-06-10'
-        && customTask?.body?.partner_id === 'partner-1'
-        && customTask?.body?.poi_id === 'poi-1'
         && customTask?.body?.config_id === 'meituan-10'
+        && !Object.hasOwn(customTask?.body || {}, 'partner_id')
+        && !Object.hasOwn(customTask?.body || {}, 'poi_id')
+        && !Object.hasOwn(customTask?.body || {}, 'url')
         && !Object.hasOwn(customTask?.body || {}, 'cookies')
         && customTask?.body?.system_hotel_id === '10',
       detail: 'buildMeituanBatchFetchTasks sample',
@@ -3623,6 +3311,7 @@ try {
         poi_id: 'poi-1',
         has_cookies: true,
         credential_status: 'ready',
+        configuration_verified: true,
       }),
       applyMeituanHotelConfig: async showMessage => flowEvents.push(`apply:${showMessage}`),
       notify: (message, level) => flowEvents.push(`notify:${level || 'info'}:${message}`),
@@ -3680,6 +3369,7 @@ try {
         poi_id: 'poi-1',
         has_cookies: true,
         credential_status: 'ready',
+        configuration_verified: true,
       }),
       applyMeituanHotelConfig: async showMessage => acceptedMeituanEvents.push(`apply:${showMessage}`),
       notify: (message, level) => acceptedMeituanEvents.push(`notify:${level || 'info'}:${message}`),
@@ -3730,7 +3420,7 @@ try {
         && modelPayload.competitor_room_count === '20'
         && flowResult.status === 'success'
         && requestedBodies.length === 4
-        && requestedBodies.every(body => body.partner_id === 'partner-1' && body.poi_id === 'poi-1' && body.config_id === 'meituan-10' && !Object.hasOwn(body, 'cookies') && body.async === false && body.background === false)
+        && requestedBodies.every(body => body.config_id === 'meituan-10' && !Object.hasOwn(body, 'partner_id') && !Object.hasOwn(body, 'poi_id') && !Object.hasOwn(body, 'url') && !Object.hasOwn(body, 'cookies') && body.async === false && body.background === false)
         && flowOnlineResult.length === requestedBodies.length
         && flowDisplayPayload.display_hotels.length === 0
         && flowDisplayPayload.display_groups.length === 1
@@ -4715,10 +4405,10 @@ try {
     const fetchContext = buildOtaDiagnosisFetchContext({
       selectedHotel: { system_hotel_id: '10', hotel_id: '10' },
       form: { hotel_id: '10', start_date: '2026-06-01', end_date: '2026-06-10' },
-      ctripConfig: { id: 'ctrip-10', config_id: 'ctrip-10', credential_status: 'ready', has_cookies: true, url: 'https://ebooking.ctrip.com/api/business', node_id: '24588', ctrip_hotel_id: 'ctrip-10', name: 'Ctrip Demo', cookies: 'must-not-leak' },
+      ctripConfig: { id: 'ctrip-10', config_id: 'ctrip-10', credential_status: 'ready', has_cookies: true, configuration_verified: true, url: 'https://ebooking.ctrip.com/api/business', node_id: '24588', ctrip_hotel_id: 'ctrip-10', name: 'Ctrip Demo', cookies: 'must-not-leak' },
       ctripTrafficConfig: { enabled: true, system_hotel_id: '10', url: 'https://ebooking.ctrip.com/api/traffic', platform: 'Ctrip', cookies: 'must-not-leak' },
       ctripCookieApiConfig: { enabled: true, system_hotel_id: '10', request_urls: 'https://ebooking.ctrip.com/api/core', method: 'POST', ctrip_hotel_id: 'hotel-10', headers_json: 'Cookie: must-not-leak' },
-      meituanConfig: { id: 'meituan-10', config_id: 'meituan-10', credential_status: 'ready', has_cookies: true, url: 'https://eb.meituan.com/api/rank', partner_id: 'partner-1', poi_id: 'poi-1', data_scope: 'vpoi', cookies: 'must-not-leak' },
+      meituanConfig: { id: 'meituan-10', config_id: 'meituan-10', credential_status: 'ready', has_cookies: true, configuration_verified: true, url: 'https://eb.meituan.com/api/rank', partner_id: 'partner-1', poi_id: 'poi-1', data_scope: 'vpoi', cookies: 'must-not-leak' },
       meituanTrafficConfig: { enabled: true, system_hotel_id: '10', url: 'https://eb.meituan.com/api/traffic', partner_id: 'partner-1', poi_id: 'poi-1', cookies: 'must-not-leak' },
     });
     const tasks = buildOtaDiagnosisFetchTasks({ context: fetchContext });
@@ -4763,8 +4453,8 @@ try {
     });
     const flowEvents = [];
     let legacyReadCount = 0;
-    const flowCtripConfig = { id: 'ctrip-30', config_id: 'ctrip-30', credential_status: 'ready', has_cookies: true, node_id: '24588', url: 'https://ebooking.ctrip.com/api/business', cookies: 'must-not-leak' };
-    const flowMeituanConfig = { id: 'meituan-30', config_id: 'meituan-30', credential_status: 'ready', has_cookies: true, partner_id: 'partner-30', poi_id: 'poi-30', url: 'https://eb.meituan.com/api/rank', cookies: 'must-not-leak' };
+    const flowCtripConfig = { id: 'ctrip-30', config_id: 'ctrip-30', credential_status: 'ready', has_cookies: true, configuration_verified: true, node_id: '24588', url: 'https://ebooking.ctrip.com/api/business', cookies: 'must-not-leak' };
+    const flowMeituanConfig = { id: 'meituan-30', config_id: 'meituan-30', credential_status: 'ready', has_cookies: true, configuration_verified: true, partner_id: 'partner-30', poi_id: 'poi-30', url: 'https://eb.meituan.com/api/rank', cookies: 'must-not-leak' };
     const flowResult = await runOtaDiagnosisHotelFetchFlow({
       selectedHotel: { system_hotel_id: '30' },
       form: { hotel_id: '30', start_date: '2026-06-03', end_date: '2026-06-03' },
@@ -5072,6 +4762,9 @@ try {
         {
           hotelId: 'h1',
           hotelName: 'Alpha',
+          systemHotelName: 'Alpha',
+          compareType: 'self',
+          isSelf: true,
           quantity: 2,
           amount: 300,
           views: 10,
@@ -5081,6 +4774,9 @@ try {
         {
           hotelId: 'h1',
           hotelName: 'Alpha',
+          systemHotelName: 'Alpha',
+          compareType: 'self',
+          isSelf: true,
           roomNights: 3,
           roomRevenue: 480,
           salesRoomNights: 4,
@@ -5093,6 +4789,8 @@ try {
         {
           id: 'h2',
           name: 'Beta',
+          compareType: 'competitor',
+          isSelf: false,
           convertionRate: '6.5',
           qunarDetailCRRank: 3,
         },
@@ -5602,7 +5300,7 @@ try {
     checks.push({
       file: 'public/ai-analysis-static.js',
       label: 'AI analysis static builds Ctrip hotel selections without losing merged metrics',
-      ok: hotelSelection.hotels.length === 2
+      ok: hotelSelection.hotels.length === 1
         && hotelSelection.selectedKeys.length === 1
         && hotelSelection.selectedKeys[0] === 'h1_Alpha'
         && hotelSelection.hotels[0].poiId === 'h1'
@@ -5615,8 +5313,9 @@ try {
         && hotelSelection.hotels[0].exposure === 200
         && hotelSelection.hotels[0].amountRank === 2
         && hotelSelection.hotels[0].quantityRank === 4
-        && hotelSelection.hotels[1].poiId === 'h2'
-        && hotelSelection.hotels[1].convertionRate === 6.5,
+        && hotelSelection.comparisonHotels.length === 1
+        && hotelSelection.comparisonHotels[0].poiId === 'h2'
+        && hotelSelection.comparisonHotels[0].convertionRate === 6.5,
       detail: 'Ctrip AI hotel selection sample',
     });
     checks.push({
@@ -6439,7 +6138,7 @@ try {
       isLoggedIn: () => true,
       getSelectedCtripHotelId: () => '58',
       notify: (message, level) => fetchFlowEvents.push(`notify:${level || 'info'}:${message}`),
-      getActiveCtripConfig: () => ({ id: 'ctrip-58', config_id: 'ctrip-58', hotel_id: '58', ota_hotel_id: 'ctrip-58', has_cookies: true, credential_status: 'ready' }),
+      getActiveCtripConfig: () => ({ id: 'ctrip-58', config_id: 'ctrip-58', hotel_id: '58', ota_hotel_id: 'ctrip-58', has_cookies: true, credential_status: 'ready', configuration_verified: true }),
       applyCtripConfigObject: config => fetchFlowEvents.push(`apply:${config.hotel_id}`),
       getForm: () => ({
         nodeId: '24588',
@@ -6509,6 +6208,7 @@ try {
         ota_hotel_id: 'ctrip-58',
         has_cookies: true,
         credential_status: 'ready',
+        configuration_verified: true,
         url: 'https://ebooking.ctrip.test/api',
         node_id: '24588',
       }),
@@ -6540,7 +6240,7 @@ try {
       isLoggedIn: () => true,
       getSelectedCtripHotelId: () => '58',
       notify: (message, level) => acceptedFetchFlowEvents.push(`notify:${level || 'info'}:${message}`),
-      getActiveCtripConfig: () => ({ id: 'ctrip-58', config_id: 'ctrip-58', hotel_id: '58', ota_hotel_id: 'ctrip-58', has_cookies: true, credential_status: 'ready' }),
+      getActiveCtripConfig: () => ({ id: 'ctrip-58', config_id: 'ctrip-58', hotel_id: '58', ota_hotel_id: 'ctrip-58', has_cookies: true, credential_status: 'ready', configuration_verified: true }),
       applyCtripConfigObject: config => acceptedFetchFlowEvents.push(`apply:${config.hotel_id}`),
       getForm: () => ({
         nodeId: '24588',
@@ -6572,7 +6272,7 @@ try {
       isLoggedIn: () => true,
       getSelectedCtripHotelId: () => '58',
       notify: (message, level) => failedFlowEvents.push(`notify:${level || 'info'}:${message}`),
-      getActiveCtripConfig: () => ({ id: 'ctrip-58', config_id: 'ctrip-58', hotel_id: '58', ota_hotel_id: 'ctrip-58', has_cookies: true, credential_status: 'ready' }),
+      getActiveCtripConfig: () => ({ id: 'ctrip-58', config_id: 'ctrip-58', hotel_id: '58', ota_hotel_id: 'ctrip-58', has_cookies: true, credential_status: 'ready', configuration_verified: true }),
       getForm: () => ({ startDate: '2026-06-10', endDate: '2026-06-10' }),
       requestFetch: async () => ({
         code: 500,
@@ -6675,7 +6375,7 @@ try {
         getSystemHotelId: () => (overrides.systemHotelId === undefined ? '58' : overrides.systemHotelId),
         notify: (message, level = 'success') => events.push(['notify', level, message]),
         getActiveCtripConfig: () => (overrides.activeConfig === undefined
-          ? { id: 'ctrip-58', config_id: 'ctrip-58', ota_hotel_id: 'ctrip-hotel-1', has_cookies: true, credential_status: 'ready' }
+          ? { id: 'ctrip-58', config_id: 'ctrip-58', ota_hotel_id: 'ctrip-hotel-1', has_cookies: true, credential_status: 'ready', configuration_verified: true }
           : overrides.activeConfig),
         applyCtripConfigObject: config => events.push(['apply-config', config?.ota_hotel_id || '']),
         getForm: () => form,
@@ -6762,7 +6462,7 @@ try {
         getSystemHotelId: () => (overrides.systemHotelId === undefined ? '58' : overrides.systemHotelId),
         notify: (message, level = 'success') => events.push(['notify', level, message]),
         getActiveCtripConfig: () => (overrides.activeConfig === undefined
-          ? { id: 'ctrip-58', config_id: 'ctrip-58', ota_hotel_id: 'ctrip-hotel-1', has_cookies: true, credential_status: 'ready' }
+          ? { id: 'ctrip-58', config_id: 'ctrip-58', ota_hotel_id: 'ctrip-hotel-1', has_cookies: true, credential_status: 'ready', configuration_verified: true }
           : overrides.activeConfig),
         applyCtripConfigObject: config => events.push(['apply-config', config?.ota_hotel_id || '']),
         syncAdsDirectConfig: async showMessage => events.push(['sync-ads', showMessage]),
@@ -6862,6 +6562,7 @@ try {
         profile_id: `profile-${systemHotelId}`,
         has_cookies: true,
         credential_status: 'ready',
+        configuration_verified: true,
       }),
       applyCtripConfigObject: (config, showMessage) => cookieFlowEvents.push(`apply:${config.system_hotel_id}:${showMessage}`),
       getForm: () => ({
@@ -6894,7 +6595,7 @@ try {
     const cookieNotReadyResult = await runCtripCookieApiCaptureFlow({
       getSelectedCtripHotelId: () => '58',
       hasCtripConfigList: () => true,
-      getActiveCtripConfig: () => ({ id: 'ctrip-58', config_id: 'ctrip-58', system_hotel_id: '58', profile_id: 'profile-58', has_cookies: true, credential_status: 'ready' }),
+      getActiveCtripConfig: () => ({ id: 'ctrip-58', config_id: 'ctrip-58', system_hotel_id: '58', profile_id: 'profile-58', has_cookies: true, credential_status: 'ready', configuration_verified: true }),
       getForm: () => ({ requestUrl: 'https://ebooking.ctrip.test/api', endpointsJson: '' }),
       getOverviewForm: () => ({ dataDate: '2026-06-10' }),
       resolveProfileId: () => 'profile-58',
@@ -6907,7 +6608,7 @@ try {
     const cookieFailureResult = await runCtripCookieApiCaptureFlow({
       getSelectedCtripHotelId: () => '58',
       hasCtripConfigList: () => true,
-      getActiveCtripConfig: () => ({ id: 'ctrip-58', config_id: 'ctrip-58', system_hotel_id: '58', profile_id: 'profile-58', has_cookies: true, credential_status: 'ready' }),
+      getActiveCtripConfig: () => ({ id: 'ctrip-58', config_id: 'ctrip-58', system_hotel_id: '58', profile_id: 'profile-58', has_cookies: true, credential_status: 'ready', configuration_verified: true }),
       getForm: () => ({ requestUrl: 'https://ebooking.ctrip.test/api', endpointsJson: '' }),
       resolveProfileId: () => 'profile-58',
       resolveRequestHotelId: () => 'hotel-58',
@@ -6924,7 +6625,7 @@ try {
     const cookieExceptionResult = await runCtripCookieApiCaptureFlow({
       getSelectedCtripHotelId: () => '58',
       hasCtripConfigList: () => true,
-      getActiveCtripConfig: () => ({ id: 'ctrip-58', config_id: 'ctrip-58', system_hotel_id: '58', profile_id: 'profile-58', has_cookies: true, credential_status: 'ready' }),
+      getActiveCtripConfig: () => ({ id: 'ctrip-58', config_id: 'ctrip-58', system_hotel_id: '58', profile_id: 'profile-58', has_cookies: true, credential_status: 'ready', configuration_verified: true }),
       getForm: () => ({ requestUrl: 'https://ebooking.ctrip.test/api', endpointsJson: '' }),
       resolveProfileId: () => 'profile-58',
       resolveRequestHotelId: () => 'hotel-58',
@@ -6985,7 +6686,7 @@ try {
         getSelectedCtripHotelId: () => (overrides.selectedHotelId === undefined ? '58' : overrides.selectedHotelId),
         notify: (message, level = 'success') => events.push(['notify', level, message]),
         getActiveCtripConfig: () => (overrides.activeConfig === undefined
-          ? { id: 'ctrip-58', config_id: 'ctrip-58', hotel_id: '58', has_cookies: true, credential_status: 'ready' }
+          ? { id: 'ctrip-58', config_id: 'ctrip-58', hotel_id: '58', has_cookies: true, credential_status: 'ready', configuration_verified: true }
           : overrides.activeConfig),
         applyCtripConfigObject: config => events.push(['apply-config', config?.hotel_id || '']),
         getForm: () => form,
@@ -7953,9 +7654,42 @@ try {
       detail: 'buildHotelPlatformBindingRows',
     });
   } else {
+    const platformTodayParts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date());
+    const platformTodayValues = Object.fromEntries(platformTodayParts.map(part => [part.type, part.value]));
+    const platformToday = `${platformTodayValues.year}-${platformTodayValues.month}-${platformTodayValues.day}`;
     const platformRows = buildHotelPlatformBindingRows({
       hotel: { id: 8, name: 'Hotel A' },
-      ctripSource: { id: 31, status: 'success', config: { profile_id: 'ctrip-profile', hotel_id: 'ctrip-8' } },
+      ctripProfile: {
+        id: 31,
+        system_hotel_id: 8,
+        platform: 'ctrip',
+        ingestion_method: 'browser_profile',
+        enabled: 1,
+        status: 'ready',
+        current_session_verified: true,
+        config: {
+          profile_id: 'ctrip-profile',
+          stable_profile_id: 'ctrip-profile',
+          profile_binding_key: 'ctrip-profile',
+          hotel_id: 'ctrip-8',
+          current_session_probe_performed: true,
+          current_session_verified: true,
+          current_session_status: 'verified',
+          current_session_probe_at: `${platformToday} 09:30:00`,
+          current_session_probe_data_source_id: 31,
+          current_session_probe_date: platformToday,
+          current_session_probe_timezone: 'Asia/Shanghai',
+          current_session_probe_platform: 'ctrip',
+          current_session_probe_system_hotel_id: 8,
+          current_session_probe_scope: 'same_data_source_profile_session',
+          current_session_probe_producer: 'platform_profile_login_task',
+        },
+      },
       meituanProfile: { id: 32, status: 'active', config: {} },
       meituanConfig: { id: 4, cookies: 'mt-cookie' },
       meituanMissingFields: ['partner_id', 'poi_id'],
@@ -7980,10 +7714,10 @@ try {
       ok: platformRows.length === 2
         && ctripRow?.level === 'ready'
         && ctripRow?.loginItem?.binding?.profile_id === 'ctrip-profile'
-        && ctripRow?.canUnbind === false
+        && ctripRow?.canUnbind === true
         && meituanRow?.level === 'partial'
         && meituanRow?.statusCode === 'missing_config'
-        && meituanRow?.reasonText === 'missing_config',
+        && String(meituanRow?.reasonText || '').includes('Browser Profile'),
       detail: 'buildHotelPlatformBindingRows samples',
     });
   }
@@ -8055,6 +7789,10 @@ try {
 }
 
 const failures = checks.filter((check) => !check.ok);
+requireText('tests/automation/async-page-guard.spec.js', 'installHistoryFixtures', 'async guard uses deterministic history fixtures');
+requireText('tests/automation/async-page-guard.spec.js', 'waitForResponse', 'async guard waits for delayed detail response');
+requireNoText('tests/automation/async-page-guard.spec.js', 'waitForTimeout', 'async guard avoids fixed sleeps');
+
 if (failures.length) {
   console.error('E2E contract verification failed:');
   for (const failure of failures) {

@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 use app\controller\OnlineData;
+use app\service\OtaTrafficAttributionService;
 use think\App;
 use think\facade\Db;
 
@@ -1194,7 +1195,7 @@ function p0_authoritative_profile_identifier_resolution(string $platform, int $s
         if (!is_array($source)
             || strtolower(trim((string)($source['platform'] ?? ''))) !== $platform
             || (int)($source['system_hotel_id'] ?? 0) !== $systemHotelId
-            || !in_array(strtolower(trim((string)($source['data_type'] ?? ''))), ['traffic', 'flow', 'conversion'], true)
+            || !\app\service\OtaTrafficAttributionService::sourceCanProvideTraffic($source, (array)($source['config'] ?? []))
             || !in_array(strtolower(trim((string)($source['ingestion_method'] ?? ''))), ['browser_profile', 'profile_browser'], true)
             || !in_array(strtolower(trim((string)($source['enabled'] ?? ''))), ['1', 'true'], true)
             || strtolower(trim((string)($source['status'] ?? ''))) === 'disabled'
@@ -3273,10 +3274,12 @@ function p0_platform_data_source_availability(string $platform, string $targetDa
         $method = strtolower((string)($row['ingestion_method'] ?? 'unknown'));
         $status = strtolower((string)($row['status'] ?? 'unknown'));
         $enabled = (int)($row['enabled'] ?? 0) === 1;
+        $decodedConfig = json_decode((string)($row['config_json'] ?? ''), true);
+        $sourceConfig = is_array($decodedConfig) ? $decodedConfig : [];
 
         $methodCounts[$method] = ($methodCounts[$method] ?? 0) + 1;
         $statusCounts[$status] = ($statusCounts[$status] ?? 0) + 1;
-        if (in_array($dataType, ['traffic', 'flow', 'conversion'], true)) {
+        if (\app\service\OtaTrafficAttributionService::sourceCanProvideTraffic($row, $sourceConfig)) {
             $trafficSourceCount++;
             if ($enabled) {
                 $trafficEnabledCount++;
@@ -3292,8 +3295,6 @@ function p0_platform_data_source_availability(string $platform, string $targetDa
                 $trafficLastSyncStatusCounts[$lastSyncStatus] = ($trafficLastSyncStatusCounts[$lastSyncStatus] ?? 0) + 1;
             }
 
-            $decodedConfig = json_decode((string)($row['config_json'] ?? ''), true);
-            $sourceConfig = is_array($decodedConfig) ? $decodedConfig : [];
             $config = p0_safe_platform_config_projection($sourceConfig);
             $credentialMetadata = p0_resolve_source_credential_metadata($platform, $row, $config, $credentialSnapshot);
             $isBrowserProfileSource = p0_is_browser_profile_ingestion_method($method);
@@ -4863,7 +4864,6 @@ function p0_authoritative_profile_identifier_from_db(string $platform, int $syst
             ->field(implode(',', $fields))
             ->where('platform', $platform)
             ->where('system_hotel_id', $systemHotelId)
-            ->whereIn('data_type', ['traffic', 'flow', 'conversion'])
             ->whereIn('ingestion_method', ['browser_profile', 'profile_browser'])
             ->where('enabled', 1)
             ->where('status', '<>', 'disabled')
@@ -4880,6 +4880,9 @@ function p0_authoritative_profile_identifier_from_db(string $platform, int $syst
     foreach ($rows as $row) {
         $decodedConfig = json_decode((string)($row['config_json'] ?? ''), true);
         $config = p0_safe_platform_config_projection(is_array($decodedConfig) ? $decodedConfig : []);
+        if (!\app\service\OtaTrafficAttributionService::sourceCanProvideTraffic($row, $config)) {
+            continue;
+        }
         $profileBinding = p0_profile_binding_scope_status($platform, $row, $config, $conflictedSourceIds);
         $safeSources[] = [
             'id' => (int)($row['id'] ?? 0),
@@ -4995,6 +4998,8 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
         'data_date',
         'data_type',
         'raw_data',
+        isset($columns['platform']) ? 'platform' : '',
+        isset($columns['compare_type']) ? 'compare_type' : '',
         isset($columns['system_hotel_id']) ? 'system_hotel_id' : '',
         isset($columns['list_exposure']) ? 'list_exposure' : '',
         isset($columns['detail_exposure']) ? 'detail_exposure' : '',
@@ -5004,7 +5009,10 @@ function p0_traffic_field_fact_closure(string $platform, string $targetDate, int
         isset($columns['source_trace_id']) ? 'source_trace_id' : '',
         isset($columns['sync_task_id']) ? 'sync_task_id' : '',
     ], static fn(string $field): bool => $field !== ''));
-    $rows = $query->field(implode(',', $fieldList))->select()->toArray();
+    $rows = array_values(array_filter(
+        $query->field(implode(',', $fieldList))->select()->toArray(),
+        static fn(array $row): bool => \app\service\OtaTrafficAttributionService::rowBelongsToOwnPlatformTraffic($row, $platform)
+    ));
     $base['traffic_row_count'] = count($rows);
     if ($rows === []) {
         $base['status'] = 'no_target_date_traffic_rows';

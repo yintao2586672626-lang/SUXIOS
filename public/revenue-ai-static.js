@@ -350,12 +350,12 @@
         detail,
     });
 
-    const revenueAiClosureNextAction = ({ calculationAllowed, missingRows, anomalyRows, operationStatus, investmentAllowed }) => {
+    const revenueAiClosureNextAction = ({ calculationAllowed, missingRows, anomalyRows, operationStatus }) => {
         if (!calculationAllowed) return '先补齐已验证 OTA 数据，当前不输出收益计算结论。';
         if (anomalyRows.length > 0) return '先复核异常判断，再进入人工审核和执行证据闭环。';
         if (missingRows.length > 0) return '收益计算可用，但缺失项需保留可见并继续补齐。';
         if (!['ok', 'ready', 'reviewed'].includes(String(operationStatus || ''))) return '可进入 AI 建议输入，下一步补人工执行和效果复盘证据。';
-        return investmentAllowed ? '可作为受控输入继续流转。' : '可进入运营闭环；全酒店投决仍需独立口径证明。';
+        return '继续完成运营执行、证据记录和效果复盘。';
     };
 
     const buildRevenueAiBusinessClosure = ({ overview = null, overviewError = '', overviewLoading = false } = {}) => {
@@ -427,7 +427,6 @@
         const execution = overview.execution_summary || {};
         const operationStatus = execution.status || 'not_loaded';
         const aiDecision = decisionUse.ai_decision_support || {};
-        const investmentDecision = decisionUse.investment_decision || {};
         const closureStatus = closure.status || overview.data_status || 'unknown';
         const calculationAllowed = closure.calculation_allowed === true;
         const metricChips = [
@@ -439,12 +438,10 @@
             revenueAiClosureMetricChip(submitMetric, '提交转化', 'submit_rate'),
         ];
         const revenueAnalysisStatus = revenueAiClosureGroupStatus(metricChips);
-        const investmentAllowed = investmentDecision.allowed === true && closure.whole_hotel_guard?.allowed === true;
         const summaryChips = [
             revenueAiClosureSummaryChip('calculation', '收益计算', calculationAllowed ? '允许' : '阻断', calculationAllowed ? 'ok' : 'blocked', revenueAiReasonText(revenueUse.status || (calculationAllowed ? '' : 'blocked_by_data_credibility'))),
             revenueAiClosureSummaryChip('missing', '缺失项', `${missingRows.length}项`, missingRows.length > 0 ? 'warning' : 'ok', missingRows.length > 0 ? '继续补齐缺失项' : '关键缺失项未返回'),
             revenueAiClosureSummaryChip('anomaly', '异常判断', `${anomalyRows.length}项`, anomalyRows.length > 0 ? 'warning' : 'ok', anomalyRows.length > 0 ? '需人工复核' : '未命中异常'),
-            revenueAiClosureSummaryChip('investment', '投决边界', investmentAllowed ? '可用' : '阻断', investmentAllowed ? 'ready' : 'blocked', revenueAiReasonText(closure.whole_hotel_guard?.reason || investmentDecision.status || 'whole_hotel_scope_not_proved')),
         ];
 
         return {
@@ -455,7 +452,7 @@
             summary: closure.scope_statement || '仅基于已验证 OTA 渠道数据，不代表全酒店经营口径。',
             calculationAllowed,
             summaryChips,
-            nextAction: revenueAiClosureNextAction({ calculationAllowed, missingRows, anomalyRows, operationStatus, investmentAllowed }),
+            nextAction: revenueAiClosureNextAction({ calculationAllowed, missingRows, anomalyRows, operationStatus }),
             rows: [
                 {
                     key: 'ota-data',
@@ -493,15 +490,6 @@
                     secondary: execution.reason ? revenueAiReasonText(execution.reason) : '建议需人工审核、执行证据和效果复盘。',
                     statusLabel: revenueAiStatusLabel(operationStatus),
                     className: revenueAiStatusClass(operationStatus),
-                },
-                {
-                    key: 'investment-boundary',
-                    stage: '投决边界',
-                    title: '全酒店口径阻断',
-                    primary: investmentAllowed ? '投决输入可用' : '不进入全酒店投决',
-                    secondary: revenueAiReasonText(closure.whole_hotel_guard?.reason || investmentDecision.status || 'whole_hotel_scope_not_proved'),
-                    statusLabel: revenueAiStatusLabel(investmentAllowed ? 'ready' : 'blocked'),
-                    className: revenueAiStatusClass(investmentAllowed ? 'ready' : 'blocked'),
                 },
             ],
             missingRows,
@@ -887,97 +875,6 @@
         };
     };
 
-    const buildRevenueAiInvestmentPrecheckSummary = ({ overview = null, action = null } = {}) => {
-        const candidates = [
-            action?.operation_to_investment_handoff,
-            overview?.operation_to_investment_handoff,
-            overview?.pricing_readiness?.operation_to_investment_handoff,
-        ];
-        const handoff = candidates.find(item => item && typeof item === 'object' && Object.keys(item).length > 0) || {};
-        if (Object.keys(handoff).length === 0) {
-            return {
-                visible: false,
-                title: '投资预检',
-                status: 'not_loaded',
-                statusLabel: revenueAiStatusLabel('not_loaded'),
-                className: revenueAiStatusClass('not_loaded'),
-                reasonText: revenueAiReasonText('operation_execution_not_loaded'),
-                detailText: '',
-                sourceScope: '',
-                sourceChannels: [],
-                targetPage: '',
-                targetEntry: '',
-                targetService: '',
-                requiredGate: '',
-                operatingGateStatus: '',
-                businessClosureChainStatus: '',
-                operationRoiReady: 0,
-                readOnly: true,
-                autoWriteOta: false,
-                decisionAllowed: false,
-                canCreateInvestmentDecision: false,
-                missingEvidenceCodes: [],
-                blockedReasons: [],
-                forbiddenActions: [],
-                protectedBoundary: '',
-            };
-        }
-        const precheck = handoff.investment_precheck_packet && typeof handoff.investment_precheck_packet === 'object'
-            ? handoff.investment_precheck_packet
-            : {};
-        const asList = (value) => Array.isArray(value) ? value.map(item => String(item || '').trim()).filter(Boolean) : [];
-        const missingEvidenceCodes = asList(precheck.missing_evidence_codes);
-        const missingEvidence = Array.isArray(precheck.missing_evidence) ? precheck.missing_evidence : [];
-        missingEvidence.forEach((item) => {
-            const code = String(item?.code || '').trim();
-            if (code && !missingEvidenceCodes.includes(code)) missingEvidenceCodes.push(code);
-        });
-        const blockedReasons = asList(handoff.blocked_reasons);
-        const sourceChannels = asList(handoff.source_channels?.length ? handoff.source_channels : handoff.source_platforms);
-        const forbiddenActions = asList(handoff.forbidden_actions);
-        const status = String(handoff.status || precheck.status || 'unknown');
-        const decisionAllowed = handoff.decision_allowed === true;
-        const canCreateInvestmentDecision = handoff.can_create_investment_decision === true;
-        const statusForDisplay = decisionAllowed && canCreateInvestmentDecision ? 'ready' : status;
-        const requiredGate = String(precheck.required_gate || '');
-        const reasonCode = missingEvidenceCodes[0] || blockedReasons[0] || String(handoff.operation_roi_reason || status);
-        const channelText = sourceChannels.length ? sourceChannels.map(revenueAiChannelLabel).join(' / ') : '';
-        const detailParts = [
-            channelText ? `范围 ${channelText}` : '',
-            handoff.upstream_operation_intake_status ? `上游 ${handoff.upstream_operation_intake_status}` : '',
-            requiredGate ? `门禁 ${requiredGate}` : '',
-            handoff.operation_roi_ready !== undefined ? `ROI ${Number(handoff.operation_roi_ready || 0)}` : '',
-        ].filter(Boolean);
-
-        return {
-            visible: true,
-            title: '投资预检',
-            status,
-            precheckStatus: String(precheck.status || ''),
-            statusLabel: revenueAiStatusLabel(statusForDisplay),
-            className: revenueAiStatusClass(statusForDisplay),
-            reasonText: revenueAiReasonText(reasonCode),
-            detailText: detailParts.join(' · '),
-            sourceScope: String(handoff.source_scope || ''),
-            sourceChannels,
-            targetPage: String(handoff.target_page || ''),
-            targetEntry: String(handoff.target_entry || ''),
-            targetService: String(handoff.target_service || ''),
-            requiredGate,
-            operatingGateStatus: String(precheck.operating_gate_status || handoff.operating_gate_status || ''),
-            businessClosureChainStatus: String(precheck.business_closure_chain_status || handoff.business_closure_chain_status || ''),
-            operationRoiReady: Number(handoff.operation_roi_ready || precheck.operation_roi_ready || 0),
-            readOnly: true,
-            autoWriteOta: false,
-            decisionAllowed,
-            canCreateInvestmentDecision,
-            missingEvidenceCodes,
-            blockedReasons,
-            forbiddenActions,
-            protectedBoundary: String(precheck.protected_boundary || handoff.protected_boundary || ''),
-        };
-    };
-
     const revenueAiPricingGenerationStatusLabel = (status) => ({
         ready_for_manual_generation: '可生成待审',
         pending_review_exists: '已有待审',
@@ -1264,7 +1161,6 @@
             const reviewQueueItems = buildRevenueAiReviewQueueItems(reviewQueue);
             const approvedExecutionPendingCount = reviewQueueItems.filter(item => item.canCreateExecutionIntent).length;
             const resolutionPlanSummary = buildRevenueAiResolutionPlanSummary({ overview, action });
-            const investmentPrecheckSummary = buildRevenueAiInvestmentPrecheckSummary({ overview, action });
             const pricingGenerationPreflightSummary = buildRevenueAiPricingGenerationPreflightSummary({ overview, action });
             return {
                 key: action.key || action.title,
@@ -1300,8 +1196,6 @@
                 resolutionPlanItems: resolutionPlanSummary.items,
                 pricingGenerationPreflightSummary,
                 pricingGenerationPreflightVisible: pricingGenerationPreflightSummary.visible === true,
-                investmentPrecheckSummary,
-                investmentPrecheckVisible: investmentPrecheckSummary.visible === true,
             };
         });
     };
@@ -1349,15 +1243,10 @@
             ? operationPacket.operation_intake_preflight_contract
             : (primaryAction.operation_intake_preflight_contract || {});
         const executionSummary = overview?.execution_summary && typeof overview.execution_summary === 'object' ? overview.execution_summary : {};
-        const investmentHandoff = primaryAction.operation_to_investment_handoff && typeof primaryAction.operation_to_investment_handoff === 'object'
-            ? primaryAction.operation_to_investment_handoff
-            : (overview?.operation_to_investment_handoff || overview?.pricing_readiness?.operation_to_investment_handoff || {});
-        const investmentPrecheck = buildRevenueAiInvestmentPrecheckSummary({ overview, action: primaryAction });
         const p0Status = p0Gate.status || (overview ? (overview.data_status || 'unknown') : 'not_loaded');
         const reviewStatus = reviewQueue.status || (overview ? (Number(reviewQueue.pending_count || 0) > 0 ? 'pending_review' : 'empty') : 'not_loaded');
         const operationStatus = aiToOperation.status || (overview ? 'operation_intake_blocked_by_manual_review' : 'not_loaded');
         const executionStatus = executionSummary.status || (overview ? 'empty' : 'not_loaded');
-        const investmentStatus = investmentHandoff.status || investmentPrecheck.status || (overview ? 'investment_precheck_blocked_by_operation_roi' : 'not_loaded');
 
         return [
             {
@@ -1412,19 +1301,6 @@
                 metaText: `total=${Number(executionSummary.total_count || 0)} / evidence=${Number(executionSummary.evidence_ready_count || 0)} / roi=${Number(executionSummary.roi_ready_count || 0)}`,
                 targetPage: 'ops-track',
                 canOpenTarget: true,
-            },
-            {
-                key: 'investment_precheck',
-                label: '运营到投决预检',
-                status: investmentStatus,
-                statusLabel: revenueAiStatusLabel(investmentStatus),
-                className: revenueAiStatusClass(investmentStatus),
-                detailText: investmentPrecheck.detailText || revenueAiReasonText(investmentHandoff.operation_roi_reason || 'operation_roi_missing'),
-                nextActionText: investmentHandoff.target_entry || investmentPrecheck.targetEntry || '/api/investment-decision/overview',
-                policyText: investmentHandoff.protected_boundary || investmentPrecheck.protectedBoundary || 'investment_decision_requires_closed_operation_roi_not_ota_channel_only',
-                metaText: `decision_allowed=${investmentHandoff.decision_allowed === true ? 'true' : 'false'} / can_create=${investmentHandoff.can_create_investment_decision === true ? 'true' : 'false'} / roi_ready=${Number(investmentHandoff.operation_roi_ready || investmentPrecheck.operationRoiReady || 0)}`,
-                targetPage: investmentHandoff.target_page || 'investment-decision',
-                canOpenTarget: false,
             },
         ];
     };
@@ -2520,7 +2396,6 @@
         buildRevenueAiSignalRows,
         buildRevenueAiReviewQueueItems,
         buildRevenueAiResolutionPlanSummary,
-        buildRevenueAiInvestmentPrecheckSummary,
         buildRevenueAiPricingGenerationPreflightSummary,
         buildRevenueAiPriceSuggestionGenerateResult,
         buildRevenueAiActionRows,

@@ -115,7 +115,7 @@ if (!fs.existsSync(indexPath)) {
     failures.push(`public/index.html is too small (${stat.size} bytes). It may have been overwritten by a frontend build.`);
   }
 
-  if (!content.includes('system-static.js?v=20260708-hotel-merge')
+if (!content.includes('system-static.js?v=20260711-hotel-merge-flow')
     || !systemStaticContent.includes('const getHotelCodeNumber = (code) => {')
     || !systemStaticContent.includes('const formatHotelCode = (num) =>')
     || !systemStaticContent.includes('const normalizeOtaConfigHotelName = (value = \'\') =>')
@@ -198,7 +198,7 @@ if (!fs.existsSync(indexPath)) {
       failures.push(`${file} must keep OTA authorization copy on account-owner local-computer authorization and must not contain legacy server/login-task wording: ${text}`);
     }
   }
-  if (!content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260708-local-auth-copy';")
+  if (!content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260711-live-progress-profile-hotel';")
     || !content.includes("const PlatformAutoSettingsPanels = {")
     || !content.includes("const PlatformAutoSecondaryPanels = {")
     || !content.includes('const ensurePlatformAutoPanelsReady = async () => {')
@@ -593,14 +593,14 @@ if (!fs.existsSync(indexPath)) {
     failures.push('public/vue-router.global.prod.js is unused by the current shell and must not remain as a dead public asset.');
   }
 
-  if (/<script\s+src=["']hotel-image-optimizer-static\.js["']/.test(content)) {
-    failures.push('public/index.html must lazy-load hotel-image-optimizer-static.js; it is not required for the initial shell.');
+  if (fs.existsSync(path.join(repoRoot, 'public/hotel-image-optimizer-static.js'))
+    || /hotel-image-optimizer|hotelImageOptimizer|SUXI_HOTEL_IMAGE_OPTIMIZER_STATIC/.test(content)) {
+    failures.push('the removed hotel image optimizer must not remain in the public entry or public assets.');
   }
-  if (!/const\s+hotelImageOptimizerStaticScript\s*=\s*["']hotel-image-optimizer-static\.js["']/.test(content) || !/const\s+loadHotelImageOptimizerStatic\s*=\s*\(\)\s*=>/.test(content)) {
-    failures.push('public/index.html must keep an explicit lazy loader for hotel-image-optimizer-static.js.');
-  }
-  if (!/newPage === ['"]agent-center['"] \|\| newPage === ['"]hotel-image-optimizer['"]/.test(content) || !/ensureHotelImageOptimizerReady\(\)/.test(content)) {
-    failures.push('public/index.html must load hotel image optimizer static data only when agent-center or hotel-image-optimizer is opened.');
+  if (!systemStaticContent.includes('const hotelAiToolboxLinks = [')
+    || !systemStaticContent.includes('hotelAiToolboxLinks,')
+    || !content.includes("const hotelAiToolboxLinks = ref(requireAppSystemStatic('hotelAiToolboxLinks'));")) {
+    failures.push('agent-center must keep its external AI toolbox links through public/system-static.js after image optimizer removal.');
   }
   if (/<script\s+src=["']revenue-research-static\.js["']/.test(content)) {
     failures.push('public/index.html must lazy-load revenue-research-static.js; it is only required by revenue-research-center.');
@@ -610,38 +610,6 @@ if (!fs.existsSync(indexPath)) {
   }
   if (!/newPage === ['"]revenue-research-center['"]/.test(content) || !/ensureRevenueResearchReady\(\)/.test(content)) {
     failures.push('public/index.html must load revenue research static data only when revenue-research-center is opened.');
-  }
-  if (/<script\s+src=["']expansion-static-options\.js["']/.test(content)) {
-    failures.push('public/index.html must lazy-load expansion-static-options.js; the login and compass shell do not need investment expansion options.');
-  }
-  if (!/const\s+expansionStaticOptionsScript\s*=\s*["']expansion-static-options\.js["']/.test(content) || !/const\s+loadExpansionStaticOptions\s*=\s*\(\)\s*=>/.test(content)) {
-    failures.push('public/index.html must keep an explicit lazy loader for expansion-static-options.js.');
-  }
-  if (!/ensureExpansionStaticReady\(\)/.test(content) || !/isExpansionStaticPage\(newPage\)/.test(content)) {
-    failures.push('public/index.html must load expansion static data only when investment expansion pages are opened.');
-  }
-  if (/<script\s+src=["']simulation-static\.js["']/.test(content)) {
-    failures.push('public/index.html must lazy-load simulation-static.js; the login and compass shell do not need simulation and transfer calculators.');
-  }
-  if (!/const\s+simulationStaticScript\s*=\s*["']simulation-static\.js["']/.test(content) || !/const\s+loadSimulationStatic\s*=\s*\(\)\s*=>/.test(content)) {
-    failures.push('public/index.html must keep an explicit lazy loader for simulation-static.js.');
-  }
-  if (!/ensureSimulationStaticReady\(\)/.test(content) || !/isSimulationStaticPage\(newPage\)/.test(content)) {
-    failures.push('public/index.html must load simulation static data only when simulation, feasibility, benchmark, collaboration, or transfer pages are opened.');
-  }
-  const simulationDetailLoader = content.slice(
-    content.indexOf('const loadSimulationDetail = async'),
-    content.indexOf('const reuseSimulationRecord = async')
-  );
-  if (!simulationDetailLoader.includes('await ensureSimulationStaticReady();')) {
-    failures.push('public/index.html must load simulation static data before reusing simulation history input.');
-  }
-  const transferDetailLoader = content.slice(
-    content.indexOf('const loadTransferDetail = async'),
-    content.indexOf('const reuseTransferRecord = async')
-  );
-  if (!transferDetailLoader.includes('await ensureSimulationStaticReady();')) {
-    failures.push('public/index.html must load simulation static data before reusing transfer history input.');
   }
   if (/<script\s+src=["']ai-analysis-static\.js["']/.test(content)) {
     failures.push('public/index.html must lazy-load ai-analysis-static.js; the login and compass shell do not need OTA AI analysis helpers.');
@@ -737,10 +705,12 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('autoFetchStatusRequestPromises.has(`${keyPrefix}light`)')
     || !content.includes('autoFetchStatusRequestPromises.has(`${keyPrefix}full`)')
     || !content.includes('const canTriggerAutoFetchByHotelId = (hotelId) => {')
-    || !content.includes('hasAnyPlatformFetchConfigByHotelId(hotelId) || autoFetchConfigProofPendingForHotelId(hotelId)')
+    || !/hasAnyPlatformFetchConfigByHotelId\(hotelId\)\s*\|\|\s*autoFetchConfigProofPendingForHotelId\(hotelId\)/.test(content)
+    || !content.includes("getBrowserProfileDataSourceByHotelAndPlatform(hotelId, 'ctrip')")
+    || !content.includes("getBrowserProfileDataSourceByHotelAndPlatform(hotelId, 'meituan')")
     || !content.includes('hasPlatformFetchConfig: canTriggerAutoFetchByHotelId,')
     || (content.match(/:disabled="fetchingData \|\| !canTriggerAutoFetchByHotelId\(autoFetchHotelId\)"/g) || []).length < 2) {
-    failures.push('public/index.html must let platform-auto immediate collection stay clickable while light config proof is pending, without relaxing settings/backfill controls.');
+    failures.push('public/index.html must let platform-auto immediate collection stay clickable while light config proof is pending or a Browser Profile source exists, without relaxing settings/backfill controls.');
   }
   const openDataConfigModalStart = content.indexOf('const openDataConfigModal =');
   const openDataConfigModalEnd = content.indexOf('const firstDataConfigValue =', openDataConfigModalStart);
@@ -1818,7 +1788,7 @@ if (!fs.existsSync(indexPath)) {
   }
   if (!platformAutoTemplateSource.includes('<platform-auto-settings-panels')
     || !platformAutoTemplateSource.includes(':ctx="$root"')
-    || !content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260708-local-auth-copy';")
+    || !content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260711-live-progress-profile-hotel';")
     || !content.includes('const ensurePlatformAutoPanelsReady = async () => {')
     || !content.includes("requireOnlineDataComponent('PlatformAutoSettingsPanelsBody')")
     || !content.includes("requireOnlineDataComponent('PlatformAutoSecondaryPanelsBody')")
@@ -1846,7 +1816,7 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('const platformAutoSecondaryPanelsReady = ref(false);')
     || !content.includes('const platformAutoSecondaryPanelsBody = shallowRef(null);')
     || !content.includes('const schedulePlatformAutoSecondaryPanelsReady = (delayMs = PLATFORM_AUTO_SECONDARY_PANEL_DELAY_MS) => {')
-    || !content.includes('platformAutoSecondaryPanelsReady.value = false;\n                    schedulePlatformAutoSecondaryPanelsReady();\n                    return runIfCurrent(() => schedulePlatformAutoFetchPanelLoad(options));')) {
+    || !/newTab === ['"]platform-auto['"][\s\S]*platformAutoSecondaryPanelsReady\.value = false;[\s\S]*schedulePlatformAutoSecondaryPanelsReady\(\);[\s\S]*return runIfCurrent\(\(\) => schedulePlatformAutoFetchPanelLoad\(options\)\);/.test(onlineDataTabSchedulerSource)) {
     failures.push('public/index.html platform-auto must keep secondary result/status panels delayed so core login and collect controls paint first.');
   }
   if (platformAutoTemplateSource.includes('实时采集间隔（小时）')
@@ -2234,7 +2204,9 @@ if (!fs.existsSync(indexPath)) {
     || !content.includes('const platformProfileStatusResultCache = new Map();')
     || !content.includes('return loadPlatformProfileStatus(platformProfileStatusPanelRefreshOptions(params));')
     || !content.includes('return platformProfileStatus.value;')
-    || !content.includes('platformProfileStatusResultCache.set(requestKey, { expiresAt: Date.now() + cacheMs });')
+    || !content.includes('platformProfileStatusResultCache.set(requestKey, {')
+    || !content.includes('expiresAt: Date.now() + cacheMs,')
+    || !content.includes('data: nextStatus,')
     || !content.includes('@click="loadPlatformProfileStatus({ silent: true, force: true })"')
     || !content.includes('schedulePlatformProfileStatusRefresh({ silent: true, force: true });')
     || !content.includes('cacheMs: options.force ? 0 : PLATFORM_PROFILE_STATUS_PANEL_CACHE_TTL_MS,')) {
@@ -3051,53 +3023,18 @@ if (!fs.existsSync(indexPath)) {
     || controllerContent.includes('private function createManualMeituanFetchBackgroundTask')) {
     failures.push('app/controller/OnlineData.php must use ManualOnlineFetchTaskService for Meituan manual fetch background task support.');
   }
-  const strategyDetailLoader = content.slice(
-    content.indexOf('const loadStrategyDetail = async'),
-    content.indexOf('const reuseStrategyRecord = async')
-  );
-  if (!strategyDetailLoader.includes('await ensureExpansionStaticReady();')) {
-    failures.push('public/index.html must load expansion static data before reusing strategy history input.');
-  }
   if (/<script\s+src=["']operation-static\.js["']/.test(content)) {
     failures.push('public/index.html must lazy-load operation-static.js; it is only required by operation/opening/lifecycle pages.');
   }
   if (!/const\s+operationStaticScript\s*=\s*["']operation-static\.js["']/.test(content) || !/const\s+loadOperationStatic\s*=\s*\(\)\s*=>/.test(content)) {
     failures.push('public/index.html must keep an explicit lazy loader for operation-static.js.');
   }
-  if (!operationStaticContent.includes('buildOpeningTaskProgressCards')
-    || !operationStaticContent.includes('buildOpeningTaskProgressStages')
-    || !operationStaticContent.includes('buildOpeningCategoryProgressCards')
-    || !operationStaticContent.includes('buildOpeningPositioningImpact')
-    || !operationStaticContent.includes('buildOpeningStatusFilterChips')
-    || !operationStaticContent.includes('buildOpeningAttentionFilterChips')
-    || !content.includes("requireOperationStatic(staticConfig, 'buildOpeningCategoryProgressCards')")
-    || !content.includes("requireOperationStatic(staticConfig, 'buildOpeningPositioningImpact')")
-    || !content.includes("requireOperationStatic(staticConfig, 'buildOpeningTaskProgressCards')")
-    || !content.includes("requireOperationStatic(staticConfig, 'buildOpeningTaskProgressStages')")
-    || !content.includes("requireOperationStatic(staticConfig, 'buildOpeningStatusFilterChips')")
-    || !content.includes("requireOperationStatic(staticConfig, 'buildOpeningAttentionFilterChips')")
-    || !content.includes('buildOpeningCategoryProgressCards(openingOverview.value?.category_progress || [])')
-    || !content.includes('buildOpeningPositioningImpact(openingProjectForm.value.positioning)')
-    || !content.includes('buildOpeningTaskProgressCards(openingTaskStats.value)')
-    || !content.includes('buildOpeningTaskProgressStages(openingTaskStats.value)')
-    || !content.includes('buildOpeningStatusFilterChips(openingTaskStats.value)')
-    || !content.includes('buildOpeningAttentionFilterChips(openingTaskStats.value)')
-    || content.includes("status: '待生成'")
-    || content.includes("items: ['房价体系', 'OTA卖点', '物资标准', '培训话术']")
-    || content.includes("label: '任务进度均值'")
-    || content.includes("label: '1%-49%'")
-    || content.includes("activeClass: 'bg-gray-900 text-white border-gray-900'")
-    || content.includes("value: 'dueSoon', label: '7天内到期'")) {
-    failures.push('public/index.html must delegate opening display models to public/operation-static.js.');
-  }
   if (!content.includes('await ensureOperationStaticReady();')
-    || !/newPage === ['"]lifecycle['"]/.test(content)
-    || !/newPage === ['"]opening-overview['"] \|\| newPage === ['"]opening-checklist['"]/.test(content)
     || !/newPage === ['"]ops-source['"]/.test(content)
     || !/newPage === ['"]ops-analysis['"] \|\| newPage === ['"]ops-plan['"]/.test(content)
     || !/newPage === ['"]ops-insight['"]/.test(content)
     || !/newPage === ['"]ops-track['"]/.test(content)) {
-    failures.push('public/index.html must load operation static data before operation, opening, and lifecycle page work.');
+    failures.push('public/index.html must load operation static data before retained operation pages work.');
   }
   if (/<script\s+src=["']notification-static\.js["']/.test(content)) {
     failures.push('public/index.html must lazy-load notification-static.js; the login shell does not need notification rendering helpers.');

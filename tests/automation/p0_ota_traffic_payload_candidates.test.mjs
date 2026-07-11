@@ -249,11 +249,12 @@ function p0VerifierExpectedPayloadPaths(date) {
   });
   assert.ok([0, 1, 2].includes(Number(result.status ?? 0)), result.stderr);
   const json = JSON.parse(String(result.stdout || '').replace(/^\uFEFF/, '').trim());
-  return (json.platforms || [])
-    .flatMap((platform) => platform.p0_traffic_gate?.hotel_scoped_next_steps || [])
-    .map((step) => String(step.payload_candidate_path || ''))
-    .filter(Boolean)
-    .sort();
+  return Array.from(new Set(
+    (json.platforms || [])
+      .flatMap((platform) => platform.p0_traffic_gate?.hotel_scoped_next_steps || [])
+      .map((step) => String(step.payload_candidate_path || ''))
+      .filter(Boolean),
+  )).sort();
 }
 
 function escapeRegExp(value) {

@@ -349,11 +349,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         };
     };
 
-    const manualOneClickFetchQunarVisitorNeedsRetry = (quality = null) => Boolean(
-        quality
-        && Number(quality.rowCount || 0) > 0
-        && quality.ready !== true
-    );
+    const manualOneClickFetchQunarVisitorNeedsRetry = () => false;
 
     const manualOneClickFetchSavedCount = (result = {}) => {
         const candidates = [
@@ -376,7 +372,18 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
     };
 
     const manualOneClickFetchResultMessage = (result = {}) => {
-        return String(result?.message || result?.data?.message || result?.response?.message || result?.msg || result?.data?.msg || result?.response?.msg || '').trim();
+        const directMessage = String(result?.message || result?.data?.message || result?.response?.message || result?.msg || result?.data?.msg || result?.response?.msg || '').trim();
+        if (directMessage) return directMessage;
+        const resultRows = Array.isArray(result?.results) ? result.results : [];
+        const failures = resultRows
+            .map(row => {
+                const label = String(row?.rankName || row?.dateRangeName || row?.rankType || '').trim();
+                const message = String(row?.error || row?.message || row?.businessMessage || row?.credentialStatus || row?.status || '').trim();
+                const code = row?.businessCode || row?.httpCode || row?.http_code || '';
+                return message ? `${label ? `${label}: ` : ''}${message}${code ? ` (${code})` : ''}` : '';
+            })
+            .filter(Boolean);
+        return failures.slice(0, 3).join('；');
     };
 
     const summarizeManualOneClickFetchResult = ({
@@ -393,11 +400,14 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         const responseStatus = String(result?.status || result?.data?.status || '').toLowerCase();
         const responseCode = Number(result?.code ?? result?.data?.code ?? 0);
         const ctripRowsReturned = normalizedPlatform === 'ctrip' && Number(ctripQunarQuality?.rowCount || 0) > 0;
-        const qunarVisitorIncomplete = normalizedPlatform === 'ctrip' && Boolean(qunarVisitorNeedsRetry);
+        const qunarVisitorIncomplete = normalizedPlatform === 'ctrip'
+            && ctripRowsReturned
+            && Boolean(ctripQunarQuality)
+            && ctripQunarQuality.ready !== true;
         let status = 'failed';
-        if (normalizedPlatform === 'ctrip' && (!ctripRowsReturned || qunarVisitorIncomplete)) {
-            status = 'failed';
-        } else if (normalizedPlatform === 'ctrip' && ctripRowsReturned && (['success', 'ok'].includes(responseStatus) || responseCode === 200)) {
+        if (normalizedPlatform === 'ctrip' && count > 0) {
+            status = 'success';
+        } else if (normalizedPlatform === 'ctrip' && ctripRowsReturned && (['success', 'ok', 'partial_qunar_visitor_gap'].includes(responseStatus) || responseCode === 200)) {
             status = 'success';
         } else if (count > 0) {
             status = 'success';
@@ -418,13 +428,13 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         let message = '';
 
         if (normalizedPlatform === 'ctrip' && qunarVisitorIncomplete) {
-            message = `携程数据已获取${count > 0 ? `并保留 ${count} 条` : ''}，但去哪儿访客仍为 0；已自动重抓 ${retryCount} 次，携程和去哪儿都成功才算成功。`;
+            message = `携程竞争圈已返回${count > 0 ? `并入库 ${count} 条` : ''}；去哪儿访客为 0 仅作为字段缺口提示，不阻断携程补采成功。`;
         } else if (normalizedPlatform === 'ctrip' && status === 'success') {
             message = `手动获取完成：携程和去哪儿均已返回${retryText}；${ctripSavedText}；去哪儿访客 ${ctripQunarQuality ? ctripQunarQuality.total : '未校验'}。`;
+        } else if (normalizedPlatform === 'ctrip' && !ctripRowsReturned) {
+            message = '携程竞争圈未返回可展示行，不能按成功处理。';
         } else if (status === 'no_saved') {
             message = `${responseMessage || '接口调用完成'}；本次入库 0 条，不等于入库成功`;
-        } else if (normalizedPlatform === 'ctrip' && !ctripRowsReturned && (!responseMessage || responseMessage === '获取成功')) {
-            message = '携程竞争圈未返回可展示行，携程和去哪儿都成功才算成功。';
         } else if (responseMessage) {
             message = responseMessage;
         } else if (status === 'queued') {

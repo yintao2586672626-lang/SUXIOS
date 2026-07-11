@@ -204,7 +204,7 @@ final class OtaDataCredibilityGateServiceTest extends TestCase
                 'required_upstream_status' => 'ready',
                 'scope_policy' => 'ota_channel_gate_before_downstream_claims',
                 'blocking_missing_inputs' => ['manual_login_state_verified', 'target_date_traffic_rows'],
-                'blocked_stage_keys' => ['revenue_analysis', 'ai_decision_advice', 'operation_closure', 'investment_judgment'],
+                'blocked_stage_keys' => ['revenue_analysis', 'ai_decision_advice', 'operation_closure'],
                 'allowed_claims' => ['structure_ready_or_reference_only', 'no_whole_hotel_or_downstream_closure_claim'],
             ],
             'data_quality' => [

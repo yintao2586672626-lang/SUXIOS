@@ -38,16 +38,19 @@ trait MeituanConfigConcern
         try {
             $this->checkPermission();
             $hotelId = $this->resolveMeituanConfigHotelIdFromRequest();
-            foreach ($this->meituanConfigList() as $item) {
-                if (!is_array($item)
-                    || $this->isMeituanCommentConfigMetadata($item)
-                    || !$this->isOtaConfigVisibleToCurrentUser($item)) {
-                    continue;
-                }
+            $list = array_filter(
+                $this->meituanConfigList(),
+                fn($item): bool => is_array($item)
+                    && !$this->isMeituanCommentConfigMetadata($item)
+                    && $this->isOtaConfigVisibleToCurrentUser($item)
+            );
+            $list = $this->sanitizeStoredOtaConfigListForRuntime($list);
+            $list = $this->collapseMeituanConfigListByHotel(array_values($list));
+            foreach ($list as $item) {
                 if ($hotelId > 0 && $this->strictOtaConfigBoundHotelId($item, 'Meituan') !== $hotelId) {
                     continue;
                 }
-                return $this->success($this->sanitizeSecretConfig($item));
+                return $this->success($item);
             }
 
             return $this->success([]);
@@ -182,8 +185,8 @@ trait MeituanConfigConcern
             );
             $list = $this->filterOtaConfigListForCurrentUser($list);
             $list = $this->sanitizeStoredOtaConfigListForRuntime($list);
-            usort($list, static fn(array $left, array $right): int => strcmp((string)($right['update_time'] ?? ''), (string)($left['update_time'] ?? '')));
-            return $this->success(array_values($list));
+            $list = $this->collapseMeituanConfigListByHotel(array_values($list));
+            return $this->success($list);
         } catch (\Throwable) {
             return $this->error('获取美团配置列表失败', 500);
         }

@@ -1,4 +1,50 @@
 window.SUXI_USER_ADMIN_STATIC = (() => {
+    const summarizeUserHotelScope = (items = [], options = {}) => {
+        const limit = Math.max(1, Number(options.limit || 2));
+        const normalizedItems = (Array.isArray(items) ? items : [])
+            .map(item => String(item || '').trim())
+            .filter(Boolean);
+        if (!normalizedItems.length) {
+            return {
+                summary: '未分配门店',
+                full: '未分配门店',
+                hiddenCount: 0,
+                total: 0,
+            };
+        }
+
+        return {
+            summary: normalizedItems.slice(0, limit).join('、'),
+            full: normalizedItems.join('、'),
+            hiddenCount: Math.max(0, normalizedItems.length - limit),
+            total: normalizedItems.length,
+        };
+    };
+
+    const resolveUserDisplaySequence = (index = 0, isSuperAdmin = false) => {
+        const normalizedIndex = Math.max(0, Number(index) || 0);
+        return normalizedIndex + (isSuperAdmin ? 0 : 1);
+    };
+
+    const nextVipUsername = (users = []) => {
+        let maxNumber = 0;
+        let numberWidth = 3;
+        (Array.isArray(users) ? users : []).forEach(item => {
+            const username = String(item?.username || item || '').trim();
+            const match = username.match(/^VIP(\d+)$/i);
+            if (!match) return;
+            const number = Number.parseInt(match[1], 10);
+            if (!Number.isFinite(number)) return;
+            maxNumber = Math.max(maxNumber, number);
+            numberWidth = Math.max(numberWidth, match[1].length);
+        });
+        const nextNumber = maxNumber + 1;
+        numberWidth = Math.max(numberWidth, String(nextNumber).length);
+        return `VIP${String(nextNumber).padStart(numberWidth, '0')}`;
+    };
+
+    const defaultIssuedPassword = () => '666666';
+
     const rolePermissionList = (role = {}) => {
         const raw = role?.permissions;
         if (Array.isArray(raw)) return raw.map(item => String(item));
@@ -336,6 +382,10 @@ window.SUXI_USER_ADMIN_STATIC = (() => {
     };
 
     return {
+        summarizeUserHotelScope,
+        resolveUserDisplaySequence,
+        nextVipUsername,
+        defaultIssuedPassword,
         rolePermissionList,
         roleHasAnyPermission,
         normalExternalDeniedPermissionGroups,

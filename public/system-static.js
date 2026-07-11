@@ -216,6 +216,16 @@ window.SUXI_SYSTEM_STATIC = (() => {
         { value: 'zh-CN', label: '中文' },
         { value: 'en-US', label: 'English' },
     ];
+    const hotelAiToolboxLinks = [
+        { name: 'ChatGPT', scene: '通用', desc: '通用问答、文案、数据分析与方案生成。', url: 'https://chatgpt.com/', icon: 'fas fa-comments', iconBg: 'bg-emerald-50', iconColor: 'text-emerald-600' },
+        { name: 'DeepSeek', scene: '推理', desc: '长文本推理、代码辅助、经营分析草稿。', url: 'https://chat.deepseek.com/', icon: 'fas fa-brain', iconBg: 'bg-blue-50', iconColor: 'text-blue-600' },
+        { name: '豆包', scene: '内容', desc: '中文内容生成、短文案、运营素材处理。', url: 'https://www.doubao.com/chat/', icon: 'fas fa-pen-nib', iconBg: 'bg-orange-50', iconColor: 'text-orange-600' },
+        { name: '通义千问', scene: '办公', desc: '中文知识问答、表格理解、办公辅助。', url: 'https://tongyi.aliyun.com/qianwen/', icon: 'fas fa-lightbulb', iconBg: 'bg-violet-50', iconColor: 'text-violet-600' },
+        { name: 'Kimi', scene: '文档', desc: '长文档阅读、报告提炼、资料归纳。', url: 'https://www.kimi.com/', icon: 'fas fa-file-alt', iconBg: 'bg-sky-50', iconColor: 'text-sky-600' },
+        { name: '腾讯元宝', scene: '检索', desc: '中文检索问答、内容创作与办公协同。', url: 'https://yuanbao.tencent.com/', icon: 'fas fa-search', iconBg: 'bg-cyan-50', iconColor: 'text-cyan-600' },
+        { name: '文心一言', scene: '品牌', desc: '中文生成、品牌内容、经营问答。', url: 'https://yiyan.baidu.com/', icon: 'fas fa-feather-alt', iconBg: 'bg-red-50', iconColor: 'text-red-600' },
+        { name: '秘塔AI搜索', scene: '核验', desc: '联网搜索、资料核验、行业信息整理。', url: 'https://metaso.cn/', icon: 'fas fa-globe', iconBg: 'bg-slate-50', iconColor: 'text-slate-600' },
+    ];
     const menuItemDefinitions = [
         {
             name: '经营工作台',
@@ -226,30 +236,6 @@ window.SUXI_SYSTEM_STATIC = (() => {
             children: [
                 { name: '今日经营工作台', path: 'compass', icon: 'fas fa-tachometer-alt', requireSuper: false, permissions: [] },
                 { name: '收益分析中心', path: 'revenue-research-center', icon: 'fas fa-chart-line', testid: 'nav-revenue-research-center', permissions: [] },
-                {
-                    name: '开店/扩张/投决',
-                    path: 'lifecycle-auxiliary',
-                    icon: 'fas fa-share-alt',
-                    requireSuper: false,
-                    permissions: [],
-                    children: [
-                        { name: '辅助总览', path: 'lifecycle', icon: 'fas fa-route' },
-                        { name: 'P4·投决辅助', path: 'investment-decision', icon: 'fas fa-balance-scale' },
-                        { name: '筹建·战略推演', path: 'ai-strategy', icon: 'fas fa-chess' },
-                        { name: '筹建·量化模拟', path: 'ai-simulation', icon: 'fas fa-calculator' },
-                        { name: '筹建·可行性报告', path: 'ai-feasibility', icon: 'fas fa-file-contract' },
-                        { name: '开业准备总览', path: 'opening-overview', icon: 'fas fa-clipboard-check' },
-                        { name: '开业检查清单', path: 'opening-checklist', icon: 'fas fa-tasks' },
-                        { name: '扩张·市场评估', path: 'market-evaluation', icon: 'fas fa-chart-area' },
-                        { name: '扩张·标杆选模', path: 'benchmark-model', icon: 'fas fa-star' },
-                        { name: '扩张·协同提效', path: 'collaboration-efficiency', icon: 'fas fa-link' },
-                        { name: '转让·资产定价', path: 'asset-pricing', icon: 'fas fa-calculator' },
-                        { name: '转让·时机推演', path: 'timing-strategy', icon: 'fas fa-chess-knight' },
-                        { name: '转让·数据看板', path: 'decision-board', icon: 'fas fa-chart-pie' },
-                        { name: '图片优化助手', path: 'hotel-image-optimizer', icon: 'fas fa-image', requireManager: true, permissions: [] },
-                        { name: '酒店AI工具箱', path: 'agent-center', icon: 'fas fa-toolbox', requireSuper: true, permissions: [] },
-                    ],
-                },
             ],
         },
         {
@@ -287,6 +273,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
             children: [
                 { name: '门店管理', path: 'hotels', icon: 'fas fa-hotel', configKey: 'menu_hotel_name', requireSuper: false, permissions: ['can_manage_own_hotels'] },
                 { name: '智能知识中枢', path: 'knowledge-center', icon: 'fas fa-brain', requireManager: true, permissions: [] },
+                { name: '酒店AI工具箱', path: 'agent-center', icon: 'fas fa-toolbox', requireSuper: true, permissions: [] },
                 {
                     name: '团队管理',
                     icon: 'fas fa-users',
@@ -729,6 +716,8 @@ window.SUXI_SYSTEM_STATIC = (() => {
             description: '',
         };
     };
+
+    const normalizeHotelIdentityName = (value = '') => String(value ?? '').trim();
     const buildHotelSavePayload = ({ form = {}, normalizedCode = '', operatorName = '', description = '' } = {}) => ({
         name: String(form.name || '').trim(),
         code: normalizedCode,
@@ -761,6 +750,71 @@ window.SUXI_SYSTEM_STATIC = (() => {
         const sameSource = String(preview?.source_hotel?.id || '') === String(form.source_hotel_id || '');
         const sameTarget = String(preview?.target_hotel?.id || '') === String(form.target_hotel_id || '');
         return preview?.can_execute === true && sameSource && sameTarget && expected !== '' && actual === expected;
+    };
+    const hotelMergeFlowState = ({ preview = null, form = {} } = {}) => {
+        const sourceHotelId = String(form.source_hotel_id || '').trim();
+        const targetHotelId = String(form.target_hotel_id || '').trim();
+        const hasBothHotels = sourceHotelId !== '' && targetHotelId !== '';
+        const hasDistinctHotels = hasBothHotels && sourceHotelId !== targetHotelId;
+        const previewMatches = String(preview?.source_hotel?.id || '') === sourceHotelId
+            && String(preview?.target_hotel?.id || '') === targetHotelId;
+
+        if (!hasBothHotels) {
+            return {
+                step: 1,
+                can_preview: false,
+                can_execute: false,
+                preview_label: '先选择源门店和目标门店',
+                execute_label: '等待选择门店',
+                execute_hint: '请先选择要迁出的源门店和接收数据的目标门店。',
+            };
+        }
+        if (!hasDistinctHotels) {
+            return {
+                step: 1,
+                can_preview: false,
+                can_execute: false,
+                preview_label: '源门店和目标门店不能相同',
+                execute_label: '门店选择有误',
+                execute_hint: '源门店和目标门店不能相同，请重新选择。',
+            };
+        }
+        if (!preview || !previewMatches) {
+            return {
+                step: 2,
+                can_preview: true,
+                can_execute: false,
+                preview_label: '下一步：生成迁移预览',
+                execute_label: '等待迁移预览',
+                execute_hint: '门店已选择，下一步请生成迁移预览并核对影响范围。',
+            };
+        }
+        if (preview.can_execute !== true) {
+            const hasRows = Number(preview?.total_source_rows || 0) > 0;
+            return {
+                step: 2,
+                can_preview: true,
+                can_execute: false,
+                preview_label: '重新生成迁移预览',
+                execute_label: '预览存在阻断',
+                execute_hint: hasRows
+                    ? '迁移预览存在阻断，请先处理冲突后重新生成预览。'
+                    : '源门店暂无可迁移记录，当前不能执行迁移。',
+            };
+        }
+
+        const expected = String(preview.confirmation_text || '').trim();
+        const canExecute = hotelMergeCanExecute({ preview, form });
+        return {
+            step: 3,
+            can_preview: true,
+            can_execute: canExecute,
+            preview_label: '重新生成迁移预览',
+            execute_label: canExecute ? '确认执行迁移' : '输入确认文本后执行',
+            execute_hint: canExecute
+                ? '执行条件已满足，请最后核对源门店、目标门店和迁移明细。'
+                : `请输入完全一致的确认文本：${expected}`,
+        };
     };
     const buildHotelMergeExecutePayload = (form = {}) => ({
         source_hotel_id: Number(form.source_hotel_id),
@@ -1182,9 +1236,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
     const knowledgeDocumentSupportedExtensions = [...knowledgeDocumentTextExtensions, ...knowledgeDocumentHtmlExtensions, 'docx'];
     const agentTabs = [
         { key: 'overview', name: '工具箱', icon: 'fas fa-toolbox' },
-        { key: 'staff', name: '智能员工', icon: 'fas fa-user-friends' },
         { key: 'revenue', name: '收益管理', icon: 'fas fa-chart-line' },
-        { key: 'asset', name: '资产运维', icon: 'fas fa-tools' },
         { key: 'logs', name: '运行日志', icon: 'fas fa-list-alt' },
     ];
     const resolveMenuItems = (items = [], config = {}) => (Array.isArray(items) ? items : []).map((item) => {
@@ -1344,6 +1396,87 @@ window.SUXI_SYSTEM_STATIC = (() => {
         if (source || config) return `${label}账号已绑定`;
         return '-';
     };
+    const currentLocalDateKey = () => {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+    const platformAccountVerificationState = ({
+        hotel = {},
+        platform = '',
+        profileSource = null,
+        config = null,
+        today = '',
+    } = {}) => {
+        const targetPlatform = String(platform || '').trim().toLowerCase();
+        const sourceConfig = profileSource?.config && typeof profileSource.config === 'object'
+            ? profileSource.config
+            : {};
+        const sourceId = Number(profileSource?.id || 0);
+        const systemHotelId = String(hotel?.id || '').trim();
+        const sourceHotelId = String(profileSource?.system_hotel_id || profileSource?.hotel_id || '').trim();
+        const sourcePlatform = String(profileSource?.platform || '').trim().toLowerCase();
+        const ingestionMethod = String(profileSource?.ingestion_method || '').trim().toLowerCase();
+        const sourceScopeValid = sourceId > 0
+            && systemHotelId !== ''
+            && sourceHotelId === systemHotelId
+            && sourcePlatform === targetPlatform
+            && ['browser_profile', 'profile_browser'].includes(ingestionMethod)
+            && Number(profileSource?.enabled ?? 1) === 1;
+        const profileKey = firstNonEmptyText(
+            sourceConfig.profile_id,
+            sourceConfig.stable_profile_id,
+            sourceConfig.profile_binding_key
+        );
+        const platformStoreId = targetPlatform === 'meituan'
+            ? firstNonEmptyText(sourceConfig.store_id, sourceConfig.poi_id, sourceConfig.ota_store_id)
+            : firstNonEmptyText(sourceConfig.ota_hotel_id, sourceConfig.ctrip_hotel_id, sourceConfig.platform_hotel_id, sourceConfig.hotel_id);
+        const storeIdentitySaved = sourceScopeValid && profileKey !== '' && platformStoreId !== '';
+        const todayKey = String(today || currentLocalDateKey());
+        const probeAt = String(sourceConfig.current_session_probe_at || '').trim();
+        const sessionVerified = profileSource?.current_session_verified === true
+            && sourceScopeValid
+            && sourceConfig.current_session_probe_performed === true
+            && sourceConfig.current_session_verified === true
+            && String(sourceConfig.current_session_status || '').trim().toLowerCase() === 'verified'
+            && Number(sourceConfig.current_session_probe_data_source_id || 0) === sourceId
+            && String(sourceConfig.current_session_probe_system_hotel_id || '').trim() === systemHotelId
+            && String(sourceConfig.current_session_probe_platform || '').trim().toLowerCase() === targetPlatform
+            && String(sourceConfig.current_session_probe_date || '').trim() === todayKey
+            && probeAt.slice(0, 10) === todayKey
+            && String(sourceConfig.current_session_probe_timezone || '').trim() === 'Asia/Shanghai'
+            && String(sourceConfig.current_session_probe_scope || '').trim() === 'same_data_source_profile_session'
+            && String(sourceConfig.current_session_probe_producer || '').trim() === 'platform_profile_login_task';
+        const hasManualAssist = !!(config && (
+            String(config.cookies || config.cookie || '').trim()
+            || config.has_cookies
+            || config.has_cookie
+            || String(config.api_id || config.apiId || '').trim()
+        ));
+
+        let reasonText = '';
+        if (!profileSource) {
+            reasonText = hasManualAssist
+                ? '仅保存了临时 Cookie/API 辅助凭据；尚未完成授权登录，也未形成当前门店的平台身份与登录证明。'
+                : '现有配置或历史数据不能证明当前登录有效；请完成授权登录并保存当前门店的平台身份。';
+        } else if (!sourceScopeValid) {
+            reasonText = 'Browser Profile 未正确绑定当前门店和平台，不能作为当前门店的登录证明。';
+        } else if (!storeIdentitySaved) {
+            reasonText = '已绑定 Browser Profile，但尚未保存当前门店的平台门店标识和 Profile 标识。';
+        } else if (!sessionVerified) {
+            reasonText = '当前门店的平台身份已保存，但尚未形成今天有效的授权登录证明。';
+        }
+
+        return {
+            sourceScopeValid,
+            storeIdentitySaved,
+            sessionVerified,
+            hasManualAssist,
+            reasonText,
+        };
+    };
     const buildHotelPlatformAccountRow = ({
         hotel,
         platform,
@@ -1352,7 +1485,6 @@ window.SUXI_SYSTEM_STATIC = (() => {
         iconClass,
         profileSource,
         config,
-        ready,
         partial,
         missingConfig,
         modules,
@@ -1371,13 +1503,13 @@ window.SUXI_SYSTEM_STATIC = (() => {
         const platformCaptureStatusClass = requireHotelPlatformHelper(helpers, 'platformCaptureStatusClass');
         const mismatch = hasPlatformHotelMismatch(source, config);
         const loginExpired = isPlatformSourceLoginExpired(source, config);
-        const sourceStatus = String(source?.status || source?.last_sync_status || '').toLowerCase();
-        const sourceReady = !!source?.id && ['success', 'logged_in', 'active', 'ok'].includes(sourceStatus);
-        const effectiveReady = !missingConfig && (ready || sourceReady);
-        const effectivePartial = partial || !!source?.id;
+        const verification = platformAccountVerificationState({ hotel, platform, profileSource, config });
+        const effectiveReady = !missingConfig && verification.storeIdentitySaved && verification.sessionVerified;
+        const effectivePartial = partial || !!profileSource || !!source?.id || !!config;
+        const identityMissing = !!profileSource && !verification.storeIdentitySaved;
         const statusCode = mismatch
             ? 'mismatch'
-            : (loginExpired ? 'login_expired' : (effectiveReady ? 'logged_in' : (effectivePartial ? (missingConfig ? 'missing_config' : 'waiting_login') : 'unbound')));
+            : (loginExpired ? 'login_expired' : (effectiveReady ? 'logged_in' : (identityMissing ? 'missing_config' : (effectivePartial ? 'waiting_login' : 'unbound'))));
         const captureCode = platformCaptureStatusCode(source, config);
         const reason = platformAccountReason(statusCode, captureCode, source, config);
         const bound = !!(profileSource || config || source?.id);
@@ -1426,31 +1558,27 @@ window.SUXI_SYSTEM_STATIC = (() => {
             statusCode,
             statusText: platformAccountStatusText(statusCode),
             statusClass: platformAccountStatusClass(statusCode),
-            accountStoreText: bound ? platformAccountStoreText(label, hotel, source, config) : '-',
-            lastLoginText: formatHotelBindingDate(firstNonEmptyText(
-                source?.last_login_time,
-                source?.last_login_at,
-                source?.login_time,
-                source?.updated_at,
-                source?.update_time,
-                config?.last_login_time,
-                config?.last_login_at,
-                config?.update_time,
-                config?.created_at
-            )),
+            accountStoreText: verification.storeIdentitySaved ? platformAccountStoreText(label, hotel, source, config) : '-',
+            lastLoginText: verification.sessionVerified
+                ? formatHotelBindingDate(firstNonEmptyText(sourceConfig.current_session_probe_at, source?.last_login_time, source?.last_login_at))
+                : '-',
             lastCaptureText,
             lastSuccessText: platformLastSuccessText(source, config, captureCode, lastCaptureText),
             captureStatusText: platformCaptureStatusText(captureCode),
             captureStatusClass: platformCaptureStatusClass(captureCode),
             modules: effectiveReady && !mismatch && !loginExpired ? modules : ['无'],
-            reasonText: reason.text,
+            sessionVerified: verification.sessionVerified,
+            storeIdentitySaved: verification.storeIdentitySaved,
+            hasManualAssist: verification.hasManualAssist,
+            verificationReasonText: verification.reasonText,
+            reasonText: verification.reasonText || reason.text,
             reasonClass: reason.className,
             nextActionText: nextAction.text,
             nextActionWeight: nextAction.weight,
             nextActionClass: nextAction.className,
             nextActionTarget: nextAction.target || '',
             nextActionKey: nextAction.actionKey || '',
-            primaryActionText: bound ? '重新登录' : `添加${label}账号`,
+            primaryActionText: profileSource ? '重新登录' : '授权登录',
             loginItem: {
                 platform,
                 platform_name: label,
@@ -1477,21 +1605,8 @@ window.SUXI_SYSTEM_STATIC = (() => {
         meituanProfile = null,
         ctripSource = null,
         meituanSource = null,
-        meituanMissingFields = [],
         helpers = {},
     } = {}) => {
-        const meituanProfileConfig = meituanProfile?.config || {};
-        const ctripHasCookie = !!(ctripConfig && (String(ctripConfig.cookies || '').trim() || ctripConfig.has_cookies));
-        const ctripReady = !!(ctripProfile || ctripHasCookie);
-        const meituanPartnerId = firstNonEmptyText(meituanProfileConfig.partner_id, meituanConfig?.partner_id, meituanConfig?.partnerId);
-        const meituanPoiId = firstNonEmptyText(meituanProfileConfig.poi_id, meituanProfileConfig.store_id, meituanConfig?.poi_id, meituanConfig?.poiId);
-        const meituanMissing = Array.isArray(meituanMissingFields) ? meituanMissingFields : [];
-        const meituanIdentifierMissing = [
-            meituanPartnerId ? '' : '平台接口标识',
-            meituanPoiId ? '' : '平台门店标识',
-        ].filter(Boolean);
-        const meituanStoreInfoMissing = meituanIdentifierMissing.length > 0 || meituanMissing.some(field => !/cookie/i.test(String(field || '')));
-        const meituanReady = !!((meituanProfile && meituanIdentifierMissing.length === 0) || (meituanConfig && meituanMissing.length === 0));
         const meituanPartial = !!(meituanProfile || meituanConfig);
 
         return [
@@ -1504,7 +1619,6 @@ window.SUXI_SYSTEM_STATIC = (() => {
                 profileSource: ctripProfile,
                 source: ctripProfile || ctripSource || {},
                 config: ctripConfig,
-                ready: ctripReady,
                 partial: !!ctripConfig,
                 missingConfig: false,
                 modules: ['经营日报', '流量', '竞对'],
@@ -1519,13 +1633,33 @@ window.SUXI_SYSTEM_STATIC = (() => {
                 profileSource: meituanProfile,
                 source: meituanProfile || meituanSource || {},
                 config: meituanConfig,
-                ready: meituanReady,
                 partial: meituanPartial,
-                missingConfig: meituanPartial && !meituanReady && meituanStoreInfoMissing,
+                missingConfig: false,
                 modules: ['榜单', '流量', '广告'],
                 helpers,
             }),
         ];
+    };
+
+    const classifyPlatformCollectionReadiness = ({
+        hotelActive = true,
+        permissionDenied = false,
+        statusCode = '',
+        hasProfile = false,
+        currentSessionVerified = false,
+        hasManualAssist = false,
+        accountLevel = '',
+    } = {}) => {
+        if (!hotelActive) return 'inactive';
+        if (permissionDenied) return 'permission_denied';
+        if (statusCode === 'mismatch') return 'hotel_mismatch';
+        if (statusCode === 'login_expired') return 'login_expired';
+        if (statusCode === 'missing_config') return 'missing_config';
+        if (statusCode === 'unbound' && !hasProfile && !hasManualAssist) return 'unbound';
+        if (hasProfile && !currentSessionVerified) return 'waiting_login';
+        if (hasProfile && currentSessionVerified && accountLevel === 'ready') return 'auto_ready';
+        if (!hasProfile && hasManualAssist && accountLevel === 'ready') return 'manual_ready';
+        return accountLevel === 'partial' ? 'waiting_login' : 'unbound';
     };
 
     const riskBadgeClass = (risk) => {
@@ -1713,6 +1847,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         getInitialLocale,
         createAiModelConfigText,
         languageOptions,
+        hotelAiToolboxLinks,
         menuItemDefinitions,
         testIdNameMap,
         hotelColumns,
@@ -1757,11 +1892,13 @@ window.SUXI_SYSTEM_STATIC = (() => {
         buildRegisterRequestPayload,
         validateRegisterRequestPayload,
         createHotelForm,
+        normalizeHotelIdentityName,
         buildHotelSavePayload,
         createHotelMergeForm,
         hotelMergeVisibleItems,
         hotelMergeSkippableConflictCount,
         hotelMergeCanExecute,
+        hotelMergeFlowState,
         buildHotelMergeExecutePayload,
         hotelMergeSuccessMessage,
         buildHotelOtaCtripConfigSavePayload,
@@ -1795,6 +1932,8 @@ window.SUXI_SYSTEM_STATIC = (() => {
         getPlatformAccountBindingGuideRows,
         buildHotelPlatformAccountRow,
         buildHotelPlatformBindingRows,
+        platformAccountVerificationState,
+        classifyPlatformCollectionReadiness,
         knowledgeDocumentTextExtensions,
         knowledgeDocumentHtmlExtensions,
         knowledgeDocumentSupportedExtensions,

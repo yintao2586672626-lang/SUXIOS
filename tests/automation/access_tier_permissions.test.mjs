@@ -9,6 +9,10 @@ const read = (path) => readFileSync(resolve(root, path), 'utf8');
 const systemStatic = read('public/system-static.js');
 const userAdminStatic = read('public/user-admin-static.js');
 const indexHtml = read('public/index.html');
+const hotelAccountSummary = indexHtml.slice(
+  indexHtml.indexOf('data-testid="hotel-account-summary-table"'),
+  indexHtml.indexOf('<!-- 空状态 -->', indexHtml.indexOf('data-testid="hotel-account-summary-table"'))
+);
 const hotelController = read('app/controller/Hotel.php');
 const userModel = read('app/model/User.php');
 const roleModel = read('app/model/Role.php');
@@ -53,6 +57,41 @@ assert.match(
 const systemStaticSandbox = { window: {}, console, setTimeout, clearTimeout };
 vm.runInNewContext(systemStatic, systemStaticSandbox, { filename: 'public/system-static.js' });
 const systemStaticApi = systemStaticSandbox.window.SUXI_SYSTEM_STATIC;
+assert.equal(typeof systemStaticApi.hotelMergeFlowState, 'function', 'hotel merge UI must expose a testable step-state helper');
+const hotelMergeSelectState = systemStaticApi.hotelMergeFlowState({
+  form: { source_hotel_id: '', target_hotel_id: '', confirmation_text: '' },
+});
+assert.equal(hotelMergeSelectState.step, 1, 'hotel merge starts at store selection');
+assert.equal(hotelMergeSelectState.can_preview, false, 'hotel merge preview stays disabled until both stores are selected');
+const hotelMergePreviewState = systemStaticApi.hotelMergeFlowState({
+  form: { source_hotel_id: '61', target_hotel_id: '80', confirmation_text: '' },
+});
+assert.equal(hotelMergePreviewState.step, 2, 'selected stores advance the hotel merge flow to preview');
+assert.equal(hotelMergePreviewState.can_preview, true, 'distinct selected stores enable the preview action');
+assert.match(hotelMergePreviewState.preview_label, /生成迁移预览/, 'the primary action must name the preview step');
+const hotelMergeConfirmState = systemStaticApi.hotelMergeFlowState({
+  preview: {
+    can_execute: true,
+    source_hotel: { id: 61 },
+    target_hotel: { id: 80 },
+    confirmation_text: 'MERGE 61 -> 80',
+  },
+  form: { source_hotel_id: '61', target_hotel_id: '80', confirmation_text: '' },
+});
+assert.equal(hotelMergeConfirmState.step, 3, 'an executable preview advances the hotel merge flow to confirmation');
+assert.equal(hotelMergeConfirmState.can_execute, false, 'exact confirmation text remains required');
+assert.match(hotelMergeConfirmState.execute_hint, /MERGE 61 -> 80/, 'the disabled execution state must explain the exact confirmation text');
+const hotelMergeReadyState = systemStaticApi.hotelMergeFlowState({
+  preview: {
+    can_execute: true,
+    source_hotel: { id: 61 },
+    target_hotel: { id: 80 },
+    confirmation_text: 'MERGE 61 -> 80',
+  },
+  form: { source_hotel_id: '61', target_hotel_id: '80', confirmation_text: 'MERGE 61 -> 80' },
+});
+assert.equal(hotelMergeReadyState.can_execute, true, 'exact confirmation text enables execution');
+assert.equal(hotelMergeReadyState.execute_label, '确认执行迁移', 'ready state must expose the final execution action');
 const createdHotelForm = systemStaticApi.createHotelForm({ operatorName: '管理员', code: '0001' });
 const editedHotelForm = systemStaticApi.createHotelForm({
   hotel: { id: 60, name: '敦煌漠蓝', code: '0001', status: 1, ota_channel_strategy: 'ctrip_only' },
@@ -147,14 +186,16 @@ assert.doesNotMatch(indexHtml, /编码 \{\{ formatHotelCode\(hotelIndex \+ 1\) \
 assert.match(indexHtml, /hotelPlatformRow\(hotel,\s*'ctrip'\)/, 'hotel table should render the Ctrip channel row directly');
 assert.match(indexHtml, /hotelPlatformRow\(hotel,\s*'meituan'\)/, 'hotel table should render the Meituan channel row directly');
 assert.match(indexHtml, /@click="openHotelPlatformCardLogin\(hotel, account\)"[\s\S]*授权登录/, 'hotel channel cards should expose an explicit platform login action');
-assert.match(indexHtml, /const openHotelPlatformCardLogin = async \(hotel, account = \{\}\) => \{[\s\S]*await openHotelPlatformAccountAction\(hotel, account\);/, 'hotel channel card login must reuse the existing platform account action');
+assert.match(indexHtml, /const openHotelPlatformCardLogin = async \(hotel, account = \{\}\) => \{[\s\S]*await openHotelPlatformAccountAction\(hotel, account, \{ forceLogin: true \}\);/, 'hotel channel card login must reuse the existing platform account action as an explicit login');
 assert.match(indexHtml, /const buildHotelPlatformLoginItem = \(hotel = \{\}, account = \{\}\) => \{[\s\S]*system_hotel_id: hotelId[\s\S]*profile_id: profileId/, 'hotel channel card login must carry explicit hotel-scoped Ctrip profile context');
 assert.match(indexHtml, /const buildHotelPlatformLoginItem = \(hotel = \{\}, account = \{\}\) => \{[\s\S]*partner_id: partnerId[\s\S]*system_hotel_id: hotelId/, 'hotel channel card login must carry explicit hotel-scoped Meituan identity context');
 assert.match(indexHtml, /openHotelPlatformCardLogin, openHotelPlatformAccountAction/, 'hotel channel card login function must be exposed to the Vue template');
 assert.doesNotMatch(indexHtml, /点击登录\/刷新会话|点击卡片登录\/刷新会话/, 'hotel channel cards should not hide login behind whole-card click copy');
-assert.match(indexHtml, />手动Cookie<\/div>[\s\S]*hotelPlatformManualCookieText\(hotel, account\)/, 'hotel channel cards should show manual Cookie readiness');
-assert.match(indexHtml, />采集配置<\/div>[\s\S]*hotelPlatformFetchConfigText\(hotel, account\)/, 'hotel channel cards should show collection config readiness');
-assert.match(indexHtml, />自动化采集<\/div>[\s\S]*hotelPlatformAutomationText\(hotel, account\)/, 'hotel channel cards should show automation collection readiness');
+assert.doesNotMatch(hotelAccountSummary, /手动Cookie|采集配置|自动化采集/, 'hotel channel cards should stay a concise store-level summary');
+assert.match(hotelAccountSummary, />登录状态<\/div>[\s\S]*hotelPlatformLoginText\(account\)/, 'hotel channel cards should show current login state');
+assert.match(hotelAccountSummary, />最近采集<\/div>[\s\S]*account\.captureStatusText/, 'hotel channel cards should show the recent collection result');
+assert.match(hotelAccountSummary, /下一步：\{\{ account\.nextActionText/, 'hotel channel cards should keep the concrete next action');
+assert.match(indexHtml, /data-testid="platform-account-advanced-tools"/, 'technical account configuration should remain available in the platform account detail page');
 assert.match(indexHtml, /@click="openHotelSyncLogs\(hotel, account\.platform\)"[\s\S]*采集日志/, 'hotel channel cards should expose collection logs with a clear label');
 assert.doesNotMatch(indexHtml, /@click="openHotelSyncLogs\(hotel, account\.platform\)"[\s\S]{0,140}查看日志/, 'hotel channel log action should not use vague view-log copy');
 assert.match(indexHtml, /平台门店：\{\{ account\.accountStoreText \|\| '-' \}\}/, 'hotel channel cards should show the mapped platform store');
@@ -264,7 +305,7 @@ assert.match(rolePermissionCardsSlice, /内测用户[\s\S]*可信内测方/, 'ro
 assert.match(rolePermissionCardsSlice, /普通用户[\s\S]*必须分配门店/, 'role permission cards must name normal external users and their hotel-scope requirement');
 assert.doesNotMatch(rolePermissionCardsSlice, />门店管理员<\/div>|>店员<\/div>/, 'role permission cards must not keep ambiguous legacy role labels for external issuance');
 assert.match(indexHtml, /const roleIssueGuideCards = computed\(\(\) =>/, 'user management must expose beta/normal role issue guide cards');
-assert.match(indexHtml, /user-admin-static\.js\?v=20260708-role-issue-helpers/, 'user admin issue helpers must load as a dedicated static bundle');
+assert.match(indexHtml, /user-admin-static\.js\?v=20260711-vip-credential-helper/, 'user admin issue helpers must load as a dedicated static bundle');
 assert.match(indexHtml, /const requireUserAdminStatic = \(key\) =>/, 'index must require user admin static helpers explicitly');
 assert.match(userAdminStatic, /window\.SUXI_USER_ADMIN_STATIC = \(\(\) =>/, 'user admin static helpers must expose a stable bundle namespace');
 assert.match(userAdminStatic, /handoffType:\s*'内测发放'/, 'beta issue profile must expose an explicit handoff type');
@@ -326,6 +367,13 @@ assert.match(indexHtml, /@click="openUserAuthorization\(\)"/, 'hotel management 
 assert.match(indexHtml, /@click="openUserAuthorization\(hotel\)"/, 'hotel rows must expose per-store user authorization entry');
 assert.match(indexHtml, /@click="openHotelMergeModal\(\)"/, 'hotel management header must expose a super-admin hotel data merge entry');
 assert.match(indexHtml, /v-if="showHotelMergeModal"/, 'hotel data merge must use an explicit preview and execution modal');
+assert.match(indexHtml, /hotelMergeFlowState\.step[\s\S]*选择门店[\s\S]*核对预览[\s\S]*确认执行/, 'hotel merge modal must expose a clear three-step flow');
+assert.match(indexHtml, /不迁移 Cookie、Profile 或登录凭证/, 'hotel merge modal must disclose the OTA credential boundary');
+assert.match(indexHtml, /:disabled="!hotelMergeFlowState\.can_preview \|\| hotelMergeLoading \|\| hotelMergeExecuting"/, 'hotel merge preview action must be enabled only after valid store selection');
+assert.match(indexHtml, /hotelMergeFlowState\.preview_label/, 'hotel merge preview action must explain the next step');
+assert.match(indexHtml, /hotelMergeFlowState\.execute_hint/, 'hotel merge disabled execution state must explain what is missing');
+assert.match(indexHtml, /ref="hotelMergeConfirmationInput"/, 'hotel merge confirmation field must expose a focus target');
+assert.match(indexHtml, /hotelMergeConfirmationInput\.value\?\.scrollIntoView/, 'hotel merge preview completion must reveal the confirmation field');
 assert.match(indexHtml, /\/hotels\/merge-preview\?source_hotel_id=/, 'hotel data merge preview must call the dedicated preview endpoint');
 assert.match(indexHtml, /\/hotels\/merge-execute/, 'hotel data merge execution must call the dedicated execute endpoint');
 assert.match(indexHtml, /online_daily_data\.hotel_id[\s\S]*OTA 平台酒店ID，不会被改写/, 'hotel data merge UI must state that OTA platform hotel_id is not migrated');
@@ -363,11 +411,13 @@ assert.match(indexHtml, /const pendingHotelId = pendingUserAuthorizationHotel\.v
 assert.doesNotMatch(indexHtml, /filterUserHotelId\.value = hotel\?\.id \? String\(hotel\.id\) : '';/, 'hotel authorization must not filter to users already assigned to the store');
 assert.match(indexHtml, /openUserModal, openUserAuthorization, openUserModalWithRole/, 'hotel authorization entry must be returned to the Vue template');
 assert.match(indexHtml, /const existingUserIssueGuideBlocker = \(u = \{\}\) =>/, 'row-level issuance copy must have explicit blocker checks');
-assert.match(indexHtml, /copyUserIssueGuideForUser\(u\)/, 'existing beta and normal users must expose a copyable issuance guide action');
+assert.match(indexHtml, /openUserLoginInfoModal\(u\)/, 'existing beta and normal users must expose a login-info reset and copy action');
+assert.match(indexHtml, /data-testid="user-login-info-modal"/, 'existing user login-info flow must use an explicit reset confirmation modal');
+assert.match(indexHtml, /confirmUserLoginInfoReset/, 'existing user login-info flow must require reset confirmation before copying credentials');
 assert.match(indexHtml, /String\(u\?\.status\) !== '1'/, 'row-level issuance copy must block pending or paused accounts');
 assert.match(indexHtml, /const lastUserIssueGuideText = ref\(''\);/, 'user management must preserve the latest beta or normal issuance guide after the modal closes');
 assert.match(indexHtml, /const copyLastUserIssueGuide = \(\) =>/, 'user management must allow copying the latest issuance guide from the user list screen');
-assert.match(indexHtml, /copyUserIssueGuide, isExternalIssueUser, existingUserIssueGuideBlocker, copyUserIssueGuideForUser, lastUserIssueGuideText, showLastUserIssueGuideText, copyLastUserIssueGuide, clearLastUserIssueGuide, toggleAllUserHotels,/, 'latest issuance guide state, compact display state, and row copy actions must be returned to the Vue template');
+assert.match(indexHtml, /copyUserIssueGuide, isExternalIssueUser, existingUserIssueGuideBlocker, copyUserIssueGuideForUser, copyUserBasicLoginInfo, lastUserIssueGuideText, showLastUserIssueGuideText, copyLastUserIssueGuide, clearLastUserIssueGuide, toggleAllUserHotels,/, 'latest issuance guide state, non-destructive login copy, compact display state, and row copy actions must be returned to the Vue template');
 assert.match(indexHtml, /const allUserHotelIds = computed\(\(\) => normalizeUserHotelIds/, 'user modal must derive a selectable full hotel list');
 assert.match(indexHtml, /const toggleAllUserHotels = \(\) => \{[\s\S]*areAllUserHotelsSelected\.value \? \[\] : \[\.\.\.allUserHotelIds\.value\]/, 'user modal must support all-select and clear for assigned hotels');
 assert.match(indexHtml, /roleIssueProfile, rolePermissionTags, rolePermissionList, roleIssueActionText/, 'role issue permission helpers must be returned to the Vue template');

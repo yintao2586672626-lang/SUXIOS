@@ -152,13 +152,15 @@ for (const [method, label] of [
 
 check(
   'app/controller/concern/OnlineDataRequestConcern.php',
-  'legacy platform Profile login trigger blocks server-side browser launch',
+  'platform Profile login trigger launches only from the account owner local computer',
   (source) => source.includes('client_local_authorization_required')
     && source.includes('account_owner_local_computer_only')
     && source.includes('server_browser_launch_disabled')
     && source.includes('open_platform_on_account_owner_computer_and_import_browser_assist_json')
-    && !source.includes('launchPlatformProfileLoginTask($task)'),
-  'client_local_authorization_required + server_browser_launch_disabled'
+    && source.includes('private function isLocalPlatformProfileLoginRequest(): bool')
+    && source.includes("['127.0.0.1', '::1', '::ffff:127.0.0.1']")
+    && source.includes('launchPlatformProfileLoginTask($task)'),
+  'loopback guard + local Profile browser launch + remote block'
 );
 
 for (const [needle, label] of [
@@ -696,11 +698,12 @@ for (const [needle, label] of [
 
 check(
   'public/index.html',
-  'frontend does not call legacy server-side platform Profile login trigger',
-  (source) => !source.includes('`/online-data/profile-login-trigger/${platform}`')
-    && !source.includes("'/online-data/profile-login-trigger/")
-    && !source.includes('"/online-data/profile-login-trigger/'),
-  'no frontend profile-login-trigger request'
+  'frontend calls platform Profile login trigger only from a loopback host',
+  (source) => source.includes('const canLaunchLocalPlatformProfileBrowser = () =>')
+    && source.includes("['127.0.0.1', 'localhost', '::1'].includes(hostname)")
+    && source.includes('if (!canLaunchLocalPlatformProfileBrowser())')
+    && source.includes('`/online-data/profile-login-trigger/${platform}`'),
+  'loopback frontend guard + profile-login-trigger request'
 );
 
 check(

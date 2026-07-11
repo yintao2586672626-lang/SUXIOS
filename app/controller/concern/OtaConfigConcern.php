@@ -6,16 +6,25 @@ namespace app\controller\concern;
 use app\model\SystemConfig;
 use app\service\BrowserProfileCaptureRequestService;
 use app\service\OtaCredentialVault;
+use app\service\OtaExecutionStageException;
+use app\service\OtaConfigVerificationService;
 use RuntimeException;
 use think\facade\Db;
+use think\facade\Log;
 
 trait OtaConfigConcern
 {
     private ?OtaCredentialVault $otaCredentialVaultInstance = null;
+    private ?OtaConfigVerificationService $otaConfigVerificationServiceInstance = null;
 
     protected function otaCredentialVault(): object
     {
         return $this->otaCredentialVaultInstance ??= new OtaCredentialVault();
+    }
+
+    private function otaConfigVerificationService(): OtaConfigVerificationService
+    {
+        return $this->otaConfigVerificationServiceInstance ??= new OtaConfigVerificationService();
     }
 
     /**
@@ -99,31 +108,104 @@ trait OtaConfigConcern
         string $configId,
         int $hotelId,
         callable $consumer,
-        bool $internalCollector = false
+        bool $internalCollector = false,
+        bool $classifyManualStages = false
     ): mixed {
-        $this->validateOtaCredentialLocator($platform, $configId);
-        if (!$internalCollector && !$this->currentUserCanMaintainOtaConfig($hotelId)) {
-            throw new RuntimeException('Forbidden OTA credential execution.', 403);
-        }
-
-        $tenantId = $this->otaCredentialTenantIdForHotel($hotelId);
-        return $this->otaCredentialVault()->withPayloadForExecution(
-            $tenantId,
-            $hotelId,
-            $platform,
-            $configId,
-            function (array $payload) use ($consumer): mixed {
-                try {
-                    $protectedValues = $this->collectReusableOtaCredentialScalars($payload);
-                    $result = $consumer($payload);
-                    $this->assertOtaExecutionResultDoesNotLeak($result, $protectedValues);
-                    return $result;
-                } finally {
-                    $payload = [];
-                    unset($payload);
-                }
+        try {
+            $this->validateOtaCredentialLocator($platform, $configId);
+            if (!$internalCollector && !$this->currentUserCanMaintainOtaConfig($hotelId)) {
+                throw new RuntimeException('Forbidden OTA credential execution.', 403);
             }
-        );
+
+            $tenantId = $this->otaCredentialTenantIdForHotel($hotelId);
+            return $this->otaCredentialVault()->withPayloadForExecution(
+                $tenantId,
+                $hotelId,
+                $platform,
+                $configId,
+                function (array $payload) use ($consumer, $classifyManualStages): mixed {
+                    try {
+                        $protectedValues = $this->collectReusableOtaCredentialScalars($payload);
+                        try {
+                            $result = $consumer($payload);
+                        } catch (OtaExecutionStageException $e) {
+                            throw $e;
+                        } catch (RuntimeException $e) {
+                            if (!$classifyManualStages) {
+                                throw $e;
+                            }
+                            throw new OtaExecutionStageException(
+                                'platform_execution',
+                                'OTA 平台请求或数据处理失败',
+                                502,
+                                $e
+                            );
+                        }
+
+                        try {
+                            $this->assertOtaExecutionResultDoesNotLeak($result, $protectedValues);
+                        } catch (RuntimeException $e) {
+                            if (!$classifyManualStages) {
+                                throw $e;
+                            }
+                            throw new OtaExecutionStageException(
+                                'result_inspection',
+                                '获取结果安全检查未通过',
+                                500,
+                                $e
+                            );
+                        }
+                        return $result;
+                    } finally {
+                        $payload = [];
+                        unset($payload);
+                    }
+                }
+            );
+        } catch (OtaExecutionStageException $e) {
+            throw $e;
+        } catch (RuntimeException $e) {
+            if (!$classifyManualStages) {
+                throw $e;
+            }
+            $forbidden = $e->getCode() === 403;
+            throw new OtaExecutionStageException(
+                $forbidden ? 'authorization' : 'credential',
+                $forbidden ? '无权使用该门店 OTA 凭据' : 'OTA 凭据不可用',
+                $forbidden ? 403 : 409,
+                $e
+            );
+        }
+    }
+
+    private function otaExecutionStageFailureResponse(
+        string $operation,
+        OtaExecutionStageException $exception
+    ): \think\Response {
+        Log::error('Manual OTA execution failed.', [
+            'operation' => $operation,
+            'stage' => $exception->stage(),
+            'exception_type' => get_debug_type($exception->getPrevious() ?? $exception),
+        ]);
+
+        return $this->error($exception->safeMessage(), $exception->httpStatus(), [
+            'reason' => 'ota_manual_execution_failed',
+            'stage' => $exception->stage(),
+        ]);
+    }
+
+    private function otaUnknownExecutionFailureResponse(string $operation, \Throwable $exception): \think\Response
+    {
+        Log::error('Manual OTA execution failed without a classified stage.', [
+            'operation' => $operation,
+            'stage' => 'unknown',
+            'exception_type' => get_debug_type($exception),
+        ]);
+
+        return $this->error('OTA 执行失败', 500, [
+            'reason' => 'ota_manual_execution_failed',
+            'stage' => 'unknown',
+        ]);
     }
 
     /**
@@ -562,7 +644,7 @@ trait OtaConfigConcern
                     $cookieValue = substr($cookieValue, 1, -1);
                 }
             }
-            if ($cookieValue !== '') {
+            if ($cookieValue !== '' && !$this->isNonCredentialOtaCookiePreferenceValue($cookieValue)) {
                 $this->addReusableOtaCredentialScalar($cookieValue, $protected);
             }
         }
@@ -746,13 +828,18 @@ trait OtaConfigConcern
         ], true);
     }
 
+    private function isNonCredentialOtaCookiePreferenceValue(string $value): bool
+    {
+        return preg_match('/^(?:true|false|null|-?\d+(?:\.\d+)?)$/i', trim($value)) === 1;
+    }
+
     /**
      * @param array{substring: array<string, string>, exact: array<string, string>} $protected
      */
     private function addReusableOtaCredentialScalar(mixed $value, array &$protected): void
     {
         $scalar = $this->reusableOtaCredentialScalarString($value);
-        if ($scalar === null || $scalar === '') {
+        if ($scalar === null || $scalar === '' || in_array(strtolower($scalar), ['true', 'false'], true)) {
             return;
         }
         $mode = strlen($scalar) >= 8 ? 'substring' : 'exact';
@@ -1137,6 +1224,11 @@ trait OtaConfigConcern
                 $existing
             );
             $metadata = array_merge($metadata, $credentialMetadata);
+            $metadata['verification_status'] = 'saved_pending_verification';
+            $metadata['verification_status_label'] = '已保存，待授权验证';
+            $metadata['configuration_saved'] = true;
+            $metadata['configuration_verified'] = false;
+            $metadata['verified_at'] = '';
             $list[$id] = $metadata;
             $jsonValue = json_encode(
                 $list,
@@ -1235,7 +1327,8 @@ trait OtaConfigConcern
                 }
                 $this->validateOtaCredentialLocator('meituan', $storedConfigId);
                 $siblingHotelId = $this->strictOtaConfigBoundHotelId($sibling, 'Meituan');
-                $this->otaCredentialTenantIdForHotel($siblingHotelId);
+                // Historical metadata may outlive its hotel row. Only the target
+                // hotel is required to have a current tenant binding for this save.
 
                 [, $siblingSecrets] = $this->splitOtaConfigSecrets($sibling);
                 $siblingSecrets = $this->sanitizeOtaVaultSecretPayload($siblingSecrets);
@@ -1308,6 +1401,11 @@ trait OtaConfigConcern
                 $existing
             );
             $metadata = array_merge($metadata, $credentialMetadata);
+            $metadata['verification_status'] = 'saved_pending_verification';
+            $metadata['verification_status_label'] = '已保存，待授权验证';
+            $metadata['configuration_saved'] = true;
+            $metadata['configuration_verified'] = false;
+            $metadata['verified_at'] = '';
             $list[$id] = $metadata;
             $jsonValue = json_encode(
                 $list,
@@ -1502,6 +1600,17 @@ trait OtaConfigConcern
                 $metadata['credential_level_label'] = '阻塞';
                 $metadata['has_cookies'] = false;
             }
+
+            $platform = array_key_exists('partner_id', $metadata)
+                || array_key_exists('partnerId', $metadata)
+                || array_key_exists('poi_id', $metadata)
+                || array_key_exists('poiId', $metadata)
+                ? 'meituan'
+                : 'ctrip';
+            $metadata = array_merge(
+                $metadata,
+                $this->otaConfigVerificationService()->statusForConfig($metadata, $platform)
+            );
 
             $safeList[$index] = $metadata;
         }
@@ -1920,7 +2029,7 @@ trait OtaConfigConcern
             }
         }
 
-        return count($matches) === 1 ? $matches[0] : [];
+        return $this->selectLatestSuccessfulCtripConfig($matches);
     }
 
     private function resolveMeituanFetchConfigForHotel(int $hotelId): array
@@ -1939,7 +2048,7 @@ trait OtaConfigConcern
             }
         }
 
-        return count($matches) === 1 ? $matches[0] : [];
+        return $this->selectLatestSuccessfulMeituanConfig($matches);
     }
 
     private function resolveCtripFetchConfigForHotelLight(int $hotelId): array
@@ -1958,7 +2067,7 @@ trait OtaConfigConcern
             }
         }
 
-        return count($matches) === 1 ? $matches[0] : [];
+        return $this->selectLatestSuccessfulCtripConfig($matches);
     }
 
     private function resolveMeituanFetchConfigForHotelLight(int $hotelId): array
@@ -1977,7 +2086,148 @@ trait OtaConfigConcern
             }
         }
 
-        return count($matches) === 1 ? $matches[0] : [];
+        return $this->selectLatestSuccessfulMeituanConfig($matches);
+    }
+
+    private function selectLatestSuccessfulMeituanConfig(array $matches): array
+    {
+        $successful = array_values(array_filter($matches, static function ($config): bool {
+            if (!is_array($config)) {
+                return false;
+            }
+            $configId = trim((string)($config['config_id'] ?? $config['id'] ?? ''));
+            return preg_match('/^[A-Za-z0-9._-]{1,100}$/D', $configId) === 1
+                && (string)($config['credential_status'] ?? '') === 'ready'
+                && ($config['has_cookies'] ?? false) === true
+                && ($config['configuration_verified'] ?? false) === true;
+        }));
+        if ($successful === []) {
+            return [];
+        }
+
+        usort($successful, static function (array $left, array $right): int {
+            $leftTime = trim((string)($left['update_time'] ?? $left['updated_at'] ?? $left['created_at'] ?? $left['create_time'] ?? ''));
+            $rightTime = trim((string)($right['update_time'] ?? $right['updated_at'] ?? $right['created_at'] ?? $right['create_time'] ?? ''));
+            $timeComparison = strcmp($rightTime, $leftTime);
+            if ($timeComparison !== 0) {
+                return $timeComparison;
+            }
+            $leftId = (string)($left['config_id'] ?? $left['id'] ?? '');
+            $rightId = (string)($right['config_id'] ?? $right['id'] ?? '');
+            return strcmp($rightId, $leftId);
+        });
+
+        return $successful[0];
+    }
+
+    private function selectLatestSuccessfulCtripConfig(array $matches): array
+    {
+        $successful = array_values(array_filter($matches, static function ($config): bool {
+            if (!is_array($config)) {
+                return false;
+            }
+            $configId = trim((string)($config['config_id'] ?? $config['id'] ?? ''));
+            return preg_match('/^[A-Za-z0-9._-]{1,100}$/D', $configId) === 1
+                && (string)($config['credential_status'] ?? '') === 'ready'
+                && ($config['has_cookies'] ?? false) === true
+                && ($config['configuration_verified'] ?? false) === true;
+        }));
+        if ($successful === []) {
+            return [];
+        }
+
+        $this->sortOtaConfigsNewestFirst($successful);
+        return $successful[0];
+    }
+
+    private function selectLatestSuccessfulCtripConfigForHotel(array $list, int $hotelId): array
+    {
+        $matches = [];
+        foreach ($list as $config) {
+            if (!is_array($config) || $this->otaConfigHasHotelBindingConflict($config)) {
+                continue;
+            }
+            if ($this->otaConfigBoundSystemHotelId($config) === $hotelId) {
+                $matches[] = $config;
+            }
+        }
+
+        return $this->selectLatestSuccessfulCtripConfig($matches);
+    }
+
+    private function collapseCtripConfigListByHotel(array $list): array
+    {
+        $groups = [];
+        foreach ($list as $index => $config) {
+            if (!is_array($config)) {
+                continue;
+            }
+            $hotelId = $this->otaConfigHasHotelBindingConflict($config)
+                ? null
+                : $this->otaConfigBoundSystemHotelId($config);
+            $configId = trim((string)($config['config_id'] ?? $config['id'] ?? $index));
+            $groupKey = $hotelId === null ? 'unbound:' . $configId . ':' . $index : 'hotel:' . $hotelId;
+            $groups[$groupKey][] = $config;
+        }
+
+        $collapsed = [];
+        foreach ($groups as $configs) {
+            $primary = $this->selectLatestSuccessfulCtripConfig($configs);
+            if ($primary === []) {
+                $this->sortOtaConfigsNewestFirst($configs);
+                $primary = $configs[0];
+            }
+            $primary['history_count'] = max(0, count($configs) - 1);
+            $collapsed[] = $primary;
+        }
+
+        $this->sortOtaConfigsNewestFirst($collapsed);
+        return $collapsed;
+    }
+
+    private function collapseMeituanConfigListByHotel(array $list): array
+    {
+        $groups = [];
+        foreach ($list as $index => $config) {
+            if (!is_array($config)) {
+                continue;
+            }
+            $hotelId = $this->otaConfigHasHotelBindingConflict($config)
+                ? null
+                : $this->otaConfigBoundSystemHotelId($config);
+            $configId = trim((string)($config['config_id'] ?? $config['id'] ?? $index));
+            $groupKey = $hotelId === null ? 'unbound:' . $configId . ':' . $index : 'hotel:' . $hotelId;
+            $groups[$groupKey][] = $config;
+        }
+
+        $collapsed = [];
+        foreach ($groups as $configs) {
+            $primary = $this->selectLatestSuccessfulMeituanConfig($configs);
+            if ($primary === []) {
+                $this->sortOtaConfigsNewestFirst($configs);
+                $primary = $configs[0];
+            }
+            $primary['history_count'] = max(0, count($configs) - 1);
+            $collapsed[] = $primary;
+        }
+
+        $this->sortOtaConfigsNewestFirst($collapsed);
+        return $collapsed;
+    }
+
+    private function sortOtaConfigsNewestFirst(array &$configs): void
+    {
+        usort($configs, static function (array $left, array $right): int {
+            $leftTime = trim((string)($left['update_time'] ?? $left['updated_at'] ?? $left['created_at'] ?? $left['create_time'] ?? ''));
+            $rightTime = trim((string)($right['update_time'] ?? $right['updated_at'] ?? $right['created_at'] ?? $right['create_time'] ?? ''));
+            $timeComparison = strcmp($rightTime, $leftTime);
+            if ($timeComparison !== 0) {
+                return $timeComparison;
+            }
+            $leftId = (string)($left['config_id'] ?? $left['id'] ?? '');
+            $rightId = (string)($right['config_id'] ?? $right['id'] ?? '');
+            return strcmp($rightId, $leftId);
+        });
     }
 
     private function getStoredCtripConfigListForLightCache(): array
@@ -2329,6 +2579,32 @@ trait OtaConfigConcern
         }
 
         return $normalizedList;
+    }
+
+    /**
+     * Public Ctrip hotel pages are a human-verification aid only. They never
+     * overwrite the selected system hotel or the stored platform binding.
+     *
+     * @param array<int, mixed> $hotelIds
+     * @return array<int, array{hotel_id:string,url:string}>
+     */
+    private function buildCtripPublicHotelVerificationLinks(array $hotelIds): array
+    {
+        $links = [];
+        foreach ($hotelIds as $hotelId) {
+            if (is_array($hotelId) || is_object($hotelId)) {
+                continue;
+            }
+            $value = trim((string)$hotelId);
+            if (preg_match('/^\d+$/D', $value) !== 1) {
+                continue;
+            }
+            $links[$value] = [
+                'hotel_id' => $value,
+                'url' => 'https://hotels.ctrip.com/hotels/' . $value . '.html',
+            ];
+        }
+        return array_values($links);
     }
 
 }

@@ -338,6 +338,9 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
                 hotelMap.set(key, {
                     poiId: h.hotelId || h.id || '',
                     hotelName: h.hotelName || h.name || '',
+                    systemHotelName: h.systemHotelName || h.system_hotel_name || '',
+                    compareType: h.compareType || h.compare_type || '',
+                    isSelf: h.isSelf === true || h.is_self === true || (h.compareType || h.compare_type) === 'self',
                     roomNights: h.quantity || h.roomNights || 0,
                     roomRevenue: h.amount || h.roomRevenue || 0,
                     salesRoomNights: h.salesRoomNights || 0,
@@ -360,6 +363,9 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
                 return;
             }
             const existing = hotelMap.get(key);
+            existing.isSelf = existing.isSelf || h.isSelf === true || h.is_self === true || (h.compareType || h.compare_type) === 'self';
+            existing.compareType = existing.isSelf ? 'self' : (existing.compareType || h.compareType || h.compare_type || 'competitor');
+            existing.systemHotelName = existing.systemHotelName || h.systemHotelName || h.system_hotel_name || '';
             existing.roomNights = Math.max(existing.roomNights, h.quantity || h.roomNights || 0);
             existing.roomRevenue = Math.max(existing.roomRevenue, h.amount || h.roomRevenue || 0);
             existing.salesRoomNights = Math.max(existing.salesRoomNights, h.salesRoomNights || 0);
@@ -379,10 +385,30 @@ window.SUXI_AI_ANALYSIS_STATIC = (() => {
             existing.commentScoreRank = existing.commentScoreRank === 0 ? (h.commentScoreRank || 0) : Math.min(existing.commentScoreRank, h.commentScoreRank || existing.commentScoreRank);
             existing.qunarDetailCRRank = existing.qunarDetailCRRank === 0 ? (h.qunarDetailCRRank || 0) : Math.min(existing.qunarDetailCRRank, h.qunarDetailCRRank || existing.qunarDetailCRRank);
         });
-        const hotels = Array.from(hotelMap.values());
+        const allHotels = Array.from(hotelMap.values());
+        const hasExplicitRoles = ctripHotels.some(h =>
+            h?.isSelf === true
+            || h?.is_self === true
+            || ['self', 'competitor'].includes(String(h?.compareType || h?.compare_type || '').toLowerCase())
+        );
+        const isGenericSelfName = value => ['我的酒店', '本店', 'myhotel', 'currenthotel']
+            .includes(String(value || '').replace(/\s+/g, '').toLowerCase());
+        const hotels = allHotels
+            .filter(hotel => hasExplicitRoles ? hotel.isSelf === true : isGenericSelfName(hotel.hotelName))
+            .map(hotel => ({
+                ...hotel,
+                hotelName: String(hotel.systemHotelName || hotel.hotelName || '').trim(),
+                compareType: 'self',
+                isSelf: true,
+            }));
+        const selfIds = new Set(hotels.map(hotel => String(hotel.poiId || '')));
+        const comparisonHotels = allHotels
+            .filter(hotel => !selfIds.has(String(hotel.poiId || '')))
+            .map(hotel => ({ ...hotel, compareType: 'competitor', isSelf: false }));
         const visibleKeys = new Set(hotels.map(getAiAnalysisHotelKey));
         return {
             hotels,
+            comparisonHotels,
             selectedKeys: selectedKeys.filter(key => visibleKeys.has(key)),
         };
     };
