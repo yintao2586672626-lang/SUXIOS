@@ -40,7 +40,7 @@ test('Meituan ranking fetch uses a vault locator in direct mode and keeps truthf
   assert.match(failedBranch, /setBusinessSummary\(getEmptyBusinessSummary\(\)\);/);
   assert.match(failedBranch, /return \{ status: loginFailed \? 'login_required' : 'failed'/);
   assert.match(pendingSetup, /setOnlineDataResult\(\[\.\.\.results\]\);/);
-  assert.match(pendingSetup, /setFetchSuccess\(true\);/);
+  assert.doesNotMatch(pendingSetup, /setFetchSuccess\(true\);/);
 
   assert.match(meituanStatic, /const isMeituanPendingResult = \(result = \{\}\)/);
   assert.match(meituanStatic, /const isMeituanBackgroundResult = \(result = \{\}\)/);
@@ -69,4 +69,32 @@ test('Meituan ranking fetch uses a vault locator in direct mode and keeps truthf
   assert.match(acceptedBranch, /refreshOnlineData\(\)/);
   assert.match(acceptedBranch, /return \{ status: 'accepted', results, acceptedCount, totalSavedCount \};/);
   assert.doesNotMatch(acceptedBranch, /unexpected_background/);
+});
+
+test('Meituan ranking production flow commits deferred candidates through the authenticated endpoint', () => {
+  const productionFlow = sliceFrom(html, 'const fetchMeituanData = async () => {', 'const useCtripTrafficDisplayRows');
+
+  assert.match(
+    productionFlow,
+    /requestCommit:\s*body\s*=>\s*request\('\/online-data\/meituan\/rank-candidates\/commit'/
+  );
+});
+
+test('Meituan production flow invalidates stale runs when the hotel changes', () => {
+  const productionFlow = sliceFrom(html, 'const fetchMeituanData = async () => {', 'const useCtripTrafficDisplayRows');
+  const hotelWatcher = sliceFrom(html, 'watch(() => meituanForm.value.hotelId, () => {', 'watch(() => meituanForm.value.dateRanges');
+
+  assert.match(html, /let meituanFetchRunToken = 0;/);
+  assert.match(productionFlow, /const runToken = \+\+meituanFetchRunToken;/);
+  assert.match(productionFlow, /const isActive = \(\) => runToken === meituanFetchRunToken;/);
+  assert.match(productionFlow, /isActive,/);
+  assert.match(productionFlow, /if \(preparingConfig && isActive\(\)\)/);
+  assert.match(hotelWatcher, /meituanFetchRunToken \+= 1;/);
+});
+
+test('Meituan ranking candidate flow ships with a fresh browser cache key', () => {
+  assert.match(
+    html,
+    /meituan-static\.js\?v=20260712-meituan-truthful-partial-h[a-f0-9]{10}/
+  );
 });

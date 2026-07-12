@@ -67,7 +67,7 @@ final class CtripCompetitionCirclePersistenceService
     {
         $selfHotelIds = self::normalizeHotelIds($context['self_hotel_ids'] ?? []);
         $hotelId = self::platformHotelId($row);
-        $isSelf = isset($selfHotelIds[$hotelId]) || self::hasExplicitSelfMarker($row);
+        $isSelf = $hotelId !== '' && isset($selfHotelIds[$hotelId]);
 
         $commentScore = self::nullableScore($row, [
             'commentScore',
@@ -176,6 +176,7 @@ final class CtripCompetitionCirclePersistenceService
         int $userId = 0,
         array $safeConfig = []
     ): int {
+        $tenantId = (int)(Db::name('hotels')->where('id', $systemHotelId)->value('tenant_id') ?? 0);
         $query = Db::name('platform_data_sources')
             ->where('system_hotel_id', $systemHotelId)
             ->where('platform', 'ctrip')
@@ -191,7 +192,7 @@ final class CtripCompetitionCirclePersistenceService
             'credential_storage' => 'ota_credential_vault_reference_only',
         ];
         $payload = [
-            'tenant_id' => $systemHotelId,
+            'tenant_id' => $tenantId > 0 ? $tenantId : null,
             'system_hotel_id' => $systemHotelId,
             'user_id' => $userId > 0 ? $userId : null,
             'name' => '携程手动竞争圈采集',
@@ -223,8 +224,9 @@ final class CtripCompetitionCirclePersistenceService
         string $triggerType = 'manual'
     ): int {
         $now = date('Y-m-d H:i:s');
+        $tenantId = (int)(Db::name('hotels')->where('id', $systemHotelId)->value('tenant_id') ?? 0);
         return (int)Db::name('platform_data_sync_tasks')->insertGetId([
-            'tenant_id' => $systemHotelId,
+            'tenant_id' => $tenantId > 0 ? $tenantId : null,
             'data_source_id' => $dataSourceId,
             'system_hotel_id' => $systemHotelId,
             'platform' => 'ctrip',
@@ -450,23 +452,6 @@ final class CtripCompetitionCirclePersistenceService
         }
         $decoded = json_decode((string)($row['raw_data'] ?? ''), true);
         return is_array($decoded) ? $decoded : [];
-    }
-
-    private static function hasExplicitSelfMarker(array $row): bool
-    {
-        foreach (['compare_type', 'compareType', 'role', 'scope', 'type'] as $key) {
-            $value = strtolower(trim((string)($row[$key] ?? '')));
-            if (in_array($value, ['self', 'current', 'mine', 'myhotel', 'currenthotel'], true)) {
-                return true;
-            }
-        }
-        foreach (['isSelf', 'is_self', 'isMine', 'is_mine', 'currentHotel', 'current_hotel'] as $key) {
-            if (!empty($row[$key])) {
-                return true;
-            }
-        }
-        $name = strtolower(preg_replace('/\s+/u', '', self::firstScalar($row, ['hotelName', 'hotel_name', 'HotelName', 'name'])) ?? '');
-        return in_array($name, ['我的酒店', '本店', 'myhotel', 'currenthotel'], true);
     }
 
     private static function normalizeHotelIds(mixed $ids): array

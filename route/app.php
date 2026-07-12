@@ -209,7 +209,9 @@ Route::group('api/system-config', function () {
 // ==================== 线上数据获取路由 ====================
 Route::group('api/online-data', function () {
     Route::post('/fetch-ctrip', 'OnlineData/fetchCtrip');
+    Route::post('/fetch-ctrip-temporary-cookie', 'OnlineData/fetchCtripTemporaryCookie');
     Route::post('/fetch-meituan', 'OnlineData/fetchMeituan');
+    Route::post('/meituan/rank-candidates/commit', 'OnlineData/commitMeituanRankCandidate');
     Route::post('/meituan/display-model', 'OnlineData/meituanDisplayModel');
     Route::get('/competitor-summary', 'OnlineData/competitorSummary');
     Route::post('/fetch-ctrip-traffic', 'OnlineData/fetchCtripTraffic');
@@ -310,6 +312,7 @@ Route::group('api/online-data', function () {
     Route::get('/release-evidence-status', 'OnlineData/releaseEvidenceStatus');
     Route::get('/collection-reliability', 'OnlineData/collectionReliability');
     Route::get('/daily-workbench', 'OnlineData/dailyWorkbench');
+    Route::get('/manual-fetch-evidence', 'OnlineData/manualFetchEvidence');
     Route::get('/daily-workbench-patrols', 'OnlineData/dailyWorkbenchPatrols');
     Route::get('/daily-workbench-patrols/report', 'OnlineData/dailyWorkbenchPatrolReport');
     Route::post('/daily-workbench-patrols/run', 'OnlineData/runDailyWorkbenchPatrol');

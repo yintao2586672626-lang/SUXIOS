@@ -618,7 +618,7 @@ trait CollectionReliabilityConcern
             return [];
         }
 
-        foreach ($items as $item) {
+        foreach ($this->selectCurrentCredentialHealthItems($items) as $item) {
             $itemHotelId = (int)($item['system_hotel_id'] ?? 0);
             if ($itemHotelId > 0 && $this->canSeeCookieHotel($itemHotelId)) {
                 $rows[] = $this->buildCredentialHealth((string)($item['platform'] ?? ''), $itemHotelId, $item);
@@ -627,6 +627,54 @@ trait CollectionReliabilityConcern
 
         usort($rows, static fn(array $a, array $b): int => strcmp((string)($b['updated_at'] ?? ''), (string)($a['updated_at'] ?? '')));
         return $rows;
+    }
+
+    /**
+     * Credential history is retained for audit, but authorization health must
+     * represent one current credential per hotel/platform. A revoked history
+     * row must not override the ready version and turn the whole store red.
+     *
+     * @param array<int,array<string,mixed>> $items
+     * @return array<int,array<string,mixed>>
+     */
+    private function selectCurrentCredentialHealthItems(array $items): array
+    {
+        $groups = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $hotelId = (int)($item['system_hotel_id'] ?? 0);
+            $platform = strtolower(trim((string)($item['platform'] ?? '')));
+            if ($hotelId <= 0 || !in_array($platform, ['ctrip', 'meituan'], true)) {
+                continue;
+            }
+            $groups[$hotelId . '|' . $platform][] = $item;
+        }
+
+        $selected = [];
+        foreach ($groups as $rows) {
+            usort($rows, static function (array $left, array $right): int {
+                $leftReady = strtolower(trim((string)($left['credential_status'] ?? ''))) === 'ready';
+                $rightReady = strtolower(trim((string)($right['credential_status'] ?? ''))) === 'ready';
+                if ($leftReady !== $rightReady) {
+                    return $rightReady <=> $leftReady;
+                }
+                $timestamp = static function (array $row): int {
+                    foreach (['rotated_at', 'update_time', 'create_time'] as $field) {
+                        $value = strtotime(trim((string)($row[$field] ?? '')));
+                        if ($value !== false) {
+                            return $value;
+                        }
+                    }
+                    return 0;
+                };
+                $timeCompare = $timestamp($right) <=> $timestamp($left);
+                return $timeCompare !== 0 ? $timeCompare : ((int)($right['id'] ?? 0) <=> (int)($left['id'] ?? 0));
+            });
+            $selected[] = $rows[0];
+        }
+        return $selected;
     }
 
     private function buildCredentialHealth(string $platform, int $hotelId, array $item): array

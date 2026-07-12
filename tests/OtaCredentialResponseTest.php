@@ -38,6 +38,7 @@ final class OtaCredentialResponseTest extends TestCase
         Db::name('hotels')->insertAll([
             ['id' => 58, 'tenant_id' => 7, 'name' => 'A'],
             ['id' => 59, 'tenant_id' => 0, 'name' => 'Invalid tenant'],
+            ['id' => 60, 'tenant_id' => 7, 'name' => 'B'],
         ]);
     }
 
@@ -177,6 +178,14 @@ final class OtaCredentialResponseTest extends TestCase
                     \PHPUnit\Framework\Assert::fail('Meituan delete boundary is missing.');
                 }
                 return $this->deleteMeituanConfigMetadata($configId, $hotelId, $expectedScope);
+            }
+
+            public function deleteCtrip(string $configId, int $hotelId): array
+            {
+                if (!method_exists($this, 'deleteCtripConfigMetadata')) {
+                    \PHPUnit\Framework\Assert::fail('Ctrip delete boundary is missing.');
+                }
+                return $this->deleteCtripConfigMetadata($configId, $hotelId);
             }
 
             public function isMeituanCommentMetadata(array $config): bool
@@ -848,6 +857,261 @@ final class OtaCredentialResponseTest extends TestCase
         self::assertSame(0, $collapsed[1]['history_count'] ?? null);
     }
 
+    public function testCtripListKeepsDeletedVersionsAsHistoryButNeverAsCurrent(): void
+    {
+        $collapsed = $this->otaConfigHarness()->collapseCtripConfigsByHotel([
+            [
+                'id' => 'active-58',
+                'config_id' => 'active-58',
+                'hotel_id' => 58,
+                'system_hotel_id' => 58,
+                'ctrip_hotel_id' => '100058',
+                'config_status' => 'active',
+                'credential_status' => 'ready',
+                'has_cookies' => true,
+                'update_time' => '2026-07-12 10:00:00',
+            ],
+            [
+                'id' => 'deleted-58',
+                'config_id' => 'deleted-58',
+                'hotel_id' => 58,
+                'system_hotel_id' => 58,
+                'ctrip_hotel_id' => '100057',
+                'config_status' => 'deleted',
+                'credential_status' => 'revoked',
+                'deleted_at' => '2026-07-11 10:00:00',
+                'update_time' => '2026-07-11 10:00:00',
+            ],
+            [
+                'id' => 'deleted-only-60',
+                'config_id' => 'deleted-only-60',
+                'hotel_id' => 60,
+                'system_hotel_id' => 60,
+                'ctrip_hotel_id' => '100060',
+                'config_status' => 'deleted',
+                'credential_status' => 'revoked',
+                'deleted_at' => '2026-07-11 11:00:00',
+                'update_time' => '2026-07-11 11:00:00',
+            ],
+        ]);
+
+        self::assertCount(1, $collapsed);
+        self::assertSame('active-58', $collapsed[0]['id'] ?? null);
+        self::assertSame(1, $collapsed[0]['history_count'] ?? null);
+    }
+
+    public function testCtripPersistenceRejectsActiveHotelIdAlreadyBoundToAnotherHotel(): void
+    {
+        Db::name('system_configs')->insert([
+            'config_key' => 'ctrip_config_list',
+            'config_value' => json_encode([
+                'hotel-60' => [
+                    'id' => 'hotel-60',
+                    'config_id' => 'hotel-60',
+                    'name' => 'Hotel B',
+                    'hotel_id' => 60,
+                    'system_hotel_id' => 60,
+                    'ctrip_hotel_id' => '6866634',
+                    'config_status' => 'active',
+                    'credential_ref' => 700,
+                    'credential_status' => 'ready',
+                    'has_cookies' => true,
+                ],
+            ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ]);
+        $vault = new class {
+            public int $storeCalls = 0;
+            public function store(): array
+            {
+                $this->storeCalls++;
+                return [
+                    'credential_ref' => 901,
+                    'credential_status' => 'ready',
+                    'secret_mask' => 'ct****et',
+                ];
+            }
+        };
+
+        $failure = null;
+        try {
+            $this->otaConfigHarness($vault)->persistCtrip([
+                'id' => 'hotel-58',
+                'config_id' => 'hotel-58',
+                'name' => 'Hotel A',
+                'hotel_id' => 58,
+                'system_hotel_id' => 58,
+                'ctrip_hotel_id' => '6866634',
+                'cookies' => 'ctrip-cookie-secret',
+            ], 77, false);
+        } catch (\RuntimeException $e) {
+            $failure = $e;
+        }
+
+        self::assertInstanceOf(\RuntimeException::class, $failure);
+        self::assertStringContainsString('another hotel', strtolower($failure->getMessage()));
+        self::assertSame(0, $vault->storeCalls);
+    }
+
+    public function testCtripUpdateKeepsPreviousMetadataAsHistoryVersion(): void
+    {
+        Db::name('system_configs')->insert([
+            'config_key' => 'ctrip_config_list',
+            'config_value' => json_encode([
+                'hotel-58' => [
+                    'id' => 'hotel-58',
+                    'config_id' => 'hotel-58',
+                    'name' => 'Before',
+                    'hotel_id' => 58,
+                    'system_hotel_id' => 58,
+                    'ctrip_hotel_id' => '100057',
+                    'config_status' => 'active',
+                    'credential_ref' => 700,
+                    'credential_status' => 'ready',
+                    'has_cookies' => true,
+                    'update_time' => '2026-07-11 10:00:00',
+                ],
+            ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ]);
+        $vault = new class {
+            public function store(): array
+            {
+                return [
+                    'credential_ref' => 901,
+                    'credential_status' => 'ready',
+                    'secret_mask' => 'ct****et',
+                ];
+            }
+        };
+
+        $this->otaConfigHarness($vault)->persistCtrip([
+            'id' => 'hotel-58',
+            'config_id' => 'hotel-58',
+            'name' => 'After',
+            'hotel_id' => 58,
+            'system_hotel_id' => 58,
+            'ctrip_hotel_id' => '100058',
+            'cookies' => 'new-ctrip-cookie-secret',
+        ], 77, true);
+
+        $stored = json_decode(
+            (string)Db::name('system_configs')->where('config_key', 'ctrip_config_list')->value('config_value'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        self::assertCount(2, $stored);
+        self::assertSame('100058', $stored['hotel-58']['ctrip_hotel_id'] ?? null);
+        $history = array_values(array_filter(
+            $stored,
+            static fn(array $config): bool => ($config['config_status'] ?? '') === 'history'
+        ));
+        self::assertCount(1, $history);
+        self::assertSame('100057', $history[0]['ctrip_hotel_id'] ?? null);
+        self::assertSame('revoked', $history[0]['credential_status'] ?? null);
+    }
+
+    public function testCtripDeleteRetainsDeletedHistoryAndRevokesExactVaultLocator(): void
+    {
+        Db::name('system_configs')->insert([
+            'config_key' => 'ctrip_config_list',
+            'config_value' => json_encode([
+                'hotel-58' => [
+                    'id' => 'hotel-58',
+                    'config_id' => 'hotel-58',
+                    'name' => 'Delete target',
+                    'hotel_id' => 58,
+                    'system_hotel_id' => 58,
+                    'ctrip_hotel_id' => '100058',
+                    'config_status' => 'active',
+                    'credential_ref' => 700,
+                    'credential_status' => 'ready',
+                    'has_cookies' => true,
+                ],
+            ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ]);
+        $vault = new class {
+            public array $deleteCalls = [];
+            public array $revokeCalls = [];
+            public function delete(int $tenantId, int $hotelId, string $platform, string $configId): bool
+            {
+                $this->deleteCalls[] = func_get_args();
+                return true;
+            }
+            public function revoke(int $tenantId, int $hotelId, string $platform, string $configId): array
+            {
+                $this->revokeCalls[] = func_get_args();
+                return ['credential_status' => 'revoked'];
+            }
+        };
+
+        $deleted = $this->otaConfigHarness($vault)->deleteCtrip('hotel-58', 58);
+
+        self::assertSame([], $vault->deleteCalls);
+        self::assertSame([[7, 58, 'ctrip', 'hotel-58']], $vault->revokeCalls);
+        self::assertSame('Delete target', $deleted['name'] ?? null);
+        $stored = json_decode(
+            (string)Db::name('system_configs')->where('config_key', 'ctrip_config_list')->value('config_value'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        self::assertSame('deleted', $stored['hotel-58']['config_status'] ?? null);
+        self::assertSame('revoked', $stored['hotel-58']['credential_status'] ?? null);
+        self::assertNotSame('', $stored['hotel-58']['deleted_at'] ?? '');
+    }
+
+    public function testMeituanPersistenceRejectsActivePoiIdAlreadyBoundToAnotherHotel(): void
+    {
+        Db::name('system_configs')->insert([
+            'config_key' => 'meituan_config_list',
+            'config_value' => json_encode([
+                'hotel-60' => [
+                    'id' => 'hotel-60',
+                    'config_id' => 'hotel-60',
+                    'name' => 'Hotel B',
+                    'hotel_id' => 60,
+                    'system_hotel_id' => 60,
+                    'poi_id' => 'poi-686',
+                    'config_status' => 'active',
+                    'credential_ref' => 700,
+                    'credential_status' => 'ready',
+                    'has_cookies' => true,
+                ],
+            ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ]);
+        $vault = new class {
+            public int $storeCalls = 0;
+            public function store(): array
+            {
+                $this->storeCalls++;
+                return [
+                    'credential_ref' => 901,
+                    'credential_status' => 'ready',
+                    'secret_mask' => 'mt****et',
+                ];
+            }
+        };
+
+        $failure = null;
+        try {
+            $this->otaConfigHarness($vault)->persistMeituan([
+                'id' => 'hotel-58',
+                'config_id' => 'hotel-58',
+                'name' => 'Hotel A',
+                'hotel_id' => 58,
+                'system_hotel_id' => 58,
+                'poi_id' => 'poi-686',
+                'cookies' => 'meituan-cookie-secret',
+            ], 77, false);
+        } catch (\RuntimeException $e) {
+            $failure = $e;
+        }
+
+        self::assertInstanceOf(\RuntimeException::class, $failure);
+        self::assertStringContainsString('another hotel', strtolower($failure->getMessage()));
+        self::assertSame(0, $vault->storeCalls);
+    }
+
     public function testMeituanListCollapsesSameHotelHistoryToLatestSuccessfulPrimary(): void
     {
         $collapsed = $this->otaConfigHarness()->collapseMeituanConfigsByHotel([
@@ -1034,7 +1298,7 @@ final class OtaCredentialResponseTest extends TestCase
         self::assertStringContainsString('persistCtripConfigMetadata($config, (int)$this->currentUser->id, $isUpdate)', $source);
         self::assertStringContainsString('sanitizeStoredOtaConfigListForRuntime([$id => $list[$id]])', $source);
         self::assertStringContainsString('return $this->success($safeList[$id] ?? [])', $source);
-        self::assertStringContainsString('deleteOtaConfigCredential($systemHotelId, \'ctrip\', $id)', $source);
+        self::assertStringContainsString('deleteCtripConfigMetadata($id, $systemHotelId)', $source);
         self::assertStringContainsString('旧版携程 Cookie 书签保存入口已禁用。', $source);
         self::assertMatchesRegularExpression(
             '/public function saveCtripConfigByBookmark\(\): Response[\s\S]*?checkPermission\(\)[\s\S]*?410[\s\S]*?\n\s*}/',
@@ -1495,7 +1759,9 @@ final class OtaCredentialResponseTest extends TestCase
 
         $stored = json_decode((string)Db::name('system_configs')->where('config_key', 'meituan_config_list')->value('config_value'), true, 512, JSON_THROW_ON_ERROR);
         self::assertSame(700, $stored['safe-sibling']['credential_ref']);
-        self::assertTrue($stored['safe-sibling']['has_cookies']);
+        self::assertFalse($stored['safe-sibling']['has_cookies']);
+        self::assertSame('history', $stored['safe-sibling']['config_status']);
+        self::assertSame('revoked', $stored['safe-sibling']['credential_status']);
         foreach (['cookies', 'auth_data', 'key_id', 'payload_version'] as $forbiddenKey) {
             self::assertArrayNotHasKey($forbiddenKey, $stored['safe-sibling']);
         }
@@ -1527,7 +1793,7 @@ final class OtaCredentialResponseTest extends TestCase
         self::assertSame(0, Db::name('system_configs')->count());
     }
 
-    public function testMeituanDeleteRemovesExactVaultLocatorAndOnlyTargetMetadata(): void
+    public function testMeituanDeleteRetainsDeletedHistoryAndRevokesExactVaultLocator(): void
     {
         Db::name('system_configs')->insert([
             'config_key' => 'meituan_config_list',
@@ -1558,19 +1824,28 @@ final class OtaCredentialResponseTest extends TestCase
         ]);
         $vault = new class {
             public array $deleteCalls = [];
+            public array $revokeCalls = [];
             public function delete(int $tenantId, int $hotelId, string $platform, string $configId): bool
             {
                 $this->deleteCalls[] = func_get_args();
                 return true;
             }
+            public function revoke(int $tenantId, int $hotelId, string $platform, string $configId): array
+            {
+                $this->revokeCalls[] = func_get_args();
+                return ['credential_status' => 'revoked'];
+            }
         };
 
         $deleted = $this->otaConfigHarness($vault)->deleteMeituan('meituan-58', 58);
 
-        self::assertSame([[7, 58, 'meituan', 'meituan-58']], $vault->deleteCalls);
+        self::assertSame([], $vault->deleteCalls);
+        self::assertSame([[7, 58, 'meituan', 'meituan-58']], $vault->revokeCalls);
         self::assertSame('Delete target', $deleted['name']);
         $stored = json_decode((string)Db::name('system_configs')->where('config_key', 'meituan_config_list')->value('config_value'), true, 512, JSON_THROW_ON_ERROR);
-        self::assertArrayNotHasKey('meituan-58', $stored);
+        self::assertSame('deleted', $stored['meituan-58']['config_status'] ?? null);
+        self::assertSame('revoked', $stored['meituan-58']['credential_status'] ?? null);
+        self::assertNotSame('', $stored['meituan-58']['deleted_at'] ?? '');
         self::assertSame('Keep sibling', $stored['keep-me']['name']);
     }
 

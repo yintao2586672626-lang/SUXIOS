@@ -267,8 +267,8 @@ assert.match(userController, /public function index\(\): Response[\s\S]*canManag
 
 assert.match(userController, /public function roles\(\): Response[\s\S]*canManageUser\(\)/, 'user role metadata endpoint must require user-management permission');
 
-assert.match(authController, /private const TOKEN_TTL_SECONDS = 86400;/, 'website login token must expire after 24 hours');
-assert.match(authMiddleware, /private const TOKEN_MAX_AGE_SECONDS = 86400;/, 'auth middleware must reject tokens older than the 24-hour session limit');
+assert.match(authController, /private const TOKEN_TTL_SECONDS = 259200;/, 'website login token must expire after 72 hours');
+assert.match(authMiddleware, /private const TOKEN_MAX_AGE_SECONDS = 259200;/, 'auth middleware must reject tokens older than the 72-hour session limit');
 assert.match(authMiddleware, /if \(!is_array\(\$tokenData\)\) \{\s*return false;\s*\}/, 'auth middleware must preserve legacy scalar token cache entries until cache TTL');
 assert.match(authMiddleware, /\$createdAt = \(int\)\(\$tokenData\['created_at'\] \?\? 0\);[\s\S]*if \(\$createdAt <= 0\) \{\s*return false;\s*\}/, 'auth middleware must preserve legacy token payloads without created_at until cache TTL');
 assert.match(cookieEndpointConcern, /recordPublicEndpointFailure\('receive_cookies', 'legacy_bookmarklet_disabled', 410/, 'legacy receive-cookies endpoint must be disabled instead of accepting current-session tokens');
@@ -282,8 +282,8 @@ assert.match(authController, /未绑定或未分配的门店将无法查看/, 'b
 assert.doesNotMatch(authController, /BETA_HOTEL_BINDING_CUTOFF_DATE|2026-07-05|请在 \{\$deadline\} 前|之后将无法查看门店数据/, 'beta notice must not keep the expired binding deadline copy');
 assert.match(indexHtml, /const showAuthNotices = \(payload = \{\}\) =>/, 'front-end must render auth notices from login and auth info payloads');
 assert.match(indexHtml, /setTimeout\(\(\) => showAuthNotices\(res\.data\), 600\)/, 'login success should show beta binding notice after the welcome message');
-assert.match(authController, /cache\('token_' \. \$token, \$tokenData, self::TOKEN_TTL_SECONDS\)/, 'token cache TTL must use the 24-hour constant');
-assert.match(authController, /'expires_in'\s*=>\s*self::TOKEN_TTL_SECONDS/, 'login response must expose the 24-hour token expiry');
+assert.match(authController, /cache\('token_' \. \$token, \$tokenData, self::TOKEN_TTL_SECONDS\)/, 'token cache TTL must use the 72-hour constant');
+assert.match(authController, /'expires_in'\s*=>\s*self::TOKEN_TTL_SECONDS/, 'login response must expose the 72-hour token expiry');
 assert.match(hotelScopeService, /private function ownedOrGrantedHotelIds\(User \$user, \?string \$capability = null\): array/, 'non-super hotel scope must be centralized');
 assert.match(hotelScopeService, /\$this->primaryHotelIds\(\$user\)[\s\S]*\$this->ownedHotelIds\(\$user\)[\s\S]*\$this->grantedHotelIds\(\$user, \$capability\)/, 'non-super users must only see primary, owned, or explicitly granted hotels');
 assert.doesNotMatch(hotelScopeService, /if \(\$this->isVipUser\(\$user\)\)[\s\S]{0,160}return \$this->ownedHotelIds\(\$user\);/, 'VIP role alone must not bypass explicit hotel scope');

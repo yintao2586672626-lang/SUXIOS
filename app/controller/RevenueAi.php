@@ -166,7 +166,7 @@ class RevenueAi extends Base
         }
 
         $data = $this->requestData();
-        foreach (['business_date', 'hotel_id', 'platform', 'channel', 'enabled_channels'] as $key) {
+        foreach (['business_date', 'hotel_id', 'platform', 'channel', 'enabled_channels', 'portfolio'] as $key) {
             $value = $this->request->param($key, null);
             if ($value !== null && $value !== '') {
                 $data[$key] = $value;

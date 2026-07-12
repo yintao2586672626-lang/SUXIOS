@@ -148,9 +148,13 @@ trait OtaConfigConcern
                             if (!$classifyManualStages) {
                                 throw $e;
                             }
+                            $safeMessage = $e->getMessage()
+                                === 'OTA credential execution result contains protected credential material.'
+                                ? '返回结果包含疑似 Cookie/令牌内容，已在结果返回阶段拦截'
+                                : '获取结果安全检查未通过（结果返回阶段）';
                             throw new OtaExecutionStageException(
                                 'result_inspection',
-                                '获取结果安全检查未通过',
+                                $safeMessage,
                                 500,
                                 $e
                             );
@@ -820,6 +824,7 @@ trait OtaConfigConcern
     private function isKnownNonCredentialOtaCookieName(string $normalizedName): bool
     {
         return in_array(str_replace('_', '', $normalizedName), [
+            'bfastatus',
             'cookiepricesdisplayed',
             'currency',
             'locale',
@@ -1138,6 +1143,14 @@ trait OtaConfigConcern
         return (bool)$this->otaCredentialVault()->delete($tenantId, $hotelId, $platform, $configId);
     }
 
+    private function revokeOtaConfigCredential(int $hotelId, string $platform, string $configId): bool
+    {
+        $this->validateOtaCredentialLocator($platform, $configId);
+        $tenantId = $this->otaCredentialTenantIdForHotel($hotelId);
+        $metadata = $this->otaCredentialVault()->revoke($tenantId, $hotelId, $platform, $configId);
+        return is_array($metadata) && strtolower(trim((string)($metadata['credential_status'] ?? ''))) === 'revoked';
+    }
+
     /**
      * Persist one Ctrip configuration and its credential in the same database transaction.
      *
@@ -1192,6 +1205,15 @@ trait OtaConfigConcern
                 }
             }
 
+            $platformHotelId = $this->otaPlatformHotelIdFromConfig('ctrip', $config);
+            $this->assertUniqueOtaPlatformHotelBinding(
+                $list,
+                'ctrip',
+                $platformHotelId,
+                $systemHotelId,
+                $id
+            );
+
             foreach ($list as $siblingId => $sibling) {
                 if ((string)$siblingId === $id) {
                     continue;
@@ -1206,6 +1228,11 @@ trait OtaConfigConcern
                 $list[$siblingId] = $this->sanitizeSecretConfig($sibling);
             }
 
+            if ($isUpdate) {
+                $this->appendOtaConfigHistoryVersion($list, $id, $existing);
+            }
+            $this->retireOtherCurrentOtaConfigs($list, $systemHotelId, $id);
+
             [$metadata, $secretPayload] = $this->splitOtaConfigSecrets($config);
             foreach (['credential_ref', 'credential_status', 'has_cookies', 'secret_mask'] as $field) {
                 unset($metadata[$field]);
@@ -1216,6 +1243,8 @@ trait OtaConfigConcern
             $metadata['system_hotel_id'] = $systemHotelId;
             $metadata['capture_sections'] = 'all';
             $metadata['profile_sections'] = 'all';
+            $metadata['config_status'] = 'active';
+            $metadata['deleted_at'] = '';
 
             $credentialMetadata = $this->storeOtaConfigCredential(
                 $systemHotelId,
@@ -1368,6 +1397,19 @@ trait OtaConfigConcern
                 }
             }
 
+            $this->assertUniqueOtaPlatformHotelBinding(
+                $list,
+                'meituan',
+                $this->otaPlatformHotelIdFromConfig('meituan', $config),
+                $systemHotelId,
+                $id
+            );
+
+            if ($isUpdate) {
+                $this->appendOtaConfigHistoryVersion($list, $id, $existing);
+            }
+            $this->retireOtherCurrentOtaConfigs($list, $systemHotelId, $id);
+
             [$metadata, $secretPayload] = $this->splitOtaConfigSecrets($config);
             $secretPayload = $this->sanitizeOtaVaultSecretPayload($secretPayload);
             foreach ([
@@ -1389,6 +1431,8 @@ trait OtaConfigConcern
             $metadata['config_id'] = $configId;
             $metadata['hotel_id'] = (string)$systemHotelId;
             $metadata['system_hotel_id'] = $systemHotelId;
+            $metadata['config_status'] = 'active';
+            $metadata['deleted_at'] = '';
 
             if (!$isUpdate && !$this->otaSecretPayloadHasNonEmptyScalar($secretPayload)) {
                 throw new \InvalidArgumentException('Meituan credential is required.');
@@ -1435,6 +1479,59 @@ trait OtaConfigConcern
 
         SystemConfig::clearProtectedOtaCaches();
         return $saved;
+    }
+
+    /**
+     * Soft-delete one Ctrip configuration while retaining non-secret history.
+     *
+     * @return array<string, mixed>
+     */
+    private function deleteCtripConfigMetadata(string $configId, int $systemHotelId): array
+    {
+        $configId = trim($configId);
+        $this->validateOtaCredentialLocator('ctrip', $configId);
+        $systemHotelId = $this->strictPositiveOtaConfigHotelId($systemHotelId);
+        $this->otaCredentialTenantIdForHotel($systemHotelId);
+
+        $deleted = Db::transaction(function () use ($configId, $systemHotelId): array {
+            $key = 'ctrip_config_list';
+            $row = Db::name('system_configs')->where('config_key', $key)->lock(true)->find();
+            if (!$row) {
+                throw new RuntimeException('Ctrip config list disappeared during delete.');
+            }
+            $list = json_decode((string)($row['config_value'] ?? ''), true, 512, JSON_THROW_ON_ERROR);
+            if (!is_array($list) || !isset($list[$configId]) || !is_array($list[$configId])) {
+                throw new RuntimeException('Ctrip config disappeared during delete.');
+            }
+            $config = $list[$configId];
+            $storedConfigId = trim((string)($config['config_id'] ?? $config['id'] ?? $configId));
+            if ($this->otaConfigHasHotelBindingConflict($config)
+                || $this->otaConfigBoundSystemHotelId($config) !== $systemHotelId
+                || $storedConfigId === ''
+                || !hash_equals($configId, $storedConfigId)) {
+                throw new RuntimeException('Ctrip config hotel binding changed during delete.');
+            }
+
+            $this->revokeOtaConfigCredential($systemHotelId, 'ctrip', $configId);
+            $now = date('Y-m-d H:i:s');
+            $config['config_status'] = 'deleted';
+            $config['credential_status'] = 'revoked';
+            $config['has_cookies'] = false;
+            $config['deleted_at'] = $now;
+            $config['update_time'] = $now;
+            $list[$configId] = $this->sanitizeSecretConfig($config);
+            Db::name('system_configs')->where('config_key', $key)->update([
+                'config_value' => json_encode(
+                    $list,
+                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                ),
+                'update_time' => $now,
+            ]);
+            return $list[$configId];
+        });
+
+        SystemConfig::clearProtectedOtaCaches();
+        return $deleted;
     }
 
     /**
@@ -1487,18 +1584,24 @@ trait OtaConfigConcern
                 throw new RuntimeException('Meituan config scope changed during delete.');
             }
 
-            $this->deleteOtaConfigCredential($systemHotelId, 'meituan', $configId);
-            unset($list[$configId]);
+            $this->revokeOtaConfigCredential($systemHotelId, 'meituan', $configId);
+            $now = date('Y-m-d H:i:s');
+            $config['config_status'] = 'deleted';
+            $config['credential_status'] = 'revoked';
+            $config['has_cookies'] = false;
+            $config['deleted_at'] = $now;
+            $config['update_time'] = $now;
+            $list[$configId] = $this->sanitizeSecretConfig($config);
             $jsonValue = json_encode(
                 $list,
                 JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
             );
             Db::name('system_configs')->where('config_key', $key)->update([
                 'config_value' => $jsonValue,
-                'update_time' => date('Y-m-d H:i:s'),
+                'update_time' => $now,
             ]);
 
-            return $this->sanitizeSecretConfig($config);
+            return $list[$configId];
         });
 
         SystemConfig::clearProtectedOtaCaches();
@@ -2093,12 +2196,13 @@ trait OtaConfigConcern
 
     private function selectLatestSuccessfulMeituanConfig(array $matches): array
     {
-        $successful = array_values(array_filter($matches, static function ($config): bool {
+        $successful = array_values(array_filter($matches, function ($config): bool {
             if (!is_array($config)) {
                 return false;
             }
             $configId = trim((string)($config['config_id'] ?? $config['id'] ?? ''));
-            return preg_match('/^[A-Za-z0-9._-]{1,100}$/D', $configId) === 1
+            return $this->isCurrentOtaConfig($config)
+                && preg_match('/^[A-Za-z0-9._-]{1,100}$/D', $configId) === 1
                 && (string)($config['credential_status'] ?? '') === 'ready'
                 && ($config['has_cookies'] ?? false) === true;
         }));
@@ -2123,12 +2227,13 @@ trait OtaConfigConcern
 
     private function selectLatestSuccessfulCtripConfig(array $matches): array
     {
-        $successful = array_values(array_filter($matches, static function ($config): bool {
+        $successful = array_values(array_filter($matches, function ($config): bool {
             if (!is_array($config)) {
                 return false;
             }
             $configId = trim((string)($config['config_id'] ?? $config['id'] ?? ''));
-            return preg_match('/^[A-Za-z0-9._-]{1,100}$/D', $configId) === 1
+            return $this->isCurrentOtaConfig($config)
+                && preg_match('/^[A-Za-z0-9._-]{1,100}$/D', $configId) === 1
                 && (string)($config['credential_status'] ?? '') === 'ready'
                 && ($config['has_cookies'] ?? false) === true;
         }));
@@ -2172,10 +2277,17 @@ trait OtaConfigConcern
 
         $collapsed = [];
         foreach ($groups as $configs) {
-            $primary = $this->selectLatestSuccessfulCtripConfig($configs);
+            $currentConfigs = array_values(array_filter(
+                $configs,
+                fn(array $config): bool => $this->isCurrentOtaConfig($config)
+            ));
+            if ($currentConfigs === []) {
+                continue;
+            }
+            $primary = $this->selectLatestSuccessfulCtripConfig($currentConfigs);
             if ($primary === []) {
-                $this->sortOtaConfigsNewestFirst($configs);
-                $primary = $configs[0];
+                $this->sortOtaConfigsNewestFirst($currentConfigs);
+                $primary = $currentConfigs[0];
             }
             $primary['history_count'] = max(0, count($configs) - 1);
             $collapsed[] = $primary;
@@ -2202,10 +2314,17 @@ trait OtaConfigConcern
 
         $collapsed = [];
         foreach ($groups as $configs) {
-            $primary = $this->selectLatestSuccessfulMeituanConfig($configs);
+            $currentConfigs = array_values(array_filter(
+                $configs,
+                fn(array $config): bool => $this->isCurrentOtaConfig($config)
+            ));
+            if ($currentConfigs === []) {
+                continue;
+            }
+            $primary = $this->selectLatestSuccessfulMeituanConfig($currentConfigs);
             if ($primary === []) {
-                $this->sortOtaConfigsNewestFirst($configs);
-                $primary = $configs[0];
+                $this->sortOtaConfigsNewestFirst($currentConfigs);
+                $primary = $currentConfigs[0];
             }
             $primary['history_count'] = max(0, count($configs) - 1);
             $collapsed[] = $primary;
@@ -2213,6 +2332,110 @@ trait OtaConfigConcern
 
         $this->sortOtaConfigsNewestFirst($collapsed);
         return $collapsed;
+    }
+
+    private function isCurrentOtaConfig(array $config): bool
+    {
+        if (trim((string)($config['deleted_at'] ?? '')) !== '') {
+            return false;
+        }
+        return !in_array(
+            strtolower(trim((string)($config['config_status'] ?? 'active'))),
+            ['deleted', 'history', 'superseded', 'archived'],
+            true
+        );
+    }
+
+    private function otaPlatformHotelIdFromConfig(string $platform, array $config): string
+    {
+        $keys = $platform === 'meituan'
+            ? ['poi_id', 'poiId', 'store_id', 'storeId']
+            : ['ctrip_hotel_id', 'ctripHotelId', 'ota_hotel_id', 'otaHotelId', 'platform_hotel_id', 'platformHotelId'];
+        foreach ($keys as $key) {
+            if (is_scalar($config[$key] ?? null) && trim((string)$config[$key]) !== '') {
+                return trim((string)$config[$key]);
+            }
+        }
+        return '';
+    }
+
+    private function assertUniqueOtaPlatformHotelBinding(
+        array $list,
+        string $platform,
+        string $platformHotelId,
+        int $systemHotelId,
+        string $excludeConfigId
+    ): void {
+        if ($platformHotelId === '') {
+            return;
+        }
+        foreach ($list as $storedKey => $candidate) {
+            if (!is_array($candidate) || !$this->isCurrentOtaConfig($candidate)) {
+                continue;
+            }
+            $candidateConfigId = trim((string)($candidate['config_id'] ?? $candidate['id'] ?? $storedKey));
+            if ($candidateConfigId !== '' && hash_equals($excludeConfigId, $candidateConfigId)) {
+                continue;
+            }
+            if (!hash_equals($platformHotelId, $this->otaPlatformHotelIdFromConfig($platform, $candidate))) {
+                continue;
+            }
+            $candidateHotelId = $this->otaConfigHasHotelBindingConflict($candidate)
+                ? null
+                : $this->otaConfigBoundSystemHotelId($candidate);
+            if ($candidateHotelId !== null && $candidateHotelId !== $systemHotelId) {
+                throw new RuntimeException('OTA platform hotel ID is already bound to another hotel.');
+            }
+        }
+    }
+
+    private function appendOtaConfigHistoryVersion(array &$list, string $configId, array $existing): void
+    {
+        if ($existing === [] || !$this->isCurrentOtaConfig($existing)) {
+            return;
+        }
+        $now = date('Y-m-d H:i:s');
+        $fingerprint = substr(hash('sha256', json_encode($existing, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)), 0, 8);
+        $base = substr($configId, 0, 58) . '__history_' . date('YmdHis') . '_' . $fingerprint;
+        $historyId = substr($base, 0, 100);
+        for ($suffix = 2; isset($list[$historyId]); $suffix++) {
+            $historyId = substr($base, 0, 96) . '_' . $suffix;
+        }
+        $history = $this->sanitizeSecretConfig($existing);
+        $history['id'] = $historyId;
+        $history['config_id'] = $historyId;
+        $history['config_status'] = 'history';
+        $history['credential_status'] = 'revoked';
+        $history['has_cookies'] = false;
+        $history['history_of_config_id'] = $configId;
+        $history['superseded_at'] = $now;
+        $history['update_time'] = $now;
+        unset($history['credential_ref'], $history['secret_mask'], $history['history_count']);
+        $list[$historyId] = $history;
+    }
+
+    private function retireOtherCurrentOtaConfigs(array &$list, int $systemHotelId, string $excludeConfigId): void
+    {
+        $now = date('Y-m-d H:i:s');
+        foreach ($list as $storedKey => $candidate) {
+            if (!is_array($candidate) || !$this->isCurrentOtaConfig($candidate)) {
+                continue;
+            }
+            $candidateConfigId = trim((string)($candidate['config_id'] ?? $candidate['id'] ?? $storedKey));
+            if ($candidateConfigId !== '' && hash_equals($excludeConfigId, $candidateConfigId)) {
+                continue;
+            }
+            if ($this->otaConfigHasHotelBindingConflict($candidate)
+                || $this->otaConfigBoundSystemHotelId($candidate) !== $systemHotelId) {
+                continue;
+            }
+            $candidate['config_status'] = 'history';
+            $candidate['credential_status'] = 'revoked';
+            $candidate['has_cookies'] = false;
+            $candidate['superseded_at'] = $now;
+            $candidate['update_time'] = $now;
+            $list[$storedKey] = $candidate;
+        }
     }
 
     private function sortOtaConfigsNewestFirst(array &$configs): void

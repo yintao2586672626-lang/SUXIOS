@@ -534,9 +534,9 @@ function verifyCatalog() {
     });
     assertContract(rows.length >= 2, `${platform} APP funnel sample must build self and competitor rows`);
     assertContract(rows.every((row) => row.platform === platform), `${platform} APP funnel rows must preserve platform`);
-    assertContract(rows.some((row) => row.compare_type === 'competitor'), `${platform} APP funnel rows must preserve hotelId=-1 competitor average`);
+    assertContract(rows.some((row) => row.compare_type === 'competitor_avg'), `${platform} APP funnel rows must preserve hotelId=-1 competitor average`);
     const selfRow = rows.find((row) => row.compare_type === 'self');
-    const competitorRow = rows.find((row) => row.compare_type === 'competitor');
+    const competitorRow = rows.find((row) => row.compare_type === 'competitor_avg');
     assertContract(selfRow?.list_exposure === 1297, `${platform} self APP funnel row must store listExposure`);
     assertContract(selfRow?.detail_exposure === 231, `${platform} self APP funnel row must store detailExposure`);
     assertContract(selfRow?.order_filling_num === 9, `${platform} self APP funnel row must store orderFillingNum`);

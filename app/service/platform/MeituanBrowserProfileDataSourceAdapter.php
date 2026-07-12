@@ -182,6 +182,22 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
 
         $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
         if ($authStatus !== [] && empty($authStatus['ok'])) {
+            if ($sections === 'ads') {
+                return [
+                    'status' => 'waiting_config',
+                    'status_code' => 'profile_session_unverified',
+                    'error_code' => 'profile_session_unverified',
+                    'message' => 'profile_session_unverified',
+                    'payload' => array_merge($this->compactFailurePayload($payload, $runResult), [
+                        'module_status' => [
+                            'module' => 'ads',
+                            'status' => 'blocked',
+                            'reason' => 'profile_session_unverified',
+                            'external_action_required' => true,
+                        ],
+                    ]),
+                ];
+            }
             return [
                 'status' => 'waiting_config',
                 'message' => (string)($authStatus['message'] ?? 'Meituan login session is not ready; open the Profile and complete login.'),
@@ -191,6 +207,26 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
 
         $gate = is_array($payload['capture_gate'] ?? null) ? $payload['capture_gate'] : [];
         if ($gate !== [] && ($gate['status'] ?? 'fail') !== 'pass') {
+            if ($sections === 'ads') {
+                $reason = $this->adsServiceNotOpened($payload)
+                    ? 'ads_service_not_opened'
+                    : 'ads_collection_failed';
+                $moduleStatus = $reason === 'ads_service_not_opened' ? 'not_applicable' : 'blocked';
+                return [
+                    'status' => $moduleStatus === 'not_applicable' ? 'not_applicable' : 'failed',
+                    'status_code' => $reason,
+                    'error_code' => $reason,
+                    'message' => $reason,
+                    'payload' => array_merge($this->compactFailurePayload($payload, $runResult), [
+                        'module_status' => [
+                            'module' => 'ads',
+                            'status' => $moduleStatus,
+                            'reason' => $reason,
+                            'external_action_required' => $reason === 'ads_service_not_opened',
+                        ],
+                    ]),
+                ];
+            }
             $failedIds = implode(',', array_map('strval', $gate['failed_check_ids'] ?? []));
             return [
                 'status' => 'failed',
@@ -211,6 +247,26 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
                     'status' => 'success',
                     'message' => 'Meituan returned an authoritative empty result; no rows were written.',
                     'payload' => $payload,
+                ];
+            }
+            if ($sections === 'ads') {
+                $reason = $this->adsServiceNotOpened($payload)
+                    ? 'ads_service_not_opened'
+                    : 'ads_collection_failed';
+                $moduleStatus = $reason === 'ads_service_not_opened' ? 'not_applicable' : 'blocked';
+                return [
+                    'status' => $moduleStatus === 'not_applicable' ? 'not_applicable' : 'failed',
+                    'status_code' => $reason,
+                    'error_code' => $reason,
+                    'message' => $reason,
+                    'payload' => array_merge($this->compactFailurePayload($payload, $runResult), [
+                        'module_status' => [
+                            'module' => 'ads',
+                            'status' => $moduleStatus,
+                            'reason' => $reason,
+                            'external_action_required' => $reason === 'ads_service_not_opened',
+                        ],
+                    ]),
                 ];
             }
             return [
@@ -427,6 +483,20 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
             'stdout' => $this->trimLog((string)($runResult['stdout'] ?? '')),
             'stderr' => $this->trimLog((string)($runResult['stderr'] ?? '')),
         ];
+    }
+
+    private function adsServiceNotOpened(array $payload): bool
+    {
+        foreach (is_array($payload['pages'] ?? null) ? $payload['pages'] : [] as $page) {
+            if (!is_array($page)) {
+                continue;
+            }
+            $url = strtolower(trim((string)($page['url'] ?? '')));
+            if ($url !== '' && (str_contains($url, '/online-sign') || str_contains($url, 'promopoiid/-1'))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function runProcess(array $args, string $cwd, int $timeoutSeconds): array

@@ -92,6 +92,9 @@ trait Phase1EmployeeConsoleConcern
                 'metric_scope' => 'ota_channel',
                 'target_date_rows' => $targetRows,
                 'target_date_data_types' => $targetDataTypes,
+                'target_date_competition_hotel_count' => max(0, (int)($platformEvidence['target_date_competition_hotel_count'] ?? 0)),
+                'target_date_competition_self_count' => max(0, (int)($platformEvidence['target_date_competition_self_count'] ?? 0)),
+                'target_date_competition_competitor_count' => max(0, (int)($platformEvidence['target_date_competition_competitor_count'] ?? 0)),
                 'target_date_evidence_summary' => is_array($platformEvidence['evidence_summary'] ?? null) ? $platformEvidence['evidence_summary'] : [],
                 'field_credibility_status' => (string)($platformEvidence['field_credibility_status'] ?? ''),
                 'trusted_metric_keys' => array_values(array_filter(array_map('strval', (array)($platformEvidence['trusted_metric_keys'] ?? [])))),
@@ -175,6 +178,9 @@ trait Phase1EmployeeConsoleConcern
                 'target_date' => $targetDate,
                 'target_date_rows' => 0,
                 'target_date_data_types' => [],
+                'target_date_competition_hotel_count' => 0,
+                'target_date_competition_self_count' => 0,
+                'target_date_competition_competitor_count' => 0,
                 'latest_available' => null,
                 'date_relation' => 'scope_denied',
             ];
@@ -195,6 +201,31 @@ trait Phase1EmployeeConsoleConcern
                 ), static fn(string $value): bool => $value !== ''));
             }
         }
+        $competitionSummary = [
+            'target_date_competition_hotel_count' => 0,
+            'target_date_competition_self_count' => 0,
+            'target_date_competition_competitor_count' => 0,
+        ];
+        if (isset($columns['data_type'])) {
+            $competitionFields = array_values(array_filter([
+                isset($columns['hotel_id']) ? 'hotel_id' : '',
+                isset($columns['hotel_name']) ? 'hotel_name' : '',
+                isset($columns['raw_data']) ? 'raw_data' : '',
+            ], static fn(string $field): bool => $field !== ''));
+            if ($competitionFields !== []) {
+                $competitionQuery = Db::name('online_daily_data')
+                    ->field(implode(',', $competitionFields))
+                    ->whereIn('source', $this->collectionSourceAliases($platform))
+                    ->where('data_date', $targetDate)
+                    ->where('data_type', 'competitor');
+                if (isset($columns['dimension'])) {
+                    $competitionQuery->where('dimension', 'competition_circle_hotel');
+                }
+                if ($this->applyCollectionHotelScope($competitionQuery, $hotelId, $columns)) {
+                    $competitionSummary = $this->summarizeCollectionCompetitionCircleRows($competitionQuery->select()->toArray());
+                }
+            }
+        }
         $evidenceSummary = $this->buildCollectionTargetDateEvidenceSummary($platform, $hotelId, $targetDate, $columns);
 
         $latestQuery = Db::name('online_daily_data')
@@ -207,6 +238,7 @@ trait Phase1EmployeeConsoleConcern
                 'target_date' => $targetDate,
                 'target_date_rows' => $targetRows,
                 'target_date_data_types' => $targetTypes,
+                ...$competitionSummary,
                 'latest_available' => null,
                 'date_relation' => 'scope_denied',
             ];
@@ -241,6 +273,7 @@ trait Phase1EmployeeConsoleConcern
             'target_date' => $targetDate,
             'target_date_rows' => $targetRows,
             'target_date_data_types' => $targetTypes,
+            ...$competitionSummary,
             'field_credibility_status' => (string)($evidenceSummary['credibility_status'] ?? 'not_collected'),
             'trusted_metric_keys' => array_values(array_filter(array_map('strval', (array)($evidenceSummary['trusted_metric_keys'] ?? [])))),
             'missing_metric_keys' => array_values(array_filter(array_map('strval', (array)($evidenceSummary['missing_metric_keys'] ?? [])))),
@@ -251,6 +284,44 @@ trait Phase1EmployeeConsoleConcern
                 'data_types' => $latestTypes,
             ] : null,
             'date_relation' => $this->collectionDateRelation($targetDate, $latestDate),
+        ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<string, int>
+     */
+    private function summarizeCollectionCompetitionCircleRows(array $rows): array
+    {
+        $hotels = [];
+        foreach ($rows as $row) {
+            $raw = [];
+            if (is_array($row['raw_data'] ?? null)) {
+                $raw = $row['raw_data'];
+            } elseif (is_string($row['raw_data'] ?? null) && trim((string)$row['raw_data']) !== '') {
+                $decoded = json_decode((string)$row['raw_data'], true);
+                $raw = is_array($decoded) ? $decoded : [];
+            }
+            $platformHotelId = trim((string)($row['hotel_id'] ?? $raw['hotelId'] ?? $raw['hotel_id'] ?? ''));
+            $hotelName = trim((string)($row['hotel_name'] ?? $raw['hotelName'] ?? $raw['hotel_name'] ?? ''));
+            $key = $platformHotelId !== '' && $platformHotelId !== '-1'
+                ? 'id:' . $platformHotelId
+                : ($hotelName !== '' ? 'name:' . mb_strtolower($hotelName) : '');
+            if ($key === '') {
+                continue;
+            }
+            $isSelf = $hotelName === '我的酒店'
+                || ($raw['isSelf'] ?? false) === true
+                || ($raw['is_self'] ?? false) === true;
+            $hotels[$key] = ($hotels[$key] ?? false) || $isSelf;
+        }
+
+        $total = count($hotels);
+        $self = count(array_filter($hotels, static fn(bool $isSelf): bool => $isSelf));
+        return [
+            'target_date_competition_hotel_count' => $total,
+            'target_date_competition_self_count' => $self,
+            'target_date_competition_competitor_count' => max(0, $total - $self),
         ];
     }
 

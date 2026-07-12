@@ -279,16 +279,9 @@ $preview = [
 $preparedGroups = [];
 foreach ($groups as $groupKey => $group) {
     $systemHotelId = (int)$group['system_hotel_id'];
-    $genericSelfIds = [];
     foreach ($group['rows'] as $row) {
         $raw = decode_backfill_raw($row);
         $semantics = CtripCompetitionCirclePersistenceService::normalizeRowSemantics($raw);
-        if (($semantics['compare_type'] ?? '') === 'self') {
-            $id = backfill_platform_hotel_id($raw);
-            if ($id !== '') {
-                $genericSelfIds[$id] = true;
-            }
-        }
         if (($semantics['qunar_comment_score'] ?? null) === null) {
             $preview['missing_qunar_score_rows']++;
         }
@@ -297,12 +290,8 @@ foreach ($groups as $groupKey => $group) {
         }
     }
     $configuredSelfIds = $systemHotelId > 0 ? ($configuredIds[$systemHotelId] ?? []) : [];
-    $identitySource = $genericSelfIds !== []
-        ? 'historical_generic_self_marker'
-        : 'current_platform_binding';
-    $selfIds = $genericSelfIds !== []
-        ? array_keys($genericSelfIds)
-        : $configuredSelfIds;
+    $identitySource = 'current_platform_binding';
+    $selfIds = $configuredSelfIds;
     $groupHotelIds = [];
     foreach ($group['rows'] as $row) {
         $id = backfill_platform_hotel_id(decode_backfill_raw($row));

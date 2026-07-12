@@ -41,11 +41,17 @@ function identity_repair_platform_hotel_id(array $row): string
 function identity_repair_has_explicit_self(array $row): bool
 {
     $raw = identity_repair_raw($row);
-    if ($raw === []) {
-        return false;
+    foreach (['compare_type', 'compareType', 'role', 'scope', 'type'] as $field) {
+        if (in_array(strtolower(trim((string)($raw[$field] ?? ''))), ['self', 'current', 'mine'], true)) {
+            return true;
+        }
     }
-    $semantics = CtripCompetitionCirclePersistenceService::normalizeRowSemantics($raw);
-    return ($semantics['compare_type'] ?? '') === 'self';
+    foreach (['isSelf', 'is_self', 'isMine', 'is_mine', 'currentHotel', 'current_hotel'] as $field) {
+        if (($raw[$field] ?? false) === true || (string)($raw[$field] ?? '') === '1') {
+            return true;
+        }
+    }
+    return false;
 }
 
 function identity_repair_snapshot_key(array $row): string
@@ -366,7 +372,15 @@ foreach ($allOwnerGroups as $groupKey => $group) {
     $group['reason'] = 'bound_owner_mismatch';
     $boundMismatchGroups['bound|' . $groupKey] = $group;
 }
-$resolvedGroups = array_merge($resolvedGroups, $boundMismatchGroups);
+// A batch that already belongs to a system hotel must never be moved to
+// another hotel merely because the returned self hotelId matches another
+// binding. That means the credential/query was wrong for the selected hotel;
+// reassigning it would merge two stores' competition circles. Keep it as a
+// reported conflict for explicit cleanup instead.
+foreach ($boundMismatchGroups as $groupKey => $group) {
+    $group['reason'] = 'bound_owner_mismatch_do_not_reassign';
+    $unresolvedGroups[$groupKey] = $group;
+}
 
 $preview = [
     'mode' => $dryRun ? 'dry_run' : 'execute',
@@ -437,9 +451,6 @@ Db::transaction(function () use (&$preview, $roleCandidates, $qualityCandidates,
     foreach ($resolvedGroups as $group) {
         $ownerSource = (string)$group['owner_source'];
         $ownerFlagCodes = ['historical_owner_inferred_from_' . $ownerSource];
-        if (($group['reason'] ?? '') === 'bound_owner_mismatch') {
-            $ownerFlagCodes[] = 'historical_owner_reassigned_from_bound_owner_mismatch';
-        }
         foreach ($group['rows'] as $row) {
             $update = [
                 'tenant_id' => $group['owner_tenant_id'],

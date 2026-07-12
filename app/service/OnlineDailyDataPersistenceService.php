@@ -255,20 +255,20 @@ final class OnlineDailyDataPersistenceService
         return $timestamp === false ? null : date('Y-m-d H:i:s', $timestamp);
     }
 
-    public function parseAndSaveTrafficData($responseData, $startDate, $endDate, string $source, ?int $systemHotelId = null, ?string $platform = null): int
+    public function parseAndSaveTrafficData($responseData, $startDate, $endDate, string $source, ?int $systemHotelId = null, ?string $platform = null, ?string $expectedPlatformHotelId = null): int
     {
         try {
             if (in_array($source, ['ctrip', 'qunar'], true)) {
-                return $this->parseAndSaveCtripTrafficData($responseData, (string)$startDate, $source, $systemHotelId, $platform);
+                return $this->parseAndSaveCtripTrafficData($responseData, (string)$startDate, $source, $systemHotelId, $platform, $expectedPlatformHotelId);
             }
 
-            return $this->parseAndSaveGenericTrafficData($responseData, (string)$startDate, $source, $systemHotelId);
+            return $this->parseAndSaveGenericTrafficData($responseData, (string)$startDate, $source, $systemHotelId, $expectedPlatformHotelId);
         } catch (\Throwable $e) {
             throw new \RuntimeException('traffic_data_persistence_failed: ' . $e->getMessage(), 0, $e);
         }
     }
 
-    private function parseAndSaveCtripTrafficData($responseData, string $startDate, string $source, ?int $systemHotelId, ?string $platform): int
+    private function parseAndSaveCtripTrafficData($responseData, string $startDate, string $source, ?int $systemHotelId, ?string $platform, ?string $expectedPlatformHotelId = null): int
     {
         $dataList = OnlineTrafficDataExtractionService::extractCtripTrafficRows($responseData);
         if (empty($dataList)) {
@@ -277,6 +277,7 @@ final class OnlineDailyDataPersistenceService
 
         $savedCount = 0;
         $platform = $platform ?: ($source === 'qunar' ? 'Qunar' : 'Ctrip');
+        $expectedPlatformHotelId = trim((string)$expectedPlatformHotelId);
         foreach ($dataList as $item) {
             if (!is_array($item)) {
                 continue;
@@ -289,12 +290,19 @@ final class OnlineDailyDataPersistenceService
                 || str_contains($compareText, 'avg')
                 || str_contains($compareText, 'average')
                 || (is_numeric($hotelId) && (int)$hotelId < 0);
+            $isExplicitSelf = $compareText === 'self'
+                || str_contains($compareText, 'my hotel')
+                || str_contains($compareText, 'my_hotel')
+                || str_contains($compareText, '我的酒店')
+                || str_contains($compareText, '本店');
             if (!is_numeric($hotelId)) {
                 if ($isCompetitor) {
                     $hotelId = -1;
-                } elseif ($systemHotelId !== null) {
-                    $hotelId = $systemHotelId;
                 } else {
+                    // system_hotel_id is an internal ownership key, not the
+                    // Ctrip hotelId. Missing platform identity must stay
+                    // missing instead of contaminating OTA rows with a local
+                    // database ID.
                     continue;
                 }
             }
@@ -302,13 +310,25 @@ final class OnlineDailyDataPersistenceService
             if ($hotelId !== -1 && $hotelId <= 0) {
                 continue;
             }
+            if ($expectedPlatformHotelId !== '' && $hotelId > 0) {
+                if (hash_equals($expectedPlatformHotelId, (string)$hotelId)) {
+                    $isCompetitor = false;
+                } elseif ($isExplicitSelf) {
+                    // An explicit self row with a different platform ID is a
+                    // cross-hotel response and must not be stored as this hotel.
+                    continue;
+                } else {
+                    $isCompetitor = true;
+                }
+            }
 
             $itemDate = $item['date'] ?? $item['dataDate'] ?? $item['statDate'] ?? $item['stat_date'] ?? $item['data_date'] ?? $item['reportDate'] ?? $item['day'] ?? $startDate;
             if (!$itemDate || strtotime((string)$itemDate) === false) {
                 continue;
             }
             $itemDate = date('Y-m-d', strtotime((string)$itemDate));
-            $compareType = $isCompetitor || $hotelId < 0 ? 'competitor_avg' : 'self';
+            $isAverage = $hotelId < 0 || str_contains($compareText, 'avg') || str_contains($compareText, 'average');
+            $compareType = $isAverage ? 'competitor_avg' : ($isCompetitor ? 'competitor' : 'self');
             $hotelName = (string)($item['hotelName'] ?? $item['hotel_name'] ?? $item['HotelName'] ?? $item['name'] ?? ($compareType === 'self' ? '本店' : '竞争圈'));
             $listExposure = (int)CtripTrafficDisplayService::readTrafficNumber($item, ['listExposure', 'list_exposure', 'exposure', 'exposureCount', 'impressions', 'showCount', 'PV', 'pv', 'pageView', 'pageViews', 'page_view'], 0.0);
             $detailExposure = (int)CtripTrafficDisplayService::readTrafficNumber($item, ['detailExposure', 'detail_exposure', 'detailVisitors', 'detailUv', 'visitorCount', 'UV', 'uv', 'uniqueVisitors', 'unique_visitors', 'views'], 0.0);
@@ -385,11 +405,42 @@ final class OnlineDailyDataPersistenceService
         return $savedCount;
     }
 
-    private function parseAndSaveGenericTrafficData($responseData, string $startDate, string $source, ?int $systemHotelId): int
+    /** @return array<int, string> */
+    public function validateGenericTrafficBinding($responseData, string $expectedPlatformHotelId): array
+    {
+        $expectedPlatformHotelId = trim($expectedPlatformHotelId);
+        if ($expectedPlatformHotelId === '') {
+            throw new \InvalidArgumentException('Expected Meituan platform hotel identity is missing.');
+        }
+        $dataList = $this->resolveGenericTrafficDataList($responseData);
+        $returnedIds = [];
+        foreach ($dataList as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $hotelId = trim((string)($item['hotelId'] ?? $item['hotel_id'] ?? $item['HotelId'] ?? $item['hotelID'] ?? $item['poiId'] ?? $item['poi_id'] ?? $item['storeId'] ?? $item['store_id'] ?? ''));
+            if ($hotelId === '') {
+                continue;
+            }
+            $returnedIds[$hotelId] = true;
+            if (!hash_equals($expectedPlatformHotelId, $hotelId)) {
+                throw new \InvalidArgumentException('Meituan traffic response platform hotel identity mismatch.');
+            }
+        }
+        if ($returnedIds === []) {
+            throw new \InvalidArgumentException('Meituan traffic response platform hotel identity is unverified.');
+        }
+        return array_values(array_map('strval', array_keys($returnedIds)));
+    }
+
+    private function parseAndSaveGenericTrafficData($responseData, string $startDate, string $source, ?int $systemHotelId, ?string $expectedPlatformHotelId = null): int
     {
         $dataList = $this->resolveGenericTrafficDataList($responseData);
         if (empty($dataList)) {
             return 0;
+        }
+        if (trim((string)$expectedPlatformHotelId) !== '') {
+            $this->validateGenericTrafficBinding($responseData, (string)$expectedPlatformHotelId);
         }
 
         $savedCount = 0;

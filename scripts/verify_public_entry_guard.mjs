@@ -198,7 +198,7 @@ if (!/<script\s+src=["']system-static\.js\?v=[^"']+["']><\/script>/.test(content
       failures.push(`${file} must keep OTA authorization copy on account-owner local-computer authorization and must not contain legacy server/login-task wording: ${text}`);
     }
   }
-  if (!content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260711-live-progress-profile-hotel';")
+  if (!content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260712-meituan-ads-not-applicable';")
     || !content.includes("const PlatformAutoSettingsPanels = {")
     || !content.includes("const PlatformAutoSecondaryPanels = {")
     || !content.includes('const ensurePlatformAutoPanelsReady = async () => {')
@@ -230,9 +230,16 @@ if (!/<script\s+src=["']system-static\.js\?v=[^"']+["']><\/script>/.test(content
 
   if (!content.includes('const suxiApp = createApp({')
     || !content.includes('const renderSuxiStartupError = (error) => {')
-    || !content.includes('suxiApp.config.errorHandler = (error) => {')
+    || !content.includes('let recoverSuxiRuntimeError = null;')
+    || !content.includes('recoverSuxiRuntimeError = ({ error, info }) => {')
+    || !content.includes('const isFatalStartupError = /setup function|app errorHandler|app warnHandler|app unmount cleanup function/i.test')
+    || !content.includes("currentPage.value = 'compass';")
+    || !content.includes('当前功能发生异常，已返回今日经营看板')
+    || !content.includes('suxiApp.config.errorHandler = (error, _instance, info) => {')
+    || !content.includes("recovered = typeof recoverSuxiRuntimeError === 'function'")
+    || !content.includes('if (recovered) return;')
     || !content.includes("suxiApp.mount('#app');")) {
-    failures.push('public/index.html must surface Vue startup/runtime initialization errors through the app root instead of failing silently.');
+    failures.push('public/index.html must isolate recoverable Vue runtime errors while preserving an explicit fatal startup surface.');
   }
   if (!content.includes(".replace(/[<>&\"']/g")) {
     failures.push('public/index.html startup error renderer must HTML-escape error messages before injecting them into #app.');
@@ -1803,7 +1810,7 @@ if (!/<script\s+src=["']system-static\.js\?v=[^"']+["']><\/script>/.test(content
   }
   if (!platformAutoTemplateSource.includes('<platform-auto-settings-panels')
     || !platformAutoTemplateSource.includes(':ctx="$root"')
-    || !content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260711-live-progress-profile-hotel';")
+    || !content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260712-meituan-ads-not-applicable';")
     || !content.includes('const ensurePlatformAutoPanelsReady = async () => {')
     || !content.includes("requireOnlineDataComponent('PlatformAutoSettingsPanelsBody')")
     || !content.includes("requireOnlineDataComponent('PlatformAutoSecondaryPanelsBody')")

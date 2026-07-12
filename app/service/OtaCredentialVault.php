@@ -72,6 +72,15 @@ final class OtaCredentialVault
             'credential_status' => 'ready', 'created_by' => $actorId, 'rotated_at' => $now, 'update_time' => $now,
         ];
         $r = \think\facade\Db::transaction(function () use ($data, $tenantId, $hotelId, $platform, $configId, $now): OtaCredential {
+            OtaCredential::where('tenant_id', $tenantId)
+                ->where('system_hotel_id', $hotelId)
+                ->where('platform', $platform)
+                ->where('config_id', '<>', $configId)
+                ->where('credential_status', 'ready')
+                ->update([
+                    'credential_status' => 'revoked',
+                    'update_time' => $now,
+                ]);
             $record = OtaCredential::where('tenant_id', $tenantId)->where('system_hotel_id', $hotelId)->where('platform', $platform)->where('config_id', $configId)->lock(true)->find();
             if ($record) { $record->save($data); return $record; }
             $data['create_time'] = $now;

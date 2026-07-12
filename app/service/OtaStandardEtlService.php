@@ -24,6 +24,7 @@ class OtaStandardEtlService
     public function buildDatasetFromRows(array $rows): array
     {
         $inputRowCount = count($rows);
+        [$rows, $semanticRejectedRows] = $this->resolveLegacyMeituanBusinessSemantics($rows);
         [$rows, $supersededPeriodRows] = $this->selectCanonicalPeriodRows($rows);
         $hotels = [];
         $platforms = [];
@@ -36,7 +37,7 @@ class OtaStandardEtlService
         $trafficAnalysisFacts = [];
         $trafficForecastFacts = [];
         $commentFacts = [];
-        $rejectedRows = [];
+        $rejectedRows = $semanticRejectedRows;
 
         foreach (array_values($rows) as $index => $row) {
             if (!is_array($row)) {
@@ -150,6 +151,86 @@ class OtaStandardEtlService
     }
 
     /**
+     * Historical Meituan rank rows were stored as business rows. Reclassify
+     * only rows with an explicit rank value; reject rank-shaped conflicts so
+     * their amount fields cannot become OTA revenue.
+     *
+     * @param array<int, mixed> $rows
+     * @return array{0:array<int, mixed>,1:array<int, array<string, mixed>>}
+     */
+    private function resolveLegacyMeituanBusinessSemantics(array $rows): array
+    {
+        $resolvedRows = [];
+        $rejectedRows = [];
+        foreach (array_values($rows) as $index => $row) {
+            if (!is_array($row)) {
+                $resolvedRows[] = $row;
+                continue;
+            }
+
+            $raw = $this->decodeJson($row['raw_data'] ?? []);
+            $dataType = $this->normalizeDataType((string)($row['data_type'] ?? $raw['data_type'] ?? 'business'));
+            $source = $this->platformKey($this->firstText($row, $raw, ['source', 'platform', 'ota_source', 'otaSource']));
+            if ($source !== 'meituan' || $dataType !== 'business') {
+                $resolvedRows[] = $row;
+                continue;
+            }
+
+            $disposition = $this->legacyMeituanBusinessRankDisposition($row, $raw);
+            if ($disposition === '') {
+                $resolvedRows[] = $row;
+                continue;
+            }
+            if ($disposition === 'peer_rank') {
+                $row['data_type'] = 'peer_rank';
+                $resolvedRows[] = $row;
+                continue;
+            }
+
+            $rejectedRows[] = [
+                'index' => $index,
+                'reason' => 'semantic_type_conflict',
+                'declared_data_type' => 'business',
+                'detected_semantics' => 'peer_rank',
+            ];
+        }
+
+        return [$resolvedRows, $rejectedRows];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     */
+    private function legacyMeituanBusinessRankDisposition(array $row, array $raw): string
+    {
+        $detail = $this->rawDetail($raw);
+        $dimension = strtolower($this->firstText($row, $detail, ['dimension', 'dimName', '_dimName', 'metricName', 'aiMetricName']));
+        $rankType = $this->firstText($row, $detail, ['rank_type', 'rankType', 'rankListType']);
+        $aiMetricName = strtoupper($this->firstText($row, $detail, ['aiMetricName', 'ai_metric_name']));
+        $endpoint = strtolower($this->firstText($row, $detail, ['url', 'request_url', 'requestUrl', 'endpoint', 'api_url', 'apiUrl', 'source_url', 'sourceUrl']));
+        $compareType = strtolower($this->firstText($row, $detail, ['compare_type', 'compareType']));
+        $rank = $this->nullableNumber($row, $detail, ['rank', 'rank_no', 'rankNo', 'currentRank', 'sort']);
+        $peerIdentity = $this->firstText($row, $detail, ['poiName', 'peerPoiId', 'peer_poi_id', 'poiId', 'poi_id']);
+        $hasRankSignal = str_starts_with($dimension, 'peer_rank')
+            || str_contains($dimension, '榜')
+            || $rankType !== ''
+            || str_starts_with($aiMetricName, 'P_RZ')
+            || str_starts_with($aiMetricName, 'P_XS')
+            || str_starts_with($aiMetricName, 'P_LL')
+            || str_starts_with($aiMetricName, 'P_ZH')
+            || str_contains($endpoint, '/peer/rank')
+            || str_contains($endpoint, 'peerrank')
+            || ($rank !== null && $peerIdentity !== '')
+            || in_array($compareType, ['competitor', 'competitor_avg', 'peer'], true);
+        if (!$hasRankSignal) {
+            return '';
+        }
+
+        return $rank !== null && $rank > 0 ? 'peer_rank' : 'conflict';
+    }
+
+    /**
      * @param array<string, mixed> $filters
      * @return array<int, array<string, mixed>>
      */
@@ -234,6 +315,7 @@ class OtaStandardEtlService
         ], array_keys($columns)));
 
         $query = Db::name('online_daily_data')->field($fields ?: '*');
+        $this->applySystemHotelScopeFilter($query, $filters, $columns);
         $sourceFilter = trim((string)($filters['source'] ?? $filters['platform'] ?? ''));
         if ($sourceFilter !== '' && isset($columns['source'])) {
             $query->whereIn('source', $this->sourceFilterValues($sourceFilter));
@@ -261,6 +343,31 @@ class OtaStandardEtlService
         $limit = (int)($filters['limit'] ?? 1000);
         $limit = max(1, min(5000, $limit));
         return $query->order('data_date', 'desc')->order('id', 'desc')->limit($limit)->select()->toArray();
+    }
+
+    /**
+     * @param object $query
+     * @param array<string, mixed> $filters
+     * @param array<string, mixed> $columns
+     */
+    private function applySystemHotelScopeFilter(object $query, array $filters, array $columns): void
+    {
+        $rawIds = $filters['permitted_hotel_ids'] ?? [];
+        if (!is_array($rawIds)) {
+            return;
+        }
+        $hotelIds = array_values(array_unique(array_filter(
+            array_map('intval', $rawIds),
+            static fn(int $hotelId): bool => $hotelId > 0
+        )));
+        sort($hotelIds);
+        if ($hotelIds === []) {
+            return;
+        }
+        if (!isset($columns['system_hotel_id'])) {
+            throw new RuntimeException('system_hotel_id column is required for permitted hotel scope', 422);
+        }
+        $query->whereIn('system_hotel_id', $hotelIds);
     }
 
     /**

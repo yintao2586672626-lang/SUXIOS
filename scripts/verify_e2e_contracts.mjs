@@ -121,8 +121,12 @@ requireNoText('public/index.html', '<link href="font-awesome.min.css" rel="style
 requireText('public/index.html', "const fontAwesomeStylesheet = 'font-awesome.min.css?v=20260628-static-router-fix';", 'entry keeps explicit versioned FontAwesome idle loader');
 requireText('public/index.html', 'window.setTimeout(loadFontAwesomeStylesheet, 1600);', 'FontAwesome icon font loads after core shell first second');
 requireText('public/index.html', 'const suxiApp = createApp({', 'entry keeps Vue app instance available before mount');
-requireText('public/index.html', 'const renderSuxiStartupError = (error) => {', 'entry renders startup/runtime initialization failures explicitly');
-requireText('public/index.html', 'suxiApp.config.errorHandler = (error) => {', 'entry wires Vue runtime errors to explicit startup error surface');
+requireText('public/index.html', 'const renderSuxiStartupError = (error) => {', 'entry renders fatal startup initialization failures explicitly');
+requireText('public/index.html', 'let recoverSuxiRuntimeError = null;', 'entry reserves a runtime recovery bridge before Vue setup');
+requireText('public/index.html', 'recoverSuxiRuntimeError = ({ error, info }) => {', 'entry isolates recoverable page and operation errors');
+requireText('public/index.html', 'suxiApp.config.errorHandler = (error, _instance, info) => {', 'entry classifies Vue runtime errors before using the fatal startup surface');
+requireText('public/index.html', "recovered = typeof recoverSuxiRuntimeError === 'function'", 'entry invokes the runtime recovery bridge');
+requireText('public/index.html', 'if (recovered) return;', 'entry keeps recovered runtime errors away from the fatal startup surface');
 requireText('public/index.html', ".replace(/[<>&\"']/g", 'startup error surface escapes injected error text');
 requireText('public/index.html', "const stack = String(error?.stack || '').split('\\n').slice(0, 8).join('\\n');", 'startup error surface keeps bounded stack evidence');
 requireText('public/index.html', "[String(error?.message || error || 'unknown startup error'), stack].filter(Boolean).join('\\n')", 'startup error surface combines message and stack evidence');
@@ -1771,7 +1775,7 @@ requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeAi
 requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeOperationSummary')", 'entry uses extracted Phase1 operation summary builder');
 requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeClosureSummary')", 'entry uses extracted Phase1 closure summary builder');
 requireText('public/index.html', "requireDataHealthStatic('formatOnlineHistoryRaw')", 'entry uses extracted online history raw formatter');
-requireText('public/index.html', 'data-health-static.js?v=20260704-manual-one-click-fetch-20260705-ai-workbench-meituan-comparison-data-health-refresh-state-20260708-public-endpoints-release-evidence-panel-ota-field-gap-queue-employee-ota-checklist-public-token-summary-card-manual-fetch-result-qunar-quality-action-gates-workbench-write-boundary-manual-surface-focus-20260711-ctrip-qunar-gap-nonblocking', 'entry bumps data-health static helper version after making the Qunar visitor gap non-blocking for saved Ctrip data');
+requireText('public/index.html', 'data-health-static.js?v=20260704-manual-one-click-fetch-20260705-ai-workbench-meituan-comparison-data-health-refresh-state-20260708-public-endpoints-release-evidence-panel-ota-field-gap-queue-employee-ota-checklist-public-token-summary-card-manual-fetch-result-qunar-quality-action-gates-workbench-write-boundary-manual-surface-focus-20260712-competition-count-source-v7-result-filter-history-count-fix', 'entry bumps data-health static helper version after adding result filters and migrating historical competition count wording');
 requireText('public/data-health-static.js', 'const buildOnlineHistoryQueryParams', 'data-health static builds online history query parameters');
 requireText('public/data-health-static.js', 'const formatOnlineHistoryHotelOption', 'data-health static formats online history hotel options');
 requireText('public/data-health-static.js', 'const formatOnlineHistoryRaw', 'data-health static formats online history raw payloads');

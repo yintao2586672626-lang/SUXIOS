@@ -10,6 +10,8 @@ use app\service\CtripTrafficDisplayService;
 use app\service\ManualOnlineFetchTaskService;
 use app\service\MeituanManualIdentityService;
 use app\service\MeituanManualFetchRequestService;
+use app\service\MeituanOnlineDataPersistenceService;
+use app\service\MeituanRankCandidateService;
 use app\service\OtaExecutionStageException;
 use think\Response;
 use think\facade\Db;
@@ -46,6 +48,26 @@ trait OnlineDataManualFetchConcern
             'hotelName',
             'name',
         ], [], 'ctrip');
+    }
+
+    /**
+     * One-shot Ctrip query input. This path deliberately has no hotel or saved
+     * configuration locator, so the credential cannot be persisted or reused.
+     *
+     * @param array<string, mixed> $requestData
+     * @return array<string, scalar|null>
+     */
+    private function sanitizeCtripTemporaryCookieRequestData(array $requestData): array
+    {
+        return $this->sanitizePrimaryManualFetchRequestData($requestData, [
+            'cookies',
+            'url',
+            'node_id',
+            'nodeId',
+            'start_date',
+            'end_date',
+            'auto_save',
+        ]);
     }
 
     /**
@@ -404,6 +426,45 @@ trait OnlineDataManualFetchConcern
         }
     }
 
+    public function fetchCtripTemporaryCookie(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        $credentialPayload = [];
+        try {
+            $rawRequestData = $this->request->post();
+            if (!is_array($rawRequestData)) {
+                throw new \InvalidArgumentException('Invalid Ctrip temporary Cookie query schema.', 400);
+            }
+
+            $requestData = $this->sanitizeCtripTemporaryCookieRequestData($rawRequestData);
+            $cookies = trim((string)($requestData['cookies'] ?? ''));
+            if ($cookies === '') {
+                return $this->error('请粘贴本次查询使用的携程 Cookie', 400, [
+                    'reason' => 'temporary_cookie_missing',
+                ]);
+            }
+
+            unset($requestData['cookies']);
+            $requestData['auto_save'] = false;
+            $credentialPayload = ['cookies' => $cookies];
+            $protectedValues = $this->collectReusableOtaCredentialScalars($credentialPayload);
+            $response = $this->executeCtripManualFetch($requestData, $credentialPayload, 0);
+            $this->assertOtaExecutionResultDoesNotLeak($response, $protectedValues);
+            return $response;
+        } catch (\InvalidArgumentException) {
+            return $this->error('临时 Cookie 查询参数无效', 400, [
+                'reason' => 'invalid_temporary_cookie_query',
+            ]);
+        } catch (\Throwable $e) {
+            return $this->otaUnknownExecutionFailureResponse('ctrip_temporary_cookie_query', $e);
+        } finally {
+            $credentialPayload = [];
+            unset($credentialPayload);
+        }
+    }
+
     /**
      * @param array<string, mixed> $requestData
      * @param array<string, mixed> $credentialPayload
@@ -675,7 +736,9 @@ trait OnlineDataManualFetchConcern
             }
 
             $displayDataDate = $startDate === $endDate ? $startDate : $startDate . ' 至 ' . $endDate;
-            $this->updateCtripLatestFetchStatus($systemHotelId, $fetchedAt, $displayDataDate, $savedCount);
+            if ($systemHotelId > 0) {
+                $this->updateCtripLatestFetchStatus($systemHotelId, $fetchedAt, $displayDataDate, $savedCount);
+            }
             if ($this->isTruthyRequestValue($requestData['background_task'] ?? false) && $systemHotelId) {
                 $this->recordAutoFetchNotification((int)$systemHotelId, true, '携程手动获取完成', $displayDataDate, [
                     'saved_count' => $savedCount,
@@ -685,16 +748,24 @@ trait OnlineDataManualFetchConcern
                 ], 'manual_fetch');
             }
             if ($this->currentUser && isset($this->currentUser->id)) {
-                OperationLog::record('online_data', 'fetch_ctrip', "获取携程线上数据: {$savedCount}条", $this->currentUser->id, $systemHotelId);
+                OperationLog::record(
+                    'online_data',
+                    'fetch_ctrip',
+                    "获取携程线上数据: {$savedCount}条",
+                    $this->currentUser->id,
+                    $systemHotelId > 0 ? $systemHotelId : null
+                );
             }
 
             return json([
                 'code' => 200,
-                'message' => !empty($identityCheck['warning']) && !empty($identityCheck['message'])
-                    ? (string)$identityCheck['message'] . $this->ctripCompetitionSaveSummaryText($insertedCount, $updatedCount)
-                    : ($qunarVisitorGap
-                        ? '携程数据已获取；去哪儿访客为 0 仅作为字段缺口提示，不阻断携程竞争圈获取和入库。' . $this->ctripCompetitionSaveSummaryText($insertedCount, $updatedCount)
-                        : '获取成功' . $this->ctripCompetitionSaveSummaryText($insertedCount, $updatedCount)),
+                'message' => !$autoSave
+                    ? '临时 Cookie 查询成功；结果仅本页展示，未保存 Cookie、未创建门店、未入库。'
+                    : (!empty($identityCheck['warning']) && !empty($identityCheck['message'])
+                        ? (string)$identityCheck['message'] . $this->ctripCompetitionSaveSummaryText($insertedCount, $updatedCount)
+                        : ($qunarVisitorGap
+                            ? '携程数据已获取；去哪儿访客为 0 仅作为字段缺口提示，不阻断携程竞争圈获取和入库。' . $this->ctripCompetitionSaveSummaryText($insertedCount, $updatedCount)
+                            : '获取成功' . $this->ctripCompetitionSaveSummaryText($insertedCount, $updatedCount))),
                 'data' => [
                     'data' => $responseData,
                     'date_results' => $dateResults,
@@ -713,8 +784,10 @@ trait OnlineDataManualFetchConcern
                     'display_summary' => $displaySummary,
                     'qunar_visitor_quality' => $qunarVisitorQuality,
                     'save_status' => $qunarVisitorGap
-                        ? ($savedCount > 0 ? 'saved_with_qunar_visitor_gap' : 'no_saved_with_qunar_visitor_gap')
-                        : ($autoSave ? 'saved_or_empty' : 'skipped'),
+                        ? ($autoSave
+                            ? ($savedCount > 0 ? 'saved_with_qunar_visitor_gap' : 'no_saved_with_qunar_visitor_gap')
+                            : 'display_only')
+                        : ($autoSave ? 'saved_or_empty' : 'display_only'),
                     'save_operation' => $insertedCount > 0 && $updatedCount > 0
                         ? 'inserted_and_updated'
                         : ($insertedCount > 0 ? 'inserted' : ($updatedCount > 0 ? 'updated' : 'none')),
@@ -1598,6 +1671,144 @@ trait OnlineDataManualFetchConcern
         }
     }
 
+    public function commitMeituanRankCandidate(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        try {
+            $requestData = $this->requestData();
+            $candidateId = trim((string)($requestData['candidate_id'] ?? ''));
+            $configId = trim((string)($requestData['config_id'] ?? ''));
+            $systemHotelId = $this->strictPositiveOtaConfigHotelId($requestData['system_hotel_id'] ?? null);
+            $binding = [
+                'actor_id' => (int)($this->currentUser->id ?? 0),
+                'config_id' => $configId,
+                'system_hotel_id' => $systemHotelId,
+                'poi_id' => trim((string)($requestData['poi_id'] ?? '')),
+                'start_date' => trim((string)($requestData['start_date'] ?? '')),
+                'end_date' => trim((string)($requestData['end_date'] ?? '')),
+                'date_range' => trim((string)($requestData['date_range'] ?? '')),
+                'rank_type' => strtoupper(trim((string)($requestData['rank_type'] ?? ''))),
+            ];
+
+            return $this->withOtaCredentialForExecution(
+                'meituan',
+                $configId,
+                $systemHotelId,
+                function (array $_credentialPayload) use ($candidateId, $binding, $systemHotelId): Response {
+                    $rankCandidateService = new MeituanRankCandidateService();
+                    $commitState = $rankCandidateService->beginCommit($candidateId, $binding);
+                    if (!is_array($commitState)) {
+                        return $this->error('Meituan rank candidate is invalid, expired, mismatched, or already being committed.', 409, [
+                            'reason' => 'meituan_rank_candidate_unavailable',
+                        ]);
+                    }
+                    if (($commitState['status'] ?? '') === 'committed') {
+                        $committedResult = is_array($commitState['result'] ?? null) ? $commitState['result'] : [];
+                        return $this->success($committedResult, 'Meituan rank candidate was already committed');
+                    }
+                    $candidatePayload = is_array($commitState['payload'] ?? null) ? $commitState['payload'] : [];
+                    if (($commitState['status'] ?? '') !== 'started' || $candidatePayload === []) {
+                        $rankCandidateService->releaseCommit($candidateId, $binding);
+                        return $this->error('Meituan rank candidate payload is unavailable.', 409, [
+                            'reason' => 'meituan_rank_candidate_payload_unavailable',
+                        ]);
+                    }
+
+                    try {
+                        $rankCandidateService->validatePayload($binding, $candidatePayload);
+                        $responseData = is_array($candidatePayload['response_data'] ?? null)
+                            ? $candidatePayload['response_data']
+                            : [];
+                        $persistenceContext = [
+                            'date_range' => (string)$binding['date_range'],
+                            'rank_type' => (string)$binding['rank_type'],
+                            'start_date' => (string)$binding['start_date'],
+                            'end_date' => (string)$binding['end_date'],
+                            'target_poi_id' => (string)$binding['poi_id'],
+                            'self_metric_values' => is_array($candidatePayload['self_metric_values'] ?? null) ? $candidatePayload['self_metric_values'] : [],
+                            'self_metric_status' => (string)($candidatePayload['self_metric_status'] ?? 'missing'),
+                        ];
+                        $persistenceService = new MeituanOnlineDataPersistenceService();
+                        $savedCount = $responseData === [] ? 0 : $persistenceService->parseAndSaveMeituanData(
+                            $responseData,
+                            (string)$binding['start_date'],
+                            (string)$binding['end_date'],
+                            $systemHotelId,
+                            $persistenceContext
+                        );
+                        if ($savedCount <= 0) {
+                            $rankCandidateService->releaseCommit($candidateId, $binding);
+                            return $this->error('Meituan rank candidate did not produce persistent rows.', 422, [
+                                'reason' => 'meituan_rank_candidate_empty',
+                                'saved_count' => 0,
+                            ]);
+                        }
+
+                        $databaseReadback = $persistenceService->verifyPersistedRankCandidate(
+                            $responseData,
+                            $systemHotelId,
+                            (string)$binding['start_date'],
+                            (string)$binding['end_date'],
+                            $persistenceContext
+                        );
+                        if (($databaseReadback['verified'] ?? false) !== true) {
+                            $rankCandidateService->releaseCommit($candidateId, $binding);
+                            return $this->error('Meituan rank candidate database readback failed.', 500, [
+                                'reason' => 'meituan_rank_candidate_readback_failed',
+                                'saved_count' => $savedCount,
+                                'database_readback' => $databaseReadback,
+                            ]);
+                        }
+
+                        $committedResult = [
+                            'candidate_id' => $candidateId,
+                            'saved_count' => (int)($databaseReadback['matched_count'] ?? 0),
+                            'processed_count' => $savedCount,
+                            'persistence_status' => 'readback_verified',
+                            'database_readback' => $databaseReadback,
+                        ];
+                        if (!$rankCandidateService->completeCommit($candidateId, $binding, $committedResult)) {
+                            $rankCandidateService->releaseCommit($candidateId, $binding);
+                            return $this->error('Meituan rank candidate commit state could not be finalized.', 500, [
+                                'reason' => 'meituan_rank_candidate_finalize_failed',
+                                'saved_count' => $savedCount,
+                                'database_readback' => $databaseReadback,
+                            ]);
+                        }
+                    } catch (\Throwable $e) {
+                        $rankCandidateService->releaseCommit($candidateId, $binding);
+                        throw $e;
+                    }
+
+                    OperationLog::record(
+                        'online_data',
+                        'commit_meituan_rank_candidate',
+                        'Commit one deferred Meituan rank candidate',
+                        $this->currentUser->id,
+                        $systemHotelId
+                    );
+
+                    return $this->success($committedResult, 'Meituan rank candidate committed');
+                },
+                false,
+                true
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->error('Invalid Meituan rank candidate request.', 400, [
+                'reason' => 'invalid_meituan_rank_candidate_request',
+            ]);
+        } catch (OtaExecutionStageException $e) {
+            return $this->otaExecutionStageFailureResponse('meituan_rank_candidate_commit', $e);
+        } catch (\Throwable $e) {
+            \think\facade\Log::error('Meituan rank candidate commit failed.', [
+                'exception_type' => get_debug_type($e),
+            ]);
+            return $this->error('Meituan rank candidate commit failed.', 500);
+        }
+    }
+
     /**
      * @param array<string, mixed> $requestData
      * @param array<string, mixed> $credentialPayload
@@ -1839,6 +2050,8 @@ trait OnlineDataManualFetchConcern
                 }
             }
             $savedCount = 0;
+            $rankCandidate = null;
+            $rankCandidateError = null;
 
             $displayContext = $this->buildMeituanManualDisplayContext($requestData);
             $displayContext['self_metric_values'] = $selfMetricValues;
@@ -1857,6 +2070,49 @@ trait OnlineDataManualFetchConcern
                     'display_hotels' => $displayHotels,
                     'display_hotel_count' => count($displayHotels),
                     'display_summary' => $this->buildMeituanBusinessDisplaySummary($displayHotels, $displayContext),
+                ]);
+            }
+
+            $candidateBinding = [
+                'actor_id' => (int)($this->currentUser->id ?? 0),
+                'config_id' => trim((string)($requestData['config_id'] ?? '')),
+                'system_hotel_id' => (int)$systemHotelId,
+                'poi_id' => (string)$poiId,
+                'start_date' => (string)$startDate,
+                'end_date' => (string)$endDate,
+                'date_range' => (string)($params['dateRange'] ?? $dateRange),
+                'rank_type' => strtoupper((string)$rankType),
+            ];
+            $candidatePayload = [
+                'response_data' => is_array($responseData) ? $responseData : [],
+                'self_metric_values' => $selfMetricValues,
+                'self_metric_status' => $selfMetricStatus,
+            ];
+            $rankCandidateService = new MeituanRankCandidateService();
+            if (is_array($responseData) && !empty($responseData)) {
+                try {
+                    $rankCandidateService->validatePayload($candidateBinding, $candidatePayload);
+                } catch (\InvalidArgumentException $e) {
+                    $rankCandidateError = [
+                        'reason' => 'meituan_rank_candidate_invalid',
+                        'message' => 'Meituan rank candidate is incomplete or does not match the selected hotel, date, or ranking type.',
+                    ];
+                }
+            }
+
+            if (!$autoSave && $rankCandidateError === null && is_array($responseData) && !empty($responseData)) {
+                $issuedCandidate = $rankCandidateService->issue($candidateBinding, $candidatePayload);
+                $publicCandidateBinding = $candidateBinding;
+                unset($publicCandidateBinding['actor_id']);
+                $rankCandidate = $issuedCandidate + $publicCandidateBinding;
+            }
+
+            if ($autoSave && $rankCandidateError !== null) {
+                return $this->error((string)$rankCandidateError['message'], 422, [
+                    'reason' => (string)$rankCandidateError['reason'],
+                    'save_status' => 'blocked',
+                    'display_hotels' => $displayHotels,
+                    'display_hotel_count' => count($displayHotels),
                 ]);
             }
 
@@ -1903,6 +2159,8 @@ trait OnlineDataManualFetchConcern
                     'display_hotels' => $displayHotels,
                     'display_hotel_count' => count($displayHotels),
                     'display_summary' => $displaySummary,
+                    'rank_candidate' => $rankCandidate,
+                    'rank_candidate_error' => $rankCandidateError,
                 ],
                 'time' => time(),
             ];
@@ -2199,6 +2457,13 @@ trait OnlineDataManualFetchConcern
             ?? $credentialPayload['spider_key']
             ?? (is_array($authData) ? ($authData['spiderkey'] ?? $authData['spider_key'] ?? '') : '')
         ));
+        $expectedPlatformHotelId = trim((string)(
+            $credentialPayload['platform_hotel_id']
+            ?? $credentialPayload['ctrip_hotel_id']
+            ?? $credentialPayload['ota_hotel_id']
+            ?? $credentialPayload['hotel_id']
+            ?? ''
+        ));
         $startDate = (string)($requestData['start_date'] ?? '');
         $endDate = (string)($requestData['end_date'] ?? '');
         $autoSave = $this->isTruthyRequestValue($requestData['auto_save'] ?? true);
@@ -2282,7 +2547,8 @@ trait OnlineDataManualFetchConcern
                     $endDate,
                     strtolower($platform),
                     $systemHotelId,
-                    $platform
+                    $platform,
+                    $expectedPlatformHotelId
                 );
             }
             if ($this->isTruthyRequestValue($requestData['background_task'] ?? false) && $systemHotelId) {
@@ -2635,7 +2901,9 @@ trait OnlineDataManualFetchConcern
                     $startDate,
                     $endDate,
                     'meituan',
-                    $systemHotelId ? (int)$systemHotelId : null
+                    $systemHotelId ? (int)$systemHotelId : null,
+                    null,
+                    (string)$poiId
                 );
             }
 
@@ -2871,20 +3139,21 @@ trait OnlineDataManualFetchConcern
             }
 
             return $this->success([
-                'data' => $items,
+                // Never return the platform payload to the browser. Order responses can
+                // contain guest identity, phone and reusable order identifiers; ads
+                // responses may also echo account/request metadata. The normalized rows
+                // have already passed the shared Meituan storage sanitizer.
+                'data' => $rows,
                 'rows' => $rows,
                 'total' => count($items),
                 'row_count' => count($rows),
                 'saved_count' => $savedCount,
                 'counts' => $this->summarizeMeituanCapturedRows($rows),
-                'decoded_data' => $responseData,
-                'raw_response' => $result['raw_response'] ?? '',
                 'http_code' => $result['http_code'] ?? 0,
-                'request_url' => $result['request_url'] ?? $url,
                 'request_method' => $method,
-                'request_payload' => $params,
                 'request_start_date' => $startDate,
                 'request_end_date' => $endDate,
+                'privacy_boundary' => 'sanitized_normalized_rows_only',
             ], $savedCount > 0 ? '获取成功' : '获取成功，但未解析到可入库数据');
         } catch (\InvalidArgumentException) {
             return $this->error('美团业务参数无效', 400);

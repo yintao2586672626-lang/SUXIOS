@@ -155,6 +155,13 @@ test('extracts request date evidence only when the request proves one target dat
     }),
     { date: '', date_source: '' },
   );
+
+  assert.deepEqual(
+    extractOtaRequestDateEvidence({
+      url: 'https://eb.meituan.com/api/v1/ebooking/orders?startTime=1783699200000&endTime=1783785599999',
+    }),
+    { date: '2026-07-11', date_source: 'request.query.startTime' },
+  );
 });
 
 test('builds complete desensitized capture evidence without raw source URLs', () => {

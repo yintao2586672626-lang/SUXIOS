@@ -28,6 +28,7 @@ export function evaluateMeituanCaptureGate(data, requestedSections = [], options
   const successfulResponses = responses.filter(isSuccessfulResponse);
   const capturedResponseCount = successfulResponses.length;
   const sectionStatuses = {};
+  const notApplicableSections = [];
 
   if (!data?.auth_status?.ok) {
     failed.push('auth_login_required');
@@ -41,6 +42,11 @@ export function evaluateMeituanCaptureGate(data, requestedSections = [], options
   for (const section of requested) {
     if (sectionCounts[section] > 0) {
       sectionStatuses[section] = 'captured';
+      continue;
+    }
+    if (hasAuthoritativeNotApplicableEvidence(data, section)) {
+      sectionStatuses[section] = 'not_applicable';
+      notApplicableSections.push(section);
       continue;
     }
     if (successfulResponses.some(item => responseSection(item) === section && Number(item.row_count || 0) === 0)) {
@@ -66,7 +72,58 @@ export function evaluateMeituanCaptureGate(data, requestedSections = [], options
     importable_response_count: importableResponseCount,
     requested_sections: requested,
     section_statuses: sectionStatuses,
+    not_applicable_sections: notApplicableSections,
   };
+}
+
+export function filterMeituanCumulativeRowsByTargetDate(data, targetDate) {
+  const next = { ...(data || {}) };
+  const normalizedTargetDate = normalizeDate(targetDate);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedTargetDate)) {
+    return next;
+  }
+
+  const droppedCounts = {};
+  for (const key of CUMULATIVE_PAYLOAD_KEYS) {
+    if (!Array.isArray(data?.[key])) continue;
+    const rows = data[key];
+    next[key] = rows.filter(row => isVerifiedTargetDateRow(row, normalizedTargetDate));
+    const dropped = rows.length - next[key].length;
+    if (dropped > 0) {
+      droppedCounts[key] = dropped;
+    }
+  }
+  next.target_date_filter = {
+    target_date: normalizedTargetDate,
+    dropped_counts: droppedCounts,
+  };
+  return next;
+}
+
+export function filterMeituanEventRowsByTargetDate(data, targetDate, requestedSections = []) {
+  const next = { ...(data || {}) };
+  const normalizedTargetDate = normalizeDate(targetDate);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedTargetDate)) {
+    return next;
+  }
+
+  const requested = new Set(Array.from(requestedSections || []).map(section => String(section || '').trim().toLowerCase()));
+  const droppedCounts = { ...(data?.target_date_filter?.dropped_counts || {}) };
+  for (const key of ['orders', 'reviews']) {
+    if (!requested.has(key) || !Array.isArray(data?.[key])) continue;
+    const rows = data[key];
+    next[key] = rows.filter(row => isVerifiedTargetDateRow(row, normalizedTargetDate));
+    const dropped = rows.length - next[key].length;
+    if (dropped > 0) {
+      droppedCounts[key] = (droppedCounts[key] || 0) + dropped;
+    }
+  }
+  next.target_date_filter = {
+    ...(data?.target_date_filter || {}),
+    target_date: normalizedTargetDate,
+    dropped_counts: droppedCounts,
+  };
+  return next;
 }
 
 function isSuccessfulResponse(item) {
@@ -86,6 +143,16 @@ function hasPlatformError(data) {
 
 function responseSection(item) {
   return String(item?.section || item?.capture_section || '').trim().toLowerCase();
+}
+
+function hasAuthoritativeNotApplicableEvidence(data, section) {
+  if (section !== 'ads') return false;
+  const evidence = data?.section_evidence?.[section] || data?.sectionEvidence?.[section];
+  if (!evidence || typeof evidence !== 'object' || Array.isArray(evidence)) return false;
+  return String(evidence.status || '').trim().toLowerCase() === 'not_applicable'
+    && String(evidence.reason || '').trim().toLowerCase() === 'ads_not_enabled'
+    && String(evidence.evidence_source || evidence.evidenceSource || '').trim().toLowerCase() === 'page.dom'
+    && String(evidence.marker || '').trim().toLowerCase() === 'meituan_ads_onboarding';
 }
 
 function validateTargetDateEvidence(data, targetDate) {
@@ -109,6 +176,16 @@ function validateTargetDateEvidence(data, targetDate) {
     }
   }
   return { failed_check_ids: Array.from(new Set(failed)) };
+}
+
+function isVerifiedTargetDateRow(row, targetDate) {
+  if (!row || typeof row !== 'object') return false;
+  const rowDate = normalizeDate(firstValue(row, [
+    'data_date', 'dataDate', 'date', 'statDate', 'stat_date', 'reportDate', 'day',
+  ]));
+  const explicitSource = String(row.date_source || row.dateSource || '').trim();
+  const inferredRowSource = hasOwnDate(row) && !explicitSource ? 'row' : explicitSource;
+  return rowDate === targetDate && isAuthoritativeDateSource(inferredRowSource);
 }
 
 function isAuthoritativeDateSource(source) {

@@ -1066,6 +1066,7 @@ trait AutoFetchConcern
     private function filterCollectableBrowserProfileDataSources(array $sources, string $platform = ''): array
     {
         $platform = strtolower(trim($platform));
+        $proofService = new OtaProfileSessionProofService();
         $verified = [];
         foreach ($sources as $source) {
             if (!is_array($source)) {
@@ -1082,6 +1083,9 @@ trait AutoFetchConcern
             }
             $status = strtolower(trim((string)($source['status'] ?? '')));
             if (!in_array($status, ['ready', 'success', 'partial_success'], true)) {
+                continue;
+            }
+            if (!$proofService->isCurrentVerified($source)) {
                 continue;
             }
             $verified[] = $source;
@@ -4792,9 +4796,21 @@ trait AutoFetchConcern
                 return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'ctrip_api_rejected'];
             }
 
-            $savedCount = $this->parseAndSaveData($responseData, $startDate, $endDate, $hotelId, [
+            $expectedPlatformHotelId = trim((string)(
+                $credentialPayload['platform_hotel_id']
+                ?? $credentialPayload['ctrip_hotel_id']
+                ?? $credentialPayload['ota_hotel_id']
+                ?? $credentialPayload['hotel_id']
+                ?? ''
+            ));
+            $persistenceContext = [
                 'ingestion_method' => 'manual_cookie_api',
-            ]);
+                'config_id' => trim((string)($body['config_id'] ?? '')),
+            ];
+            if ($this->isMeaningfulCtripPlatformHotelId($expectedPlatformHotelId, $hotelId)) {
+                $persistenceContext['self_hotel_ids'] = [$expectedPlatformHotelId];
+            }
+            $savedCount = $this->parseAndSaveData($responseData, $startDate, $endDate, $hotelId, $persistenceContext);
             return [
                 'module' => $label,
                 'saved_count' => $savedCount,
@@ -5008,8 +5024,15 @@ trait AutoFetchConcern
             return ['module' => $label, 'saved_count' => 0, 'success' => false, 'message' => 'ctrip_traffic_api_rejected'];
         }
 
+        $expectedPlatformHotelId = trim((string)(
+            $credentialPayload['platform_hotel_id']
+            ?? $credentialPayload['ctrip_hotel_id']
+            ?? $credentialPayload['ota_hotel_id']
+            ?? $credentialPayload['hotel_id']
+            ?? ''
+        ));
         $savedCount = is_array($responseData)
-            ? $this->parseAndSaveTrafficData($responseData, $startDate, $endDate, strtolower($platform), $hotelId, $platform)
+            ? $this->parseAndSaveTrafficData($responseData, $startDate, $endDate, strtolower($platform), $hotelId, $platform, $expectedPlatformHotelId)
             : 0;
         return ['module' => $label, 'saved_count' => $savedCount, 'success' => $savedCount > 0, 'message' => $savedCount > 0 ? 'ok' : 'no rows'];
     }
@@ -5054,6 +5077,10 @@ trait AutoFetchConcern
         $profileId = $this->ctripProfileStoreIdFromConfig($config, $hotelId);
         if ($profileId === '') {
             return ['success' => false, 'skipped' => true, 'message' => '未配置携程 Profile ID', 'saved_count' => 0];
+        }
+        $profileSource = $this->loadProfileSessionSource('ctrip', $hotelId, $profileId);
+        if (!$interactiveBrowser && !(new OtaProfileSessionProofService())->isCurrentVerified($profileSource ?? [])) {
+            return ['success' => false, 'skipped' => true, 'message' => 'current_session_not_verified', 'status_code' => 'current_session_not_verified', 'saved_count' => 0];
         }
         if (!$this->ctripProfileExistsForConfig($config, $hotelId) && !$interactiveBrowser) {
             return ['success' => false, 'skipped' => true, 'message' => "未找到 storage/ctrip_profile_{$profileId}", 'saved_count' => 0];
@@ -5283,6 +5310,13 @@ trait AutoFetchConcern
     ): array
     {
         $payload = $this->applyAutoFetchPeriodOptionsToPayload($payload, $periodOptions);
+        if ($this->isMeaningfulCtripPlatformHotelId($requestHotelId, $hotelId)) {
+            $selfHotelIds = is_array($competitionPersistenceContext['self_hotel_ids'] ?? null)
+                ? $competitionPersistenceContext['self_hotel_ids']
+                : [];
+            $selfHotelIds[] = $requestHotelId;
+            $competitionPersistenceContext['self_hotel_ids'] = array_values(array_unique(array_map('strval', $selfHotelIds)));
+        }
         if ($dataSourceId !== null && $dataSourceId > 0 && empty($competitionPersistenceContext['data_source_id'])) {
             $competitionPersistenceContext['data_source_id'] = $dataSourceId;
         }
@@ -5315,11 +5349,11 @@ trait AutoFetchConcern
         $trafficRows = $this->applyAutoFetchPeriodOptionsToRows($this->extractCtripCapturedSection($payload, 'traffic'), $periodOptions);
         $trafficSaved = 0;
         if (!empty($trafficRows)) {
-            $trafficSaved = $this->parseAndSaveTrafficData(['data' => ['list' => $trafficRows]], $dataDate, $dataDate, 'ctrip', $hotelId, 'Ctrip');
+            $trafficSaved = $this->parseAndSaveTrafficData(['data' => ['list' => $trafficRows]], $dataDate, $dataDate, 'ctrip', $hotelId, 'Ctrip', $requestHotelId);
         }
         if ($trafficSaved === 0) {
             foreach ($this->extractCtripCapturedResponseData($payload, 'traffic') as $responseData) {
-                $trafficSaved += $this->parseAndSaveTrafficData($responseData, $dataDate, $dataDate, 'ctrip', $hotelId, 'Ctrip');
+                $trafficSaved += $this->parseAndSaveTrafficData($responseData, $dataDate, $dataDate, 'ctrip', $hotelId, 'Ctrip', $requestHotelId);
             }
         }
         $modules[] = ['module' => 'browser_traffic', 'saved_count' => $trafficSaved, 'success' => $trafficSaved > 0];
@@ -6191,7 +6225,7 @@ trait AutoFetchConcern
 
         $responseData = $result['data'] ?? [];
         $savedCount = is_array($responseData)
-            ? $this->parseAndSaveTrafficData($responseData, $startDate, $endDate, 'meituan', $hotelId)
+            ? $this->parseAndSaveTrafficData($responseData, $startDate, $endDate, 'meituan', $hotelId, null, $poiId)
             : 0;
         return ['module' => $label, 'saved_count' => $savedCount, 'success' => $savedCount > 0, 'message' => $savedCount > 0 ? 'ok' : 'no_rows', 'credential_source' => 'vault'];
     }
@@ -6201,6 +6235,10 @@ trait AutoFetchConcern
         $storeId = $this->meituanProfileStoreIdFromConfig($config);
         if ($storeId === '') {
             return ['success' => false, 'skipped' => true, 'message' => '未配置 Store ID / POI ID', 'saved_count' => 0];
+        }
+        $profileSource = $this->loadProfileSessionSource('meituan', $hotelId, $storeId);
+        if (!$interactiveBrowser && !(new OtaProfileSessionProofService())->isCurrentVerified($profileSource ?? [])) {
+            return ['success' => false, 'skipped' => true, 'message' => 'current_session_not_verified', 'status_code' => 'current_session_not_verified', 'saved_count' => 0];
         }
         if (!$this->meituanProfileExistsForConfig($config) && !$interactiveBrowser) {
             return ['success' => false, 'skipped' => true, 'message' => '未发现本地美团浏览器 Profile，跳过浏览器采集', 'saved_count' => 0];
@@ -6250,13 +6288,58 @@ trait AutoFetchConcern
         $payload['system_hotel_id'] = $hotelId;
         $payload['default_data_date'] = $dataDate;
         $payload = $this->applyAutoFetchPeriodOptionsToPayload($payload, $periodOptions);
+        try {
+            $profileIdentity = $this->resolveMeituanCapturedProfileIdentity(
+                ['store_id' => $storeId, 'system_hotel_id' => $hotelId],
+                $payload,
+                $hotelId
+            );
+        } catch (\Throwable $e) {
+            return [
+                'success' => false,
+                'message' => 'meituan_profile_identity_blocked',
+                'status_code' => $e->getMessage(),
+                'saved_count' => 0,
+            ];
+        }
         $rows = $this->buildMeituanCapturedDailyRows($payload, $hotelId);
+        $persistenceGate = BrowserProfileCaptureRequestService::assessMeituanPersistenceGate(
+            $payload,
+            $rows,
+            $dataDate
+        );
+        if (($persistenceGate['ok'] ?? false) !== true) {
+            return [
+                'success' => false,
+                'message' => (string)($persistenceGate['status_code'] ?? 'meituan_capture_unverified'),
+                'saved_count' => 0,
+                'persistence_gate' => $persistenceGate,
+            ];
+        }
+        if (($persistenceGate['empty_confirmed'] ?? false) === true) {
+            return [
+                'success' => true,
+                'message' => 'empty_confirmed',
+                'saved_count' => 0,
+                'persistence_gate' => $persistenceGate,
+            ];
+        }
+        $dataSourceId = max(0, (int)($profileIdentity['data_source_id'] ?? 0));
+        if ($dataSourceId > 0) {
+            foreach ($rows as &$row) {
+                if (is_array($row)) {
+                    $row['data_source_id'] = $dataSourceId;
+                }
+            }
+            unset($row);
+        }
         $savedCount = empty($rows) ? 0 : $this->saveMeituanCapturedDailyRows($rows);
 
         return [
             'success' => $savedCount > 0,
             'message' => $savedCount > 0 ? "浏览器采集保存 {$savedCount} 条" : '浏览器采集未解析到指定日期数据',
             'saved_count' => $savedCount,
+            'persistence_gate' => $persistenceGate,
         ];
     }
 

@@ -205,6 +205,41 @@ final class PlatformDataSyncVaultBoundaryTest extends TestCase
         self::assertSame(0, Db::name('ota_credentials')->count());
     }
 
+    public function testSavingSameBrowserProfileReusesExistingDataSource(): void
+    {
+        $service = $this->service();
+        $first = $service->saveDataSource($this->user(), [
+            'name' => 'Ctrip browser profile first save',
+            'system_hotel_id' => 101,
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'ingestion_method' => 'browser_profile',
+            'config' => [
+                'profile_id' => 'profile-101',
+                'last_login_verified_at' => '2026-07-10 10:00:00',
+            ],
+        ]);
+        $firstConfigId = (string)($first['config']['config_id'] ?? '');
+
+        $second = $service->saveDataSource($this->user(), [
+            'name' => 'Ctrip browser profile refreshed',
+            'system_hotel_id' => 101,
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'ingestion_method' => 'browser_profile',
+            'config' => [
+                'profile_id' => 'profile-101',
+                'last_login_verified_at' => '2026-07-11 10:00:00',
+            ],
+        ]);
+
+        self::assertSame((int)$first['id'], (int)$second['id']);
+        self::assertSame(1, (int)Db::name('platform_data_sources')->count());
+        self::assertSame($firstConfigId, (string)($second['config']['config_id'] ?? ''));
+        self::assertSame('Ctrip browser profile refreshed', $second['name']);
+        self::assertSame('2026-07-11 10:00:00', $second['config']['last_login_verified_at']);
+    }
+
     public function testBrowserProfileSourceRejectsReusableCredentialCustody(): void
     {
         $this->expectException(\RuntimeException::class);

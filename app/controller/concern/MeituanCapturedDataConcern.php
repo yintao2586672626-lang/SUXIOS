@@ -552,7 +552,7 @@ trait MeituanCapturedDataConcern
 
     private function normalizeMeituanCapturedReviewRow(array $item, array $context): ?array
     {
-        $score = $this->normalizeMeituanScore($this->firstMeituanValue($item, [
+        $scoreKeys = [
             'comment_score',
             'commentScore',
             'score',
@@ -561,7 +561,10 @@ trait MeituanCapturedDataConcern
             'totalScore',
             'overallScore',
             'star',
-        ], 0));
+        ];
+        $scoreValue = $this->nullableNumberFromKeys($item, $scoreKeys);
+        $score = $scoreValue !== null ? $this->normalizeMeituanScore($scoreValue) : 0.0;
+        $scorePresent = $score > 0;
         $commentCountKeys = [
             'comment_count',
             'commentCount',
@@ -598,17 +601,27 @@ trait MeituanCapturedDataConcern
         $dimension = $channel !== '' ? 'review:' . $channel : 'review:meituan';
 
         $normalizedMetrics = [
-            'comment_score' => $score,
             'data_date' => $dataDate,
             'dimension' => $dimension,
+            'comment_score_status' => $scorePresent ? 'available' : 'missing',
+            'comment_score_present' => $scorePresent,
         ];
+        if ($scorePresent) {
+            $normalizedMetrics['comment_score'] = $score;
+        }
         if ($commentCountKnown) {
             $normalizedMetrics['comment_count'] = $commentCount;
         }
         if ($badReviewCountKnown) {
             $normalizedMetrics['bad_review_count'] = $badReviewCount;
         }
-        $factSource = $this->sanitizeOnlineReviewRawData(array_merge($item, $normalizedMetrics));
+        $factSource = array_merge($item, $normalizedMetrics);
+        if (!$scorePresent) {
+            foreach ($scoreKeys as $scoreKey) {
+                unset($factSource[$scoreKey]);
+            }
+        }
+        $factSource = $this->sanitizeOnlineReviewRawData($factSource);
 
         return $this->baseMeituanCapturedRow($factSource, $context, [
             'data_date' => $dataDate,
@@ -750,6 +763,18 @@ trait MeituanCapturedDataConcern
         $sanitized = [];
         foreach ($raw as $key => $value) {
             $keyText = (string)$key;
+            if (in_array(strtolower($keyText), ['review_id_hash', 'comment_id_hash'], true)
+                && preg_match('/^[a-f0-9]{64}$/D', strtolower(trim((string)$value))) === 1) {
+                $sanitized['review_id_hash'] = strtolower(trim((string)$value));
+                continue;
+            }
+            if ($this->isOnlineReviewIdKey($keyText)) {
+                $text = trim((string)$value);
+                if ($text !== '') {
+                    $sanitized['review_id_hash'] = $this->hashOnlineOrderIdentifier($text);
+                }
+                continue;
+            }
             if ($this->isOnlineSensitiveConfigKey($keyText) || $this->isOnlineReviewPrivateKey($keyText)) {
                 continue;
             }
@@ -763,6 +788,11 @@ trait MeituanCapturedDataConcern
             $sanitized[$key] = $value;
         }
         return $sanitized;
+    }
+
+    private function isOnlineReviewIdKey(string $key): bool
+    {
+        return preg_match('/^(review|comment)[_-]?(id|no|number)$/i', $key) === 1;
     }
 
     private function isOnlineReviewPrivateKey(string $key): bool

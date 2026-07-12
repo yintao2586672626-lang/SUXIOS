@@ -157,6 +157,9 @@
                                     {{ row.label }} {{ row.count }}
                                 </span>
                             </div>
+                            <div v-if="ctx.meituanBrowserCaptureResult?.capture_gate?.section_statuses?.ads === 'not_applicable' || ctx.meituanBrowserCaptureResult?.pages?.some(page => page?.section_evidence?.status === 'not_applicable' && page?.section_evidence?.reason === 'ads_not_enabled')" class="mt-2 rounded border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800">
+                                广告未开通，本轮不采集广告数据，不影响其他已验证板块入库。
+                            </div>
                         </div>
                     </div>
 

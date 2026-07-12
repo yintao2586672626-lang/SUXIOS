@@ -72,4 +72,69 @@ final class MeituanOnlineDataPersistenceServiceTest extends TestCase
 
         self::assertStringContainsString("throw new \\RuntimeException('meituan_rank_persistence_failed'", $source);
     }
+
+    public function testRankCandidateReadbackRequiresEveryExpectedDatabaseRow(): void
+    {
+        $prototype = new MeituanOnlineDataPersistenceService();
+        self::assertTrue(method_exists($prototype, 'verifyPersistedRankCandidate'));
+        $dimensionMethod = new ReflectionMethod($prototype, 'buildRankStorageDimension');
+        $dimensionMethod->setAccessible(true);
+        $dimension = $dimensionMethod->invoke(
+            $prototype,
+            '入住间夜',
+            'P_RZ',
+            '1',
+            '2026-07-11',
+            '2026-07-11'
+        );
+        $responseData = [
+            'data' => [
+                'peerRankData' => [[
+                    'dimName' => '入住间夜',
+                    'aiMetricName' => 'P_RZ_NIGHT_COUNT',
+                    'roundRanks' => [[
+                        'poiId' => '8',
+                        'poiName' => 'Meituan A',
+                        'date' => '2026-07-11 08:30:00',
+                        'dataValue' => 9,
+                    ]],
+                ]],
+            ],
+        ];
+        $matchingRow = [
+            'id' => 123,
+            'system_hotel_id' => 80,
+            'hotel_id' => '8',
+            'data_date' => '2026-07-11',
+            'source' => 'meituan',
+            'data_type' => 'peer_rank',
+            'dimension' => $dimension,
+        ];
+
+        $verified = (new MeituanOnlineDataPersistenceService(
+            static fn(array $_scope): array => [$matchingRow]
+        ))->verifyPersistedRankCandidate(
+            $responseData,
+            80,
+            '2026-07-11',
+            '2026-07-11',
+            ['rank_type' => 'P_RZ', 'date_range' => '1']
+        );
+        self::assertTrue($verified['verified']);
+        self::assertSame(1, $verified['expected_count']);
+        self::assertSame(1, $verified['matched_count']);
+        self::assertSame([123], $verified['row_ids']);
+
+        $mismatch = (new MeituanOnlineDataPersistenceService(
+            static fn(array $_scope): array => [[...$matchingRow, 'hotel_id' => 'wrong-poi']]
+        ))->verifyPersistedRankCandidate(
+            $responseData,
+            80,
+            '2026-07-11',
+            '2026-07-11',
+            ['rank_type' => 'P_RZ', 'date_range' => '1']
+        );
+        self::assertFalse($mismatch['verified']);
+        self::assertSame('database_readback_mismatch', $mismatch['reason']);
+    }
 }

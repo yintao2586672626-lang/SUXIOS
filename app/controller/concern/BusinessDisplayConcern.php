@@ -480,7 +480,7 @@ trait BusinessDisplayConcern
         }
         if ($httpCode > 0 && $httpCode !== 200) {
             $result['error'] = in_array($httpCode, [301, 302, 401, 403], true)
-                ? 'Cookie 可能已失效或无权限，请重新登录美团后台后复制 Cookie'
+                ? 'Cookie已失效或当前账号无权限，请重新登录美团后台后复制 Cookie'
                 : '美团接口 HTTP 错误: ' . $httpCode;
             return $result;
         }
@@ -739,20 +739,29 @@ trait BusinessDisplayConcern
                 $selfHotelIds[trim((string)$hotelId)] = true;
             }
         }
-        foreach ($rows as $row) {
-            $semantics = CtripCompetitionCirclePersistenceService::normalizeRowSemantics($row);
-            if (($semantics['compare_type'] ?? '') !== 'self') {
-                continue;
-            }
-            $hotelId = $this->resolveCtripPlatformHotelId($row);
-            if ($hotelId !== '') {
-                $selfHotelIds[$hotelId] = true;
-            }
-        }
 
         $fingerprint = hash('sha256', (string)json_encode($rows, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
         $dataSourceId = (int)($context['data_source_id'] ?? 0);
         $syncTaskId = (int)($context['sync_task_id'] ?? 0);
+        $persistence = new CtripCompetitionCirclePersistenceService();
+        $ownsEvidenceTask = false;
+        if ($dataSourceId <= 0 || $syncTaskId <= 0) {
+            $dataSourceId = $persistence->resolveOrCreateDataSource(
+                $systemHotelId,
+                (int)($this->currentUser->id ?? 0),
+                [
+                    'platform_hotel_id' => (string)(array_key_first($selfHotelIds) ?? ''),
+                    'config_id' => trim((string)($context['config_id'] ?? '')),
+                ]
+            );
+            $syncTaskId = $persistence->startSyncTask(
+                $dataSourceId,
+                $systemHotelId,
+                (int)($this->currentUser->id ?? 0),
+                'legacy_parser'
+            );
+            $ownsEvidenceTask = true;
+        }
         $sourceTraceId = trim((string)($context['source_trace_id'] ?? ''));
         if ($sourceTraceId === '') {
             $sourceTraceId = CtripCompetitionCirclePersistenceService::buildCaptureTraceId([
@@ -764,21 +773,36 @@ trait BusinessDisplayConcern
             ]);
         }
 
-        $result = (new CtripCompetitionCirclePersistenceService())->persistRows(
-            $rows,
-            $dataDate,
-            $systemHotelId,
-            [
-                'self_hotel_ids' => array_keys($selfHotelIds),
-                'fetched_at' => (string)($context['fetched_at'] ?? date('Y-m-d H:i:s')),
-                'data_source_id' => $dataSourceId,
-                'sync_task_id' => $syncTaskId,
-                'source_trace_id' => $sourceTraceId,
-                'ingestion_method' => trim((string)($context['ingestion_method'] ?? '')) ?: 'legacy_parser',
-            ]
-        );
-
-        return (int)($result['saved_count'] ?? 0);
+        try {
+            $result = $persistence->persistRows(
+                $rows,
+                $dataDate,
+                $systemHotelId,
+                [
+                    'self_hotel_ids' => array_keys($selfHotelIds),
+                    'fetched_at' => (string)($context['fetched_at'] ?? date('Y-m-d H:i:s')),
+                    'data_source_id' => $dataSourceId,
+                    'sync_task_id' => $syncTaskId,
+                    'source_trace_id' => $sourceTraceId,
+                    'ingestion_method' => trim((string)($context['ingestion_method'] ?? '')) ?: 'legacy_parser',
+                ]
+            );
+            if ($ownsEvidenceTask) {
+                $persistence->finishSyncTask($syncTaskId, $dataSourceId, [
+                    'saved_count' => (int)($result['saved_count'] ?? 0),
+                    'inserted_count' => (int)($result['inserted_count'] ?? 0),
+                    'updated_count' => (int)($result['updated_count'] ?? 0),
+                    'row_count' => count($rows),
+                    'self_hotel_ids' => array_keys($selfHotelIds),
+                ]);
+            }
+            return (int)($result['saved_count'] ?? 0);
+        } catch (\Throwable $e) {
+            if ($ownsEvidenceTask) {
+                $persistence->failSyncTask($syncTaskId, $dataSourceId, 'competition_circle_legacy_persistence_failed');
+            }
+            throw $e;
+        }
     }
 
     private function canSaveCtripLegacyBusinessMetricItem(array $item): bool
@@ -1459,7 +1483,7 @@ trait BusinessDisplayConcern
             }
         }
         if ($selfKey === null || !isset($hotelMap[$selfKey]) || !is_array($hotelMap[$selfKey])) {
-            return $this->applyMeituanPercentScaleDerivedMetrics($hotelMap);
+            return $hotelMap;
         }
 
         $hotelMap = $this->injectMeituanSelfActualMetrics($hotelMap, $selfKey, $context);
@@ -1511,7 +1535,7 @@ trait BusinessDisplayConcern
 
         $hotelMap = $this->applyMeituanRankValueDerivedMoneyMetrics($hotelMap, $selfKey, $context);
 
-        return $this->applyMeituanPercentScaleDerivedMetrics($hotelMap);
+        return $hotelMap;
     }
 
     private function applyMeituanRankValueDerivedMoneyMetrics(array $hotelMap, string $selfKey, array $context = []): array
@@ -1822,9 +1846,6 @@ trait BusinessDisplayConcern
 
     private function isMeituanMetricSourceUsable(string $status): bool
     {
-        if (str_starts_with($status, '按美团百分比')) {
-            return true;
-        }
         return in_array($status, [
             'actual_business_value',
             'manual_actual_business_value',
@@ -1871,7 +1892,7 @@ trait BusinessDisplayConcern
             if ($this->isMeituanActualBusinessMetricSource($row, $field, $status)) {
                 return '¥';
             }
-            return $this->isMeituanSelfAnchoredDerivedMetric($row, $field) ? '¥' : '';
+            return $this->isMeituanSelfAnchoredDerivedMetric($row, $field) ? '推算 ¥' : '';
         }
         return $value > 0 && $this->isMeituanMetricSourceUsable($status) ? '¥' : '';
     }
@@ -1930,7 +1951,10 @@ trait BusinessDisplayConcern
 
     private function meituanDisplayMetricIndexPrefix(array $row, string $field): string
     {
-        return $this->isMeituanPercentScaleDerivedMetric($row, $field) ? '指数 ' : '';
+        if ($this->isMeituanPercentScaleDerivedMetric($row, $field)) {
+            return '指数 ';
+        }
+        return $this->isMeituanSelfAnchoredDerivedMetric($row, $field) ? '推算 ' : '';
     }
 
     private function meituanAveragePriceCurrencyPrefix(array $row, string $amountField): string
@@ -1956,11 +1980,14 @@ trait BusinessDisplayConcern
             return '-';
         }
 
-        if ($format === 'money') {
-            return $this->formatMeituanDisplayNumber($value, 0);
+        $text = $this->formatMeituanDisplayNumber($value, 0);
+        if ($format !== 'money'
+            && in_array($field, ['roomNights', 'salesRoomNights'], true)
+            && $this->isMeituanSelfAnchoredDerivedMetric($row, $field)
+        ) {
+            return '推算 ' . $text;
         }
-
-        return $this->formatMeituanDisplayNumber($value, 0);
+        return $text;
     }
 
     private function meituanBusinessDisplayHotelKey(string $poiId, string $hotelName): string
@@ -2780,6 +2807,7 @@ trait BusinessDisplayConcern
 
         $hotelCount = count($rows);
         $totalRoomNights = $this->sumBusinessRows($rows, 'roomNights');
+        $hasDisplayableRoomNights = $this->hasMeituanDisplayableMetricRows($rows, 'roomNights');
         $totalRoomRevenue = $this->sumMeituanDisplayableMoneyRows($rows, 'roomRevenue');
         $hasDisplayableRoomRevenue = count(array_filter($rows, fn($row): bool =>
             $this->isMeituanDisplayableMoneyMetricSource(
@@ -2789,10 +2817,21 @@ trait BusinessDisplayConcern
             )
         )) > 0;
         $totalSalesRoomNights = $this->sumBusinessRows($rows, 'salesRoomNights');
+        $hasDisplayableSalesRoomNights = $this->hasMeituanDisplayableMetricRows($rows, 'salesRoomNights');
         $totalSales = $this->sumMeituanDisplayableMoneyRows($rows, 'sales');
+        $hasDisplayableSales = count(array_filter($rows, fn($row): bool =>
+            $this->isMeituanDisplayableMoneyMetricSource(
+                is_array($row) ? $row : [],
+                'sales',
+                (string)($row['metricSourceStatus']['sales'] ?? '')
+            )
+        )) > 0;
         $totalExposure = $this->sumBusinessRows($rows, 'exposure');
+        $hasDisplayableExposure = $this->hasMeituanDisplayableMetricRows($rows, 'exposure');
         $totalViews = $this->sumBusinessRows($rows, 'views');
+        $hasDisplayableViews = $this->hasMeituanDisplayableMetricRows($rows, 'views');
         $totalOrderCount = (int)$this->sumBusinessRows($rows, 'orderCount');
+        $hasDisplayableOrderCount = $this->hasMeituanDisplayableMetricRows($rows, 'orderCount');
         $avgRoomPrice = $this->weightedMeituanAveragePrice($rows, 'roomRevenue', 'roomNights', 'avgRoomPrice');
         $avgSalesPrice = $this->weightedMeituanAveragePrice($rows, 'sales', 'salesRoomNights', 'avgSalesPrice');
         $avgViewConversionRate = $this->avgBusinessRows($rows, 'viewConversion') * 100;
@@ -2820,7 +2859,7 @@ trait BusinessDisplayConcern
         $derivedMetricCount = $this->countMeituanDerivedMetrics($rows);
         $rankOnlyCount = count(array_filter($rankHealthRows, static fn($row): bool => ($row['status'] ?? '') === 'rank_only'));
         $sourceNotice = $derivedMetricCount > 0
-            ? '美团榜单部分指标仅返回百分比；已优先按本店真实值 × 对方 percent ÷ 本店 percent 推导，缺少本店真实值时按百分比序列的最小一致整数比例尺估算，并在 metricDerived 中保留依据。未返回且不可推导字段继续保留缺失状态。'
+            ? '美团榜单部分指标仅返回百分比；只有存在本店真实值锚点时才按本店值 × 对方 percent ÷ 本店 percent 推导，并在 metricDerived 中保留依据。缺少真实值锚点时保持缺失，不再按比例尺估算。'
             : ($rankOnlyCount > 0
                 ? '美团榜单返回了排名/percent，但未返回可展示数值；数值列保留缺失状态，不用 0 代替。'
                 : '仅展示美团榜单已返回字段；不通过订单、客人、房态或房源映射推断。');
@@ -2872,15 +2911,15 @@ trait BusinessDisplayConcern
                 $this->businessSummaryCard('revenueConcentration', '收益集中度', $revenueHhi > 0 ? number_format($revenueHhi, 2, '.', '') : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200'),
                 $this->businessSummaryCard('visitConcentration', '浏览/访客集中度', $visitHhi > 0 ? number_format($visitHhi, 2, '.', '') : '-', 'text-orange-600', 'bg-orange-50 border border-orange-200'),
                 $this->businessSummaryCard('operationFocus', '运营重心', $operationFocus, 'text-indigo-600', 'bg-indigo-50 border border-indigo-200'),
-                $this->businessSummaryCard('totalRoomNights', '总入住间夜', number_format($totalRoomNights), 'text-red-600', 'bg-red-50 border border-red-200'),
+                $this->businessSummaryCard('totalRoomNights', '总入住间夜', $hasDisplayableRoomNights ? number_format($totalRoomNights) : '-', 'text-red-600', 'bg-red-50 border border-red-200'),
                 $this->businessSummaryCard('totalRoomRevenue', '总房费收入', $hasDisplayableRoomRevenue ? ('¥' . number_format((float)floor($totalRoomRevenue))) : '-', 'text-red-600', 'bg-red-50 border border-red-200'),
                 $this->businessSummaryCard('avgRoomPrice', '商圈平均房价', $avgRoomPrice > 0 ? '¥' . number_format($avgRoomPrice, 0, '.', ',') : '-', 'text-red-600', 'bg-red-50 border border-red-200'),
-                $this->businessSummaryCard('totalSalesRoomNights', '总销售间夜', number_format($totalSalesRoomNights), 'text-green-600', 'bg-green-50 border border-green-200'),
-                $this->businessSummaryCard('totalSales', '总销售额', '¥' . number_format((float)floor($totalSales)), 'text-green-600', 'bg-green-50 border border-green-200'),
+                $this->businessSummaryCard('totalSalesRoomNights', '总销售间夜', $hasDisplayableSalesRoomNights ? number_format($totalSalesRoomNights) : '-', 'text-green-600', 'bg-green-50 border border-green-200'),
+                $this->businessSummaryCard('totalSales', '总销售额', $hasDisplayableSales ? ('¥' . number_format((float)floor($totalSales))) : '-', 'text-green-600', 'bg-green-50 border border-green-200'),
                 $this->businessSummaryCard('avgSalesPrice', '商圈平均销售房价', $avgSalesPrice > 0 ? '¥' . number_format($avgSalesPrice, 0, '.', ',') : '-', 'text-green-600', 'bg-green-50 border border-green-200'),
-                $this->businessSummaryCard('totalExposure', '总曝光量', number_format($totalExposure), 'text-blue-600', 'bg-blue-50 border border-blue-200'),
-                $this->businessSummaryCard('totalViews', '总浏览量', number_format($totalViews), 'text-blue-600', 'bg-blue-50 border border-blue-200'),
-                $this->businessSummaryCard('totalOrderCount', '总订单量', number_format($totalOrderCount), 'text-blue-600', 'bg-blue-50 border border-blue-200'),
+                $this->businessSummaryCard('totalExposure', '总曝光量', $hasDisplayableExposure ? number_format($totalExposure) : '-', 'text-blue-600', 'bg-blue-50 border border-blue-200'),
+                $this->businessSummaryCard('totalViews', '总浏览量', $hasDisplayableViews ? number_format($totalViews) : '-', 'text-blue-600', 'bg-blue-50 border border-blue-200'),
+                $this->businessSummaryCard('totalOrderCount', '总订单量', $hasDisplayableOrderCount ? number_format($totalOrderCount) : '-', 'text-blue-600', 'bg-blue-50 border border-blue-200'),
                 $this->businessSummaryCard('avgViewConversionRate', '平均浏览转化率', $hasViewConversionValue ? number_format($avgViewConversionRate, 2, '.', '') . '%' : '-', 'text-purple-600', 'bg-purple-50 border border-purple-200'),
                 $this->businessSummaryCard('avgPayConversionRate', '平均支付转化率', $hasPayConversionValue ? number_format($avgPayConversionRate, 2, '.', '') . '%' : '-', 'text-purple-600', 'bg-purple-50 border border-purple-200'),
                 $this->businessSummaryCard('avgAbsoluteConversionRate', '绝对转化率', $hasAbsoluteConversionValue ? number_format($avgAbsoluteConversionRate, 2, '.', '') . '%' : '-', 'text-purple-600', 'bg-purple-50 border border-purple-200'),
@@ -3339,6 +3378,20 @@ trait BusinessDisplayConcern
             $sum += (float)($row[$field] ?? 0);
         }
         return $sum;
+    }
+
+    private function hasMeituanDisplayableMetricRows(array $rows, string $field): bool
+    {
+        foreach ($rows as $row) {
+            if (!is_array($row) || $this->isMeituanPercentScaleDerivedMetric($row, $field)) {
+                continue;
+            }
+            $status = (string)($row['metricSourceStatus'][$field] ?? '');
+            if ($this->isMeituanMetricSourceUsable($status) || (float)($row[$field] ?? 0) > 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function avgCtripBusinessRows(array $rows, string $field): float

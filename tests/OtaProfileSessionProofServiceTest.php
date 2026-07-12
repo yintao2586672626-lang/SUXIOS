@@ -147,6 +147,55 @@ final class OtaProfileSessionProofServiceTest extends TestCase
         );
     }
 
+    public function testSuccessfulCollectionPreflightCreatesSameDaySessionProof(): void
+    {
+        $sourceId = $this->insertBoundSource(10, 1, 'meituan', 'store-10');
+        $service = $this->service('2026-07-11 07:30:00');
+
+        $proof = $service->recordCollectionPreflightVerified(
+            $sourceId,
+            10,
+            'meituan',
+            'store-10',
+            true,
+            ['ok' => true, 'status' => 'logged_in']
+        );
+
+        self::assertSame('platform_data_sync_preflight', $proof['current_session_probe_producer']);
+        $source = Db::name('platform_data_sources')->where('id', $sourceId)->find();
+        self::assertIsArray($source);
+        self::assertTrue($service->isCurrentVerified($source));
+    }
+
+    public function testFailedCollectionPreflightInvalidatesSameDaySessionProof(): void
+    {
+        $sourceId = $this->insertBoundSource(10, 1, 'meituan', 'store-10');
+        $service = $this->service('2026-07-11 07:30:00');
+        $service->recordCollectionPreflightVerified(
+            $sourceId,
+            10,
+            'meituan',
+            'store-10',
+            true,
+            ['ok' => true, 'status' => 'logged_in']
+        );
+
+        $service->recordCollectionPreflightFailed(
+            $sourceId,
+            10,
+            'meituan',
+            'store-10',
+            ['ok' => false, 'status' => 'login_required']
+        );
+
+        $source = Db::name('platform_data_sources')->where('id', $sourceId)->find();
+        self::assertIsArray($source);
+        $config = json_decode((string)$source['config_json'], true, 512, JSON_THROW_ON_ERROR);
+        self::assertFalse($config['current_session_verified']);
+        self::assertSame('login_required', $config['current_session_status']);
+        self::assertFalse($service->isCurrentVerified($source));
+    }
+
     public function testProfileReuseWindowKeepsSameDayProofIndependent(): void
     {
         $sourceId = $this->insertBoundSource(10, 1, 'ctrip', 'profile-10');

@@ -594,6 +594,8 @@ function isRequestDateKey(key) {
     'begindate',
     'fromdate',
     'todate',
+    'starttime',
+    'endtime',
   ].includes(normalized);
 }
 
@@ -608,6 +610,21 @@ function normalizeRequestEvidenceDate(value) {
   }
   if (!match) {
     match = text.match(/^(\d{4})(\d{2})(\d{2})$/);
+  }
+  if (!match && /^\d{10,13}$/.test(text)) {
+    const epoch = Number(text) * (text.length === 10 ? 1000 : 1);
+    if (Number.isFinite(epoch)) {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Shanghai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).formatToParts(new Date(epoch));
+      const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+      if (values.year && values.month && values.day) {
+        return `${values.year}-${values.month}-${values.day}`;
+      }
+    }
   }
   if (!match) {
     return '';

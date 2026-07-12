@@ -4030,7 +4030,7 @@ function compareTypeForFacts(facts, context = {}) {
   const endpointId = String(facts[0]?.endpoint_id || '');
   const hotelId = ctripFactHotelId(facts);
   if (String(hotelId).trim() === '-1') {
-    return 'competitor';
+    return 'competitor_avg';
   }
   const contextHotelIds = new Set([
     context.hotelId,
@@ -4042,15 +4042,10 @@ function compareTypeForFacts(facts, context = {}) {
     context.ctripHotelId,
     context.ctrip_hotel_id,
   ].map((value) => String(value || '').trim()).filter(Boolean));
-  if (hotelId && contextHotelIds.has(String(hotelId).trim())) {
-    return 'self';
+  if (hotelId) {
+    return contextHotelIds.has(String(hotelId).trim()) ? 'self' : 'competitor';
   }
   if (endpointId === 'weekly_compete_report') {
-    const hotelName = ctripFactValue(facts, 'hotel_name');
-    if (isCtripGenericSelfHotelName(hotelName)
-      || ctripHotelNameMatches(hotelName, context.hotelName)) {
-      return 'self';
-    }
     return 'competitor';
   }
   const text = facts.map((fact) => `${fact.metric_label || ''} ${fact.metric_pair_label || ''} ${fact.value || ''}`).join(' ');

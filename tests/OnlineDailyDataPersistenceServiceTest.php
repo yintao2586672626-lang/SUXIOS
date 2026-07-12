@@ -49,4 +49,22 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
             $init
         );
     }
+
+    public function testMeituanTrafficRequiresTheBoundPlatformHotelIdentity(): void
+    {
+        $service = new OnlineDailyDataPersistenceService();
+        $matching = ['data' => ['list' => [[
+            'poiId' => '1029642156589279',
+            'dataDate' => '2026-07-11',
+            'exposure' => 100,
+        ]]]];
+
+        self::assertSame(
+            ['1029642156589279'],
+            $service->validateGenericTrafficBinding($matching, '1029642156589279')
+        );
+
+        $this->expectException(\InvalidArgumentException::class);
+        $service->validateGenericTrafficBinding($matching, 'wrong-poi');
+    }
 }

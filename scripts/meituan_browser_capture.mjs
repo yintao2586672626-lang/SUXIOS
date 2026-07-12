@@ -20,7 +20,11 @@ import {
   normalizeMeituanTrafficCardRows,
   normalizeMeituanTrafficForecastRows,
 } from './lib/meituan_browser_capture_normalize.mjs';
-import { evaluateMeituanCaptureGate } from './lib/meituan_capture_gate.mjs';
+import {
+  evaluateMeituanCaptureGate,
+  filterMeituanCumulativeRowsByTargetDate,
+  filterMeituanEventRowsByTargetDate,
+} from './lib/meituan_capture_gate.mjs';
 import { fail, parseArgs, safeName, timestamp, waitForEnter } from './lib/shared_helpers.mjs';
 
 const URLS = {
@@ -65,6 +69,7 @@ const payload = {
   source: 'meituan_browser_profile',
   mode: loginOnly ? 'login_only' : 'capture',
   capture_sections: Array.from(captureSections),
+  section_evidence: {},
   pages: [],
   responses: [],
   reviews: [],
@@ -127,6 +132,8 @@ try {
     }
   }
 
+  Object.assign(payload, filterMeituanCumulativeRowsByTargetDate(payload, defaultDataDate));
+  Object.assign(payload, filterMeituanEventRowsByTargetDate(payload, defaultDataDate, captureSections));
   dedupePayloadRows(payload);
   payload.capture_gate = loginOnly
     ? { status: loginStatus.ok ? 'pass' : 'fail', failed_check_ids: loginStatus.ok ? [] : ['auth_login_required'], mode: 'login_only' }
@@ -267,13 +274,45 @@ async function capturePage(page, name, url) {
   await dismissMeituanOverlays(page);
   const interactions = name === 'traffic' || name === 'newTraffic'
     ? await runMeituanTrafficInteractionPlan(page)
-    : [];
+    : name === 'orders'
+      ? await runMeituanOrderInteractionPlan(page)
+      : name === 'comments'
+        ? await runMeituanReviewInteractionPlan(page)
+        : [];
+  const sectionEvidence = name === 'ads' ? await detectMeituanAdsSectionEvidence(page) : null;
+  if (sectionEvidence) {
+    payload.section_evidence.ads = sectionEvidence;
+  }
   const screenshot = join(assetDir, `${safeName(storeId)}_${name}_${timestamp()}.png`);
   await page.screenshot({ path: screenshot, fullPage: true }).catch(() => null);
   if (existsSync(screenshot)) {
     payload.screenshots.push({ name, path: screenshot });
   }
-  payload.pages.push({ name, url: page.url(), ok: true, interactions });
+  payload.pages.push({
+    name,
+    url: page.url(),
+    ok: true,
+    interactions,
+    ...(sectionEvidence ? { section_evidence: sectionEvidence } : {}),
+  });
+}
+
+async function detectMeituanAdsSectionEvidence(page) {
+  const url = String(page.url() || '');
+  if (!/\/online-sign(?:\.html)?(?:[?#]|$)/i.test(url)) {
+    return null;
+  }
+  const text = await page.locator('body').innerText({ timeout: 5000 }).catch(() => '');
+  const onboardingMarker = /\u7acb\u5373\u5f00\u542f\u63a8\u5e7f|\u63a8\u5e7f\u6280\u672f\u670d\u52a1\u534f\u8bae|\u6211\u5df2\u9605\u8bfb\u5e76\u540c\u610f/.test(text);
+  if (!onboardingMarker) {
+    return null;
+  }
+  return {
+    status: 'not_applicable',
+    reason: 'ads_not_enabled',
+    evidence_source: 'page.dom',
+    marker: 'meituan_ads_onboarding',
+  };
 }
 
 async function runMeituanTrafficInteractionPlan(page) {
@@ -295,6 +334,123 @@ async function runMeituanTrafficInteractionPlan(page) {
     await clickMeituanTrafficStep(page, results, tab, `select traffic forecast ${tab}`, 1500);
   }
 
+  return results;
+}
+
+async function runMeituanOrderInteractionPlan(page) {
+  const results = [];
+  const frame = page.frames().find(item => /\/order-eb\//i.test(item.url()));
+  if (!frame) {
+    return [{ action: 'open_all_orders', clicked: false, skipped: 'order_frame_not_found' }];
+  }
+
+  const allOrders = frame.getByText('\u5168\u90e8\u8ba2\u5355', { exact: true }).first();
+  const allOrdersVisible = await allOrders.isVisible({ timeout: 2000 }).catch(() => false);
+  if (allOrdersVisible) {
+    await allOrders.click().catch(() => null);
+    await frame.waitForTimeout(1500);
+  }
+  results.push({ action: 'open_all_orders', clicked: allOrdersVisible });
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(defaultDataDate)) {
+    results.push({ action: 'set_purchase_date', changed: false, skipped: 'target_date_missing' });
+    return results;
+  }
+
+  const dateInput = frame.locator('input[placeholder="\u8bf7\u9009\u62e9\u8d2d\u4e70\u65e5\u671f"]').first();
+  const dateVisible = await dateInput.isVisible({ timeout: 3000 }).catch(() => false);
+  if (!dateVisible) {
+    results.push({ action: 'set_purchase_date', changed: false, skipped: 'purchase_date_input_not_found' });
+    return results;
+  }
+  await dateInput.fill(`${defaultDataDate} - ${defaultDataDate}`);
+  await dateInput.press('Tab').catch(() => null);
+  results.push({ action: 'set_purchase_date', changed: true, target_date: defaultDataDate });
+
+  const query = frame.getByRole('button', { name: '\u67e5\u8be2', exact: true }).first();
+  const queryVisible = await query.isVisible({ timeout: 2000 }).catch(() => false);
+  if (queryVisible) {
+    await query.click();
+    await page.waitForLoadState('networkidle', { timeout: 12000 }).catch(() => null);
+    await frame.waitForTimeout(1800);
+  }
+  results.push({ action: 'query_target_date_orders', clicked: queryVisible, target_date: defaultDataDate });
+  return results;
+}
+
+async function runMeituanReviewInteractionPlan(page) {
+  const results = [];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(defaultDataDate)) {
+    return [{ action: 'set_review_date', changed: false, skipped: 'target_date_missing' }];
+  }
+
+  const startInput = page.locator('input[placeholder="\u5f00\u59cb\u65e5\u671f"]').first();
+  const startVisible = await startInput.isVisible({ timeout: 3000 }).catch(() => false);
+  if (!startVisible) {
+    return [{ action: 'set_review_date', changed: false, skipped: 'review_date_input_not_found' }];
+  }
+  await startInput.click();
+  await page.waitForTimeout(500);
+
+  const [targetYear, targetMonth, targetDay] = defaultDataDate.split('-').map(Number);
+  let targetCalendar = null;
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    const calendars = page.locator('.mtd-prime-date-calendar:visible');
+    const count = await calendars.count();
+    const visibleMonths = [];
+    for (let index = 0; index < count; index += 1) {
+      const calendar = calendars.nth(index);
+      const header = await calendar.locator('.mtd-prime-date-calendar-header').innerText().catch(() => '');
+      const match = header.match(/(\d{4})\s*\u5e74\s*(\d{1,2})\s*\u6708/);
+      if (!match) continue;
+      const year = Number(match[1]);
+      const month = Number(match[2]);
+      visibleMonths.push({ year, month, calendar });
+      if (year === targetYear && month === targetMonth) {
+        targetCalendar = calendar;
+        break;
+      }
+    }
+    if (targetCalendar) break;
+    if (visibleMonths.length === 0) break;
+
+    const first = visibleMonths[0];
+    const firstIndex = first.year * 12 + first.month;
+    const targetIndex = targetYear * 12 + targetMonth;
+    const switcher = targetIndex < firstIndex
+      ? page.locator('.mtd-prime-date-calendar:visible .left-switcher').first()
+      : page.locator('.mtd-prime-date-calendar:visible .right-switcher').last();
+    if (!(await switcher.isVisible().catch(() => false))) break;
+    await switcher.click();
+    await page.waitForTimeout(250);
+  }
+
+  if (!targetCalendar) {
+    results.push({ action: 'set_review_date', changed: false, skipped: 'target_month_not_selectable' });
+    return results;
+  }
+  const day = targetCalendar
+    .locator('.mtd-prime-date-panel-data-wrapper:not(.disabled-date) .mtd-prime-date-cell-text')
+    .filter({ hasText: new RegExp(`^${targetDay}$`) })
+    .first();
+  if (!(await day.isVisible({ timeout: 2000 }).catch(() => false))) {
+    results.push({ action: 'set_review_date', changed: false, skipped: 'target_day_not_selectable' });
+    return results;
+  }
+  await day.click();
+  await day.click();
+  const confirm = page.getByText('\u786e\u8ba4', { exact: true }).last();
+  await confirm.click();
+  results.push({ action: 'set_review_date', changed: true, target_date: defaultDataDate });
+
+  const query = page.getByText('\u67e5\u8be2', { exact: true }).last();
+  const queryVisible = await query.isVisible({ timeout: 2000 }).catch(() => false);
+  if (queryVisible) {
+    await query.click();
+    await page.waitForLoadState('networkidle', { timeout: 12000 }).catch(() => null);
+    await page.waitForTimeout(1600);
+  }
+  results.push({ action: 'query_target_date_reviews', clicked: queryVisible, target_date: defaultDataDate });
   return results;
 }
 
@@ -477,7 +633,33 @@ function meituanRowsForPayloadKey(payloadKey, safeBody, normalizedRows, meta) {
   if (payloadKey === 'traffic') {
     return normalizedRows.filter(row => isImportableMeituanTrafficRow(row));
   }
+  if (payloadKey === 'orders') {
+    return normalizedRows.filter(isImportableMeituanOrderCaptureRow);
+  }
+  if (payloadKey === 'reviews') {
+    return normalizedRows.filter(isImportableMeituanReviewCaptureRow);
+  }
   return normalizedRows;
+}
+
+function isImportableMeituanReviewCaptureRow(row) {
+  if (!row || typeof row !== 'object' || Array.isArray(row)) return false;
+  const keys = [
+    'commentCount', 'comment_count', 'reviewCount', 'review_count', 'totalCommentCount', 'totalCount',
+    'commentScore', 'comment_score', 'reviewScore', 'review_score', 'rating', 'score',
+    'badReviewCount', 'bad_review_count', 'negativeCommentCount', 'negativeCount',
+  ];
+  return keys.some(key => Object.prototype.hasOwnProperty.call(row, key) && String(row[key] ?? '').trim() !== '');
+}
+
+function isImportableMeituanOrderCaptureRow(row) {
+  if (!row || typeof row !== 'object' || Array.isArray(row)) return false;
+  const keys = [
+    'order_id_hash', 'order_no_hash', 'booking_id_hash',
+    'orderId', 'order_id', 'orderNo', 'order_no', 'bookingId', 'booking_id',
+    'orders', 'order_count', 'orderCount', 'book_order_num', 'bookOrderNum', 'room_nights', 'roomNights',
+  ];
+  return keys.some(key => Object.prototype.hasOwnProperty.call(row, key) && String(row[key] ?? '').trim() !== '');
 }
 
 function meituanPayloadKeyForResponse(url, body, section) {
@@ -580,6 +762,14 @@ function normalizeCapturedList(value, section, sourcePath = '', requestDateEvide
       return cardRows;
     }
   }
+  if (section === 'orders') {
+    for (const path of [['data', 'results'], ['data', 'orders'], ['data', 'orderList'], ['results'], ['orders'], ['orderList']]) {
+      const nested = readPath(value, path);
+      if (Array.isArray(nested)) {
+        return normalizeCapturedList(nested, section, joinSourcePath(sourcePath, path), requestDateEvidence);
+      }
+    }
+  }
 
   const paths = {
     reviews: [
@@ -595,7 +785,7 @@ function normalizeCapturedList(value, section, sourcePath = '', requestDateEvide
       ['data', 'cureShops'], ['data', 'list'], ['data', 'rows'], ['cureShops'], ['list'], ['rows'], ['data'],
     ],
     orders: [
-      ['data', 'orders'], ['data', 'list'], ['data', 'orderList'], ['orders'], ['orderList'], ['list'], ['data'],
+      ['data', 'results'], ['data', 'orders'], ['data', 'list'], ['data', 'orderList'], ['results'], ['orders'], ['orderList'], ['list'], ['data'],
     ],
   }[section] || [['data'], ['list']];
 
@@ -629,11 +819,29 @@ function decorateCapturedRow(row, sourcePath, section = '', requestDateEvidence 
     } else if (defaultDataDate) {
       datePatch = { dataDate: defaultDataDate, date_source: 'capture_context.default_data_date' };
     }
+  } else if (section === 'orders' || section === 'reviews') {
+    const eventDate = meituanEventDateEvidence(row, section);
+    if (eventDate.date) {
+      datePatch = { dataDate: eventDate.date, date_source: eventDate.date_source };
+    } else if (requestDateEvidence.date) {
+      datePatch = { dataDate: requestDateEvidence.date, date_source: requestDateEvidence.date_source || 'request' };
+    }
   }
   if (row._source_path) {
     return { ...row, ...datePatch };
   }
   return { ...row, ...datePatch, _source_path: sourcePath || '$' };
+}
+
+function meituanEventDateEvidence(row, section) {
+  const keys = section === 'orders'
+    ? ['orderDate', 'order_date', 'bookingDate', 'booking_date', 'orderTime', 'order_time', 'createTime', 'buyTime', 'purchaseTime', 'purchase_time', 'data_date', 'dataDate', 'date']
+    : ['reviewDate', 'review_date', 'commentDate', 'comment_date', 'commentTime', 'comment_time', 'reviewTime', 'review_time', 'createTime', 'submitTime', 'submit_time', 'data_date', 'dataDate', 'date'];
+  for (const key of keys) {
+    const date = normalizeMeituanTrafficDateText(row?.[key]);
+    if (date) return { date, date_source: `row.${key}` };
+  }
+  return { date: '', date_source: '' };
 }
 
 async function collectMeituanTrafficDomRows(page) {

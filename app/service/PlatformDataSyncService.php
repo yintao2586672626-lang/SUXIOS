@@ -589,8 +589,14 @@ final class PlatformDataSyncService
                 $raw['date_source'] = $rowDateSource;
             }
 
+            $normalizedHotelId = $this->stringValue($row, ['hotel_id', 'hotelId', 'poi_id', 'poiId', 'external_hotel_id']) ?: (string)($source['external_hotel_id'] ?? '');
+            $normalizedCompareType = $this->stringValue($row, ['compare_type', 'compareType', 'rank_type', 'rankType']);
+            if ($normalizedHotelId === '-1') {
+                $normalizedCompareType = 'competitor_avg';
+            }
+
             $normalizedRow = [
-                'hotel_id' => $this->stringValue($row, ['hotel_id', 'hotelId', 'poi_id', 'poiId', 'external_hotel_id']) ?: (string)($source['external_hotel_id'] ?? ''),
+                'hotel_id' => $normalizedHotelId,
                 'hotel_name' => $this->stringValue($row, ['hotel_name', 'hotelName', 'poi_name', 'poiName', 'name']) ?: (string)($source['hotel_name'] ?? $source['name'] ?? ''),
                 'data_date' => $date,
                 'amount' => $this->amountValue($row, $dataType, $preserveMissingMetrics),
@@ -606,7 +612,7 @@ final class PlatformDataSyncService
                 'dimension' => $this->stringValue($row, ['dimension', 'dim_name', '_dimName']) ?: ($dataType === 'review' ? $this->reviewDimensionValue($row) : ''),
                 'data_type' => $dataType,
                 'platform' => $this->stringValue($row, ['platform']) ?: $platform,
-                'compare_type' => $this->stringValue($row, ['compare_type', 'compareType', 'rank_type', 'rankType']),
+                'compare_type' => $normalizedCompareType,
                 'list_exposure' => $this->integerMetricValue($row, ['mt_exposure', 'list_exposure', 'listExposure', 'impressions', 'exposure_count', 'exposureCount', 'exposureUV', 'exposure_uv'], $preserveMissingMetrics),
                 'detail_exposure' => $this->integerMetricValue($row, ['mt_intention_uv', 'intentionUV', 'intention_uv', 'detail_exposure', 'detailExposure', 'clicks', 'click_count', 'clickCount', 'visitors', 'visitorTotal', 'pv', 'uv'], $preserveMissingMetrics),
                 'flow_rate' => $this->flowRateValue($row, $dataType, $preserveMissingMetrics),
@@ -1086,6 +1092,26 @@ final class PlatformDataSyncService
             $now,
             &$id
         ): array {
+            if ($isBrowserProfile && $id <= 0) {
+                $reusableSource = $this->findReusableBrowserProfileSource(
+                    $tenantId,
+                    $hotelId,
+                    $platform,
+                    $profileKey
+                );
+                if (is_array($reusableSource)) {
+                    $id = (int)($reusableSource['id'] ?? 0);
+                    $existing = $reusableSource;
+                    $existingConfig = $this->decodeConfig($reusableSource['config_json'] ?? []);
+                    $configId = $this->resolveOtaDataSourceConfigId(
+                        $source['config'],
+                        $existingConfig,
+                        $platform,
+                        $id
+                    );
+                }
+            }
+
             if ($id > 0) {
                 $lockedExisting = Db::name('platform_data_sources')->withoutField('secret_json')->where('id', $id)->lock(true)->find();
                 if (!$lockedExisting) {
@@ -1511,6 +1537,11 @@ final class PlatformDataSyncService
             } else {
                 $result = $adapter->fetch($source, $options);
             }
+            if ($this->isOtaBrowserProfileSource($source)
+                && $this->recordBrowserProfileCollectionPreflight($source, $result)
+            ) {
+                $source = $this->loadSource($id);
+            }
             $timing['capture_elapsed_ms'] = $this->elapsedMilliseconds($phaseStartedAt);
             $this->refreshDatabaseConnectionAfterExternalFetch();
             $payload = $this->applySyncOptionPeriodMetadata($result['payload'] ?? [], $options);
@@ -1529,8 +1560,11 @@ final class PlatformDataSyncService
             $saved = $this->saveNormalizedRows($rows);
             $timing['daily_rows_save_elapsed_ms'] = $this->elapsedMilliseconds($phaseStartedAt);
 
-            $status = $saved > 0 ? 'success' : 'partial_success';
-            $message = $saved > 0 ? 'Platform data synchronized.' : 'No business rows were found in payload.';
+            $confirmedEmpty = $this->isAuthoritativeEmptySyncPayload($payload);
+            $status = ($saved > 0 || $confirmedEmpty) ? 'success' : 'partial_success';
+            $message = $saved > 0
+                ? 'Platform data synchronized.'
+                : ($confirmedEmpty ? 'platform_returned_authoritative_empty' : 'No business rows were found in payload.');
             $diagnostics = $this->buildSyncDiagnostics($rows, $saved, $source, $options, $payload, $status, $message);
             if ((string)($diagnostics['p0_status'] ?? '') !== 'ready' && !empty($diagnostics['requires_target_date_traffic'])) {
                 $status = 'partial_success';
@@ -1755,8 +1789,9 @@ final class PlatformDataSyncService
         if (!in_array($p0Status, ['ready', 'blocked', 'not_required', 'not_loaded'], true)) {
             $p0Status = 'unknown';
         }
+        $confirmedEmpty = $this->truthy($diagnostics['confirmed_empty'] ?? false);
         $adapterStatus = strtolower(trim((string)($diagnostics['adapter_status'] ?? $fallbackStatus)));
-        if (!in_array($adapterStatus, ['success', 'partial_success', 'failed', 'capture_failed', 'permission_denied'], true)) {
+        if (!in_array($adapterStatus, ['success', 'partial_success', 'failed', 'capture_failed', 'permission_denied', 'not_applicable'], true)) {
             $adapterStatus = 'unknown';
         }
 
@@ -1773,6 +1808,7 @@ final class PlatformDataSyncService
             'missing_inputs' => $this->syncTaskQualityMissingInputFlags($diagnostics['missing_inputs'] ?? []),
             'operator_message' => $this->safeSyncTaskMessage($adapterStatus ?: $fallbackStatus, (string)($diagnostics['operator_message'] ?? '')),
             'adapter_status' => $adapterStatus,
+            'confirmed_empty' => $confirmedEmpty,
         ];
     }
 
@@ -1807,6 +1843,7 @@ final class PlatformDataSyncService
         $knownMessages = [
             'platform data synchronized.' => 'platform_data_synchronized',
             'platform_data_synchronized' => 'platform_data_synchronized',
+            'platform_returned_authoritative_empty' => 'platform_returned_authoritative_empty',
             'no business rows were found in payload.' => 'sync_completed_without_saved_rows',
             'sync_completed_without_saved_rows' => 'sync_completed_without_saved_rows',
             'target_date_traffic_ready' => 'target_date_traffic_ready',
@@ -1824,6 +1861,10 @@ final class PlatformDataSyncService
             'ota_source_inline_secret_requires_migration' => 'ota_source_inline_secret_requires_migration',
             'collection_failed' => 'collection_failed',
             'collection_partial' => 'collection_partial',
+            'ads_service_not_opened' => 'ads_service_not_opened',
+            'ads_collection_failed' => 'ads_collection_failed',
+            'profile_session_unverified' => 'profile_session_unverified',
+            'profile_session_expired' => 'profile_session_expired',
             'stale_running_task' => 'stale_running_task',
         ];
         if (isset($knownMessages[$message])) {
@@ -1833,11 +1874,18 @@ final class PlatformDataSyncService
         return match (strtolower(trim($status))) {
             'success' => 'platform_data_synchronized',
             'partial_success' => 'collection_partial',
+            'not_applicable' => $message === 'ads_service_not_opened' ? 'ads_service_not_opened' : 'not_applicable',
             'permission_denied', 'unauthorized', 'forbidden' => 'permission_denied',
             'login_expired', 'waiting_login', 'session_expired' => 'login_state_unverified',
             'stale_running' => 'stale_running_task',
             default => 'collection_failed',
         };
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function isAuthoritativeEmptySyncPayload(array $payload): bool
+    {
+        return ($payload['sync_summary']['confirmed_empty'] ?? null) === true;
     }
 
     private function safeOtaExecutionFailureCode(\Throwable $error): string
@@ -1911,6 +1959,7 @@ final class PlatformDataSyncService
         if (!in_array($fieldFactStatus, ['ready', 'partial', 'missing', 'not_loaded', 'unknown'], true)) {
             $fieldFactStatus = 'unknown';
         }
+        $confirmedEmpty = $this->truthy($evidence['confirmed_empty'] ?? false);
 
         return [
             'primary_quality_state' => $state,
@@ -1929,6 +1978,7 @@ final class PlatformDataSyncService
                 'field_fact_status' => $fieldFactStatus,
                 'normalized_count' => max(0, (int)($evidence['normalized_count'] ?? 0)),
                 'saved_count' => max(0, (int)($evidence['saved_count'] ?? 0)),
+                'confirmed_empty' => $confirmedEmpty,
             ],
             'next_action' => $this->sanitizeSyncTaskCollectionQualityAction($quality['next_action'] ?? ''),
         ];
@@ -2696,6 +2746,55 @@ final class PlatformDataSyncService
         );
     }
 
+    /**
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $result
+     */
+    private function recordBrowserProfileCollectionPreflight(array $source, array $result): bool
+    {
+        $payload = is_array($result['payload'] ?? null) ? $result['payload'] : [];
+        $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
+        $authCode = strtolower(trim((string)($authStatus['status'] ?? '')));
+        if (($authStatus['ok'] ?? null) === false
+            && in_array($authCode, ['login_required', 'session_expired', 'login_expired', 'not_logged_in', 'unauthorized'], true)
+        ) {
+            $platform = strtolower(trim((string)($source['platform'] ?? '')));
+            $config = is_array($source['config'] ?? null) ? $source['config'] : [];
+            $profileKey = $this->otaBrowserProfileKey($platform, $config);
+            if ($profileKey === '') {
+                return false;
+            }
+            $this->profileSessionProofService->recordCollectionPreflightFailed(
+                (int)($source['id'] ?? 0),
+                (int)($source['system_hotel_id'] ?? 0),
+                $platform,
+                $profileKey,
+                $authStatus
+            );
+            return true;
+        }
+        if (($authStatus['ok'] ?? null) !== true || !in_array($authCode, ['logged_in', 'authorized'], true)) {
+            return false;
+        }
+
+        $platform = strtolower(trim((string)($source['platform'] ?? '')));
+        $config = is_array($source['config'] ?? null) ? $source['config'] : [];
+        $profileKey = $this->otaBrowserProfileKey($platform, $config);
+        if ($profileKey === '') {
+            return false;
+        }
+
+        $this->profileSessionProofService->recordCollectionPreflightVerified(
+            (int)($source['id'] ?? 0),
+            (int)($source['system_hotel_id'] ?? 0),
+            $platform,
+            $profileKey,
+            true,
+            $authStatus
+        );
+        return true;
+    }
+
     /** @param array<string, mixed> $config */
     private function otaBrowserProfileKey(string $platform, array $config): string
     {
@@ -2708,6 +2807,42 @@ final class PlatformDataSyncService
             }
         }
         return '';
+    }
+
+    /** @return array<string, mixed>|null */
+    private function findReusableBrowserProfileSource(
+        int $tenantId,
+        int $systemHotelId,
+        string $platform,
+        string $profileKey
+    ): ?array {
+        $canonicalProfileKey = BrowserProfileCaptureRequestService::safeFilePart($profileKey);
+        if ($canonicalProfileKey === '' || $canonicalProfileKey === 'default') {
+            return null;
+        }
+
+        $query = Db::name('platform_data_sources')
+            ->withoutField('secret_json')
+            ->where('system_hotel_id', $systemHotelId)
+            ->where('platform', strtolower(trim($platform)))
+            ->whereIn('ingestion_method', ['browser_profile', 'profile_browser'])
+            ->order('id', 'desc')
+            ->lock(true);
+        if (isset($this->tableColumns('platform_data_sources')['tenant_id'])) {
+            $query->where('tenant_id', $tenantId);
+        }
+
+        foreach ($query->select()->toArray() as $row) {
+            $candidateConfig = $this->decodeConfig($row['config_json'] ?? []);
+            $candidateKey = BrowserProfileCaptureRequestService::safeFilePart(
+                $this->otaBrowserProfileKey($platform, $candidateConfig)
+            );
+            if ($candidateKey !== '' && hash_equals($canonicalProfileKey, $candidateKey)) {
+                return $row;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -3041,13 +3176,17 @@ final class PlatformDataSyncService
             'stats_json' => json_encode($stats, JSON_UNESCAPED_UNICODE),
             'update_time' => $now,
         ]);
-        Db::name('platform_data_sources')->where('id', (int)$source['id'])->update([
-            'last_sync_time' => $now,
-            'last_sync_status' => $status,
-            'last_error' => in_array($status, ['success'], true) ? null : $safeMessage,
-            'status' => $status === 'success' ? 'success' : $status,
-            'update_time' => $now,
-        ]);
+        if ($this->shouldPreserveSourceStateForModuleResult($status, $payload)) {
+            $this->persistOptionalModuleState((int)$source['id'], $payload, $now);
+        } else {
+            Db::name('platform_data_sources')->where('id', (int)$source['id'])->update([
+                'last_sync_time' => $now,
+                'last_sync_status' => $status,
+                'last_error' => in_array($status, ['success'], true) ? null : $safeMessage,
+                'status' => $status === 'success' ? 'success' : $status,
+                'update_time' => $now,
+            ]);
+        }
         $timing['finish_task_elapsed_ms'] = $this->elapsedMilliseconds($finishStartedAt);
         if ($syncStartedAt !== null) {
             $timing['total_elapsed_ms'] = $this->elapsedMilliseconds($syncStartedAt);
@@ -3070,7 +3209,53 @@ final class PlatformDataSyncService
             'timing' => $timing,
             'sync_diagnostics' => $safeDiagnostics !== [] ? $safeDiagnostics : null,
             'collection_quality' => $stats['collection_quality'],
+            'module_status' => is_array($payload['module_status'] ?? null) ? $payload['module_status'] : null,
         ];
+    }
+
+    private function shouldPreserveSourceStateForModuleResult(string $status, array $payload): bool
+    {
+        $moduleStatus = is_array($payload['module_status'] ?? null) ? $payload['module_status'] : [];
+        return strtolower(trim((string)($moduleStatus['module'] ?? ''))) === 'ads'
+            && strtolower(trim($status)) !== 'success';
+    }
+
+    private function persistOptionalModuleState(int $sourceId, array $payload, string $checkedAt): void
+    {
+        $moduleStatus = is_array($payload['module_status'] ?? null) ? $payload['module_status'] : [];
+        $module = strtolower(trim((string)($moduleStatus['module'] ?? '')));
+        if ($sourceId <= 0 || $module !== 'ads') {
+            return;
+        }
+
+        Db::transaction(function () use ($sourceId, $moduleStatus, $module, $checkedAt): void {
+            $source = Db::name('platform_data_sources')
+                ->field('id,config_json')
+                ->where('id', $sourceId)
+                ->lock(true)
+                ->find();
+            if (!is_array($source)) {
+                return;
+            }
+            $config = $this->decodeConfig($source['config_json'] ?? []);
+            $state = [
+                'status' => strtolower(trim((string)($moduleStatus['status'] ?? 'blocked'))) ?: 'blocked',
+                'reason' => strtolower(trim((string)($moduleStatus['reason'] ?? 'ads_collection_failed'))) ?: 'ads_collection_failed',
+                'checked_at' => $checkedAt,
+                'external_action_required' => ($moduleStatus['external_action_required'] ?? false) === true,
+            ];
+            $states = is_array($config['module_states'] ?? null) ? $config['module_states'] : [];
+            $states[$module] = $state;
+            $config['module_states'] = $states;
+            $config['ads_status'] = $state['status'];
+            $config['ads_status_reason'] = $state['reason'];
+            $config['ads_status_checked_at'] = $state['checked_at'];
+
+            Db::name('platform_data_sources')->where('id', $sourceId)->update([
+                'config_json' => json_encode($config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+                'update_time' => $checkedAt,
+            ]);
+        });
     }
 
     /**
@@ -3114,6 +3299,7 @@ final class PlatformDataSyncService
         if (!in_array($p0Status, ['ready', 'blocked', 'not_required', 'not_loaded'], true)) {
             $p0Status = 'unknown';
         }
+        $confirmedEmpty = $this->truthy($diagnostics['confirmed_empty'] ?? false);
 
         $qualityFlags = $this->syncTaskQualityMissingInputFlags($diagnostics['missing_inputs'] ?? []);
         $bindingFlags = [];
@@ -3166,6 +3352,12 @@ final class PlatformDataSyncService
         } elseif ($targetDate === '') {
             $qualityFlags[] = 'target_date_missing';
             $nextAction = 'select_target_date';
+        } elseif ($p0Status === 'not_required'
+            && $taskStatus === 'success'
+            && (($savedCount > 0 && $targetRows > 0) || $confirmedEmpty)
+        ) {
+            $state = 'available';
+            $nextAction = '';
         } elseif ($p0Status !== 'ready') {
             $qualityFlags[] = 'p0_target_date_evidence_not_ready';
             $nextAction = 'verify_target_date_evidence';
@@ -3202,7 +3394,7 @@ final class PlatformDataSyncService
             'metric_scope' => $isOtaPlatform ? 'ota_channel' : 'unknown',
             'evidence_scope' => 'sync_task',
             'target_date' => $targetDate,
-            'data_as_of' => $targetRows > 0 && $savedCount > 0 ? $targetDate : '',
+            'data_as_of' => (($targetRows > 0 && $savedCount > 0) || $confirmedEmpty) ? $targetDate : '',
             'collected_at' => trim($collectedAt),
             'evidence' => [
                 'task_status' => $taskStatus,
@@ -3213,6 +3405,7 @@ final class PlatformDataSyncService
                 'field_fact_status' => $fieldFactStatus,
                 'normalized_count' => max(0, $normalizedCount),
                 'saved_count' => max(0, $savedCount),
+                'confirmed_empty' => $confirmedEmpty,
             ],
             'next_action' => $nextAction,
         ];
@@ -3310,6 +3503,7 @@ final class PlatformDataSyncService
         }
 
         $requiresTraffic = $this->syncRequiresTargetDateTrafficEvidence($source, $options, $payload);
+        $confirmedEmpty = $this->isAuthoritativeEmptySyncPayload($payload);
         $fieldFactStatus = $targetTrafficRows <= 0
             ? 'not_loaded'
             : ($targetTrafficFieldFactReady > 0 && $targetTrafficFieldFactMissing === 0 ? 'ready' : ($targetTrafficFieldFactReady > 0 ? 'partial' : 'missing'));
@@ -3327,8 +3521,11 @@ final class PlatformDataSyncService
         }
         $p0Status = $missingInputs !== []
             ? 'blocked'
-            : ($requiresTraffic ? 'ready' : ($savedCount > 0 ? 'not_required' : 'not_loaded'));
+            : ($requiresTraffic ? 'ready' : (($savedCount > 0 || $confirmedEmpty) ? 'not_required' : 'not_loaded'));
         $capabilityStates = $this->syncTaskCapabilityStates($dataTypes, $savedCount, $adapterStatus);
+        if ($confirmedEmpty && $adapterStatus === 'success') {
+            $capabilityStates = $this->applyConfirmedEmptyCapabilityStates($capabilityStates, $options, $payload);
+        }
         $operatorMessage = 'target_date_traffic_ready';
         if (in_array('current_session_verified', $missingInputs, true)) {
             $operatorMessage = 'current_session_not_verified';
@@ -3354,7 +3551,33 @@ final class PlatformDataSyncService
             'missing_inputs' => $missingInputs,
             'operator_message' => $operatorMessage,
             'adapter_status' => $adapterStatus,
+            'confirmed_empty' => $confirmedEmpty,
         ];
+    }
+
+    /**
+     * @param array<string, string> $states
+     * @return array<string, string>
+     */
+    private function applyConfirmedEmptyCapabilityStates(array $states, array $options, array $payload): array
+    {
+        $sectionText = strtolower(implode(',', array_filter(array_map(
+            static fn($value): string => is_string($value) ? trim($value) : '',
+            [
+                $options['capture_sections'] ?? null,
+                $options['captureSections'] ?? null,
+                $options['sections'] ?? null,
+                $payload['data_source_capture']['requested_capture_sections'] ?? null,
+                $payload['data_source_capture']['capture_sections'] ?? null,
+            ]
+        ))));
+        if (preg_match('/(^|[,\s])orders?([,\s]|$)/', $sectionText) === 1) {
+            $states['orders'] = 'verified';
+        }
+        if (preg_match('/(^|[,\s])(reviews?|comments?)([,\s]|$)/', $sectionText) === 1) {
+            $states['reviews'] = 'verified';
+        }
+        return $states;
     }
 
     /**
@@ -3417,6 +3640,18 @@ final class PlatformDataSyncService
         $dataType = $this->normalizeDataType((string)($source['data_type'] ?? $options['data_type'] ?? $options['dataType'] ?? ''));
         if ($dataType === 'traffic') {
             return true;
+        }
+
+        $explicitSections = array_values(array_filter([
+            $options['capture_sections'] ?? null,
+            $options['captureSections'] ?? null,
+            $options['sections'] ?? null,
+            $payload['data_source_capture']['requested_capture_sections'] ?? null,
+            $payload['data_source_capture']['capture_sections'] ?? null,
+        ], static fn($value): bool => is_string($value) && trim($value) !== ''));
+        if ($explicitSections !== []) {
+            $explicitSectionText = strtolower(implode(',', $explicitSections));
+            return preg_match('/traffic|flow|core|default|business_overview|traffic_report/', $explicitSectionText) === 1;
         }
 
         $sectionText = strtolower(json_encode([
@@ -3873,7 +4108,20 @@ final class PlatformDataSyncService
     private function dataValue(array $row, string $dataType, bool $preserveMissing = false): ?float
     {
         $dataType = $this->normalizeDataType($dataType);
-        if ($preserveMissing && in_array($dataType, ['review', 'peer_rank'], true)) {
+        if ($dataType === 'review') {
+            return $this->nullableNumericValue($row, [
+                'bad_review_count',
+                'badReviewCount',
+                'negativeCommentCount',
+                'negativeCount',
+                'badCount',
+                'lowScoreCount',
+                'noRecommendCount',
+                'data_value',
+                'dataValue',
+            ]) ?? ($preserveMissing ? null : 0.0);
+        }
+        if ($preserveMissing && $dataType === 'peer_rank') {
             return null;
         }
 
@@ -3891,9 +4139,6 @@ final class PlatformDataSyncService
         }
         if ($dataType === 'peer_rank') {
             return $this->numericValue($row, ['rank', 'ranking', 'rankValue', 'rank_value', 'rankPercent', 'rank_percent']);
-        }
-        if ($dataType === 'review') {
-            return $this->numericValue($row, ['comment_score', 'rating', 'score', 'data_value', 'dataValue']);
         }
         if ($dataType === 'order') {
             $quantity = $this->quantityValue($row, $dataType, $preserveMissing);
@@ -3937,7 +4182,16 @@ final class PlatformDataSyncService
         if ($this->normalizeDataType($dataType) !== 'review') {
             return $this->nullableNumericValue($row, ['comment_score']);
         }
-        return $this->nullableNumericValue($row, ['comment_score', 'rating', 'score'])
+        return $this->nullableNumericValue($row, [
+            'comment_score',
+            'commentScore',
+            'score',
+            'star',
+            'rating',
+            'rate',
+            'totalScore',
+            'overallScore',
+        ])
             ?? ($preserveMissing ? null : 0.0);
     }
 

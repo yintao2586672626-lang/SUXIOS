@@ -14,7 +14,7 @@ use think\Response;
 
 class Auth
 {
-    private const TOKEN_MAX_AGE_SECONDS = 86400;
+    private const TOKEN_MAX_AGE_SECONDS = 259200; // 72 hours
 
     private ?ProtectedCapabilityService $protectedCapabilityService = null;
 
@@ -296,6 +296,7 @@ class Auth
 
         if ($method === 'POST' && in_array($path, [
             'api/online-data/fetch-ctrip',
+            'api/online-data/fetch-ctrip-temporary-cookie',
             'api/online-data/fetch-meituan',
         ], true)) {
             return [

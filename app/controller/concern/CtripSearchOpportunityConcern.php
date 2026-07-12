@@ -52,7 +52,7 @@ trait CtripSearchOpportunityConcern
             }
 
             $fields = array_values(array_filter([
-                'data_date', 'compare_type', 'ingestion_method', 'raw_data', 'update_time', 'create_time',
+                'id', 'data_date', 'compare_type', 'ingestion_method', 'raw_data', 'update_time', 'create_time',
             ], static fn(string $field): bool => isset($columns[$field])));
             $rows = (clone $query)
                 ->field($fields)
@@ -60,6 +60,8 @@ trait CtripSearchOpportunityConcern
                 ->order('id', 'asc')
                 ->select()
                 ->toArray();
+            $batchSelection = $this->selectLatestCtripSearchOpportunityCaptureBatch($rows);
+            $rows = $batchSelection['rows'];
 
             $referenceCaptureDate = $this->resolvePreviousCtripSearchOpportunityDate(clone $query, $captureDate);
             $referenceRows = [];
@@ -73,12 +75,17 @@ trait CtripSearchOpportunityConcern
                     ->toArray();
             }
 
-            return $this->success($this->buildCtripSearchOpportunityPayload(
+            $payload = $this->buildCtripSearchOpportunityPayload(
                 $rows,
                 $captureDate,
                 $referenceRows,
                 $referenceCaptureDate
-            ));
+            );
+            $payload['current_capture_batch_at'] = $batchSelection['latest_captured_at'];
+            $payload['same_day_capture_batch_count'] = $batchSelection['capture_batch_count'];
+            $payload['same_day_historical_row_count'] = $batchSelection['historical_row_count'];
+
+            return $this->success($payload);
         } catch (\Throwable $e) {
             return $this->error('读取携程未来搜索数据失败: ' . $e->getMessage());
         }
@@ -95,6 +102,61 @@ trait CtripSearchOpportunityConcern
             ->where('data_date', '<', $captureDate)
             ->order('data_date', 'desc')
             ->value('data_date'));
+    }
+
+    private function selectLatestCtripSearchOpportunityCaptureBatch(array $rows): array
+    {
+        $batches = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $raw = $row['raw_data'] ?? null;
+            if (is_string($raw)) {
+                $raw = json_decode($raw, true);
+            }
+            if (!is_array($raw) || (string)($raw['endpoint_id'] ?? '') !== 'traffic_search_details') {
+                continue;
+            }
+            $capturedAt = trim((string)($raw['captured_at'] ?? $row['update_time'] ?? $row['create_time'] ?? ''));
+            $batchKey = $capturedAt !== '' ? $capturedAt : '__unknown__';
+            $capturedTimestamp = $capturedAt !== '' ? strtotime($capturedAt) : false;
+            $batches[$batchKey] ??= [
+                'captured_at' => $capturedAt,
+                'captured_timestamp' => $capturedTimestamp === false ? 0 : $capturedTimestamp,
+                'max_id' => 0,
+                'rows' => [],
+            ];
+            $batches[$batchKey]['max_id'] = max($batches[$batchKey]['max_id'], (int)($row['id'] ?? 0));
+            $batches[$batchKey]['rows'][] = $row;
+        }
+
+        if ($batches === []) {
+            return [
+                'rows' => [],
+                'latest_captured_at' => '',
+                'capture_batch_count' => 0,
+                'historical_row_count' => 0,
+            ];
+        }
+
+        uasort($batches, static function (array $left, array $right): int {
+            $timestampOrder = ((int)$right['captured_timestamp']) <=> ((int)$left['captured_timestamp']);
+            if ($timestampOrder !== 0) {
+                return $timestampOrder;
+            }
+            return ((int)$right['max_id']) <=> ((int)$left['max_id']);
+        });
+        $latest = reset($batches);
+        $selectedRows = is_array($latest['rows'] ?? null) ? array_values($latest['rows']) : [];
+        $totalRows = array_sum(array_map(static fn(array $batch): int => count($batch['rows'] ?? []), $batches));
+
+        return [
+            'rows' => $selectedRows,
+            'latest_captured_at' => (string)($latest['captured_at'] ?? ''),
+            'capture_batch_count' => count($batches),
+            'historical_row_count' => max(0, $totalRows - count($selectedRows)),
+        ];
     }
 
     private function buildCtripSearchOpportunityPayload(

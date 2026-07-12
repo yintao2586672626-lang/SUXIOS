@@ -105,6 +105,7 @@ class ProtectedCapabilityService
                         'api/online-data/data-analysis',
                         'api/online-data/ai-analysis',
                         'api/online-data/fetch-ctrip',
+                        'api/online-data/fetch-ctrip-temporary-cookie',
                         'api/online-data/fetch-meituan',
                         'api/online-data/fetch-custom',
                         'api/online-data/fetch-ctrip-cookie-api',

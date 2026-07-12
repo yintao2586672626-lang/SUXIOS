@@ -62,6 +62,8 @@ test('competition-circle copy assigns the result to the selected store and treat
 
   assert.match(html, /本次结果统一归属于所选门店的竞争圈/);
   assert.match(html, /酒店ID缺失或不一致会提示但不阻断查询/);
+  assert.match(html, /携程返回 hotelId 与该门店配置的携程 hotelId 一致/);
+  assert.match(html, /酒店名称和备注名不参与判定/);
   assert.match(html, /明确的本店跨门店冲突才停止入库/);
   assert.doesNotMatch(html, /识别不到时只展示数据、不入库/);
 });
@@ -84,7 +86,7 @@ test('Ctrip AI tab hydrates the latest usable competition circle snapshot', () =
   assert.match(history, /\$section === 'rank'\s*&&\s*\(empty\(\$displayHotels\)\s*\|\|\s*!\$this->ctripBusinessDisplayHotelsHaveTraffic\(\$displayHotels\)\)/);
 });
 
-test('historical backfill is dry-run capable, idempotent, and scoped to the competition signature', () => {
+test('historical backfill is dry-run capable, idempotent, and uses configured hotel IDs', () => {
   const source = fs.readFileSync(path.join(root, 'scripts/backfill_ctrip_competition_circle_history.php'), 'utf8');
 
   assert.match(source, /--dry-run/);
@@ -92,7 +94,9 @@ test('historical backfill is dry-run capable, idempotent, and scoped to the comp
   assert.match(source, /legacy_backfill:/);
   assert.match(source, /competition_circle_hotel/);
   assert.match(source, /already_classified/);
-  assert.match(source, /\$selfIds = \$genericSelfIds !== \[\][\s\S]{0,100}\? array_keys\(\$genericSelfIds\)[\s\S]{0,100}: \$configuredSelfIds/);
+  assert.match(source, /\$identitySource = 'current_platform_binding';/);
+  assert.match(source, /\$selfIds = \$configuredSelfIds;/);
+  assert.doesNotMatch(source, /historical_generic_self_marker/);
 });
 
 test('legacy Ctrip business parser routes competition-circle signatures to the typed persistence service', () => {
@@ -120,6 +124,17 @@ test('typed competition persistence never reuses an unrelated business row', () 
   assert.doesNotMatch(finder[0], /where\('data_type', 'business'\)/);
 });
 
+test('competition identity is ID-only and legacy persistence creates evidence tasks', () => {
+  const persistence = fs.readFileSync(path.join(root, 'app/service/CtripCompetitionCirclePersistenceService.php'), 'utf8');
+  const legacy = fs.readFileSync(path.join(root, 'app/controller/concern/BusinessDisplayConcern.php'), 'utf8');
+  const autoFetch = fs.readFileSync(path.join(root, 'app/controller/concern/AutoFetchConcern.php'), 'utf8');
+
+  assert.match(persistence, /\$isSelf = \$hotelId !== '' && isset\(\$selfHotelIds\[\$hotelId\]\);/);
+  assert.doesNotMatch(persistence, /\$isSelf\s*=\s*[^;]*hasExplicitSelfMarker/);
+  assert.match(legacy, /resolveOrCreateDataSource\([\s\S]*startSyncTask\([\s\S]*finishSyncTask\(/);
+  assert.match(autoFetch, /\$competitionPersistenceContext\['self_hotel_ids'\][\s\S]*\$requestHotelId/);
+});
+
 test('identity conflicts use only active self bindings and successful saves surface ID warnings', () => {
   const backend = fs.readFileSync(path.join(root, 'app/controller/concern/AutoFetchConcern.php'), 'utf8');
   const frontend = fs.readFileSync(path.join(root, 'public/ctrip-static.js'), 'utf8');
@@ -141,6 +156,8 @@ test('historical identity repair is dry-run first and only infers unbound batche
   assert.match(source, /current_ready_config/);
   assert.match(source, /unique_active_self_history/);
   assert.match(source, /bound_owner_mismatch/);
+  assert.match(source, /bound_owner_mismatch_do_not_reassign/);
+  assert.doesNotMatch(source, /historical_owner_reassigned_from_bound_owner_mismatch/);
   assert.match(source, /\$snapshot[^;]*\. '\|' \. trim\(\(string\)\(\$row\['create_time'\]/);
   assert.match(source, /count\(\$group\['self_hotel_ids'\]\) !== 1/);
   assert.match(source, /binding_missing/);
@@ -149,4 +166,23 @@ test('historical identity repair is dry-run first and only infers unbound batche
   assert.match(source, /evidence_repair_candidate_rows/);
   assert.match(source, /evidence_missing:data_source_id/);
   assert.match(source, /evidence_missing:sync_task_id/);
+});
+
+test('traffic persistence keeps system hotel ownership separate from the OTA hotel identity', () => {
+  const persistence = fs.readFileSync(path.join(root, 'app/service/OnlineDailyDataPersistenceService.php'), 'utf8');
+  const analytics = fs.readFileSync(path.join(root, 'app/controller/concern/OnlineDataAnalyticsConcern.php'), 'utf8');
+  const manualFetch = fs.readFileSync(path.join(root, 'app/controller/concern/OnlineDataManualFetchConcern.php'), 'utf8');
+  const autoFetch = fs.readFileSync(path.join(root, 'app/controller/concern/AutoFetchConcern.php'), 'utf8');
+  const ctripParser = persistence.match(/private function parseAndSaveCtripTrafficData[\s\S]*?private function parseAndSaveGenericTrafficData/);
+
+  assert.ok(ctripParser, 'expected isolated Ctrip traffic parser');
+  assert.match(persistence, /parseAndSaveCtripTrafficData\([^;]*\$expectedPlatformHotelId\)/);
+  assert.match(ctripParser[0], /hash_equals\(\$expectedPlatformHotelId, \(string\)\$hotelId\)/);
+  assert.match(ctripParser[0], /explicit self row with a different platform ID[\s\S]*?continue;/i);
+  assert.match(ctripParser[0], /\$compareType = \$isAverage \? 'competitor_avg' : \(\$isCompetitor \? 'competitor' : 'self'\)/);
+  assert.doesNotMatch(ctripParser[0], /\$hotelId\s*=\s*\$systemHotelId/);
+  assert.match(analytics, /\$expectedPlatformHotelId[\s\S]*?OnlineDailyDataPersistenceService[\s\S]*?\$expectedPlatformHotelId/);
+  assert.match(manualFetch, /\$credentialPayload\['platform_hotel_id'\][\s\S]*?parseAndSaveTrafficData\([\s\S]*?\$expectedPlatformHotelId/);
+  assert.match(autoFetch, /\$credentialPayload\['platform_hotel_id'\][\s\S]*?parseAndSaveTrafficData\([^;]*\$expectedPlatformHotelId\)/);
+  assert.match(autoFetch, /parseAndSaveTrafficData\(\['data' => \['list' => \$trafficRows\]\][^;]*\$requestHotelId\)/);
 });

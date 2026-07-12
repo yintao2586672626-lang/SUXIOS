@@ -556,6 +556,8 @@ trait OnlineDataRequestConcern
         $responsePayload = [
             'saved_count' => $savedCount,
             'row_count' => count($rows),
+            'auth_status' => $payload['auth_status'] ?? null,
+            'capture_gate' => $gate,
             'counts' => $this->summarizeMeituanCapturedRows($rows),
             'payload_counts' => [
                 'reviews' => $this->countMeituanPayloadSection($payload, 'reviews'),
@@ -2298,35 +2300,7 @@ trait OnlineDataRequestConcern
             }
 
             $name = (string)($config['name'] ?? '');
-            Db::transaction(function () use ($key, $id, $systemHotelId): void {
-                $locked = Db::name('system_configs')->where('config_key', $key)->lock(true)->find();
-                if (!$locked) {
-                    throw new \RuntimeException('Ctrip config list disappeared during delete.');
-                }
-                $lockedList = json_decode((string)$locked['config_value'], true, 512, JSON_THROW_ON_ERROR);
-                if (!is_array($lockedList) || !isset($lockedList[$id]) || !is_array($lockedList[$id])) {
-                    throw new \RuntimeException('Ctrip config disappeared during delete.');
-                }
-                $lockedConfig = $lockedList[$id];
-                $lockedConfigId = trim((string)($lockedConfig['config_id'] ?? $lockedConfig['id'] ?? $id));
-                if ($this->otaConfigHasHotelBindingConflict($lockedConfig)
-                    || $this->otaConfigBoundSystemHotelId($lockedConfig) !== $systemHotelId
-                    || $lockedConfigId === ''
-                    || !hash_equals($id, $lockedConfigId)) {
-                    throw new \RuntimeException('Ctrip config hotel binding changed during delete.');
-                }
-
-                $this->deleteOtaConfigCredential($systemHotelId, 'ctrip', $id);
-                unset($lockedList[$id]);
-                $jsonValue = json_encode(
-                    $lockedList,
-                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
-                );
-                Db::name('system_configs')->where('config_key', $key)->update([
-                    'config_value' => $jsonValue,
-                    'update_time' => date('Y-m-d H:i:s'),
-                ]);
-            });
+            $this->deleteCtripConfigMetadata($id, $systemHotelId);
 
             \app\model\SystemConfig::clearProtectedOtaCaches();
             $this->clearAutoFetchLightConfigListCache('ctrip');
@@ -2472,7 +2446,7 @@ trait OnlineDataRequestConcern
         if ($httpCode !== 200) {
             return [
                 'success' => false,
-                'error' => "HTTP错误: {$httpCode}" . ($httpCode === 302 ? ' (可能Cookie已失效，请重新登录携程)' : ''),
+                'error' => "HTTP错误: {$httpCode}" . ($httpCode === 302 ? ' (Cookie已失效，请重新登录携程)' : ''),
                 'http_code' => $httpCode,
                 'raw' => $decodedResponse,
             ];
@@ -2482,7 +2456,7 @@ trait OnlineDataRequestConcern
         if (preg_match('/^\s*<!DOCTYPE|^\s*<html/i', $decodedResponse)) {
             return [
                 'success' => false,
-                'error' => '返回了HTML页面而非JSON数据（可能Cookie已过期或请求参数不一致，请重新获取）',
+                'error' => '返回了HTML页面而非JSON数据，未获取到业务数据；请检查登录状态与请求参数后重试',
                 'http_code' => $httpCode,
                 'raw' => substr($decodedResponse, 0, 500),
             ];
@@ -2584,7 +2558,7 @@ trait OnlineDataRequestConcern
 
         if ($httpCode !== 200) {
             if (in_array($httpCode, [301, 302], true)) {
-                $result['error'] = 'Cookie 可能已失效，请重新登录携程 eBooking 后复制 Cookie';
+                $result['error'] = 'Cookie已失效，请重新登录携程 eBooking 后复制 Cookie';
             } elseif ($httpCode === 415) {
                 $result['error'] = '携程流量接口必须使用 JSON Body，请检查 Content-Type 和 POSTFIELDS';
             } else {
@@ -2695,7 +2669,7 @@ trait OnlineDataRequestConcern
         }
         if ($httpCode !== 200) {
             if (in_array($httpCode, [301, 302], true)) {
-                $result['error'] = 'Cookie 可能已失效，请重新登录携程 eBooking 后复制 Cookie';
+                $result['error'] = 'Cookie已失效，请重新登录携程 eBooking 后复制 Cookie';
             } else {
                 $result['error'] = '携程广告接口 HTTP 错误: ' . $httpCode;
             }

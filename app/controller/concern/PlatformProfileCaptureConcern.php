@@ -653,7 +653,13 @@ trait PlatformProfileCaptureConcern
         }
 
         $requestUrl = 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/querySearchFlowDetails?hostType=Ebooking';
-        $endpoints = [];
+        $endpoints = [[
+            'request_url' => 'https://ebooking.ctrip.com/datacenter/api/biddingajax/fetchCurrentHotelSeqInfoV1',
+            'method' => 'POST',
+            'payload' => [],
+            'headers' => [],
+            'section' => 'traffic_report',
+        ]];
         foreach ([[0, '0'], [3, '0'], [0, '1'], [3, '1']] as [$dataType, $searchType]) {
             $payload = [
                 'platform' => 'Ctrip',

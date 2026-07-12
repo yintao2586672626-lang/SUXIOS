@@ -541,7 +541,7 @@ final class CtripProfileFieldMetaService
     }
     public static function flowTransform(string $fieldKey): array
     {
-        $selfRule = 'hotelId/masterHotelId=当前携程酒店ID（如 6866634）为本店数据';
+        $selfRule = 'hotelId/masterHotelId 必须等于当前门店在携程响应中的真实酒店ID，才可认定为本店数据';
         $competitorRule = 'hotelId=-1 为竞争圈平均数据';
         $common = [
             'page_url' => self::CTRIP_FLOW_TRANSFORM_PAGE_URL,

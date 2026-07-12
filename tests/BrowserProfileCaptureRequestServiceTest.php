@@ -24,6 +24,19 @@ final class BrowserProfileCaptureRequestServiceTest extends TestCase
         ]));
     }
 
+    public function testConfirmedEmptyGateAcceptsExplicitNotApplicableSection(): void
+    {
+        self::assertTrue(BrowserProfileCaptureRequestService::isConfirmedEmptyMeituanCaptureGate([
+            'status' => 'pass',
+            'section_statuses' => [
+                'traffic' => 'empty_confirmed',
+                'orders' => 'empty_confirmed',
+                'reviews' => 'empty_confirmed',
+                'ads' => 'not_applicable',
+            ],
+        ]));
+    }
+
     public function testRejectsCumulativeRowsWhoseDateOnlyCameFromCaptureFallback(): void
     {
         $rows = [[
@@ -52,7 +65,11 @@ final class BrowserProfileCaptureRequestServiceTest extends TestCase
             [
                 'data_type' => 'order',
                 'data_date' => '2026-07-10',
-                'raw_data' => json_encode(['date_source' => 'capture_context.default_data_date']),
+                'raw_data' => json_encode([
+                    'orderId' => 'ORDER-EXPLICIT',
+                    'orderDate' => '2026-07-10',
+                    'date_source' => 'row.orderDate',
+                ]),
             ],
         ];
 
@@ -60,6 +77,130 @@ final class BrowserProfileCaptureRequestServiceTest extends TestCase
             [],
             BrowserProfileCaptureRequestService::unverifiedMeituanTargetDateRows($rows, '2026-07-11')
         );
+    }
+
+    public function testEventRowsRequireStableIdentityAndAuthoritativeDateEvidence(): void
+    {
+        $rows = [
+            [
+                'data_type' => 'order',
+                'data_date' => '2026-07-10',
+                'raw_data' => json_encode([
+                    'orderId' => 'ORDER-1',
+                    'orderDate' => '2026-07-10',
+                    'date_source' => 'capture_context.default_data_date',
+                ]),
+            ],
+            [
+                'data_type' => 'review',
+                'data_date' => '2026-07-09',
+                'raw_data' => json_encode([
+                    'reviewId' => 'REVIEW-1',
+                    'date_source' => 'row.reviewDate',
+                ]),
+            ],
+            [
+                'data_type' => 'traffic_forecast',
+                'data_date' => '2026-07-20',
+                'raw_data' => json_encode([
+                    'date_source' => 'capture_context.default_data_date',
+                ]),
+            ],
+            [
+                'data_type' => 'order',
+                'data_date' => '2026-07-08',
+                'raw_data' => json_encode([
+                    'orderId' => 'ORDER-2',
+                    'orderDate' => '2026-07-08',
+                    'date_source' => 'row.orderDate',
+                ]),
+            ],
+        ];
+
+        self::assertSame(
+            ['order:0', 'review:1', 'traffic_forecast:2'],
+            BrowserProfileCaptureRequestService::unverifiedMeituanTargetDateRows($rows, '2026-07-11')
+        );
+    }
+
+    public function testSanitizedEventHashesRemainValidDateEvidence(): void
+    {
+        $rows = [
+            [
+                'data_type' => 'order',
+                'data_date' => '2026-07-11',
+                'raw_data' => json_encode([
+                    'order_id_hash' => str_repeat('a', 64),
+                    'createTime' => '2026-07-11 08:30:00',
+                    'date_source' => 'row.createTime',
+                ]),
+            ],
+            [
+                'data_type' => 'review',
+                'data_date' => '2026-07-11',
+                'raw_data' => json_encode([
+                    'review_id_hash' => str_repeat('b', 64),
+                    'commentTime' => '2026-07-11 09:15:00',
+                    'date_source' => 'row.commentTime',
+                ]),
+            ],
+        ];
+
+        self::assertSame(
+            [],
+            BrowserProfileCaptureRequestService::unverifiedMeituanTargetDateRows($rows, '2026-07-11')
+        );
+    }
+
+    public function testAutomaticCaptureRequiresAuthGateAndVerifiedTargetDate(): void
+    {
+        $validPayload = [
+            'auth_status' => ['ok' => true, 'status' => 'authorized'],
+            'capture_gate' => ['status' => 'pass', 'section_statuses' => ['traffic' => 'returned']],
+        ];
+        $validRows = [[
+            'data_type' => 'traffic',
+            'data_date' => '2026-07-11',
+            'raw_data' => json_encode([
+                'dataDate' => '2026-07-11',
+                'date_source' => 'response.dataDate',
+            ]),
+        ]];
+
+        self::assertSame('ready', BrowserProfileCaptureRequestService::assessMeituanPersistenceGate(
+            $validPayload,
+            $validRows,
+            '2026-07-11'
+        )['status_code']);
+        self::assertSame('meituan_auth_unverified', BrowserProfileCaptureRequestService::assessMeituanPersistenceGate(
+            [...$validPayload, 'auth_status' => []],
+            $validRows,
+            '2026-07-11'
+        )['status_code']);
+        self::assertSame('meituan_capture_gate_failed', BrowserProfileCaptureRequestService::assessMeituanPersistenceGate(
+            [...$validPayload, 'capture_gate' => ['status' => 'fail']],
+            $validRows,
+            '2026-07-11'
+        )['status_code']);
+        self::assertSame('meituan_target_date_mismatch', BrowserProfileCaptureRequestService::assessMeituanPersistenceGate(
+            $validPayload,
+            [[...$validRows[0], 'data_date' => '2026-07-10']],
+            '2026-07-11'
+        )['status_code']);
+    }
+
+    public function testAutomaticProfileFetchAppliesPersistenceGateBeforeSaving(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/AutoFetchConcern.php');
+        $start = strpos($source, 'private function executeMeituanBrowserProfileAutoFetch');
+        self::assertNotFalse($start);
+        $method = substr($source, (int)$start, 12000);
+
+        self::assertMatchesRegularExpression(
+            '/assessMeituanPersistenceGate\([^;]+\).*saveMeituanCapturedDailyRows/s',
+            $method
+        );
+        self::assertStringContainsString("'persistence_gate' =>", $method);
     }
 
     public function testSafeFilePartAndTimeoutsAreBounded(): void
@@ -207,12 +348,61 @@ final class BrowserProfileCaptureRequestServiceTest extends TestCase
     {
         $mismatches = BrowserProfileCaptureRequestService::mismatchedMeituanTargetDates([
             ['data_type' => 'traffic', 'data_date' => '2026-07-10'],
-            ['data_type' => 'order', 'data_date' => '2026-07-09'],
-            ['data_type' => 'review', 'data_date' => '2026-07-08'],
-            ['data_type' => 'traffic_forecast', 'data_date' => '2026-07-20'],
+            [
+                'data_type' => 'order',
+                'data_date' => '2026-07-09',
+                'raw_data' => json_encode([
+                    'orderId' => 'ORDER-3',
+                    'orderDate' => '2026-07-09',
+                    'date_source' => 'row.orderDate',
+                ]),
+            ],
+            [
+                'data_type' => 'review',
+                'data_date' => '2026-07-08',
+                'raw_data' => json_encode([
+                    'reviewId' => 'REVIEW-3',
+                    'reviewDate' => '2026-07-08',
+                    'date_source' => 'row.reviewDate',
+                ]),
+            ],
+            [
+                'data_type' => 'traffic_forecast',
+                'data_date' => '2026-07-20',
+                'raw_data' => json_encode([
+                    'forecastDate' => '2026-07-20',
+                    'date_source' => 'row.forecastDate',
+                ]),
+            ],
         ], '2026-07-11');
 
         self::assertSame(['2026-07-10'], $mismatches);
+    }
+
+    public function testMeituanTargetDateMismatchExemptsOnlyVerifiedEventDates(): void
+    {
+        $mismatches = BrowserProfileCaptureRequestService::mismatchedMeituanTargetDates([
+            ['data_type' => 'order', 'data_date' => '2026-07-09', 'raw_data' => json_encode([])],
+            [
+                'data_type' => 'review',
+                'data_date' => '2026-07-08',
+                'raw_data' => json_encode([
+                    'reviewId' => 'REVIEW-2',
+                    'reviewDate' => '2026-07-08',
+                    'date_source' => 'row.reviewDate',
+                ]),
+            ],
+            [
+                'data_type' => 'traffic_forecast',
+                'data_date' => '2026-07-20',
+                'raw_data' => json_encode([
+                    'forecastDate' => '2026-07-20',
+                    'date_source' => 'row.forecastDate',
+                ]),
+            ],
+        ], '2026-07-11');
+
+        self::assertSame(['2026-07-09'], $mismatches);
     }
 
     public function testBuildCtripBasePlanUsesProfileFallbackAndOptionalHotelFields(): void

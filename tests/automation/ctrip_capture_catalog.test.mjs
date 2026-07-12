@@ -165,7 +165,7 @@ test('classifies Ctrip flow-transform current hotel and peer-average rows by pla
   assert.equal(selfRow.compare_type, 'self');
   assert.equal(selfRow.list_exposure, 78);
   assert.equal(selfRow.detail_exposure, 5);
-  assert.equal(peerAverageRow.compare_type, 'competitor');
+  assert.equal(peerAverageRow.compare_type, 'competitor_avg');
   assert.equal(peerAverageRow.list_exposure, 1264);
   assert.equal(peerAverageRow.detail_exposure, 173);
 });
@@ -2000,6 +2000,7 @@ test('marks Ctrip weekly competition rows for non-current hotels as competitors'
   const rows = buildCtripStandardRowsFromFacts(facts, {
     systemHotelId: 58,
     hotelName: 'My Hotel',
+    hotelId: '6866634',
     profileId: '6866634',
     nodeId: '24588',
     dataDate: '2026-05-31',
@@ -2434,9 +2435,9 @@ test('expands Ctrip future search arrays into scoped target-date rows without re
 
   const cases = [
     { dataType: 0, searchType: '0', compareType: 'self', searchWindow: 'cumulative', hotelId: '6866634' },
-    { dataType: 3, searchType: '0', compareType: 'competitor', searchWindow: 'cumulative', hotelId: '-1' },
+    { dataType: 3, searchType: '0', compareType: 'competitor_avg', searchWindow: 'cumulative', hotelId: '-1' },
     { dataType: 0, searchType: '1', compareType: 'self', searchWindow: 'yesterday', hotelId: '6866634' },
-    { dataType: 3, searchType: '1', compareType: 'competitor', searchWindow: 'yesterday', hotelId: '-1' },
+    { dataType: 3, searchType: '1', compareType: 'competitor_avg', searchWindow: 'yesterday', hotelId: '-1' },
   ];
 
   for (const sample of cases) {

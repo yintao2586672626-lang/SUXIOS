@@ -1447,6 +1447,21 @@ trait OnlineDataHistoryConcern
         $raw = is_array($raw) ? $raw : [];
         $metrics = [];
 
+        $dataType = strtolower(trim((string)($row['data_type'] ?? '')));
+        if (in_array($dataType, ['review', 'comment', 'comments'], true)) {
+            $commentCount = $row['quantity'] ?? $raw['comment_count'] ?? $raw['commentCount'] ?? null;
+            if ($commentCount !== null && $commentCount !== '') {
+                $metrics[] = '点评 ' . max(0, (int)$commentCount);
+            }
+            $score = (float)($row['comment_score'] ?? $raw['comment_score'] ?? $raw['commentScore'] ?? 0);
+            $metrics[] = $score > 0 ? '评分 ' . number_format($score, 1) : '评分未返回';
+            $badReviewCount = $row['data_value'] ?? $raw['bad_review_count'] ?? $raw['badReviewCount'] ?? null;
+            if ($badReviewCount !== null && $badReviewCount !== '') {
+                $metrics[] = '差评 ' . max(0, (int)$badReviewCount);
+            }
+            return implode(' / ', $metrics);
+        }
+
         $exposure = (int)($row['list_exposure'] ?? $raw['listExposure'] ?? $raw['exposure'] ?? $raw['exposure_count'] ?? 0);
         if ($exposure > 0) {
             $metrics[] = '曝光 ' . $exposure;

@@ -270,8 +270,8 @@ requireText('app/service/platform/MeituanBrowserProfileDataSourceAdapter.php', "
 requireText('app/service/platform/MeituanBrowserProfileDataSourceAdapter.php', "'review_count' => count", 'Meituan browser Profile data-source sync reports aggregate review counts');
 requireText('public/auto-fetch-static.js', "data_period: 'realtime_snapshot'", 'Meituan traffic fetch can request realtime snapshot data');
 requireText('public/meituan-static.js', 'getMeituanBrowserCapturePresets', 'Meituan static exposes Profile capture presets for realtime/reviews/full/ads');
-requireText('public/index.html', '美团 Profile 采集', 'Meituan manual UI exposes Profile capture panel');
-requireText('public/index.html', 'runMeituanBrowserCapturePreset(preset)', 'Meituan manual UI runs preset Profile capture actions');
+requireNoText('public/index.html', '美团 Profile 采集', 'removed Meituan manual Profile panel stays out of the slimmed UI');
+requireNoText('public/index.html', 'runMeituanBrowserCapturePreset(preset)', 'removed Meituan manual Profile preset actions stay out of the slimmed UI');
 requireText('app/controller/concern/MeituanCapturedDataConcern.php', "extractMeituanCapturedSection($payload, 'reviews')", 'Meituan captured payload maps reviews');
 requireText('app/controller/concern/MeituanCapturedDataConcern.php', "extractMeituanCapturedSection($payload, 'traffic')", 'Meituan captured payload maps traffic');
 requireText('app/controller/concern/MeituanCapturedDataConcern.php', "extractMeituanCapturedSection($payload, 'ads')", 'Meituan captured payload maps ads');

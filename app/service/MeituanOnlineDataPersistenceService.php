@@ -7,6 +7,15 @@ use think\facade\Db;
 
 final class MeituanOnlineDataPersistenceService
 {
+    private ?\Closure $rankReadbackReader;
+
+    public function __construct(?callable $rankReadbackReader = null)
+    {
+        $this->rankReadbackReader = $rankReadbackReader !== null
+            ? \Closure::fromCallable($rankReadbackReader)
+            : null;
+    }
+
     public function parseAndSaveMeituanData($responseData, $startDate, $endDate, ?int $systemHotelId = null, array $context = [], bool $debugLog = false): int
     {
         try {
@@ -63,7 +72,13 @@ final class MeituanOnlineDataPersistenceService
                     ? 'platform_value_returned'
                     : ($rankPercent !== null ? 'platform_percent_only' : 'platform_value_missing');
 
-                $itemDate = $item['date'] ?? $item['dataDate'] ?? $item['statDate'] ?? $item['stat_date'] ?? $dataDate;
+                $itemDate = $this->normalizeRankStorageDate(
+                    $item['date'] ?? $item['dataDate'] ?? $item['statDate'] ?? $item['stat_date'] ?? null,
+                    (string)$dataDate
+                );
+                if ($itemDate === null) {
+                    throw new \InvalidArgumentException('Invalid Meituan rank row date.');
+                }
                 $dimName = $item['_dimName'] ?? ($item['dimension'] ?? '');
                 $aiMetricName = $item['_aiMetricName'] ?? ($item['aiMetricName'] ?? '');
 
@@ -217,6 +232,115 @@ final class MeituanOnlineDataPersistenceService
         }
     }
 
+    /**
+     * @param array<string, mixed> $responseData
+     * @param array<string, mixed> $context
+     * @return array{verified:bool,expected_count:int,matched_count:int,row_ids:array<int,int>,reason:string}
+     */
+    public function verifyPersistedRankCandidate(
+        array $responseData,
+        int $systemHotelId,
+        string $startDate,
+        string $endDate,
+        array $context = []
+    ): array {
+        $extraction = MeituanRankDataExtractionService::extractForPersistenceWithSource($responseData);
+        $expected = [];
+        foreach ($extraction['rows'] as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $hotelId = trim((string)($item['poiId'] ?? $item['poi_id'] ?? $item['shopId'] ?? $item['shop_id'] ?? $item['hotelId'] ?? ''));
+            if ($hotelId === '') {
+                continue;
+            }
+            $itemDate = $this->normalizeRankStorageDate(
+                $item['date'] ?? $item['dataDate'] ?? $item['statDate'] ?? $item['stat_date'] ?? null,
+                $startDate
+            );
+            if ($itemDate === null) {
+                continue;
+            }
+            $dimension = trim((string)($item['_dimName'] ?? $item['dimension'] ?? ''));
+            $rankType = strtoupper(trim((string)($item['rankType'] ?? $item['rank_type'] ?? $context['rank_type'] ?? $context['rankType'] ?? '')));
+            $dateRange = trim((string)($context['date_range'] ?? $context['dateRange'] ?? $item['dateRange'] ?? $item['date_range'] ?? ''));
+            $identityStartDate = trim((string)($context['start_date'] ?? $context['startDate'] ?? $startDate));
+            $identityEndDate = trim((string)($context['end_date'] ?? $context['endDate'] ?? $endDate));
+            $storageDimension = $this->buildRankStorageDimension(
+                $dimension,
+                $rankType,
+                $dateRange,
+                $identityStartDate,
+                $identityEndDate
+            );
+            $key = $hotelId . '|' . $itemDate . '|' . $storageDimension;
+            $expected[$key] = true;
+        }
+
+        if ($systemHotelId <= 0 || $expected === []) {
+            return [
+                'verified' => false,
+                'expected_count' => count($expected),
+                'matched_count' => 0,
+                'row_ids' => [],
+                'reason' => 'database_readback_expectation_missing',
+            ];
+        }
+
+        $scope = [
+            'system_hotel_id' => $systemHotelId,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'source' => 'meituan',
+            'data_type' => 'peer_rank',
+        ];
+        if ($this->rankReadbackReader !== null) {
+            $storedRows = ($this->rankReadbackReader)($scope);
+        } else {
+            $storedRows = Db::name('online_daily_data')
+                ->field('id, system_hotel_id, hotel_id, data_date, source, data_type, dimension')
+                ->where('system_hotel_id', $systemHotelId)
+                ->where('source', 'meituan')
+                ->where('data_type', 'peer_rank')
+                ->where('data_date', '>=', $startDate)
+                ->where('data_date', '<=', $endDate)
+                ->select()
+                ->toArray();
+        }
+
+        $matched = [];
+        $rowIds = [];
+        foreach (is_array($storedRows) ? $storedRows : [] as $row) {
+            if (!is_array($row)
+                || (int)($row['system_hotel_id'] ?? 0) !== $systemHotelId
+                || strtolower(trim((string)($row['source'] ?? ''))) !== 'meituan'
+                || strtolower(trim((string)($row['data_type'] ?? ''))) !== 'peer_rank'
+            ) {
+                continue;
+            }
+            $key = trim((string)($row['hotel_id'] ?? ''))
+                . '|' . trim((string)($row['data_date'] ?? ''))
+                . '|' . trim((string)($row['dimension'] ?? ''));
+            if (!isset($expected[$key])) {
+                continue;
+            }
+            $matched[$key] = true;
+            $rowId = (int)($row['id'] ?? 0);
+            if ($rowId > 0) {
+                $rowIds[$rowId] = true;
+            }
+        }
+
+        $verified = count($matched) === count($expected);
+        return [
+            'verified' => $verified,
+            'expected_count' => count($expected),
+            'matched_count' => count($matched),
+            'row_ids' => array_map('intval', array_keys($rowIds)),
+            'reason' => $verified ? '' : 'database_readback_mismatch',
+        ];
+    }
+
     private function buildRankStorageDimension(string $dimension, string $rankType, string $dateRange, string $startDate, string $endDate): string
     {
         $dimension = trim($dimension) !== '' ? trim($dimension) : 'unknown';
@@ -227,6 +351,26 @@ final class MeituanOnlineDataPersistenceService
         $dimensionLimit = max(1, 100 - mb_strlen($identitySuffix) - 1);
 
         return mb_substr($dimension, 0, $dimensionLimit) . '|' . $identitySuffix;
+    }
+
+    private function normalizeRankStorageDate(mixed $value, string $fallback): ?string
+    {
+        $value = $value === null || trim((string)$value) === '' ? $fallback : $value;
+        if (is_int($value) || is_float($value) || (is_string($value) && preg_match('/^\d{10,13}$/D', trim($value)) === 1)) {
+            $timestamp = (int)$value;
+            if ($timestamp > 9_999_999_999) {
+                $timestamp = (int)floor($timestamp / 1000);
+            }
+            return $timestamp > 0 ? date('Y-m-d', $timestamp) : null;
+        }
+        $text = trim((string)$value);
+        foreach (['Y-m-d', 'Y-m-d H:i:s', 'Y/m/d', 'Y/m/d H:i:s'] as $format) {
+            $date = \DateTimeImmutable::createFromFormat('!' . $format, $text);
+            if ($date !== false && $date->format($format) === $text) {
+                return $date->format('Y-m-d');
+            }
+        }
+        return null;
     }
 
     /**

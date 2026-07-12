@@ -13,6 +13,40 @@
         return (self - competitor) / competitor * 100;
     };
 
+    const buildAxisScale = (maxValue, metricKey = '', splitCount = 5) => {
+        const maximum = Math.max(0, finiteNumber(maxValue) ?? 0);
+        const desiredSplits = Math.max(3, Math.min(6, Math.round(Number(splitCount) || 5)));
+        if (maximum === 0) {
+            return { max: 1, step: 1, ticks: [0, 1] };
+        }
+
+        const rawStep = maximum / desiredSplits;
+        const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+        const multipliers = [1, 2, 2.5, 3, 4, 5, 10];
+        let step = magnitude * 10;
+        for (const multiplier of multipliers) {
+            const candidate = multiplier * magnitude;
+            if (candidate >= rawStep - Number.EPSILON) {
+                step = candidate;
+                break;
+            }
+        }
+
+        if (metricKey === 'conversion_rate' || ['pv', 'uv'].includes(metricKey)) {
+            step = Math.max(1, Math.ceil(step));
+        }
+        const intervalCount = Math.max(1, Math.ceil(maximum / step - 1e-10));
+        const axisMax = intervalCount * step;
+        const precision = step >= 1 ? 0 : Math.min(4, Math.max(0, -Math.floor(Math.log10(step)) + 1));
+        const normalize = value => Number(value.toFixed(precision));
+
+        return {
+            max: normalize(axisMax),
+            step: normalize(step),
+            ticks: Array.from({ length: intervalCount + 1 }, (_, index) => normalize(index * step)),
+        };
+    };
+
     const formatDirectionalDifference = (value, suffix) => {
         const normalized = finiteNumber(value);
         if (normalized === null) return '-';
@@ -21,7 +55,7 @@
     };
 
     const formatRelativeComparison = value => formatDirectionalDifference(value, '%');
-    const formatPercentagePointGap = value => formatDirectionalDifference(value, ' 个百分点');
+    const formatPercentagePointGap = value => formatDirectionalDifference(value, '%');
 
     const toggleSeriesVisibility = (current = {}, key = '') => {
         const next = {
@@ -276,6 +310,7 @@
     window.SUXI_CTRIP_SEARCH_OPPORTUNITY_STATIC = {
         finiteNumber,
         gapRate,
+        buildAxisScale,
         formatRelativeComparison,
         formatPercentagePointGap,
         toggleSeriesVisibility,

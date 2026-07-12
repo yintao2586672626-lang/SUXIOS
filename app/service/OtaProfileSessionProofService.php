@@ -38,7 +38,8 @@ final class OtaProfileSessionProofService
         string $profileKey,
         bool $processSucceeded,
         array $authStatus,
-        array $metadataPatch = []
+        array $metadataPatch = [],
+        string $producer = 'platform_profile_login_task'
     ): array {
         $platform = $this->normalizePlatform($platform);
         $profileKeyHash = $this->profileKeyHash($profileKey);
@@ -53,6 +54,9 @@ final class OtaProfileSessionProofService
             throw new RuntimeException('Profile session proof source scope is missing.');
         }
         $this->assertMetadataPatchSafe($metadataPatch);
+        if (!in_array($producer, ['platform_profile_login_task', 'platform_data_sync_preflight'], true)) {
+            throw new RuntimeException('Profile session proof producer is invalid.');
+        }
 
         $now = $this->now();
 
@@ -63,6 +67,7 @@ final class OtaProfileSessionProofService
             $profileKey,
             $profileKeyHash,
             $metadataPatch,
+            $producer,
             $now
         ): array {
             $binding = $this->bindingService->assertBound($systemHotelId, $platform, $profileKey);
@@ -96,7 +101,7 @@ final class OtaProfileSessionProofService
                 'current_session_probe_system_hotel_id' => $systemHotelId,
                 'current_session_probe_profile_key_hash' => $profileKeyHash,
                 'current_session_probe_scope' => 'same_data_source_profile_session',
-                'current_session_probe_producer' => 'platform_profile_login_task',
+                'current_session_probe_producer' => $producer,
             ];
             $config = array_replace($config, $proof);
 
@@ -106,6 +111,94 @@ final class OtaProfileSessionProofService
             ]);
 
             return $proof;
+        });
+    }
+
+    /**
+     * A successful capture preflight is current-session evidence for the same
+     * bound data source and Profile. Failed authentication never reaches here.
+     *
+     * @param array<string, mixed> $authStatus
+     * @return array<string, mixed>
+     */
+    public function recordCollectionPreflightVerified(
+        int $dataSourceId,
+        int $systemHotelId,
+        string $platform,
+        string $profileKey,
+        bool $processSucceeded,
+        array $authStatus
+    ): array {
+        return $this->recordVerified(
+            $dataSourceId,
+            $systemHotelId,
+            $platform,
+            $profileKey,
+            $processSucceeded,
+            $authStatus,
+            [],
+            'platform_data_sync_preflight'
+        );
+    }
+
+    /** @param array<string, mixed> $authStatus */
+    public function recordCollectionPreflightFailed(
+        int $dataSourceId,
+        int $systemHotelId,
+        string $platform,
+        string $profileKey,
+        array $authStatus
+    ): void {
+        $platform = $this->normalizePlatform($platform);
+        $profileKeyHash = $this->profileKeyHash($profileKey);
+        $authStatusCode = strtolower(trim((string)($authStatus['status'] ?? '')));
+        if (($authStatus['ok'] ?? null) !== false
+            || !in_array($authStatusCode, ['login_required', 'session_expired', 'login_expired', 'not_logged_in', 'unauthorized'], true)
+        ) {
+            throw new RuntimeException('Profile login failure evidence is not verified.');
+        }
+        $now = $this->now();
+
+        Db::transaction(function () use (
+            $dataSourceId,
+            $systemHotelId,
+            $platform,
+            $profileKey,
+            $profileKeyHash,
+            $authStatusCode,
+            $now
+        ): void {
+            $binding = $this->bindingService->assertBound($systemHotelId, $platform, $profileKey);
+            $source = Db::name('platform_data_sources')
+                ->field('id,tenant_id,system_hotel_id,platform,ingestion_method,enabled,status,config_json')
+                ->where('id', $dataSourceId)
+                ->lock(true)
+                ->find();
+            if (!is_array($source)) {
+                throw new RuntimeException('Profile session proof data source was not found.');
+            }
+            $this->assertSourceScope($source, $binding, $dataSourceId, $systemHotelId, $platform);
+            $config = $this->decodeConfig((string)($source['config_json'] ?? ''));
+            $sourceProfileKey = $this->sourceProfileKey($platform, $config);
+            if ($sourceProfileKey === '' || $this->profileKeyHash($sourceProfileKey) !== $profileKeyHash) {
+                throw new RuntimeException('Profile session proof Profile scope mismatch.');
+            }
+
+            $config['current_session_probe_performed'] = true;
+            $config['current_session_verified'] = false;
+            $config['current_session_status'] = $authStatusCode;
+            $config['current_session_probe_at'] = $now->format('Y-m-d H:i:s');
+            $config['current_session_probe_date'] = $now->format('Y-m-d');
+            $config['current_session_probe_producer'] = 'platform_data_sync_preflight';
+            $config['auth_status'] = [
+                'ok' => false,
+                'status' => $authStatusCode,
+            ];
+
+            Db::name('platform_data_sources')->where('id', $dataSourceId)->update([
+                'config_json' => json_encode($config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+                'update_time' => $now->format('Y-m-d H:i:s'),
+            ]);
         });
     }
 
@@ -217,7 +310,10 @@ final class OtaProfileSessionProofService
                 || strtolower(trim((string)($config['current_session_probe_platform'] ?? ''))) !== $platform
                 || (string)($config['current_session_probe_timezone'] ?? '') !== self::TIMEZONE
                 || (string)($config['current_session_probe_scope'] ?? '') !== 'same_data_source_profile_session'
-                || (string)($config['current_session_probe_producer'] ?? '') !== 'platform_profile_login_task'
+                || !in_array((string)($config['current_session_probe_producer'] ?? ''), [
+                    'platform_profile_login_task',
+                    'platform_data_sync_preflight',
+                ], true)
             ) {
                 return null;
             }

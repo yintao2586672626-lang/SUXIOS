@@ -507,7 +507,11 @@ function decorateSupplementalRow(row, dataType, sourcePath, options = {}) {
   if (options.forecastType && !next.forecast_type) {
     next.forecast_type = String(options.forecastType);
   }
-  if (!hasOwnDate(next)) {
+  if (hasOwnDate(next)) {
+    if (!next.date_source && !next.dateSource) {
+      next.date_source = supplementalRowDateSource(next);
+    }
+  } else {
     const date = supplementalDate(next, options);
     if (date) {
       next.dataDate = date;
@@ -518,6 +522,15 @@ function decorateSupplementalRow(row, dataType, sourcePath, options = {}) {
     next.data_period = 'realtime_snapshot';
   }
   return next;
+}
+
+function supplementalRowDateSource(row) {
+  const keys = [
+    'forecastDate', 'forecast_date', 'targetDate', 'target_date', 'dateTime',
+    'dataDate', 'data_date', 'date', 'statDate', 'stat_date', 'reportDate', 'day',
+  ];
+  const key = keys.find(candidate => String(row?.[candidate] ?? '').trim() !== '');
+  return key ? `row.${key}` : 'row';
 }
 
 function supplementalDate(row, options = {}) {

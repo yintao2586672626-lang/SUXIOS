@@ -507,7 +507,7 @@ final class OtaCredentialReadPathTest extends TestCase
             self::assertInstanceOf(\app\service\OtaExecutionStageException::class, $e);
             self::assertSame('result_inspection', $e->stage());
             self::assertSame(500, $e->httpStatus());
-            self::assertSame('获取结果安全检查未通过', $e->safeMessage());
+            self::assertSame('返回结果包含疑似 Cookie/令牌内容，已在结果返回阶段拦截', $e->safeMessage());
             self::assertStringNotContainsString('SENTINEL_', $e->safeMessage());
         }
     }
@@ -541,11 +541,12 @@ final class OtaCredentialReadPathTest extends TestCase
             dirname(__DIR__) . '/app/controller/concern/OnlineDataRequestConcern.php'
         );
 
-        self::assertSame(6, substr_count($manualSource, "false,\n                true\n            );"));
+        self::assertSame(7, substr_count($manualSource, "false,\n                true\n            );"));
         self::assertSame(2, substr_count($requestSource, "false,\n                true\n            );"));
         foreach ([
             'ctrip_manual_fetch',
             'meituan_manual_fetch',
+            'meituan_rank_candidate_commit',
             'ctrip_traffic_fetch',
             'ctrip_ads_fetch',
             'meituan_traffic_fetch',
@@ -844,6 +845,37 @@ final class OtaCredentialReadPathTest extends TestCase
             } catch (\RuntimeException $e) {
                 self::assertSame('OTA credential execution result contains protected credential material.', $e->getMessage());
             }
+        }
+    }
+
+    public function testCtripBfaStatusCookieDoesNotBlockBusinessStatusValues(): void
+    {
+        $controller = $this->readHarness($this->fakeVault([
+            'cookies' => '_bfaStatus=visited; sid=COOKIE_SECRET_SENTINEL_123456',
+        ]), $this->permittedUser());
+        $businessResult = [
+            'status' => 'visited',
+            'saved_count' => 1,
+        ];
+
+        self::assertSame(
+            $businessResult,
+            $controller->execute('ctrip', 'cfg-58', 58, static fn(array $_): array => $businessResult)
+        );
+
+        try {
+            $controller->execute(
+                'ctrip',
+                'cfg-58',
+                58,
+                static fn(array $_): string => 'COOKIE_SECRET_SENTINEL_123456'
+            );
+            self::fail('A real session Cookie value must remain protected.');
+        } catch (\RuntimeException $e) {
+            self::assertSame(
+                'OTA credential execution result contains protected credential material.',
+                $e->getMessage()
+            );
         }
     }
 
@@ -2113,6 +2145,23 @@ final class OtaCredentialReadPathTest extends TestCase
             ['meituan', 'sanitizeMeituanTrafficExecutionRequestData', 'executeMeituanTrafficFetch', $this->methodSource($manualSource, 'public function fetchMeituanTraffic()', 'public function fetchMeituanOrders()')],
             ['meituan', 'sanitizeMeituanBusinessExecutionRequestData', 'executeMeituanManualBusinessSection', $this->methodSource($manualSource, 'private function fetchMeituanManualBusinessSection', 'public function fetchMeituanComments()')],
         ]);
+    }
+
+    public function testMeituanManualOrdersAndAdsReturnOnlySanitizedNormalizedRows(): void
+    {
+        $manualSource = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/OnlineDataManualFetchConcern.php');
+        $executionSource = $this->methodSource(
+            $manualSource,
+            'private function executeMeituanManualBusinessSection(',
+            'public function fetchMeituanComments()'
+        );
+
+        self::assertStringContainsString("'data' => \$rows", $executionSource);
+        self::assertStringContainsString("'privacy_boundary' => 'sanitized_normalized_rows_only'", $executionSource);
+        self::assertStringNotContainsString("'data' => \$items", $executionSource);
+        self::assertStringNotContainsString("'decoded_data' => \$responseData", $executionSource);
+        self::assertStringNotContainsString("'raw_response' =>", $executionSource);
+        self::assertStringNotContainsString("'request_payload' => \$params", $executionSource);
     }
 
     public function testCtripRequestSourcesUseVaultCallbacksAndSafeErrors(): void

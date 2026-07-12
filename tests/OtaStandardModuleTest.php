@@ -1000,6 +1000,61 @@ final class OtaStandardModuleTest extends TestCase
         self::assertNull($fact['room_nights']);
     }
 
+    public function testLegacyMeituanRankShapedBusinessCannotEnterDailyRevenueFacts(): void
+    {
+        $base = [
+            'system_hotel_id' => 80,
+            'hotel_id' => '1029642156589279',
+            'hotel_name' => 'Dunhuang Meituan Hotel',
+            'source' => 'meituan',
+            'data_type' => 'business',
+            'data_date' => '2026-07-11',
+            'amount' => 999,
+            'quantity' => 8,
+            'book_order_num' => 3,
+            'compare_type' => 'competitor',
+        ];
+
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([
+            $base + [
+                'id' => 8810,
+                'dimension' => 'peer_rank:P_XS:range=0:sales',
+                'raw_data' => json_encode([
+                    'rankType' => 'P_XS',
+                    'rank' => 2,
+                    'poiId' => 'competitor-100',
+                    'url' => 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail',
+                ], JSON_UNESCAPED_UNICODE),
+            ],
+            $base + [
+                'id' => 8811,
+                'dimension' => 'peer_rank:P_RZ:range=0:room_nights',
+                'raw_data' => json_encode([
+                    'rankType' => 'P_RZ',
+                    'url' => 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail',
+                ], JSON_UNESCAPED_UNICODE),
+            ],
+            array_merge($base, [
+                'id' => 8812,
+                'dimension' => '浏览榜',
+                'compare_type' => null,
+                'raw_data' => json_encode([
+                    'poiName' => '历史同行酒店',
+                    'rank' => 7,
+                    'percent' => 12.34,
+                    'aiMetricName' => 'P_LL_VIEW',
+                ], JSON_UNESCAPED_UNICODE),
+            ]),
+        ]);
+
+        self::assertCount(0, $dataset['fact_ota_daily']);
+        self::assertCount(2, $dataset['fact_ota_peer_rank']);
+        self::assertSame('P_XS', $dataset['fact_ota_peer_rank'][0]['rank_type']);
+        self::assertSame(2.0, $dataset['fact_ota_peer_rank'][0]['rank']);
+        self::assertCount(1, $dataset['data_quality']['rejected_rows']);
+        self::assertSame('semantic_type_conflict', $dataset['data_quality']['rejected_rows'][0]['reason']);
+    }
+
     public function testOrderMissingMetricsRemainNullThroughEtl(): void
     {
         $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([[

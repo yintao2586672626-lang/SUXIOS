@@ -351,7 +351,7 @@ trait OnlineDataAnalyticsConcern
     /**
      * 解析并保存流量数据
      */
-    private function parseAndSaveTrafficData($responseData, $startDate, $endDate, string $source, ?int $systemHotelId = null, ?string $platform = null): int
+    private function parseAndSaveTrafficData($responseData, $startDate, $endDate, string $source, ?int $systemHotelId = null, ?string $platform = null, ?string $expectedPlatformHotelId = null): int
     {
         return (new OnlineDailyDataPersistenceService())->parseAndSaveTrafficData(
             $responseData,
@@ -359,7 +359,8 @@ trait OnlineDataAnalyticsConcern
             $endDate,
             $source,
             $systemHotelId,
-            $platform
+            $platform,
+            $expectedPlatformHotelId
         );
     }
     /**

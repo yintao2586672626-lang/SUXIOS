@@ -1,5 +1,5 @@
 window.SUXI_SYSTEM_STATIC = (() => {
-    const CHART_JS_SRC = 'https://unpkg.com/chart.js@4.4.1/dist/chart.umd.js';
+    const CHART_JS_SRC = '/vendor/chart.umd.js';
     let chartJsLoadPromise = null;
     const loadChartJs = () => {
         if (window.Chart) {

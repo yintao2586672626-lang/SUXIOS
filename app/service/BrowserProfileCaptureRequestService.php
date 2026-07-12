@@ -134,10 +134,14 @@ final class BrowserProfileCaptureRequestService
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $targetDate) !== 1) {
             return [];
         }
-        $eventDateTypes = ['order', 'review', 'traffic_forecast'];
         $mismatches = [];
         foreach ($rows as $row) {
-            if (!is_array($row) || in_array((string)($row['data_type'] ?? ''), $eventDateTypes, true)) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $dataType = trim((string)($row['data_type'] ?? ''));
+            $raw = self::meituanDateEvidencePayload($row);
+            if (self::hasVerifiedMeituanEventDate($row, $raw, $dataType)) {
                 continue;
             }
             $rowDate = trim((string)($row['data_date'] ?? ''));
@@ -161,22 +165,23 @@ final class BrowserProfileCaptureRequestService
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $targetDate) !== 1) {
             return [];
         }
-        $eventDateTypes = ['order', 'review', 'traffic_forecast'];
         $unverified = [];
         foreach ($rows as $index => $row) {
-            if (!is_array($row) || in_array((string)($row['data_type'] ?? ''), $eventDateTypes, true)) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $dataType = trim((string)($row['data_type'] ?? ''));
+            $raw = self::meituanDateEvidencePayload($row);
+            if (self::hasVerifiedMeituanEventDate($row, $raw, $dataType)) {
+                continue;
+            }
+            if (in_array($dataType, ['order', 'review', 'traffic_forecast'], true)) {
+                $unverified[] = ($dataType !== '' ? $dataType : 'row') . ':' . $index;
                 continue;
             }
             $rowDate = trim((string)($row['data_date'] ?? $row['dataDate'] ?? $row['date'] ?? ''));
             if ($rowDate !== $targetDate) {
                 continue;
-            }
-            $raw = $row;
-            if (isset($row['raw_data']) && is_string($row['raw_data'])) {
-                $decoded = json_decode($row['raw_data'], true);
-                if (is_array($decoded)) {
-                    $raw = $decoded;
-                }
             }
             $source = trim((string)($raw['date_source'] ?? $raw['dateSource'] ?? $row['date_source'] ?? $row['dateSource'] ?? ''));
             if ($source === '' && self::hasExplicitMeituanRowDate($raw)) {
@@ -190,6 +195,79 @@ final class BrowserProfileCaptureRequestService
         return $unverified;
     }
 
+    /** @param array<string, mixed> $row @return array<string, mixed> */
+    private static function meituanDateEvidencePayload(array $row): array
+    {
+        $raw = $row;
+        if (isset($row['raw_data']) && is_string($row['raw_data'])) {
+            $decoded = json_decode($row['raw_data'], true);
+            if (is_array($decoded)) {
+                $raw = $decoded;
+            }
+        } elseif (isset($row['raw_data']) && is_array($row['raw_data'])) {
+            $raw = $row['raw_data'];
+        }
+        if (is_array($raw['row'] ?? null)) {
+            $raw = array_merge($raw, $raw['row']);
+        }
+        foreach (['date_source', 'dateSource'] as $key) {
+            if (!array_key_exists($key, $raw) && array_key_exists($key, $row)) {
+                $raw[$key] = $row[$key];
+            }
+        }
+        return $raw;
+    }
+
+    /** @param array<string, mixed> $row @param array<string, mixed> $raw */
+    private static function hasVerifiedMeituanEventDate(array $row, array $raw, string $dataType): bool
+    {
+        if (!in_array($dataType, ['order', 'review', 'traffic_forecast'], true)) {
+            return false;
+        }
+        $source = trim((string)($raw['date_source'] ?? $raw['dateSource'] ?? $row['date_source'] ?? $row['dateSource'] ?? ''));
+        if (!self::isAuthoritativeMeituanDateSource($source)) {
+            return false;
+        }
+
+        $dateKeys = match ($dataType) {
+            'order' => ['orderDate', 'order_date', 'bookingDate', 'booking_date', 'orderTime', 'order_time', 'createTime', 'buyTime', 'purchaseTime', 'purchase_time', 'data_date', 'dataDate', 'date'],
+            'review' => ['reviewDate', 'review_date', 'commentDate', 'comment_date', 'commentTime', 'comment_time', 'reviewTime', 'review_time', 'createTime', 'submitTime', 'submit_time', 'data_date', 'dataDate', 'date'],
+            default => ['forecastDate', 'forecast_date', 'targetDate', 'target_date', 'data_date', 'dataDate', 'date'],
+        };
+        if (!self::hasAnyMeituanValue($raw, $dateKeys)) {
+            return false;
+        }
+        if ($dataType === 'traffic_forecast') {
+            return true;
+        }
+
+        $identityKeys = $dataType === 'order'
+            ? ['order_id', 'orderId', 'order_no', 'orderNo', 'booking_id', 'bookingId', 'order_id_hash', 'order_no_hash', 'booking_id_hash']
+            : ['review_id', 'reviewId', 'comment_id', 'commentId', 'review_id_hash', 'comment_id_hash'];
+        if (self::hasAnyMeituanValue($raw, $identityKeys)) {
+            return true;
+        }
+
+        // Aggregate rows intentionally do not carry order/review identities.
+        // Their explicit row date plus aggregate metric is authoritative for
+        // the requested day without expanding into private detail storage.
+        $aggregateKeys = $dataType === 'order'
+            ? ['orders', 'order_count', 'orderCount', 'book_order_num', 'bookOrderNum', 'room_nights', 'roomNights']
+            : ['comment_count', 'commentCount', 'review_count', 'reviewCount', 'bad_review_count', 'badReviewCount'];
+        return self::hasAnyMeituanValue($raw, $aggregateKeys);
+    }
+
+    /** @param array<string, mixed> $row @param array<int, string> $keys */
+    private static function hasAnyMeituanValue(array $row, array $keys): bool
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $row) && trim((string)$row[$key]) !== '') {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** @param array<string, mixed> $gate */
     public static function isConfirmedEmptyMeituanCaptureGate(array $gate): bool
     {
@@ -198,7 +276,71 @@ final class BrowserProfileCaptureRequestService
         }
         $statuses = is_array($gate['section_statuses'] ?? null) ? $gate['section_statuses'] : [];
         return $statuses !== []
-            && count(array_filter($statuses, static fn($status): bool => $status !== 'empty_confirmed')) === 0;
+            && count(array_filter(
+                $statuses,
+                static fn($status): bool => !in_array($status, ['empty_confirmed', 'not_applicable'], true)
+            )) === 0;
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @param array<int, array<string, mixed>> $rows
+     * @return array{ok:bool,status_code:string,mismatched_dates:array<int,string>,unverified_rows:array<int,string>,empty_confirmed:bool}
+     */
+    public static function assessMeituanPersistenceGate(array $payload, array $rows, string $targetDate): array
+    {
+        $result = [
+            'ok' => false,
+            'status_code' => 'meituan_capture_unverified',
+            'mismatched_dates' => [],
+            'unverified_rows' => [],
+            'empty_confirmed' => false,
+        ];
+        $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
+        if ($authStatus === []) {
+            $result['status_code'] = 'meituan_auth_unverified';
+            return $result;
+        }
+        if (($authStatus['ok'] ?? false) !== true) {
+            $result['status_code'] = 'meituan_login_expired';
+            return $result;
+        }
+        $gate = is_array($payload['capture_gate'] ?? null) ? $payload['capture_gate'] : [];
+        if ($gate === [] || ($gate['status'] ?? 'fail') !== 'pass') {
+            $result['status_code'] = 'meituan_capture_gate_failed';
+            return $result;
+        }
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $targetDate) !== 1) {
+            $result['status_code'] = 'meituan_target_date_invalid';
+            return $result;
+        }
+
+        $mismatchedDates = self::mismatchedMeituanTargetDates($rows, $targetDate);
+        if ($mismatchedDates !== []) {
+            $result['status_code'] = 'meituan_target_date_mismatch';
+            $result['mismatched_dates'] = $mismatchedDates;
+            return $result;
+        }
+        $unverifiedRows = self::unverifiedMeituanTargetDateRows($rows, $targetDate);
+        if ($unverifiedRows !== []) {
+            $result['status_code'] = 'meituan_target_date_unverified';
+            $result['unverified_rows'] = $unverifiedRows;
+            return $result;
+        }
+        if ($rows === []) {
+            if (!self::isConfirmedEmptyMeituanCaptureGate($gate)) {
+                $result['status_code'] = 'meituan_capture_no_rows';
+                return $result;
+            }
+            $result['ok'] = true;
+            $result['status_code'] = 'empty_confirmed';
+            $result['empty_confirmed'] = true;
+            return $result;
+        }
+
+        $result['ok'] = true;
+        $result['status_code'] = 'ready';
+        return $result;
     }
 
     /** @param array<string, mixed> $row */

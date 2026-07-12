@@ -531,10 +531,10 @@ test('Ctrip manual execution uses platform authorization and legacy Cookie stora
   assert.match(fetchCtripData, /body: JSON\.stringify\(requestBody\)/);
   assert.match(ctripStatic, /const isCtripRankingFormAlignedWithConfig = \(form = \{\}, config = \{\}, options = \{\}\) =>/);
   assert.match(ctripStatic, /if \(selectedConfig && !isCtripRankingFormAlignedWithConfig\(form, selectedConfig, \{ selectedHotelId: selectedCtripHotelId \}\)\) \{/);
-  assert.match(ctripStatic, /const activeConfig = getActiveCtripConfig\(\);/);
-  assert.match(ctripStatic, /const configId = resolveCtripExecutionConfigId\(activeConfig\);/);
-  assert.match(ctripStatic, /const requestForm = !selectedCtripHotelId && activeConfig\s*\?\s*buildCtripFetchFormFromConfig\(form, activeConfig\)\s*:\s*form;/);
-  assert.match(ctripStatic, /const requestBody = \{ \.\.\.requestContext\.requestBody, async: false, background: false \};/);
+  assert.match(ctripStatic, /const activeConfig = selectedCtripHotelId \? getActiveCtripConfig\(\) : null;/);
+  assert.match(ctripStatic, /const configId = temporaryCookieQuery \? '' : resolveCtripExecutionConfigId\(activeConfig\);/);
+  assert.match(ctripStatic, /const requestForm = form;/);
+  assert.match(ctripStatic, /const requestBody = requestContext\.temporaryCookieQuery\s*\? \{ \.\.\.requestContext\.requestBody \}\s*:\s*\{ \.\.\.requestContext\.requestBody, async: false, background: false \};/);
   assert.match(ctripStatic, /const requestContext = buildCtripFetchRequestContext\(\{/);
   assert.match(ctripStatic, /const nodeId = String\(form\.nodeId \|\| ''\)\.trim\(\)/);
   assert.match(html, /requireCtripStatic\('runCtripTrafficFetchFlow'\)/);
@@ -549,7 +549,7 @@ test('Ctrip manual execution uses platform authorization and legacy Cookie stora
   assert.doesNotMatch(ctripManualFetchConfigGuard, /activeCookies|config\.cookies|config\.cookie/);
   assert.match(ctripManualFetchConfigGuard, /return buildCtripManualCredentialState\(config\)\.canFetch;/);
   assert.match(canFetchCtripManualDataSource, /if \(selectedCtripHotelId\.value\) return selectedCtripManualCredentialState\.value\.canFetch;/);
-  assert.match(canFetchCtripManualDataSource, /return buildCtripManualCredentialState\(ctripManualFetchConfigCandidate\(\)\)\.canFetch;/);
+  assert.match(canFetchCtripManualDataSource, /return normalizeCtripTemporaryCookie\(ctripForm\.value\) !== '';/);
   assert.doesNotMatch(canFetchCtripManualDataSource, /ctripManualFetchConfigProofPending|ctripConfigListLoadingPromise|ctripConfigListLoaded|ctripConfigListLoadFailed/);
   assert.match(ctripManualFetchConfigGuard, /await loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);/);
   assert.match(ctripManualFetchConfigGuard, /return ctripManualFetchConfigCandidate\(\);/);
@@ -573,7 +573,7 @@ test('Ctrip manual execution uses platform authorization and legacy Cookie stora
   assert.match(ctripFetchFlow, /const selectedConfig = selectedCtripHotelId \? activeConfig : null;/);
   assert.match(ctripFetchFlow, /if \(selectedConfig && !isCtripRankingFormAlignedWithConfig/);
   assert.doesNotMatch(fetchCtripData, /scheduleOnlineHistoryRefresh\(1400\)/);
-  assert.match(html, /采集方式：凭据库授权；仅凭据状态就绪时可执行，旧配置需先安全迁移/);
+  assert.match(html, /已选门店：凭据库授权并可入库；未选门店：临时 Cookie，仅本页展示/);
 });
 
 test('Ctrip config list actions route to visible destinations', () => {
@@ -1369,7 +1369,7 @@ test('Meituan business summary exposes market total and average cards', () => {
   assert.match(summaryBuilder, /'totalRoomRevenue', '总房费收入', \$hasDisplayableRoomRevenue \? \('¥'/);
   assert.match(summaryBuilder, /'avgRoomPrice', '商圈平均房价'/);
   assert.match(summaryBuilder, /'totalSalesRoomNights', '总销售间夜'/);
-  assert.match(summaryBuilder, /'totalSales', '总销售额', '¥' \. number_format/);
+  assert.match(summaryBuilder, /'totalSales', '总销售额', \$hasDisplayableSales \? \('¥' \. number_format/);
   assert.match(summaryBuilder, /'avgSalesPrice', '商圈平均销售房价'/);
 });
 
@@ -1547,6 +1547,255 @@ test('Meituan batch fetch keeps backend display summary after model build', asyn
   assert.deepEqual(businessSummaryWrites, []);
   assert.equal(notifications.length, 2);
   assert.match(notifications[0], /4/);
+});
+
+test('Meituan ranking retry attempts defer persistence', () => {
+  const tasks = meituanStaticApi.buildMeituanBatchFetchTasks({
+    form: { hotelId: 58, dateRanges: ['0'] },
+    configId: 'meituan-58',
+  });
+
+  assert.ok(tasks.length > 0);
+  tasks.forEach(task => assert.equal(task.body.auto_save, false));
+});
+
+test('Meituan ranking commits only the complete candidate for each retry task', async () => {
+  const requestCounts = new Map();
+  const committed = [];
+  const result = await meituanStaticApi.runMeituanBatchFetchFlow({
+    getForm: () => ({ hotelId: 58, poiId: 'self', dateRanges: ['0'] }),
+    getSelectedConfig: () => ({
+      id: 'meituan-58',
+      config_id: 'meituan-58',
+      hotel_id: 58,
+      has_cookies: true,
+      credential_status: 'ready',
+      configuration_verified: true,
+    }),
+    requestFetch: async body => {
+      const attempt = (requestCounts.get(body.rank_type) || 0) + 1;
+      requestCounts.set(body.rank_type, attempt);
+      const complete = body.rank_type !== 'P_RZ' || attempt === 2;
+      const requiresAbsolute = ['P_RZ', 'P_XS'].includes(body.rank_type);
+      return {
+        code: 200,
+        data: {
+          saved_count: 0,
+          rank_candidate: {
+            candidate_id: `${body.rank_type}-${attempt}`,
+            config_id: body.config_id,
+            system_hotel_id: body.system_hotel_id,
+            poi_id: 'self',
+            start_date: '2026-07-12',
+            end_date: '2026-07-12',
+            date_range: body.date_range,
+            rank_type: body.rank_type,
+          },
+          data: {
+            status: 0,
+            data: {
+              peerRankData: [
+                {
+                  aiMetricName: `${body.rank_type}_A`,
+                  roundRanks: [{ poiId: 'self', rank: 1, dataValue: requiresAbsolute && complete ? 0 : null, percent: complete ? 100 : 0 }],
+                },
+                {
+                  aiMetricName: `${body.rank_type}_B`,
+                  roundRanks: [{ poiId: 'self', rank: 1, dataValue: requiresAbsolute && complete ? 80 : null, percent: complete ? 80 : 0 }],
+                },
+              ],
+            },
+          },
+          display_hotels: [{ poiId: 'self', hotelName: 'Self Hotel', isSelf: true }],
+        },
+      };
+    },
+    requestCommit: async body => {
+      committed.push({ ...body });
+      return { code: 200, data: { saved_count: 20 } };
+    },
+    requestDisplayModel: async () => ({ code: 200, data: { display_hotels: [] } }),
+    useDisplayModel: data => data.display_hotels || [],
+  });
+
+  assert.equal(requestCounts.get('P_RZ'), 2);
+  assert.deepEqual(committed.filter(item => item.rank_type === 'P_RZ').map(item => item.candidate_id), ['P_RZ-2']);
+  assert.equal(committed.length, 4);
+  assert.equal(result.totalSavedCount, 80);
+});
+
+test('Meituan ranking reports platform responses before queued database commits finish', async () => {
+  const resultWrites = [];
+  const commitResolvers = [];
+  const flowPromise = meituanStaticApi.runMeituanBatchFetchFlow({
+    getForm: () => ({ hotelId: 58, poiId: 'self', dateRanges: ['0'] }),
+    getSelectedConfig: () => ({
+      id: 'meituan-58',
+      config_id: 'meituan-58',
+      hotel_id: 58,
+      has_cookies: true,
+      credential_status: 'ready',
+      configuration_verified: true,
+    }),
+    requestFetch: async body => ({
+      code: 200,
+      data: {
+        saved_count: 0,
+        rank_candidate: {
+          candidate_id: `${body.rank_type}-candidate`,
+          config_id: body.config_id,
+          system_hotel_id: body.system_hotel_id,
+          poi_id: 'self',
+          start_date: '2026-07-12',
+          end_date: '2026-07-12',
+          date_range: body.date_range,
+          rank_type: body.rank_type,
+        },
+        data: {
+          status: 0,
+          data: {
+            peerRankData: [
+              { aiMetricName: `${body.rank_type}_A`, roundRanks: [{ poiId: 'self', rank: 1, dataValue: ['P_RZ', 'P_XS'].includes(body.rank_type) ? 0 : null, percent: 100 }] },
+              { aiMetricName: `${body.rank_type}_B`, roundRanks: [{ poiId: 'self', rank: 1, dataValue: ['P_RZ', 'P_XS'].includes(body.rank_type) ? 80 : null, percent: 80 }] },
+            ],
+          },
+        },
+        display_hotels: [{ poiId: 'self', hotelName: 'Self Hotel', isSelf: true }],
+      },
+    }),
+    requestCommit: body => new Promise(resolve => { commitResolvers.push({ body, resolve }); }),
+    requestDisplayModel: async () => ({ code: 200, data: { display_hotels: [] } }),
+    useDisplayModel: data => data.display_hotels || [],
+    setOnlineDataResult: value => resultWrites.push(JSON.parse(JSON.stringify(value))),
+  });
+
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+  const observedBeforeCommit = resultWrites.at(-1) || [];
+  for (const pending of commitResolvers) {
+    pending.resolve({ code: 200, data: { saved_count: 20, persistence_status: 'readback_verified' } });
+  }
+  await flowPromise;
+
+  assert.equal(commitResolvers.length, 4);
+  assert.equal(observedBeforeCommit.filter(item => item.platformResponseReceived === true).length, 4);
+  assert.ok(observedBeforeCommit.every(item => item.status === 'saving'));
+  const presentation = meituanStaticApi.buildMeituanFetchPresentation(observedBeforeCommit);
+  assert.equal(presentation.returnedCount, 4);
+  assert.match(presentation.buttonText, /已返回4\/4榜/);
+  assert.match(html, /result\.status === 'saving'.*正在保存并核对数据库/s);
+});
+
+test('Meituan complete ranking without a server-approved candidate fails visibly', async () => {
+  let commitCalls = 0;
+  const result = await meituanStaticApi.runMeituanBatchFetchFlow({
+    getForm: () => ({ hotelId: 58, poiId: 'self', dateRanges: ['0'] }),
+    getSelectedConfig: () => ({
+      id: 'meituan-58',
+      config_id: 'meituan-58',
+      hotel_id: 58,
+      has_cookies: true,
+      credential_status: 'ready',
+      config_status: 'ready',
+    }),
+    requestFetch: async body => ({
+      code: 200,
+      data: {
+        saved_count: 0,
+        rank_candidate: null,
+        rank_candidate_error: {
+          reason: 'meituan_rank_candidate_invalid',
+          message: 'Server rejected the target POI.',
+        },
+        data: {
+          data: {
+            peerRankData: [
+              {
+                dimName: `${body.rank_type}-A`,
+                roundRanks: [{ poiId: 'self', dataValue: 10, percent: 50 }],
+              },
+              {
+                dimName: `${body.rank_type}-B`,
+                roundRanks: [{ poiId: 'self', dataValue: 20, percent: 60 }],
+              },
+            ],
+          },
+        },
+        display_hotels: [{ poiId: 'self', hotelName: 'Self Hotel', isSelf: true }],
+      },
+    }),
+    requestCommit: async () => {
+      commitCalls += 1;
+      return { code: 200, data: { saved_count: 20 } };
+    },
+    requestDisplayModel: async () => ({ code: 200, data: { display_hotels: [] } }),
+    useDisplayModel: data => data.display_hotels || [],
+  });
+
+  assert.equal(commitCalls, 0);
+  assert.ok(result.results.every(item => item.status === 'exception'));
+  assert.ok(result.results.every(item => /Server rejected the target POI/.test(item.message)));
+});
+
+test('Meituan stale ranking run cannot write UI state after the hotel changes', async () => {
+  let active = true;
+  let releaseRequests;
+  const requestGate = new Promise(resolve => { releaseRequests = resolve; });
+  const resultWrites = [];
+  const fetchingWrites = [];
+  const successWrites = [];
+  let displayModelCalls = 0;
+  const flowPromise = meituanStaticApi.runMeituanBatchFetchFlow({
+    getForm: () => ({ hotelId: 58, poiId: 'self', dateRanges: ['0'] }),
+    getSelectedConfig: () => ({
+      id: 'meituan-58',
+      config_id: 'meituan-58',
+      hotel_id: 58,
+      has_cookies: true,
+      credential_status: 'ready',
+      configuration_verified: true,
+    }),
+    isActive: () => active,
+    requestFetch: async body => {
+      await requestGate;
+      const requiresAbsolute = ['P_RZ', 'P_XS'].includes(body.rank_type);
+      return {
+        code: 200,
+        data: {
+          saved_count: 0,
+          data: {
+            status: 0,
+            data: {
+              peerRankData: [
+                { aiMetricName: `${body.rank_type}_A`, roundRanks: [{ poiId: 'self', rank: 1, dataValue: requiresAbsolute ? 0 : null, percent: 100 }] },
+                { aiMetricName: `${body.rank_type}_B`, roundRanks: [{ poiId: 'self', rank: 1, dataValue: requiresAbsolute ? 80 : null, percent: 80 }] },
+              ],
+            },
+          },
+          display_hotels: [{ poiId: 'self', hotelName: 'Self Hotel', isSelf: true }],
+        },
+      };
+    },
+    requestDisplayModel: async () => {
+      displayModelCalls += 1;
+      return { code: 200, data: { display_hotels: [] } };
+    },
+    useDisplayModel: data => data.display_hotels || [],
+    setOnlineDataResult: value => resultWrites.push(JSON.parse(JSON.stringify(value))),
+    setFetching: value => fetchingWrites.push(value),
+    setFetchSuccess: value => successWrites.push(value),
+  });
+  const initialResultWriteCount = resultWrites.length;
+
+  active = false;
+  releaseRequests();
+  const result = await flowPromise;
+
+  assert.equal(result.status, 'stale');
+  assert.equal(resultWrites.length, initialResultWriteCount);
+  assert.deepEqual(fetchingWrites, [true]);
+  assert.deepEqual(successWrites, [false]);
+  assert.equal(displayModelCalls, 0);
 });
 
 test('Meituan today ranking stops each rank task as soon as its data is complete', async () => {
@@ -1743,8 +1992,9 @@ test('Meituan fetch presentation exposes live rounds and truthful partial health
   ]);
   assert.equal(progress.inProgress, true);
   assert.equal(progress.completedCount, 2);
+  assert.equal(progress.returnedCount, 2);
   assert.equal(progress.totalCount, 4);
-  assert.equal(progress.buttonText, '获取中 · 2/4榜 · 第6/10轮');
+  assert.equal(progress.buttonText, '获取中 · 已返回2/4榜 · 第6/10轮');
 
   const partialResults = [
     { rankType: 'P_RZ', status: 'incomplete', attemptCount: 10, maxAttempts: 10, rankDataComplete: false, retryExhausted: true, error: '未完整' },
@@ -2009,8 +2259,8 @@ test('Meituan historical ranking stops when complete and retries incomplete data
             status: 0,
             data: {
               peerRankData: [
-                { aiMetricName: `${body.rank_type}_A`, roundRanks: [{ poiId: 'peer', rank: 1, dataValue: null, percent: positive ? 100 : 0 }] },
-                { aiMetricName: `${body.rank_type}_B`, roundRanks: [{ poiId: 'peer', rank: 1, dataValue: null, percent: positive ? 80 : 0 }] },
+                { aiMetricName: `${body.rank_type}_A`, roundRanks: [{ poiId: 'peer', rank: 1, dataValue: positive ? 100 : null, percent: positive ? 100 : 0 }] },
+                { aiMetricName: `${body.rank_type}_B`, roundRanks: [{ poiId: 'peer', rank: 1, dataValue: positive ? 80 : null, percent: positive ? 80 : 0 }] },
               ],
             },
           },
@@ -2039,6 +2289,58 @@ test('Meituan historical ranking stops when complete and retries incomplete data
   assert.match(trafficResult.error, /昨日.*3.*仍未完整/);
   assert.match(html, /result\.dateRangeName.*第.*attemptCount.*轮已抓完整/);
   assert.match(html, /result\.dateRangeName.*榜单仍未完整/);
+});
+
+test('Meituan historical percent-only stay and sales stop early as partial instead of false complete', async () => {
+  const requestCounts = new Map();
+  const result = await meituanStaticApi.runMeituanBatchFetchFlow({
+    getForm: () => ({ hotelId: 58, poiId: 'self', dateRanges: ['1'] }),
+    getSelectedConfig: () => ({
+      id: 'meituan-58',
+      config_id: 'meituan-58',
+      hotel_id: 58,
+      has_cookies: true,
+      credential_status: 'ready',
+      configuration_verified: true,
+    }),
+    requestFetch: async body => {
+      requestCounts.set(body.rank_type, (requestCounts.get(body.rank_type) || 0) + 1);
+      return {
+        code: 200,
+        data: {
+          saved_count: 0,
+          data: {
+            status: 0,
+            data: {
+              peerRankData: [
+                { aiMetricName: `${body.rank_type}_A`, roundRanks: [{ poiId: 'self', rank: 1, dataValue: null, percent: 100 }] },
+                { aiMetricName: `${body.rank_type}_B`, roundRanks: [{ poiId: 'self', rank: 1, dataValue: null, percent: 80 }] },
+              ],
+            },
+          },
+          display_hotels: [{ poiId: 'self', hotelName: 'Self Hotel', isSelf: true }],
+        },
+      };
+    },
+    requestDisplayModel: async () => ({ code: 200, data: { display_hotels: [{ poiId: 'self', hotelName: 'Self Hotel' }] } }),
+    useDisplayModel: data => data.display_hotels || [],
+  });
+
+  assert.equal(requestCounts.get('P_RZ'), 1);
+  assert.equal(requestCounts.get('P_XS'), 1);
+  assert.equal(requestCounts.get('P_ZH'), 1);
+  assert.equal(requestCounts.get('P_LL'), 1);
+  assert.equal(result.status, 'partial');
+  for (const rankType of ['P_RZ', 'P_XS']) {
+    const item = result.results.find(row => row.rankType === rankType);
+    assert.equal(item.rankDataComplete, false);
+    assert.equal(item.terminalPartial, true);
+    assert.match(item.message, /仅返回排名百分比.*未返回实际数值/);
+  }
+  for (const rankType of ['P_ZH', 'P_LL']) {
+    assert.equal(result.results.find(row => row.rankType === rankType)?.rankDataComplete, true);
+  }
+  assert.match(html, /result\.terminalPartial.*result\.message/s);
 });
 
 test('Ctrip identity conflict still displays queried rows and reports save blocked', async () => {
@@ -2857,9 +3159,14 @@ test('Public system config refresh does not compete with core OTA switching', ()
 
 test('eBooking startup refreshes are deduplicated during quick page returns', () => {
   const currentPageWatcher = sliceFrom('watch(currentPage, (newPage) => {', '\n\n            watch(isLoggedIn');
+  const loadDataHealthPanel = sliceFrom(
+    "const loadDataHealthPanel = async (mode = 'light', options = {}) => {",
+    '\n\n            // 手动触发自动获取'
+  );
 
   assert.match(html, /const EBOOKING_STARTUP_REFRESH_CACHE_TTL_MS = 45000;/);
   assert.match(currentPageWatcher, /runPageLoadOnce\(newPage, 'main', \(\) => \{\s*scheduleDelayedPageTask\(\(\) => \{\s*if \(!isCtripEbookingDataHealthVisible\(\)\) return null;\s*scheduleDataHealthPanelRefresh\('light'\);\s*return null;\s*\}, CTRIP_EBOOKING_DATA_HEALTH_REFRESH_DELAY_MS\);\s*scheduleCtripEbookingDeferredStartupRefresh\(\);\s*\}, \{ ttlMs: EBOOKING_STARTUP_REFRESH_CACHE_TTL_MS \}\);/);
+  assert.match(loadDataHealthPanel, /if \(normalizedMode !== 'full' && isCtripEbookingDataHealthVisible\(\)\) \{\s*jobs\.push\(loadCollectionReliability\('light'\)\);\s*\}/);
   assert.match(currentPageWatcher, /if \(newPage === 'meituan-ebooking'\) \{\s*onlineDataTab\.value = 'meituan-ranking';\s*ensureMeituanManualHotelSelected\(\);\s*runPageLoadOnce\(newPage, 'main', \(\) => \{\s*scheduleMeituanEbookingDeferredStartupRefresh\(\);\s*\}, \{ ttlMs: EBOOKING_STARTUP_REFRESH_CACHE_TTL_MS \}\);/);
 });
 
@@ -3577,7 +3884,7 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
   assert.match(fetchMeituanData, /const preparingConfig = meituanManualFetchConfigProofPending\(\);/);
   assert.doesNotMatch(fetchMeituanData, /ensureMeituanConfigSecret|cookies|auth_data/);
   assert.match(fetchMeituanData, /getSelectedConfig: \(\) => selectedMeituanHotelConfig\.value/);
-  assert.match(fetchMeituanData, /finally \{\s*if \(preparingConfig\) \{\s*fetchingData\.value = false;\s*\}\s*\}/);
+  assert.match(fetchMeituanData, /finally \{\s*if \(preparingConfig && isActive\(\)\) \{\s*fetchingData\.value = false;\s*\}\s*\}/);
   assert.match(meituanManualFetchConfigGuard, /return resolveMeituanManualFetchConfigProofPending\(\{\s*form: meituanForm\.value,\s*selectedConfig: selectedMeituanHotelConfig\.value,\s*\}\);/);
   assert.match(meituanManualFetchConfigGuard, /const canFetchMeituanRankingData = \(\) => \{/);
   assert.match(meituanManualFetchConfigGuard, /return resolveCanFetchMeituanRankingData\(\{\s*form: meituanForm\.value,\s*selectedConfig: selectedMeituanHotelConfig\.value,\s*\}\);/);
@@ -3814,7 +4121,7 @@ test('Platform auto-fetch panel prewarms static helper without blocking first pa
   assert.match(html, /const PLATFORM_AUTO_SETTINGS_PANEL_DELAY_MS = 800;/);
   assert.match(html, /const platformAutoSettingsPanelsReady = ref\(false\);/);
   assert.match(html, /const platformAutoSettingsPanelsBody = shallowRef\(null\);/);
-  assert.match(html, /const platformAutoPanelsScript = 'components\/online-data\/platform-auto-settings-panels\.js\?v=20260711-live-progress-profile-hotel';/);
+  assert.match(html, /const platformAutoPanelsScript = 'components\/online-data\/platform-auto-settings-panels\.js\?v=20260712-meituan-ads-not-applicable';/);
   assert.match(html, /const ensurePlatformAutoPanelsReady = async \(\) => \{/);
   assert.match(html, /requireOnlineDataComponent\('PlatformAutoSettingsPanelsBody'\)/);
   assert.match(html, /requireOnlineDataComponent\('PlatformAutoSecondaryPanelsBody'\)/);

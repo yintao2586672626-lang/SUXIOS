@@ -7,6 +7,7 @@ use app\model\OperationLog;
 use app\service\DailyWorkbenchPatrolService;
 use app\service\OperationManagementService;
 use app\service\Phase3OperationEffectLoopService;
+use think\facade\Db;
 use think\Response;
 use think\exception\HttpException;
 
@@ -30,6 +31,50 @@ trait OperationWorkbenchConcern
             return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
         } catch (\Throwable $e) {
             return $this->error('Daily workbench query failed: ' . $e->getMessage());
+        }
+    }
+
+    public function manualFetchEvidence(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_view_online_data');
+
+        try {
+            $targetDate = $this->resolveDailyWorkbenchPatrolTargetDate(
+                $this->request->get('target_date', date('Y-m-d', strtotime('-1 day')))
+            );
+            $hotels = $this->loadDashboardHotels(null);
+            $hotelIds = array_values(array_filter(array_map(
+                static fn(array $hotel): int => (int)($hotel['id'] ?? 0),
+                array_values(array_filter($hotels, 'is_array'))
+            ), static fn(int $hotelId): bool => $hotelId > 0));
+
+            $rows = [];
+            if ($hotelIds !== []) {
+                $rows = Db::name('online_daily_data')
+                    ->field('system_hotel_id,source,data_type,dimension,hotel_id,hotel_name,raw_data,data_period')
+                    ->whereIn('system_hotel_id', $hotelIds)
+                    ->where('data_date', $targetDate)
+                    ->whereIn('source', array_values(array_unique(array_merge(
+                        $this->collectionSourceAliases('ctrip'),
+                        $this->collectionSourceAliases('meituan')
+                    ))))
+                    ->select()
+                    ->toArray();
+            }
+
+            return $this->success([
+                'target_date' => $targetDate,
+                'rows' => $this->buildManualFetchEvidenceRows($hotels, $rows, $targetDate),
+                'source_policy' => 'requested_target_date_online_daily_data_only',
+                'raw_data_exposed' => false,
+            ]);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage());
+        } catch (HttpException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
+        } catch (\Throwable $e) {
+            return $this->error('Manual fetch evidence query failed: ' . $e->getMessage());
         }
     }
 
@@ -618,6 +663,87 @@ trait OperationWorkbenchConcern
         ];
     }
 
+    /**
+     * Build the narrow read-only evidence used by the manual supplement queue.
+     * Ctrip success is proved only by distinct competition-circle hotels for the
+     * requested date; unrelated traffic/profile rows must never inflate it.
+     *
+     * @param array<int, array<string, mixed>> $hotels
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildManualFetchEvidenceRows(array $hotels, array $rows, string $targetDate): array
+    {
+        $rowsByHotel = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $hotelId = (int)($row['system_hotel_id'] ?? 0);
+            if ($hotelId <= 0) {
+                continue;
+            }
+            $rowsByHotel[$hotelId][] = $row;
+        }
+
+        $result = [];
+        foreach ($hotels as $hotel) {
+            if (!is_array($hotel)) {
+                continue;
+            }
+            $hotelId = (int)($hotel['id'] ?? 0);
+            if ($hotelId <= 0) {
+                continue;
+            }
+
+            $ctripCompetitionRows = [];
+            $meituanRows = [];
+            foreach ($rowsByHotel[$hotelId] ?? [] as $row) {
+                $source = strtolower(trim((string)($row['source'] ?? '')));
+                $dataType = strtolower(trim((string)($row['data_type'] ?? '')));
+                $dimension = strtolower(trim((string)($row['dimension'] ?? '')));
+                $dataPeriod = strtolower(trim((string)($row['data_period'] ?? '')));
+                if (in_array($source, $this->collectionSourceAliases('ctrip'), true)
+                    && $dataType === 'competitor'
+                    && $dimension === 'competition_circle_hotel') {
+                    $ctripCompetitionRows[] = $row;
+                    continue;
+                }
+                if (in_array($source, $this->collectionSourceAliases('meituan'), true)
+                    && $dataType !== 'traffic_forecast'
+                    && !str_contains($dataPeriod, 'forecast')) {
+                    $meituanRows[] = $row;
+                }
+            }
+
+            $competitionSummary = $this->summarizeCollectionCompetitionCircleRows($ctripCompetitionRows);
+            $ctripCount = (int)$competitionSummary['target_date_competition_hotel_count'];
+            $meituanCount = count($meituanRows);
+            $sourceRows = $ctripCount + $meituanCount;
+            $result[] = [
+                'hotelId' => (string)$hotelId,
+                'hotelName' => trim((string)($hotel['name'] ?? '')),
+                'targetDate' => $targetDate,
+                'sourceRows' => $sourceRows,
+                'fieldHasGap' => false,
+                'acquisitionStatusKind' => $sourceRows > 0 ? 'ready' : 'missing',
+                'platformRows' => [[
+                    'platform' => 'ctrip',
+                    'target_date_rows' => $ctripCount,
+                    ...$competitionSummary,
+                ], [
+                    'platform' => 'meituan',
+                    'target_date_rows' => $meituanCount,
+                    'target_date_competition_hotel_count' => 0,
+                    'target_date_competition_self_count' => 0,
+                    'target_date_competition_competitor_count' => 0,
+                ]],
+            ];
+        }
+
+        return $result;
+    }
+
     private function dailyWorkbenchLimit(?int $hotelId): int
     {
         if ($hotelId !== null) {
@@ -1105,6 +1231,9 @@ trait OperationWorkbenchConcern
                 'storage_table' => (string)($row['storage_table'] ?? 'online_daily_data'),
                 'target_date_rows' => max(0, (int)($row['target_date_rows'] ?? 0)),
                 'target_date_data_types' => array_values(array_filter(array_map('strval', (array)($row['target_date_data_types'] ?? [])))),
+                'target_date_competition_hotel_count' => max(0, (int)($row['target_date_competition_hotel_count'] ?? 0)),
+                'target_date_competition_self_count' => max(0, (int)($row['target_date_competition_self_count'] ?? 0)),
+                'target_date_competition_competitor_count' => max(0, (int)($row['target_date_competition_competitor_count'] ?? 0)),
                 'evidence_status' => (string)($row['evidence_status'] ?? 'unknown'),
                 'latest_available_reference_only' => (bool)($row['latest_available_reference_only'] ?? true),
                 'source_policy' => (string)($row['source_policy'] ?? 'read_existing_online_daily_data_only'),

@@ -36,22 +36,23 @@ class RevenueAiOverviewService
     public function overview(array $filters = []): array
     {
         $businessDate = $this->businessDate($filters['business_date'] ?? null);
-        $hotelId = $this->hotelId($filters['hotel_id'] ?? $filters['system_hotel_id'] ?? null);
-        $hotelIds = $this->hotelIds($filters['permitted_hotel_ids'] ?? []);
+        $hotelScope = $this->resolveHotelScope($filters);
+        $hotelId = $hotelScope['hotel_id'];
+        $hotelIds = $hotelScope['permitted_hotel_ids'];
         $enabledChannels = $this->enabledChannels($filters['enabled_channels'] ?? null);
         if ($enabledChannels === []) {
             $enabledChannels = $this->enabledChannels($filters['platform'] ?? $filters['channel'] ?? null);
         }
         $channels = $enabledChannels !== [] ? $enabledChannels : self::CHANNELS;
-        if ($hotelId !== null && $hotelIds !== [] && !in_array($hotelId, $hotelIds, true)) {
-            throw new RuntimeException('hotel_id is outside permitted scope', 403);
-        }
         $etl = new OtaStandardEtlService();
         $baseFilters = [
             'start_date' => $businessDate,
             'end_date' => $businessDate,
             'limit' => 5000,
         ];
+        if ($hotelIds !== []) {
+            $baseFilters['permitted_hotel_ids'] = $hotelIds;
+        }
         if ($hotelId !== null) {
             $baseFilters['system_hotel_id'] = $hotelId;
         }
@@ -374,6 +375,39 @@ class RevenueAiOverviewService
             throw new RuntimeException('Invalid hotel_id, expected positive integer', 422);
         }
         return (int)$text;
+    }
+
+    /**
+     * @param array<string, mixed> $filters
+     * @return array{hotel_id:?int,permitted_hotel_ids:array<int,int>,portfolio:bool}
+     */
+    private function resolveHotelScope(array $filters): array
+    {
+        $hotelId = $this->hotelId($filters['hotel_id'] ?? $filters['system_hotel_id'] ?? null);
+        $permittedHotelIds = $this->hotelIds($filters['permitted_hotel_ids'] ?? []);
+        sort($permittedHotelIds);
+        $portfolio = $this->boolValue($filters['portfolio'] ?? false);
+        $isSuperAdmin = $this->boolValue($filters['is_super_admin'] ?? false);
+
+        if (!$isSuperAdmin && $permittedHotelIds === []) {
+            throw new RuntimeException('No permitted hotels', 403);
+        }
+        if (!$isSuperAdmin && $hotelId !== null && !in_array($hotelId, $permittedHotelIds, true)) {
+            throw new RuntimeException('hotel_id is outside permitted scope', 403);
+        }
+        if ($hotelId === null) {
+            if (!$isSuperAdmin && count($permittedHotelIds) === 1) {
+                $hotelId = $permittedHotelIds[0];
+            } elseif (!$portfolio) {
+                throw new RuntimeException('hotel_scope_required_for_multi_hotel_user', 422);
+            }
+        }
+
+        return [
+            'hotel_id' => $hotelId,
+            'permitted_hotel_ids' => $isSuperAdmin ? [] : $permittedHotelIds,
+            'portfolio' => $portfolio,
+        ];
     }
 
     /**

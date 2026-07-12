@@ -10,6 +10,53 @@ use PHPUnit\Framework\TestCase;
 
 final class PlatformDataSyncServiceTest extends TestCase
 {
+    public function testExplicitReviewOnlyCaptureDoesNotRequireTrafficEvidence(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'syncRequiresTargetDateTrafficEvidence');
+        $method->setAccessible(true);
+        $source = [
+            'platform' => 'meituan',
+            'data_type' => 'business',
+            'ingestion_method' => 'browser_profile',
+        ];
+        $payload = [
+            'sync_summary' => [
+                'traffic_count' => 0,
+                'traffic_forecast_count' => 0,
+                'review_count' => 1,
+            ],
+        ];
+
+        self::assertFalse($method->invoke($service, $source, ['capture_sections' => 'reviews'], $payload));
+        self::assertTrue($method->invoke($service, $source, ['capture_sections' => 'traffic'], $payload));
+    }
+
+    public function testAuthoritativeEmptySyncPayloadIsRecognized(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'isAuthoritativeEmptySyncPayload');
+        $method->setAccessible(true);
+
+        self::assertTrue($method->invoke($service, ['sync_summary' => ['confirmed_empty' => true]]));
+        self::assertFalse($method->invoke($service, ['sync_summary' => ['confirmed_empty' => false]]));
+        self::assertFalse($method->invoke($service, []));
+    }
+
+    public function testAuthoritativeEmptyOrderCaptureVerifiesOnlyOrderCapability(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'applyConfirmedEmptyCapabilityStates');
+        $method->setAccessible(true);
+        $states = ['business' => 'unverified', 'orders' => 'unverified', 'reviews' => 'unverified'];
+
+        $result = $method->invoke($service, $states, ['capture_sections' => 'orders'], []);
+
+        self::assertSame('verified', $result['orders']);
+        self::assertSame('unverified', $result['reviews']);
+        self::assertSame('unverified', $result['business']);
+    }
+
     public function testBrowserProfileSyncDiagnosticsRequiresTargetDateTrafficFieldFacts(): void
     {
         $service = new PlatformDataSyncService();
@@ -407,6 +454,32 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertStringContainsString('"data_source_name":"携程手工导入"', $rows[0]['raw_data']);
     }
 
+    public function testCtripAverageIdentityCannotPersistAsOrdinaryCompetitor(): void
+    {
+        $rows = (new PlatformDataSyncService())->normalizeRowsFromPayload([
+            'rows' => [[
+                'hotel_id' => '-1',
+                'hotel_name' => '竞争圈平均',
+                'data_date' => '2026-07-12',
+                'data_type' => 'traffic',
+                'compare_type' => 'competitor',
+                'list_exposure' => 799,
+            ]],
+        ], [
+            'id' => 25,
+            'name' => 'Ctrip Profile Traffic',
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'system_hotel_id' => 80,
+            'tenant_id' => 1,
+            'ingestion_method' => 'browser_profile',
+        ], 318);
+
+        self::assertCount(1, $rows);
+        self::assertSame('-1', $rows[0]['hotel_id']);
+        self::assertSame('competitor_avg', $rows[0]['compare_type']);
+    }
+
     public function testManualPayloadRejectsMissingBusinessRows(): void
     {
         $service = new PlatformDataSyncService();
@@ -679,6 +752,7 @@ final class PlatformDataSyncServiceTest extends TestCase
             self::assertSame('review', $rows[0]['data_type']);
             self::assertSame(3.0, $rows[0]['comment_score']);
             self::assertSame(2, $rows[0]['quantity']);
+            self::assertSame(1.0, $rows[0]['data_value']);
             self::assertStringNotContainsString('This review text must be redacted.', $rows[0]['raw_data']);
         }
     }
@@ -723,6 +797,35 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertStringNotContainsString('Private Room', $rows[0]['raw_data']);
         self::assertStringNotContainsString('This Meituan review text must be redacted.', $rows[0]['raw_data']);
         self::assertStringNotContainsString('This reply text must be redacted.', $rows[0]['raw_data']);
+    }
+
+    public function testBrowserProfileReviewMapsCapturedCamelCaseSummaryFields(): void
+    {
+        $service = new PlatformDataSyncService();
+
+        $rows = $service->normalizeRowsFromPayload([
+            'rows' => [[
+                'data_type' => 'review',
+                'poi_id' => 'mt-001',
+                'data_date' => '2026-07-11',
+                'commentCount' => 5,
+                'commentScore' => 5,
+                'badReviewCount' => 0,
+            ]],
+        ], [
+            'id' => 78,
+            'name' => 'Meituan Profile Source',
+            'platform' => 'meituan',
+            'data_type' => 'business',
+            'system_hotel_id' => 7,
+            'tenant_id' => 1,
+            'ingestion_method' => 'browser_profile',
+        ], 34);
+
+        self::assertCount(1, $rows);
+        self::assertSame(5.0, $rows[0]['comment_score']);
+        self::assertSame(5, $rows[0]['quantity']);
+        self::assertSame(0.0, $rows[0]['data_value']);
     }
 
     public function testBrowserProfileMissingReviewAndOrderMetricsRemainNull(): void
@@ -2317,6 +2420,81 @@ final class PlatformDataSyncServiceTest extends TestCase
             self::assertSame('waiting_config', $result['status']);
             self::assertSame('Meituan login expired.', $result['message']);
             self::assertArrayNotHasKey('rows', $result['payload']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testMeituanAdsLoginFailureBlocksOnlyTheAdsModule(): void
+    {
+        $root = $this->createMeituanBrowserProfileTestRoot('store_001');
+
+        try {
+            $adapter = new MeituanBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                'auth_status' => [
+                    'ok' => false,
+                    'status' => 'login_required',
+                    'message' => 'Meituan login expired.',
+                ],
+                'capture_gate' => ['status' => 'not_run'],
+            ]));
+            $result = $adapter->fetch($this->meituanBrowserProfileSource(), [
+                'interactive_browser' => false,
+                'capture_sections' => 'ads',
+            ]);
+
+            self::assertSame('waiting_config', $result['status']);
+            self::assertSame('profile_session_unverified', $result['status_code']);
+            self::assertSame('ads', $result['payload']['module_status']['module']);
+            self::assertSame('blocked', $result['payload']['module_status']['status']);
+            $service = new PlatformDataSyncService();
+            $safeMessage = new \ReflectionMethod($service, 'safeSyncTaskMessage');
+            $safeMessage->setAccessible(true);
+            self::assertSame(
+                'profile_session_unverified',
+                $safeMessage->invoke($service, $result['status'], $result['message'])
+            );
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testMeituanAdsAgreementPageIsNotApplicableInsteadOfAWholeSourceFailure(): void
+    {
+        $root = $this->createMeituanBrowserProfileTestRoot('store_001');
+
+        try {
+            $adapter = new MeituanBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'capture_gate' => [
+                    'status' => 'fail',
+                    'failed_check_ids' => ['business_rows_present'],
+                ],
+                'pages' => [[
+                    'name' => 'ads',
+                    'url' => 'https://ebmidas.dianping.com/app/peon-promo-finance/promopoiid/-1/html/online-sign.html',
+                    'ok' => true,
+                ]],
+                'responses' => [],
+                'ads' => [],
+            ]));
+
+            $result = $adapter->fetch($this->meituanBrowserProfileSource(), [
+                'interactive_browser' => false,
+                'capture_sections' => 'ads',
+                'data_date' => '2026-07-11',
+            ]);
+
+            self::assertSame('not_applicable', $result['status']);
+            self::assertSame('ads_service_not_opened', $result['status_code']);
+            self::assertSame('ads_service_not_opened', $result['message']);
+            self::assertSame('ads', $result['payload']['module_status']['module']);
+            self::assertSame('not_applicable', $result['payload']['module_status']['status']);
+
+            $service = new PlatformDataSyncService();
+            $method = new \ReflectionMethod($service, 'shouldPreserveSourceStateForModuleResult');
+            $method->setAccessible(true);
+            self::assertTrue($method->invoke($service, $result['status'], $result['payload']));
         } finally {
             $this->removeDirectory($root);
         }

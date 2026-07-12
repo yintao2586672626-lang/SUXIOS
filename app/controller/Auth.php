@@ -16,7 +16,7 @@ use think\Response;
 
 class Auth extends Base
 {
-    private const TOKEN_TTL_SECONDS = 86400; // 24 hours
+    private const TOKEN_TTL_SECONDS = 259200; // 72 hours
     private const REGISTER_RATE_LIMIT = 12;
     private const REGISTER_RATE_WINDOW_SECONDS = 600;
 

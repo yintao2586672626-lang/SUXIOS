@@ -58,7 +58,7 @@ final class CtripCompetitionCirclePersistenceServiceTest extends TestCase
         self::assertSame('competitor', $competitor['compare_type']);
     }
 
-    public function testExplicitRawSelfMarkerWinsWhenStoredPlatformHotelIdIsStale(): void
+    public function testExplicitRawSelfMarkerCannotOverrideConfiguredPlatformHotelId(): void
     {
         $normalized = CtripCompetitionCirclePersistenceService::normalizeRowSemantics(
             $this->competitionRow([
@@ -68,7 +68,7 @@ final class CtripCompetitionCirclePersistenceServiceTest extends TestCase
             ['self_hotel_ids' => ['120820008']]
         );
 
-        self::assertSame('self', $normalized['compare_type']);
+        self::assertSame('competitor', $normalized['compare_type']);
     }
 
     public function testMissingQunarScoreIsNullAndPartialInsteadOfNormalZero(): void
