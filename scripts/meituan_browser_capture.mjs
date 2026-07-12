@@ -20,6 +20,7 @@ import {
   normalizeMeituanTrafficCardRows,
   normalizeMeituanTrafficForecastRows,
 } from './lib/meituan_browser_capture_normalize.mjs';
+import { evaluateMeituanCaptureGate } from './lib/meituan_capture_gate.mjs';
 import { fail, parseArgs, safeName, timestamp, waitForEnter } from './lib/shared_helpers.mjs';
 
 const URLS = {
@@ -129,7 +130,7 @@ try {
   dedupePayloadRows(payload);
   payload.capture_gate = loginOnly
     ? { status: loginStatus.ok ? 'pass' : 'fail', failed_check_ids: loginStatus.ok ? [] : ['auth_login_required'], mode: 'login_only' }
-    : evaluateCaptureGate(payload);
+    : evaluateMeituanCaptureGate(payload, captureSections, { targetDate: defaultDataDate });
   if (payload.capture_gate.status !== 'pass') {
     process.exitCode = 2;
   }
@@ -620,7 +621,7 @@ function decorateCapturedRow(row, sourcePath, section = '', requestDateEvidence 
   const rowHasDate = [row.date, row.dataDate, row.statDate, row.stat_date, row.data_date, row.reportDate, row.day]
     .some(value => String(value ?? '').trim() !== '');
   let datePatch = {};
-  if (section === 'traffic') {
+  if (section === 'traffic' || section === 'ads') {
     if (rowHasDate) {
       datePatch = row.date_source || row.dateSource ? {} : { date_source: 'row' };
     } else if (requestDateEvidence.date) {
@@ -889,40 +890,6 @@ function dedupePayloadRows(target) {
       return true;
     });
   }
-}
-
-function evaluateCaptureGate(data) {
-  const failed = [];
-  const sectionCounts = {
-    traffic: data.traffic.length,
-    orders: data.orders.length,
-    ads: data.ads.length,
-    reviews: data.reviews.length,
-  };
-  const requestedCoreSections = Array.from(captureSections).filter(section => section !== 'reviews');
-  const requestedCoreRowCount = requestedCoreSections.reduce((sum, section) => sum + (sectionCounts[section] || 0), 0);
-  const capturedResponseCount = data.responses.filter(item => item && item.row_count > 0).length;
-
-  if (!data.auth_status?.ok) {
-    failed.push('auth_login_required');
-  }
-  if (capturedResponseCount === 0 && data.responses.length === 0) {
-    failed.push('xhr_not_captured');
-  } else if (capturedResponseCount === 0) {
-    failed.push('xhr_without_importable_rows');
-  }
-  if (requestedCoreSections.length > 0 && requestedCoreRowCount === 0) {
-    failed.push('no_business_rows');
-  }
-
-  return {
-    status: failed.length ? 'fail' : 'pass',
-    failed_check_ids: failed,
-    section_counts: sectionCounts,
-    response_count: data.responses.length,
-    captured_response_count: capturedResponseCount,
-    requested_sections: Array.from(captureSections),
-  };
 }
 
 async function submitPayload(data) {

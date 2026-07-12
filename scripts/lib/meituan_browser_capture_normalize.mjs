@@ -539,7 +539,9 @@ function supplementalDateSource(options = {}) {
   if (options.requestDateEvidence?.date_source) {
     return options.requestDateEvidence.date_source;
   }
-  return String(options.dateRange || '') === '0' ? 'capture_context.captured_at' : 'capture_context.default_data_date';
+  return String(options.dateRange || '') === '0'
+    ? 'request.query.dateRange=0'
+    : 'capture_context.default_data_date';
 }
 
 function hasOwnDate(row) {

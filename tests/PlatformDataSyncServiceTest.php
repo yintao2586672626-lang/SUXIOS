@@ -734,6 +734,160 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertStringNotContainsString('This reply text must be redacted.', $rows[0]['raw_data']);
     }
 
+    public function testBrowserProfileMissingReviewAndOrderMetricsRemainNull(): void
+    {
+        $service = new PlatformDataSyncService();
+
+        $rows = $service->normalizeRowsFromPayload([
+            'rows' => [
+                [
+                    'data_type' => 'review',
+                    'poi_id' => 'mt-001',
+                    'data_date' => '2026-07-11',
+                    'score' => '4.6',
+                ],
+                [
+                    'data_type' => 'order',
+                    'poi_id' => 'mt-001',
+                    'data_date' => '2026-07-11',
+                    'orderId' => 'MT-ORDER-001',
+                    'amount' => '588.00',
+                ],
+            ],
+        ], [
+            'id' => 78,
+            'name' => 'Meituan Profile Source',
+            'platform' => 'meituan',
+            'data_type' => 'business',
+            'system_hotel_id' => 7,
+            'tenant_id' => 1,
+            'ingestion_method' => 'browser_profile',
+        ], 34);
+
+        self::assertCount(2, $rows);
+        $reviewRow = $rows[0]['data_type'] === 'review' ? $rows[0] : $rows[1];
+        $orderRow = $rows[0]['data_type'] === 'order' ? $rows[0] : $rows[1];
+
+        self::assertSame(4.6, $reviewRow['comment_score']);
+        self::assertNull($reviewRow['amount']);
+        self::assertNull($reviewRow['quantity']);
+        self::assertNull($reviewRow['book_order_num']);
+        self::assertNull($reviewRow['qunar_comment_score']);
+        self::assertNull($reviewRow['data_value']);
+
+        self::assertSame(588.0, $orderRow['amount']);
+        self::assertNull($orderRow['quantity']);
+        self::assertNull($orderRow['book_order_num']);
+        self::assertNull($orderRow['comment_score']);
+        self::assertNull($orderRow['data_value']);
+    }
+
+    public function testBrowserProfilePeerRankStaysRawInsteadOfBecomingGenericDataValue(): void
+    {
+        $service = new PlatformDataSyncService();
+
+        $rows = $service->normalizeRowsFromPayload([
+            'rows' => [[
+                'data_type' => 'peer_rank',
+                'poi_id' => 'mt-001',
+                'data_date' => '2026-07-11',
+                'rank' => '2',
+                'rank_type' => 'P_RZ',
+            ]],
+        ], [
+            'id' => 78,
+            'name' => 'Meituan Profile Source',
+            'platform' => 'meituan',
+            'data_type' => 'business',
+            'system_hotel_id' => 7,
+            'tenant_id' => 1,
+            'ingestion_method' => 'browser_profile',
+        ], 34);
+
+        self::assertCount(1, $rows);
+        self::assertNull($rows[0]['amount']);
+        self::assertNull($rows[0]['quantity']);
+        self::assertNull($rows[0]['book_order_num']);
+        self::assertNull($rows[0]['data_value']);
+        self::assertStringContainsString('"rank":"2"', $rows[0]['raw_data']);
+    }
+
+    public function testBrowserProfileCommonMetricsRemainNullWhenAbsent(): void
+    {
+        $service = new PlatformDataSyncService();
+
+        $rows = $service->normalizeRowsFromPayload([
+            'rows' => [
+                ['data_type' => 'business', 'poi_id' => 'mt-001', 'data_date' => '2026-07-11'],
+                ['data_type' => 'traffic', 'poi_id' => 'mt-001', 'data_date' => '2026-07-11'],
+                ['data_type' => 'advertising', 'poi_id' => 'mt-001', 'data_date' => '2026-07-11'],
+            ],
+        ], [
+            'id' => 78,
+            'name' => 'Meituan Profile Source',
+            'platform' => 'meituan',
+            'data_type' => 'business',
+            'system_hotel_id' => 7,
+            'tenant_id' => 1,
+            'ingestion_method' => 'browser_profile',
+        ], 34);
+
+        self::assertCount(3, $rows);
+        foreach ($rows as $row) {
+            foreach ([
+                'amount',
+                'quantity',
+                'book_order_num',
+                'list_exposure',
+                'detail_exposure',
+                'order_filling_num',
+                'order_submit_num',
+                'data_value',
+            ] as $field) {
+                self::assertNull($row[$field], $row['data_type'] . '.' . $field);
+            }
+        }
+    }
+
+    public function testBrowserProfileCommonMetricsPreserveExplicitZero(): void
+    {
+        $service = new PlatformDataSyncService();
+
+        $rows = $service->normalizeRowsFromPayload([
+            'rows' => [[
+                'data_type' => 'traffic',
+                'poi_id' => 'mt-001',
+                'data_date' => '2026-07-11',
+                'amount' => 0,
+                'quantity' => 0,
+                'book_order_num' => 0,
+                'list_exposure' => 0,
+                'detail_exposure' => 0,
+                'order_filling_num' => 0,
+                'order_submit_num' => 0,
+                'data_value' => 0,
+            ]],
+        ], [
+            'id' => 78,
+            'name' => 'Meituan Profile Source',
+            'platform' => 'meituan',
+            'data_type' => 'business',
+            'system_hotel_id' => 7,
+            'tenant_id' => 1,
+            'ingestion_method' => 'browser_profile',
+        ], 34);
+
+        self::assertCount(1, $rows);
+        self::assertSame(0.0, $rows[0]['amount']);
+        self::assertSame(0, $rows[0]['quantity']);
+        self::assertSame(0, $rows[0]['book_order_num']);
+        self::assertSame(0, $rows[0]['list_exposure']);
+        self::assertSame(0, $rows[0]['detail_exposure']);
+        self::assertSame(0, $rows[0]['order_filling_num']);
+        self::assertSame(0, $rows[0]['order_submit_num']);
+        self::assertSame(0.0, $rows[0]['data_value']);
+    }
+
     public function testReviewDetailStorageStillRequiresExplicitAuthorization(): void
     {
         $service = new PlatformDataSyncService();
@@ -960,6 +1114,7 @@ final class PlatformDataSyncServiceTest extends TestCase
                         'campaignId' => 'campaign-1',
                         'impressions' => '10000',
                         'clicks' => '320',
+                        'ctr' => '3.2%',
                         'cvr' => '8.5%',
                         'todayCost' => '256.75',
                         'bookings' => '16',
@@ -986,10 +1141,41 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertSame(16, $rows[0]['book_order_num']);
         self::assertSame(10000, $rows[0]['list_exposure']);
         self::assertSame(320, $rows[0]['detail_exposure']);
-        self::assertSame(8.5, $rows[0]['flow_rate']);
+        self::assertSame(3.2, $rows[0]['flow_rate']);
         self::assertSame(16, $rows[0]['order_submit_num']);
         self::assertSame(7.35, $rows[0]['data_value']);
         self::assertStringContainsString('"orderAmount":"1888.00"', $rows[0]['raw_data']);
+    }
+
+    public function testAdvertisingRatesDoNotFallbackIntoRoasOrMixCtrWithCvr(): void
+    {
+        $service = new PlatformDataSyncService();
+
+        $rows = $service->normalizeRowsFromPayload([
+            'rows' => [[
+                'hotelId' => 'ctrip-3001',
+                'date' => '2026-05-27',
+                'data_type' => 'advertising',
+                'ctr' => '3.2%',
+                'cvr' => '8.5%',
+                'ecpc' => '0.80',
+            ]],
+        ], [
+            'id' => 22,
+            'name' => 'Ctrip ad report',
+            'platform' => 'ctrip',
+            'data_type' => 'business',
+            'system_hotel_id' => 7,
+            'tenant_id' => 1,
+            'ingestion_method' => 'browser_profile',
+        ], 42);
+
+        self::assertCount(1, $rows);
+        self::assertSame('advertising', $rows[0]['data_type']);
+        self::assertSame(3.2, $rows[0]['flow_rate']);
+        self::assertNull($rows[0]['data_value']);
+        self::assertStringContainsString('"cvr":"8.5%"', $rows[0]['raw_data']);
+        self::assertStringContainsString('"ecpc":"0.80"', $rows[0]['raw_data']);
     }
 
     public function testOrderListPayloadMapsAmountRoomNightsAndAveragePriceWithoutPii(): void
@@ -1027,7 +1213,7 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertSame('order', $rows[0]['data_type']);
         self::assertSame(1200.0, $rows[0]['amount']);
         self::assertSame(6, $rows[0]['quantity']);
-        self::assertSame(1, $rows[0]['book_order_num']);
+        self::assertNull($rows[0]['book_order_num']);
         self::assertSame(200.0, $rows[0]['data_value']);
 
         $rawData = $rows[0]['raw_data'];
@@ -2170,6 +2356,8 @@ final class PlatformDataSyncServiceTest extends TestCase
                         [
                             'poi_id' => '68471',
                             'poi_name' => 'Meituan Demo Hotel',
+                            'data_date' => '2026-07-04',
+                            'date_source' => 'row',
                             'list_exposure' => '1200',
                             'detail_exposure' => '240',
                             'flow_rate' => '20%',
@@ -2198,6 +2386,69 @@ final class PlatformDataSyncServiceTest extends TestCase
         }
     }
 
+    public function testMeituanBrowserProfileAdapterRejectsRowsOutsideRequestedTargetDate(): void
+    {
+        $root = $this->createMeituanBrowserProfileTestRoot('store_001');
+
+        try {
+            $adapter = new MeituanBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'capture_gate' => ['status' => 'pass'],
+                'traffic' => [[
+                    'poi_id' => '68471',
+                    'poi_name' => 'Meituan Demo Hotel',
+                    'data_date' => '2026-07-10',
+                    'list_exposure' => 1200,
+                    'detail_exposure' => 240,
+                ]],
+                'orders' => [],
+                'ads' => [],
+            ]));
+
+            $result = $adapter->fetch($this->meituanBrowserProfileSource(), [
+                'interactive_browser' => false,
+                'capture_sections' => 'traffic',
+                'data_date' => '2026-07-11',
+            ]);
+
+            self::assertSame('failed', $result['status']);
+            self::assertSame('meituan_target_date_mismatch', $result['status_code']);
+            self::assertArrayNotHasKey('rows', $result['payload']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
+    public function testMeituanBrowserProfileAdapterAllowsFutureForecastDate(): void
+    {
+        $root = $this->createMeituanBrowserProfileTestRoot('store_001');
+
+        try {
+            $adapter = new MeituanBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'capture_gate' => ['status' => 'pass'],
+                'trafficForecast' => [[
+                    'poi_id' => '68471',
+                    'poi_name' => 'Meituan Demo Hotel',
+                    'data_date' => '2026-07-20',
+                    'forecast_value' => 120,
+                ]],
+            ]));
+
+            $result = $adapter->fetch($this->meituanBrowserProfileSource(), [
+                'interactive_browser' => false,
+                'capture_sections' => 'traffic',
+                'data_date' => '2026-07-11',
+            ]);
+
+            self::assertSame('success', $result['status']);
+            self::assertSame('traffic_forecast', $result['payload']['rows'][0]['data_type']);
+            self::assertSame('2026-07-20', $result['payload']['rows'][0]['data_date']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
     public function testMeituanBrowserProfileAdapterNeverInjectsStoredCookies(): void
     {
         $root = $this->createMeituanBrowserProfileTestRoot('store_001');
@@ -2220,6 +2471,8 @@ final class PlatformDataSyncServiceTest extends TestCase
                         'traffic' => [[
                             'poi_id' => '68471',
                             'poi_name' => 'Meituan Demo Hotel',
+                            'data_date' => '2026-07-04',
+                            'date_source' => 'row',
                             'list_exposure' => '1200',
                             'detail_exposure' => '240',
                             'flow_rate' => '20%',
@@ -2402,7 +2655,10 @@ final class PlatformDataSyncServiceTest extends TestCase
                 ],
             ]));
             $source = $this->meituanBrowserProfileSource();
-            $result = $adapter->fetch($source, ['interactive_browser' => false]);
+            $result = $adapter->fetch($source, [
+                'interactive_browser' => false,
+                'data_date' => '2026-05-31',
+            ]);
 
             self::assertSame('success', $result['status']);
             self::assertCount(2, $result['payload']['rows']);
@@ -2496,7 +2752,11 @@ final class PlatformDataSyncServiceTest extends TestCase
                 ],
             ]));
             $source = $this->meituanBrowserProfileSource();
-            $result = $adapter->fetch($source, ['interactive_browser' => false, 'capture_sections' => 'businessData,peerRank,searchKeywords,roomTypes']);
+            $result = $adapter->fetch($source, [
+                'interactive_browser' => false,
+                'capture_sections' => 'businessData,peerRank,searchKeywords,roomTypes',
+                'data_date' => '2026-06-06',
+            ]);
 
             self::assertSame('success', $result['status']);
             self::assertCount(4, $result['payload']['rows']);
@@ -2511,12 +2771,12 @@ final class PlatformDataSyncServiceTest extends TestCase
             self::assertSame(['business', 'peer_rank', 'room_type', 'search_keyword'], $types);
             $peerRow = array_values(array_filter($rows, static fn(array $row): bool => $row['data_type'] === 'peer_rank'))[0] ?? null;
             self::assertIsArray($peerRow);
-            self::assertSame(2.0, $peerRow['data_value']);
+            self::assertNull($peerRow['data_value']);
             self::assertSame('P_RZ', $peerRow['compare_type']);
             $peerRaw = json_decode((string)$peerRow['raw_data'], true);
             self::assertIsArray($peerRaw);
             $peerFactsByKey = array_column($peerRaw['field_facts'] ?? [], null, 'metric_key');
-            self::assertSame('online_daily_data.data_value', $peerFactsByKey['peer_rank_value']['storage_field'] ?? '');
+            self::assertSame('raw_data.rank', $peerFactsByKey['peer_rank_value']['storage_field'] ?? '');
             self::assertSame('$.rank', $peerFactsByKey['peer_rank_value']['source_path'] ?? '');
             self::assertTrue($peerFactsByKey['peer_rank_compare_type']['stored_value_present'] ?? false);
         } finally {

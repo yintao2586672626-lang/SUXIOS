@@ -250,15 +250,15 @@ final class PlatformDataSyncService
                 'storage_table' => 'online_daily_data',
                 'storage_field' => 'book_order_num',
                 'missing_state' => 'field_missing',
-                'source_keys' => ['order_id', 'orderId', 'bookingId', 'book_order_num', 'order_count', 'orderCount', 'orders'],
+                'source_keys' => ['book_order_num', 'orders', 'order_count', 'orderCount', 'bookOrderNum', 'orderNum', 'orderQuantity', 'bookings', 'bookingCount'],
             ],
         ],
         'peer_rank' => [
             [
                 'metric_key' => 'peer_rank_value',
-                'normalized_field' => 'data_value',
+                'normalized_field' => 'raw_data',
                 'storage_table' => 'online_daily_data',
-                'storage_field' => 'data_value',
+                'storage_field' => 'raw_data.rank',
                 'missing_state' => 'field_missing',
                 'source_keys' => ['data_value', 'dataValue', 'rank', 'ranking', 'rankValue', 'rank_value', 'rankPercent', 'rank_percent', 'value'],
             ],
@@ -344,7 +344,7 @@ final class PlatformDataSyncService
                 'storage_table' => 'online_daily_data',
                 'storage_field' => 'flow_rate',
                 'missing_state' => 'field_missing',
-                'source_keys' => ['flow_rate', 'flowRate', 'cvr', 'ctr', 'conversion_rate', 'conversionRate', 'convertionRate', 'avgConversionsRate', 'orderConversionRate', 'dealRate'],
+                'source_keys' => ['flow_rate', 'flowRate', 'cvr', 'conversion_rate', 'conversionRate', 'convertionRate', 'avgConversionsRate', 'orderConversionRate', 'dealRate'],
             ],
             [
                 'metric_key' => 'order_filling_num',
@@ -547,6 +547,7 @@ final class PlatformDataSyncService
             $sourceDataType = (string)($source['data_type'] ?? '');
             $rowDataType = (string)($row['data_type'] ?? '');
             $sourceIngestionMethod = (string)($source['ingestion_method'] ?? '');
+            $preserveMissingMetrics = $this->isOtaBrowserProfileSource($source);
             $dataType = $this->normalizeDataType(
                 in_array($sourceIngestionMethod, ['browser_profile', 'profile_browser'], true) && $rowDataType !== ''
                     ? $rowDataType
@@ -592,24 +593,25 @@ final class PlatformDataSyncService
                 'hotel_id' => $this->stringValue($row, ['hotel_id', 'hotelId', 'poi_id', 'poiId', 'external_hotel_id']) ?: (string)($source['external_hotel_id'] ?? ''),
                 'hotel_name' => $this->stringValue($row, ['hotel_name', 'hotelName', 'poi_name', 'poiName', 'name']) ?: (string)($source['hotel_name'] ?? $source['name'] ?? ''),
                 'data_date' => $date,
-                'amount' => $this->amountValue($row, $dataType),
-                'quantity' => $this->quantityValue($row, $dataType),
-                'book_order_num' => $this->orderCountValue($row, $dataType),
-                'comment_score' => $this->numericValue($row, ['comment_score', 'rating', 'score']),
-                'qunar_comment_score' => $this->numericValue($row, ['qunar_comment_score', 'qunar_score']),
+                'amount' => $this->amountValue($row, $dataType, $preserveMissingMetrics),
+                'quantity' => $this->quantityValue($row, $dataType, $preserveMissingMetrics),
+                'book_order_num' => $this->orderCountValue($row, $dataType, $preserveMissingMetrics),
+                'comment_score' => $this->commentScoreValue($row, $dataType, $preserveMissingMetrics),
+                'qunar_comment_score' => $this->nullableNumericValue($row, ['qunar_comment_score', 'qunar_score'])
+                    ?? ($preserveMissingMetrics ? null : 0.0),
                 'system_hotel_id' => (int)($source['system_hotel_id'] ?? $row['system_hotel_id'] ?? 0) ?: null,
                 'tenant_id' => $tenantId,
-                'data_value' => $this->dataValue($row, $dataType),
+                'data_value' => $this->dataValue($row, $dataType, $preserveMissingMetrics),
                 'source' => $platform,
                 'dimension' => $this->stringValue($row, ['dimension', 'dim_name', '_dimName']) ?: ($dataType === 'review' ? $this->reviewDimensionValue($row) : ''),
                 'data_type' => $dataType,
                 'platform' => $this->stringValue($row, ['platform']) ?: $platform,
                 'compare_type' => $this->stringValue($row, ['compare_type', 'compareType', 'rank_type', 'rankType']),
-                'list_exposure' => (int)$this->numericValue($row, ['mt_exposure', 'list_exposure', 'listExposure', 'impressions', 'exposure_count', 'exposureCount', 'exposureUV', 'exposure_uv']),
-                'detail_exposure' => (int)$this->numericValue($row, ['mt_intention_uv', 'intentionUV', 'intention_uv', 'detail_exposure', 'detailExposure', 'clicks', 'click_count', 'clickCount', 'visitors', 'visitorTotal', 'pv', 'uv']),
-                'flow_rate' => $this->numericValue($row, ['flow_rate', 'flowRate', 'cvr', 'ctr', 'conversion_rate', 'conversionRate', 'convertionRate', 'avgConversionsRate', 'orderConversionRate', 'dealRate']),
-                'order_filling_num' => (int)$this->numericValue($row, ['order_filling_num', 'orderFillingNum', 'orderVisitors', 'clickCount', 'clicks']),
-                'order_submit_num' => (int)$this->numericValue($row, ['mt_pay_orders', 'pay_orders', 'payOrders', 'payOrderCnt', 'pay_order_cnt', 'payOrderCount', 'pay_order_count', 'order_submit_num', 'orderSubmitNum', 'bookings', 'bookingCount', 'orderCount', 'orderQuantity', 'orderNum', 'orders']),
+                'list_exposure' => $this->integerMetricValue($row, ['mt_exposure', 'list_exposure', 'listExposure', 'impressions', 'exposure_count', 'exposureCount', 'exposureUV', 'exposure_uv'], $preserveMissingMetrics),
+                'detail_exposure' => $this->integerMetricValue($row, ['mt_intention_uv', 'intentionUV', 'intention_uv', 'detail_exposure', 'detailExposure', 'clicks', 'click_count', 'clickCount', 'visitors', 'visitorTotal', 'pv', 'uv'], $preserveMissingMetrics),
+                'flow_rate' => $this->flowRateValue($row, $dataType, $preserveMissingMetrics),
+                'order_filling_num' => $this->integerMetricValue($row, ['order_filling_num', 'orderFillingNum', 'orderVisitors', 'clickCount', 'clicks'], $preserveMissingMetrics),
+                'order_submit_num' => $this->integerMetricValue($row, ['mt_pay_orders', 'pay_orders', 'payOrders', 'payOrderCnt', 'pay_order_cnt', 'payOrderCount', 'pay_order_count', 'order_submit_num', 'orderSubmitNum', 'bookings', 'bookingCount', 'orderCount', 'orderQuantity', 'orderNum', 'orders'], $preserveMissingMetrics),
                 'validation_status' => 'normal',
                 'validation_flags' => json_encode([], JSON_UNESCAPED_UNICODE),
                 'data_source_id' => isset($source['id']) ? (int)$source['id'] : null,
@@ -663,7 +665,10 @@ final class PlatformDataSyncService
                 'normalized_field' => $normalizedField,
                 'status' => $status,
                 'missing_state' => (string)$definition['missing_state'],
-                'stored_value_present' => $sourceKey !== '' && $this->normalizedFieldHasStoredValue($normalizedRow, $normalizedField),
+                'stored_value_present' => $sourceKey !== '' && (
+                    str_starts_with((string)($definition['storage_field'] ?? ''), 'raw_data')
+                    || $this->normalizedFieldHasStoredValue($normalizedRow, $normalizedField)
+                ),
             ];
             $fact['storage_field'] = $this->normalizedStorageField($definition);
             if ($sourceKey !== '') {
@@ -3804,37 +3809,54 @@ final class PlatformDataSyncService
     /**
      * @param array<string, mixed> $row
      */
-    private function amountValue(array $row, string $dataType): float
+    private function amountValue(array $row, string $dataType, bool $preserveMissing = false): ?float
     {
         $dataType = $this->normalizeDataType($dataType);
         if ($dataType === 'advertising') {
-            return $this->numericValue($row, ['todayCost', 'cost', 'cashCost', 'bonusCost', 'ad_cost', 'adCost', 'spend', 'amount']);
+            return $this->nullableNumericValue($row, ['todayCost', 'cost', 'cashCost', 'bonusCost', 'ad_cost', 'adCost', 'spend', 'amount'])
+                ?? ($preserveMissing ? null : 0.0);
         }
         if ($dataType === 'order') {
-            return $this->numericValue($row, ['totalAmount', 'orderAmount', 'payAmount', 'roomAmount', 'amount', 'order_amount', 'room_revenue', 'revenue']);
+            return $this->nullableNumericValue($row, ['totalAmount', 'orderAmount', 'payAmount', 'roomAmount', 'amount', 'order_amount', 'room_revenue', 'revenue'])
+                ?? ($preserveMissing ? null : 0.0);
         }
-        return $this->numericValue($row, ['amount', 'checkoutRevenue', 'checkout_revenue', 'revenue', 'order_amount', 'orderAmount', 'room_revenue', 'bookAmount', 'saleAmount', 'totalAmount']);
+        if ($preserveMissing && in_array($dataType, ['review', 'peer_rank'], true)) {
+            return null;
+        }
+        $amount = $this->nullableNumericValue($row, ['amount', 'checkoutRevenue', 'checkout_revenue', 'revenue', 'order_amount', 'orderAmount', 'room_revenue', 'bookAmount', 'saleAmount', 'totalAmount']);
+        return $amount ?? ($preserveMissing ? null : 0.0);
     }
 
     /**
      * @param array<string, mixed> $row
      */
-    private function quantityValue(array $row, string $dataType): int
+    private function quantityValue(array $row, string $dataType, bool $preserveMissing = false): ?int
     {
         $dataType = $this->normalizeDataType($dataType);
+        if ($preserveMissing && $dataType === 'peer_rank') {
+            return null;
+        }
         if ($dataType === 'order') {
-            $roomCount = $this->numericValue($row, ['roomCount', 'room_count']);
-            $nights = $this->numericValue($row, ['nights', 'night_count', 'nightCount']);
-            if ($roomCount > 0 && $nights > 0) {
+            $roomCount = $this->nullableNumericValue($row, ['roomCount', 'room_count']);
+            $nights = $this->nullableNumericValue($row, ['nights', 'night_count', 'nightCount']);
+            if ($roomCount !== null && $roomCount > 0 && $nights !== null && $nights > 0) {
                 return (int)round($roomCount * $nights);
+            }
+            if ($preserveMissing) {
+                $quantity = $this->nullableNumericValue($row, ['quantity', 'room_nights', 'roomNights', 'nights', 'night_count', 'nightCount']);
+                return $quantity === null ? null : (int)round($quantity);
             }
         }
         if ($dataType === 'review') {
-            $count = $this->numericValue($row, ['review_count', 'reviewCount', 'comment_count', 'commentCount', 'count', 'quantity']);
+            $count = $this->nullableNumericValue($row, ['review_count', 'reviewCount', 'comment_count', 'commentCount', 'count', 'quantity']);
+            if ($preserveMissing) {
+                return $count === null ? null : (int)round($count);
+            }
+            $count = $count ?? 0.0;
             return $count > 0 ? (int)round($count) : 1;
         }
 
-        return (int)$this->numericValue($row, [
+        $quantity = $this->nullableNumericValue($row, [
             'quantity',
             'mt_pay_rooms',
             'pay_rooms',
@@ -3850,53 +3872,98 @@ final class PlatformDataSyncService
             'checkOutQuantity',
             'bookQuantity',
         ]);
+        return $quantity === null
+            ? ($preserveMissing ? null : 0)
+            : (int)round($quantity);
     }
 
     /**
      * @param array<string, mixed> $row
      */
-    private function dataValue(array $row, string $dataType): float
+    private function dataValue(array $row, string $dataType, bool $preserveMissing = false): ?float
     {
-        $explicit = $this->numericValue($row, ['data_value', 'dataValue', 'value', 'metric_value', 'averagePrice', 'avgPrice', 'avg_price']);
-        if ($explicit > 0) {
-            return $explicit;
+        $dataType = $this->normalizeDataType($dataType);
+        if ($preserveMissing && in_array($dataType, ['review', 'peer_rank'], true)) {
+            return null;
         }
 
-        $dataType = $this->normalizeDataType($dataType);
+        if ($dataType === 'advertising') {
+            return $this->nullableNumericValue($row, ['roas', 'roi', 'data_value', 'dataValue']);
+        }
+
+        $explicit = $this->nullableNumericValue($row, ['data_value', 'dataValue', 'value', 'metric_value', 'averagePrice', 'avgPrice', 'avg_price']);
+        if ($explicit !== null) {
+            return $explicit;
+        }
         if ($dataType === 'quality') {
-            return $this->numericValue($row, ['serviceScore', 'psiScore', 'imScore', 'score']);
+            return $this->nullableNumericValue($row, ['serviceScore', 'psiScore', 'imScore', 'score'])
+                ?? ($preserveMissing ? null : 0.0);
         }
         if ($dataType === 'peer_rank') {
             return $this->numericValue($row, ['rank', 'ranking', 'rankValue', 'rank_value', 'rankPercent', 'rank_percent']);
-        }
-        if ($dataType === 'advertising') {
-            return $this->numericValue($row, ['roas', 'roi', 'ecpc', 'ctr', 'cvr']);
         }
         if ($dataType === 'review') {
             return $this->numericValue($row, ['comment_score', 'rating', 'score', 'data_value', 'dataValue']);
         }
         if ($dataType === 'order') {
-            $quantity = $this->quantityValue($row, $dataType);
-            $amount = $this->amountValue($row, $dataType);
-            return $quantity > 0 ? round($amount / $quantity, 2) : 0.0;
+            $quantity = $this->quantityValue($row, $dataType, $preserveMissing);
+            $amount = $this->amountValue($row, $dataType, $preserveMissing);
+            if ($quantity !== null && $quantity > 0 && $amount !== null) {
+                return round($amount / $quantity, 2);
+            }
+            return $preserveMissing ? null : 0.0;
         }
 
-        return 0.0;
+        return $preserveMissing ? null : 0.0;
     }
 
     /**
      * @param array<string, mixed> $row
      */
-    private function orderCountValue(array $row, string $dataType): int
+    private function orderCountValue(array $row, string $dataType, bool $preserveMissing = false): ?int
     {
-        $count = (int)$this->numericValue($row, ['book_order_num', 'orders', 'order_count', 'orderCount', 'bookOrderNum', 'orderNum', 'orderQuantity', 'bookings', 'bookingCount']);
-        if ($count > 0) {
-            return $count;
+        $dataType = $this->normalizeDataType($dataType);
+        if ($preserveMissing && in_array($dataType, ['review', 'peer_rank'], true)) {
+            return null;
         }
-        if ($this->normalizeDataType($dataType) === 'order' && $this->firstOrderIdentifier($row) !== '') {
+        $count = $this->nullableNumericValue($row, ['book_order_num', 'orders', 'order_count', 'orderCount', 'bookOrderNum', 'orderNum', 'orderQuantity', 'bookings', 'bookingCount']);
+        if ($count !== null) {
+            return (int)round($count);
+        }
+        if ($preserveMissing) {
+            return null;
+        }
+        if ($dataType === 'order' && $this->firstOrderIdentifier($row) !== '') {
             return 1;
         }
         return 0;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    private function commentScoreValue(array $row, string $dataType, bool $preserveMissing = false): ?float
+    {
+        if ($this->normalizeDataType($dataType) !== 'review') {
+            return $this->nullableNumericValue($row, ['comment_score']);
+        }
+        return $this->nullableNumericValue($row, ['comment_score', 'rating', 'score'])
+            ?? ($preserveMissing ? null : 0.0);
+    }
+
+    /**
+     * `flow_rate` is a funnel-stage metric. Advertising rows use CTR
+     * (impressions to clicks); CVR stays in raw_data as a separate stage.
+     *
+     * @param array<string, mixed> $row
+     */
+    private function flowRateValue(array $row, string $dataType, bool $preserveMissing = false): ?float
+    {
+        $dataType = $this->normalizeDataType($dataType);
+        $keys = $dataType === 'advertising'
+            ? ['flow_rate', 'flowRate', 'ctr']
+            : ['flow_rate', 'flowRate', 'cvr', 'conversion_rate', 'conversionRate', 'convertionRate', 'avgConversionsRate', 'orderConversionRate', 'dealRate'];
+        return $this->nullableNumericValue($row, $keys) ?? ($preserveMissing ? null : 0.0);
     }
 
     /**
@@ -4491,6 +4558,38 @@ final class PlatformDataSyncService
             return is_numeric($value) ? (float)$value : 0.0;
         }
         return 0.0;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<int, string> $keys
+     */
+    private function nullableNumericValue(array $row, array $keys): ?float
+    {
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $row) || $row[$key] === null) {
+                continue;
+            }
+            $value = str_replace([',', '%', ' ', "\u{00A0}", '元', '￥', '¥'], '', (string)$row[$key]);
+            if ($value === '') {
+                continue;
+            }
+            return is_numeric($value) ? (float)$value : null;
+        }
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<int, string> $keys
+     */
+    private function integerMetricValue(array $row, array $keys, bool $preserveMissing = false): ?int
+    {
+        $value = $this->nullableNumericValue($row, $keys);
+        if ($value === null) {
+            return $preserveMissing ? null : 0;
+        }
+        return (int)round($value);
     }
 
     /**

@@ -201,9 +201,41 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
 
         $rows = $this->buildRows($payload, $source, $systemHotelId, $dataDate, $poiId !== '' ? $poiId : $storeId);
         if (empty($rows)) {
+            if (BrowserProfileCaptureRequestService::isConfirmedEmptyMeituanCaptureGate($gate)) {
+                $payload['rows'] = [];
+                $payload['sync_summary'] = [
+                    'row_count' => 0,
+                    'confirmed_empty' => true,
+                ];
+                return [
+                    'status' => 'success',
+                    'message' => 'Meituan returned an authoritative empty result; no rows were written.',
+                    'payload' => $payload,
+                ];
+            }
             return [
                 'status' => 'failed',
                 'message' => 'Meituan browser capture completed but no business rows were parsed.',
+                'payload' => $this->compactFailurePayload($payload, $runResult),
+            ];
+        }
+        $mismatchedDates = BrowserProfileCaptureRequestService::mismatchedMeituanTargetDates($rows, $dataDate);
+        if ($mismatchedDates !== []) {
+            return [
+                'status' => 'failed',
+                'status_code' => 'meituan_target_date_mismatch',
+                'error_code' => 'meituan_target_date_mismatch',
+                'message' => 'Meituan browser capture returned rows outside requested target date ' . $dataDate . ': ' . implode(',', $mismatchedDates),
+                'payload' => $this->compactFailurePayload($payload, $runResult),
+            ];
+        }
+        $unverifiedDates = BrowserProfileCaptureRequestService::unverifiedMeituanTargetDateRows($rows, $dataDate);
+        if ($unverifiedDates !== []) {
+            return [
+                'status' => 'failed',
+                'status_code' => 'meituan_target_date_unverified',
+                'error_code' => 'meituan_target_date_unverified',
+                'message' => 'Meituan browser capture rows do not contain authoritative target-date evidence.',
                 'payload' => $this->compactFailurePayload($payload, $runResult),
             ];
         }
@@ -260,12 +292,16 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
                 if (!is_array($row)) {
                     continue;
                 }
+                $explicitDataDate = $this->normalizeDate((string)($row['data_date'] ?? $row['dataDate'] ?? $row['date'] ?? ''));
                 $row['source'] = 'meituan';
                 $row['platform'] = $row['platform'] ?? 'meituan';
                 $row['system_hotel_id'] = $row['system_hotel_id'] ?? $systemHotelId;
                 $row['hotel_id'] = $this->firstRowString($row, ['hotel_id', 'hotelId', 'poi_id', 'poiId', 'store_id', 'storeId'], $platformHotelId);
                 $row['hotel_name'] = $row['hotel_name'] ?? $row['hotelName'] ?? $row['poi_name'] ?? $row['poiName'] ?? $source['name'] ?? '';
-                $row['data_date'] = $this->normalizeDate((string)($row['data_date'] ?? $row['dataDate'] ?? $row['date'] ?? '')) ?: $dataDate;
+                $row['data_date'] = $explicitDataDate !== '' ? $explicitDataDate : $dataDate;
+                if (trim((string)($row['date_source'] ?? $row['dateSource'] ?? '')) === '') {
+                    $row['date_source'] = $explicitDataDate !== '' ? 'row' : 'capture_context.default_data_date';
+                }
                 $row['data_type'] = $row['data_type'] ?? $dataType;
                 $row['acquisition_method'] = 'browser_profile';
                 $rows[] = $row;

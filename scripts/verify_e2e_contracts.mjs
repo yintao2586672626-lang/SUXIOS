@@ -3161,6 +3161,7 @@ try {
     const csvRequestBody = buildMeituanOrderCsvImportRequestBody({
       csvText,
       form: { poiId: 'poi-1', startDate: '2026-05-28', endDate: '2026-05-30' },
+      configId: 'meituan-7',
       systemHotelId: 7,
       hotelName: 'Demo Hotel',
     });
@@ -3168,6 +3169,7 @@ try {
     let csvFlowRequestBody = null;
     const csvFlowResult = await runMeituanOrderCsvImportFlow({
       getForm: () => ({ csvText, poiId: 'poi-1', startDate: '2026-05-28', endDate: '2026-05-30' }),
+      getConfigId: () => 'meituan-7',
       getSystemHotelId: () => 7,
       getHotelNameById: () => 'Demo Hotel',
       notify: (message, level) => csvImportEvents.push(`notify:${level}:${message}`),
@@ -3189,6 +3191,8 @@ try {
         && parsedCsvRows[0].bottomPrice === '188.50'
         && csvRequestBody.payload.orders.length === 1
         && csvRequestBody.payload.data_period === 'manual_dom_csv'
+        && csvRequestBody.config_id === 'meituan-7'
+        && csvRequestBody.payload.config_id === 'meituan-7'
         && csvRequestBody.payload.system_hotel_id === 7
         && csvFlowResult.status === 'success'
         && csvFlowRequestBody?.payload?.orders?.[0]?.checkIn === '2026-05-29'
@@ -3728,7 +3732,7 @@ try {
     });
     const payloadSaveContext = buildMeituanCapturedPayloadSaveContext({
       form: {
-        payloadJson: '{"source":"browser","saved_count":2}',
+        payloadJson: '{"source":"browser","saved_count":2,"store_id":"store-60","poi_id":"poi-60"}',
         storeId: ' store-60 ',
         poiId: 'poi-60',
         poiName: 'POI 60',
@@ -3749,6 +3753,7 @@ try {
         && payloadInvalidObject.message === '抓取结果必须是 JSON 对象'
         && payloadSaveContext.ok === true
         && payloadSaveContext.requestBody.system_hotel_id === '60'
+        && payloadSaveContext.requestBody.profile_key === 'store-60'
         && payloadSaveContext.requestBody.payload.store_id === 'store-60'
         && payloadSaveContext.requestBody.payload.poi_id === 'poi-60'
         && payloadSaveContext.requestBody.payload.poi_name === 'POI 60'
@@ -3764,7 +3769,7 @@ try {
     let payloadOnlineResult = null;
     const payloadFlowResult = await runMeituanCapturedPayloadSaveFlow({
       getForm: () => ({
-        payloadJson: '{"rooms":[{"id":1}]}',
+        payloadJson: '{"store_id":"store-70","poi_id":"poi-70","rooms":[{"id":1}]}',
         storeId: ' store-70 ',
         poiId: 'poi-70',
         poiName: '',
@@ -3784,7 +3789,7 @@ try {
     const payloadFailedEvents = [];
     const payloadFailedStates = [];
     const payloadFailedResult = await runMeituanCapturedPayloadSaveFlow({
-      getForm: () => ({ payloadJson: '{}', storeId: 'store-failed' }),
+      getForm: () => ({ payloadJson: '{"store_id":"store-failed","poi_id":"poi-failed"}', storeId: 'store-failed' }),
       getSystemHotelId: () => '80',
       notify: (message, level) => payloadFailedEvents.push(`notify:${level}:${message}`),
       setFetching: value => payloadFailedStates.push(`fetching:${value}`),
@@ -3793,7 +3798,7 @@ try {
     const payloadExceptionEvents = [];
     const payloadExceptionStates = [];
     const payloadExceptionResult = await runMeituanCapturedPayloadSaveFlow({
-      getForm: () => ({ payloadJson: '{}', storeId: 'store-exception' }),
+      getForm: () => ({ payloadJson: '{"store_id":"store-exception","poi_id":"poi-exception"}', storeId: 'store-exception' }),
       getSystemHotelId: () => '90',
       notify: (message, level) => payloadExceptionEvents.push(`notify:${level}:${message}`),
       setFetching: value => payloadExceptionStates.push(`fetching:${value}`),
@@ -3813,6 +3818,7 @@ try {
       label: 'Meituan captured payload save flow preserves success, failed and exception states',
       ok: payloadFlowResult.status === 'success'
         && payloadRequestedBody.system_hotel_id === '70'
+        && payloadRequestedBody.profile_key === 'store-70'
         && payloadRequestedBody.payload.store_id === 'store-70'
         && payloadRequestedBody.payload.poi_id === 'poi-70'
         && payloadRequestedBody.payload.poi_name === 'Hotel 70'

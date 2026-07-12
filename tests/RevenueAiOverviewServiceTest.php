@@ -8,6 +8,28 @@ use PHPUnit\Framework\TestCase;
 
 final class RevenueAiOverviewServiceTest extends TestCase
 {
+    public function testOverviewDoesNotMarkMissingRoomNightsAsOk(): void
+    {
+        $fact = $this->dailyFact('meituan', 500, 0, null, [
+            'room_nights' => null,
+            'occupied_room_nights' => null,
+            'order_count' => null,
+            'adr' => null,
+        ]);
+        $dataset = $this->dataset([$fact]);
+
+        $overview = (new RevenueAiOverviewService())->buildOverviewFromDataset(
+            $dataset,
+            ['meituan' => $dataset],
+            ['meituan' => ['status' => 'ready', 'last_sync_status' => 'success', 'last_sync_time' => '2026-07-12 10:00:00']],
+            ['business_date' => '2026-07-12', 'hotel_id' => 7]
+        );
+
+        self::assertNull($overview['metrics']['ota_room_nights']['value']);
+        self::assertSame('not_calculable', $overview['metrics']['ota_room_nights']['status']);
+        self::assertSame('room_nights_missing', $overview['metrics']['ota_room_nights']['reason']);
+    }
+
     public function testOverviewBuildsOtaMetricsAndKeepsRevparScopedToWholeHotelDenominator(): void
     {
         $overview = (new RevenueAiOverviewService())->buildOverviewFromDataset(

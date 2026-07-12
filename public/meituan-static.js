@@ -1088,11 +1088,12 @@ window.SUXI_MEITUAN_STATIC = (() => {
         }
 
         const storeId = String(form.storeId || '').trim();
-        const poiId = String(form.poiId || storeId || '').trim();
+        const payloadStoreId = String(payload.store_id || payload.storeId || payload.poi_id || payload.poiId || '').trim();
+        if (!payloadStoreId) {
+            return { ok: false, status: 'missing_payload_identity', level: 'error', message: '抓取结果缺少美团门店标识' };
+        }
         const poiName = String(form.poiName || hotelName || '').trim();
         const enrichedPayload = { ...payload };
-        enrichedPayload.store_id = enrichedPayload.store_id || storeId || poiId;
-        enrichedPayload.poi_id = enrichedPayload.poi_id || poiId || storeId;
         enrichedPayload.poi_name = enrichedPayload.poi_name || poiName;
         enrichedPayload.system_hotel_id = enrichedPayload.system_hotel_id || Number(systemHotelId);
 
@@ -1102,6 +1103,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
             payload: enrichedPayload,
             requestBody: {
                 system_hotel_id: systemHotelId,
+                profile_key: storeId || payloadStoreId,
                 payload: enrichedPayload,
             },
         };
@@ -2777,12 +2779,14 @@ window.SUXI_MEITUAN_STATIC = (() => {
     const buildMeituanOrderCsvImportRequestBody = ({
         csvText = '',
         form = {},
+        configId = '',
         systemHotelId = null,
         hotelName = '',
     } = {}) => {
         const orders = parseMeituanOrderCsvText(csvText);
         const poiId = String(form.poiId || '').trim();
         return {
+            config_id: String(configId || '').trim(),
             system_hotel_id: systemHotelId,
             hotel_id: systemHotelId,
             payload: {
@@ -2790,6 +2794,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 poi_id: poiId,
                 poi_name: hotelName,
                 system_hotel_id: systemHotelId,
+                config_id: String(configId || '').trim(),
                 default_data_date: form.endDate || form.startDate || new Date().toISOString().slice(0, 10),
                 data_period: 'manual_dom_csv',
                 orders,
@@ -2800,6 +2805,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
 
     const runMeituanOrderCsvImportFlow = async ({
         getForm = () => ({}),
+        getConfigId = () => '',
         getSystemHotelId = () => null,
         getHotelNameById = () => '',
         notify = () => {},
@@ -2812,6 +2818,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         const form = normalizeMeituanOrderFetchForm(getForm() || {});
         const csvText = String(form.csvText || '').trim();
         const systemHotelId = getSystemHotelId();
+        const configId = String(getConfigId() || '').trim();
         if (!systemHotelId) {
             notify('请选择目标酒店后再导入 CSV', 'error');
             return { status: 'missing_system_hotel_id', form };
@@ -2820,9 +2827,14 @@ window.SUXI_MEITUAN_STATIC = (() => {
             notify('请先粘贴美团订单 CSV 内容', 'error');
             return { status: 'missing_csv_text', form };
         }
+        if (!configId) {
+            notify('请先选择已绑定的美团配置', 'error');
+            return { status: 'missing_config_id', form };
+        }
         const requestBody = buildMeituanOrderCsvImportRequestBody({
             csvText,
             form,
+            configId,
             systemHotelId,
             hotelName: getHotelNameById(systemHotelId),
         });

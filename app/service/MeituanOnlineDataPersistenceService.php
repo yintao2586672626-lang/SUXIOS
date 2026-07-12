@@ -58,7 +58,7 @@ final class MeituanOnlineDataPersistenceService
                 // 美团竞对排名数据：平台新版可能只返回 percent，不再返回 dataValue。
                 $sourceDataValue = $this->nullableNumberFromKeys($item, ['dataValue', 'data_value', 'monthRoomNights', 'month_room_nights']);
                 $rankPercent = $this->meituanRankPercentValue($item);
-                $dataValue = $sourceDataValue ?? 0.0;
+                $dataValue = $sourceDataValue;
                 $metricStatus = $sourceDataValue !== null
                     ? 'platform_value_returned'
                     : ($rankPercent !== null ? 'platform_percent_only' : 'platform_value_missing');
@@ -69,6 +69,10 @@ final class MeituanOnlineDataPersistenceService
 
                 // 判断榜单类型：P_XS=销售榜(包含销售间夜榜+销售额榜), P_RZ=入住榜, P_ZH=转化榜, P_LL=流量榜
                 $rankType = strtoupper(trim((string)($item['rankType'] ?? $item['rank_type'] ?? $context['rank_type'] ?? $context['rankType'] ?? '')));
+                $dateRange = trim((string)($context['date_range'] ?? $context['dateRange'] ?? $item['dateRange'] ?? $item['date_range'] ?? ''));
+                $identityStartDate = trim((string)($context['start_date'] ?? $context['startDate'] ?? $startDate));
+                $identityEndDate = trim((string)($context['end_date'] ?? $context['endDate'] ?? $endDate));
+                $storageDimension = $this->buildRankStorageDimension($dimName, $rankType, $dateRange, $identityStartDate, $identityEndDate);
                 $platformTagInfo = $this->extractMeituanPlatformTagInfo($item);
                 $hasVipTag = $this->hasMeituanVipPlatformTag($platformTagInfo['tags']);
                 $platformTagText = !empty($platformTagInfo['tags']) ? implode(' / ', $platformTagInfo['tags']) : '未返回';
@@ -98,24 +102,16 @@ final class MeituanOnlineDataPersistenceService
                 \think\facade\Log::info("美团数据解析 - 详细判断: dimName=$dimName, rankType=$rankType, dataValue=$dataValue, percent=" . ($rankPercent ?? 'null') . ", metricStatus=$metricStatus, isSalesAmountRank=" . ($isSalesAmountRank ? 'true' : 'false') . ", isRoomRevenueRank=" . ($isRoomRevenueRank ? 'true' : 'false') . ", isRoomNightRank=" . ($isRoomNightRank ? 'true' : 'false'));
                 \think\facade\Log::info("美团数据解析 - 完整数据项: " . json_encode($item, JSON_UNESCAPED_UNICODE));
 
-                // 根据榜单类型设置 amount 和 quantity
-                if ($isRoomNightRank) {
-                    // 间夜榜（销售间夜榜、入住间夜榜）：dataValue 是间夜数
-                    $amount = 0;
-                    $quantity = intval($dataValue);
-                } elseif ($isSalesAmountRank || $isRoomRevenueRank) {
-                    // 销售额榜（交易额榜、房费收入榜）：dataValue 是销售额（元）
-                    $amount = $dataValue;
-                    $quantity = 0;
-                } elseif ($isConversionRank || $isTrafficRank) {
-                    // 转化榜和流量榜：dataValue 可能是百分比或次数，保存到 data_value
-                    $amount = 0;
-                    $quantity = 0;
-                } else {
-                    // 无法识别的榜单类型：只保留 data_value，不按数值大小猜测金额或间夜
-                    $amount = 0;
-                    $quantity = 0;
-                }
+                $storageValues = $this->buildRankMetricStorageValues(
+                    $sourceDataValue,
+                    $isRoomNightRank,
+                    $isSalesAmountRank || $isRoomRevenueRank,
+                    $isConversionRank,
+                    $isTrafficRank
+                );
+                $dataValue = $storageValues['data_value'];
+                $amount = $storageValues['amount'];
+                $quantity = $storageValues['quantity'];
 
                 // 详细记录榜单类型判断结果
                 \think\facade\Log::info("美团数据解析 - 榜单判断: dimName=$dimName, rankType=$rankType, isSalesAmountRank=" . ($isSalesAmountRank ? 'true' : 'false') . ", isRoomNightRank=" . ($isRoomNightRank ? 'true' : 'false') . ", isConversionRank=" . ($isConversionRank ? 'true' : 'false') . ", isTrafficRank=" . ($isTrafficRank ? 'true' : 'false'));
@@ -127,14 +123,20 @@ final class MeituanOnlineDataPersistenceService
                     'data_date' => $itemDate,
                     'source' => 'meituan',
                     'data_type' => $rankDataType,
-                    'dimension' => $dimName,
+                    'dimension' => $storageDimension,
                 ], $columns, $item);
 
                 $query = Db::name('online_daily_data')
                     ->where('hotel_name', $hotelName)
                     ->where('data_date', $itemDate)
                     ->where('source', 'meituan')
-                    ->where('dimension', $dimName);
+                    ->where('dimension', $storageDimension);
+                if (isset($columns['hotel_id'])) {
+                    $query->where('hotel_id', (string)$hotelId);
+                }
+                if (isset($columns['data_type'])) {
+                    $query->where('data_type', $rankDataType);
+                }
                 OnlineDailyDataPersistenceService::applyPeriodQuery($query, $periodFilter, $columns);
 
                 if ($systemHotelId !== null) {
@@ -150,10 +152,11 @@ final class MeituanOnlineDataPersistenceService
                     'metricStatus' => $metricStatus,
                     'rankType' => $rankType,
                     'rank' => $item['rank'] ?? $item['ranking'] ?? null,
-                    'dateRange' => $context['date_range'] ?? $item['dateRange'] ?? $item['date_range'] ?? '',
-                    'startDate' => $context['start_date'] ?? $startDate,
-                    'endDate' => $context['end_date'] ?? $endDate,
+                    'dateRange' => $dateRange,
+                    'startDate' => $identityStartDate,
+                    'endDate' => $identityEndDate,
                     'dimension' => $dimName,
+                    'storageDimension' => $storageDimension,
                     'aiMetricName' => $aiMetricName,
                     'platformTags' => $platformTagInfo['tags'],
                     'platformTagStatus' => $platformTagInfo['status'],
@@ -190,7 +193,7 @@ final class MeituanOnlineDataPersistenceService
                     'comment_score' => 0,
                     'qunar_comment_score' => 0,
                     'source' => 'meituan',
-                    'dimension' => $dimName,
+                    'dimension' => $storageDimension,
                     'data_type' => $rankDataType,
                     'raw_data' => json_encode($rawData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
                 ];
@@ -209,8 +212,43 @@ final class MeituanOnlineDataPersistenceService
 
             return $savedCount;
         } catch (\Throwable $e) {
-            return 0;
+            \think\facade\Log::error('Meituan rank persistence failed: ' . $e->getMessage());
+            throw new \RuntimeException('meituan_rank_persistence_failed', 500, $e);
         }
+    }
+
+    private function buildRankStorageDimension(string $dimension, string $rankType, string $dateRange, string $startDate, string $endDate): string
+    {
+        $dimension = trim($dimension) !== '' ? trim($dimension) : 'unknown';
+        $rankType = strtoupper(trim($rankType)) !== '' ? strtoupper(trim($rankType)) : 'UNKNOWN';
+        $dateRange = trim($dateRange) !== '' ? trim($dateRange) : 'unknown';
+        $windowHash = substr(hash('sha256', trim($startDate) . '|' . trim($endDate)), 0, 12);
+        $identitySuffix = 'rank=' . $rankType . '|range=' . $dateRange . '|window=' . $windowHash;
+        $dimensionLimit = max(1, 100 - mb_strlen($identitySuffix) - 1);
+
+        return mb_substr($dimension, 0, $dimensionLimit) . '|' . $identitySuffix;
+    }
+
+    /**
+     * @return array{data_value:?float,amount:?float,quantity:?int}
+     */
+    private function buildRankMetricStorageValues(?float $sourceDataValue, bool $isRoomNightRank, bool $isAmountRank, bool $isConversionRank, bool $isTrafficRank): array
+    {
+        if ($sourceDataValue === null) {
+            return ['data_value' => null, 'amount' => null, 'quantity' => null];
+        }
+
+        if ($isRoomNightRank) {
+            return ['data_value' => $sourceDataValue, 'amount' => 0.0, 'quantity' => max(0, (int)$sourceDataValue)];
+        }
+        if ($isAmountRank) {
+            return ['data_value' => $sourceDataValue, 'amount' => $sourceDataValue, 'quantity' => 0];
+        }
+        if ($isConversionRank || $isTrafficRank) {
+            return ['data_value' => $sourceDataValue, 'amount' => 0.0, 'quantity' => 0];
+        }
+
+        return ['data_value' => $sourceDataValue, 'amount' => 0.0, 'quantity' => 0];
     }
 
     private function nullableNumberFromKeys(array $data, array $keys): ?float

@@ -163,13 +163,13 @@ final class OnlineDataFieldFactService
                 'metric_key' => 'room_nights',
                 'normalized_field' => 'quantity',
                 'storage_field' => 'quantity',
-                'source_keys' => ['nights', 'night_count', 'nightCount', 'room_count', 'roomCount', 'rooms'],
+                'source_keys' => ['room_nights', 'roomNights', 'quantity'],
             ],
             [
                 'metric_key' => 'order_count',
                 'normalized_field' => 'book_order_num',
                 'storage_field' => 'book_order_num',
-                'source_keys' => ['order_id', 'orderId', 'id', 'order_count', 'orderCount'],
+                'source_keys' => ['order_count', 'orderCount', 'book_order_num', 'bookOrderNum'],
             ],
             [
                 'metric_key' => 'average_price',

@@ -6256,7 +6256,8 @@ trait AutoFetchConcern
             $storeId,
             $outputPath,
             $interactiveBrowser,
-            $chromePath
+            $chromePath,
+            $dataDate
         );
 
         $runResult = $this->runMeituanCaptureProcess($args, $projectRoot, $interactiveBrowser ? 600 : 180);

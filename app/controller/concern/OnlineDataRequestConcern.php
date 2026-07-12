@@ -5,6 +5,7 @@ namespace app\controller\concern;
 
 use app\model\OperationLog;
 use app\service\BrowserProfileCaptureRequestService;
+use app\service\MeituanManualIdentityService;
 use app\service\OtaExecutionStageException;
 use app\service\OtaTrafficUrlNormalizer;
 use app\service\PlatformDataSyncService;
@@ -83,6 +84,7 @@ trait OnlineDataRequestConcern
         if (!is_array($payload)) {
             return $this->error('Invalid Meituan captured payload');
         }
+        $manualImport = $this->isMeituanManualCapturedPayload($requestData, $payload);
 
         $systemHotelId = $this->resolveOnlineDataSystemHotelId(
             $requestData['system_hotel_id']
@@ -91,15 +93,76 @@ trait OnlineDataRequestConcern
             ?? $payload['hotel_id']
             ?? null
         );
+        if (!$systemHotelId) {
+            return $this->error('Meituan captured payload requires a system hotel binding.', 409, [
+                'status_code' => $manualImport ? 'meituan_manual_binding_missing' : 'meituan_profile_binding_missing',
+            ]);
+        }
+        try {
+            $profileIdentity = $manualImport
+                ? $this->resolveMeituanCapturedManualIdentity($requestData, $payload, (int)$systemHotelId)
+                : $this->resolveMeituanCapturedProfileIdentity($requestData, $payload, (int)$systemHotelId);
+        } catch (\Throwable $e) {
+            $status = $e->getCode() >= 400 && $e->getCode() < 600 ? $e->getCode() : 409;
+            return $this->error($e->getMessage(), $status, [
+                'status_code' => $e->getMessage(),
+                'ingestion_method' => $manualImport ? 'manual_import' : 'browser_profile',
+            ]);
+        }
+        $targetDataDate = $this->normalizeOnlineDataDate(
+            $requestData['data_date']
+            ?? $requestData['dataDate']
+            ?? $payload['default_data_date']
+            ?? $payload['defaultDataDate']
+            ?? ''
+        );
+        if ($targetDataDate === '') {
+            return $this->error('meituan_target_date_missing', 422, [
+                'status_code' => 'meituan_target_date_missing',
+            ]);
+        }
+        $payload['default_data_date'] = $targetDataDate;
         $rows = $this->buildMeituanCapturedDailyRows($payload, $systemHotelId);
+        $mismatchedDates = BrowserProfileCaptureRequestService::mismatchedMeituanTargetDates($rows, $targetDataDate);
+        if ($mismatchedDates !== []) {
+            return $this->error('meituan_target_date_mismatch', 422, [
+                'status_code' => 'meituan_target_date_mismatch',
+                'target_date' => $targetDataDate,
+                'returned_dates' => $mismatchedDates,
+            ]);
+        }
+        $unverifiedDates = BrowserProfileCaptureRequestService::unverifiedMeituanTargetDateRows($rows, $targetDataDate);
+        if ($unverifiedDates !== []) {
+            return $this->error('meituan_target_date_unverified', 422, [
+                'status_code' => 'meituan_target_date_unverified',
+                'target_date' => $targetDataDate,
+                'unverified_rows' => $unverifiedDates,
+            ]);
+        }
         if (empty($rows)) {
-            return $this->success([
-                'saved_count' => 0,
-                'row_count' => 0,
-                'counts' => [],
-            ], 'No Meituan captured rows to save');
+            $gate = is_array($payload['capture_gate'] ?? null) ? $payload['capture_gate'] : [];
+            if (!$manualImport && BrowserProfileCaptureRequestService::isConfirmedEmptyMeituanCaptureGate($gate)) {
+                return $this->success([
+                    'saved_count' => 0,
+                    'row_count' => 0,
+                    'counts' => [],
+                    'capture_gate' => $gate,
+                    'ingestion_method' => $manualImport ? 'manual_import' : 'browser_profile',
+                ], 'Meituan returned an authoritative empty result; no rows were written.');
+            }
+            return $this->error('meituan_capture_no_business_rows', 422, [
+                'status_code' => 'meituan_capture_no_business_rows',
+                'ingestion_method' => $manualImport ? 'manual_import' : 'browser_profile',
+            ]);
         }
 
+        $dataSourceId = (int)($profileIdentity['data_source_id'] ?? 0);
+        if ($dataSourceId > 0) {
+            foreach ($rows as &$row) {
+                $row['data_source_id'] = $dataSourceId;
+            }
+            unset($row);
+        }
         $savedCount = $this->saveMeituanCapturedDailyRows($rows);
         if ($this->currentUser && isset($this->currentUser->id)) {
             OperationLog::record(
@@ -115,7 +178,99 @@ trait OnlineDataRequestConcern
             'saved_count' => $savedCount,
             'row_count' => count($rows),
             'counts' => $this->summarizeMeituanCapturedRows($rows),
+            'ingestion_method' => $manualImport ? 'manual_import' : 'browser_profile',
         ]);
+    }
+
+    /** @param array<string, mixed> $requestData @param array<string, mixed> $payload */
+    private function isMeituanManualCapturedPayload(array $requestData, array $payload): bool
+    {
+        $method = strtolower(trim((string)(
+            $requestData['ingestion_method']
+            ?? $requestData['ingestionMethod']
+            ?? $payload['data_period']
+            ?? $payload['dataPeriod']
+            ?? $payload['ingestion_method']
+            ?? $payload['ingestionMethod']
+            ?? ''
+        )));
+        if (in_array($method, ['manual_dom_csv', 'manual_import'], true)) {
+            return true;
+        }
+        foreach (['orders', 'traffic', 'ads', 'reviews'] as $section) {
+            foreach (is_array($payload[$section] ?? null) ? $payload[$section] : [] as $row) {
+                if (is_array($row)
+                    && in_array(strtolower(trim((string)($row['_ingestion_method'] ?? ''))), ['manual_dom_csv', 'manual_import'], true)
+                ) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $requestData
+     * @param array<string, mixed> $payload
+     * @return array{store_id:string,poi_id:string,shop_id:string,data_source_id:int}
+     */
+    private function resolveMeituanCapturedManualIdentity(array $requestData, array &$payload, int $systemHotelId): array
+    {
+        $configId = trim((string)($requestData['config_id'] ?? $requestData['configId'] ?? $payload['config_id'] ?? $payload['configId'] ?? ''));
+        if ($configId === '') {
+            throw new \RuntimeException('meituan_manual_config_missing', 409);
+        }
+        $storedConfig = $this->resolveMeituanManualFetchConfigMetadata($configId, $systemHotelId);
+        if ($storedConfig === []) {
+            throw new \RuntimeException('meituan_config_locator_mismatch', 409);
+        }
+        $identity = (new MeituanManualIdentityService())->resolveCapturedPayloadIdentity($payload, $storedConfig);
+        $payload['store_id'] = $identity['store_id'];
+        $payload['poi_id'] = $identity['poi_id'];
+        $payload['shop_id'] = $identity['shop_id'];
+        return $identity + ['data_source_id' => 0];
+    }
+
+    /**
+     * @param array<string, mixed> $requestData
+     * @param array<string, mixed> $payload
+     * @return array{store_id:string,poi_id:string,shop_id:string,data_source_id:int}
+     */
+    private function resolveMeituanCapturedProfileIdentity(array $requestData, array &$payload, int $systemHotelId): array
+    {
+        $profileKey = trim((string)(
+            $requestData['profile_key']
+            ?? $requestData['profileKey']
+            ?? $requestData['store_id']
+            ?? $requestData['storeId']
+            ?? $requestData['poi_id']
+            ?? $requestData['poiId']
+            ?? $payload['store_id']
+            ?? $payload['storeId']
+            ?? $payload['poi_id']
+            ?? $payload['poiId']
+            ?? ''
+        ));
+        if ($profileKey === '') {
+            throw new \RuntimeException('meituan_profile_binding_missing', 409);
+        }
+
+        $this->assertOtaProfileBindingForHotel('meituan', $systemHotelId, $profileKey);
+        $source = $this->loadProfileSessionSource('meituan', $systemHotelId, $profileKey);
+        if (!is_array($source)) {
+            throw new \RuntimeException('meituan_profile_source_missing', 409);
+        }
+        $storedConfig = json_decode((string)($source['config_json'] ?? ''), true);
+        if (!is_array($storedConfig)) {
+            throw new \RuntimeException('meituan_profile_source_invalid', 409);
+        }
+
+        $identity = (new MeituanManualIdentityService())->resolveCapturedPayloadIdentity($payload, $storedConfig);
+        $payload['store_id'] = $identity['store_id'];
+        $payload['poi_id'] = $identity['poi_id'];
+        $payload['shop_id'] = $identity['shop_id'];
+
+        return $identity + ['data_source_id' => max(0, (int)($source['id'] ?? 0))];
     }
 
     // Launch local browser profile capture, then save the captured payload.
@@ -177,6 +332,7 @@ trait OnlineDataRequestConcern
         }
 
         $outputPath = $capturePlan['output_path'];
+        $targetDataDate = (string)($capturePlan['data_date'] ?? '');
         $timeoutSeconds = (int)$capturePlan['timeout_seconds'];
 
         $args = $capturePlan['args'];
@@ -310,8 +466,51 @@ trait OnlineDataRequestConcern
             ]);
         }
 
+        try {
+            $profileIdentity = $this->resolveMeituanCapturedProfileIdentity($requestData, $payload, (int)$systemHotelId);
+        } catch (\Throwable $e) {
+            $status = $e->getCode() >= 400 && $e->getCode() < 600 ? $e->getCode() : 409;
+            return $this->error($e->getMessage(), $status, [
+                'status_code' => $e->getMessage() === 'meituan_platform_identity_mismatch'
+                    ? 'meituan_platform_identity_mismatch'
+                    : 'meituan_profile_binding_blocked',
+                'capture_gate' => $gate,
+                'output' => $outputPath,
+            ]);
+        }
+
         $rows = $this->buildMeituanCapturedDailyRows($payload, $systemHotelId);
+        $mismatchedDates = BrowserProfileCaptureRequestService::mismatchedMeituanTargetDates($rows, $targetDataDate);
+        if ($mismatchedDates !== []) {
+            return $this->error('美团浏览器 Profile 返回了目标日期之外的累计数据，未入库', 422, [
+                'status_code' => 'meituan_target_date_mismatch',
+                'target_date' => $targetDataDate,
+                'returned_dates' => $mismatchedDates,
+                'capture_gate' => $gate,
+                'output' => $outputPath,
+            ]);
+        }
+        $unverifiedDates = BrowserProfileCaptureRequestService::unverifiedMeituanTargetDateRows($rows, $targetDataDate);
+        if ($unverifiedDates !== []) {
+            return $this->error('美团浏览器 Profile 缺少可验证的目标日期证据，未入库', 422, [
+                'status_code' => 'meituan_target_date_unverified',
+                'target_date' => $targetDataDate,
+                'unverified_rows' => $unverifiedDates,
+                'capture_gate' => $gate,
+                'output' => $outputPath,
+            ]);
+        }
         if (empty($rows)) {
+            if (BrowserProfileCaptureRequestService::isConfirmedEmptyMeituanCaptureGate($gate)) {
+                return $this->success([
+                    'auth_status' => $payload['auth_status'] ?? null,
+                    'capture_gate' => $gate,
+                    'saved_count' => 0,
+                    'row_count' => 0,
+                    'counts' => [],
+                    'output' => $outputPath,
+                ], '美团平台已确认当前条件无数据，未写入空行');
+            }
             return $this->error('美团浏览器 Profile 采集未解析到业务行，未入库空数据', 400, [
                 'auth_status' => $payload['auth_status'] ?? null,
                 'capture_gate' => $payload['capture_gate'] ?? null,
@@ -323,7 +522,8 @@ trait OnlineDataRequestConcern
         }
         $dataSourceBinding = null;
         $dataSourceBindingError = '';
-        $dataSourceId = null;
+        $resolvedDataSourceId = (int)($profileIdentity['data_source_id'] ?? 0);
+        $dataSourceId = $resolvedDataSourceId > 0 ? $resolvedDataSourceId : null;
         if ($systemHotelId && $this->isTruthyRequestValue($requestData['bind_data_source'] ?? $requestData['bindDataSource'] ?? false)) {
             try {
                 $dataSourceBinding = $this->bindBrowserProfileDataSource('meituan', (int)$systemHotelId, $requestData, $payload);

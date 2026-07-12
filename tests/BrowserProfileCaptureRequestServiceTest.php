@@ -8,6 +8,60 @@ use PHPUnit\Framework\TestCase;
 
 final class BrowserProfileCaptureRequestServiceTest extends TestCase
 {
+    public function testConfirmedEmptyGateRequiresEveryRequestedSectionToBeAuthoritativelyEmpty(): void
+    {
+        self::assertTrue(BrowserProfileCaptureRequestService::isConfirmedEmptyMeituanCaptureGate([
+            'status' => 'pass',
+            'section_statuses' => ['orders' => 'empty_confirmed', 'reviews' => 'empty_confirmed'],
+        ]));
+        self::assertFalse(BrowserProfileCaptureRequestService::isConfirmedEmptyMeituanCaptureGate([
+            'status' => 'pass',
+            'section_statuses' => ['traffic' => 'captured', 'orders' => 'empty_confirmed'],
+        ]));
+        self::assertFalse(BrowserProfileCaptureRequestService::isConfirmedEmptyMeituanCaptureGate([
+            'status' => 'fail',
+            'section_statuses' => ['orders' => 'empty_confirmed'],
+        ]));
+    }
+
+    public function testRejectsCumulativeRowsWhoseDateOnlyCameFromCaptureFallback(): void
+    {
+        $rows = [[
+            'data_type' => 'traffic',
+            'data_date' => '2026-07-11',
+            'raw_data' => json_encode([
+                'dataDate' => '2026-07-11',
+                'date_source' => 'capture_context.default_data_date',
+            ]),
+        ]];
+
+        self::assertSame(
+            ['traffic:0'],
+            BrowserProfileCaptureRequestService::unverifiedMeituanTargetDateRows($rows, '2026-07-11')
+        );
+    }
+
+    public function testAcceptsExplicitRowDateAndExemptsEventRowsFromCumulativeDateEvidence(): void
+    {
+        $rows = [
+            [
+                'data_type' => 'traffic',
+                'data_date' => '2026-07-11',
+                'raw_data' => json_encode(['statDate' => '2026-07-11']),
+            ],
+            [
+                'data_type' => 'order',
+                'data_date' => '2026-07-10',
+                'raw_data' => json_encode(['date_source' => 'capture_context.default_data_date']),
+            ],
+        ];
+
+        self::assertSame(
+            [],
+            BrowserProfileCaptureRequestService::unverifiedMeituanTargetDateRows($rows, '2026-07-11')
+        );
+    }
+
     public function testSafeFilePartAndTimeoutsAreBounded(): void
     {
         self::assertSame('store_1_bad', BrowserProfileCaptureRequestService::safeFilePart('store 1/../bad'));
@@ -109,6 +163,58 @@ final class BrowserProfileCaptureRequestServiceTest extends TestCase
         ], $plan['args']);
     }
 
+    public function testBuildMeituanPlanPropagatesRequestedDataDate(): void
+    {
+        $plan = BrowserProfileCaptureRequestService::buildMeituanPlan(
+            [
+                'store_id' => 'store-1',
+                'data_date' => '2026-07-11',
+            ],
+            'D:\\project',
+            'node',
+            false,
+            7,
+            '20260712010101'
+        );
+
+        self::assertContains('--data-date=2026-07-11', $plan['args']);
+    }
+
+    public function testBuildMeituanPlanInfersPeriodTargetDateWhenUiOmitsIt(): void
+    {
+        $realtime = BrowserProfileCaptureRequestService::buildMeituanPlan(
+            ['store_id' => 'store-1', 'data_period' => 'realtime_snapshot'],
+            'D:\\project',
+            'node',
+            false,
+            7,
+            '20260712010101'
+        );
+        $historical = BrowserProfileCaptureRequestService::buildMeituanPlan(
+            ['store_id' => 'store-1', 'data_period' => 'historical_daily'],
+            'D:\\project',
+            'node',
+            false,
+            7,
+            '20260712010102'
+        );
+
+        self::assertContains('--data-date=' . date('Y-m-d'), $realtime['args']);
+        self::assertContains('--data-date=' . date('Y-m-d', strtotime('-1 day')), $historical['args']);
+    }
+
+    public function testMeituanTargetDateMismatchIgnoresEventAndForecastDates(): void
+    {
+        $mismatches = BrowserProfileCaptureRequestService::mismatchedMeituanTargetDates([
+            ['data_type' => 'traffic', 'data_date' => '2026-07-10'],
+            ['data_type' => 'order', 'data_date' => '2026-07-09'],
+            ['data_type' => 'review', 'data_date' => '2026-07-08'],
+            ['data_type' => 'traffic_forecast', 'data_date' => '2026-07-20'],
+        ], '2026-07-11');
+
+        self::assertSame(['2026-07-10'], $mismatches);
+    }
+
     public function testBuildCtripBasePlanUsesProfileFallbackAndOptionalHotelFields(): void
     {
         $plan = BrowserProfileCaptureRequestService::buildCtripBasePlan(
@@ -205,6 +311,23 @@ final class BrowserProfileCaptureRequestServiceTest extends TestCase
         self::assertContains('--poi-id=poi-1', $args);
         self::assertContains('--poi-name=Store Name', $args);
         self::assertContains('--chrome-path=C:\\Chrome\\chrome.exe', $args);
+    }
+
+    public function testBuildMeituanAutoArgsPropagatesRequestedDataDate(): void
+    {
+        $args = BrowserProfileCaptureRequestService::buildMeituanAutoArgs(
+            ['capture_sections' => 'traffic'],
+            'node',
+            'D:\\project' . DIRECTORY_SEPARATOR . 'scripts' . DIRECTORY_SEPARATOR . 'meituan_browser_capture.mjs',
+            9,
+            'store-1',
+            'D:\\project' . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'meituan_capture' . DIRECTORY_SEPARATOR . 'capture.json',
+            false,
+            '',
+            '2026-07-11'
+        );
+
+        self::assertContains('--data-date=2026-07-11', $args);
     }
 
     public function testBuildMeituanAutoArgsExpandsFullSectionsAndRealtimeMetadata(): void

@@ -23,6 +23,8 @@ class OtaStandardEtlService
      */
     public function buildDatasetFromRows(array $rows): array
     {
+        $inputRowCount = count($rows);
+        [$rows, $supersededPeriodRows] = $this->selectCanonicalPeriodRows($rows);
         $hotels = [];
         $platforms = [];
         $dailyFacts = [];
@@ -137,7 +139,10 @@ class OtaStandardEtlService
             'fact_ota_traffic_forecast' => $trafficForecastFacts,
             'fact_ota_comment' => $commentFacts,
             'data_quality' => [
+                'source_input_rows' => $inputRowCount,
                 'input_rows' => count($rows),
+                'canonical_rows' => count($rows),
+                'superseded_period_rows' => $supersededPeriodRows,
                 'accepted_rows' => $acceptedCount,
                 'rejected_rows' => $rejectedRows,
             ],
@@ -222,6 +227,10 @@ class OtaStandardEtlService
             'sync_task_id',
             'ingestion_method',
             'source_trace_id',
+            'data_period',
+            'snapshot_time',
+            'snapshot_bucket',
+            'is_final',
         ], array_keys($columns)));
 
         $query = Db::name('online_daily_data')->field($fields ?: '*');
@@ -255,16 +264,141 @@ class OtaStandardEtlService
     }
 
     /**
+     * Keep one cumulative snapshot per business grain. Final historical rows win;
+     * otherwise the latest realtime snapshot is used. Only event rows with a
+     * stable business event ID bypass snapshot canonicalization.
+     *
+     * @param array<int, mixed> $rows
+     * @return array{0:array<int, mixed>,1:int}
+     */
+    private function selectCanonicalPeriodRows(array $rows): array
+    {
+        $grouped = [];
+        $selected = [];
+        foreach (array_values($rows) as $index => $row) {
+            if (!is_array($row)) {
+                $selected[$index] = $row;
+                continue;
+            }
+            $dataType = $this->normalizeDataType((string)($row['data_type'] ?? 'business'));
+            $period = $this->snapshotPeriod($row);
+            if ($period === '') {
+                $selected[$index] = $row;
+                continue;
+            }
+            $raw = $this->decodeJson($row['raw_data'] ?? []);
+            if (in_array($dataType, ['order', 'review'], true) && $this->stableEventIdentity($row, $raw, $dataType) !== '') {
+                $selected[$index] = $row;
+                continue;
+            }
+            $source = $this->platformKey($this->firstText($row, $raw, ['source', 'platform', 'ota_source', 'otaSource']));
+            $systemHotelId = (int)($row['system_hotel_id'] ?? $raw['system_hotel_id'] ?? 0);
+            $hotelIdentity = $systemHotelId > 0
+                ? 'system:' . $systemHotelId
+                : trim((string)($row['hotel_id'] ?? $raw['hotel_id'] ?? $raw['poiId'] ?? ''));
+            $key = implode('|', [
+                $source,
+                $hotelIdentity,
+                (string)($row['hotel_id'] ?? $raw['hotel_id'] ?? $raw['poiId'] ?? ''),
+                (string)($row['data_date'] ?? $raw['data_date'] ?? $raw['date'] ?? ''),
+                $dataType,
+                (string)($row['dimension'] ?? $raw['dimension'] ?? ''),
+                (string)($row['compare_type'] ?? $raw['compare_type'] ?? 'self'),
+                $this->snapshotBusinessIdentity($row, $raw, $dataType),
+            ]);
+            $grouped[$key][] = ['index' => $index, 'row' => $row];
+        }
+
+        $superseded = 0;
+        foreach ($grouped as $items) {
+            $finalItems = array_values(array_filter($items, fn(array $item): bool => $this->isFinalPeriodRow($item['row'])));
+            $candidates = $finalItems !== [] ? $finalItems : $items;
+            usort($candidates, fn(array $left, array $right): int => $this->periodRowOrder($left['row']) <=> $this->periodRowOrder($right['row']));
+            $winner = $candidates[count($candidates) - 1];
+            $selected[(int)$winner['index']] = $winner['row'];
+            $superseded += max(0, count($items) - 1);
+        }
+
+        ksort($selected);
+        return [array_values($selected), $superseded];
+    }
+
+    /** @param array<string, mixed> $row */
+    private function snapshotPeriod(array $row): string
+    {
+        $period = strtolower(trim((string)($row['data_period'] ?? '')));
+        return in_array($period, ['historical_daily', 'realtime_snapshot'], true) ? $period : '';
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     */
+    private function stableEventIdentity(array $row, array $raw, string $dataType): string
+    {
+        $detail = $this->rawDetail($raw);
+        $keys = $dataType === 'order'
+            ? ['order_id_hash', 'orderIdHash', 'order_id', 'orderId', 'order_no', 'orderNo', 'order_sn', 'orderSn', 'booking_id', 'bookingId']
+            : ['review_id_hash', 'reviewIdHash', 'comment_id_hash', 'commentIdHash', 'review_id', 'reviewId', 'comment_id', 'commentId'];
+        $identity = $this->firstText($row, $detail, $keys);
+        return $identity !== '' ? $dataType . ':' . $identity : '';
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     */
+    private function snapshotBusinessIdentity(array $row, array $raw, string $dataType): string
+    {
+        $detail = $this->rawDetail($raw);
+        $keys = match ($dataType) {
+            'advertising' => ['campaignId', 'campaign_id', 'campaignID', 'planId', 'plan_id', 'unitId', 'unit_id'],
+            'peer_rank' => ['poiId', 'poi_id', 'peerPoiId', 'peer_poi_id', 'hotelId', 'hotel_id', 'shopId', 'shop_id'],
+            'search_keyword' => ['keyword', 'searchKeyword', 'search_word', 'searchWord'],
+            'traffic_forecast' => ['forecastDate', 'forecast_date', 'targetDate', 'target_date'],
+            default => ['business_id', 'businessId', 'entity_id', 'entityId', 'item_id', 'itemId', 'room_type_id', 'roomTypeId'],
+        };
+        $identity = $this->firstText([], $detail, $keys);
+        return $identity !== '' ? $dataType . ':' . $identity : '';
+    }
+
+    /** @param array<string, mixed> $row */
+    private function isFinalPeriodRow(array $row): bool
+    {
+        $isFinal = $row['is_final'] ?? null;
+        if (in_array($isFinal, [1, '1', true, 'true'], true)) {
+            return true;
+        }
+        return strtolower(trim((string)($row['data_period'] ?? ''))) === 'historical_daily';
+    }
+
+    /** @param array<string, mixed> $row */
+    private function periodRowOrder(array $row): int
+    {
+        foreach (['snapshot_time', 'snapshot_bucket', 'update_time', 'updated_at', 'create_time', 'created_at'] as $key) {
+            $value = trim((string)($row[$key] ?? ''));
+            if ($value !== '') {
+                $time = strtotime($value);
+                if ($time !== false) {
+                    return $time * 1000000 + max(0, (int)($row['id'] ?? 0));
+                }
+            }
+        }
+        return max(0, (int)($row['id'] ?? 0));
+    }
+
+    /**
      * @param array<string, mixed> $row
      * @param array<string, mixed> $raw
      * @return array<string, mixed>
      */
     private function dailyFact(array $row, array $raw, string $hotelKey, string $source, string $date, string $dataType): array
     {
-        $grossRevenue = $this->firstNumber($row, $raw, ['amount', 'gross_revenue', 'grossRevenue', 'revenue', 'totalAmount', 'saleAmount', 'order_amount', 'orderAmount']);
+        $grossRevenue = $this->nullableNumber($row, $raw, ['amount', 'gross_revenue', 'grossRevenue', 'revenue', 'totalAmount', 'saleAmount', 'order_amount', 'orderAmount']);
         $roomRevenue = $this->nullableNumber($row, $raw, ['room_revenue', 'roomRevenue', 'room_amount', 'roomAmount']) ?? $grossRevenue;
-        $roomNights = $this->firstNumber($row, $raw, ['quantity', 'room_nights', 'roomNights', 'checkOutQuantity']);
-        $orders = (int)round($this->firstNumber($row, $raw, ['book_order_num', 'bookOrderNum', 'orderCount', 'orderNum', 'orders']));
+        $roomNights = $this->nullableNumber($row, $raw, ['quantity', 'room_nights', 'roomNights', 'checkOutQuantity']);
+        $orderCountValue = $this->nullableNumber($row, $raw, ['book_order_num', 'bookOrderNum', 'orderCount', 'orderNum', 'orders']);
+        $orders = $orderCountValue !== null ? (int)round($orderCountValue) : null;
         $cancelOrders = $this->nullableNumber($row, $raw, ['cancel_order_num', 'cancelOrderNum', 'cancel_orders', 'cancelOrders']);
         $cancelRoomNights = $this->nullableNumber($row, $raw, ['cancel_room_nights', 'cancelRoomNights', 'cancelled_room_nights', 'cancelledRoomNights']);
         $cancelRate = $this->nullablePercent($row, $raw, ['cancel_rate', 'cancelRate', 'cancellation_rate', 'cancellationRate']);
@@ -289,19 +423,19 @@ class OtaStandardEtlService
             'occupiedRooms',
             'rooms_sold',
             'roomsSold',
-        ]) ?? ($roomNights > 0 ? $roomNights : null);
+        ]) ?? ($roomNights !== null && $roomNights > 0 ? $roomNights : null);
         $commissionRate = $this->nullablePercent($row, $raw, ['commission_rate', 'commissionRate', 'ota_commission_rate', 'otaCommissionRate']);
         $directCommissionAmount = $this->nullableNumber($row, $raw, ['commission_amount', 'commissionAmount', 'commission', 'ota_commission', 'otaCommission', 'channel_commission', 'channelCommission']);
         $commissionAmount = $directCommissionAmount;
         $commissionAmountBasis = $directCommissionAmount !== null ? 'direct' : null;
-        if ($commissionAmount === null && $commissionRate !== null) {
+        if ($commissionAmount === null && $commissionRate !== null && $grossRevenue !== null) {
             $commissionAmount = round($grossRevenue * $commissionRate / 100, 2);
             $commissionAmountBasis = 'derived_from_commission_rate';
         }
         $directNetRevenue = $this->nullableNumber($row, $raw, ['net_revenue', 'netRevenue', 'net_amount', 'netAmount', 'after_commission_revenue', 'afterCommissionRevenue', 'settlement_amount', 'settlementAmount']);
         $netRevenue = $directNetRevenue;
         $netRevenueBasis = $directNetRevenue !== null ? 'direct' : null;
-        if ($netRevenue === null && $commissionAmount !== null) {
+        if ($netRevenue === null && $commissionAmount !== null && $grossRevenue !== null) {
             $netRevenue = round($grossRevenue - $commissionAmount, 2);
             $netRevenueBasis = 'derived_from_commission_amount';
         }
@@ -320,23 +454,23 @@ class OtaStandardEtlService
             'dimension' => (string)($row['dimension'] ?? $raw['dimension'] ?? ''),
             'metric_scope' => 'ota_channel',
             'calculation_basis' => 'ota_daily_standard_fact',
-            'revenue' => round($grossRevenue, 2),
-            'gross_revenue' => round($grossRevenue, 2),
-            'room_revenue' => round($roomRevenue, 2),
+            'revenue' => $grossRevenue !== null ? round($grossRevenue, 2) : null,
+            'gross_revenue' => $grossRevenue !== null ? round($grossRevenue, 2) : null,
+            'room_revenue' => $roomRevenue !== null ? round($roomRevenue, 2) : null,
             'net_revenue' => $netRevenue !== null ? round($netRevenue, 2) : null,
             'commission_amount' => $commissionAmount !== null ? round($commissionAmount, 2) : null,
             'commission_rate' => $commissionRate !== null ? round($commissionRate, 2) : null,
             'net_revenue_basis' => $netRevenueBasis,
             'commission_amount_basis' => $commissionAmountBasis,
-            'room_nights' => round($roomNights, 2),
+            'room_nights' => $roomNights !== null ? round($roomNights, 2) : null,
             'available_room_nights' => $availableRoomNights !== null ? round($availableRoomNights, 2) : null,
             'occupied_room_nights' => $occupiedRoomNights !== null ? round($occupiedRoomNights, 2) : null,
             'order_count' => $orders,
-            'adr' => $roomNights > 0 ? round($roomRevenue / $roomNights, 2) : null,
+            'adr' => $roomRevenue !== null && $roomNights !== null && $roomNights > 0 ? round($roomRevenue / $roomNights, 2) : null,
             'occ' => $availableRoomNights !== null && $availableRoomNights > 0 && $occupiedRoomNights !== null
                 ? round($occupiedRoomNights / $availableRoomNights * 100, 2)
                 : null,
-            'revpar' => $availableRoomNights !== null && $availableRoomNights > 0
+            'revpar' => $roomRevenue !== null && $availableRoomNights !== null && $availableRoomNights > 0
                 ? round($roomRevenue / $availableRoomNights, 2)
                 : null,
             'net_revpar' => $availableRoomNights !== null && $availableRoomNights > 0 && $netRevenue !== null
@@ -366,20 +500,25 @@ class OtaStandardEtlService
      */
     private function trafficFact(array $row, array $raw, string $hotelKey, string $source, string $date): array
     {
-        $orderFilling = $this->firstNumber($row, $raw, ['order_filling_num', 'orderFillingNum', 'click_count', 'clickCount']);
-        $orderSubmit = $this->firstNumber($row, $raw, ['order_submit_num', 'orderSubmitNum', 'submit_users', 'submitUsers']);
+        $listExposure = $this->nullableNumber($row, $raw, ['list_exposure', 'listExposure', 'exposure_count', 'exposureCount']);
+        $detailExposure = $this->nullableNumber($row, $raw, ['detail_exposure', 'detailExposure', 'page_views', 'pageViews']);
+        $flowRate = $this->nullableNumber($row, $raw, ['flow_rate', 'flowRate', 'conversion_rate', 'conversionRate']);
+        $orderFilling = $this->nullableNumber($row, $raw, ['order_filling_num', 'orderFillingNum', 'click_count', 'clickCount']);
+        $orderSubmit = $this->nullableNumber($row, $raw, ['order_submit_num', 'orderSubmitNum', 'submit_users', 'submitUsers']);
 
         return [
             'date_key' => $date,
             'hotel_key' => $hotelKey,
             'platform_key' => $source,
             'compare_type' => (string)($row['compare_type'] ?? $raw['compare_type'] ?? 'self'),
-            'list_exposure' => (int)round($this->firstNumber($row, $raw, ['list_exposure', 'listExposure', 'exposure_count', 'exposureCount'])),
-            'detail_exposure' => (int)round($this->firstNumber($row, $raw, ['detail_exposure', 'detailExposure', 'page_views', 'pageViews'])),
-            'flow_rate' => round($this->firstNumber($row, $raw, ['flow_rate', 'flowRate', 'conversion_rate', 'conversionRate']), 2),
-            'order_filling_num' => (int)round($orderFilling),
-            'order_submit_num' => (int)round($orderSubmit),
-            'submit_rate' => $orderFilling > 0 ? round($orderSubmit / $orderFilling * 100, 2) : null,
+            'list_exposure' => $listExposure !== null ? (int)round($listExposure) : null,
+            'detail_exposure' => $detailExposure !== null ? (int)round($detailExposure) : null,
+            'flow_rate' => $flowRate !== null ? round($flowRate, 2) : null,
+            'order_filling_num' => $orderFilling !== null ? (int)round($orderFilling) : null,
+            'order_submit_num' => $orderSubmit !== null ? (int)round($orderSubmit) : null,
+            'submit_rate' => $orderFilling !== null && $orderFilling > 0 && $orderSubmit !== null
+                ? round($orderSubmit / $orderFilling * 100, 2)
+                : null,
             'raw_data' => $raw,
             'source_trace' => $this->rowTrace($row, $hotelKey, $source, 'traffic', $date),
         ];
@@ -393,20 +532,34 @@ class OtaStandardEtlService
     private function advertisingFact(array $row, array $raw, string $hotelKey, string $source, string $date): array
     {
         $detail = $this->rawDetail($raw);
-        $spend = $this->firstNumber($row, $detail, ['amount', 'todayCost', 'cost', 'ad_cost', 'adCost', 'spend']);
-        $orderAmount = $this->firstNumber($row, $detail, ['order_amount', 'orderAmount', 'saleAmount', 'revenue']);
-        $impressions = (int)round($this->firstNumber($row, $detail, ['list_exposure', 'listExposure', 'impressions', 'exposure_count', 'exposureCount']));
-        $clicks = (int)round($this->firstNumber($row, $detail, ['detail_exposure', 'detailExposure', 'clicks', 'click_count', 'clickCount']));
-        $bookings = (int)round($this->firstNumber($row, $detail, ['book_order_num', 'bookOrderNum', 'bookings', 'bookingCount', 'orderCount']));
+        $spend = $this->nullableNumber($row, $detail, ['amount', 'todayCost', 'cost', 'ad_cost', 'adCost', 'spend']);
+        $orderAmount = $this->nullableNumber($row, $detail, ['order_amount', 'orderAmount', 'saleAmount', 'revenue']);
+        $impressionsValue = $this->nullableNumber($row, $detail, ['list_exposure', 'listExposure', 'impressions', 'exposure_count', 'exposureCount']);
+        $clicksValue = $this->nullableNumber($row, $detail, ['detail_exposure', 'detailExposure', 'clicks', 'click_count', 'clickCount']);
+        $bookingsValue = $this->nullableNumber($row, $detail, ['book_order_num', 'bookOrderNum', 'bookings', 'bookingCount', 'orderCount']);
+        $impressions = $impressionsValue !== null ? (int)round($impressionsValue) : null;
+        $clicks = $clicksValue !== null ? (int)round($clicksValue) : null;
+        $bookings = $bookingsValue !== null ? (int)round($bookingsValue) : null;
         $roomNights = $this->nullableNumber($row, $detail, ['room_nights', 'roomNights', 'nights']);
         if ($roomNights === null && $source !== 'meituan') {
             $roomNights = $this->nullableNumber($row, $detail, ['quantity']);
         }
         $roas = $this->nullableNumber($row, $detail, ['roas', 'roi']);
+        $computedRoas = $spend !== null && $spend > 0 && $orderAmount !== null
+            ? $orderAmount / $spend
+            : null;
+        if ($source === 'meituan' && $roas !== null && $computedRoas !== null) {
+            $percentScaled = $computedRoas * 100;
+            $tolerance = max(0.01, abs($percentScaled) * 0.001);
+            if (abs($roas - $percentScaled) <= $tolerance) {
+                $roas = $computedRoas;
+            }
+        }
         if ($roas === null) {
             $legacyDataValue = $this->nullableNumber($row, $detail, ['data_value', 'dataValue']);
             $isMeituanExposureAlias = $source === 'meituan'
                 && $legacyDataValue !== null
+                && $impressions !== null
                 && $impressions > 0
                 && abs($legacyDataValue - $impressions) < 0.00001;
             if (!$isMeituanExposureAlias) {
@@ -419,16 +572,18 @@ class OtaStandardEtlService
             'hotel_key' => $hotelKey,
             'platform_key' => $source,
             'campaign_id' => (string)($detail['campaignId'] ?? $detail['campaign_id'] ?? $row['dimension'] ?? ''),
-            'spend' => round($spend, 2),
-            'order_amount' => round($orderAmount, 2),
+            'spend' => $spend !== null ? round($spend, 2) : null,
+            'order_amount' => $orderAmount !== null ? round($orderAmount, 2) : null,
             'bookings' => $bookings,
             'room_nights' => $roomNights !== null ? round($roomNights, 2) : null,
             'impressions' => $impressions,
             'clicks' => $clicks,
-            'ctr' => $impressions > 0 ? round($clicks / $impressions * 100, 2) : $this->nullablePercent($row, $detail, ['ctr']),
+            'ctr' => $impressions !== null && $impressions > 0 && $clicks !== null
+                ? round($clicks / $impressions * 100, 2)
+                : $this->nullablePercent($row, $detail, ['ctr']),
             'cvr' => $this->nullablePercent($row, $detail, ['cvr', 'conversion_rate', 'conversionRate', 'order_rate', 'orderRate'])
-                ?? ($clicks > 0 ? round($bookings / $clicks * 100, 2) : null),
-            'roas' => $roas !== null ? round($roas, 2) : ($spend > 0 ? round($orderAmount / $spend, 2) : null),
+                ?? ($clicks !== null && $clicks > 0 && $bookings !== null ? round($bookings / $clicks * 100, 2) : null),
+            'roas' => $roas !== null ? round($roas, 2) : ($computedRoas !== null ? round($computedRoas, 2) : null),
             'raw_data' => $raw,
             'source_trace' => $this->rowTrace($row, $hotelKey, $source, 'advertising', $date),
         ];
@@ -474,9 +629,9 @@ class OtaStandardEtlService
             'platform_key' => $source,
             'keyword' => $keyword,
             'rank' => $rank !== null ? round($rank, 2) : null,
-            'impressions' => (int)round($this->firstNumber($row, $detail, ['list_exposure', 'listExposure', 'impressions', 'exposure', 'exposure_count', 'exposureCount'])),
-            'clicks' => (int)round($this->firstNumber($row, $detail, ['detail_exposure', 'detailExposure', 'clicks', 'click_count', 'clickCount'])),
-            'order_contribution' => (int)round($this->firstNumber($row, $detail, ['order_submit_num', 'orderSubmitNum', 'order_contribution', 'orderContribution', 'orders', 'orderCount'])),
+            'impressions' => ($value = $this->nullableNumber($row, $detail, ['list_exposure', 'listExposure', 'impressions', 'exposure', 'exposure_count', 'exposureCount'])) !== null ? (int)round($value) : null,
+            'clicks' => ($value = $this->nullableNumber($row, $detail, ['detail_exposure', 'detailExposure', 'clicks', 'click_count', 'clickCount'])) !== null ? (int)round($value) : null,
+            'order_contribution' => ($value = $this->nullableNumber($row, $detail, ['order_submit_num', 'orderSubmitNum', 'order_contribution', 'orderContribution', 'orders', 'orderCount'])) !== null ? (int)round($value) : null,
             'raw_data' => $raw,
             'source_trace' => $this->rowTrace($row, $hotelKey, $source, 'search_keyword', $date),
         ];

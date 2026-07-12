@@ -122,6 +122,106 @@ final class BrowserProfileCaptureRequestService
         return implode(',', array_keys($sections)) ?: $fallback;
     }
 
+    /**
+     * Event rows use their own event date; cumulative report rows must match the requested target date.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, string>
+     */
+    public static function mismatchedMeituanTargetDates(array $rows, string $targetDate): array
+    {
+        $targetDate = trim($targetDate);
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $targetDate) !== 1) {
+            return [];
+        }
+        $eventDateTypes = ['order', 'review', 'traffic_forecast'];
+        $mismatches = [];
+        foreach ($rows as $row) {
+            if (!is_array($row) || in_array((string)($row['data_type'] ?? ''), $eventDateTypes, true)) {
+                continue;
+            }
+            $rowDate = trim((string)($row['data_date'] ?? ''));
+            if ($rowDate !== '' && $rowDate !== $targetDate) {
+                $mismatches[] = $rowDate;
+            }
+        }
+        return array_values(array_unique($mismatches));
+    }
+
+    /**
+     * Cumulative Meituan rows need row/request/response/page date evidence. A capture-context
+     * fallback date only describes the requested context and must not prove platform data date.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, string>
+     */
+    public static function unverifiedMeituanTargetDateRows(array $rows, string $targetDate): array
+    {
+        $targetDate = trim($targetDate);
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $targetDate) !== 1) {
+            return [];
+        }
+        $eventDateTypes = ['order', 'review', 'traffic_forecast'];
+        $unverified = [];
+        foreach ($rows as $index => $row) {
+            if (!is_array($row) || in_array((string)($row['data_type'] ?? ''), $eventDateTypes, true)) {
+                continue;
+            }
+            $rowDate = trim((string)($row['data_date'] ?? $row['dataDate'] ?? $row['date'] ?? ''));
+            if ($rowDate !== $targetDate) {
+                continue;
+            }
+            $raw = $row;
+            if (isset($row['raw_data']) && is_string($row['raw_data'])) {
+                $decoded = json_decode($row['raw_data'], true);
+                if (is_array($decoded)) {
+                    $raw = $decoded;
+                }
+            }
+            $source = trim((string)($raw['date_source'] ?? $raw['dateSource'] ?? $row['date_source'] ?? $row['dateSource'] ?? ''));
+            if ($source === '' && self::hasExplicitMeituanRowDate($raw)) {
+                $source = 'row';
+            }
+            if (!self::isAuthoritativeMeituanDateSource($source)) {
+                $dataType = trim((string)($row['data_type'] ?? 'row')) ?: 'row';
+                $unverified[] = $dataType . ':' . $index;
+            }
+        }
+        return $unverified;
+    }
+
+    /** @param array<string, mixed> $gate */
+    public static function isConfirmedEmptyMeituanCaptureGate(array $gate): bool
+    {
+        if (($gate['status'] ?? '') !== 'pass') {
+            return false;
+        }
+        $statuses = is_array($gate['section_statuses'] ?? null) ? $gate['section_statuses'] : [];
+        return $statuses !== []
+            && count(array_filter($statuses, static fn($status): bool => $status !== 'empty_confirmed')) === 0;
+    }
+
+    /** @param array<string, mixed> $row */
+    private static function hasExplicitMeituanRowDate(array $row): bool
+    {
+        foreach (['data_date', 'dataDate', 'date', 'statDate', 'stat_date', 'reportDate', 'day'] as $key) {
+            if (array_key_exists($key, $row) && trim((string)$row[$key]) !== '') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static function isAuthoritativeMeituanDateSource(string $source): bool
+    {
+        $source = strtolower(trim($source));
+        return $source === 'row'
+            || str_starts_with($source, 'row.')
+            || str_starts_with($source, 'request.')
+            || str_starts_with($source, 'response.')
+            || str_starts_with($source, 'page.');
+    }
+
     public static function buildMeituanPlan(
         array $requestData,
         string $projectRoot,
@@ -167,6 +267,19 @@ final class BrowserProfileCaptureRequestService
         if ($captureSections !== '') {
             $args[] = '--sections=' . $captureSections;
         }
+        $dataDate = trim((string)($requestData['data_date'] ?? $requestData['dataDate'] ?? $requestData['target_date'] ?? $requestData['targetDate'] ?? ''));
+        if ($dataDate !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $dataDate) !== 1) {
+            throw new \InvalidArgumentException('Invalid Meituan capture target date.', 422);
+        }
+        if (!$loginOnly && $dataDate === '') {
+            $period = strtolower(trim((string)($requestData['data_period'] ?? $requestData['dataPeriod'] ?? '')));
+            $dataDate = $period === 'realtime_snapshot'
+                ? date('Y-m-d')
+                : date('Y-m-d', strtotime('-1 day'));
+        }
+        if (!$loginOnly && $dataDate !== '') {
+            $args[] = '--data-date=' . $dataDate;
+        }
         $dataPeriod = trim((string)($requestData['data_period'] ?? $requestData['dataPeriod'] ?? ''));
         if ($dataPeriod !== '') {
             $args[] = '--data-period=' . $dataPeriod;
@@ -187,6 +300,7 @@ final class BrowserProfileCaptureRequestService
         return [
             'store_id' => $storeId,
             'poi_id' => $poiId,
+            'data_date' => $dataDate,
             'script_path' => $scriptPath,
             'output_dir' => $outputDir,
             'output_path' => $outputPath,
@@ -308,7 +422,8 @@ final class BrowserProfileCaptureRequestService
         string $storeId,
         string $outputPath,
         bool $interactiveBrowser,
-        string $chromePath = ''
+        string $chromePath = '',
+        string $dataDate = ''
     ): array {
         $args = [
             $nodeBinary,
@@ -323,6 +438,9 @@ final class BrowserProfileCaptureRequestService
                 self::MEITUAN_DEFAULT_SECTIONS
             ),
         ];
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', trim($dataDate)) === 1) {
+            $args[] = '--data-date=' . trim($dataDate);
+        }
 
         $poiId = trim((string)($config['poi_id'] ?? $config['poiId'] ?? ''));
         if ($poiId !== '') {

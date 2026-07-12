@@ -745,13 +745,14 @@ final class OnlineDataTest extends TestCase
         self::assertSame('review', $rows[1]['data_type']);
         self::assertSame('2026-05-03', $rows[1]['data_date']);
         self::assertSame(1.0, $rows[1]['comment_score']);
-        self::assertSame(1, $rows[1]['quantity']);
-        self::assertSame(1, $rows[1]['data_value']);
+        self::assertNull($rows[1]['quantity']);
+        self::assertNull($rows[1]['data_value']);
         $reviewRaw = (string)$rows[1]['raw_data'];
         self::assertStringNotContainsString('COMMENT-1', $reviewRaw);
         self::assertStringNotContainsString('This comment section must be ignored.', $reviewRaw);
         self::assertStringContainsString('"comment_score":1', $reviewRaw);
-        self::assertStringContainsString('"bad_review_count":1', $reviewRaw);
+        self::assertStringNotContainsString('"comment_count"', $reviewRaw);
+        self::assertStringNotContainsString('"bad_review_count"', $reviewRaw);
 
         self::assertSame('order', $rows[2]['data_type']);
         self::assertSame('2026-05-01', $rows[2]['data_date']);
@@ -802,9 +803,9 @@ final class OnlineDataTest extends TestCase
         $row = $rows[0];
         self::assertSame('order', $row['data_type']);
         self::assertSame('2026-05-28', $row['data_date']);
-        self::assertSame(0.0, $row['amount']);
-        self::assertSame(1, $row['quantity']);
-        self::assertSame(1, $row['book_order_num']);
+        self::assertNull($row['amount']);
+        self::assertNull($row['quantity']);
+        self::assertNull($row['book_order_num']);
         self::assertSame(188.5, $row['data_value']);
         self::assertSame('manual_dom_csv', $row['data_period']);
         self::assertStringNotContainsString('123456789012345', (string)$row['dimension']);
@@ -864,8 +865,9 @@ final class OnlineDataTest extends TestCase
 
         self::assertSame('peer-1', $rows[0]['hotel_id']);
         self::assertSame('Peer Hotel', $rows[0]['hotel_name']);
-        self::assertSame(2.0, $rows[0]['data_value']);
-        self::assertSame('peer_rank:P_RZ:入住间夜', $rows[0]['dimension']);
+        self::assertNull($rows[0]['data_value']);
+        self::assertSame('peer_rank:P_RZ:range=unknown:入住间夜', $rows[0]['dimension']);
+        self::assertStringContainsString('"rank":2', (string)$rows[0]['raw_data']);
         self::assertSame('competitor', $rows[0]['compare_type']);
 
         self::assertSame(1000, $rows[1]['list_exposure']);
@@ -5924,7 +5926,7 @@ final class OnlineDataTest extends TestCase
         self::assertSame('review', $rows[1]['data_type']);
         self::assertSame('2026-05-18', $rows[1]['data_date']);
         self::assertSame(4.0, $rows[1]['comment_score']);
-        self::assertSame(1, $rows[1]['quantity']);
+        self::assertNull($rows[1]['quantity']);
         self::assertStringNotContainsString('review-1', (string)$rows[1]['raw_data']);
         self::assertStringNotContainsString('room issue', (string)$rows[1]['raw_data']);
 
@@ -5932,7 +5934,7 @@ final class OnlineDataTest extends TestCase
         self::assertSame(500, $rows[2]['list_exposure']);
         self::assertSame(50, $rows[2]['detail_exposure']);
         self::assertSame(88.5, $rows[2]['amount']);
-        self::assertSame(0, $rows[2]['quantity']);
+        self::assertNull($rows[2]['quantity']);
         self::assertSame(2, $rows[2]['book_order_num']);
         self::assertSame(2, $rows[2]['order_submit_num']);
         self::assertSame(10.0, $rows[2]['flow_rate']);
@@ -5941,7 +5943,7 @@ final class OnlineDataTest extends TestCase
         self::assertSame('order', $rows[3]['data_type']);
         self::assertSame(688.0, $rows[3]['amount']);
         self::assertSame(6, $rows[3]['quantity']);
-        self::assertSame(1, $rows[3]['book_order_num']);
+        self::assertNull($rows[3]['book_order_num']);
         self::assertStringNotContainsString('order-1', (string)$rows[3]['dimension']);
         self::assertMatchesRegularExpression('/^order:confirmed:[a-f0-9]{64}$/', (string)$rows[3]['dimension']);
         self::assertStringNotContainsString('order-1', (string)$rows[3]['raw_data']);

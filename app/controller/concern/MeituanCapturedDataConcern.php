@@ -347,22 +347,45 @@ trait MeituanCapturedDataConcern
     private function normalizeMeituanCapturedPeerRankRow(array $item, array $context): ?array
     {
         $rank = (int)$this->meituanNumber($item, ['rank', 'rank_no', 'rankNo', 'currentRank', 'sort'], 0);
-        $dataValue = $this->meituanNumber($item, ['data_value', 'dataValue', 'value', 'metric_value'], 0.0);
-        if ($dataValue <= 0 && $rank > 0) {
-            $dataValue = (float)$rank;
-        }
+        $dataValue = $this->nullableNumberFromKeys($item, ['data_value', 'dataValue', 'value', 'metric_value']);
         $percent = $this->normalizeMeituanPercentValue($this->firstMeituanValue($item, ['percent', 'ratio', 'rank_percent', 'rankPercent'], null));
-        if ($dataValue <= 0 && $percent === null) {
+        if ($dataValue === null && $percent === null && $rank <= 0) {
             return null;
         }
 
         $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['data_date', 'dataDate', 'date', 'statDate', 'stat_date'], ''))
             ?: ($context['default_data_date'] ?? date('Y-m-d'));
         $rankType = trim((string)$this->firstMeituanValue($item, ['rank_type', 'rankType', 'type', 'rankListType'], ''));
+        $dateRange = trim((string)$this->firstMeituanValue($item, ['date_range', 'dateRange'], $context['date_range'] ?? ''));
         $metric = trim((string)$this->firstMeituanValue($item, ['dimension', 'dimName', '_dimName', 'metricName', 'aiMetricName'], 'peer_rank'));
-        $compareType = $this->meituanBool($this->firstMeituanValue($item, ['is_self', 'isSelf', 'self'], false)) ? 'self' : 'competitor';
+        $itemHotelId = trim((string)$this->firstMeituanValue($item, ['poi_id', 'poiId', 'hotel_id', 'hotelId', 'shop_id', 'shopId', 'store_id', 'storeId'], ''));
+        $boundHotelIds = array_values(array_filter(array_unique([
+            trim((string)($context['poi_id'] ?? '')),
+            trim((string)($context['store_id'] ?? '')),
+        ]), static fn(string $value): bool => $value !== ''));
+        $matchesBoundHotel = $itemHotelId !== '' && in_array($itemHotelId, $boundHotelIds, true);
+        $explicitSelf = null;
+        foreach (['is_self', 'isSelf', 'self'] as $selfKey) {
+            if (array_key_exists($selfKey, $item)) {
+                $explicitSelf = $this->meituanBool($item[$selfKey]);
+                break;
+            }
+        }
+        if ($explicitSelf !== null && $itemHotelId !== '' && $explicitSelf !== $matchesBoundHotel) {
+            throw new InvalidArgumentException('meituan_peer_rank_identity_conflict', 409);
+        }
+        $compareType = ($matchesBoundHotel || $explicitSelf === true) ? 'self' : 'competitor';
+        $factSource = array_merge($item, [
+            'rank' => $rank > 0 ? $rank : null,
+            'rankType' => $rankType,
+            'dateRange' => $dateRange,
+            'percent' => $percent,
+            'metricStatus' => $dataValue !== null
+                ? 'platform_value_returned'
+                : ($percent !== null ? 'platform_percent_only' : 'platform_rank_only'),
+        ]);
 
-        return $this->baseMeituanCapturedRow($item, $context, [
+        return $this->baseMeituanCapturedRow($factSource, $context, [
             'data_date' => $dataDate,
             'amount' => 0,
             'quantity' => 0,
@@ -370,7 +393,7 @@ trait MeituanCapturedDataConcern
             'comment_score' => 0,
             'data_value' => $dataValue,
             'data_type' => 'peer_rank',
-            'dimension' => 'peer_rank:' . ($rankType !== '' ? $rankType : 'unknown') . ':' . $metric,
+            'dimension' => 'peer_rank:' . ($rankType !== '' ? $rankType : 'unknown') . ':range=' . ($dateRange !== '' ? $dateRange : 'unknown') . ':' . $metric,
             'platform' => 'Meituan',
             'compare_type' => $compareType,
         ]);
@@ -478,47 +501,50 @@ trait MeituanCapturedDataConcern
 
     private function normalizeMeituanCapturedAdsRow(array $item, array $context): ?array
     {
-        $exposure = (int)$this->meituanNumber($item, ['exposure_count', 'exposureCount', 'impression', 'impressions', 'exposure'], 0);
-        $clicks = (int)$this->meituanNumber($item, ['click_count', 'clickCount', 'clickNum', 'clicks', 'click'], 0);
-        $spend = $this->meituanNumber($item, ['amount', 'todayCost', 'cost', 'ad_cost', 'adCost', 'spend', 'consume', 'consumption'], 0.0);
-        $orderAmount = $this->meituanNumber($item, ['order_amount', 'orderAmount', 'saleAmount', 'salesAmount', 'revenue', 'gmv'], 0.0);
-        $orders = (int)$this->meituanNumber($item, ['book_order_num', 'bookOrderNum', 'orderNum', 'order_count', 'orders', 'booking_count', 'bookingCount'], 0);
+        $exposureValue = $this->nullableNumberFromKeys($item, ['exposure_count', 'exposureCount', 'impression', 'impressions', 'exposure']);
+        $clickValue = $this->nullableNumberFromKeys($item, ['click_count', 'clickCount', 'clickNum', 'clicks', 'click']);
+        $spend = $this->nullableNumberFromKeys($item, ['amount', 'todayCost', 'cost', 'ad_cost', 'adCost', 'spend', 'consume', 'consumption']);
+        $orderAmount = $this->nullableNumberFromKeys($item, ['order_amount', 'orderAmount', 'saleAmount', 'salesAmount', 'revenue', 'gmv']);
+        $orderValue = $this->nullableNumberFromKeys($item, ['book_order_num', 'bookOrderNum', 'orderNum', 'order_count', 'orders', 'booking_count', 'bookingCount']);
+        $exposure = $exposureValue !== null ? max(0, (int)$exposureValue) : null;
+        $clicks = $clickValue !== null ? max(0, (int)$clickValue) : null;
+        $orders = $orderValue !== null ? max(0, (int)$orderValue) : null;
         $conversion = $this->normalizeMeituanPercentValue($this->firstMeituanValue($item, ['conversion_rate', 'conversionRate', 'flowRate', 'orderRate'], null));
-        if ($conversion === null) {
+        if ($conversion === null && $orders !== null && $clicks !== null && ($clicks > 0 || $orders === 0)) {
             $conversion = CtripTrafficDisplayService::trafficRate((float)$orders, (float)$clicks);
         }
         $roasValue = $this->firstMeituanValue($item, ['roas', 'roi'], null);
         $roas = $roasValue !== null ? max(0.0, $this->meituanNumber($item, ['roas', 'roi'], 0.0)) : null;
-        if ($roas === null && $spend > 0 && $orderAmount > 0) {
+        if ($roas === null && $spend !== null && $spend > 0 && $orderAmount !== null && $orderAmount > 0) {
             $roas = $orderAmount / $spend;
         }
 
-        if ($exposure <= 0 && $clicks <= 0 && $spend <= 0 && $orderAmount <= 0 && $orders <= 0) {
+        if ($exposure === null && $clicks === null && $spend === null && $orderAmount === null && $orders === null && $roas === null) {
             return null;
         }
 
         $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['data_date', 'dataDate', 'date', 'statDate', 'stat_date'], ''))
             ?: ($context['default_data_date'] ?? date('Y-m-d'));
-        $factSource = array_merge($item, [
+        $factSource = array_merge($item, array_filter([
             'spend' => $spend,
             'order_amount' => $orderAmount,
             'book_order_num' => $orders,
-        ], $roas !== null ? ['roas' => $roas] : []);
+        ], static fn($value): bool => $value !== null), $roas !== null ? ['roas' => $roas] : []);
 
         return $this->baseMeituanCapturedRow($factSource, $context, [
             'data_date' => $dataDate,
             'amount' => $spend,
-            'quantity' => 0,
+            'quantity' => null,
             'book_order_num' => $orders,
             'comment_score' => 0,
-            'data_value' => $roas !== null ? round($roas, 2) : 0,
+            'data_value' => $roas !== null ? round($roas, 2) : null,
             'data_type' => 'advertising',
             'dimension' => 'ads',
             'platform' => 'Meituan',
             'compare_type' => 'self',
             'list_exposure' => $exposure,
             'detail_exposure' => $clicks,
-            'flow_rate' => round($conversion, 2),
+            'flow_rate' => $conversion !== null ? round($conversion, 2) : null,
             'order_filling_num' => $clicks,
             'order_submit_num' => $orders,
         ]);
@@ -556,27 +582,12 @@ trait MeituanCapturedDataConcern
             'lowScoreCount',
             'noRecommendCount',
         ];
-        $commentCountValue = $this->firstMeituanValue($item, $commentCountKeys, null);
-        $badReviewCountValue = $this->firstMeituanValue($item, $badReviewCountKeys, null);
+        $commentCountValue = $this->nullableNumberFromKeys($item, $commentCountKeys);
+        $badReviewCountValue = $this->nullableNumberFromKeys($item, $badReviewCountKeys);
         $commentCountKnown = $commentCountValue !== null;
         $badReviewCountKnown = $badReviewCountValue !== null;
-        $commentCount = (int)$this->meituanNumber($item, $commentCountKeys, 0.0);
-        $badReviewCount = (int)$this->meituanNumber($item, $badReviewCountKeys, 0.0);
-        $isIndividualReview = trim((string)$this->firstMeituanValue($item, [
-            'review_id',
-            'reviewId',
-            'comment_id',
-            'commentId',
-            'id',
-        ], '')) !== '';
-        if (!$commentCountKnown && $isIndividualReview) {
-            $commentCount = 1;
-            $commentCountKnown = true;
-        }
-        if (!$badReviewCountKnown && $isIndividualReview && $score > 0 && $score < 4) {
-            $badReviewCount = 1;
-            $badReviewCountKnown = true;
-        }
+        $commentCount = $commentCountKnown ? max(0, (int)$commentCountValue) : null;
+        $badReviewCount = $badReviewCountKnown ? max(0, (int)$badReviewCountValue) : null;
         if ($score <= 0 && !$commentCountKnown && !$badReviewCountKnown) {
             return null;
         }
@@ -617,18 +628,18 @@ trait MeituanCapturedDataConcern
     {
         $orderId = (string)$this->firstMeituanValue($item, ['order_id', 'orderId', 'orderNo', 'order_no', 'orderNumber', 'order_number', 'bookingNo', 'booking_no', 'bookingNumber', 'id'], '');
         $status = (string)$this->firstMeituanValue($item, ['order_status', 'orderStatus', 'status'], 'unknown');
-        $amount = $this->meituanNumber($item, ['total_amount', 'totalAmount', 'amount', 'payAmount', 'pay_amount'], 0.0);
-        $basePrice = $this->meituanNumber($item, ['base_price', 'basePrice', 'bottom_price', 'bottomPrice', 'price', '底价', '底价(元)'], 0.0);
-        $roomCount = (int)$this->meituanNumber($item, ['room_count', 'roomCount', 'rooms'], 0.0);
-        $nights = (int)$this->meituanNumber($item, ['nights', 'night_count', 'nightCount'], 0.0);
-        if ($nights <= 0) {
-            $nights = $this->calculateMeituanOrderNights($item);
-        }
-        if ($roomCount <= 0 && $nights > 0) {
-            $roomCount = 1;
+        $amount = $this->nullableNumberFromKeys($item, ['total_amount', 'totalAmount', 'amount', 'payAmount', 'pay_amount']);
+        $basePrice = $this->nullableNumberFromKeys($item, ['base_price', 'basePrice', 'bottom_price', 'bottomPrice', 'price', '底价', '底价(元)']);
+        $roomCountValue = $this->nullableNumberFromKeys($item, ['room_count', 'roomCount', 'rooms']);
+        $roomCount = $roomCountValue !== null ? max(0, (int)$roomCountValue) : null;
+        $nightsValue = $this->nullableNumberFromKeys($item, ['nights', 'night_count', 'nightCount']);
+        $nights = $nightsValue !== null ? max(0, (int)$nightsValue) : null;
+        if ($nights === null) {
+            $calculatedNights = $this->calculateMeituanOrderNights($item);
+            $nights = $calculatedNights > 0 ? $calculatedNights : null;
         }
 
-        if ($orderId === '' && $amount <= 0) {
+        if ($orderId === '' && ($amount === null || $amount <= 0)) {
             return null;
         }
 
@@ -637,22 +648,20 @@ trait MeituanCapturedDataConcern
         $identity = $orderId !== ''
             ? $this->hashOnlineOrderIdentifier($orderId)
             : hash('sha256', 'ota_order_fallback|' . json_encode($item, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
-        $avgPrice = $this->meituanNumber($item, ['avg_price', 'avgPrice'], 0.0);
-        if ($avgPrice <= 0 && $basePrice > 0) {
+        $avgPrice = $this->nullableNumberFromKeys($item, ['avg_price', 'avgPrice']);
+        if (($avgPrice === null || $avgPrice <= 0) && $basePrice !== null && $basePrice > 0) {
             $avgPrice = $basePrice;
-        } elseif ($avgPrice <= 0 && $amount > 0 && $roomCount > 0 && $nights > 0) {
+        } elseif (($avgPrice === null || $avgPrice <= 0) && $amount !== null && $amount > 0 && $roomCount !== null && $roomCount > 0 && $nights !== null && $nights > 0) {
             $avgPrice = round($amount / ($roomCount * $nights), 2);
         }
 
-        $orderCountValue = $this->firstMeituanValue($item, ['order_count', 'orderCount'], null);
-        $orderCount = $orderCountValue !== null
-            ? max(0, (int)$this->meituanNumber($item, ['order_count', 'orderCount'], 0.0))
-            : ($orderId !== '' ? 1 : 0);
+        $orderCountValue = $this->nullableNumberFromKeys($item, ['order_count', 'orderCount']);
+        $orderCount = $orderCountValue !== null ? max(0, (int)$orderCountValue) : null;
 
         return $this->baseMeituanCapturedRow($item, $context, [
             'data_date' => $dataDate,
-            'amount' => round($amount, 2),
-            'quantity' => $roomCount > 0 && $nights > 0 ? $roomCount * $nights : 0,
+            'amount' => $amount !== null ? round($amount, 2) : null,
+            'quantity' => $roomCount !== null && $roomCount > 0 && $nights !== null && $nights > 0 ? $roomCount * $nights : null,
             'book_order_num' => $orderCount,
             'comment_score' => 0,
             'data_value' => $avgPrice,

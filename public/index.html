@@ -72,7 +72,7 @@
     <script src="shared-components.js?v=20260628-static-router-fix"></script>
     <script src="ctrip-static.js?v=20260712-interface-evidence-h71ebabdb06"></script>
     <script src="ctrip-search-opportunity-static.js?v=20260712-comparison-copy-hf4afcbc4d1"></script>
-    <script src="meituan-static.js?v=20260712-manual-credential-no-profile-gate-he80d987792"></script>
+    <script src="meituan-static.js?v=20260712-meituan-ingestion-contract-h686ac812ad"></script>
     <script src="ota-browser-assist-static.js?v=20260629-browser-assist"></script>
     <script src="data-health-static.js?v=20260704-manual-one-click-fetch-20260705-ai-workbench-meituan-comparison-data-health-refresh-state-20260708-public-endpoints-release-evidence-panel-ota-field-gap-queue-employee-ota-checklist-public-token-summary-card-manual-fetch-result-qunar-quality-action-gates-workbench-write-boundary-manual-surface-focus-20260711-ctrip-qunar-gap-nonblocking"></script>
     <script src="revenue-ai-static.js?v=20260710-ai-daily-fact-gate-investigation"></script>
@@ -40778,6 +40778,9 @@
 
             const importMeituanOrderCsvData = async () => runMeituanOrderCsvImportFlow({
                 getForm: () => meituanOrderForm.value,
+                getConfigId: () => isMeituanExecutionConfigReady(selectedMeituanHotelConfig.value)
+                    ? resolveMeituanExecutionConfigId(selectedMeituanHotelConfig.value)
+                    : '',
                 getSystemHotelId: () => meituanForm.value.hotelId || user.value?.hotel_id || null,
                 getHotelNameById,
                 notify: showToast,

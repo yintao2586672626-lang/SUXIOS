@@ -253,6 +253,8 @@ class RevenueAiOverviewService
         ];
         $metricContext['date_basis'] = 'data_date';
         $metricContext['scope'] = 'ota';
+        $otaRoomRevenue = $dailyFacts !== [] ? $this->numeric($metricsSummary['totals']['room_revenue'] ?? null) : null;
+        $otaRoomNights = $dailyFacts !== [] ? $this->numeric($metricsSummary['totals']['room_nights'] ?? null) : null;
 
         return [
             'data_status' => $dataStatus,
@@ -274,20 +276,20 @@ class RevenueAiOverviewService
                 'ota_room_revenue' => $this->metric(
                     'ota_room_revenue',
                     '昨日OTA房费收入',
-                    $dailyFacts !== [] ? $this->numeric($metricsSummary['totals']['room_revenue'] ?? null) : null,
+                    $dailyFacts !== [] ? $otaRoomRevenue : null,
                     'CNY',
-                    $dailyFacts !== [] ? 'ok' : $dailyMetricStatus,
-                    $dailyFacts !== [] ? '' : $dailyMetricReason,
+                    $otaRoomRevenue !== null ? 'ok' : ($dailyFacts !== [] ? 'not_calculable' : $dailyMetricStatus),
+                    $otaRoomRevenue !== null ? '' : ($dailyFacts !== [] ? 'room_revenue_missing' : $dailyMetricReason),
                     $metricContext,
                     'money'
                 ),
                 'ota_room_nights' => $this->metric(
                     'ota_room_nights',
                     '昨日OTA间夜',
-                    $dailyFacts !== [] ? $this->numeric($metricsSummary['totals']['room_nights'] ?? null) : null,
+                    $dailyFacts !== [] ? $otaRoomNights : null,
                     'room_nights',
-                    $dailyFacts !== [] ? 'ok' : $dailyMetricStatus,
-                    $dailyFacts !== [] ? '' : $dailyMetricReason,
+                    $otaRoomNights !== null ? 'ok' : ($dailyFacts !== [] ? 'not_calculable' : $dailyMetricStatus),
+                    $otaRoomNights !== null ? '' : ($dailyFacts !== [] ? 'room_nights_missing' : $dailyMetricReason),
                     $metricContext,
                     'number'
                 ),
