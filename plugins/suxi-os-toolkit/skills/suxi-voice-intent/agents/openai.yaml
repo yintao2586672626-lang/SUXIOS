@@ -1,0 +1,7 @@
+interface:
+  display_name: "宿析OS语音自动理解"
+  short_description: "自动理解普通话语音转录、酒店热词与宿析OS业务上下文"
+  default_prompt: "请自动使用 $suxi-voice-intent 理解我每条可能来自语音转录的消息，不需要我手动调用。"
+
+policy:
+  allow_implicit_invocation: true
