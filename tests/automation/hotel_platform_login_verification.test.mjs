@@ -106,11 +106,11 @@ const unverifiedRows = buildHotelPlatformBindingRows({
   helpers,
 });
 const unverifiedCtrip = unverifiedRows.find((row) => row.platform === 'ctrip');
-assert.equal(unverifiedCtrip.level, 'partial');
-assert.equal(unverifiedCtrip.statusCode, 'waiting_login');
+assert.equal(unverifiedCtrip.level, 'ready');
+assert.equal(unverifiedCtrip.statusCode, 'profile_reusable');
 assert.equal(unverifiedCtrip.storeIdentitySaved, true);
 assert.equal(unverifiedCtrip.sessionVerified, false);
-assert.match(unverifiedCtrip.verificationReasonText, /尚未形成今天有效的授权登录证明/);
+assert.match(unverifiedCtrip.verificationReasonText, /不阻塞采集.*平台实际采集结果/);
 
 const forgedConfigProfile = verifiedProfile();
 forgedConfigProfile.current_session_verified = false;

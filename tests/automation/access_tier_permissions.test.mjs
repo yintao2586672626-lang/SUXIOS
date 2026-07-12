@@ -474,8 +474,8 @@ assert.match(indexHtml, /const filterUserHotelId = ref\(''\);/, 'user management
 assert.doesNotMatch(userManagementToolbarSlice, /users\.filter\(u => u\.role_id === [123]\)/, 'user management summary must not hard-code legacy role IDs 1/2/3');
 
 assert.match(hotelController, /created_by/, '酒店控制器必须使用 created_by 创建人隔离');
-assert.match(hotelController, /can_force_delete'\s*=>\s*\$canForceDelete/, '酒店归档确认能力必须按当前角色返回');
-assert.match(routes, /Route::post\('\/:id\/restore', 'Hotel\/restore'\)/, 'archived hotels must expose an authenticated restore route');
+assert.match(hotelController, /can_force_delete'\s*=>\s*\$canForceDelete/, '酒店永久删除确认能力必须按当前角色返回');
+assert.doesNotMatch(routes, /Route::post\('\/:id\/restore', 'Hotel\/restore'\)/, 'permanent deletion must not expose an archive restore route');
 
 assert.match(migration, /ADD COLUMN IF NOT EXISTS `created_by`/, '迁移必须补 hotels.created_by');
 assert.match(migration, /'beta_user'/, '迁移必须写入内测用户角色');
@@ -496,7 +496,7 @@ assert.match(hotelOtaStrategyMigration, /DEFAULT 'none'/, 'new hotel records mus
 assert.match(hotelOtaStrategyMigration, /NOT IN \('none', 'ctrip_only', 'dual', 'meituan_only'\)/, 'migration must preserve the explicit no-channel strategy');
 assert.match(hotelOtaLoginEligibilityVerifier, /'none'\s*=>\s*\[\]/, 'eligibility verification must treat no selected OTA channel as an empty applicable scope');
 assert.match(initFull, /20260709_add_hotel_ota_channel_strategy\.sql/, 'full initialization must include hotel OTA channel strategy migration');
-assert.match(initFull, /20260712_add_hotel_archiving\.sql/, 'full initialization must include reversible hotel archiving fields');
+assert.doesNotMatch(initFull, /20260712_add_hotel_archiving\.sql/, 'permanent deletion must not require reversible hotel archiving fields');
 assert.match(migration, /can_fetch_online_data` = CASE WHEN u\.`role_id` = 2 THEN 1 ELSE 0 END/, 'normal users must not collect OTA by default');
 assert.doesNotMatch(seedNormalRoleLine, /can_fetch_online_data/, 'legacy MySQL seed normal_user role must not include OTA collection permission');
 assert.match(

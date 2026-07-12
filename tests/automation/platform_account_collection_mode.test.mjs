@@ -26,10 +26,10 @@ const accountRowHelpers = {
 test('platform collection readiness separates automatic, manual and unverified Profile states', () => {
   assert.equal(typeof classify, 'function');
   assert.equal(classify({ hotelActive: true, accountLevel: 'ready', hasProfile: true, currentSessionVerified: true }), 'auto_ready');
-  assert.equal(classify({ hotelActive: true, accountLevel: 'ready', hasProfile: true, profileReusable: true, currentSessionVerified: false }), 'waiting_login');
-  assert.equal(classify({ hotelActive: true, accountLevel: 'ready', hasProfile: true, profileReusable: true, renewalWarning: true }), 'waiting_login');
+  assert.equal(classify({ hotelActive: true, accountLevel: 'ready', hasProfile: true, profileReusable: true, currentSessionVerified: false }), 'auto_ready');
+  assert.equal(classify({ hotelActive: true, accountLevel: 'ready', hasProfile: true, profileReusable: true, renewalWarning: true }), 'auto_ready');
   assert.equal(classify({ hotelActive: true, accountLevel: 'ready', hasProfile: false, hasManualAssist: true }), 'manual_ready');
-  assert.equal(classify({ hotelActive: true, accountLevel: 'ready', hasProfile: true, currentSessionVerified: false, hasManualAssist: true }), 'waiting_login');
+  assert.equal(classify({ hotelActive: true, accountLevel: 'ready', hasProfile: true, currentSessionVerified: false, hasManualAssist: true }), 'auto_ready');
   assert.equal(classify({ hotelActive: true, accountLevel: 'ready', hasProfile: false, hasManualAssist: false }), 'unbound');
   assert.equal(classify({ hotelActive: true, permissionDenied: true, accountLevel: 'ready', hasManualAssist: true }), 'permission_denied');
 });
@@ -102,10 +102,10 @@ test('platform account UI names manual and automatic paths and routes them separ
   assert.match(html, /<option value="auto_ready">自动可采集<\/option>/);
   assert.match(html, /<option value="manual_ready">手动可采集<\/option>/);
   assert.match(html, /auto_ready:\s*'自动可采集'/);
-  assert.match(html, /renewal_warning:\s*'待检测当天登录态·建议续登'/);
+  assert.match(html, /renewal_warning:\s*'自动可采集·建议续登'/);
   assert.match(html, /manual_ready:\s*'手动可采集'/);
   assert.match(html, /channelCount\('auto_ready', 'renewal_warning'\)/);
-  assert.match(html, /每天自动采集前仍必须先检测当天登录态/);
+  assert.match(html, /不要求当天登录证明/);
   assert.match(html, /actionTarget === 'platform-manual'/);
   assert.match(html, /openHotelManualFetch/);
   assert.match(html, /readinessCode === 'waiting_login' \? '验证 Profile 登录'/);

@@ -502,7 +502,7 @@ final class PlatformDataSyncService
                 'ota_collection_mainline' => 'browser_profile_authorization',
                 'ota_password_custody' => 'not_supported',
                 'cookie_api_role' => 'p1_profile_derived_fast_path_or_backfill',
-                'profile_login_state' => 'current_session_verified_same_source_required',
+                'profile_login_state' => 'profile_available_attempt_first',
             ],
             'access_issues' => $accessIssues,
         ];
@@ -2901,17 +2901,7 @@ final class PlatformDataSyncService
      */
     private function browserProfileBackgroundSyncLoginMissingRequirements(array $source, array $options): array
     {
-        if (!$this->isOtaBrowserProfileSource($source)) {
-            return [];
-        }
-
-        if ($this->profileSessionProofService->isCurrentVerified($source)) {
-            return [];
-        }
-        $state = $this->profileSessionProofService->profileReuseState($source);
-        return [($state['status'] ?? '') === 'expired'
-            ? 'profile_session_expired'
-            : 'current_session_verified'];
+        return [];
     }
 
     /**

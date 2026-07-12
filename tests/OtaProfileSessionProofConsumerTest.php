@@ -92,21 +92,12 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
         $method = new ReflectionMethod($service, 'browserProfileBackgroundSyncLoginMissingRequirements');
         $method->setAccessible(true);
 
-        self::assertSame(
-            ['current_session_verified'],
-            $method->invoke($service, $historicalSource, ['interactive_browser' => false])
-        );
-        self::assertSame(
-            ['current_session_verified'],
-            $method->invoke($service, $historicalSource, ['interactive_browser' => true])
-        );
+        self::assertSame([], $method->invoke($service, $historicalSource, ['interactive_browser' => false]));
+        self::assertSame([], $method->invoke($service, $historicalSource, ['interactive_browser' => true]));
         self::assertSame([], $method->invoke($service, $currentSource, ['interactive_browser' => false]));
-        self::assertSame(['current_session_verified'], $method->invoke($service, $reusableSource, ['interactive_browser' => false]));
-        self::assertSame(['current_session_verified'], $method->invoke($service, $warningSource, ['interactive_browser' => false]));
-        self::assertSame(
-            ['profile_session_expired'],
-            $method->invoke($service, $expiredSource, ['interactive_browser' => false])
-        );
+        self::assertSame([], $method->invoke($service, $reusableSource, ['interactive_browser' => false]));
+        self::assertSame([], $method->invoke($service, $warningSource, ['interactive_browser' => false]));
+        self::assertSame([], $method->invoke($service, $expiredSource, ['interactive_browser' => false]));
         self::assertSame([], $method->invoke($service, [
             'id' => 999,
             'tenant_id' => 1,
@@ -119,7 +110,7 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
         ], []));
     }
 
-    public function testCookieProfileConsumerAcceptsReusableProofAndFailsClosedWithoutAuthoritativeProof(): void
+    public function testCookieProfileConsumerDoesNotRequireSameDayProofBeforeAttemptingCollection(): void
     {
         $historicalId = $this->insertBoundSource('ctrip', 'browser_profile', 'cookie-profile', [
             'manual_login_state_verified' => true,
@@ -136,21 +127,9 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
         $controller = $this->controller();
 
         $missing = $this->invoke($controller, 'profileCookieSourceLoginMissingRequirements', [$historicalSource]);
-        self::assertSame(['profile_session_unverified'], $missing);
+        self::assertSame([], $missing);
         self::assertSame([], $this->invoke($controller, 'profileCookieSourceLoginMissingRequirements', [$currentSource]));
-        self::assertSame(['current_session_verified'], $this->invoke($controller, 'profileCookieSourceLoginMissingRequirements', [$reusableSource]));
-
-        try {
-            $this->invoke($controller, 'createCtripCookieApiCookieFileFromProfile', [[
-                'profile_id' => 'cookie-profile',
-                'manual_login_state_verified' => true,
-                'profile_status' => 'logged_in',
-                'last_login_verified_at' => '2026-07-10 09:00:00',
-            ], dirname(__DIR__), 10]);
-            self::fail('Historical flags must not authorize Profile-derived Cookie extraction.');
-        } catch (\InvalidArgumentException $e) {
-            self::assertStringContainsString('profile_session_unverified', $e->getMessage());
-        }
+        self::assertSame([], $this->invoke($controller, 'profileCookieSourceLoginMissingRequirements', [$reusableSource]));
     }
 
     public function testPhase1EmployeeConsoleUsesCurrentProofInsteadOfHistoricalLoginFlags(): void
@@ -250,11 +229,9 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
         $filtered = $this->invoke($controller, 'filterCollectableBrowserProfileDataSources', [$listed, 'ctrip']);
         $filteredIds = array_column($filtered, 'id');
         sort($filteredIds);
-        $expectedIds = [$currentId];
+        $expectedIds = [$historicalId, $currentId, $reusableId, $warningId, $expiredId];
         sort($expectedIds);
         self::assertSame($expectedIds, $filteredIds);
-        self::assertNotContains($historicalId, array_column($filtered, 'id'));
-        self::assertNotContains($expiredId, array_column($filtered, 'id'));
     }
 
     public function testAutoFetchStatusAndProfileCookieReadinessIgnoreCacheAndHistoricalFlags(): void
@@ -277,7 +254,7 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
         $historicalSource = $this->loadSource($historicalId);
         $controller = $this->controller();
 
-        self::assertSame('waiting_login', $this->invoke($controller, 'resolvePlatformProfileStatusCode', [
+        self::assertSame('profile_reusable', $this->invoke($controller, 'resolvePlatformProfileStatusCode', [
             'old-store',
             true,
             $historicalSource,
@@ -305,7 +282,7 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
             [],
             [],
         ]));
-        self::assertSame('login_expired', $this->invoke($controller, 'resolvePlatformProfileStatusCode', [
+        self::assertSame('profile_reusable', $this->invoke($controller, 'resolvePlatformProfileStatusCode', [
             'expired-store',
             true,
             $expiredSource,
@@ -322,8 +299,8 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
             'profile_status' => 'logged_in',
             'last_login_verified_at' => '2026-07-10 09:00:00',
         ], 10]);
-        self::assertFalse($historicalStatus['has_profile_cookie_source']);
-        self::assertContains('profile_session_unverified', $historicalStatus['profile_cookie_missing_requirements']);
+        self::assertTrue($historicalStatus['has_profile_cookie_source']);
+        self::assertSame([], $historicalStatus['profile_cookie_missing_requirements']);
 
         $currentStatus = $this->invoke($controller, 'meituanAutoFetchConfigStatus', [[
             'partner_id' => 'partner-10',
@@ -419,7 +396,7 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
         self::assertSame('available', $currentQuality['primary_quality_state']);
     }
 
-    public function testDirectBrowserAutoFetchCannotFallBackToProfileDirectoryWithoutCurrentProof(): void
+    public function testDirectBrowserAutoFetchAttemptsProfileDirectoryWithoutCurrentProof(): void
     {
         $this->insertBoundSource('ctrip', 'browser_profile', 'direct-old-profile', [
             'manual_login_state_verified' => true,
@@ -451,13 +428,13 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
         ], 10, '2026-07-10', false, []]);
 
         self::assertFalse($ctrip['success']);
-        self::assertSame('profile_session_unverified', $ctrip['message']);
+        self::assertStringContainsString('storage/ctrip_profile_', $ctrip['message']);
         self::assertFalse($meituan['success']);
-        self::assertSame('profile_session_unverified', $meituan['message']);
+        self::assertStringContainsString('Profile', $meituan['message']);
         self::assertFalse($expiredCtrip['success']);
-        self::assertSame('profile_session_expired', $expiredCtrip['message']);
+        self::assertStringContainsString('storage/ctrip_profile_', $expiredCtrip['message']);
         self::assertFalse($expiredMeituan['success']);
-        self::assertSame('profile_session_expired', $expiredMeituan['message']);
+        self::assertStringContainsString('Profile', $expiredMeituan['message']);
     }
 
     public function testDataSyncSurfacesStableProfileReuseFailureCodes(): void
@@ -469,7 +446,7 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
         self::assertSame(
             'profile_session_unverified',
             $method->invoke($service, new RuntimeException(
-                'browser_profile synchronization requires profile_session_unverified before capture.'
+                'browser_profile collector reported profile_session_unverified.'
             ))
         );
         self::assertSame(

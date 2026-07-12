@@ -76,7 +76,7 @@
     <script src="ota-browser-assist-static.js?v=20260629-browser-assist"></script>
     <script src="data-health-static.js?v=20260704-manual-one-click-fetch-20260705-ai-workbench-meituan-comparison-data-health-refresh-state-20260708-public-endpoints-release-evidence-panel-ota-field-gap-queue-employee-ota-checklist-public-token-summary-card-manual-fetch-result-qunar-quality-action-gates-workbench-write-boundary-manual-surface-focus-20260711-ctrip-qunar-gap-nonblocking"></script>
     <script src="revenue-ai-static.js?v=20260710-ai-daily-fact-gate-investigation"></script>
-    <script src="system-static.js?v=20260712-profile-current-session-hotel-archive-hf0730050c7"></script>
+    <script src="system-static.js?v=20260712-profile-attempt-first-h140df3af1b"></script>
     <script src="user-admin-static.js?v=20260711-vip-credential-helper-export-v2"></script>
     <script src="compass-static.js?v=20260704-boss-ia"></script>
     <script src="home-static.js?v=20260628-static-router-fix"></script>
@@ -3881,7 +3881,7 @@
                                                         <span class="font-semibold text-gray-900 truncate max-w-[220px]" :title="hotel.name">{{ hotel.name }}</span>
                                                         <span :class="String(hotel.status) === '1' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200'"
                                                             class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
-                                                            {{ hotel.archived_at ? '已归档' : (String(hotel.status) === '1' ? '营业中' : '已停用') }}
+                                                            {{ String(hotel.status) === '1' ? '营业中' : '已停用' }}
                                                         </span>
                                                         <span v-for="badge in hotelOtaStatusBadges(hotel)" :key="badge.key" data-testid="hotel-ota-strategy"
                                                             :class="badge.className"
@@ -3982,11 +3982,10 @@
                                                 <div class="space-y-2">
                                                     <div v-if="canManageOwnHotels()" class="flex flex-wrap justify-end gap-1.5">
                                                         <button type="button" @click="toggleHotelDetails(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50">{{ isHotelDetailsExpanded(hotel) ? '收起详情' : '展开详情' }}</button>
-                                                        <button v-if="user?.is_super_admin && !hotel.archived_at" type="button" @click="openUserAuthorization(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-blue-100 bg-blue-50 text-xs text-blue-700 hover:bg-blue-100">授权用户</button>
-                                                        <button v-if="!hotel.archived_at" type="button" @click="openHotelModal(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50">编辑</button>
-                                                        <button v-if="!hotel.archived_at" type="button" @click="toggleHotelStatus(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50">{{ String(hotel.status) === '1' ? '停用' : '启用' }}</button>
-                                                        <button v-if="user?.is_super_admin && !hotel.archived_at" type="button" @click="openHotelDeleteModal(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-red-100 bg-white text-xs text-red-600 hover:bg-red-50">归档</button>
-                                                        <button v-if="user?.is_super_admin && hotel.archived_at" type="button" @click="restoreHotel(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-emerald-100 bg-white text-xs text-emerald-700 hover:bg-emerald-50">恢复</button>
+                                                        <button v-if="user?.is_super_admin" type="button" @click="openUserAuthorization(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-blue-100 bg-blue-50 text-xs text-blue-700 hover:bg-blue-100">授权用户</button>
+                                                        <button type="button" @click="openHotelModal(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50">编辑</button>
+                                                        <button type="button" @click="toggleHotelStatus(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50">{{ String(hotel.status) === '1' ? '停用' : '启用' }}</button>
+                                                        <button v-if="user?.is_super_admin" type="button" @click="openHotelDeleteModal(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-red-100 bg-white text-xs text-red-600 hover:bg-red-50">删除</button>
                                                     </div>
                                                 </div>
                                             </td>
@@ -4002,9 +4001,9 @@
                                             <div class="flex flex-wrap items-center gap-2">
                                                 <input v-if="canManageOwnHotels()" v-model="selectedHotelIds" :value="String(hotel.id)" type="checkbox" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" :aria-label="`选择门店 ${hotel.name}`">
                                                 <h3 class="font-semibold text-gray-900 truncate" :title="hotel.name">{{ hotel.name }}</h3>
-                                                <span :class="hotel.archived_at ? 'bg-slate-100 text-slate-600 border-slate-200' : (String(hotel.status) === '1' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200')"
+                                                <span :class="String(hotel.status) === '1' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200'"
                                                     class="px-2 py-0.5 rounded-md text-xs border whitespace-nowrap">
-                                                    {{ hotel.archived_at ? '已归档' : (String(hotel.status) === '1' ? '营业中' : '已停用') }}
+                                                    {{ String(hotel.status) === '1' ? '营业中' : '已停用' }}
                                                 </span>
                                                 <span v-for="badge in hotelOtaStatusBadges(hotel)" :key="badge.key" data-testid="hotel-ota-strategy"
                                                     :class="badge.className"
@@ -4030,10 +4029,9 @@
                                                 授权用户
                                             </button>
                                             <div v-if="canManageOwnHotels()" class="flex flex-wrap gap-1">
-                                                <button v-if="!hotel.archived_at" type="button" @click="openHotelModal(hotel)" class="shrink-0 whitespace-nowrap px-2 py-1 rounded-lg border border-gray-200 bg-white text-xs text-gray-600">编辑</button>
-                                                <button v-if="!hotel.archived_at" type="button" @click="toggleHotelStatus(hotel)" class="shrink-0 whitespace-nowrap px-2 py-1 rounded-lg border border-gray-200 bg-white text-xs text-gray-600">{{ String(hotel.status) === '1' ? '停用' : '启用' }}</button>
-                                                <button v-if="user?.is_super_admin && !hotel.archived_at" type="button" @click="openHotelDeleteModal(hotel)" class="shrink-0 whitespace-nowrap px-2 py-1 rounded-lg border border-red-100 bg-white text-xs text-red-600">归档</button>
-                                                <button v-if="user?.is_super_admin && hotel.archived_at" type="button" @click="restoreHotel(hotel)" class="shrink-0 whitespace-nowrap px-2 py-1 rounded-lg border border-emerald-100 bg-white text-xs text-emerald-700">恢复</button>
+                                                <button type="button" @click="openHotelModal(hotel)" class="shrink-0 whitespace-nowrap px-2 py-1 rounded-lg border border-gray-200 bg-white text-xs text-gray-600">编辑</button>
+                                                <button type="button" @click="toggleHotelStatus(hotel)" class="shrink-0 whitespace-nowrap px-2 py-1 rounded-lg border border-gray-200 bg-white text-xs text-gray-600">{{ String(hotel.status) === '1' ? '停用' : '启用' }}</button>
+                                                <button v-if="user?.is_super_admin" type="button" @click="openHotelDeleteModal(hotel)" class="shrink-0 whitespace-nowrap px-2 py-1 rounded-lg border border-red-100 bg-white text-xs text-red-600">删除</button>
                                             </div>
                                         </div>
                                     </div>
@@ -4111,8 +4109,8 @@
                                             <i class="fas fa-trash-alt"></i>
                                         </div>
                                         <div>
-                                            <h3 class="text-lg font-semibold text-gray-900">归档门店</h3>
-                                            <p class="text-sm text-gray-500 mt-1">归档后停止访问与 OTA 采集；全部业务历史、平台配置和员工归属都会保留，可随时恢复。</p>
+                                            <h3 class="text-lg font-semibold text-gray-900">永久删除门店</h3>
+                                            <p class="text-sm text-gray-500 mt-1">确认后将永久删除该酒店及关联业务数据、OTA 配置；员工账号保留但解除门店归属。</p>
                                         </div>
                                     </div>
                                     <button type="button" @click="closeHotelDeleteModal()" class="text-gray-400 hover:text-gray-600 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100">
@@ -4140,10 +4138,10 @@
                                                 <span class="font-semibold text-amber-800">{{ item.count || 0 }}</span>
                                             </div>
                                         </div>
-                                        <p class="text-xs text-amber-800 mt-3">上述数据仅用于影响预览，归档时不会删除；员工账号和门店归属也会保留。</p>
+                                        <p class="text-xs text-amber-800 mt-3">上述关联数据将在确认后永久删除；员工账号保留，但会解除该门店归属。</p>
                                     </div>
                                     <div v-if="hotelDeleteReferences.length" class="rounded-lg border border-red-200 bg-red-50 p-4">
-                                        <label class="block text-sm font-medium text-red-900 mb-2">请输入完整门店名称“{{ hotelDeleteTarget?.name || '' }}”确认归档</label>
+                                        <label class="block text-sm font-medium text-red-900 mb-2">请输入完整门店名称“{{ hotelDeleteTarget?.name || '' }}”确认永久删除</label>
                                         <input v-model="hotelDeleteConfirmationName" type="text" autocomplete="off"
                                             class="w-full rounded-lg border border-red-200 bg-white px-3 py-2 text-sm text-gray-800 focus:border-red-400 focus:outline-none focus:ring-2 focus:ring-red-100">
                                     </div>
@@ -4163,7 +4161,7 @@
                                     <button type="button" @click="confirmDeleteHotel"
                                         :disabled="hotelDeleteLoading || (hotelDeleteReferences.length > 0 && (!hotelDeleteCanForce || String(hotelDeleteConfirmationName || '').trim() !== String(hotelDeleteTarget?.name || '').trim()))"
                                         class="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-60">
-                                        {{ hotelDeleteLoading ? '处理中...' : (hotelDeleteReferences.length ? '确认归档' : '查看影响清单') }}
+                                        {{ hotelDeleteLoading ? '处理中...' : (hotelDeleteReferences.length ? '确认永久删除' : '查看影响清单') }}
                                     </button>
                                 </div>
                             </div>
@@ -15165,7 +15163,7 @@
                                                 </article>
                                                 <div v-if="!filteredPlatformAccountCenterRows.length" class="rounded-xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500">没有符合筛选条件的门店；未配置状态不会被伪装为可采集。</div>
                                             </div>
-                                            <div class="mt-3 text-xs leading-5 text-slate-500">Profile 在 10 天内可复用来减少重复人工登录，但每天自动采集前仍必须先检测当天登录态；第 7 天起提醒续登，第 10 天起强制重新登录。“手动可采集”仅表示 Cookie/API 临时辅助可用于人工补采。两者都不等于目标日期数据已入库，也不代表全酒店经营状态。</div>
+                                            <div class="mt-3 text-xs leading-5 text-slate-500">浏览器 Profile 只要已绑定就优先直接尝试采集，不要求当天登录证明；平台实际返回登录失效时再提示重新登录。采集成功仍需以目标日期入库和数据库回读为准，不代表全酒店经营状态。</div>
                                         </div>
                                     </section>
 
@@ -22993,7 +22991,7 @@
                 return `${ready}/${total}项经营指标可用`;
             });
             const dailyOpsPrimaryActions = requireCompassStatic('dailyOpsPrimaryActions');
-            const autoFetchStaticScript = 'auto-fetch-static.js?v=20260712-profile-current-session-h621c8cba12';
+            const autoFetchStaticScript = 'auto-fetch-static.js?v=20260712-profile-attempt-first-h26ff10af05';
             const autoFetchStaticVersion = '20260708-local-auth-copy';
             const autoFetchStatic = ref(window.SUXI_AUTO_FETCH_STATIC && typeof window.SUXI_AUTO_FETCH_STATIC === 'object' ? window.SUXI_AUTO_FETCH_STATIC : null);
             const autoFetchStaticLoadError = ref('');
@@ -24223,10 +24221,11 @@
                     };
                     const syncStepStatus = collectionDone
                         ? 'done'
-                        : (collectionPartial ? 'warning' : (collectionStatus === 'collecting' ? 'active' : (collectionBlocked ? 'blocked' : (loginVerified ? 'active' : 'pending'))));
+                    const profileCanAttempt = hasConfiguredProfile && !loginBlocked;
+                        : (collectionPartial ? 'warning' : (collectionStatus === 'collecting' ? 'active' : (collectionBlocked ? 'blocked' : (profileCanAttempt ? 'active' : 'pending'))));
                     const dataStepStatus = collectionDone
                         ? 'done'
-                        : (collectionPartial ? 'warning' : (collectionBlocked ? 'blocked' : (loginVerified ? 'warning' : 'pending')));
+                        : (collectionPartial ? 'warning' : (collectionBlocked ? 'blocked' : (profileCanAttempt ? 'warning' : 'pending')));
                     return {
                         platform,
                         platformName: collectionRow?.platformName || profileItem?.platform_name || platform,
@@ -24252,19 +24251,19 @@
                                 key: 'user-verification',
                                 label: '等待用户验证',
                                 status: loginVerified ? 'done' : (hasConfiguredProfile ? (loginBlocked ? 'blocked' : 'active') : 'pending'),
-                                description: loginVerified ? '用户已在自己的授权浏览器内完成当天验证。' : (profileReusable ? 'Profile 可复用；正在等待当天登录态检测。' : '在账号使用者自己的浏览器内完成人工登录、短信或人机验证。'),
+                                description: loginVerified ? '用户已在自己的授权浏览器内完成当天验证。' : (hasConfiguredProfile ? '已有 Profile，可直接尝试采集；失败时再处理登录。' : '在账号使用者自己的浏览器内完成人工登录、短信或人机验证。'),
                             },
                             {
                                 key: 'confirm-login-state',
                                 label: '确认登录态',
                                 status: loginVerified ? 'done' : (loginBlocked ? 'blocked' : 'pending'),
-                                description: loginVerified ? '当天登录态已验证，可进入采集。' : (profileReusable ? '先检测当天登录态；历史复用证明不能直接授权采集。' : '等待系统形成可信的 Profile 登录证明。'),
+                                description: loginVerified ? '当天登录态已验证，可进入采集。' : (hasConfiguredProfile ? '当天证明不是采集前置条件；以平台实际响应为准。' : '尚未配置可执行的浏览器 Profile。'),
                             },
                             {
                                 key: 'sync-target-date',
                                 label: '同步目标日期数据',
                                 status: syncStepStatus,
-                                description: collectionDone ? `目标日期 traffic 已入库 ${targetTrafficRows} 条，字段事实 ${fieldFactsReady} 条。` : (loginVerified ? `运行现有数据源同步，当前目标日 ${targetDateRows} 行，traffic ${targetTrafficRows} 行。` : '登录态确认后再运行目标日期同步。'),
+                                description: collectionDone ? `目标日期 traffic 已入库 ${targetTrafficRows} 条，字段事实 ${fieldFactsReady} 条。` : (profileCanAttempt ? `直接运行现有 Profile 采集；当前目标日 ${targetDateRows} 行，traffic ${targetTrafficRows} 行。` : '配置 Profile 后运行目标日期同步。'),
                             },
                             {
                                 key: 'verify-data-completeness',
@@ -34714,7 +34713,7 @@
 
             const platformAccountReadinessText = (code = '') => ({
                 auto_ready: '自动可采集',
-                renewal_warning: '待检测当天登录态·建议续登',
+                renewal_warning: '自动可采集·建议续登',
                 manual_ready: '手动可采集',
                 waiting_login: '待验证登录',
                 login_expired: '登录已失效',
@@ -34739,10 +34738,10 @@
             }[code] || 'border-slate-200 bg-slate-50 text-slate-600');
 
             const platformAccountBlockerText = (readinessCode = '', account = {}) => {
-                if (readinessCode === 'auto_ready') return 'Profile 当天登录态已验证，可进入自动采集。';
+                if (readinessCode === 'auto_ready') return 'Profile 已绑定，可直接尝试自动采集；以平台实际响应和入库结果为准。';
                 if (readinessCode === 'renewal_warning') {
                     const days = Number(account.daysUntilForcedLogin ?? 0);
-                    return `Profile 接近续登期；先检测当天登录态，并建议在 ${Math.max(0, days)} 天内重新登录。`;
+                    return `Profile 可直接采集；建议在 ${Math.max(0, days)} 天内重新登录，但不阻塞本次采集。`;
                 }
                 if (readinessCode === 'manual_ready') return '仅可手动补采；未验证 Profile 当前会话，不进入自动采集。';
                 if (readinessCode === 'waiting_login' && account.profileSource) {
@@ -34785,7 +34784,7 @@
                             loginText: currentSessionVerified
                                 ? '今天已验证'
                                 : (profileReusable
-                                    ? (account.renewalWarning ? '待检测当天状态，建议续登' : '待检测当天登录态')
+                                    ? (account.renewalWarning ? '可采集，建议续登' : '可直接尝试采集')
                                     : (usesProfile ? '登录态未验证' : (usesManualAssist ? '未验证 Profile 登录态' : '未验证'))),
                             currentSessionVerified,
                             profileReusable,
@@ -43347,7 +43346,7 @@
 
             const openHotelDeleteModal = (hotel) => {
                 if (!user.value?.is_super_admin) {
-                    showToast('仅超级管理员可以归档酒店', 'error');
+                    showToast('仅超级管理员可以永久删除酒店', 'error');
                     return;
                 }
                 hotelDeleteTarget.value = hotel || null;
@@ -43374,7 +43373,7 @@
                 if (!hotel?.id) return;
                 const forceDelete = hotelDeleteReferences.value.length > 0 && hotelDeleteCanForce.value;
                 if (forceDelete && String(hotelDeleteConfirmationName.value || '').trim() !== String(hotel.name || '').trim()) {
-                    hotelDeleteError.value = '请输入完整门店名称后再归档';
+                    hotelDeleteError.value = '请输入完整门店名称后再永久删除';
                     return;
                 }
                 hotelDeleteLoading.value = true;
@@ -43393,11 +43392,11 @@
                     }
                     const res = await request(`/hotels/${hotel.id}`, options);
                     if (res.code === 200) {
-                        showToast('酒店已归档，历史数据和配置均已保留', 'success');
+                        showToast('酒店及关联数据已永久删除', 'success');
                         closeHotelDeleteModal(true);
                         await loadHotels({ force: true, includeInactive: true });
                     } else {
-                        hotelDeleteError.value = res.message || '归档失败';
+                        hotelDeleteError.value = res.message || '删除失败';
                         showToast(hotelDeleteError.value, 'error');
                     }
                 } catch (error) {
@@ -43406,24 +43405,11 @@
                     hotelDeleteReferences.value = references;
                     hotelDeleteCanForce.value = data?.data?.can_force_delete === true;
                     const referenceText = formatHotelDeleteReferences(references);
-                    hotelDeleteError.value = data.message || data.msg || error.message || '归档失败';
+                    hotelDeleteError.value = data.message || data.msg || error.message || '删除失败';
                     showToast(`${hotelDeleteError.value}${referenceText ? `：${referenceText}` : ''}`, 'error');
-                    console.error('归档酒店失败:', error);
+                    console.error('永久删除酒店失败:', error);
                 } finally {
                     hotelDeleteLoading.value = false;
-                }
-            };
-
-            const restoreHotel = async (hotel) => {
-                if (!hotel?.id || !user.value?.is_super_admin) return;
-                if (!confirm(`确认恢复归档酒店“${hotel.name || hotel.id}”吗？\n\n恢复后保持停用，确认配置无误后再手动启用。`)) return;
-                try {
-                    const res = await request(`/hotels/${hotel.id}/restore`, { method: 'POST' });
-                    if (res.code !== 200) throw new Error(res.message || '恢复失败');
-                    showToast('酒店已恢复为停用状态', 'success');
-                    await loadHotels({ force: true, includeInactive: true });
-                } catch (error) {
-                    showToast(error.message || '恢复失败', 'error');
                 }
             };
 

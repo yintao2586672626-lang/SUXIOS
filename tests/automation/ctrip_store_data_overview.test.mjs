@@ -503,7 +503,7 @@ test('Platform account badge treats browser profile login timeout as login expir
   assert.doesNotMatch(systemStatic, /data_source_id: profileSource\?\.id \|\| source\?\.id \|\| undefined/);
   assert.match(autoFetchStatic, /status === 'syncing_after_login' \|\| sync\?\.status === 'running'/);
   assert.match(autoFetchStatic, /登录后同步完成，目标日已入库/);
-  assert.match(accountRowBuilder, /\(loginExpired \|\| reuseExpired\)[\s\S]*\? 'login_expired'/);
+  assert.match(accountRowBuilder, /loginExpired[\s\S]*\? 'login_expired'/);
   assert.match(accountRowBuilder, /effectiveReady[\s\S]*renewal_warning[\s\S]*profile_reusable/);
   assert.match(accountRowWrapper, /buildHotelPlatformBindingRowsStatic/);
   assert.match(accountRowWrapper, /platformSourceForHotel\(hotelId, 'ctrip'\)/);

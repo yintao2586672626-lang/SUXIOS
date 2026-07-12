@@ -33,7 +33,7 @@ final class PlatformProfileBindingReadinessService
             'login_expired', 'session_expired' => 'expired',
             default => 'unverified',
         };
-        $profileReusable = in_array($profileReuseStatus, ['reusable', 'renewal_warning'], true);
+        $profileReusable = $profileExists && !in_array($statusCode, ['login_expired', 'session_expired', 'permission_denied', 'hotel_mismatch'], true);
         $profileReuseWarning = $profileReuseStatus === 'renewal_warning';
         $profileAgeDays = self::profileAgeDays($config);
         $daysUntilForcedLogin = $profileAgeDays === null ? null : max(0, 10 - $profileAgeDays);
@@ -60,12 +60,12 @@ final class PlatformProfileBindingReadinessService
         if (!$profileExists) {
             $missing[] = 'profile_exists';
         }
-        if (!$currentSessionVerified) {
-            $missing[] = match ($profileReuseStatus) {
-                'expired' => 'profile_session_expired',
-                'reusable', 'renewal_warning' => 'current_session_verified',
-                default => 'profile_session_unverified',
-            };
+        if (in_array($statusCode, ['login_expired', 'session_expired'], true)) {
+            $missing[] = 'profile_session_expired';
+        } elseif ($statusCode === 'permission_denied') {
+            $missing[] = 'platform_permission_denied';
+        } elseif ($statusCode === 'hotel_mismatch') {
+            $missing[] = 'hotel_mismatch';
         }
 
         $isComplete = $missing === [];
@@ -177,11 +177,11 @@ final class PlatformProfileBindingReadinessService
             } elseif (!$partnerConfigured) {
                 $identityStatus = 'ok';
                 $identityDetail = 'POI/Store 已配置；Browser Profile 是P0采集主线，Partner ID不是前置条件';
-                $identityAction = '可先执行美团 Profile 授权采集';
-                $identityActionMeta = ['login_platform_profile', '登录美团', 'profile-login'];
+                $identityAction = '可直接尝试美团 Profile 采集';
+                $identityActionMeta = ['run_profile_capture', '立即采集', 'platform-auto'];
             } else {
                 $identityStatus = 'ok';
-                $identityDetail = 'POI/Store 与 Partner ID 已配置；仍需已验证的 Browser Profile 会话';
+                $identityDetail = 'POI/Store 与 Partner ID 已配置；可直接尝试 Browser Profile 采集';
                 $identityAction = '可执行美团 Profile 采集';
                 $identityActionMeta = ['run_profile_capture', '执行美团 Profile 采集', 'platform-auto'];
             }
@@ -361,7 +361,7 @@ final class PlatformProfileBindingReadinessService
     {
         return match ($statusCode) {
             'logged_in' => '登录态已验证',
-            'profile_reusable' => 'Profile 登录态可复用',
+            'profile_reusable' => 'Profile 可尝试采集',
             'renewal_warning' => 'Profile 登录态可用，建议续登',
             'login_expired' => '登录失效',
             'capture_failed' => '采集失败',
@@ -375,8 +375,8 @@ final class PlatformProfileBindingReadinessService
         $name = $platform === 'meituan' ? '美团' : '携程';
         return match ($statusCode) {
             'logged_in' => '登录态已验证；执行目标日同步并检查入库结果',
-            'profile_reusable' => 'Profile 可复用；先检测当天登录态，再执行采集',
-            'renewal_warning' => 'Profile 接近续登期；先检测当天登录态，再执行采集',
+            'profile_reusable' => '直接执行采集；仅在平台实际返回登录失效时重新登录',
+            'renewal_warning' => '直接执行采集；建议有空时续登，但不阻塞采集',
             'login_expired' => '重新登录' . $name . '平台账号',
             'capture_failed' => '查看最近同步日志后重新检测登录状态',
             'waiting_login' => '点击“登录' . $name . '”完成平台验证',
@@ -389,7 +389,7 @@ final class PlatformProfileBindingReadinessService
         $name = $platform === 'meituan' ? '美团' : '携程';
         return match ($statusCode) {
             'logged_in' => ['run_profile_capture', '同步并检查入库', 'platform-auto'],
-            'profile_reusable', 'renewal_warning' => ['login_platform_profile', '检测当天登录态', 'profile-login'],
+            'profile_reusable', 'renewal_warning' => ['run_profile_capture', '立即采集', 'platform-auto'],
             'login_expired' => ['login_platform_profile', '重新登录' . $name, 'profile-login'],
             'capture_failed' => ['open_sync_logs', '查看日志并检测登录', 'sync-logs'],
             'waiting_login' => ['login_platform_profile', '登录' . $name, 'profile-login'],

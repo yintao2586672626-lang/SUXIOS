@@ -554,9 +554,6 @@ class Hotel extends Base
         $data = $this->requestData();
         $forceDelete = $this->isForceDeleteRequested($data);
         $canForceDelete = (bool)($this->currentUser?->isSuperAdmin() ?? false);
-        if ($forceDelete && !$canForceDelete) {
-            return $this->error('仅超级管理员可以归档酒店', 403);
-        }
 
         $hotel = HotelModel::find($id);
         if (!$hotel) {
@@ -577,12 +574,12 @@ class Hotel extends Base
         if ((int)($preview['config_entries'] ?? 0) > 0) {
             $references[] = ['table' => 'ota_config_lists', 'label' => '携程/美团配置', 'count' => (int)$preview['config_entries']];
         }
-        if ((int)($preview['users_preserved'] ?? 0) > 0) {
-            $references[] = ['table' => 'users', 'label' => '保留员工门店归属', 'count' => (int)$preview['users_preserved']];
+        if ((int)($preview['users_detached'] ?? 0) > 0) {
+            $references[] = ['table' => 'users', 'label' => '解除员工门店归属', 'count' => (int)$preview['users_detached']];
         }
 
         if (!$forceDelete) {
-            return $this->error('归档会停用该酒店并停止 OTA 采集；历史数据、配置和员工归属将完整保留', 409, [
+            return $this->error('删除会永久清除该酒店及全部关联数据，请核对清单后再次确认', 409, [
                 'references' => $references,
                 'can_force_delete' => $canForceDelete,
                 'requires_name_confirmation' => true,
@@ -590,7 +587,7 @@ class Hotel extends Base
         }
         $confirmationName = (string)($data['confirmation_name'] ?? '');
         if (!$this->hotelDeleteConfirmationMatches($hotelName, $confirmationName)) {
-            return $this->error('请输入完整门店名称后再归档', 422, [
+            return $this->error('请输入完整门店名称后再删除', 422, [
                 'references' => $references,
                 'can_force_delete' => $canForceDelete,
                 'requires_name_confirmation' => true,
@@ -598,54 +595,28 @@ class Hotel extends Base
         }
 
         try {
-            $result = $service->delete($id, (int)($this->currentUser->id ?? 0));
+            $result = $service->delete($id);
         } catch (\Throwable $e) {
-            return $this->error('酒店归档失败，事务已回滚: ' . $e->getMessage(), 500);
+            return $this->error('酒店及关联数据删除失败，事务已回滚: ' . $e->getMessage(), 500);
         }
 
         OperationLog::record(
             'hotel',
-            'archive',
-            '归档酒店并保留关联数据: ' . $hotelName,
+            'delete',
+            '删除酒店及关联数据: ' . $hotelName,
             $this->currentUser->id ?? null,
             null,
             null,
             [
-                'archived_hotel_id' => $id,
-                'archived_hotel_name' => $hotelName,
-                'preserved_rows' => (int)($result['preserved_rows'] ?? 0),
+                'deleted_hotel_id' => $id,
+                'deleted_hotel_name' => $hotelName,
+                'deleted_rows' => (int)($result['deleted_rows'] ?? 0),
+                'users_detached' => (int)($result['users_detached'] ?? 0),
+                'config_entries_deleted' => (int)($result['config_entries_deleted'] ?? 0),
             ]
         );
 
-        return $this->success($result, '酒店已归档；历史数据、配置和员工归属均已保留');
-    }
-
-    public function restore(int $id): Response
-    {
-        $this->checkPermission(true);
-        if (!(bool)($this->currentUser?->isSuperAdmin() ?? false)) {
-            return $this->error('仅超级管理员可以恢复归档酒店', 403);
-        }
-
-        try {
-            $result = (new HotelCascadeDeletionService())->restore($id);
-        } catch (RuntimeException $e) {
-            return $this->error($e->getMessage(), 409);
-        } catch (\Throwable $e) {
-            return $this->error('酒店恢复失败，事务已回滚: ' . $e->getMessage(), 500);
-        }
-
-        OperationLog::record(
-            'hotel',
-            'restore_archive',
-            '恢复归档酒店: ' . (string)($result['hotel_name'] ?? $id),
-            $this->currentUser->id ?? null,
-            $id,
-            null,
-            ['restored_hotel_id' => $id, 'status' => 0]
-        );
-
-        return $this->success($result, '酒店已恢复为停用状态，请确认配置后再手动启用');
+        return $this->success($result, '酒店及关联数据已删除');
     }
 
     /**

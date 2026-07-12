@@ -54,7 +54,7 @@ final class HotelCascadeDeletionServiceTest extends TestCase
         $this->seedRows();
     }
 
-    public function testPreviewIncludesDependentRowsAndArchivePreservesHotelHistory(): void
+    public function testPreviewIncludesDependentRowsAndPermanentDeleteRemovesAllHotelData(): void
     {
         $service = new HotelCascadeDeletionService();
 
@@ -68,39 +68,30 @@ final class HotelCascadeDeletionServiceTest extends TestCase
         self::assertSame(2, $preview['config_entries']);
         self::assertArrayNotHasKey('encrypted_payload', $preview);
 
-        $result = $service->delete(10, 99);
+        $result = $service->delete(10);
 
-        self::assertSame(1, Db::name('hotels')->where('id', 10)->count());
-        self::assertSame(0, (int)Db::name('hotels')->where('id', 10)->value('status'));
-        self::assertNotSame('', trim((string)Db::name('hotels')->where('id', 10)->value('archived_at')));
-        self::assertSame(99, (int)Db::name('hotels')->where('id', 10)->value('archived_by'));
+        self::assertSame(0, Db::name('hotels')->where('id', 10)->count());
         self::assertSame(2, Db::name('users')->count());
-        self::assertSame(10, (int)Db::name('users')->where('id', 1)->value('hotel_id'));
-        self::assertSame(10, (int)Db::name('users')->where('id', 1)->value('tenant_id'));
+        self::assertNull(Db::name('users')->where('id', 1)->value('hotel_id'));
+        self::assertNull(Db::name('users')->where('id', 1)->value('tenant_id'));
         self::assertSame(20, (int)Db::name('users')->where('id', 2)->value('hotel_id'));
-        self::assertSame(1, Db::name('user_hotel_permissions')->where('hotel_id', 10)->count());
-        self::assertSame(1, Db::name('online_daily_data')->where('system_hotel_id', 10)->count());
-        self::assertSame(1, Db::name('ota_credentials')->where('system_hotel_id', 10)->count());
-        self::assertSame(1, Db::name('ota_profile_bindings')->where('system_hotel_id', 10)->count());
-        self::assertSame(1, Db::name('platform_data_sources')->where('system_hotel_id', 10)->count());
-        self::assertSame(1, Db::name('operation_logs')->where('hotel_id', 10)->count());
-        self::assertSame(1, Db::name('ota_meituan_reviews')->where('system_hotel_id', 10)->count());
-        self::assertSame(1, Db::name('opening_tasks')->where('project_id', 100)->count());
-        self::assertSame(1, Db::name('operation_execution_evidence')->where('task_id', 200)->count());
-        self::assertTrue($result['archived']);
-        self::assertSame(2, $result['config_entries_preserved']);
+        self::assertSame(0, Db::name('user_hotel_permissions')->where('hotel_id', 10)->count());
+        self::assertSame(0, Db::name('online_daily_data')->where('system_hotel_id', 10)->count());
+        self::assertSame(0, Db::name('ota_credentials')->where('system_hotel_id', 10)->count());
+        self::assertSame(0, Db::name('ota_profile_bindings')->where('system_hotel_id', 10)->count());
+        self::assertSame(0, Db::name('platform_data_sources')->where('system_hotel_id', 10)->count());
+        self::assertSame(0, Db::name('operation_logs')->where('hotel_id', 10)->count());
+        self::assertSame(0, Db::name('ota_meituan_reviews')->where('system_hotel_id', 10)->count());
+        self::assertSame(0, Db::name('opening_tasks')->where('project_id', 100)->count());
+        self::assertSame(0, Db::name('operation_execution_evidence')->where('task_id', 200)->count());
+        self::assertSame(2, $result['config_entries_deleted']);
+        self::assertGreaterThanOrEqual(9, $result['deleted_rows']);
 
         foreach (['ctrip_config_list', 'meituan_config_list'] as $key) {
             $list = json_decode((string)Db::name('system_configs')->where('config_key', $key)->value('config_value'), true, 512, JSON_THROW_ON_ERROR);
-            self::assertArrayHasKey('hotel-10', $list);
+            self::assertArrayNotHasKey('hotel-10', $list);
             self::assertArrayHasKey('hotel-20', $list);
         }
-
-        $restored = $service->restore(10);
-        self::assertTrue($restored['restored']);
-        self::assertNull(Db::name('hotels')->where('id', 10)->value('archived_at'));
-        self::assertNull(Db::name('hotels')->where('id', 10)->value('archived_by'));
-        self::assertSame(0, (int)Db::name('hotels')->where('id', 10)->value('status'));
     }
 
     public function testDeleteRollsBackWhenHotelDoesNotExist(): void
@@ -115,7 +106,7 @@ final class HotelCascadeDeletionServiceTest extends TestCase
     private function createSchema(): void
     {
         foreach ([
-            'CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NULL, name TEXT NOT NULL, status INTEGER NOT NULL DEFAULT 1, archived_at TEXT NULL, archived_by INTEGER NULL)',
+            'CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NULL, name TEXT NOT NULL, status INTEGER NOT NULL DEFAULT 1)',
             'CREATE TABLE users (id INTEGER PRIMARY KEY, hotel_id INTEGER NULL, tenant_id INTEGER NULL)',
             'CREATE TABLE user_hotel_permissions (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL)',
             'CREATE TABLE online_daily_data (id INTEGER PRIMARY KEY, system_hotel_id INTEGER NOT NULL, hotel_id TEXT NULL)',

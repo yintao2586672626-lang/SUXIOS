@@ -109,16 +109,13 @@ final class PlatformDataSyncServiceTest extends TestCase
         ]);
     }
 
-    public function testBrowserProfileBackgroundSyncRequiresCurrentSessionProof(): void
+    public function testBrowserProfileBackgroundSyncDoesNotRequireCurrentSessionProof(): void
     {
         $service = new PlatformDataSyncService();
         $method = new \ReflectionMethod($service, 'assertBrowserProfileBackgroundSyncLoginVerified');
         $method->setAccessible(true);
 
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('current_session_verified');
-
-        $method->invoke($service, [
+        self::assertNull($method->invoke($service, [
             'id' => 79,
             'platform' => 'ctrip',
             'data_type' => 'traffic',
@@ -133,10 +130,10 @@ final class PlatformDataSyncServiceTest extends TestCase
         ], [
             'trigger_type' => 'daily_profile_reuse',
             'interactive_browser' => false,
-        ]);
+        ]));
     }
 
-    public function testBrowserProfileBackgroundSyncDoesNotAcceptHistoricalStatusAndTime(): void
+    public function testBrowserProfileBackgroundSyncAllowsHistoricalStatusAndTimeForAnAttempt(): void
     {
         $service = new PlatformDataSyncService();
         $method = new \ReflectionMethod($service, 'browserProfileBackgroundSyncLoginMissingRequirements');
@@ -158,19 +155,16 @@ final class PlatformDataSyncServiceTest extends TestCase
             'interactive_browser' => false,
         ]);
 
-        self::assertSame(['current_session_verified'], $missing);
+        self::assertSame([], $missing);
     }
 
-    public function testBrowserProfileInteractiveSynchronizationStillRequiresCurrentSessionProof(): void
+    public function testBrowserProfileInteractiveSynchronizationDoesNotRequireCurrentSessionProof(): void
     {
         $service = new PlatformDataSyncService();
         $method = new \ReflectionMethod($service, 'assertBrowserProfileBackgroundSyncLoginVerified');
         $method->setAccessible(true);
 
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('current_session_verified');
-
-        $method->invoke($service, [
+        self::assertNull($method->invoke($service, [
             'id' => 81,
             'platform' => 'ctrip',
             'data_type' => 'traffic',
@@ -182,20 +176,17 @@ final class PlatformDataSyncServiceTest extends TestCase
         ], [
             'trigger_type' => 'manual',
             'interactive_browser' => true,
-        ]);
+        ]));
 
     }
 
-    public function testBrowserProfileBackgroundSyncRejectsHistoricalVerifiedManualLoginState(): void
+    public function testBrowserProfileBackgroundSyncAttemptsHistoricalVerifiedManualLoginState(): void
     {
         $service = new PlatformDataSyncService();
         $method = new \ReflectionMethod($service, 'assertBrowserProfileBackgroundSyncLoginVerified');
         $method->setAccessible(true);
 
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('current_session_verified');
-
-        $method->invoke($service, [
+        self::assertNull($method->invoke($service, [
             'id' => 82,
             'platform' => 'meituan',
             'data_type' => 'traffic',
@@ -210,7 +201,7 @@ final class PlatformDataSyncServiceTest extends TestCase
         ], [
             'trigger_type' => 'daily_profile_reuse',
             'interactive_browser' => false,
-        ]);
+        ]));
 
     }
 

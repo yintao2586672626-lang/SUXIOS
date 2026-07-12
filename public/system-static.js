@@ -1380,7 +1380,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         unbound: '\u672a\u7ed1\u5b9a',
         waiting_login: '\u5f85\u767b\u5f55',
         logged_in: '\u5df2\u767b\u5f55',
-        profile_reusable: '\u767b\u5f55\u6001\u53ef\u590d\u7528',
+        profile_reusable: '\u53ef\u76f4\u63a5\u5c1d\u8bd5\u91c7\u96c6',
         renewal_warning: '\u53ef\u91c7\u96c6\u00b7\u5efa\u8bae\u7eed\u767b',
         login_expired: '\u767b\u5f55\u5931\u6548',
         missing_config: '\u914d\u7f6e\u7f3a\u9879',
@@ -1532,12 +1532,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
             && String(sourceConfig.current_session_probe_scope || '').trim() === 'same_data_source_profile_session'
             && String(sourceConfig.current_session_probe_producer || '').trim() === 'platform_profile_login_task';
         const reuseStatus = String(profileSource?.profile_reuse_status || '').trim().toLowerCase();
-        const profileReusable = sessionVerified || (
-            profileSource?.profile_reusable === true
-            && sourceScopeValid
-            && storeIdentitySaved
-            && ['reusable', 'renewal_warning'].includes(reuseStatus)
-        );
+        const profileReusable = sourceScopeValid && storeIdentitySaved;
         const renewalWarning = profileReusable && (
             profileSource?.profile_reuse_warning === true
             || reuseStatus === 'renewal_warning'
@@ -1569,9 +1564,9 @@ window.SUXI_SYSTEM_STATIC = (() => {
         } else if (!storeIdentitySaved) {
             reasonText = '已绑定 Browser Profile，但尚未保存当前门店的平台门店标识和 Profile 标识。';
         } else if (reuseStatus === 'expired') {
-            reasonText = 'Profile 登录态已超过复用期，请重新登录后再自动采集。';
-        } else if (!profileReusable) {
-            reasonText = '当前门店的平台身份已保存，但尚未形成今天有效的授权登录证明。';
+            reasonText = 'Profile 可直接尝试采集；仅在平台实际返回登录失效时重新登录。';
+        } else if (!sessionVerified) {
+            reasonText = '未检测当天登录态，但不阻塞采集；以平台实际采集结果为准。';
         } else if (renewalWarning) {
             reasonText = `Profile 仍可自动采集，建议在 ${daysUntilForcedLogin ?? 0} 天内重新登录。`;
         }
@@ -1616,13 +1611,12 @@ window.SUXI_SYSTEM_STATIC = (() => {
         const mismatch = hasPlatformHotelMismatch(source, config);
         const loginExpired = isPlatformSourceLoginExpired(source, config);
         const verification = platformAccountVerificationState({ hotel, platform, profileSource, config });
-        const effectiveReady = !missingConfig && verification.storeIdentitySaved && verification.profileReusable;
+        const effectiveReady = !missingConfig && verification.storeIdentitySaved && !!profileSource;
         const effectivePartial = partial || !!profileSource || !!source?.id || !!config;
         const identityMissing = !!profileSource && !verification.storeIdentitySaved;
-        const reuseExpired = verification.reuseStatus === 'expired';
         const statusCode = mismatch
             ? 'mismatch'
-            : ((loginExpired || reuseExpired)
+            : (loginExpired
                 ? 'login_expired'
                 : (effectiveReady
                     ? (verification.renewalWarning ? 'renewal_warning' : (verification.sessionVerified ? 'logged_in' : 'profile_reusable'))
@@ -1780,8 +1774,8 @@ window.SUXI_SYSTEM_STATIC = (() => {
         if (statusCode === 'login_expired') return 'login_expired';
         if (statusCode === 'missing_config') return 'missing_config';
         if (statusCode === 'unbound' && !hasProfile && !hasManualAssist) return 'unbound';
-        if (hasProfile && currentSessionVerified && accountLevel === 'ready') return 'auto_ready';
-        if (hasProfile) return 'waiting_login';
+        if (hasProfile && accountLevel === 'ready') return 'auto_ready';
+        if (hasProfile) return accountLevel === 'partial' ? 'waiting_login' : 'auto_ready';
         if (!hasProfile && hasManualAssist && accountLevel === 'ready') return 'manual_ready';
         return accountLevel === 'partial' ? 'waiting_login' : 'unbound';
     };

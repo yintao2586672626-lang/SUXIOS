@@ -260,10 +260,10 @@ assert_regression(!str_contains($bookmarkletSource . $ctripBookmarkletSource . $
 assert_regression(!str_contains($bookmarkletSource . $ctripBookmarkletSource . $disabledCookieBookmarkletHelperSource, 'Authorization'), 'bookmarklet endpoints must not embed the main login Authorization header');
 
 assert_regression(str_contains($userDeleteSource, 'ensureUserCanBeDeleted'), 'user deletion must run association protection before hard delete');
-assert_regression(str_contains($hotelDeleteSource, 'HotelCascadeDeletionService') && str_contains($hotelDeleteSource, '->delete($id,'), 'hotel archive must use the guarded archive service');
-assert_regression(str_contains($hotelArchiveServiceSource, "'archived_at' => date('Y-m-d H:i:s')"), 'hotel archive must preserve records by marking archived_at');
-assert_regression(str_contains($hotelArchiveServiceSource, 'public function restore(int $hotelId)'), 'hotel archive must expose a reversible restore path');
-assert_regression(!str_contains($hotelArchiveServiceSource, "Db::name('hotels')->where('id', \$hotelId)->delete()"), 'hotel archive service must not hard delete the hotel row');
-assert_regression(str_contains($routeSource, "Route::post('/:id/restore', 'Hotel/restore')"), 'hotel archive restore route must remain authenticated');
+assert_regression(str_contains($hotelDeleteSource, 'HotelCascadeDeletionService') && str_contains($hotelDeleteSource, '->delete($id)'), 'hotel permanent delete must use the guarded cascade service');
+assert_regression(str_contains($hotelArchiveServiceSource, 'deleteDependentChildren($hotelId)'), 'hotel permanent delete must remove dependent child rows before parent rows');
+assert_regression(str_contains($hotelArchiveServiceSource, "Db::name('hotels')->where('id', \$hotelId)->delete()"), 'hotel permanent delete must remove the hotel row');
+assert_regression(!str_contains($hotelArchiveServiceSource, 'public function restore(int $hotelId)'), 'hotel permanent delete must not expose a restore path');
+assert_regression(!str_contains($routeSource, "Route::post('/:id/restore', 'Hotel/restore')"), 'hotel permanent delete must not keep an archive restore route');
 
 echo 'Report, security, and finance regression verification passed.' . PHP_EOL;

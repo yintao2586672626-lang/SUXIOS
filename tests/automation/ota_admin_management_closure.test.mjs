@@ -11,15 +11,15 @@ const userAdminSandbox = { window: {} };
 vm.runInNewContext(`${userAdminStatic}\nthis.__userAdminStatic = window.SUXI_USER_ADMIN_STATIC;`, userAdminSandbox);
 const userAdminStaticApi = userAdminSandbox.__userAdminStatic;
 
-test('hotel archive is super-admin only, preserves linked data, and supports restore', () => {
+test('hotel permanent delete is super-admin only and requires an impact preview plus exact name', () => {
   assert.match(hotelController, /public function delete\(int \$id\): Response[\s\S]*?\$this->checkPermission\(true\)/);
   assert.match(hotelController, /HotelCascadeDeletionService/);
   assert.match(hotelController, /confirmation_name/);
   assert.match(html, /v-model="hotelDeleteConfirmationName"/);
-  assert.match(html, /请输入完整门店名称/);
-  assert.match(hotelController, /public function restore\(int \$id\): Response/);
-  assert.match(html, /历史数据和配置均已保留/);
-  assert.match(html, /const restoreHotel = async/);
+  assert.match(html, /永久删除门店/);
+  assert.match(hotelController, /酒店及关联数据已删除/);
+  assert.doesNotMatch(hotelController, /public function restore\(int \$id\): Response/);
+  assert.doesNotMatch(html, /const restoreHotel = async/);
 });
 
 test('hotel disable wording does not claim employee accounts are disabled', () => {

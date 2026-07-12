@@ -1067,7 +1067,6 @@ trait AutoFetchConcern
     {
         $platform = strtolower(trim($platform));
         $verified = [];
-        $proofService = new OtaProfileSessionProofService();
         foreach ($sources as $source) {
             if (!is_array($source)) {
                 continue;
@@ -1083,9 +1082,6 @@ trait AutoFetchConcern
             }
             $status = strtolower(trim((string)($source['status'] ?? '')));
             if (!in_array($status, ['ready', 'success', 'partial_success'], true)) {
-                continue;
-            }
-            if (!$proofService->isCurrentVerified($source)) {
                 continue;
             }
             $verified[] = $source;
@@ -2093,6 +2089,9 @@ trait AutoFetchConcern
         if (in_array((string)($cache['status_code'] ?? ''), ['session_expired', 'login_expired', 'login_required'], true)) {
             return (string)($cache['status_code'] ?? '') === 'session_expired' ? 'session_expired' : 'login_expired';
         }
+        if (in_array((string)($source['last_sync_status'] ?? ''), ['failed', 'partial_success'], true)) {
+            return 'capture_failed';
+        }
         if (is_array($source)) {
             $proofService = new OtaProfileSessionProofService();
             if ($proofService->isCurrentVerified($source)) {
@@ -2106,11 +2105,9 @@ trait AutoFetchConcern
                 return 'profile_reusable';
             }
             if (($reuseState['status'] ?? '') === 'expired') {
-                return 'login_expired';
+                return 'profile_reusable';
             }
-        }
-        if (in_array((string)($source['last_sync_status'] ?? ''), ['failed', 'partial_success'], true)) {
-            return 'capture_failed';
+            return 'profile_reusable';
         }
         return 'waiting_login';
     }
@@ -2192,7 +2189,7 @@ trait AutoFetchConcern
     {
         return match ($statusCode) {
             'logged_in' => '登录态已验证',
-            'profile_reusable' => 'Profile 登录态可复用',
+            'profile_reusable' => 'Profile 可尝试采集',
             'renewal_warning' => 'Profile 登录态可用，建议续登',
             'session_expired' => 'session_expired',
             'login_expired' => '登录失效',
@@ -2208,8 +2205,8 @@ trait AutoFetchConcern
         $name = $platform === 'meituan' ? '美团' : '携程';
         return match ($statusCode) {
             'logged_in' => '登录态已验证；执行目标日同步并检查入库结果',
-            'profile_reusable' => 'Profile 可复用；先检测当天登录态，再执行采集',
-            'renewal_warning' => 'Profile 接近续登期；先检测当天登录态，再执行采集',
+            'profile_reusable' => '直接执行采集；仅在平台实际返回登录失效时重新登录',
+            'renewal_warning' => '直接执行采集；建议有空时续登，但不阻塞采集',
             'session_expired' => 'session_expired',
             'login_expired' => '重新登录' . $name . '平台账号',
             'anti_bot' => 'anti_bot',
@@ -2224,7 +2221,7 @@ trait AutoFetchConcern
         $name = $platform === 'meituan' ? '美团' : '携程';
         return match ($statusCode) {
             'logged_in' => ['run_profile_capture', '同步并检查入库', 'platform-auto'],
-            'profile_reusable', 'renewal_warning' => ['login_platform_profile', '检测当天登录态', 'profile-login'],
+            'profile_reusable', 'renewal_warning' => ['run_profile_capture', '立即采集', 'platform-auto'],
             'session_expired' => ['login_platform_profile', 'session_expired', 'profile-login'],
             'login_expired' => ['login_platform_profile', '重新登录' . $name, 'profile-login'],
             'anti_bot' => ['login_platform_profile', 'anti_bot', 'profile-login'],
@@ -5058,17 +5055,6 @@ trait AutoFetchConcern
         if ($profileId === '') {
             return ['success' => false, 'skipped' => true, 'message' => '未配置携程 Profile ID', 'saved_count' => 0];
         }
-        $profileSource = $this->loadProfileSessionSource('ctrip', $hotelId, $profileId);
-        $proofService = new OtaProfileSessionProofService();
-        $reuseState = $proofService->profileReuseState($profileSource ?? []);
-        if (!$proofService->isCurrentVerified($profileSource ?? [])) {
-            $message = match ((string)($reuseState['status'] ?? 'unverified')) {
-                'expired' => 'profile_session_expired',
-                'reusable', 'renewal_warning' => 'current_session_verified',
-                default => 'profile_session_unverified',
-            };
-            return ['success' => false, 'message' => $message, 'saved_count' => 0];
-        }
         if (!$this->ctripProfileExistsForConfig($config, $hotelId) && !$interactiveBrowser) {
             return ['success' => false, 'skipped' => true, 'message' => "未找到 storage/ctrip_profile_{$profileId}", 'saved_count' => 0];
         }
@@ -6215,17 +6201,6 @@ trait AutoFetchConcern
         $storeId = $this->meituanProfileStoreIdFromConfig($config);
         if ($storeId === '') {
             return ['success' => false, 'skipped' => true, 'message' => '未配置 Store ID / POI ID', 'saved_count' => 0];
-        }
-        $profileSource = $this->loadProfileSessionSource('meituan', $hotelId, $storeId);
-        $proofService = new OtaProfileSessionProofService();
-        $reuseState = $proofService->profileReuseState($profileSource ?? []);
-        if (!$proofService->isCurrentVerified($profileSource ?? [])) {
-            $message = match ((string)($reuseState['status'] ?? 'unverified')) {
-                'expired' => 'profile_session_expired',
-                'reusable', 'renewal_warning' => 'current_session_verified',
-                default => 'profile_session_unverified',
-            };
-            return ['success' => false, 'message' => $message, 'saved_count' => 0];
         }
         if (!$this->meituanProfileExistsForConfig($config) && !$interactiveBrowser) {
             return ['success' => false, 'skipped' => true, 'message' => '未发现本地美团浏览器 Profile，跳过浏览器采集', 'saved_count' => 0];
