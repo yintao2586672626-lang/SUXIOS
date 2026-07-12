@@ -82,7 +82,7 @@ Run `php think list --raw` as `www-data`, then insert and read back a `cloud_tri
 - Create: `/etc/nginx/sites-available/suxios`
 - Create: `/etc/nginx/sites-enabled/suxios` as a symlink
 - Create: `/var/www/suxios/current` as a symlink
-- Preserve: `/etc/nginx/sites-enabled/default` as `/etc/nginx/sites-enabled/default.disabled`
+- Preserve: `/etc/nginx/sites-available/default` for rollback; disable only its `sites-enabled/default` symlink
 
 - [ ] **Step 1: Generate a self-signed certificate with the public IPv4 SAN**
 
@@ -90,15 +90,15 @@ Read the current public IPv4 from Tencent Cloud instance metadata at `http://met
 
 - [ ] **Step 2: Write the Nginx virtual host**
 
-Port 80 redirects to HTTPS. Port 443 serves only `current/public`, uses PHP 8.3-FPM, routes missing files to `index.php`, limits uploads to 50 MB, denies dotfiles and SQL/backup artifacts, and sends basic browser security headers.
+Port 80 redirects to HTTPS. Port 443 serves only `current/public`, uses PHP 8.3-FPM, rewrites missing files to `index.php/<original-path>` so ThinkPHP receives `PATH_INFO`, limits uploads to 50 MB, denies dotfiles and SQL/backup artifacts, and sends basic browser security headers.
 
 - [ ] **Step 3: Activate atomically after configuration validation**
 
-Create the `current` symlink, validate with `sudo nginx -t`, preserve the default-site symlink under a disabled name, enable the SUXIOS site, and reload Nginx.
+Create the `current` symlink, validate with `sudo nginx -t`, remove only the default site's enabled symlink while preserving its `sites-available` file, enable the SUXIOS site, and reload Nginx. Rollback recreates the original default symlink.
 
 - [ ] **Step 4: Verify locally before public access**
 
-Run:
+Poll after reload until the new worker serves the API route, then run:
 
 ```bash
 curl -kfsS https://127.0.0.1/api/health
