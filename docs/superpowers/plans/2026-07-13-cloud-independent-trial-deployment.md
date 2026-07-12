@@ -46,7 +46,7 @@ Expected: exit code 0 and at least 80 tables.
 
 - [ ] **Step 5: Remove only bundled business/demo rows and create one cloud administrator**
 
-Delete rows from `hotels`, `monthly_tasks`, `online_daily_data`, `operation_logs`, `ota_profile_bindings`, `user_hotel_permissions`, and `users` with foreign-key checks disabled for this new database only. Preserve roles, report configuration, field mappings, administrative divisions, device categories, system defaults, and knowledge tables. Insert one enabled `admin` user using a PHP `password_hash()` result.
+Delete rows from `hotels`, `monthly_tasks`, `online_daily_data`, `operation_logs`, `ota_profile_bindings`, `user_hotel_permissions`, `field_mappings`, and `users` with foreign-key checks disabled for this new database only. Preserve roles, report field configuration, administrative divisions, device categories, system defaults, and knowledge tables. Insert one enabled `admin` user using a PHP `password_hash()` result.
 
 - [ ] **Step 6: Verify the clean data boundary**
 
