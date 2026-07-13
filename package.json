@@ -96,6 +96,8 @@
     "import:ctrip-review-match-payload:preflight": "C:\\xampp\\php\\php.exe scripts\\import_ctrip_review_match_payload.php --preflight=1",
     "import:ctrip-review-match-payload:execute": "C:\\xampp\\php\\php.exe scripts\\import_ctrip_review_match_payload.php --execute=1",
     "verify:ctrip-review-match": "C:\\xampp\\php\\php.exe scripts\\verify_ctrip_review_match_closure.php",
+    "measure:performance": "node scripts/measure_frontend_performance.mjs",
+    "test:performance-metrics": "node --test tests/automation/frontend_performance_metrics.test.mjs",
     "register:p0-ota-traffic-sources": "C:\\xampp\\php\\php.exe scripts\\register_p0_ota_traffic_data_sources.php",
     "register:p0-ota-traffic-sources:execute": "C:\\xampp\\php\\php.exe scripts\\register_p0_ota_traffic_data_sources.php --execute",
     "verify:phase2-daily-workbench-runtime": "C:\\xampp\\php\\php.exe scripts\\verify_phase2_daily_workbench_runtime.php",
