@@ -47,7 +47,7 @@ test('technical Meituan collection tools remain collapsed and super-admin only',
 test('Meituan ranking keeps the official freshness notice without extra realtime copy', () => {
   assert.match(template, />今日实时<\/button>/);
   assert.doesNotMatch(template, /今日实时\*/);
-  assert.match(template, /\*每日9点更新前日数据。数据仅作经营参考，不作结算依据。/);
+  assert.match(template, /每日9点更新前日数据。数据仅作经营参考，不作结算依据。/);
   assert.doesNotMatch(template, /“今日实时”是美团页面筛选名称，不代表秒级实时/);
 });
 

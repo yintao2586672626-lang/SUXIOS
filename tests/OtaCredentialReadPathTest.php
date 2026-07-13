@@ -541,7 +541,7 @@ final class OtaCredentialReadPathTest extends TestCase
             dirname(__DIR__) . '/app/controller/concern/OnlineDataRequestConcern.php'
         );
 
-        self::assertSame(7, substr_count($manualSource, "false,\n                true\n            );"));
+        self::assertSame(8, substr_count($manualSource, "false,\n                true\n            );"));
         self::assertSame(2, substr_count($requestSource, "false,\n                true\n            );"));
         foreach ([
             'ctrip_manual_fetch',
@@ -550,6 +550,7 @@ final class OtaCredentialReadPathTest extends TestCase
             'ctrip_traffic_fetch',
             'ctrip_ads_fetch',
             'meituan_traffic_fetch',
+            'meituan_order_flow_fetch',
             "'meituan_' . \$section . '_fetch'",
         ] as $operation) {
             self::assertStringContainsString($operation, $manualSource);

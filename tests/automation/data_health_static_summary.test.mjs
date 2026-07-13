@@ -958,7 +958,7 @@ test('manual one-click fetch display helpers stay pure and status aware', () => 
   assert.match(resultTable, /row\.detailMessage/);
   assert.match(resultTable, /查看详情/);
   assert.doesNotMatch(resultTable, /min-w-\[\d+rem\]/);
-  assert.match(publicEntry, /data-health-static\.js\?v=20260714-manual-fetch-coverage-h7811c378f8/);
+  assert.match(publicEntry, /data-health-static\.js\?v=20260714-ota-config-workbench-h1de779a301/);
 
   const directIssueStart = publicEntry.indexOf('const otaDirectManualFailureBuckets = computed');
   const directIssueEnd = publicEntry.indexOf('const otaDirectViewCards = computed', directIssueStart);
