@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
+import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const context = { window: {} };
 const cookieEndpointConcern = readFileSync('app/controller/concern/CookieEndpointConcern.php', 'utf8');
@@ -9,7 +10,7 @@ const onlineDataRequestConcern = readFileSync('app/controller/concern/OnlineData
 const ctripOverviewRequestConcern = readFileSync('app/controller/concern/CtripOverviewRequestConcern.php', 'utf8');
 const businessDisplayConcern = readFileSync('app/controller/concern/BusinessDisplayConcern.php', 'utf8');
 const routeApp = readFileSync('route/app.php', 'utf8');
-const publicEntry = readFileSync('public/index.html', 'utf8');
+const publicEntry = readFrontendContractSource();
 vm.runInNewContext(readFileSync('public/data-health-static.js', 'utf8'), context, {
   filename: 'public/data-health-static.js',
 });

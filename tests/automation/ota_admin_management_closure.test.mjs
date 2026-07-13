@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
+import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
-const html = fs.readFileSync(new URL('../../public/index.html', import.meta.url), 'utf8');
+const html = readFrontendContractSource();
 const hotelController = fs.readFileSync(new URL('../../app/controller/Hotel.php', import.meta.url), 'utf8');
 const otaConfigConcern = fs.readFileSync(new URL('../../app/controller/concern/OtaConfigConcern.php', import.meta.url), 'utf8');
 const userAdminStatic = fs.readFileSync(new URL('../../public/user-admin-static.js', import.meta.url), 'utf8');

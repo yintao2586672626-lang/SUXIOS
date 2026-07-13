@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
-const html = readFileSync('public/index.html', 'utf8');
+const html = readFrontendContractSource();
 const meituanStatic = readFileSync('public/meituan-static.js', 'utf8');
 
 const sliceFrom = (source, needle, endNeedle) => {

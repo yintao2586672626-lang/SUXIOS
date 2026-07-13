@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
+import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
-const html = readFileSync('public/index.html', 'utf8');
+const html = readFrontendContractSource();
 const style = readFileSync('public/style.css', 'utf8');
 const systemStatic = readFileSync('public/system-static.js', 'utf8');
 const homeStatic = readFileSync('public/home-static.js', 'utf8');

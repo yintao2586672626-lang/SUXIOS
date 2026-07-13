@@ -16,6 +16,8 @@ test('level-6 gzip materially reduces current entry bytes without changing paylo
   const assets = [
     'public/index.html',
     'public/tailwind.min.css',
+    'public/vue.runtime.global.prod.js',
+    'public/app-render.min.js',
     'public/app-main.min.js',
   ].map((file) => fs.readFileSync(file));
   const level1Bytes = assets.reduce((total, source) => total + gzipSync(source, { level: 1 }).length, 0);

@@ -51,8 +51,10 @@ export async function inspectFrontendEntryBuild({ source, artifact, html }) {
   if (/<script\s+defer\s+src="app-main\.js\?/.test(html)) {
     failures.push('public/index.html must not load the canonical unminified source at runtime.');
   }
-  if (deferredScripts[0] !== 'vue.global.prod.js' || deferredScripts.at(-1) !== 'app-main.min.js') {
-    failures.push('The deferred startup chain must keep Vue first and app-main.min.js last.');
+  if (deferredScripts[0] !== 'vue.runtime.global.prod.js'
+    || deferredScripts.at(-2) !== 'app-render.min.js'
+    || deferredScripts.at(-1) !== 'app-main.min.js') {
+    failures.push('The deferred startup chain must keep runtime Vue first, the render before app-main, and app-main last.');
   }
   try {
     new Function(artifact);

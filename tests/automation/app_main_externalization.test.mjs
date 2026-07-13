@@ -18,7 +18,8 @@ test('main Vue bootstrap is external, deferred, ordered, and content-versioned',
 
   const deferredSources = [...html.matchAll(/<script\s+defer\s+src="([^"]+)"[^>]*><\/script>/g)]
     .map((match) => match[1]);
-  assert.equal(deferredSources[0]?.split('?')[0], 'vue.global.prod.js');
+  assert.equal(deferredSources[0]?.split('?')[0], 'vue.runtime.global.prod.js');
+  assert.equal(deferredSources.at(-2)?.split('?')[0], 'app-render.min.js');
   assert.equal(deferredSources.at(-1)?.split('?')[0], 'app-main.min.js');
   assert.ok(deferredSources.every((source) => source.endsWith('.js') || source.includes('.js?')));
 

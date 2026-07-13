@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
+import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
-const html = readFileSync('public/index.html', 'utf8');
+const html = readFrontendContractSource();
 const routes = readFileSync('route/app.php', 'utf8');
 const agentController = readFileSync('app/controller/Agent.php', 'utf8');
 const readinessService = readFileSync('app/service/AgentClosureReadinessService.php', 'utf8');

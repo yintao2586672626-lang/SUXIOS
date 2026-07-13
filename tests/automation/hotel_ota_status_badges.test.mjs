@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const systemStaticSource = readFileSync(new URL('../../public/system-static.js', import.meta.url), 'utf8');
-const indexHtml = readFileSync(new URL('../../public/index.html', import.meta.url), 'utf8');
+const indexHtml = readFrontendContractSource();
 const sandbox = { window: {}, console, setTimeout, clearTimeout };
 vm.runInNewContext(systemStaticSource, sandbox, { filename: 'public/system-static.js' });
 

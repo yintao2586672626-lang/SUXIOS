@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
+import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const userController = fs.readFileSync(new URL('../../app/controller/User.php', import.meta.url), 'utf8');
 const hotelController = fs.readFileSync(new URL('../../app/controller/Hotel.php', import.meta.url), 'utf8');
 const routes = fs.readFileSync(new URL('../../route/app.php', import.meta.url), 'utf8');
-const publicEntry = fs.readFileSync(new URL('../../public/index.html', import.meta.url), 'utf8');
+const publicEntry = readFrontendContractSource();
 const systemStatic = fs.readFileSync(new URL('../../public/system-static.js', import.meta.url), 'utf8');
 
 test('user list includes secondary hotel assignments and whitelist sorting', () => {

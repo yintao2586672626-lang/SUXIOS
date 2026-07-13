@@ -4,6 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -48,7 +49,7 @@ test('Ctrip AI selection exposes only the owned self hotel and keeps peers read-
 });
 
 test('Ctrip UI keeps the requested estimate title and discloses derivation and health formula', () => {
-  const html = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
+  const html = readFrontendContractSource();
   const backend = fs.readFileSync(path.join(root, 'app/controller/concern/BusinessDisplayConcern.php'), 'utf8');
 
   assert.match(html, /全渠道AI预计总间夜数/);
@@ -58,7 +59,7 @@ test('Ctrip UI keeps the requested estimate title and discloses derivation and h
 });
 
 test('competition-circle copy assigns the result to the selected store and treats ID gaps as warnings', () => {
-  const html = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
+  const html = readFrontendContractSource();
 
   assert.match(html, /本次结果统一归属于所选门店的竞争圈/);
   assert.match(html, /酒店ID缺失或不一致会提示但不阻断查询/);
@@ -76,7 +77,7 @@ test('history labels a competition circle with its owning system hotel', () => {
 });
 
 test('Ctrip AI tab hydrates the latest usable competition circle snapshot', () => {
-  const html = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
+  const html = readFrontendContractSource();
   const history = fs.readFileSync(path.join(root, 'app/controller/concern/OnlineDataHistoryConcern.php'), 'utf8');
 
   assert.match(html, /context\.source === 'ctrip'[\s\S]{0,160}await loadLatestCtripData\(\{ silent: true, hydrateDisplay: true \}\)/);

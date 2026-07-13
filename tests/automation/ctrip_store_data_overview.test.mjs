@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
+import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const readBackendSource = () => {
   const paths = ['app/controller/OnlineData.php'];
@@ -14,7 +15,7 @@ const readBackendSource = () => {
   return paths.map(path => readFileSync(path, 'utf8')).join('\n');
 };
 
-const html = readFileSync('public/index.html', 'utf8');
+const html = readFrontendContractSource();
 const ctripStatic = readFileSync('public/ctrip-static.js', 'utf8');
 const dataHealthStatic = readFileSync('public/data-health-static.js', 'utf8');
 const systemStatic = readFileSync('public/system-static.js', 'utf8');

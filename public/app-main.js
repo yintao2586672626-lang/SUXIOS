@@ -1,6 +1,13 @@
     const { createApp, ref, shallowRef, computed, onMounted, onUnmounted, watch, nextTick, markRaw } = Vue;
 
     const API_BASE = '/api';
+    const requireSuxiAppRender = () => {
+        const render = window.SUXI_APP_RENDER;
+        if (typeof render !== 'function') {
+            throw new Error('Missing precompiled Vue root render: app-render.min.js not loaded.');
+        }
+        return render;
+    };
     const appSystemStatic = window.SUXI_SYSTEM_STATIC;
     if (!appSystemStatic || typeof appSystemStatic !== 'object') {
         throw new Error('缺少系统前端静态配置：system-static.js 未加载');
@@ -250,6 +257,7 @@
 
     let recoverSuxiRuntimeError = null;
     const suxiApp = createApp({
+        render: requireSuxiAppRender(),
         components: {
             CompassCardHeader,
             MetricCard,

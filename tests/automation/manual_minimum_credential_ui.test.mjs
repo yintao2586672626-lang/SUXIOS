@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
+import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
-const html = readFileSync('public/index.html', 'utf8');
+const html = readFrontendContractSource();
 const ctripStatic = readFileSync('public/ctrip-static.js', 'utf8');
 const meituanStatic = readFileSync('public/meituan-static.js', 'utf8');
 const autoFetchStatic = readFileSync('public/auto-fetch-static.js', 'utf8');
@@ -364,7 +365,7 @@ test('Ctrip config UI requires and echoes room-count fields', () => {
   const configForm = sliceFrom('data-testid="ctrip-config-form"', '<!-- 已保存的配置列表 -->');
   const configList = sliceFrom('<!-- 已保存的配置列表 -->', '<!-- 携程数据抓取设置 -->');
   const healthEditorForm = sliceFrom(
-    '<form v-else @submit.prevent="saveCtripCookieFromHealth"',
+    '<form v-else="" @submit.prevent="saveCtripCookieFromHealth"',
     '<!-- 智能知识中枢：单元编辑 -->'
   );
   const editCtripConfig = constSlice(
@@ -3061,7 +3062,7 @@ test('FontAwesome stylesheet does not block the core shell first second', () => 
 test('Login background preload does not compete with cached-auth shell', () => {
   const head = sliceFrom('<head>', '</head>');
   const preloadOffset = head.indexOf("const loginBackgroundPreload = 'images/login-hotel-lobby-bg.avif';");
-  const tailwindOffset = head.indexOf('href="tailwind.min.css?v=20260628-static-router-fix"');
+  const tailwindOffset = head.indexOf('href="tailwind.min.css?v=');
 
   assert.doesNotMatch(head, /<link\s+rel=["']preload["']\s+href=["']images\/login-hotel-lobby-bg\.avif["']/);
   assert.ok(preloadOffset >= 0 && tailwindOffset >= 0 && preloadOffset < tailwindOffset);

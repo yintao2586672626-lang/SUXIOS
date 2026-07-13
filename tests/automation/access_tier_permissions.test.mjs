@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import vm from 'node:vm';
+import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const root = process.cwd();
 const read = (path) => readFileSync(resolve(root, path), 'utf8');
 
 const systemStatic = read('public/system-static.js');
 const userAdminStatic = read('public/user-admin-static.js');
-const indexHtml = read('public/index.html');
+const indexHtml = readFrontendContractSource();
 const hotelAccountSummary = indexHtml.slice(
   indexHtml.indexOf('data-testid="hotel-account-summary-table"'),
   indexHtml.indexOf('<!-- 空状态 -->', indexHtml.indexOf('data-testid="hotel-account-summary-table"'))

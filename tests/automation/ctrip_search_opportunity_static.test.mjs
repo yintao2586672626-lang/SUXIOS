@@ -3,14 +3,15 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
+import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const source = readFileSync('public/ctrip-search-opportunity-static.js', 'utf8');
-const html = readFileSync('public/index.html', 'utf8');
+const html = readFrontendContractSource();
 const ctripStaticSource = readFileSync('public/ctrip-static.js', 'utf8');
 
 test('future search helper cache version follows the current helper content', () => {
   const hash = createHash('sha256').update(source).digest('hex').slice(0, 10);
-  const version = html.match(/<script\s+src="ctrip-search-opportunity-static\.js\?v=([^"]+)"/)?.[1] || '';
+  const version = html.match(/<script\s+(?:defer\s+)?src="ctrip-search-opportunity-static\.js\?v=([^"]+)"/)?.[1] || '';
 
   assert.match(version, new RegExp(`h${hash}`));
 });

@@ -29,6 +29,10 @@
     "build:frontend-entry": "node scripts/build_frontend_entry.mjs",
     "verify:frontend-entry-build": "node scripts/verify_frontend_entry_build.mjs",
     "test:frontend-entry-build": "node --test tests/automation/frontend_entry_build.test.mjs",
+    "migrate:frontend-template": "node scripts/migrate_frontend_template_source.mjs",
+    "build:frontend-template": "node scripts/build_frontend_template.mjs",
+    "verify:frontend-template": "node scripts/verify_frontend_template_build.mjs",
+    "test:frontend-template": "node --test tests/automation/frontend_template_build.test.mjs",
     "build:tailwind-runtime": "node scripts/build_tailwind_runtime.mjs",
     "verify:tailwind-runtime": "node scripts/verify_tailwind_runtime_build.mjs",
     "test:tailwind-runtime": "node --test tests/automation/frontend_tailwind_build.test.mjs",
@@ -195,8 +199,10 @@
   "devDependencies": {
     "@json2csv/plainjs": "^7.0.6",
     "@playwright/test": "^1.60.0",
+    "@vue/compiler-dom": "3.5.32",
     "purgecss": "8.0.0",
-    "terser": "5.49.0"
+    "terser": "5.49.0",
+    "vue": "3.5.32"
   },
   "dependencies": {
     "cloakbrowser": "^0.3.31",

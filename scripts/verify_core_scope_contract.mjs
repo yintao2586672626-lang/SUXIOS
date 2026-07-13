@@ -11,7 +11,7 @@ const readRaw = (file) => {
   return sourceCache.get(file);
 };
 const read = (file) => file === 'public/index.html'
-  ? `${readRaw(file)}\n${readRaw('public/app-main.js')}`
+  ? `${readRaw(file)}\n${readRaw('resources/frontend/app-template.html')}\n${readRaw('public/app-main.js')}`
   : readRaw(file);
 const failures = [];
 

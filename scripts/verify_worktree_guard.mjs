@@ -81,13 +81,17 @@ if (/\[.*behind\b/.test(branchLine) && nonAgentChangedPaths > 0) {
 }
 
 const publicIndexPath = path.join(repoRoot, 'public/index.html');
+const frontendTemplatePath = path.join(repoRoot, 'resources/frontend/app-template.html');
 if (fs.existsSync(publicIndexPath)) {
   const size = fs.statSync(publicIndexPath).size;
-  if (size < 500_000) {
-    failures.push(`public/index.html is only ${size} bytes; expected the single-file SPA, not a generated stub.`);
+  if (size < 5_000) {
+    failures.push(`public/index.html is only ${size} bytes; expected the guarded runtime shell.`);
   }
 } else {
   failures.push('public/index.html is missing.');
+}
+if (!fs.existsSync(frontendTemplatePath) || fs.statSync(frontendTemplatePath).size < 1_000_000) {
+  failures.push('resources/frontend/app-template.html is missing or unexpectedly small.');
 }
 
 const meituanStaticPath = path.join(repoRoot, 'public/meituan-static.js');

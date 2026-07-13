@@ -5,7 +5,7 @@ import vm from 'node:vm';
 const root = process.cwd();
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 const readContractSource = (file) => file === 'public/index.html'
-  ? `${read(file)}\n${read('public/app-main.js')}`
+  ? `${read(file)}\n${read('resources/frontend/app-template.html')}\n${read('public/app-main.js')}`
   : read(file);
 const checks = [];
 

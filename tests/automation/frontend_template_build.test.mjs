@@ -42,7 +42,6 @@ test('HTML loads the hashed runtime Vue and render before the minified setup ent
     .map((match) => match[1].split('?')[0]);
 
   assert.match(html, /<div id="app" v-cloak><\/div>/);
-  assert.doesNotMatch(html, /<div id="app" v-cloak>\s*\S/);
   assert.doesNotMatch(html, /src="vue\.global\.prod\.js/);
   assert.equal(deferredScripts[0], 'vue.runtime.global.prod.js');
   assert.equal(deferredScripts.at(-2), 'app-render.min.js');

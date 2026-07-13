@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
+import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
-const html = fs.readFileSync('public/index.html', 'utf8');
+const html = readFrontendContractSource();
 const operationStatic = fs.readFileSync('public/operation-static.js', 'utf8');
 
 const openingStaticKeys = [

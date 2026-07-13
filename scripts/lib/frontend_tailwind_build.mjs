@@ -30,8 +30,9 @@ export function collectTailwindContentFiles(repoRoot) {
   });
   const phpFiles = [path.join(repoRoot, 'app'), path.join(repoRoot, 'route')]
     .flatMap((directory) => walkFiles(directory, (file) => file.endsWith('.php')));
+  const resourceFiles = walkFiles(path.join(repoRoot, 'resources/frontend'), (file) => file.endsWith('.html'));
 
-  return [...new Set([...publicFiles, ...phpFiles])].sort((left, right) => left.localeCompare(right));
+  return [...new Set([...publicFiles, ...resourceFiles, ...phpFiles])].sort((left, right) => left.localeCompare(right));
 }
 
 export function extractTailwindCandidateTokens(content) {

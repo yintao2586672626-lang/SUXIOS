@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
-const indexHtml = fs.readFileSync(new URL('../../public/index.html', import.meta.url), 'utf8');
+const indexHtml = readFrontendContractSource();
 const styleCss = fs.readFileSync(new URL('../../public/style.css', import.meta.url), 'utf8');
 const systemStaticSource = fs.readFileSync(new URL('../../public/system-static.js', import.meta.url), 'utf8');
 const systemStaticSandbox = { window: {}, console, setTimeout, clearTimeout };

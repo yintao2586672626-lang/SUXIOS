@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
+import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const systemStaticSource = readFileSync('public/system-static.js', 'utf8');
-const html = readFileSync('public/index.html', 'utf8');
+const html = readFrontendContractSource();
 const sandbox = { window: {}, console, setTimeout, clearTimeout };
 vm.runInNewContext(systemStaticSource, sandbox, { filename: 'public/system-static.js' });
 const classify = sandbox.window.SUXI_SYSTEM_STATIC.classifyPlatformCollectionReadiness;

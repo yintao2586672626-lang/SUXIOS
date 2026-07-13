@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
+import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
-const html = readFileSync('public/index.html', 'utf8');
+const html = readFrontendContractSource();
 const ctripStaticSource = readFileSync('public/ctrip-static.js', 'utf8');
 const sandbox = { console, window: {} };
 vm.runInNewContext(`${ctripStaticSource}\nthis.__api = window.SUXI_CTRIP_STATIC;`, sandbox);

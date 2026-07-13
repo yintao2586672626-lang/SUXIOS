@@ -32,6 +32,7 @@ test('HTML loads only the hashed minified entry at the end of the deferred chain
 
   assert.match(html, new RegExp(`<script defer src="app-main\\.min\\.js\\?v=[^"]*-h${hash}"`));
   assert.doesNotMatch(html, /<script\s+defer\s+src="app-main\.js\?/);
-  assert.equal(deferredScripts[0], 'vue.global.prod.js');
+  assert.equal(deferredScripts[0], 'vue.runtime.global.prod.js');
+  assert.equal(deferredScripts.at(-2), 'app-render.min.js');
   assert.equal(deferredScripts.at(-1), 'app-main.min.js');
 });

@@ -10,8 +10,13 @@ const readRaw = (file) => {
   }
   return sourceCache.get(file);
 };
+const readTemplateSemantic = () => readRaw('resources/frontend/app-template.html')
+  .replaceAll('&amp;', '&')
+  .replaceAll('&gt;', '>')
+  .replaceAll('&lt;', '<')
+  .replaceAll('&quot;', '"');
 const read = (file) => file === 'public/index.html'
-  ? `${readRaw(file)}\n${readRaw('public/app-main.js')}`
+  ? `${readRaw(file)}\n${readTemplateSemantic()}\n${readRaw('public/app-main.js')}`
   : readRaw(file);
 const checks = [];
 const onlineDataConcernDir = path.join(root, 'app/controller/concern');
@@ -154,7 +159,7 @@ requireText('public/index.html', 'v-if="u && (user?.is_super_admin', 'user table
 requireText('public/index.html', 'v-for="(u, index) in logUsers"', 'operation log user filter exposes row index fallback');
 requireText('public/index.html', ':value="u?.id || \'\'"', 'operation log user filter handles missing ids');
 requireText('public/index.html', "{{ u?.realname || u?.username || '-' }}", 'operation log user filter handles missing names');
-requireText('public/index.html', 'vue.global.prod.js?v=', 'entry versions the local Vue runtime');
+requireText('public/index.html', 'vue.runtime.global.prod.js?v=', 'entry versions the local Vue runtime');
 requireText('public/index.html', 'system-static.js?v=', 'entry versions the system static helper');
 requirePattern('public/index.html', /ctrip-static\.js\?v=[^"']*-h[0-9a-f]{10}/, 'entry cache-busts the current Ctrip static helper with its content hash');
 requireText('public/ctrip-static.js', 'const buildCtripBusinessCanvas', 'Ctrip static owns business download canvas rendering');
@@ -210,7 +215,7 @@ requireText('public/index.html', "title: String(filterReportHotel.value || '').t
 requireText('public/index.html', '<button type="button" :class="[\'dual-ota-compare-toggle\', dualOtaCompareEnabled ? \'is-active\' : \'\']"', 'AI workbench places the same-period comparison switch before platform buttons');
 requireText('public/index.html', 'const dualOtaCompareEnabled = ref(false);', 'AI workbench same-period comparison is off by default');
 requireText('public/index.html', '<small v-if="dualOtaCompareEnabled" :title="metric.note">{{ dualOtaMetricComparisonText(metric) }}</small>', 'AI workbench system metric footnotes show previous-period comparison only when enabled');
-requireText('public/index.html', '<small v-else class="dual-ota-system-metric-spacer" aria-hidden="true">&nbsp;</small>', 'AI workbench keeps metric card layout stable when comparison is disabled');
+requireText('public/index.html', '<small v-else="" class="dual-ota-system-metric-spacer" aria-hidden="true">&nbsp;</small>', 'AI workbench keeps metric card layout stable when comparison is disabled');
 requireText('public/index.html', 'const toggleDualOtaCompare = () => {', 'AI workbench exposes a local comparison display toggle');
 requireText('public/index.html', "if ((currentText === '未返回' || currentText === '待更新') && metric.note) {", 'AI workbench comparison line keeps missing-data reasons visible for missing current metrics');
 requireText('public/index.html', "const dualOtaCtripMissingReason = (fallback = '当前携程指标未返回') => {", 'AI workbench explains Ctrip missing metrics by selected range and target date');

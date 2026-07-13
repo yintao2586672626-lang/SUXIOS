@@ -10,7 +10,8 @@ vm.runInNewContext(readFileSync('public/revenue-ai-static.js', 'utf8'), context,
 
 const helpers = context.window.SUXI_REVENUE_AI_STATIC;
 const indexHtml = readFileSync('public/index.html', 'utf8');
-const html = `${indexHtml}\n${readFileSync('public/app-main.js', 'utf8')}`;
+const appTemplate = readFileSync('resources/frontend/app-template.html', 'utf8');
+const html = `${indexHtml}\n${appTemplate}\n${readFileSync('public/app-main.js', 'utf8')}`;
 
 test('Revenue AI static helper exposes the required display contract', () => {
   assert.equal(typeof helpers, 'object');

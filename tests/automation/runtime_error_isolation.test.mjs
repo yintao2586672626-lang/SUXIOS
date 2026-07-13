@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
+import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
-const html = fs.readFileSync(new URL('../../public/index.html', import.meta.url), 'utf8');
+const html = readFrontendContractSource();
 const publicEntryGuard = fs.readFileSync(new URL('../../scripts/verify_public_entry_guard.mjs', import.meta.url), 'utf8');
 
 test('page runtime errors recover to a safe page instead of replacing the whole app', () => {

@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
-const frontend = readFileSync(new URL('../../public/index.html', import.meta.url), 'utf8');
+const frontend = readFrontendContractSource();
 const backend = readFileSync(new URL('../../app/controller/concern/OnlineDataRequestConcern.php', import.meta.url), 'utf8');
 const autoFetchConcern = readFileSync(new URL('../../app/controller/concern/AutoFetchConcern.php', import.meta.url), 'utf8');
 const profileLoginCommand = readFileSync(new URL('../../app/command/PlatformProfileLogin.php', import.meta.url), 'utf8');

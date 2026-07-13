@@ -5,11 +5,14 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { inspectFrontendEntryBuild } from './lib/frontend_entry_build.mjs';
 import { inspectTailwindRuntimeBuild } from './lib/frontend_tailwind_build.mjs';
+import { inspectFrontendTemplateBuild } from './lib/frontend_template_build.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const indexPath = path.join(repoRoot, 'public/index.html');
 const appMainPath = path.join(repoRoot, 'public/app-main.js');
 const appMainRuntimePath = path.join(repoRoot, 'public/app-main.min.js');
+const appTemplatePath = path.join(repoRoot, 'resources/frontend/app-template.html');
+const appRenderRuntimePath = path.join(repoRoot, 'public/app-render.min.js');
 const publicRouterPath = path.join(repoRoot, 'public/router.php');
 const systemStaticPath = path.join(repoRoot, 'public/system-static.js');
 const revenueAiStaticPath = path.join(repoRoot, 'public/revenue-ai-static.js');
@@ -83,7 +86,14 @@ if (!fs.existsSync(indexPath)) {
   const htmlContent = fs.readFileSync(indexPath, 'utf8');
   const appMainContent = fs.existsSync(appMainPath) ? fs.readFileSync(appMainPath, 'utf8') : '';
   const appMainRuntimeContent = fs.existsSync(appMainRuntimePath) ? fs.readFileSync(appMainRuntimePath, 'utf8') : '';
-  let content = `${htmlContent}\n${appMainContent}`;
+  const appTemplateContent = fs.existsSync(appTemplatePath) ? fs.readFileSync(appTemplatePath, 'utf8') : '';
+  const appRenderRuntimeContent = fs.existsSync(appRenderRuntimePath) ? fs.readFileSync(appRenderRuntimePath, 'utf8') : '';
+  const appTemplateSemanticContent = appTemplateContent
+    .replaceAll('&amp;', '&')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&quot;', '"');
+  let content = `${htmlContent}\n${appTemplateSemanticContent}\n${appMainContent}`;
   const systemStaticContent = fs.existsSync(systemStaticPath) ? fs.readFileSync(systemStaticPath, 'utf8') : '';
   const revenueAiStaticContent = fs.existsSync(revenueAiStaticPath) ? fs.readFileSync(revenueAiStaticPath, 'utf8') : '';
   const revenueAiServicePath = path.join(repoRoot, 'app/service/RevenueAiOverviewService.php');
@@ -118,14 +128,20 @@ if (!fs.existsSync(indexPath)) {
     ? fs.readFileSync(ctripProfileFieldConfigPanelPath, 'utf8')
     : '';
 
-  if (stat.size < 500_000) {
+  if (stat.size < 5_000) {
     failures.push(`public/index.html is too small (${stat.size} bytes). It may have been overwritten by a frontend build.`);
+  }
+  if (Buffer.byteLength(appTemplateContent) < 1_000_000) {
+    failures.push('resources/frontend/app-template.html is missing or unexpectedly small.');
   }
   if (!appMainContent) {
     failures.push('public/app-main.js is missing or empty.');
   }
   if (!appMainRuntimeContent) {
     failures.push('public/app-main.min.js is missing or empty.');
+  }
+  if (!appRenderRuntimeContent) {
+    failures.push('public/app-render.min.js is missing or empty.');
   }
   if (/const\s+suxiApp\s*=\s*createApp\(/.test(htmlContent)) {
     failures.push('public/index.html must not inline the main Vue bootstrap after entry externalization.');
@@ -143,6 +159,8 @@ if (!fs.existsSync(indexPath)) {
   }
   const tailwindBuildInspection = await inspectTailwindRuntimeBuild(repoRoot);
   failures.push(...tailwindBuildInspection.failures);
+  const templateBuildInspection = await inspectFrontendTemplateBuild(repoRoot);
+  failures.push(...templateBuildInspection.failures);
   const appMainReference = htmlContent.match(/<script\s+defer\s+src="app-main\.min\.js\?v=[^"]*-h([a-f0-9]{10})"[^>]*><\/script>/);
   const appMainHash = appMainRuntimeContent
     ? crypto.createHash('sha256').update(appMainRuntimeContent).digest('hex').slice(0, 10)
@@ -152,8 +170,10 @@ if (!fs.existsSync(indexPath)) {
   }
   const deferredScripts = [...htmlContent.matchAll(/<script\s+defer\s+src="([^"]+)"[^>]*><\/script>/g)]
     .map((match) => match[1].split('?')[0]);
-  if (deferredScripts[0] !== 'vue.global.prod.js' || deferredScripts.at(-1) !== 'app-main.min.js') {
-    failures.push('public/index.html must keep Vue first and app-main.min.js last in the ordered deferred startup chain.');
+  if (deferredScripts[0] !== 'vue.runtime.global.prod.js'
+    || deferredScripts.at(-2) !== 'app-render.min.js'
+    || deferredScripts.at(-1) !== 'app-main.min.js') {
+    failures.push('public/index.html must keep runtime Vue first, the precompiled render before app-main, and app-main last.');
   }
 
 if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/.test(content)
@@ -174,7 +194,7 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
 
   const requiredMarkers = [
     { name: 'Vue mount root', pattern: /id=["']app["']/ },
-    { name: 'local Vue runtime', pattern: /vue\.global\.prod\.js/ },
+    { name: 'local Vue runtime', pattern: /vue\.runtime\.global\.prod\.js/ },
     { name: 'local Tailwind stylesheet', pattern: /tailwind\.min\.css/ },
     { name: 'application stylesheet', pattern: /style\.css/ },
     { name: 'Vue app bootstrap', pattern: /createApp|Vue\.createApp/ },
@@ -324,7 +344,7 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
     || !content.includes("{{ u?.realname || u?.username || '-' }}")) {
     failures.push('public/index.html operation-log user filter must render invalid or partial user rows safely.');
   }
-  if (!/<script\s+(?:defer\s+)?src=["']vue\.global\.prod\.js\?v=[^"']+["']><\/script>/.test(htmlContent)
+  if (!/<script\s+(?:defer\s+)?src=["']vue\.runtime\.global\.prod\.js\?v=[^"']+["'][^>]*><\/script>/.test(htmlContent)
     || !/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/.test(htmlContent)) {
     failures.push('public/index.html must version core Vue/system static scripts so P0 entry fixes are not hidden by stale browser cache.');
   }
@@ -335,7 +355,7 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
 
   const tailwindMatch = htmlContent.match(/<link\s+href=["']tailwind\.min\.css\?v=[^"']+["']\s+rel=["']stylesheet["']>/);
   const tailwindOffset = tailwindMatch ? tailwindMatch.index : -1;
-  const vueScriptMatch = htmlContent.match(/<script\s+(?:defer\s+)?src=["']vue\.global\.prod\.js(?:\?v=[^"']+)?["']/);
+  const vueScriptMatch = htmlContent.match(/<script\s+(?:defer\s+)?src=["']vue\.runtime\.global\.prod\.js(?:\?v=[^"']+)?["']/);
   const vueScriptOffset = vueScriptMatch ? vueScriptMatch.index : -1;
   if (tailwindOffset < 0 || vueScriptOffset < 0 || tailwindOffset > vueScriptOffset) {
     failures.push('public/index.html must discover core stylesheets before synchronous Vue/static scripts.');
@@ -3181,16 +3201,17 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
     { name: 'Data config modal', marker: 'v-if="showDataConfigModal"' },
     { name: 'Toast container', marker: 'v-if="toast.show"' },
   ];
+  const templateBoundaryContent = `<div id="app">${appTemplateContent}</div>`;
 
   for (const marker of vueBoundaryMarkers) {
-    const offset = htmlContent.indexOf(marker.marker);
+    const offset = templateBoundaryContent.indexOf(marker.marker);
     if (offset < 0) {
-      failures.push(`public/index.html missing Vue boundary marker: ${marker.name}.`);
+      failures.push(`resources/frontend/app-template.html missing Vue boundary marker: ${marker.name}.`);
       continue;
     }
-    if (!hasOpenVueRoot(openTagStackBefore(htmlContent, offset))) {
+    if (!hasOpenVueRoot(openTagStackBefore(templateBoundaryContent, offset))) {
       failures.push(
-        `public/index.html Vue boundary broken before ${marker.name} at line ${lineNumberForOffset(htmlContent, offset)}. ` +
+        `resources/frontend/app-template.html Vue boundary broken before ${marker.name} at line ${lineNumberForOffset(templateBoundaryContent, offset)}. ` +
         'Global modals and toast must stay inside #app; check malformed <div>, <details>, <template>, or <teleport> closures.'
       );
     }
