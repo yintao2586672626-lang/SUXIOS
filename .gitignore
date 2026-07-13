@@ -105,6 +105,7 @@ public/ui-example.html
 public/assets/
 public/app-main.*
 !public/app-main.js
+!public/app-main.min.js
 public/app-styles.css
 public/app.js
 public/components.css

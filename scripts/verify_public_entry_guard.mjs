@@ -3,10 +3,12 @@ import path from 'node:path';
 import vm from 'node:vm';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { inspectFrontendEntryBuild } from './lib/frontend_entry_build.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const indexPath = path.join(repoRoot, 'public/index.html');
 const appMainPath = path.join(repoRoot, 'public/app-main.js');
+const appMainRuntimePath = path.join(repoRoot, 'public/app-main.min.js');
 const publicRouterPath = path.join(repoRoot, 'public/router.php');
 const systemStaticPath = path.join(repoRoot, 'public/system-static.js');
 const revenueAiStaticPath = path.join(repoRoot, 'public/revenue-ai-static.js');
@@ -79,6 +81,7 @@ if (!fs.existsSync(indexPath)) {
   const stat = fs.statSync(indexPath);
   const htmlContent = fs.readFileSync(indexPath, 'utf8');
   const appMainContent = fs.existsSync(appMainPath) ? fs.readFileSync(appMainPath, 'utf8') : '';
+  const appMainRuntimeContent = fs.existsSync(appMainRuntimePath) ? fs.readFileSync(appMainRuntimePath, 'utf8') : '';
   let content = `${htmlContent}\n${appMainContent}`;
   const systemStaticContent = fs.existsSync(systemStaticPath) ? fs.readFileSync(systemStaticPath, 'utf8') : '';
   const revenueAiStaticContent = fs.existsSync(revenueAiStaticPath) ? fs.readFileSync(revenueAiStaticPath, 'utf8') : '';
@@ -120,23 +123,34 @@ if (!fs.existsSync(indexPath)) {
   if (!appMainContent) {
     failures.push('public/app-main.js is missing or empty.');
   }
+  if (!appMainRuntimeContent) {
+    failures.push('public/app-main.min.js is missing or empty.');
+  }
   if (/const\s+suxiApp\s*=\s*createApp\(/.test(htmlContent)) {
     failures.push('public/index.html must not inline the main Vue bootstrap after entry externalization.');
   }
   if (!/const\s+suxiApp\s*=\s*createApp\(/.test(appMainContent)) {
     failures.push('public/app-main.js must contain the main Vue bootstrap.');
   }
-  const appMainReference = htmlContent.match(/<script\s+defer\s+src="app-main\.js\?v=[^"]*-h([a-f0-9]{10})"[^>]*><\/script>/);
-  const appMainHash = appMainContent
-    ? crypto.createHash('sha256').update(appMainContent).digest('hex').slice(0, 10)
+  if (appMainContent && appMainRuntimeContent) {
+    const buildInspection = await inspectFrontendEntryBuild({
+      source: appMainContent,
+      artifact: appMainRuntimeContent,
+      html: htmlContent,
+    });
+    failures.push(...buildInspection.failures);
+  }
+  const appMainReference = htmlContent.match(/<script\s+defer\s+src="app-main\.min\.js\?v=[^"]*-h([a-f0-9]{10})"[^>]*><\/script>/);
+  const appMainHash = appMainRuntimeContent
+    ? crypto.createHash('sha256').update(appMainRuntimeContent).digest('hex').slice(0, 10)
     : '';
   if (!appMainReference || appMainReference[1] !== appMainHash) {
-    failures.push('public/index.html must use the current public/app-main.js content hash in its immutable cache version.');
+    failures.push('public/index.html must use the current public/app-main.min.js content hash in its immutable cache version.');
   }
   const deferredScripts = [...htmlContent.matchAll(/<script\s+defer\s+src="([^"]+)"[^>]*><\/script>/g)]
     .map((match) => match[1].split('?')[0]);
-  if (deferredScripts[0] !== 'vue.global.prod.js' || deferredScripts.at(-1) !== 'app-main.js') {
-    failures.push('public/index.html must keep Vue first and app-main.js last in the ordered deferred startup chain.');
+  if (deferredScripts[0] !== 'vue.global.prod.js' || deferredScripts.at(-1) !== 'app-main.min.js') {
+    failures.push('public/index.html must keep Vue first and app-main.min.js last in the ordered deferred startup chain.');
   }
 
 if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/.test(content)
