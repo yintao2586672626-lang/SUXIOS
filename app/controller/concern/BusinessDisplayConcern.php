@@ -609,9 +609,11 @@ trait BusinessDisplayConcern
             $hotelName = $item['hotelName'] ?? $item['hotel_name'] ?? $item['HotelName'] ?? $item['name'] ?? '';
 
             // 尝试多种字段名获取其他数据
-            $amount = $this->meituanNumber($item, ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount', 'orderAmount', 'ordamount', 'gmv', 'turnover', 'bookingAmount', '成交收入', '成交金额', '销售额'], 0);
-            $quantity = (int)$this->meituanNumber($item, ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity', 'roomNightCount', 'nightNum', '成交间夜', '间夜', '房晚'], 0);
-            $bookOrderNum = (int)$this->meituanNumber($item, ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count', 'orderNum', 'ordquantity', 'orders', 'bookings', '成交订单数', '订单数'], 0);
+            $amount = $this->nullableNumberFromKeys($item, ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount', 'orderAmount', 'ordamount', 'gmv', 'turnover', 'bookingAmount', '成交收入', '成交金额', '销售额']);
+            $quantity = $this->nullableNumberFromKeys($item, ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity', 'roomNightCount', 'nightNum', '成交间夜', '间夜', '房晚']);
+            $quantity = $quantity === null ? null : (int)$quantity;
+            $bookOrderNum = $this->nullableNumberFromKeys($item, ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count', 'orderNum', 'ordquantity', 'orders', 'bookings', '成交订单数', '订单数']);
+            $bookOrderNum = $bookOrderNum === null ? null : (int)$bookOrderNum;
             $commentScoreRaw = $this->firstMeituanValue($item, ['commentScore', 'comment_score', 'score', 'avgScore', 'ctripRatingall'], null);
             $commentScore = is_numeric($commentScoreRaw) && (float)$commentScoreRaw > 0
                 ? (float)$commentScoreRaw
@@ -620,11 +622,15 @@ trait BusinessDisplayConcern
             $qunarCommentScore = is_numeric($qunarCommentScoreRaw) && (float)$qunarCommentScoreRaw > 0
                 ? (float)$qunarCommentScoreRaw
                 : null;
-            $listExposure = (int)$this->meituanNumber($item, ['self_list_exposure', 'listExposure', 'list_exposure'], 0);
-            $detailExposure = (int)$this->meituanNumber($item, ['self_detail_exposure', 'detailExposure', 'detail_exposure'], 0);
-            $orderFillingNum = (int)$this->meituanNumber($item, ['self_order_filling_num', 'orderFillingNum', 'order_filling_num'], 0);
-            $orderSubmitNum = (int)$this->meituanNumber($item, ['self_order_submit_num', 'orderSubmitNum', 'order_submit_num'], 0);
-            $flowRate = $this->normalizeMeituanPercentValue($this->firstMeituanValue($item, ['self_flow_rate', 'flowRate', 'flow_rate'], null)) ?? 0.0;
+            $listExposure = $this->nullableNumberFromKeys($item, ['self_list_exposure', 'listExposure', 'list_exposure']);
+            $listExposure = $listExposure === null ? null : (int)$listExposure;
+            $detailExposure = $this->nullableNumberFromKeys($item, ['self_detail_exposure', 'detailExposure', 'detail_exposure']);
+            $detailExposure = $detailExposure === null ? null : (int)$detailExposure;
+            $orderFillingNum = $this->nullableNumberFromKeys($item, ['self_order_filling_num', 'orderFillingNum', 'order_filling_num']);
+            $orderFillingNum = $orderFillingNum === null ? null : (int)$orderFillingNum;
+            $orderSubmitNum = $this->nullableNumberFromKeys($item, ['self_order_submit_num', 'orderSubmitNum', 'order_submit_num']);
+            $orderSubmitNum = $orderSubmitNum === null ? null : (int)$orderSubmitNum;
+            $flowRate = $this->normalizeMeituanPercentValue($this->firstMeituanValue($item, ['self_flow_rate', 'flowRate', 'flow_rate'], null));
 
             // 如果有日期字段，优先使用接口返回日期；没有返回时使用请求日期
             $itemDate = $item['dataDate']

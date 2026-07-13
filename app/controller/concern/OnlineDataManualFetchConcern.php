@@ -12,6 +12,7 @@ use app\service\MeituanManualIdentityService;
 use app\service\MeituanManualFetchRequestService;
 use app\service\MeituanOnlineDataPersistenceService;
 use app\service\MeituanRankCandidateService;
+use app\service\OnlineTrafficDataExtractionService;
 use app\service\OtaExecutionStageException;
 use think\Response;
 use think\facade\Db;
@@ -627,7 +628,7 @@ trait OnlineDataManualFetchConcern
                 }
 
                 if (empty($identityCheck['ok'])) {
-                    $payload = [
+                    $payload = array_merge([
                         'data' => $responseData,
                         'date_results' => $dateResults,
                         'raw_response' => $rawResponse,
@@ -639,7 +640,7 @@ trait OnlineDataManualFetchConcern
                         'display_hotel_count' => count($displayHotels),
                         'display_summary' => $displaySummary,
                         'save_status' => 'blocked',
-                    ];
+                    ], $this->buildCtripPersistenceState(true, 0, true));
                     $responseCode = 200;
                     return json([
                         'code' => $responseCode,
@@ -736,14 +737,15 @@ trait OnlineDataManualFetchConcern
             }
 
             $displayDataDate = $startDate === $endDate ? $startDate : $startDate . ' 至 ' . $endDate;
-            if ($systemHotelId > 0) {
+            $persistenceState = $this->buildCtripPersistenceState($autoSave, $savedCount);
+            if ($systemHotelId > 0 && $persistenceState['persisted']) {
                 $this->updateCtripLatestFetchStatus($systemHotelId, $fetchedAt, $displayDataDate, $savedCount);
             }
             if ($this->isTruthyRequestValue($requestData['background_task'] ?? false) && $systemHotelId) {
-                $this->recordAutoFetchNotification((int)$systemHotelId, true, '携程手动获取完成', $displayDataDate, [
+                $this->recordAutoFetchNotification((int)$systemHotelId, $persistenceState['persisted'], '携程手动获取完成', $displayDataDate, [
                     'saved_count' => $savedCount,
                     'platform_results' => [
-                        ['platform' => 'ctrip', 'success' => true, 'saved_count' => $savedCount],
+                        ['platform' => 'ctrip', 'success' => $persistenceState['persisted'], 'saved_count' => $savedCount],
                     ],
                 ], 'manual_fetch');
             }
@@ -766,7 +768,7 @@ trait OnlineDataManualFetchConcern
                         : ($qunarVisitorGap
                             ? '携程数据已获取；去哪儿访客为 0 仅作为字段缺口提示，不阻断携程竞争圈获取和入库。' . $this->ctripCompetitionSaveSummaryText($insertedCount, $updatedCount)
                             : '获取成功' . $this->ctripCompetitionSaveSummaryText($insertedCount, $updatedCount))),
-                'data' => [
+                'data' => array_merge([
                     'data' => $responseData,
                     'date_results' => $dateResults,
                     'raw_response' => $rawResponse,
@@ -791,7 +793,7 @@ trait OnlineDataManualFetchConcern
                     'save_operation' => $insertedCount > 0 && $updatedCount > 0
                         ? 'inserted_and_updated'
                         : ($insertedCount > 0 ? 'inserted' : ($updatedCount > 0 ? 'updated' : 'none')),
-                ]
+                ], $persistenceState)
             ]);
         } catch (\DomainException) {
             return json([
@@ -805,6 +807,116 @@ trait OnlineDataManualFetchConcern
             ]);
             return json(['code' => 500, 'message' => '请求异常', 'data' => null], 500);
         }
+    }
+
+    /** @return array{persistence_status:string,persisted:bool} */
+    private function buildCtripPersistenceState(bool $autoSave, int $savedCount, bool $blocked = false): array
+    {
+        if ($blocked) {
+            return ['persistence_status' => 'blocked', 'persisted' => false];
+        }
+        if (!$autoSave) {
+            return ['persistence_status' => 'display_only', 'persisted' => false];
+        }
+        if ($savedCount <= 0) {
+            return ['persistence_status' => 'not_persisted', 'persisted' => false];
+        }
+        return ['persistence_status' => 'persisted', 'persisted' => true];
+    }
+
+    /**
+     * @param array{verified?:bool,matched_count?:int,reason?:string}|null $databaseReadback
+     * @return array{persistence_status:string,persisted:bool,http_code:int,reason:string,processed_count:int,saved_count:int}
+     */
+    private function buildMeituanPersistenceState(bool $autoSave, int $processedCount, ?array $databaseReadback): array
+    {
+        if (!$autoSave) {
+            return [
+                'persistence_status' => 'display_only',
+                'persisted' => false,
+                'http_code' => 200,
+                'reason' => '',
+                'processed_count' => 0,
+                'saved_count' => 0,
+            ];
+        }
+        if ($processedCount <= 0) {
+            return [
+                'persistence_status' => 'not_persisted',
+                'persisted' => false,
+                'http_code' => 422,
+                'reason' => 'meituan_rank_persistence_empty',
+                'processed_count' => 0,
+                'saved_count' => 0,
+            ];
+        }
+        if (empty($databaseReadback['verified'])) {
+            return [
+                'persistence_status' => 'readback_failed',
+                'persisted' => false,
+                'http_code' => 500,
+                'reason' => 'meituan_rank_readback_failed',
+                'processed_count' => $processedCount,
+                'saved_count' => 0,
+            ];
+        }
+        return [
+            'persistence_status' => 'readback_verified',
+            'persisted' => true,
+            'http_code' => 200,
+            'reason' => '',
+            'processed_count' => $processedCount,
+            'saved_count' => max(0, (int)($databaseReadback['matched_count'] ?? 0)),
+        ];
+    }
+
+    /**
+     * @return array{persistence_status:string,persisted:bool,http_code:int,reason:string,processed_count:int,saved_count:int}
+     */
+    private function buildMeituanDirectPersistenceState(
+        bool $autoSave,
+        int $processedCount,
+        int $readbackCount,
+        string $scope
+    ): array {
+        if (!$autoSave) {
+            return [
+                'persistence_status' => 'display_only',
+                'persisted' => false,
+                'http_code' => 200,
+                'reason' => '',
+                'processed_count' => max(0, $processedCount),
+                'saved_count' => 0,
+            ];
+        }
+        if ($processedCount <= 0 || $readbackCount <= 0) {
+            return [
+                'persistence_status' => 'not_persisted',
+                'persisted' => false,
+                'http_code' => 422,
+                'reason' => $scope . '_persistence_empty',
+                'processed_count' => max(0, $processedCount),
+                'saved_count' => max(0, $readbackCount),
+            ];
+        }
+        if ($readbackCount !== $processedCount) {
+            return [
+                'persistence_status' => 'readback_failed',
+                'persisted' => false,
+                'http_code' => 500,
+                'reason' => $scope . '_readback_failed',
+                'processed_count' => $processedCount,
+                'saved_count' => max(0, $readbackCount),
+            ];
+        }
+        return [
+            'persistence_status' => 'readback_verified',
+            'persisted' => true,
+            'http_code' => 200,
+            'reason' => '',
+            'processed_count' => $processedCount,
+            'saved_count' => $readbackCount,
+        ];
     }
 
     private function ctripCompetitionSelfHotelIds(?array $identityCheck): array
@@ -2116,8 +2228,9 @@ trait OnlineDataManualFetchConcern
                 ]);
             }
 
-            if ($autoSave && is_array($responseData) && !empty($responseData)) {
-                $savedCount = $this->parseAndSaveMeituanData($responseData, $startDate, $endDate, $systemHotelId ? (int)$systemHotelId : null, [
+            $databaseReadback = null;
+            $processedCount = 0;
+            $persistenceContext = [
                     'date_range' => (string)($params['dateRange'] ?? $dateRange),
                     'rank_type' => $rankType,
                     'start_date' => $startDate,
@@ -2125,7 +2238,39 @@ trait OnlineDataManualFetchConcern
                     'target_poi_id' => (string)$poiId,
                     'self_metric_values' => $selfMetricValues,
                     'self_metric_status' => $selfMetricStatus,
-                ]);
+            ];
+            if ($autoSave && is_array($responseData) && !empty($responseData)) {
+                $processedCount = $this->parseAndSaveMeituanData(
+                    $responseData,
+                    $startDate,
+                    $endDate,
+                    $systemHotelId ? (int)$systemHotelId : null,
+                    $persistenceContext
+                );
+                if ($processedCount > 0 && $systemHotelId) {
+                    $databaseReadback = (new MeituanOnlineDataPersistenceService())->verifyPersistedRankCandidate(
+                        $responseData,
+                        (int)$systemHotelId,
+                        $startDate,
+                        $endDate,
+                        $persistenceContext
+                    );
+                }
+            }
+            $persistenceState = $this->buildMeituanPersistenceState($autoSave, $processedCount, $databaseReadback);
+            $savedCount = (int)$persistenceState['saved_count'];
+            if ($autoSave && !$persistenceState['persisted']) {
+                return $this->error(
+                    $persistenceState['persistence_status'] === 'readback_failed'
+                        ? '美团排名数据已处理，但数据库回读校验失败。'
+                        : '美团排名响应未产生可回读的入库数据。',
+                    (int)$persistenceState['http_code'],
+                    array_merge($persistenceState, [
+                        'database_readback' => $databaseReadback,
+                        'display_hotels' => $displayHotels,
+                        'display_hotel_count' => count($displayHotels),
+                    ])
+                );
             }
 
             OperationLog::record('online_data', 'fetch_meituan', '获取美团线上数据', $this->currentUser->id, $systemHotelId ? (int)$systemHotelId : null);
@@ -2152,6 +2297,10 @@ trait OnlineDataManualFetchConcern
                     'data' => $responseData,
                     'raw_response' => $rawResponse,
                     'saved_count' => $savedCount,
+                    'processed_count' => $processedCount,
+                    'persistence_status' => $persistenceState['persistence_status'],
+                    'persisted' => $persistenceState['persisted'],
+                    'database_readback' => $databaseReadback,
                     'self_metric_values' => $selfMetricValues,
                     'self_metric_status' => $selfMetricStatus,
                     'self_metric_message' => $selfMetricMessage,
@@ -2176,6 +2325,10 @@ trait OnlineDataManualFetchConcern
                         'data' => ['note' => '数据已保存，但包含特殊字符无法显示'],
                         'raw_response' => '',
                         'saved_count' => $savedCount,
+                        'processed_count' => $processedCount,
+                        'persistence_status' => $persistenceState['persistence_status'],
+                        'persisted' => $persistenceState['persisted'],
+                        'database_readback' => $databaseReadback,
                     ],
                     'time' => time(),
                 ], JSON_UNESCAPED_UNICODE);
@@ -2895,6 +3048,20 @@ trait OnlineDataManualFetchConcern
 
             $responseData = $result['data'] ?? [];
             $savedCount = 0;
+            $trafficRows = is_array($responseData)
+                ? OnlineTrafficDataExtractionService::extractGenericTrafficRows($responseData)
+                : [];
+            $processedCount = count(array_filter($trafficRows, static function ($row): bool {
+                if (!is_array($row)) {
+                    return false;
+                }
+                foreach (['hotelId', 'hotel_id', 'HotelId', 'hotelID', 'poiId', 'poi_id', 'storeId', 'store_id', 'partnerId', 'partner_id', 'hotelName', 'hotel_name', 'HotelName', 'name', 'poiName', 'poi_name'] as $key) {
+                    if (trim((string)($row[$key] ?? '')) !== '') {
+                        return true;
+                    }
+                }
+                return false;
+            }));
             if ($autoSave && is_array($responseData)) {
                 $savedCount = $this->parseAndSaveTrafficData(
                     $responseData,
@@ -2906,23 +3073,42 @@ trait OnlineDataManualFetchConcern
                     (string)$poiId
                 );
             }
+            $persistenceState = $this->buildMeituanDirectPersistenceState(
+                $autoSave,
+                $processedCount,
+                $savedCount,
+                'meituan_traffic'
+            );
 
             OperationLog::record('online_data', 'fetch_meituan_traffic', '获取美团流量数据', $this->currentUser->id, $systemHotelId ? (int)$systemHotelId : null);
 
             if ($this->isTruthyRequestValue($requestData['background_task'] ?? false) && $systemHotelId) {
                 $displayDataDate = $startDate === $endDate ? $startDate : $startDate . ' 至 ' . $endDate;
-                $this->recordAutoFetchNotification((int)$systemHotelId, true, '美团流量手动获取完成', $displayDataDate, [
+                $this->recordAutoFetchNotification((int)$systemHotelId, $persistenceState['persisted'], '美团流量手动获取完成', $displayDataDate, [
                     'saved_count' => $savedCount,
                     'platform_results' => [
-                        ['platform' => 'meituan', 'success' => true, 'saved_count' => $savedCount],
+                        ['platform' => 'meituan', 'success' => $persistenceState['persisted'], 'saved_count' => $savedCount],
                     ],
                 ], 'manual_fetch');
+            }
+
+            if ($autoSave && !$persistenceState['persisted']) {
+                return $this->error(
+                    $persistenceState['persistence_status'] === 'readback_failed'
+                        ? '美团流量数据保存后数据库回读不完整。'
+                        : '美团流量响应未产生可回读的入库数据。',
+                    (int)$persistenceState['http_code'],
+                    $persistenceState
+                );
             }
 
             return $this->success([
                 'data' => $responseData,
                 'raw_response' => $result['raw'] ?? '',
                 'saved_count' => $savedCount,
+                'processed_count' => $processedCount,
+                'persistence_status' => $persistenceState['persistence_status'],
+                'persisted' => $persistenceState['persisted'],
             ]);
         } catch (\Throwable $e) {
             \think\facade\Log::error('Meituan traffic fetch failed.', [
@@ -3117,15 +3303,34 @@ trait OnlineDataManualFetchConcern
             ];
             $rows = $this->buildMeituanCapturedDailyRows($capturedPayload, $systemHotelId ? (int)$systemHotelId : null);
             $savedCount = ($autoSave && !empty($rows)) ? $this->saveMeituanCapturedDailyRows($rows) : 0;
+            $persistenceState = $this->buildMeituanDirectPersistenceState(
+                $autoSave,
+                count($rows),
+                $savedCount,
+                'meituan_' . $section
+            );
             if ($this->isTruthyRequestValue($requestData['background_task'] ?? false) && $systemHotelId) {
                 $displayDataDate = $startDate === $endDate ? $startDate : $startDate . ' 至 ' . $endDate;
                 $sectionLabel = $section === 'orders' ? '订单' : '广告';
-                $this->recordAutoFetchNotification((int)$systemHotelId, true, '美团' . $sectionLabel . '手动获取完成', $displayDataDate, [
+                $this->recordAutoFetchNotification((int)$systemHotelId, $persistenceState['persisted'], '美团' . $sectionLabel . '手动获取完成', $displayDataDate, [
                     'saved_count' => $savedCount,
                     'platform_results' => [
-                        ['platform' => 'meituan', 'success' => true, 'saved_count' => $savedCount],
+                        ['platform' => 'meituan', 'success' => $persistenceState['persisted'], 'saved_count' => $savedCount],
                     ],
                 ], 'manual_fetch');
+            }
+
+            if ($autoSave && !$persistenceState['persisted']) {
+                return $this->error(
+                    $persistenceState['persistence_status'] === 'readback_failed'
+                        ? '美团业务数据保存后数据库回读不完整。'
+                        : '美团业务响应未产生可回读的入库数据。',
+                    (int)$persistenceState['http_code'],
+                    array_merge($persistenceState, [
+                        'row_count' => count($rows),
+                        'counts' => $this->summarizeMeituanCapturedRows($rows),
+                    ])
+                );
             }
 
             if ($this->currentUser && isset($this->currentUser->id)) {
@@ -3148,6 +3353,9 @@ trait OnlineDataManualFetchConcern
                 'total' => count($items),
                 'row_count' => count($rows),
                 'saved_count' => $savedCount,
+                'processed_count' => count($rows),
+                'persistence_status' => $persistenceState['persistence_status'],
+                'persisted' => $persistenceState['persisted'],
                 'counts' => $this->summarizeMeituanCapturedRows($rows),
                 'http_code' => $result['http_code'] ?? 0,
                 'request_method' => $method,

@@ -1753,15 +1753,25 @@ window.SUXI_CTRIP_STATIC = (() => {
                 setSavedCount(savedCount);
                 const saveBlocked = data.save_status === 'blocked';
                 const temporaryDisplayOnly = data.save_status === 'display_only';
+                const persistenceStatus = String(data.persistence_status || '').toLowerCase();
+                const persisted = data.persisted === true
+                    || (data.persisted == null
+                        && Number(savedCount) > 0
+                        && !saveBlocked
+                        && !temporaryDisplayOnly);
                 const qunarVisitorGap = data.qunar_visitor_quality?.status === 'partial_qunar_visitor_gap';
                 const identityCheckWarning = data.identity_check?.warning === true;
                 const ctripRowsReturned = Number(data.display_hotel_count || allHotels.length || 0) > 0;
                 const ctripFetchReady = ctripRowsReturned;
-                setFetchSuccess(ctripFetchReady);
+                setFetchSuccess(
+                    persisted || (ctripFetchReady && (saveBlocked || temporaryDisplayOnly))
+                );
                 if (temporaryDisplayOnly) {
                     notify(res.message || '临时 Cookie 查询成功；结果仅本页展示，未保存 Cookie、未创建门店、未入库。', 'info');
                 } else if (saveBlocked) {
                     notify(res.message || '携程数据已获取并可查看，但门店归属不一致，本次未入库。', 'warning');
+                } else if (!persisted || persistenceStatus === 'not_persisted') {
+                    notify(res.message || '携程数据已获取并可查看，但本次没有真实入库数据。', 'warning');
                 } else if (identityCheckWarning) {
                     notify(data.identity_check?.message || '携程酒店ID需要核对，本次仍按当前选择门店保存。', 'warning');
                 } else if (qunarVisitorGap) {
@@ -1777,21 +1787,21 @@ window.SUXI_CTRIP_STATIC = (() => {
                     savedCount,
                     displayHotelCount: allHotels.length,
                 });
-                setLatestMeta({ ...(getLatestMeta() || {}), ...currentFetchMeta });
                 setTableTab('sales');
-                if (!temporaryDisplayOnly) {
+                if (persisted) {
+                    setLatestMeta({ ...(getLatestMeta() || {}), ...currentFetchMeta });
                     updateAiAnalysisHotelList();
                     refreshOnlineHistory();
                     refreshLatestCtripData({ silent: true });
                 }
-                if (currentFetchMeta.fetched_at && (!getLatestMeta()?.fetched_at || String(getLatestMeta().fetched_at) < currentFetchMeta.fetched_at)) {
+                if (persisted && currentFetchMeta.fetched_at && (!getLatestMeta()?.fetched_at || String(getLatestMeta().fetched_at) < currentFetchMeta.fetched_at)) {
                     setLatestMeta({ ...(getLatestMeta() || {}), ...currentFetchMeta });
                 }
-                if (!temporaryDisplayOnly && getOnlineDataTab() === 'data') {
+                if (persisted && getOnlineDataTab() === 'data') {
                     refreshOnlineData();
                 }
                 return {
-                    status: (saveBlocked || temporaryDisplayOnly) ? 'display_only' : (ctripFetchReady ? 'success' : 'no_saved'),
+                    status: (saveBlocked || temporaryDisplayOnly) ? 'display_only' : (persisted ? 'success' : 'no_saved'),
                     response: res,
                     meta: currentFetchMeta,
                 };

@@ -1685,7 +1685,7 @@ final class OtaCredentialReadPathTest extends TestCase
         self::assertStringNotContainsString('数据合并', $history['message']);
     }
 
-    public function testCtripIdentityConflictReturnsDisplayableSuccessEnvelopeWithoutSaving(): void
+    public function testCtripIdentityConflictIsDisplayableButNeverPersisted(): void
     {
         $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/OnlineDataManualFetchConcern.php');
         $execute = $this->methodSource(
@@ -1696,6 +1696,7 @@ final class OtaCredentialReadPathTest extends TestCase
 
         self::assertStringContainsString("'save_status' => 'blocked'", $execute);
         self::assertStringContainsString('$responseCode = 200;', $execute);
+        self::assertStringContainsString('buildCtripPersistenceState(true, 0, true)', $execute);
         self::assertStringNotContainsString('$responseCode = $systemHotelId ? 409 : 200;', $execute);
     }
 

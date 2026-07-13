@@ -518,16 +518,41 @@ final class OnlineDailyDataPersistenceService
             $data = self::filterFields($data);
 
             if ($exists) {
+                $rowId = (int)$exists['id'];
                 Db::name('online_daily_data')
-                    ->where('id', $exists['id'])
+                    ->where('id', $rowId)
                     ->update($data);
             } else {
-                Db::name('online_daily_data')->insert($data);
+                $rowId = (int)Db::name('online_daily_data')->insertGetId($data);
             }
-            $savedCount++;
+            if ($rowId > 0 && $this->verifyTrafficRowReadback($rowId, $payload)) {
+                $savedCount++;
+            }
         }
 
         return $savedCount;
+    }
+
+    private function verifyTrafficRowReadback(int $rowId, array $expected): bool
+    {
+        $persisted = Db::name('online_daily_data')->where('id', $rowId)->find();
+        if (!is_array($persisted)) {
+            return false;
+        }
+        foreach (['source', 'data_type', 'data_date', 'dimension'] as $field) {
+            if ((string)($persisted[$field] ?? '') !== (string)($expected[$field] ?? '')) {
+                return false;
+            }
+        }
+        if ((string)($persisted['hotel_id'] ?? '') !== (string)($expected['hotel_id'] ?? '')) {
+            return false;
+        }
+
+        $expectedSystemHotelId = $expected['system_hotel_id'] ?? null;
+        $persistedSystemHotelId = $persisted['system_hotel_id'] ?? null;
+        return $expectedSystemHotelId === null
+            ? $persistedSystemHotelId === null
+            : (int)$persistedSystemHotelId === (int)$expectedSystemHotelId;
     }
 
     /**

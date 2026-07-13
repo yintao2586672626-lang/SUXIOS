@@ -95,6 +95,40 @@ final class CtripCompetitionCirclePersistenceServiceTest extends TestCase
         self::assertContains('field_missing:comment_score', $normalized['validation_flag_codes']);
     }
 
+    public function testMissingCoreMetricsRemainNullAndPartialWhileRealZeroRemainsZero(): void
+    {
+        $missing = CtripCompetitionCirclePersistenceService::normalizeRowSemantics(
+            $this->competitionRow([
+                'amount' => '--',
+                'quantity' => null,
+                'bookOrderNum' => 'not-a-number',
+            ])
+        );
+
+        self::assertNull($missing['amount']);
+        self::assertNull($missing['quantity']);
+        self::assertNull($missing['book_order_num']);
+        self::assertSame('partial', $missing['validation_status']);
+        self::assertContains('field_missing:amount', $missing['validation_flag_codes']);
+        self::assertContains('field_missing:quantity', $missing['validation_flag_codes']);
+        self::assertContains('field_missing:book_order_num', $missing['validation_flag_codes']);
+
+        $zero = CtripCompetitionCirclePersistenceService::normalizeRowSemantics(
+            $this->competitionRow([
+                'amount' => 0,
+                'quantity' => '0',
+                'bookOrderNum' => 0,
+            ])
+        );
+
+        self::assertSame(0.0, $zero['amount']);
+        self::assertSame(0, $zero['quantity']);
+        self::assertSame(0, $zero['book_order_num']);
+        self::assertNotContains('field_missing:amount', $zero['validation_flag_codes']);
+        self::assertNotContains('field_missing:quantity', $zero['validation_flag_codes']);
+        self::assertNotContains('field_missing:book_order_num', $zero['validation_flag_codes']);
+    }
+
     public function testLegacyBackfillTraceIsMigrationEvidenceNotPlatformProof(): void
     {
         $fields = CtripCompetitionCirclePersistenceService::buildLegacyBackfillFields(

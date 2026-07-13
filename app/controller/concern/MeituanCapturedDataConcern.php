@@ -957,14 +957,43 @@ trait MeituanCapturedDataConcern
 
             $data = array_intersect_key($this->applyOnlineDailyDataValidationFields($row, $columns), $columns);
             if ($exists) {
-                Db::name('online_daily_data')->where('id', $exists['id'])->update($data);
+                $rowId = (int)$exists['id'];
+                Db::name('online_daily_data')->where('id', $rowId)->update($data);
             } else {
-                Db::name('online_daily_data')->insert($data);
+                $rowId = (int)Db::name('online_daily_data')->insertGetId($data);
             }
-            $savedCount++;
+            if ($rowId > 0 && $this->verifyMeituanCapturedDailyRowReadback($rowId, $row)) {
+                $savedCount++;
+            }
         }
 
         return $savedCount;
+    }
+
+    private function verifyMeituanCapturedDailyRowReadback(int $rowId, array $expected): bool
+    {
+        $persisted = Db::name('online_daily_data')->where('id', $rowId)->find();
+        if (!is_array($persisted)) {
+            return false;
+        }
+        foreach (['source', 'data_type', 'data_date', 'dimension'] as $field) {
+            if ((string)($persisted[$field] ?? '') !== (string)($expected[$field] ?? '')) {
+                return false;
+            }
+        }
+        if (!empty($expected['hotel_id'])) {
+            if ((string)($persisted['hotel_id'] ?? '') !== (string)$expected['hotel_id']) {
+                return false;
+            }
+        } elseif ((string)($persisted['hotel_name'] ?? '') !== (string)($expected['hotel_name'] ?? '')) {
+            return false;
+        }
+
+        $expectedSystemHotelId = $expected['system_hotel_id'] ?? null;
+        $persistedSystemHotelId = $persisted['system_hotel_id'] ?? null;
+        return $expectedSystemHotelId === null
+            ? $persistedSystemHotelId === null
+            : (int)$persistedSystemHotelId === (int)$expectedSystemHotelId;
     }
 
     private function summarizeMeituanCapturedRows(array $rows): array

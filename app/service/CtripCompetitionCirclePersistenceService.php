@@ -57,6 +57,9 @@ final class CtripCompetitionCirclePersistenceService
      *   data_type:string,
      *   dimension:string,
      *   compare_type:string,
+     *   amount:?float,
+     *   quantity:?int,
+     *   book_order_num:?int,
      *   comment_score:?float,
      *   qunar_comment_score:?float,
      *   validation_status:string,
@@ -80,7 +83,19 @@ final class CtripCompetitionCirclePersistenceService
             'qunar_comment_score',
             'qunarScore',
         ]);
+        $amount = self::nullableNumericValue($row, ['amount', 'Amount', 'totalAmount', 'total_amount']);
+        $quantityValue = self::nullableNumericValue($row, ['quantity', 'Quantity', 'roomNights', 'room_nights']);
+        $bookOrderValue = self::nullableNumericValue($row, ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count']);
         $flagCodes = [];
+        if ($amount === null) {
+            $flagCodes[] = 'field_missing:amount';
+        }
+        if ($quantityValue === null) {
+            $flagCodes[] = 'field_missing:quantity';
+        }
+        if ($bookOrderValue === null) {
+            $flagCodes[] = 'field_missing:book_order_num';
+        }
         if ($commentScore === null) {
             $flagCodes[] = 'field_missing:comment_score';
         }
@@ -92,6 +107,9 @@ final class CtripCompetitionCirclePersistenceService
             'data_type' => self::DATA_TYPE,
             'dimension' => self::DIMENSION,
             'compare_type' => $isSelf ? 'self' : 'competitor',
+            'amount' => $amount,
+            'quantity' => $quantityValue === null ? null : (int)$quantityValue,
+            'book_order_num' => $bookOrderValue === null ? null : (int)$bookOrderValue,
             'comment_score' => $commentScore,
             'qunar_comment_score' => $qunarScore,
             'validation_status' => $flagCodes === [] ? 'normal' : 'partial',
@@ -326,9 +344,9 @@ final class CtripCompetitionCirclePersistenceService
                 'hotel_name' => $hotelName,
                 'system_hotel_id' => $systemHotelId,
                 'data_date' => $rowDate,
-                'amount' => self::numericValue($row, ['amount', 'Amount', 'totalAmount', 'total_amount']),
-                'quantity' => (int)self::numericValue($row, ['quantity', 'Quantity', 'roomNights', 'room_nights']),
-                'book_order_num' => (int)self::numericValue($row, ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count']),
+                'amount' => $semantics['amount'],
+                'quantity' => $semantics['quantity'],
+                'book_order_num' => $semantics['book_order_num'],
                 'comment_score' => $semantics['comment_score'],
                 'qunar_comment_score' => $semantics['qunar_comment_score'],
                 'raw_data' => json_encode($row, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
@@ -523,14 +541,18 @@ final class CtripCompetitionCirclePersistenceService
         return false;
     }
 
-    private static function numericValue(array $row, array $keys): float
+    private static function nullableNumericValue(array $row, array $keys): ?float
     {
         foreach ($keys as $key) {
-            if (array_key_exists($key, $row) && is_numeric($row[$key])) {
+            if (!array_key_exists($key, $row) || $row[$key] === null || $row[$key] === '') {
+                continue;
+            }
+            if (is_numeric($row[$key])) {
                 return (float)$row[$key];
             }
+            return null;
         }
-        return 0.0;
+        return null;
     }
 
     private static function normalizeDate(mixed $value): string

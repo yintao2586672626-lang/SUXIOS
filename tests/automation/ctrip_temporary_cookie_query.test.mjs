@@ -89,6 +89,8 @@ test('temporary Cookie flow uses the dedicated endpoint and never refreshes pers
         data: {
           saved_count: 0,
           save_status: 'display_only',
+          persistence_status: 'display_only',
+          persisted: false,
           display_hotel_count: 1,
           display_hotels: [{ hotelId: '1', hotelName: '临时结果' }],
         },
@@ -110,4 +112,47 @@ test('temporary Cookie flow uses the dedicated endpoint and never refreshes pers
     message: '临时 Cookie 查询成功；结果仅本页展示，未保存 Cookie、未创建门店、未入库。',
     level: 'info',
   });
+});
+
+test('selected-hotel response with rows but no persistence stays non-success and does not refresh snapshots', async () => {
+  const refreshes = [];
+  const notifications = [];
+  const successStates = [];
+
+  const result = await api.runCtripFetchDataFlow({
+    isLoggedIn: () => true,
+    getSelectedCtripHotelId: () => '80',
+    getActiveCtripConfig: () => ({
+      id: 'ctrip-80',
+      config_id: 'ctrip-80',
+      credential_status: 'ready',
+      has_cookies: true,
+      configuration_verified: true,
+      system_hotel_id: 80,
+    }),
+    getForm: () => ({ nodeId: '24588', startDate: '2026-07-11', endDate: '2026-07-11' }),
+    requestFetch: async () => ({
+      code: 200,
+      message: '携程数据已获取，但没有真实入库数据。',
+      data: {
+        saved_count: 0,
+        save_status: 'saved_or_empty',
+        persistence_status: 'not_persisted',
+        persisted: false,
+        display_hotel_count: 1,
+        display_hotels: [{ hotelId: '1', hotelName: '展示结果' }],
+      },
+    }),
+    notify: (message, level) => notifications.push({ message, level }),
+    setFetchSuccess: value => successStates.push(value),
+    useDisplayHotels: rows => rows,
+    refreshOnlineHistory: () => refreshes.push('history'),
+    refreshLatestCtripData: () => refreshes.push('latest'),
+    refreshOnlineData: () => refreshes.push('online'),
+  });
+
+  assert.equal(result.status, 'no_saved');
+  assert.equal(successStates.at(-1), false);
+  assert.deepEqual(refreshes, []);
+  assert.equal(notifications.at(-1).level, 'warning');
 });

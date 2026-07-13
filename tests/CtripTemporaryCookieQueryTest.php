@@ -61,5 +61,6 @@ final class CtripTemporaryCookieQueryTest extends TestCase
         );
         self::assertStringContainsString("'save_status' => \$qunarVisitorGap", $source);
         self::assertStringContainsString(": (\$autoSave ? 'saved_or_empty' : 'display_only')", $source);
+        self::assertStringContainsString('buildCtripPersistenceState($autoSave, $savedCount)', $source);
     }
 }
