@@ -1,0 +1,131 @@
+                    <div v-if="currentPage === 'operation-logs'">
+                        <!-- 日志统计 -->
+                        <div class="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
+                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                                <div class="text-sm text-gray-400 mb-1">今日操作</div>
+                                <div class="text-2xl font-bold text-gray-800">{{ logSummary.today_total }}</div>
+                            </div>
+                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                                <div class="text-sm text-gray-400 mb-1">数据获取</div>
+                                <div class="text-2xl font-bold text-sky-600">{{ logSummary.data_acquisition_count }}</div>
+                            </div>
+                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                                <div class="text-sm text-gray-400 mb-1">分析行为</div>
+                                <div class="text-2xl font-bold text-violet-600">{{ logSummary.analysis_count }}</div>
+                            </div>
+                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                                <div class="text-sm text-gray-400 mb-1">活跃用户</div>
+                                <div class="text-2xl font-bold text-blue-600">{{ logSummary.active_users }}</div>
+                            </div>
+                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                                <div class="text-sm text-gray-400 mb-1">涉及酒店</div>
+                                <div class="text-2xl font-bold text-green-600">{{ logSummary.hotel_count }}</div>
+                            </div>
+                            <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                                <div class="text-sm text-gray-400 mb-1">操作模块</div>
+                                <div class="text-2xl font-bold text-purple-600">{{ logSummary.module_count }}</div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="p-5 border-b border-gray-100">
+                                <div class="flex flex-wrap items-center gap-3">
+                                    <select v-model="logFilter.module" @change="reloadOperationLogs" class="input-field">
+                                        <option value="">全部模块</option>
+                                        <option v-for="m in logModules" :key="m" :value="m">{{ m }}</option>
+                                    </select>
+                                    <select v-model="logFilter.action" @change="reloadOperationLogs" class="input-field">
+                                        <option value="">全部操作</option>
+                                        <option v-for="a in logActions" :key="a" :value="a">{{ a }}</option>
+                                    </select>
+                                    <select v-model="logFilter.audit_type" @change="reloadOperationLogs" class="input-field">
+                                        <option value="">全部类型</option>
+                                        <option value="acquisition">数据获取</option>
+                                        <option value="analysis">数据分析</option>
+                                    </select>
+                                    <select v-model="logFilter.user_id" @change="reloadOperationLogs" class="input-field">
+                                        <option value="">全部用户</option>
+                                        <option v-for="(u, index) in logUsers" :key="u?.id || index" :value="u?.id || ''">{{ u?.realname || u?.username || '-' }}</option>
+                                    </select>
+                                    <select v-model="logFilter.hotel_id" @change="reloadOperationLogs" class="input-field">
+                                        <option value="">全部酒店</option>
+                                        <option v-for="h in logHotels" :key="h.id" :value="h.id">{{ h.name }}</option>
+                                    </select>
+                                    <div class="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
+                                        <input v-model="logFilter.start_date" type="date" @change="reloadOperationLogs" class="bg-transparent border-none text-sm focus:outline-none">
+                                        <span class="text-gray-400">至</span>
+                                        <input v-model="logFilter.end_date" type="date" @change="reloadOperationLogs" class="bg-transparent border-none text-sm focus:outline-none">
+                                    </div>
+                                    <button @click="reloadOperationLogs" class="btn-primary">
+                                        <i class="fas fa-search mr-2"></i>查询
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="overflow-x-auto">
+                            <table class="w-full">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">时间</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">用户</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">酒店</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">类型</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">模块</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">操作</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">描述</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">IP</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200">
+                                    <tr v-for="log in operationLogs" :key="log.id" class="hover:bg-gray-50">
+                                        <td class="px-4 py-3 text-sm">{{ log.id }}</td>
+                                        <td class="px-4 py-3 text-sm whitespace-nowrap">{{ log.create_time }}</td>
+                                        <td class="px-4 py-3 text-sm">
+                                            <span class="text-gray-900">{{ log.user?.realname || log.user?.username || '-' }}</span>
+                                        </td>
+                                        <td class="px-4 py-3 text-sm">{{ log.hotel?.name || '-' }}</td>
+                                        <td class="px-4 py-3 text-sm">
+                                            <span :class="logTypeClass(log)" class="px-2 py-1 rounded text-xs whitespace-nowrap">{{ logTypeLabel(log) }}</span>
+                                        </td>
+                                        <td class="px-4 py-3 text-sm">
+                                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">{{ log.module }}</span>
+                                        </td>
+                                        <td class="px-4 py-3 text-sm">
+                                            <span :class="logActionClass(log.action)" class="px-2 py-1 rounded text-xs whitespace-nowrap">
+                                                {{ log.action }}
+                                            </span>
+                                        </td>
+                                        <td class="px-4 py-3 text-sm text-gray-600 max-w-xs truncate" :title="log.description">{{ log.description }}</td>
+                                        <td class="px-4 py-3 text-sm text-gray-500">{{ log.ip }}</td>
+                                        <td class="px-4 py-3 text-sm">
+                                            <button @click="viewLogDetail(log)" class="text-blue-500 hover:text-blue-700" title="查看详情">
+                                                <i class="fas fa-eye"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                            </div>
+                            <div v-if="operationLogs.length === 0" class="text-center py-8 text-gray-500">
+                                暂无日志记录
+                            </div>
+                            <!-- 分页 -->
+                            <div v-if="logPagination.total &gt; 0" class="p-4 border-t flex items-center justify-between">
+                                <div class="text-sm text-gray-500">
+                                    共 {{ logPagination.total }} 条记录
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    <button @click="logPagination.page &gt; 1 &amp;&amp; (logPagination.page--, loadOperationLogs())" :disabled="logPagination.page &lt;= 1" class="px-3 py-1 border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                                        上一页
+                                    </button>
+                                    <span class="text-sm">第 {{ logPagination.page }} / {{ Math.ceil(logPagination.total / logPagination.page_size) }} 页</span>
+                                    <button @click="logPagination.page &lt; Math.ceil(logPagination.total / logPagination.page_size) &amp;&amp; (logPagination.page++, loadOperationLogs())" :disabled="logPagination.page &gt;= Math.ceil(logPagination.total / logPagination.page_size)" class="px-3 py-1 border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                                        下一页
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 系统配置管理 (仅超级管理员) -->

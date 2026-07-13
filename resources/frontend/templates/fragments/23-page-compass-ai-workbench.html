@@ -1,0 +1,1358 @@
+                    <div v-if="currentPage === 'ai-workbench' || currentPage === 'compass'" class="compass-dashboard suxi-dashboard-scope">
+                        <div class="compass-shell-card suxi-panel mb-6 overflow-hidden">
+                            <div class="hidden" data-testid="home-cockpit-header">
+                                <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                                    <div class="min-w-0">
+                                        <div class="text-xl sm:text-2xl font-semibold text-white leading-tight">今日经营看板</div>
+                                        <div class="mt-1 max-w-2xl text-sm leading-6 text-blue-100">{{ homeMinimalWorkbench.boundaryText }}</div>
+                                        <div class="mt-2 grid grid-cols-1 gap-2 text-xs sm:flex sm:flex-wrap" data-testid="home-header-signal-row">
+                                            <span class="rounded-lg border border-white/10 bg-white/10 px-2.5 py-1.5 text-blue-50">
+                                                <span class="text-blue-200">数据</span>
+                                                <span class="ml-1 font-semibold text-white">{{ compassDataReadiness.summaryText }}</span>
+                                            </span>
+                                            <span class="rounded-lg border border-white/10 bg-white/10 px-2.5 py-1.5 text-blue-50">
+                                                <span class="text-blue-200">动作</span>
+                                                <span class="ml-1 font-semibold text-white">{{ homeBoardActionRows[0]?.title || '复核数据' }}</span>
+                                            </span>
+                                            <span class="rounded-lg border border-white/10 bg-white/10 px-2.5 py-1.5 text-blue-50">{{ homeMinimalWorkbench.latestText }}</span>
+                                        </div>
+                                    </div>
+                                    <div class="flex flex-col gap-2 w-full xl:w-auto sm:flex-row sm:items-center">
+                                        <select v-model="filterReportHotel" class="input-field w-full sm:w-48 bg-white text-gray-900 border-gray-300">
+                                            <option value="">全部门店</option>
+                                            <option v-for="hotel in compassHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                        </select>
+                                        <button @click="refreshCompassDashboard" :disabled="compassLoading" class="inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-60 whitespace-nowrap">
+                                            <i :class="compassLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-sync-alt mr-2'"></i>{{ compassLoading ? '更新中' : '刷新状态' }}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="flex flex-col gap-3 bg-[#f2eadc] px-4 py-4 lg:px-6">
+                                <div v-if="currentPage === 'compass'" class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" data-testid="home-executive-answer">
+                                    <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                                        <div class="min-w-0">
+                                            <div class="text-xs font-semibold text-slate-500">今日经营工作台 · 今天只做一件事</div>
+                                            <div class="mt-1 text-2xl font-bold leading-tight text-slate-950">{{ homeExecutiveAnswer.primaryFocus }}</div>
+                                            <div class="mt-2 text-sm leading-6 text-slate-600">{{ homeMinimalWorkbench.nextStepText }}</div>
+                                        </div>
+                                        <div class="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
+                                            <span :class="['w-fit rounded-full border px-3 py-1 text-xs font-semibold whitespace-nowrap', homeMinimalWorkbench.statusClass]">{{ homeMinimalWorkbench.statusLabel }}</span>
+                                            <button type="button" @click="openHomeQuickEntry(homeMinimalWorkbench.primaryEntry)" class="inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700">
+                                                {{ homeMinimalWorkbench.primaryActionLabel }}<i class="fas fa-arrow-right ml-2 text-xs"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="mt-4 flex flex-wrap gap-2">
+                                        <button v-for="card in homeExecutiveAnswer.cards" :key="card.key" type="button" @click="openHomeQuickEntry(card.entry)" class="inline-flex max-w-full items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-left transition hover:border-blue-200 hover:bg-white" :title="`${card.label}：${card.value}；${card.note}`">
+                                            <span class="text-[11px] font-semibold text-slate-500">{{ card.label }}</span>
+                                            <span class="max-w-[12rem] truncate text-xs font-bold text-slate-950">{{ card.value }}</span>
+                                            <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', card.badgeClass]">{{ card.badge }}</span>
+                                        </button>
+                                    </div>
+                                    <div class="mt-3 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                                        <span class="font-semibold">阻断：</span>{{ homeMinimalWorkbench.blockerText }}
+                                        <span class="mx-2 text-amber-300">/</span>
+                                        <span>{{ homeMinimalWorkbench.blockerNote }}</span>
+                                    </div>
+                                </div>
+                                <div v-if="currentPage === 'ai-workbench'" class="dual-ota-home order-first" data-testid="home-ai-workbench">
+                                    <section class="dual-ota-header" data-testid="dual-ota-dashboard-header">
+                                        <div class="dual-ota-brand">
+                                            <div class="min-w-0">
+                                                <h1>{{ dualOtaDashboard.brand.name }}</h1>
+                                                <p v-if="dualOtaDashboard.brand.subtitle">{{ dualOtaDashboard.brand.subtitle }}</p>
+                                            </div>
+                                        </div>
+                                        <div class="dual-ota-header-actions">
+                                            <div class="dual-ota-top-range-row" aria-label="时间范围">
+                                                <button v-for="option in dualOtaDashboard.timeRanges" :key="option.value" type="button" :class="['dual-ota-range-button', dualOtaSelectedRange === option.value ? 'is-active' : '']" @click="setDualOtaRange(option.value)">
+                                                    {{ option.label }}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </section>
+
+                                    <div v-if="dualOtaDashboard.principle" class="dual-ota-principle" data-testid="dual-ota-design-principle">
+                                        <i class="fas fa-shield-alt"></i>
+                                        <span>{{ dualOtaDashboard.principle }}</span>
+                                    </div>
+
+                                    <section v-if="!dualOtaHasConnectedPlatforms" class="dual-ota-empty" data-testid="dual-ota-empty-state">
+                                        <div>
+                                            <div class="dual-ota-section-index">EmptyState</div>
+                                            <h2>{{ dualOtaDashboard.emptyState.title }}</h2>
+                                            <ol>
+                                                <li v-for="step in dualOtaDashboard.emptyState.steps" :key="step">{{ step }}</li>
+                                            </ol>
+                                        </div>
+                                        <button type="button" class="dual-ota-primary-button" @click="openHomeQuickEntry({ page: 'online-data', tab: 'platform-auto' })">
+                                            {{ dualOtaDashboard.emptyState.cta }}
+                                        </button>
+                                    </section>
+
+                                    <template v-else="">
+                                        <section v-if="dualOtaDashboard.systemOverview" class="dual-ota-card dual-ota-system-overview" data-testid="dual-ota-system-overview">
+                                            <div v-if="dualOtaDashboard.systemOverview.description" class="dual-ota-card-head">
+                                                <div v-if="dualOtaDashboard.systemOverview.description">
+                                                    <p>{{ dualOtaDashboard.systemOverview.description }}</p>
+                                                </div>
+                                            </div>
+                                            <div v-if="dualOtaDashboard.systemOverview.storeScope" class="dual-ota-store-scope dual-ota-store-picker" data-testid="dual-ota-store-scope">
+                                                <span class="dual-ota-context-item dual-ota-context-item-store">
+                                                    <label for="dual-ota-current-hotel">当前门店</label>
+                                                    <select id="dual-ota-current-hotel" v-model="filterReportHotel" class="dual-ota-context-select dual-ota-hotel-select" aria-label="当前门店">
+                                                        <option value="">全部门店</option>
+                                                        <option v-for="hotel in dualOtaCurrentHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                                    </select>
+                                                </span>
+                                                <div class="dual-ota-store-scope-list" role="list" aria-label="OTA平台选择">
+                                                    <button type="button" :class="['dual-ota-compare-toggle', dualOtaCompareEnabled ? 'is-active' : '']" :aria-pressed="dualOtaCompareEnabled ? 'true' : 'false'" @click="toggleDualOtaCompare">
+                                                        <span>同期对比</span>
+                                                    </button>
+                                                    <button v-for="row in dualOtaDashboard.systemOverview.storeScope.rows" :key="row.label" type="button" role="listitem" :class="['dual-ota-store-option', dualOtaEffectiveStoreScope === row.value ? 'is-selected' : '']" :aria-pressed="dualOtaEffectiveStoreScope === row.value ? 'true' : 'false'" @click="setDualOtaStoreScope(row.value)">
+                                                        <strong>{{ row.label }}</strong>
+                                                        <small v-if="row.source">{{ row.source }}</small>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="dual-ota-system-grid">
+                                                <div v-for="group in dualOtaSystemOverviewGroups" :key="group.title" class="dual-ota-system-column">
+                                                    <div class="dual-ota-system-column-head">
+                                                        <h3>{{ group.title }}</h3>
+                                                        <span>{{ group.subtitle }}</span>
+                                                    </div>
+                                                    <div class="dual-ota-system-metrics">
+                                                        <span v-for="metric in group.metrics" :key="`${group.title}-${metric.label}`" :class="['dual-ota-system-metric', metric.tone ? `is-${metric.tone}` : '']">
+                                                            <em>{{ metric.label }}</em>
+                                                            <strong>{{ metric.value }}</strong>
+                                                            <small v-if="dualOtaCompareEnabled" :title="metric.note">{{ dualOtaMetricComparisonText(metric) }}</small>
+                                                            <small v-else="" class="dual-ota-system-metric-spacer" aria-hidden="true">&nbsp;</small>
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </section>
+
+                                        <section class="dual-ota-module-grid dual-ota-module-grid-top">
+                                            <article class="dual-ota-card" data-testid="dual-ota-platform-revenue-structure">
+                                                <div class="dual-ota-card-head">
+                                                    <div>
+                                                        <h2>{{ dualOtaPlatformRevenueTitle }}</h2>
+                                                        <p>{{ dualOtaPlatformRevenueSubtitle }}</p>
+                                                    </div>
+                                                </div>
+                                                <div :class="['dual-ota-revenue-grid', dualOtaPlatformRevenuePlatforms.length === 1 ? 'is-single' : '']">
+                                                    <div v-for="platform in dualOtaPlatformRevenuePlatforms" :key="platform.id" class="dual-ota-platform-card">
+                                                        <div class="dual-ota-platform-card-top">
+                                                            <span>{{ platform.name }}</span>
+                                                            <strong>{{ platform.revenueText }}</strong>
+                                                        </div>
+                                                        <div v-if="platform.metrics &amp;&amp; platform.metrics.length" class="dual-ota-platform-metrics">
+                                                            <span v-for="metric in platform.metrics" :key="`${platform.id}-${metric.label}`">
+                                                                <em>{{ metric.label }}</em>
+                                                                <b>{{ metric.value }}</b>
+                                                            </span>
+                                                        </div>
+                                                        <p v-else="">{{ platform.metricsText }}</p>
+                                                    </div>
+                                                </div>
+                                                <div v-if="dualOtaPlatformRevenueHasContribution" class="dual-ota-contribution" data-testid="dual-ota-platform-contribution-bar">
+                                                    <div class="dual-ota-contribution-track">
+                                                        <span v-for="platform in dualOtaPlatformRevenuePlatforms" :key="`${platform.id}-bar`" :class="['dual-ota-contribution-segment', `is-${platform.id}`]" :style="{ width: `${platform.contribution}%` }"></span>
+                                                    </div>
+                                                </div>
+                                            </article>
+
+                                            <article class="dual-ota-card" data-testid="dual-ota-platform-loss-chain">
+                                                <div class="dual-ota-card-head">
+                                                    <div>
+                                                        <h2>{{ dualOtaDashboard.lossChain.title }}</h2>
+                                                        <p>{{ dualOtaDashboard.lossChain.subtitle }}</p>
+                                                    </div>
+                                                </div>
+                                                <div class="dual-ota-loss-chain">
+                                                    <button v-for="node in dualOtaActiveLossNodes" :key="node.id" type="button" :class="['dual-ota-loss-node', dualOtaSeverityClass(node.severity), dualOtaSelectedLossNodeId === node.id ? 'is-selected' : '']" @click="setDualOtaLossNode(node.id)" :title="dualOtaDashboard.lossChain.nodeExplanations[node.id]?.description || ''">
+                                                        <span class="dual-ota-node-label">{{ node.label }}</span>
+                                                        <strong>{{ node.value }}</strong>
+                                                        <em>{{ node.delta }}</em>
+                                                    </button>
+                                                </div>
+                                                <div class="dual-ota-control-stack">
+                                                    <div class="dual-ota-segmented" aria-label="平台切换">
+                                                        <button v-for="option in dualOtaDashboard.lossChain.platformOptions" :key="option.value" type="button" :class="['dual-ota-toggle', dualOtaEffectivePlatform === option.value ? 'is-active' : '']" @click="setDualOtaPlatform(option.value)">
+                                                            {{ option.label }}
+                                                        </button>
+                                                    </div>
+                                                    <div class="dual-ota-segmented" aria-label="时间切换">
+                                                        <button v-for="option in dualOtaDashboard.lossChain.rangeOptions" :key="option.value" type="button" :class="['dual-ota-toggle', dualOtaSelectedRange === option.value ? 'is-active' : '']" @click="setDualOtaRange(option.value)">
+                                                            {{ option.label }}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <p class="dual-ota-hint">{{ dualOtaDashboard.lossChain.hint }}</p>
+                                                <div class="dual-ota-mini-drilldown">
+                                                    <strong>{{ dualOtaSelectedLossExplanation.title }}</strong>
+                                                    <span>{{ dualOtaSelectedLossExplanation.evidence }}</span>
+                                                </div>
+                                            </article>
+                                        </section>
+
+                                        <section class="dual-ota-card dual-ota-deprioritized" data-testid="dual-ota-deprioritized-modules">
+                                            <div class="dual-ota-deprioritized-list">
+                                                <span v-for="item in dualOtaDashboard.deprioritizedModules" :key="item.name">
+                                                    <strong>{{ item.name }}</strong>
+                                                    <em v-if="item.reason">{{ item.reason }}</em>
+                                                </span>
+                                            </div>
+                                        </section>
+
+                                        <footer class="dual-ota-footer">
+                                            <strong>{{ dualOtaDashboard.positioning }}</strong>
+                                        </footer>
+                                    </template>
+                                </div>
+                                <details v-if="currentPage === 'compass'" class="suxi-evidence-fold" data-testid="home-full-detail-fold">
+                                    <summary>
+                                        <span>完整明细</span>
+                                        <span>数据依据、收益闭环和动作审核默认收起</span>
+                                    </summary>
+                                    <div class="mt-3 space-y-4">
+                                <details class="suxi-evidence-fold" data-testid="home-evidence-fold">
+                                    <summary>
+                                        <span>数据依据</span>
+                                        <span>{{ homeExecutiveAnswer.evidenceText }}</span>
+                                    </summary>
+                                    <div class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4" data-testid="revenue-ai-status-strip">
+                                        <div v-for="row in revenueAiStatusRows" :key="row.key" class="min-h-[96px] rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                                            <div class="flex items-start justify-between gap-3">
+                                                <div class="min-w-0">
+                                                    <div class="truncate text-xs font-semibold text-slate-500" :title="row.label">{{ row.label }}</div>
+                                                    <div class="mt-2 truncate text-base font-bold text-slate-900" :title="row.value">{{ row.value }}</div>
+                                                </div>
+                                                <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', row.className]">{{ row.status }}</span>
+                                            </div>
+                                            <div class="mt-2 line-clamp-2 text-xs leading-5 text-slate-500" :title="row.detail">{{ row.detail }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5" data-testid="revenue-ai-metric-cards">
+                                        <button type="button" v-for="card in revenueAiMetricCards" :key="card.key" @click="openRevenueAiMetric(card)" class="min-h-[118px] rounded-xl border border-slate-200 bg-white px-3 py-3 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md">
+                                            <div class="flex items-start justify-between gap-3">
+                                                <div class="min-w-0">
+                                                    <div class="truncate text-xs font-semibold text-slate-500" :title="card.label">{{ card.label }}</div>
+                                                    <div class="mt-2 truncate text-xl font-bold text-slate-900" :title="card.display">{{ card.display }}</div>
+                                                </div>
+                                                <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', card.className]">{{ card.statusLabel }}</span>
+                                            </div>
+                                            <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
+                                                <span class="rounded-md bg-slate-100 px-1.5 py-0.5">{{ card.scopeLabel }}</span>
+                                                <span class="rounded-md bg-slate-100 px-1.5 py-0.5">{{ card.dateBasisLabel }}</span>
+                                            </div>
+                                            <div class="mt-2 line-clamp-2 text-xs leading-5 text-slate-500" :title="card.reasonText">{{ card.reasonText }}</div>
+                                        </button>
+                                    </div>
+                                </details>
+                                <details class="suxi-evidence-fold suxi-work-fold" data-testid="revenue-ai-business-closure-fold">
+                                    <summary>
+                                        <span>P1 收益分析闭环</span>
+                                        <span>{{ revenueAiBusinessClosure.scopeText }} · {{ revenueAiBusinessClosure.statusLabel }}</span>
+                                    </summary>
+                                <div class="mt-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm" data-testid="revenue-ai-business-closure">
+                                    <div class="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                                        <div>
+                                            <div class="text-sm font-semibold text-slate-900">P1 收益分析闭环</div>
+                                            <div class="mt-1 text-xs text-slate-500">{{ revenueAiBusinessClosure.summary }}</div>
+                                        </div>
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <span class="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">{{ revenueAiBusinessClosure.scopeText }}</span>
+                                            <span :class="['rounded-full border px-2 py-0.5 text-xs whitespace-nowrap', revenueAiBusinessClosure.className]">{{ revenueAiBusinessClosure.statusLabel }}</span>
+                                        </div>
+                                    </div>
+                                    <div v-if="revenueAiBusinessClosure.summaryChips.length" class="mb-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
+                                        <div v-for="chip in revenueAiBusinessClosure.summaryChips" :key="chip.key" class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                                            <div class="flex items-center justify-between gap-2">
+                                                <span class="truncate text-[11px] font-semibold text-slate-500" :title="chip.label">{{ chip.label }}</span>
+                                                <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] whitespace-nowrap', chip.className]">{{ chip.statusLabel }}</span>
+                                            </div>
+                                            <div class="mt-1 truncate text-sm font-semibold text-slate-900" :title="chip.value">{{ chip.value }}</div>
+                                            <div class="mt-0.5 line-clamp-1 text-[11px] text-slate-500" :title="chip.detail">{{ chip.detail }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-1 gap-2 md:grid-cols-5">
+                                        <div v-for="row in revenueAiBusinessClosure.rows" :key="row.key" class="min-h-[124px] rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                                            <div class="flex items-start justify-between gap-2">
+                                                <div class="min-w-0">
+                                                    <div class="text-[11px] font-semibold text-slate-400">{{ row.stage }}</div>
+                                                    <div class="mt-1 truncate text-sm font-semibold text-slate-900" :title="row.title">{{ row.title }}</div>
+                                                </div>
+                                                <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', row.className]">{{ row.statusLabel }}</span>
+                                            </div>
+                                            <div v-if="row.metrics?.length" class="mt-2 grid grid-cols-2 gap-1.5">
+                                                <div v-for="metric in row.metrics" :key="metric.key" class="min-w-0 rounded-lg border border-white bg-white/80 px-2 py-1.5">
+                                                    <div class="flex items-center justify-between gap-1">
+                                                        <span class="truncate text-[11px] text-slate-500" :title="metric.label">{{ metric.label }}</span>
+                                                        <span :class="['h-1.5 w-1.5 shrink-0 rounded-full border', metric.className]"></span>
+                                                    </div>
+                                                    <div class="mt-0.5 truncate text-sm font-semibold text-slate-900" :title="metric.value">{{ metric.value }}</div>
+                                                    <div v-if="metric.reasonText" class="mt-0.5 line-clamp-1 text-[10px] text-slate-500" :title="metric.reasonText">{{ metric.reasonText }}</div>
+                                                </div>
+                                            </div>
+                                            <template v-else="">
+                                                <div class="mt-2 line-clamp-2 text-sm font-semibold leading-5 text-slate-800" :title="row.primary">{{ row.primary }}</div>
+                                                <div class="mt-1 line-clamp-3 text-xs leading-5 text-slate-500" :title="row.secondary">{{ row.secondary }}</div>
+                                            </template>
+                                        </div>
+                                    </div>
+                                    <div class="mt-3 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-700">
+                                        <span class="font-semibold">下一步：</span>{{ revenueAiBusinessClosure.nextAction }}
+                                    </div>
+                                    <div class="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
+                                        <div class="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2.5">
+                                            <div class="flex items-center justify-between gap-2">
+                                                <span class="text-xs font-semibold text-amber-800">缺失项说明</span>
+                                                <span class="text-[11px] text-amber-700">{{ revenueAiBusinessClosure.missingRows.length }}项</span>
+                                            </div>
+                                            <div v-if="revenueAiBusinessClosure.missingRows.length" class="mt-2 space-y-1.5">
+                                                <div v-for="item in revenueAiBusinessClosure.missingRows" :key="item.key" class="rounded-lg bg-white/70 px-2 py-1.5">
+                                                    <div class="truncate text-xs font-semibold text-amber-900" :title="item.code">{{ item.code }}</div>
+                                                    <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-amber-700" :title="item.detail">{{ item.detail }}</div>
+                                                    <div v-if="item.affected" class="mt-0.5 text-[11px] text-amber-600">影响 {{ item.affected }}</div>
+                                                </div>
+                                            </div>
+                                            <div v-else="" class="mt-2 text-xs text-amber-700">当前 P1 收益闭环未返回关键缺失项。</div>
+                                        </div>
+                                        <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                                            <div class="flex items-center justify-between gap-2">
+                                                <span class="text-xs font-semibold text-slate-700">异常判断</span>
+                                                <span class="text-[11px] text-slate-500">{{ revenueAiBusinessClosure.anomalyRows.length }}项</span>
+                                            </div>
+                                            <div v-if="revenueAiBusinessClosure.anomalyRows.length" class="mt-2 space-y-1.5">
+                                                <div v-for="item in revenueAiBusinessClosure.anomalyRows" :key="item.key" class="rounded-lg bg-white px-2 py-1.5">
+                                                    <div class="truncate text-xs font-semibold text-slate-800" :title="item.code">{{ item.code }}</div>
+                                                    <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-500" :title="item.detail">{{ item.detail }}</div>
+                                                </div>
+                                            </div>
+                                            <div v-else="" class="mt-2 text-xs text-slate-500">当前未命中收益计算异常；投决仍受全酒店口径边界限制。</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                </details>
+                                <details class="suxi-evidence-fold suxi-work-fold" data-testid="revenue-ai-gap-closure-fold">
+                                    <summary>
+                                        <span>数据缺口闭环</span>
+                                        <span>{{ revenueAiGapSummary.total &gt; 0 ? `${revenueAiGapSummary.total} 项待处理` : '暂无阻塞缺口' }}</span>
+                                    </summary>
+                                <div class="mt-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm" data-testid="revenue-ai-gap-closure">
+                                    <div class="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                                        <div>
+                                            <div class="text-sm font-semibold text-slate-900">数据缺口闭环</div>
+                                            <div class="mt-1 text-xs text-slate-500">缺字段、登录失效、接口未命中和数据过期直接指向数据健康面板。</div>
+                                        </div>
+                                        <span :class="['w-fit rounded-full border px-2 py-0.5 text-xs whitespace-nowrap', revenueAiGapSummary.total &gt; 0 ? revenueAiStatusClass(revenueAiGapSummary.high &gt; 0 ? 'failed' : 'partial') : revenueAiStatusClass('ok')]">
+                                            {{ revenueAiGapSummary.total &gt; 0 ? `${revenueAiGapSummary.total} 项待处理` : '暂无阻塞缺口' }}
+                                        </span>
+                                    </div>
+                                    <div v-if="revenueAiGapRows.length" class="grid grid-cols-1 gap-2 lg:grid-cols-2">
+                                        <button type="button" v-for="row in revenueAiGapRows" :key="row.key" @click="openRevenueAiGap(row)" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-left transition hover:border-blue-200 hover:bg-white hover:shadow-sm">
+                                            <div class="flex items-start justify-between gap-3">
+                                                <div class="min-w-0">
+                                                    <div class="flex flex-wrap items-center gap-1.5">
+                                                        <span class="truncate text-sm font-semibold text-slate-900" :title="row.label">{{ row.label }}</span>
+                                                        <span class="rounded-md bg-white px-1.5 py-0.5 text-[11px] text-slate-500">{{ row.channelLabel }}</span>
+                                                    </div>
+                                                    <div class="mt-1 line-clamp-2 text-xs leading-5 text-slate-500" :title="row.reasonText">{{ row.reasonText }}</div>
+                                                </div>
+                                                <div class="flex shrink-0 flex-col items-end gap-1">
+                                                    <span :class="['rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', row.statusClass]">{{ row.statusLabel }}</span>
+                                                    <span :class="['rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', row.severityClass]">{{ row.severityLabel }}</span>
+                                                </div>
+                                            </div>
+                                            <div class="mt-2 flex items-center justify-between gap-3 text-xs">
+                                                <span class="line-clamp-1 text-slate-600" :title="row.nextAction">{{ row.nextAction }}</span>
+                                                <span class="shrink-0 font-semibold text-blue-700">查看 <i class="fas fa-arrow-right ml-1 text-[10px]"></i></span>
+                                            </div>
+                                        </button>
+                                    </div>
+                                    <div v-else="" class="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-700">
+                                        当前 Revenue AI 总览未返回阻塞缺口，仍以 OTA 渠道口径为准。
+                                    </div>
+                                </div>
+                                </details>
+                                <div class="grid grid-cols-1 gap-3 xl:grid-cols-12" data-testid="revenue-ai-readonly-state">
+                                    <div class="xl:col-span-8 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+                                        <div class="mb-3 flex items-center justify-between gap-3">
+                                            <div>
+                                                <div class="text-sm font-semibold text-slate-900">只读经营信号</div>
+                                                <div class="mt-1 text-xs text-slate-500">未具备数据时显示缺口原因，不生成预测或假建议。</div>
+                                            </div>
+                                            <span :class="['rounded-full border px-2 py-0.5 text-xs whitespace-nowrap', revenueAiOverviewLoading ? revenueAiStatusClass('unknown') : revenueAiStatusClass(revenueAiOverview?.data_status || 'unknown')]">{{ revenueAiOverviewLoading ? '加载中' : revenueAiStatusLabel(revenueAiOverview?.data_status || 'unknown') }}</span>
+                                        </div>
+                                        <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                                            <div v-for="signal in revenueAiSignalRows" :key="signal.key" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                                                <div class="flex items-center justify-between gap-3">
+                                                    <span class="text-xs font-semibold text-slate-500">{{ signal.label }}</span>
+                                                    <span :class="['rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', signal.className]">{{ signal.statusLabel }}</span>
+                                                </div>
+                                                <div class="mt-2 text-base font-bold text-slate-900">{{ signal.value }}</div>
+                                                <div class="mt-1 line-clamp-2 text-xs leading-5 text-slate-500" :title="signal.reasonText">{{ signal.reasonText }}</div>
+                                            </div>
+                                        </div>
+                                        <div class="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" data-testid="revenue-ai-evidence-workbench">
+                                            <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                                <div class="min-w-0">
+                                                    <div class="text-sm font-semibold text-slate-900">AI 证据工作台</div>
+                                                    <div class="mt-1 text-xs text-slate-500 leading-5" :title="revenueAiEvidenceWorkbenchSummary.detailText">{{ revenueAiEvidenceWorkbenchSummary.detailText }}</div>
+                                                </div>
+                                                <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-xs whitespace-nowrap', revenueAiEvidenceWorkbenchSummary.className]">{{ revenueAiEvidenceWorkbenchSummary.statusLabel }}</span>
+                                            </div>
+                                            <div class="mt-2 grid grid-cols-1 gap-2 lg:grid-cols-5">
+                                                <div v-for="row in revenueAiEvidenceWorkbenchRows" :key="row.key" class="min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <span class="truncate text-[11px] font-semibold text-slate-700" :title="row.label">{{ row.label }}</span>
+                                                        <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] whitespace-nowrap', row.className]">{{ row.statusLabel }}</span>
+                                                    </div>
+                                                    <div class="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500" :title="row.detailText">{{ row.detailText }}</div>
+                                                    <div class="mt-1 truncate text-[11px] text-blue-700" :title="row.nextActionText">下一步：{{ row.nextActionText }}</div>
+                                                    <div class="mt-1 truncate text-[10px] text-slate-400" :title="row.metaText">{{ row.metaText }}</div>
+                                                    <div class="mt-0.5 truncate text-[10px] text-slate-400" :title="row.policyText">{{ row.policyText }}</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="xl:col-span-4 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+                                        <div class="mb-3 flex items-center justify-between gap-3">
+                                            <div>
+                                                <div class="text-sm font-semibold text-slate-900">今日调价建议</div>
+                                                <div class="mt-1 text-xs text-slate-500">人工审核，不自动写 OTA。</div>
+                                            </div>
+                                            <span class="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">人工审核</span>
+                                        </div>
+                                        <div class="space-y-2">
+                                            <div v-for="action in revenueAiActionRows" :key="action.key" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                                                <div class="flex items-center justify-between gap-3">
+                                                    <span class="text-sm font-semibold text-slate-900">{{ action.title }}</span>
+                                                    <span :class="['rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', action.className]">{{ action.statusLabel }}</span>
+                                                </div>
+                                                <div class="mt-1 line-clamp-3 text-xs leading-5 text-slate-500" :title="action.reasonText">{{ action.reasonText }}</div>
+                                                <div v-if="action.decisionBasisDisplay" class="mt-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5" data-testid="revenue-ai-decision-basis">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <span class="truncate text-[11px] font-semibold text-slate-600" :title="action.decisionBasisDisplay">{{ action.decisionBasisDisplay }}</span>
+                                                        <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', action.decisionBasisClassName]">{{ action.decisionBasisStatusLabel || '依据状态' }}</span>
+                                                    </div>
+                                                    <div v-if="action.decisionBasisItems?.length" class="mt-1 grid grid-cols-1 gap-1 sm:grid-cols-2">
+                                                        <button type="button" v-for="basis in action.decisionBasisItems" :key="basis.key" @click="openRevenueAiDecisionBasis(basis)" class="min-w-0 rounded-md bg-slate-50 px-2 py-1 text-left transition hover:bg-slate-100">
+                                                            <div class="flex items-center justify-between gap-2">
+                                                                <span class="truncate text-[11px] text-slate-600" :title="basis.label">{{ basis.label }}</span>
+                                                                <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] whitespace-nowrap', basis.className]">{{ basis.statusLabel }}</span>
+                                                            </div>
+                                                            <div class="mt-0.5 truncate text-[10px] text-slate-400" :title="basis.reasonText">{{ basis.reasonText }}</div>
+                                                        </button>
+                                                    </div>
+                                                    <div v-if="action.decisionBasisHiddenDisplay" class="mt-1 text-[10px] leading-4 text-amber-600" data-testid="revenue-ai-decision-basis-hidden">
+                                                        {{ action.decisionBasisHiddenDisplay }}
+                                                    </div>
+                                                </div>
+                                                <div v-if="action.resolutionPlanVisible" class="mt-2 rounded-lg border border-amber-100 bg-amber-50 px-2 py-1.5" data-testid="revenue-ai-resolution-plan">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <span class="truncate text-[11px] font-semibold text-amber-800" :title="action.resolutionPlanSummary?.display">{{ action.resolutionPlanSummary?.display || 'AI决策补证' }}</span>
+                                                        <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', action.resolutionPlanSummary?.className]">{{ action.resolutionPlanSummary?.statusLabel || '补证状态' }}</span>
+                                                    </div>
+                                                    <div v-if="action.resolutionPlanItems?.length" class="mt-1 space-y-1">
+                                                        <button type="button" v-for="item in action.resolutionPlanItems" :key="item.key" @click="openRevenueAiDecisionBasis(item)" class="w-full min-w-0 rounded-md bg-white px-2 py-1 text-left transition hover:bg-amber-100">
+                                                            <div class="flex items-center justify-between gap-2">
+                                                                <span class="truncate text-[11px] text-amber-900" :title="item.resolutionAction">{{ item.order }}. {{ item.resolutionAction }}</span>
+                                                                <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] whitespace-nowrap', item.severityClass]">{{ item.severityLabel }}</span>
+                                                            </div>
+                                                            <div class="mt-0.5 line-clamp-2 text-[10px] leading-4 text-amber-700" :title="item.acceptanceCheck">{{ item.acceptanceCheck }}</div>
+                                                        </button>
+                                                    </div>
+                                                    <div v-if="action.resolutionPlanSummary?.hiddenCount" class="mt-1 text-[10px] leading-4 text-amber-700">
+                                                        另有 {{ action.resolutionPlanSummary.hiddenCount }} 项补证未展示
+                                                    </div>
+                                                </div>
+                                                <button type="button" v-if="action.pricingGenerationPreflightVisible" @click="openRevenueAiDecisionBasis(action.pricingGenerationPreflightSummary?.target)" :disabled="!action.pricingGenerationPreflightSummary?.canOpenTarget" class="mt-2 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-left transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-default disabled:hover:border-slate-200 disabled:hover:bg-white" data-testid="revenue-ai-pricing-generation-preflight">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <span class="truncate text-[11px] font-semibold text-slate-700" :title="action.pricingGenerationPreflightSummary?.title">{{ action.pricingGenerationPreflightSummary?.title || '调价建议生成预检' }}</span>
+                                                        <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', action.pricingGenerationPreflightSummary?.className]">{{ action.pricingGenerationPreflightSummary?.statusLabel || '预检状态' }}</span>
+                                                    </div>
+                                                    <div class="mt-0.5 truncate text-[11px] leading-4 text-slate-500" :title="action.pricingGenerationPreflightSummary?.detailText">{{ action.pricingGenerationPreflightSummary?.detailText }}</div>
+                                                    <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-400" :title="action.pricingGenerationPreflightSummary?.reasonText">{{ action.pricingGenerationPreflightSummary?.reasonText }}</div>
+                                                    <div v-if="action.pricingGenerationPreflightSummary?.requiredInputs?.length" class="mt-1 flex flex-wrap items-center gap-1 text-[10px] text-slate-500">
+                                                        <span v-for="item in action.pricingGenerationPreflightSummary.requiredInputs" :key="item.code" class="rounded-md bg-slate-50 px-1.5 py-0.5" :title="item.nextAction">{{ item.code }}</span>
+                                                        <span v-if="action.pricingGenerationPreflightSummary.hiddenRequiredInputCount" class="rounded-md bg-slate-50 px-1.5 py-0.5">+{{ action.pricingGenerationPreflightSummary.hiddenRequiredInputCount }}</span>
+                                                    </div>
+                                                </button>
+                                                <button type="button" v-if="action.reviewQueueSummary" @click="openRevenueAiDecisionBasis(action.reviewQueueTarget)" :disabled="!action.reviewQueueCanOpenTarget" class="mt-2 flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-left transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-default disabled:hover:border-slate-200 disabled:hover:bg-white" data-testid="revenue-ai-review-queue">
+                                                    <span class="truncate text-[11px] text-slate-600" :title="action.reviewQueueSummary">{{ action.reviewQueueSummary }}</span>
+                                                    <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', action.reviewQueueClassName]">{{ action.reviewQueueStatusLabel || '队列状态' }}</span>
+                                                </button>
+                                                <div v-if="action.executionPendingDisplay" class="mt-2 rounded-lg border border-blue-100 bg-blue-50 px-2 py-1.5" data-testid="revenue-ai-execution-pending">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <span class="truncate text-[11px] font-semibold text-blue-700" :title="action.executionPendingDisplay">{{ action.executionPendingDisplay }}</span>
+                                                        <span class="shrink-0 rounded-full border border-blue-200 bg-white px-1.5 py-0.5 text-[11px] text-blue-700 whitespace-nowrap">待执行交接</span>
+                                                    </div>
+                                                    <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-blue-600" :title="action.executionPendingReasonText">{{ action.executionPendingReasonText }}</div>
+                                                </div>
+                                                <div v-if="action.investmentPrecheckVisible" class="mt-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5" data-testid="revenue-ai-investment-precheck">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <span class="truncate text-[11px] font-semibold text-slate-700" :title="action.investmentPrecheckSummary?.title">{{ action.investmentPrecheckSummary?.title || '投资预检' }}</span>
+                                                        <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', action.investmentPrecheckSummary?.className]">{{ action.investmentPrecheckSummary?.statusLabel || '预检状态' }}</span>
+                                                    </div>
+                                                    <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-500" :title="action.investmentPrecheckSummary?.detailText">{{ action.investmentPrecheckSummary?.detailText || '等待运营 ROI 与投决记录证据。' }}</div>
+                                                    <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-400" :title="action.investmentPrecheckSummary?.reasonText">{{ action.investmentPrecheckSummary?.reasonText }}</div>
+                                                    <div class="mt-1 flex flex-wrap items-center gap-1 text-[10px] text-slate-400">
+                                                        <span v-if="action.investmentPrecheckSummary?.requiredGate" class="rounded-md bg-slate-50 px-1.5 py-0.5">门禁 {{ action.investmentPrecheckSummary.requiredGate }}</span>
+                                                        <span v-if="action.investmentPrecheckSummary?.targetEntry" class="rounded-md bg-slate-50 px-1.5 py-0.5">{{ action.investmentPrecheckSummary.targetEntry }}</span>
+                                                        <span class="rounded-md bg-slate-50 px-1.5 py-0.5">只读</span>
+                                                    </div>
+                                                </div>
+                                                <div v-if="action.reviewQueueItems?.length" class="mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white" data-testid="revenue-ai-review-queue-items">
+                                                    <div v-for="item in action.reviewQueueItems" :key="item.key" class="border-b border-slate-100 px-2 py-2 last:border-b-0">
+                                                        <div class="flex items-start justify-between gap-2">
+                                                            <div class="min-w-0">
+                                                                <div class="truncate text-xs font-semibold text-slate-700" :title="item.title">{{ item.title }}</div>
+                                                                <div class="mt-0.5 text-[11px] text-slate-400">{{ item.suggestionDate }}</div>
+                                                            </div>
+                                                            <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', item.className]">{{ item.statusLabel }}</span>
+                                                        </div>
+                                                        <div class="mt-1 truncate text-[11px] leading-4 text-slate-600" :title="item.priceLine">{{ item.priceLine }}</div>
+                                                        <div class="mt-0.5 truncate text-[11px] leading-4 text-slate-500" :title="item.evidenceLine">{{ item.evidenceLine }}</div>
+                                                        <div class="mt-0.5 truncate text-[11px] leading-4 text-slate-500" :title="item.impactLine">{{ item.impactLine }}</div>
+                                                        <div v-if="item.factorLine &amp;&amp; item.factorLine !== '--'" class="mt-0.5 truncate text-[11px] leading-4 text-slate-500" :title="item.factorLine">{{ item.factorLine }}</div>
+                                                        <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-400" :title="item.reasonText">{{ item.reasonText }}</div>
+                                                        <div v-if="item.canApprove || item.canApproveWithChanges || item.canReject || item.canCreateExecutionIntent" class="mt-1.5 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+                                                            <span class="text-[10px] text-slate-400">{{ item.actionHelpText }}</span>
+                                                            <div class="flex flex-wrap items-center gap-1">
+                                                                <button v-if="item.canApprove" type="button" @click="submitRevenueAiReviewAction(item, 'approve')" :disabled="isRevenueAiReviewActionLoading(item, 'approve')" class="shrink-0 rounded-lg border border-emerald-100 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:border-emerald-200 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60">
+                                                                    {{ isRevenueAiReviewActionLoading(item, 'approve') ? '处理中' : '批准' }}
+                                                                </button>
+                                                                <button v-if="item.canApproveWithChanges" type="button" @click="submitRevenueAiReviewAction(item, 'approve_with_changes')" :disabled="isRevenueAiReviewActionLoading(item, 'approve_with_changes')" class="shrink-0 rounded-lg border border-amber-100 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700 hover:border-amber-200 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60">
+                                                                    {{ isRevenueAiReviewActionLoading(item, 'approve_with_changes') ? '处理中' : '改价批准' }}
+                                                                </button>
+                                                                <button v-if="item.canReject" type="button" @click="submitRevenueAiReviewAction(item, 'reject')" :disabled="isRevenueAiReviewActionLoading(item, 'reject')" class="shrink-0 rounded-lg border border-rose-100 bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700 hover:border-rose-200 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60">
+                                                                    {{ isRevenueAiReviewActionLoading(item, 'reject') ? '处理中' : '拒绝' }}
+                                                                </button>
+                                                                <button v-if="item.canCreateExecutionIntent" type="button" @click="submitRevenueAiReviewAction(item, 'execution_intent')" :disabled="isRevenueAiReviewActionLoading(item, 'execution_intent')" class="shrink-0 rounded-lg border border-blue-100 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700 hover:border-blue-200 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60">
+                                                                    {{ isRevenueAiReviewActionLoading(item, 'execution_intent') ? '处理中' : '转执行' }}
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div v-if="action.nextActions?.length" class="mt-2 space-y-1">
+                                                    <div v-for="nextAction in action.nextActions" :key="nextAction" class="flex items-start gap-1.5 text-[11px] leading-4 text-slate-600">
+                                                        <span class="mt-1 h-1 w-1 shrink-0 rounded-full bg-slate-400"></span>
+                                                        <span>{{ nextAction }}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" data-testid="revenue-ai-pricing-gates">
+                                            <div class="mb-2 flex items-center justify-between gap-3">
+                                                <span class="text-xs font-semibold text-slate-600">调价前置条件</span>
+                                                <span class="text-[11px] text-slate-400">只读检查</span>
+                                            </div>
+                                            <div class="space-y-1.5">
+                                                <div v-for="gate in revenueAiPricingGateRows" :key="gate.key" class="flex items-start justify-between gap-2 rounded-lg bg-white px-2 py-1.5">
+                                                    <div class="min-w-0">
+                                                        <div class="truncate text-xs font-semibold text-slate-700" :title="gate.label">{{ gate.label }}</div>
+                                                        <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-500" :title="gate.reasonText">{{ gate.reasonText }}</div>
+                                                        <div v-if="gate.nextAction" class="mt-0.5 line-clamp-1 text-[11px] leading-4 text-slate-400" :title="gate.nextAction">{{ gate.nextAction }}</div>
+                                                    </div>
+                                                    <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', gate.className]">{{ gate.statusLabel }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="home-operating-board">
+                                    <div class="border-b border-slate-100 bg-gradient-to-r from-white via-slate-50 to-white px-3 py-3 sm:px-4">
+                                        <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                                            <div class="min-w-0">
+                                                <div class="text-[11px] font-semibold tracking-[0.12em] text-slate-400">REVENUE AI BOARD</div>
+                                                <h3 class="mt-1 text-lg font-bold text-gray-900 leading-tight">收益管理最小工作台</h3>
+                                            </div>
+                                            <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                                                <div class="grid grid-cols-4 rounded-xl border border-slate-200 bg-white/80 p-1 text-xs shadow-sm sm:inline-grid">
+                                                    <button v-for="range in homeBoardTrendRanges" :key="range.key" @click="selectHomeTrendRange(range.key)" :disabled="homeTrendLoading" :class="homeTrendRange === range.key ? 'rounded-lg bg-blue-600 px-3 py-1.5 sm:py-2 font-semibold text-white shadow-sm disabled:opacity-60' : 'rounded-lg px-3 py-1.5 sm:py-2 font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-700 disabled:opacity-60'">{{ range.label }}</button>
+                                                </div>
+                                                <button @click="refreshCompassDashboard" :disabled="compassLoading || homeTrendLoading" class="inline-flex items-center justify-center rounded-xl border border-blue-100 bg-white px-3 py-1.5 sm:py-2 text-xs font-semibold text-blue-700 shadow-sm hover:border-blue-200 hover:bg-blue-50 disabled:opacity-60 whitespace-nowrap">
+                                                    <i :class="(compassLoading || homeTrendLoading) ? 'fas fa-spinner fa-spin mr-1.5' : 'fas fa-sync-alt mr-1.5'"></i>刷新
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="space-y-3 p-3 sm:p-4">
+                                        <div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4" data-testid="home-decision-strip">
+                                            <button type="button" v-for="row in homeDecisionSummaryRows" :key="row.key" @click="openHomeQuickEntry(row.entry)" class="min-h-[92px] rounded-xl border border-slate-200 bg-white px-3 py-3 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md">
+                                                <div class="flex items-start justify-between gap-3">
+                                                    <div class="min-w-0">
+                                                        <div class="flex items-center gap-2">
+                                                            <span :class="['flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border', row.iconClass]">
+                                                                <i :class="[row.icon, 'text-xs']"></i>
+                                                            </span>
+                                                            <span class="truncate text-xs font-semibold text-slate-500">{{ row.label }}</span>
+                                                        </div>
+                                                        <div class="mt-2 truncate text-base font-bold text-slate-900" :title="row.value">{{ row.value }}</div>
+                                                        <div class="mt-1 line-clamp-2 text-xs leading-5 text-slate-500" :title="row.note">{{ row.note }}</div>
+                                                    </div>
+                                                    <span :class="['rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', row.badgeClass]">{{ row.badge }}</span>
+                                                </div>
+                                            </button>
+                                        </div>
+
+                                        <div class="grid grid-cols-2 gap-2 md:grid-cols-2 xl:grid-cols-4" data-testid="home-operating-results">
+                                            <button type="button" v-for="card in homeOperatingResultCards" :key="card.key" @click="openHomeQuickEntry(card.entry)" class="group relative min-h-[92px] overflow-hidden rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md">
+                                                <span :class="['absolute inset-x-0 top-0 h-1', card.accentClass]"></span>
+                                                <div class="flex items-start justify-between gap-3">
+                                                    <div class="min-w-0">
+                                                        <div class="text-[11px] font-semibold text-slate-400">{{ homeTrendRangeLabel }}</div>
+                                                        <div class="mt-1 text-sm font-semibold text-slate-700">{{ card.label }}</div>
+                                                    </div>
+                                                    <span :class="['inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl border', card.iconClass]">
+                                                        <i :class="[card.icon, 'text-sm']"></i>
+                                                    </span>
+                                                </div>
+                                                <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                                                    <div :class="['text-xl sm:text-2xl font-bold leading-none', card.ready ? 'text-gray-900' : 'text-slate-500']">{{ card.value }}</div>
+                                                    <span :class="['rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', card.toneClass]">{{ card.status }}</span>
+                                                </div>
+                                            </button>
+                                        </div>
+
+                                        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3 shadow-sm">
+                                            <div class="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                                                <div>
+                                                    <div class="text-sm font-semibold text-slate-900">经营因果链</div>
+                                                </div>
+                                                <span class="w-fit rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">{{ homeMarketForecastStatus }}</span>
+                                            </div>
+                                            <div class="grid grid-cols-2 gap-2 lg:grid-cols-5">
+                                                <div v-for="node in homeCausalChainNodes" :key="node.key" :class="node.ready ? 'rounded-xl border border-slate-200 bg-white px-3 py-2.5' : 'rounded-xl border border-slate-200 bg-slate-100 px-3 py-2.5'">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <span class="text-xs font-semibold text-slate-500">{{ node.label }}</span>
+                                                        <span :class="node.ready ? 'flex h-7 w-7 items-center justify-center rounded-lg bg-green-50 text-green-700' : 'flex h-7 w-7 items-center justify-center rounded-lg bg-slate-200 text-slate-500'">
+                                                            <i :class="[node.icon, 'text-xs']"></i>
+                                                        </span>
+                                                    </div>
+                                                    <div :class="node.ready ? 'mt-2 text-base sm:text-lg font-bold text-slate-900' : 'mt-2 text-base sm:text-lg font-bold text-slate-500'">{{ node.value }}</div>
+                                                    <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                                                        <span :class="node.ready ? 'block h-full rounded-full bg-green-500' : 'block h-full rounded-full bg-slate-400'" :style="{ width: node.ready ? '72%' : '18%' }"></span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="grid grid-cols-1 gap-4 xl:grid-cols-12">
+                                            <div class="xl:col-span-7 rounded-2xl border border-indigo-100 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]" data-testid="home-competitor-summary">
+                                                <div class="mb-3 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                                                    <div class="min-w-0">
+                                                        <div class="flex items-center gap-2">
+                                                            <span class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-indigo-100 bg-indigo-50 text-indigo-700">
+                                                                <i class="fas fa-trophy text-xs"></i>
+                                                            </span>
+                                                            <div class="text-sm font-semibold text-slate-900">竞对摘要</div>
+                                                        </div>
+                                                        <div class="mt-2 line-clamp-2 text-xs leading-5 text-slate-500" :title="homeCompetitorSourceNotice">{{ homeCompetitorSourceNotice }}</div>
+                                                    </div>
+                                                    <button type="button" @click="openHomeQuickEntry({ page: 'meituan-ebooking', tab: 'meituan-ranking' })" class="inline-flex w-fit items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-700 hover:border-blue-200 hover:bg-blue-100">
+                                                        <span :class="['rounded-full border px-2 py-0.5 text-[11px]', competitorSummaryReadinessClass(homeCompetitorReadiness)]">{{ homeCompetitorReadiness.label }}</span>
+                                                        <span>查看美团榜单 <i class="fas fa-arrow-right ml-1 text-[10px]"></i></span>
+                                                    </button>
+                                                </div>
+                                                <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5" data-testid="home-competitor-card-grid">
+                                                    <button type="button" v-for="card in homeCompetitorSummaryCards" :key="card.key" @click="openHomeQuickEntry(card.entry)" :class="['min-h-[78px] rounded-xl border px-2.5 py-2.5 text-left transition hover:-translate-y-0.5 hover:shadow-sm', card.className || 'border-slate-200 bg-white text-slate-700']">
+                                                        <div class="text-xs opacity-75">{{ card.label }}</div>
+                                                        <div class="mt-1 truncate text-base font-bold" :title="card.value">{{ card.value || '-' }}</div>
+                                                        <div class="mt-1 line-clamp-2 text-[11px] leading-4 opacity-70" :title="card.note">{{ card.note || '-' }}</div>
+                                                    </button>
+                                                </div>
+                                                <div :class="['mt-3 flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-xs', homeCompetitorPlatformTagClass]">
+                                                    <span class="font-semibold"><i class="fas fa-tags mr-1"></i>VIP标签证据</span>
+                                                    <span>{{ homeCompetitorPlatformTagText }}</span>
+                                                </div>
+                                            </div>
+
+                                            <div class="xl:col-span-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]" data-testid="home-action-panel">
+                                                <div class="mb-3 flex items-start justify-between gap-3">
+                                                    <div>
+                                                        <div class="flex items-center gap-2">
+                                                            <span class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-amber-100 bg-amber-50 text-amber-700">
+                                                                <i class="fas fa-tasks text-xs"></i>
+                                                            </span>
+                                                            <div class="text-sm font-semibold text-slate-900">今日动作建议</div>
+                                                        </div>
+                                                    </div>
+                                                    <span class="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-500">3项</span>
+                                                </div>
+                                                <div class="space-y-2">
+                                                    <button type="button" v-for="action in homeBoardActionRows" :key="action.key" @click="openHomeQuickEntry(action.entry)" class="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-left transition hover:border-blue-200 hover:bg-white hover:shadow-sm">
+                                                        <div class="flex items-center justify-between gap-3">
+                                                            <span class="text-sm font-semibold text-slate-900">{{ action.title }}</span>
+                                                            <span :class="['rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', action.className]">{{ action.badge }}</span>
+                                                        </div>
+                                                        <div class="mt-1 line-clamp-2 text-xs leading-5 text-slate-500" :title="action.detail">{{ action.detail || '-' }}</div>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <details class="rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="home-quick-entry-fold">
+                                    <summary class="flex cursor-pointer items-center justify-between gap-3 px-3 py-3 text-sm font-semibold text-slate-700">
+                                        <div class="min-w-0">
+                                            <div class="text-base font-bold text-gray-900">辅助快捷入口</div>
+                                            <div class="mt-0.5 text-xs font-normal text-slate-500">默认折叠，主屏只保留今日结论、下一步动作和闭环进度。</div>
+                                        </div>
+                                        <span class="text-xs font-normal text-slate-400">展开</span>
+                                    </summary>
+                                    <div class="border-t border-slate-100 px-3 py-3">
+                                        <div class="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <button v-if="!homeQuickLayoutEditing" @click="homeQuickLayoutEditing = true" class="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-white">
+                                                    <i class="fas fa-edit mr-1"></i>编辑布局
+                                                </button>
+                                                <template v-else="">
+                                                    <span class="text-xs text-slate-400">{{ homeQuickLayoutSaveHint }}</span>
+                                                    <button @click="resetHomeQuickLayout" class="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50">恢复默认</button>
+                                                    <button @click="saveHomeQuickLayout" :disabled="homeQuickLayoutSaving" class="rounded-lg border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-60">{{ homeQuickLayoutSaving ? '保存中' : '完成' }}</button>
+                                                </template>
+                                            </div>
+                                        </div>
+                                    <div class="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-3 2xl:grid-cols-6" data-testid="home-quick-grid" @pointerleave="endHomeQuickDrag">
+                                        <div v-for="entry in homeQuickEntries" :key="entry.key" :data-entry-key="entry.key" data-testid="home-quick-card" :draggable="homeQuickLayoutEditing" @dragstart="startHomeQuickDrag(entry.key, $event)" @dragenter.prevent="enterHomeQuickDrag(entry.key, $event)" @dragover.prevent="enterHomeQuickDrag(entry.key, $event)" @drop.prevent="dropHomeQuickDrag(entry.key, $event)" @dragend="endHomeQuickDrag" @pointerdown="startHomeQuickDrag(entry.key, $event)" @pointerenter="enterHomeQuickDrag(entry.key, $event)" @pointerup="dropHomeQuickDrag(entry.key, $event)" @pointercancel="endHomeQuickDrag" :class="[
+                                                'relative min-h-[64px] rounded-xl border border-slate-200 bg-slate-50 transition hover:-translate-y-0.5 hover:border-blue-200 hover:bg-white hover:shadow-sm',
+                                                homeQuickLayoutEditing ? 'ring-1 ring-blue-100 cursor-grab active:cursor-grabbing' : '',
+                                                homeQuickDragKey === entry.key ? 'opacity-60 scale-[0.98]' : '',
+                                                homeQuickDragOverKey === entry.key &amp;&amp; homeQuickDragKey !== entry.key ? 'ring-2 ring-blue-300 bg-blue-50' : ''
+                                            ]">
+                                            <button type="button" @click="!homeQuickLayoutEditing &amp;&amp; openHomeQuickEntry(entry)" :aria-disabled="homeQuickLayoutEditing" class="h-full w-full px-2.5 py-2 text-left">
+                                                <div class="flex items-center gap-2 pr-10">
+                                                    <span class="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-blue-100 bg-blue-50 text-blue-600">
+                                                        <i :class="[entry.icon, 'text-sm']"></i>
+                                                    </span>
+                                                    <div class="truncate text-sm font-semibold leading-5 text-slate-900">{{ entry.title }}</div>
+                                                </div>
+                                            </button>
+                                            <div v-if="homeQuickLayoutEditing" class="absolute right-1.5 top-1.5 flex items-center gap-1">
+                                                <span class="flex h-6 w-6 cursor-grab items-center justify-center rounded border border-slate-200 bg-white text-slate-400 active:cursor-grabbing" title="拖拽排序" aria-hidden="true">
+                                                    <i class="fas fa-grip-vertical text-xs"></i>
+                                                </span>
+                                                <button @click.stop="toggleHomeQuickEntry(entry.key)" class="flex h-6 w-6 items-center justify-center rounded border border-slate-200 bg-white text-slate-500 hover:text-red-600" title="隐藏">
+                                                    <i class="fas fa-eye-slash text-xs"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div v-if="homeQuickLayoutEditing &amp;&amp; hiddenHomeQuickEntries.length" class="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                                        <span class="text-slate-400">已隐藏</span>
+                                        <button v-for="entry in hiddenHomeQuickEntries" :key="entry.key" @click="toggleHomeQuickEntry(entry.key)" class="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-slate-600 hover:bg-blue-50 hover:text-blue-700">
+                                            <i class="fas fa-plus mr-1"></i>{{ entry.title }}
+                                        </button>
+                                    </div>
+                                    </div>
+                                </details>
+
+                                <div class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm" data-testid="home-closed-loop-workbench">
+                                    <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                                        <div class="min-w-0">
+                                            <div class="text-base font-bold text-gray-900">按这个顺序完成今天的经营动作</div>
+                                            <div class="mt-1 text-xs text-slate-500">先确认 OTA 数据，再看收益结果、AI 建议、执行进度和投决沉淀。</div>
+                                        </div>
+                                        <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs leading-5 text-slate-600">
+                                            当前状态：{{ compassDataReadiness.summaryText }} · {{ homeMarketForecastStatus }}
+                                        </div>
+                                    </div>
+                                    <div class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
+                                        <div v-for="stage in homeClosedLoopStages" :key="stage.key" class="flex min-h-[118px] flex-col rounded-xl border border-slate-200 bg-white p-3 transition hover:border-blue-200 hover:shadow-sm">
+                                            <div class="flex items-start justify-between gap-3">
+                                                <span class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
+                                                    <i :class="[stage.icon, 'text-sm']"></i>
+                                                </span>
+                                                <span :class="['rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', stage.statusClass]">{{ stage.statusText }}</span>
+                                            </div>
+                                            <div class="mt-2 text-[11px] font-semibold text-slate-400">{{ stage.index }}</div>
+                                            <div class="mt-1 font-semibold leading-5 text-gray-900">{{ stage.title }}</div>
+                                            <div class="mt-auto pt-3">
+                                                <button type="button" @click="openHomeQuickEntry(stage.entry)" class="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:text-blue-800">
+                                                    {{ stage.actionLabel }}<i class="fas fa-arrow-right text-[10px]"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                                        <div class="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                                            <div>
+                                                <div class="text-sm font-semibold text-slate-900">AI建议为什么这么来</div>
+                                                <div class="mt-1 text-xs text-slate-500">这里检查输入证据、动作生成和人工确认，避免把缺数据误当成结论。</div>
+                                            </div>
+                                        </div>
+                                        <div class="grid grid-cols-1 gap-2 lg:grid-cols-3">
+                                            <button type="button" v-for="row in homeAiTraceRows" :key="row.label" @click="openHomeQuickEntry(row.entry)" class="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left transition hover:border-blue-200 hover:shadow-sm">
+                                                <div class="flex items-center justify-between gap-3">
+                                                    <span class="text-xs font-semibold text-slate-500">{{ row.label }}</span>
+                                                    <span :class="['rounded-full border px-2 py-0.5 text-[11px]', row.className]">{{ row.value }}</span>
+                                                </div>
+                                            </button>
+                                        </div>
+                                        <div class="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5" data-testid="revenue-ai-execution-summary">
+                                            <div class="mb-2 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                                                <div class="min-w-0">
+                                                    <div class="truncate text-xs font-semibold text-slate-600">今日执行进度 / 昨日效果复盘</div>
+                                                    <div class="mt-0.5 text-[11px] text-slate-400">{{ revenueAiExecutionSummary.dateBasisLabel }} · 只读追踪 · 不自动写 OTA</div>
+                                                </div>
+                                                <button type="button" @click="openHomeQuickEntry({ page: 'ops-track' })" class="inline-flex w-fit items-center gap-1 rounded-lg border border-blue-100 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-100">
+                                                    去运营执行 <i class="fas fa-arrow-right text-[10px]"></i>
+                                                </button>
+                                            </div>
+                                            <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                                                <div class="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <span class="text-[11px] font-semibold text-slate-500">执行进度</span>
+                                                        <span :class="['rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', revenueAiExecutionSummary.processClassName]">{{ revenueAiExecutionSummary.processStatusLabel }}</span>
+                                                    </div>
+                                                    <div class="mt-1 text-sm font-bold text-slate-900">{{ revenueAiExecutionSummary.processDisplay }}</div>
+                                                    <div class="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500" :title="revenueAiExecutionSummary.processReasonText">{{ revenueAiExecutionSummary.processReasonText }}</div>
+                                                </div>
+                                                <div class="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <span class="text-[11px] font-semibold text-slate-500">效果复盘</span>
+                                                        <span :class="['rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', revenueAiExecutionSummary.effectReviewClassName]">{{ revenueAiExecutionSummary.effectReviewStatusLabel }}</span>
+                                                    </div>
+                                                    <div class="mt-1 text-sm font-bold text-slate-900">{{ revenueAiExecutionSummary.effectReviewDisplay }}</div>
+                                                    <div class="mt-1 text-[11px] font-semibold leading-4 text-slate-600" :title="revenueAiExecutionSummary.effectReviewInputDisplay">{{ revenueAiExecutionSummary.effectReviewInputDisplay }}</div>
+                                                    <div class="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500" :title="revenueAiExecutionSummary.effectReviewReasonText">{{ revenueAiExecutionSummary.effectReviewReasonText }}</div>
+                                                </div>
+                                            </div>
+                                            <div v-if="revenueAiExecutionSummary.nextAction" class="mt-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] leading-4 text-slate-600">
+                                                {{ revenueAiExecutionSummary.nextAction }}
+                                            </div>
+                                            <div class="mt-2 rounded-lg border border-slate-200 bg-white px-2 py-2" data-testid="revenue-ai-effect-review-inputs">
+                                                <div class="mb-1.5 flex items-center justify-between gap-2">
+                                                    <span class="text-[11px] font-semibold text-slate-500">明日判断输入</span>
+                                                    <span class="text-[10px] text-slate-400">来自执行复盘与ROI证据</span>
+                                                </div>
+                                                <div class="space-y-1.5">
+                                                    <button type="button" v-for="row in revenueAiEffectReviewRows" :key="row.key" @click="openRevenueAiExecutionItem(row)" class="flex w-full items-start justify-between gap-2 rounded-lg bg-slate-50 px-2 py-1.5 text-left transition hover:bg-white hover:shadow-sm">
+                                                        <div class="min-w-0">
+                                                            <div class="truncate text-xs font-semibold text-slate-700" :title="row.title">{{ row.title }}</div>
+                                                            <div class="mt-0.5 line-clamp-1 text-[11px] leading-4 text-slate-500" :title="row.detail">{{ row.detail }}</div>
+                                                            <div class="mt-0.5 line-clamp-1 text-[11px] leading-4 text-slate-400" :title="row.reviewSummary || row.reasonText">{{ row.reviewSummary || row.reasonText }}</div>
+                                                        </div>
+                                                        <div class="flex shrink-0 flex-col items-end gap-1">
+                                                            <span :class="['rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', row.className]">{{ row.statusLabel }}</span>
+                                                            <span class="text-[10px] text-slate-400">{{ row.roiDisplay || '--' }}</span>
+                                                        </div>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="mt-2 space-y-1.5">
+                                                <button type="button" v-for="row in revenueAiExecutionRows" :key="row.key" @click="openRevenueAiExecutionItem(row)" class="flex w-full items-start justify-between gap-2 rounded-lg bg-slate-50 px-2 py-1.5 text-left transition hover:bg-white hover:shadow-sm">
+                                                    <div class="min-w-0">
+                                                        <div class="truncate text-xs font-semibold text-slate-700" :title="row.title">{{ row.title }}</div>
+                                                        <div class="mt-0.5 line-clamp-1 text-[11px] leading-4 text-slate-500" :title="row.detail">{{ row.detail }}</div>
+                                                        <div v-if="row.nextAction" class="mt-0.5 line-clamp-1 text-[11px] leading-4 text-slate-400" :title="row.nextAction">{{ row.nextAction }}</div>
+                                                    </div>
+                                                    <div class="flex shrink-0 flex-col items-end gap-1">
+                                                        <span :class="['rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', row.className]">{{ row.stageLabel }}</span>
+                                                        <span class="text-[10px] text-slate-400">{{ row.meta }}</span>
+                                                        <span v-if="row.actionLabel" class="text-[10px] font-semibold text-blue-600">{{ row.actionLabel }}</span>
+                                                    </div>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div class="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5" data-testid="revenue-ai-agent-activity">
+                                            <div class="mb-2 flex items-center justify-between gap-3">
+                                                <div class="min-w-0">
+                                                    <div class="truncate text-xs font-semibold text-slate-600" :title="revenueAiAgentActivitySummary.label">{{ revenueAiAgentActivitySummary.label }}操作日志</div>
+                                                    <div class="mt-0.5 text-[11px] text-slate-400">{{ revenueAiAgentActivitySummary.dateBasisLabel }} · 只读追溯</div>
+                                                </div>
+                                                <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', revenueAiAgentActivitySummary.className]">{{ revenueAiAgentActivitySummary.statusLabel }}</span>
+                                            </div>
+                                            <div class="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                                                <span class="rounded-md bg-slate-100 px-1.5 py-0.5">{{ revenueAiAgentActivitySummary.display }}</span>
+                                                <span v-if="revenueAiAgentActivitySummary.nextAction" class="line-clamp-1" :title="revenueAiAgentActivitySummary.nextAction">{{ revenueAiAgentActivitySummary.nextAction }}</span>
+                                            </div>
+                                            <div class="space-y-1.5">
+                                                <div v-for="log in revenueAiAgentActivityRows" :key="log.key" class="flex items-start justify-between gap-2 rounded-lg bg-slate-50 px-2 py-1.5">
+                                                    <div class="min-w-0">
+                                                        <div class="truncate text-xs font-semibold text-slate-700" :title="log.action">{{ log.action }}</div>
+                                                        <div class="mt-0.5 line-clamp-1 text-[11px] leading-4 text-slate-500" :title="log.message">{{ log.message }}</div>
+                                                    </div>
+                                                    <div class="flex shrink-0 flex-col items-end gap-1">
+                                                        <span :class="['rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', log.className]">{{ log.statusLabel }}</span>
+                                                        <span class="text-[10px] text-slate-400">{{ log.time }}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                    </div>
+                                </details>
+                            </div>
+                        </div>
+
+                        <details class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="home-secondary-detail-fold">
+                            <summary class="flex cursor-pointer items-center justify-between gap-3 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
+                                <span>辅助信息面板</span>
+                                <span class="text-xs font-normal text-slate-400">趋势、天气、竞对、节假期和数据来源默认折叠</span>
+                            </summary>
+                            <div class="space-y-4 p-4">
+                        <div v-if="homeSecondaryPanelsReady" class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm mb-6" data-testid="daily-ops-monitor-card">
+                            <div class="border-b border-slate-100 bg-slate-50 px-4 py-3 sm:px-5">
+                                <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                                    <div class="min-w-0">
+                                        <h3 class="text-lg font-bold text-gray-900">每日运营关注数据</h3>
+                                    </div>
+                                    <div class="flex flex-wrap gap-2">
+                                        <button v-for="action in dailyOpsPrimaryActions" :key="action.label" @click="openHomeQuickEntry(action)" class="inline-flex items-center rounded-xl border border-blue-100 bg-white px-3 py-2 text-sm font-medium text-blue-700 shadow-sm hover:border-blue-200 hover:bg-blue-50">
+                                            <i :class="[action.icon, 'mr-1.5']"></i>{{ action.label }}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="space-y-3 p-4 sm:p-5">
+                                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                                    <div v-for="card in dailyOpsStatusCards" :key="card.label" class="rounded-xl border px-4 py-3 shadow-sm" :class="card.className">
+                                        <div class="text-xs opacity-80">{{ card.label }}</div>
+                                        <div class="mt-1 text-2xl font-bold leading-tight">{{ card.value }}</div>
+                                        <div class="mt-1 hidden sm:block text-xs leading-5">{{ card.note }}</div>
+                                    </div>
+                                </div>
+
+                                <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                    <div class="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                                        <div class="text-sm font-semibold text-slate-900">复盘后执行顺序</div>
+                                        <div class="rounded-xl border border-blue-100 bg-white px-3 py-2 text-xs leading-5 text-blue-700">{{ dailyOpsMonitorConclusion }}</div>
+                                    </div>
+                                    <div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
+                                        <div v-for="step in dailyOpsReviewSteps" :key="step.title" class="min-h-[96px] rounded-xl border border-slate-200 bg-white px-3 py-3">
+                                            <div class="mb-2 flex items-center gap-2">
+                                                <span class="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border border-blue-100 bg-blue-50 text-xs font-semibold text-blue-700">{{ step.index }}</span>
+                                                <div class="text-sm font-semibold text-slate-900">{{ step.title }}</div>
+                                            </div>
+                                            <div class="text-xs leading-5 text-slate-500">{{ step.detail }}</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+                                    <div class="flex flex-col gap-2 border-b border-slate-100 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                                        <div class="text-sm font-semibold text-slate-900">数据简报</div>
+                                        <div class="text-xs text-slate-400">{{ dailyOpsMetricRows.length }}组 · {{ dailyOpsFieldCount }}项指标</div>
+                                    </div>
+                                    <div class="grid grid-cols-1 gap-3 bg-white p-4 md:grid-cols-2 xl:grid-cols-3">
+                                        <div v-for="row in dailyOpsMetricRows" :key="row.metric" class="min-h-[128px] rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                                            <div class="mb-2 flex items-center justify-between gap-2">
+                                                <div class="text-xs text-slate-400">{{ row.category }}</div>
+                                                <span :class="['rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', autoFetchScopeStatusClass(row.status)]">{{ row.statusText }}</span>
+                                            </div>
+                                            <div class="font-semibold leading-snug text-slate-900">{{ row.metric }}</div>
+                                            <div class="mt-2 text-xs leading-5 text-slate-500">{{ row.source }}</div>
+                                            <div class="mt-3 flex flex-wrap gap-1.5">
+                                                <span v-for="field in row.fields.slice(0, 6)" :key="row.metric + '-' + field" class="rounded border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-600">{{ field }}</span>
+                                                <span v-if="row.fields.length &gt; 6" class="rounded border border-blue-100 bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">+{{ row.fields.length - 6 }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="homeSecondaryPanelsReady" class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm mb-6" data-testid="home-weather-demand-card">
+                            <div class="flex flex-col gap-3 border-b border-slate-100 bg-slate-50 px-4 py-4 sm:px-5 lg:flex-row lg:items-start lg:justify-between">
+                                    <div>
+                                        <h3 class="text-lg font-bold text-gray-900">天气与需求影响</h3>
+                                    </div>
+                                <div class="relative self-start">
+                                    <button @click="weatherCityPickerOpen = !weatherCityPickerOpen" class="min-w-[150px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm text-slate-700 flex items-center justify-between gap-3 hover:bg-slate-50 shadow-sm">
+                                        <span class="flex items-center gap-2">
+                                            <i class="fas fa-map-marker-alt text-blue-500"></i>
+                                            {{ weatherLocationName }}
+                                        </span>
+                                        <i class="fas fa-chevron-down text-xs text-gray-400"></i>
+                                    </button>
+                                    <div v-if="weatherCityPickerOpen" class="absolute right-0 z-30 mt-2 w-72 rounded-xl border border-gray-100 bg-white shadow-lg p-3">
+                                        <div class="flex items-center justify-between mb-3">
+                                            <div class="text-xs font-semibold text-gray-500">常用城市</div>
+                                            <button @click="weatherCityPickerOpen = false" class="text-xs text-gray-400 hover:text-gray-600">收起</button>
+                                        </div>
+                                        <div class="grid grid-cols-3 gap-2">
+                                            <button v-for="city in weatherCityChoices" :key="city" @click="selectWeatherCity(city)" :class="weatherLocationName === city ? 'px-2 py-2 rounded-lg text-xs border border-blue-200 bg-blue-50 text-blue-700 font-medium' : 'px-2 py-2 rounded-lg text-xs border border-gray-100 bg-gray-50 text-gray-600 hover:bg-white'">{{ city }}</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="p-4 sm:p-5">
+                            <div v-if="weatherLoading" class="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-700 mb-3">
+                                <i class="fas fa-spinner fa-spin mr-2"></i>正在同步 {{ weatherLocationName }} 天气
+                            </div>
+                            <div v-else-if="weatherError" class="rounded-xl border border-yellow-100 bg-yellow-50 p-4 text-sm text-yellow-800 mb-3">
+                                {{ weatherError }}
+                            </div>
+                            <div v-if="displayWeather.length" class="grid grid-cols-1 xl:grid-cols-12 gap-4">
+                                <div class="compass-weather-current rounded-2xl border border-slate-200 bg-slate-50 xl:col-span-4 p-5">
+                                    <div class="flex items-center justify-between gap-3">
+                                        <div>
+                                            <div class="text-xs text-blue-600">当前城市</div>
+                                            <div class="mt-1 text-lg font-bold text-gray-900">{{ weatherLocationName }}</div>
+                                            <div class="mt-1 text-xs text-gray-500">{{ weatherDataSourceLabel }}</div>
+                                        </div>
+                                        <span :class="['px-2 py-1 rounded text-xs border', weatherImpactTone.badgeClass]">{{ weatherImpactTone.label }}</span>
+                                    </div>
+                                    <div class="mt-5 flex items-end justify-between gap-4">
+                                        <div>
+                                            <div class="text-4xl font-bold text-blue-900">{{ weatherToday?.temp_low ?? '--' }}°~{{ weatherToday?.temp_high ?? '--' }}°</div>
+                                            <div class="mt-2 text-sm text-gray-600">{{ weatherToday?.date || '--' }} 周{{ weatherToday?.week || '-' }}</div>
+                                        </div>
+                                        <div class="text-right">
+                                            <i :class="[weatherImpactTone.icon, 'text-3xl text-blue-400']"></i>
+                                            <div class="mt-2 font-semibold text-gray-800">{{ weatherToday?.condition || '--' }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="mt-5 rounded-xl bg-white border border-slate-200 px-4 py-3 text-sm text-slate-600">
+                                        {{ weatherToday?.wind || '暂无风力数据' }}
+                                    </div>
+                                </div>
+                                <div class="xl:col-span-8">
+                                    <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
+                                        <div v-for="item in weatherForecastDays" :key="weatherLocationName + item.date" class="compass-weather-day rounded-xl border border-slate-200 bg-white px-4 py-4 min-h-[108px]">
+                                            <div class="flex items-center justify-between gap-2">
+                                                <span class="text-xs font-medium text-gray-500">{{ item.date }}</span>
+                                                <span class="text-xs text-gray-400">周{{ item.week }}</span>
+                                            </div>
+                                            <div class="mt-3 font-semibold text-gray-800">{{ item.condition }}</div>
+                                            <div class="mt-2 text-sm text-gray-600">{{ item.temp_low }}°~{{ item.temp_high }}°</div>
+                                        </div>
+                                    </div>
+                                    <div :class="['compass-weather-strategy mt-4 rounded-lg border p-5 text-sm leading-relaxed', weatherImpactTone.panelClass]">
+                                        <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+                                            <div>
+                                                <div class="font-semibold mb-1">{{ weatherImpactTone.title }}</div>
+                                                <div>{{ weatherDemandHint }}</div>
+                                            </div>
+                                            <div class="flex flex-wrap gap-1.5 lg:justify-end">
+                                                <span v-for="tag in weatherDecisionTags" :key="tag.label" class="px-2 py-1 rounded-md bg-white/70 border border-current/10 text-xs whitespace-nowrap">
+                                                    {{ tag.label }} {{ tag.value }}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2">
+                                            <div v-for="item in weatherDecisionInsights" :key="item.title" class="compass-weather-insight suxi-metric-card bg-white p-4">
+                                                <div class="flex items-center gap-2 font-semibold mb-1">
+                                                    <i :class="[item.icon, 'text-xs']"></i>
+                                                    <span>{{ item.title }}</span>
+                                                </div>
+                                                <div class="text-xs leading-relaxed opacity-90">{{ item.content }}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div v-else="" class="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-8 text-center text-gray-500">
+                                待校验数据源，暂不生成经营判断。
+                            </div>
+                            </div>
+                        </div>
+
+                        <div v-if="homeSecondaryPanelsReady" class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm mb-6" data-testid="home-market-signal-card">
+                            <div class="grid grid-cols-1 gap-5 p-4 sm:p-5 xl:grid-cols-12">
+                                <div class="xl:col-span-7">
+                                    <div class="mb-3 inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                                        <i class="fas fa-chart-area"></i>
+                                        <span>经营信号简报</span>
+                                    </div>
+                                    <h3 class="text-lg font-bold tracking-tight text-gray-900">酒店经营信号简报</h3>
+                                    <div class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                        <div class="mb-3 flex items-center justify-between gap-3 text-sm">
+                                            <span class="font-semibold text-slate-900"><i class="fas fa-layer-group mr-1.5 text-blue-500"></i>经营信号维度</span>
+                                            <strong class="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-600">{{ homeMarketForecastStatus }}</strong>
+                                        </div>
+                                        <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5">
+                                            <button type="button" v-for="item in homeMarketForecastItems" :key="item.name" @click="openHomeQuickEntry(item.entry)" class="rounded-xl border border-slate-200 bg-white px-3 py-3 text-left transition hover:border-blue-200 hover:shadow-sm">
+                                                <span class="block text-xs font-semibold text-slate-400">{{ item.name }}</span>
+                                                <strong class="mt-1 block truncate text-sm font-bold text-slate-900">{{ item.value }}</strong>
+                                                <em class="mt-1 block text-xs not-italic text-blue-600">{{ item.actionLabel }}</em>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="xl:col-span-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2 gap-3">
+                                    <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                        <div class="flex items-start justify-between gap-3">
+                                            <div>
+                                                <div class="text-sm font-semibold text-slate-900"><i class="fas fa-database mr-1.5 text-blue-500"></i>数据准备情况</div>
+                                            </div>
+                                            <span class="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-600">{{ homeObservation.dataStatus }}</span>
+                                        </div>
+                                        <div class="mt-3 grid grid-cols-1 gap-2 text-xs">
+                                            <div class="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"><span class="text-slate-400">分析范围</span><span class="font-semibold text-slate-700">{{ homeObservation.hotelName }}</span></div>
+                                            <div class="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"><span class="text-slate-400">最近同步</span><span class="font-semibold text-slate-700">{{ homeObservation.updatedAt }}</span></div>
+                                            <div class="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"><span class="text-slate-400">可用样本</span><span class="font-semibold text-slate-700">{{ homeObservation.sampleDaysText }}</span></div>
+                                        </div>
+                                        <div class="mt-3">
+                                            <div class="mb-1 flex items-center justify-between gap-3 text-[11px] text-slate-500"><span>{{ compassDataReadiness.progressText }}</span><span>{{ compassDataReadiness.missingText }}</span></div>
+                                            <div class="h-1.5 overflow-hidden rounded-full bg-slate-200"><span class="block h-full rounded-full bg-blue-600" :style="{ width: compassDataReadiness.percent + '%' }"></span></div>
+                                        </div>
+                                    </div>
+                                    <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4 min-h-[150px]">
+                                        <div class="flex items-start justify-between gap-3">
+                                            <div>
+                                                <div class="text-sm font-semibold text-slate-900"><i class="fas fa-clipboard-check mr-1.5 text-blue-500"></i>经营简报摘要</div>
+                                            </div>
+                                            <span class="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-600">{{ homeMarketForecastStatus }}</span>
+                                        </div>
+                                        <div class="mt-3 space-y-2">
+                                            <div v-for="row in homeMarketForecastSummaryRows" :key="row.name" class="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                                                <div>
+                                                    <span class="text-xs font-semibold text-slate-400">{{ row.name }}</span>
+                                                    <strong class="ml-2 text-sm font-bold text-slate-900">{{ row.value }}</strong>
+                                                </div>
+                                                <p class="mt-1 text-xs leading-5 text-slate-500">{{ row.note }}</p>
+                                                <button type="button" class="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-800" @click="openHomeQuickEntry(row.entry)">
+                                                    <i class="fas fa-arrow-right"></i>{{ row.actionLabel }}
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div class="mt-3 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2">
+                                            <span class="text-xs text-blue-500">建议动作</span>
+                                            <strong class="mt-1 block text-sm leading-5 text-blue-900">{{ homeMarketForecastAction }}</strong>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="homeSecondaryPanelsReady &amp;&amp; homeTrendCards.length" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-6">
+                            <div v-for="card in homeTrendCards" :key="card.name" class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                                <div class="flex items-start justify-between gap-3">
+                                    <div>
+                                        <div class="text-xs font-semibold text-slate-400">{{ card.name }}</div>
+                                        <div class="mt-2 text-xl font-bold text-gray-900">{{ card.value }}</div>
+                                    </div>
+                                    <span :class="['px-2 py-1 rounded-full text-xs border', card.badgeClass]">{{ card.direction }}</span>
+                                </div>
+                                <div class="mt-3 h-7 flex items-end gap-1">
+                                    <span v-for="n in 9" :key="n" class="suxi-spark-bar" :style="{ height: card.spark[n - 1] + '%' }"></span>
+                                </div>
+                                <p class="mt-3 text-sm text-slate-500 leading-6">{{ card.note }}</p>
+                                <div class="mt-3 flex flex-wrap items-center gap-1.5 text-[11px]">
+                                    <span v-if="card.sourceTypeLabel" class="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-600">{{ card.sourceTypeLabel }}</span>
+                                    <span v-if="card.dataQualityLabel" class="rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-amber-700">{{ card.dataQualityLabel }}</span>
+                                    <span :class="['rounded-full border px-2 py-0.5', card.decisionAllowed ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500']">
+                                        {{ card.decisionAllowed ? '可进入决策' : '需复核后决策' }}
+                                    </span>
+                                </div>
+                                <div v-if="card.source" class="mt-3 flex items-start gap-1.5 text-xs text-gray-400 leading-relaxed">
+                                    <i class="fas fa-database mt-0.5 text-gray-300"></i>
+                                    <span>{{ card.source }}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="homeSecondaryPanelsReady" class="grid grid-cols-1 xl:grid-cols-12 gap-6 mb-6">
+                            <div :class="['rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5', homeTrendHasSamples ? 'xl:col-span-8' : 'xl:col-span-12']">
+                                <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-5">
+                                        <div>
+                                            <h3 class="font-bold text-gray-900 text-lg">经营趋势主线</h3>
+                                        </div>
+                                    <div class="flex flex-wrap items-center gap-2 text-xs">
+                                        <button v-for="range in homeTrendRanges" :key="range.key" @click="selectHomeTrendRange(range.key)" :disabled="homeTrendLoading" :class="homeTrendRange === range.key ? 'px-3 py-1.5 rounded-lg border border-blue-200 text-blue-700 bg-blue-50 disabled:opacity-60' : 'px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 bg-gray-50 hover:bg-white disabled:opacity-60'">{{ range.label }}</button>
+                                        <button @click="loadHomeTrends" :disabled="homeTrendLoading" class="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 bg-white hover:bg-gray-50 disabled:opacity-60">
+                                            <i :class="homeTrendLoading ? 'fas fa-spinner fa-spin mr-1' : 'fas fa-sync-alt mr-1'"></i>刷新
+                                        </button>
+                                    </div>
+                                </div>
+                                <div v-if="homeTrendRange === 'custom'" class="flex flex-wrap items-center gap-2 mb-4 text-sm">
+                                    <input type="date" v-model="homeTrendCustomRange.start_date" @change="loadHomeTrends" class="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-700">
+                                    <span class="text-gray-400">至</span>
+                                    <input type="date" v-model="homeTrendCustomRange.end_date" @change="loadHomeTrends" class="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-700">
+                                    <span v-if="homeTrendLoading" class="text-xs text-gray-400">趋势同步中</span>
+                                </div>
+                                <div class="home-trend-tabs flex flex-wrap gap-5 mb-5">
+                                    <button v-for="metric in homeTrendMetrics" :key="metric.key" @click="selectHomeTrendMetric(metric.key)" :class="['home-trend-tab', homeTrendMetric === metric.key ? 'is-active' : '']">{{ metric.label }}</button>
+                                </div>
+                                <div class="suxi-chart-shell h-72">
+                                    <div class="suxi-chart-grid"></div>
+                                    <canvas v-if="homeTrendHasSamples" id="homeTrendChart" class="relative z-10 w-full h-full p-4"></canvas>
+                                    <div v-else="" class="absolute inset-0 flex items-center justify-center text-center px-6">
+                                        <div class="max-w-md">
+                                            <i class="fas fa-chart-line text-4xl text-blue-300 mb-4"></i>
+                                            <div class="font-semibold text-gray-700">{{ homeTrendEmptyState.title }}</div>
+                                            <p class="text-sm text-gray-500 mt-2">{{ homeTrendEmptyState.message }}</p>
+                                            <div class="mt-4 flex flex-wrap justify-center gap-2">
+                                                <button v-if="homeTrendRange !== '30'" @click="selectHomeTrendRange('30')" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700">查看近30日</button>
+                                                <button v-if="filterReportHotel" @click="filterReportHotel = ''" class="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-600 text-sm hover:bg-gray-50">查看全部门店</button>
+                                                <button @click="openHomeQuickEntry({ page: 'online-data', tab: 'data-health' })" class="px-3 py-1.5 rounded-lg border border-blue-100 bg-blue-50 text-blue-700 text-sm hover:bg-blue-100">同步OTA数据</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div v-if="homeTrendHasSamples" class="xl:col-span-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                                <h3 class="font-bold text-gray-900 text-lg mb-5">趋势解读</h3>
+                                <div class="space-y-4">
+                                    <div class="home-trend-insight-card suxi-issue-card p-4">
+                                        <div class="text-sm font-semibold text-blue-900">当前判断</div>
+                                        <p class="text-sm text-blue-700 mt-2">{{ homeTrendInterpretation.judgement }}</p>
+                                    </div>
+                                    <div class="home-trend-insight-card suxi-issue-card p-4">
+                                        <div class="text-sm font-semibold text-gray-800">关键变化</div>
+                                        <p class="text-sm text-gray-500 mt-2">{{ homeTrendInterpretation.change }}</p>
+                                    </div>
+                                    <div class="home-trend-insight-card suxi-issue-card p-4">
+                                        <div class="text-sm font-semibold text-indigo-900">建议动作</div>
+                                        <p class="text-sm text-indigo-700 mt-2">{{ homeTrendInterpretation.action }}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="homeSecondaryPanelsReady" class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 mb-6">
+                            <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-5">
+                                <div>
+                                    <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-400 uppercase">OPERATING SIGNALS</div>
+                                    <h3 class="mt-1 font-bold text-gray-900 text-lg">宏观经营信号</h3>
+                                    <p class="text-sm text-slate-500 mt-1">把周期、天气、渠道、价格、需求信号转成可执行运营判断。</p>
+                                </div>
+                                <span v-if="macroSignalLoading" class="text-xs text-gray-400">同步中</span>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+                                <div v-for="signal in macroSignalViewCards" :key="signal.key" class="macro-signal-card rounded-xl border border-slate-200 bg-white p-4 flex flex-col min-h-[250px]">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <div class="macro-signal-icon w-9 h-9 rounded-lg text-blue-600 flex items-center justify-center">
+                                            <i :class="signal.icon"></i>
+                                        </div>
+                                        <span :class="['px-2 py-1 rounded text-xs border', macroSignalLevelClass(signal)]">{{ signal.status_text || signal.status }}</span>
+                                    </div>
+                                    <div class="mt-3">
+                                        <div class="font-semibold text-gray-900">{{ signal.title }}</div>
+                                        <p class="text-xs text-gray-500 mt-1 leading-relaxed">{{ signal.meaning }}</p>
+                                    </div>
+                                    <div class="macro-signal-section mt-4">
+                                        <div class="text-xs text-gray-400">经营影响</div>
+                                        <div class="text-sm font-semibold text-gray-800 mt-1 leading-relaxed">{{ signal.impact }}</div>
+                                    </div>
+                                    <div class="macro-signal-metrics mt-4 grid grid-cols-2 gap-x-5 gap-y-3">
+                                        <div v-for="metric in signal.primaryMetrics" :key="metric.label" class="macro-signal-metric min-h-[52px]">
+                                            <div class="text-xs text-gray-400">{{ metric.label }}</div>
+                                            <div class="text-sm font-semibold text-gray-800 mt-1">{{ metric.value }}{{ metric.unit || '' }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="macro-signal-action mt-4 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
+                                        <div class="text-xs text-blue-500">建议动作</div>
+                                        <div class="text-sm text-blue-800 mt-1 leading-relaxed">{{ signal.primaryAction }}</div>
+                                    </div>
+                                    <button @click="loadMacroSignalDetail(signal)" :disabled="macroSignalDetailLoading &amp;&amp; activeMacroSignal === signal.key" class="mt-auto pt-4 text-sm text-blue-600 hover:text-blue-700 font-medium disabled:opacity-60 text-left">
+                                        <i v-if="macroSignalDetailLoading &amp;&amp; activeMacroSignal === signal.key" class="fas fa-spinner fa-spin mr-1"></i>{{ signal.action_text || '查看依据' }}
+                                    </button>
+                                </div>
+                            </div>
+                            <div v-if="activeMacroSignal" class="mt-4 suxi-panel-muted p-4">
+                                <template v-if="macroSignalDetail">
+                                    <div class="flex items-center justify-between gap-3">
+                                        <div class="font-semibold text-gray-900">{{ macroSignalDetail.title }}</div>
+                                        <div class="flex items-center gap-2">
+                                            <span :class="['px-2 py-1 rounded text-xs border', macroSignalLevelClass(macroSignalDetail)]">{{ macroSignalDetail.status_text || macroSignalDetail.status }}</span>
+                                            <button @click="closeMacroSignalDetail" class="w-7 h-7 rounded-lg border border-gray-200 bg-white text-gray-400 hover:text-gray-700" title="收起详情">
+                                                <i class="fas fa-times text-xs"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <p class="text-sm text-gray-500 mt-2">{{ macroSignalDetail.summary }}</p>
+                                    <div v-if="macroSignalDetail.forecast &amp;&amp; macroSignalDetail.forecast.length" class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2 mt-4">
+                                        <div v-for="item in macroSignalDetail.forecast" :key="item.date" class="suxi-metric-card bg-white px-3 py-2">
+                                            <div class="text-xs text-gray-400">{{ item.date }} 周{{ item.week }}</div>
+                                            <div class="text-sm font-semibold text-gray-800 mt-1">{{ item.condition }}</div>
+                                            <div class="text-xs text-gray-500 mt-1">{{ item.temp_low }}°~{{ item.temp_high }}° · {{ item.wind }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mt-4">
+                                        <div v-for="metric in (macroSignalDetail.metrics || [])" :key="metric.label" class="suxi-metric-card bg-white px-3 py-2">
+                                            <div class="text-xs text-gray-400">{{ metric.label }}</div>
+                                            <div class="text-sm font-semibold text-gray-800 mt-1">{{ metric.value }}{{ metric.unit || '' }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                                        <div>
+                                            <div class="text-sm font-semibold text-gray-800 mb-2">原因</div>
+                                            <div v-for="item in (macroSignalDetail.reasons || [])" :key="item" class="text-sm text-gray-600 leading-relaxed mb-1">{{ item }}</div>
+                                        </div>
+                                        <div>
+                                            <div class="text-sm font-semibold text-gray-800 mb-2">建议动作</div>
+                                            <div v-for="item in (macroSignalDetail.suggestions || [])" :key="item" class="text-sm text-gray-600 leading-relaxed mb-1">{{ item }}</div>
+                                        </div>
+                                    </div>
+                                </template>
+                                <div v-else="" class="text-sm text-gray-500">
+                                    <i v-if="macroSignalDetailLoading" class="fas fa-spinner fa-spin mr-2"></i>{{ macroSignalDetailLoading ? '正在加载详情' : '数据暂不可用' }}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 mb-6">
+                            <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-5">
+                                <div>
+                                    <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-400 uppercase">HOLIDAY OPS</div>
+                                    <h3 class="mt-1 font-bold text-gray-900 text-lg">节假期运营倒计时</h3>
+                                    <p class="text-sm text-slate-500 mt-1">最近两个节假日备战窗口与运营动作。</p>
+                                </div>
+                                <span class="px-2.5 py-1 rounded text-xs border self-start bg-blue-50 text-blue-700 border-blue-200">
+                                    {{ holidayOperationStageText }}
+                                </span>
+                            </div>
+                            <div class="grid grid-cols-1 xl:grid-cols-12 gap-5">
+                                <div class="xl:col-span-4 rounded-xl border border-blue-100 bg-blue-50 p-5">
+                                    <div class="text-sm text-blue-700">距离最近节假日</div>
+                                    <template v-if="holidayOperationCountdown.nearest">
+                                        <div class="mt-2 text-4xl font-bold text-blue-900">{{ holidayOperationCountdown.nearest.distance_text }}</div>
+                                        <div class="mt-3 font-semibold text-gray-900">{{ holidayOperationCountdown.nearest.name }}</div>
+                                        <div class="text-sm text-gray-500 mt-1">{{ holidayOperationCountdown.nearest.start_date }} 至 {{ holidayOperationCountdown.nearest.end_date }} · {{ holidayOperationCountdown.nearest.holiday_days }}天</div>
+                                    </template>
+                                    <div v-else="" class="mt-6 text-sm text-gray-500">暂无节假日计划</div>
+                                </div>
+                                <div class="xl:col-span-4 rounded-xl border border-blue-100 bg-blue-50 p-5">
+                                    <div class="text-sm text-blue-700">距离次近节假日</div>
+                                    <template v-if="holidayOperationCountdown.next">
+                                        <div class="mt-2 text-4xl font-bold text-blue-900">{{ holidayOperationCountdown.next.distance_text }}</div>
+                                        <div class="mt-3 font-semibold text-gray-900">{{ holidayOperationCountdown.next.name }}</div>
+                                        <div class="text-sm text-gray-500 mt-1">{{ holidayOperationCountdown.next.start_date }} 至 {{ holidayOperationCountdown.next.end_date }} · {{ holidayOperationCountdown.next.holiday_days }}天</div>
+                                    </template>
+                                    <div v-else="" class="mt-6 text-sm text-gray-500">暂无次近节假日</div>
+                                </div>
+                                <div class="xl:col-span-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                                    <div class="text-sm font-semibold text-gray-800 mb-3">运营建议</div>
+                                    <div class="space-y-2">
+                                        <div v-for="item in holidayOperationSuggestions" :key="item" class="flex gap-2 text-sm text-gray-600 leading-relaxed">
+                                            <i class="fas fa-check-circle text-blue-500 mt-0.5"></i>
+                                            <span>{{ item }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 mb-6">
+                            <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-400 uppercase">DATA READINESS</div>
+                            <h3 class="font-bold text-gray-900 text-lg mt-1 mb-4">数据依据就绪情况</h3>
+                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                                <div v-for="source in homeDataSources" :key="source.name" class="rounded-xl border border-slate-200 bg-white p-4">
+                                    <div class="flex items-center justify-between gap-3">
+                                        <div class="font-semibold text-gray-800">{{ source.name }}</div>
+                                        <span :class="['px-2 py-1 rounded text-xs border', source.className]">{{ source.status }}</span>
+                                    </div>
+                                    <div class="text-xs text-gray-400 mt-2">最近更新时间：{{ source.updatedAt }}</div>
+                                    <p class="text-sm text-gray-500 mt-3">{{ source.impact }}</p>
+                                </div>
+                            </div>
+                        </div>
+                            </div>
+                        </details>
+
+                    </div>
+
+                    <!-- 携程ebooking -->

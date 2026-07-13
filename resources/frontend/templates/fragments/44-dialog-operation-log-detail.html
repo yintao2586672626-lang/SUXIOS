@@ -1,0 +1,76 @@
+        <!-- 日志详情模态框 -->
+        <div v-if="showLogDetailModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="p-4 border-b flex justify-between items-center sticky top-0 bg-white">
+                    <h3 class="text-lg font-semibold">日志详情</h3>
+                    <button @click="showLogDetailModal = false" class="text-gray-500 hover:text-gray-700">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="p-4" v-if="selectedLog">
+                    <div class="grid grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-500">日志ID</label>
+                            <p class="text-gray-900">{{ selectedLog.id }}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-500">操作时间</label>
+                            <p class="text-gray-900">{{ selectedLog.create_time }}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-500">操作用户</label>
+                            <p class="text-gray-900">{{ selectedLog.user?.realname || selectedLog.user?.username || '-' }}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-500">所属酒店</label>
+                            <p class="text-gray-900">{{ selectedLog.hotel?.name || '-' }}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-500">行为类型</label>
+                            <span :class="logTypeClass(selectedLog)" class="px-2 py-1 rounded text-sm">{{ logTypeLabel(selectedLog) }}</span>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-500">模块</label>
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-sm">{{ selectedLog.module }}</span>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-500">操作</label>
+                            <span :class="logActionClass(selectedLog.action)" class="px-2 py-1 rounded text-sm">
+                                {{ selectedLog.action }}
+                            </span>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-500">IP地址</label>
+                            <p class="text-gray-900">{{ selectedLog.ip }}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-500">User-Agent</label>
+                            <p class="text-gray-900 text-xs truncate" :title="selectedLog.user_agent">{{ selectedLog.user_agent || '-' }}</p>
+                        </div>
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-500 mb-1">描述</label>
+                        <p class="text-gray-900 bg-gray-50 p-3 rounded">{{ selectedLog.description }}</p>
+                    </div>
+                    <div v-if="selectedLog.extra_data?.path" class="mb-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div class="bg-gray-50 p-3 rounded">
+                            <label class="block text-sm font-medium text-gray-500">请求方法</label>
+                            <p class="text-gray-900">{{ selectedLog.extra_data.method || '-' }}</p>
+                        </div>
+                        <div class="bg-gray-50 p-3 rounded md:col-span-2">
+                            <label class="block text-sm font-medium text-gray-500">请求路径</label>
+                            <p class="text-gray-900 break-all">{{ selectedLog.extra_data.path }}</p>
+                        </div>
+                    </div>
+                    <div v-if="selectedLog.error_info" class="mb-4">
+                        <label class="block text-sm font-medium text-red-500 mb-1">错误信息</label>
+                        <pre class="text-red-700 bg-red-50 p-3 rounded text-sm overflow-x-auto whitespace-pre-wrap">{{ selectedLog.error_info }}</pre>
+                    </div>
+                    <div v-if="selectedLog.extra_data">
+                        <label class="block text-sm font-medium text-gray-500 mb-1">额外数据</label>
+                        <pre class="text-gray-700 bg-gray-50 p-3 rounded text-sm overflow-x-auto">{{ typeof selectedLog.extra_data === 'string' ? selectedLog.extra_data : JSON.stringify(selectedLog.extra_data, null, 2) }}</pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+

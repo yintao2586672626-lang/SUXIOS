@@ -1,24 +1,53 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildFrontendTemplateRender } from './lib/frontend_template_build.mjs';
+import { loadFrontendTemplateSource } from './lib/frontend_template_source.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const templatePath = path.join(repoRoot, 'resources/frontend/app-template.html');
 const renderPath = path.join(repoRoot, 'public/app-render.min.js');
 const runtimeVueSourcePath = path.join(repoRoot, 'node_modules/vue/dist/vue.runtime.global.prod.js');
 const runtimeVuePath = path.join(repoRoot, 'public/vue.runtime.global.prod.js');
-const template = fs.readFileSync(templatePath, 'utf8');
-const render = await buildFrontendTemplateRender(template);
-const runtimeVue = fs.readFileSync(runtimeVueSourcePath, 'utf8');
+const templateSnapshotBuffer = fs.readFileSync(templatePath);
+const source = loadFrontendTemplateSource(repoRoot);
+if (!source.templateBuffer.equals(templateSnapshotBuffer)) {
+  throw new Error('Business template fragments do not match resources/frontend/app-template.html; refusing to write runtime artifacts.');
+}
+const templateSnapshotHash = crypto.createHash('sha256').update(templateSnapshotBuffer).digest('hex');
+if (source.manifest.source_snapshot_sha256 !== templateSnapshotHash
+  || source.manifest.source_snapshot_bytes !== templateSnapshotBuffer.length) {
+  throw new Error('Frontend template compatibility snapshot metadata is stale; run sync_frontend_template_snapshot.mjs first.');
+}
 
-fs.writeFileSync(renderPath, render, 'utf8');
-fs.writeFileSync(runtimeVuePath, runtimeVue, 'utf8');
+const render = await buildFrontendTemplateRender(source.template);
+const runtimeVue = fs.readFileSync(runtimeVueSourcePath);
+const currentTemplateSnapshotBuffer = fs.readFileSync(templatePath);
+const currentSource = loadFrontendTemplateSource(repoRoot);
+if (!currentTemplateSnapshotBuffer.equals(templateSnapshotBuffer)
+  || !currentSource.templateBuffer.equals(source.templateBuffer)) {
+  throw new Error('Frontend template source changed during compilation; refusing to write runtime artifacts.');
+}
+
+function writeFileIfChanged(file, content) {
+  const next = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8');
+  if (fs.existsSync(file) && fs.readFileSync(file).equals(next)) return false;
+  fs.writeFileSync(file, next);
+  return true;
+}
+
+const renderChanged = writeFileIfChanged(renderPath, render);
+const runtimeVueChanged = writeFileIfChanged(runtimeVuePath, runtimeVue);
 console.log(JSON.stringify({
   template: path.relative(repoRoot, templatePath),
+  fragment_manifest: path.relative(repoRoot, source.manifestPath),
   render: path.relative(repoRoot, renderPath),
   runtime_vue: path.relative(repoRoot, runtimeVuePath),
-  template_bytes: Buffer.byteLength(template),
+  fragment_count: source.fragments.length,
+  template_bytes: source.templateBuffer.length,
   render_bytes: Buffer.byteLength(render),
-  runtime_vue_bytes: Buffer.byteLength(runtimeVue),
+  runtime_vue_bytes: runtimeVue.length,
+  render_changed: renderChanged,
+  runtime_vue_changed: runtimeVueChanged,
 }, null, 2));

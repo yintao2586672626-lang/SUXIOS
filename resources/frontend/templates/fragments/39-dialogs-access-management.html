@@ -1,0 +1,305 @@
+        <!-- 用户模态框 -->
+        <div v-if="showUserModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="p-4 border-b flex justify-between items-center sticky top-0 bg-white">
+                    <h3 class="text-lg font-semibold">{{ userForm.id ? '编辑用户' : '添加用户' }}</h3>
+                    <button @click="showUserModal = false" class="text-gray-500 hover:text-gray-700">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <form @submit.prevent="saveUser" class="p-4 space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">用户名 *</label>
+                        <input v-model="userForm.username" data-testid="new-user-username" type="text" required="" :disabled="!canEditUserUsername" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100">
+                        <p v-if="!userForm.id" class="mt-1 text-xs text-gray-500">已按现有 VIP 账号自动顺延，可直接修改。</p>
+                    </div>
+                    <div v-if="!userForm.id">
+                        <div class="mb-1 flex items-center justify-between gap-3">
+                            <label class="block text-sm font-medium text-gray-700">密码 *</label>
+                        </div>
+                        <input v-model="userForm.password" data-testid="new-user-password" type="text" inputmode="numeric" autocomplete="new-password" minlength="6" :required="!userForm.id" readonly="" class="w-full px-4 py-2 border rounded-lg bg-gray-50 text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <p class="mt-1 text-xs text-gray-500">默认密码固定为 666666。</p>
+                    </div>
+                    <div v-else="">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">新密码 (留空不修改)</label>
+                        <input v-model="userForm.password" type="password" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">姓名</label>
+                        <input v-model="userForm.realname" type="text" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">角色 *</label>
+                        <select v-model="userForm.role_id" class="w-full px-4 py-2 border rounded-lg" required="" :disabled="!user?.is_super_admin &amp;&amp; !!userForm.id">
+                            <option value="">请选择角色</option>
+                            <option v-for="r in (user?.is_super_admin ? roles : roles.filter(r =&gt; r.id === 3))" :key="r.id" :value="r.id">{{ r.display_name }} - {{ r.description }}</option>
+                        </select>
+                        <div v-if="user?.is_super_admin &amp;&amp; !userForm.id &amp;&amp; roleIssueGuideCards.length" class="mt-2 flex flex-wrap gap-2">
+                            <button v-for="card in roleIssueGuideCards" :key="`modal-${card.key}`" type="button" @click="applyUserIssueRole(card.roleId)" :class="Number(userForm.role_id) === Number(card.roleId) ? 'rounded-lg border border-blue-300 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700' : 'rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-white'">
+                                {{ card.title }}
+                            </button>
+                        </div>
+                        <div v-if="selectedUserRoleGuide" class="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]" :title="[selectedUserRoleGuide.audience, selectedUserRoleGuide.scope, selectedUserRoleGuide.dataBoundary, selectedUserRoleGuide.boundary, selectedUserRoleGuide.denied].filter(Boolean).join('\n')">
+                            <span class="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 font-medium text-slate-600">{{ selectedUserRoleGuide.handoffType }}</span>
+                            <span :class="['rounded-full border px-2 py-0.5 font-medium', selectedUserRoleGuide.issueBlocked ? 'border-amber-100 bg-amber-50 text-amber-700' : 'border-emerald-100 bg-emerald-50 text-emerald-700']">
+                                {{ selectedUserRoleGuide.issueStatusText || '可发放' }}
+                            </span>
+                            <span v-for="tag in selectedUserRoleGuide.permissionTags || []" :key="`selected-${tag.text}`" :class="['rounded-full border px-2 py-0.5 font-medium', tag.class]">
+                                {{ tag.text }}
+                            </span>
+                        </div>
+                        <p v-if="!user?.is_super_admin" class="text-xs text-gray-500 mt-1">非超级管理员只能创建/查看店员账号</p>
+                    </div>
+                    <div>
+                        <div class="mb-1 flex items-center justify-between gap-3">
+                            <label class="block text-sm font-medium text-gray-700">分配门店</label>
+                            <button v-if="user?.is_super_admin &amp;&amp; allUserHotelIds.length" type="button" @click="toggleAllUserHotels" class="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100">
+                                {{ areAllUserHotelsSelected ? '清空' : '全选' }}
+                            </button>
+                        </div>
+                        <div v-if="allUserHotelIds.length" class="mb-2 text-xs text-gray-500">已选 {{ userAssignedHotelCount }} / {{ allUserHotelIds.length }}</div>
+                        <div class="mb-2 flex gap-2">
+                            <input v-model="userHotelAssignmentSearch" type="search" placeholder="搜索门店名称、编码或ID" class="min-w-0 flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100">
+                            <button type="button" @click="userHotelAssignmentSelectedOnly = !userHotelAssignmentSelectedOnly" :class="userHotelAssignmentSelectedOnly ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600'" class="shrink-0 rounded-lg border px-3 py-2 text-xs font-medium">只看已选</button>
+                        </div>
+                        <div class="max-h-44 overflow-y-auto rounded-lg border border-gray-200 bg-white px-3 py-2 space-y-2">
+                            <label v-for="h in filteredUserAssignmentHotels" :key="h.id" class="flex items-center gap-2 text-sm text-gray-700">
+                                <input type="checkbox" :value="String(h.id)" v-model="userForm.hotel_ids" :disabled="!user?.is_super_admin" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                <span class="truncate">{{ hotelSelectOptionText(h) }}</span>
+                            </label>
+                            <div v-if="!filteredUserAssignmentHotels.length" class="text-xs text-gray-400 py-2">当前条件下没有门店</div>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">未分配时仅看自己创建的门店。</p>
+                    </div>
+                    <div v-if="user?.is_super_admin &amp;&amp; selectedUserRoleGuide" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2" :title="userIssueBlockingReasons.length ? userIssueBlockingReasons.join('；') : '检查通过'">
+                        <div class="flex items-center justify-between gap-3">
+                            <div class="flex items-center gap-2">
+                                <span class="text-sm font-semibold text-slate-800">发号检查</span>
+                                <span :class="userIssueBlockingReasons.length ? 'rounded-full border border-red-100 bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700' : 'rounded-full border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700'">
+                                    {{ userIssueBlockingReasons.length ? '需处理' : '可发放' }}
+                                </span>
+                            </div>
+                            <button type="button" @click="copyUserIssueGuide" :disabled="userIssueBlockingReasons.length &gt; 0" class="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">
+                                <i class="fas fa-copy mr-1"></i>复制说明
+                            </button>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">状态</label>
+                        <select v-model="userForm.status" class="w-full px-4 py-2 border rounded-lg">
+                            <option :value="1">正常</option>
+                            <option :value="0">待审核/暂停</option>
+                        </select>
+                    </div>
+                    <div class="flex justify-end space-x-3 pt-4">
+                        <button type="button" @click="showUserModal = false" class="px-4 py-2 border rounded-lg hover:bg-gray-50">取消</button>
+                        <button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">保存</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 用户登录信息重置弹框 -->
+        <div v-if="showUserLoginInfoModal" data-testid="user-login-info-modal" class="fixed inset-0 z-[65] flex items-center justify-center modal-overlay px-4" @click.self="closeUserLoginInfoModal">
+            <div class="w-full max-w-lg overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl">
+                <div class="border-b border-blue-100 bg-blue-50 px-5 py-4">
+                    <div class="flex items-start justify-between gap-4">
+                        <div>
+                            <h3 class="text-base font-semibold text-gray-900">重置密码并复制登录信息</h3>
+                            <p class="mt-1 text-sm text-gray-600">账号：{{ userLoginInfoTarget?.username || '-' }}</p>
+                        </div>
+                        <button type="button" @click="closeUserLoginInfoModal" :disabled="userLoginInfoSaving" class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-white hover:text-gray-600 disabled:opacity-50">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="space-y-4 px-5 py-4">
+                    <div class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-800">
+                        当前密码无法查看。确认后会将密码重置为 666666，并复制完整登录信息。
+                    </div>
+                    <div>
+                        <div class="mb-1.5 flex items-center justify-between gap-3">
+                            <label class="text-sm font-medium text-gray-700">密码</label>
+                        </div>
+                        <div class="flex gap-2">
+                            <input v-model="userLoginInfoPassword" :type="userLoginInfoShowPassword ? 'text' : 'password'" autocomplete="new-password" readonly="" class="min-w-0 flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100">
+                            <button type="button" @click="userLoginInfoShowPassword = !userLoginInfoShowPassword" class="w-10 shrink-0 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50" :title="userLoginInfoShowPassword ? '隐藏密码' : '显示密码'">
+                                <i :class="userLoginInfoShowPassword ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
+                            </button>
+                        </div>
+                        <p class="mt-1 text-xs text-gray-500">确认后自动复制登录地址、用户名和密码。</p>
+                    </div>
+                    <div v-if="userLoginInfoError" class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{{ userLoginInfoError }}</div>
+                </div>
+                <div class="flex flex-col-reverse gap-2 border-t border-gray-100 bg-gray-50 px-5 py-4 sm:flex-row sm:justify-end">
+                    <button type="button" @click="closeUserLoginInfoModal" :disabled="userLoginInfoSaving" class="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50">取消</button>
+                    <button type="button" @click="confirmUserLoginInfoReset" :disabled="userLoginInfoSaving" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60">
+                        <i :class="userLoginInfoSaving ? 'fas fa-spinner fa-spin mr-1' : 'fas fa-copy mr-1'"></i>{{ userLoginInfoSaving ? '处理中' : '重置为 666666 并复制登录信息' }}
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 用户删除确认弹框 -->
+        <div v-if="showUserDeleteModal" class="fixed inset-0 z-[60] flex items-center justify-center modal-overlay px-4" @click.self="closeUserDeleteModal">
+            <div class="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl border border-gray-100">
+                <div class="border-b border-red-100 bg-red-50 px-5 py-4">
+                    <div class="flex items-start gap-3">
+                        <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-700">
+                            <i class="fas fa-user-times"></i>
+                        </div>
+                        <div class="min-w-0">
+                            <h3 class="text-base font-semibold text-gray-900">删除账号</h3>
+                            <p class="mt-1 text-sm text-gray-600">删除会移除该账号登录入口；有关联数据时需超级管理员确认强制删除。</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="px-5 py-4 space-y-4">
+                    <div class="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                        <div class="text-xs text-gray-400 mb-1">账号</div>
+                        <div class="font-semibold text-gray-900">{{ userDeleteName }}</div>
+                        <div class="mt-1 text-xs text-gray-500">用户名：{{ userDeleteTarget?.username || '-' }}</div>
+                    </div>
+                    <div v-if="userDeleteReferences.length" class="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                        <div class="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-900">
+                            <i class="fas fa-link"></i>
+                            <span>存在关联数据</span>
+                        </div>
+                        <div class="space-y-2">
+                            <div v-for="item in userDeleteReferences" :key="`${item.table}-${item.label}`" class="flex items-center justify-between gap-3 rounded-lg bg-white/80 px-3 py-2 text-sm">
+                                <span class="text-gray-700">{{ item.label || item.table || '关联数据' }}</span>
+                                <span class="font-semibold text-amber-700">{{ item.count || 0 }} 条</span>
+                            </div>
+                        </div>
+                        <p class="mt-3 text-xs text-amber-800">强制删除会解除可安全解除的用户关联；不可解除的数据会阻止删除。</p>
+                    </div>
+                    <div v-if="userDeleteError" class="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+                        {{ userDeleteError }}
+                    </div>
+                </div>
+                <div class="flex items-center justify-end gap-3 border-t border-gray-100 bg-gray-50 px-5 py-4">
+                    <button type="button" @click="closeUserDeleteModal" :disabled="userDeleteLoading" class="px-4 py-2 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-60">
+                        取消
+                    </button>
+                    <button type="button" @click="confirmDeleteUser" :disabled="userDeleteLoading || (userDeleteReferences.length &gt; 0 &amp;&amp; !userDeleteCanForce)" class="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-60">
+                        <i :class="userDeleteLoading ? 'fas fa-spinner fa-spin' : 'fas fa-trash-alt'"></i>
+                        <span>{{ userDeleteLoading ? '处理中...' : userDeletePrimaryText }}</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 用户状态确认弹框 -->
+        <div v-if="showUserStatusConfirmModal" class="fixed inset-0 z-[60] flex items-center justify-center modal-overlay px-4" @click.self="closeUserStatusConfirm">
+            <div class="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl border border-gray-100">
+                <div :class="userStatusConfirmAction === 'approve' ? 'bg-green-50 border-green-100' : 'bg-amber-50 border-amber-100'" class="border-b px-5 py-4">
+                    <div class="flex items-start gap-3">
+                        <div :class="userStatusConfirmAction === 'approve' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'" class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl">
+                            <i :class="userStatusConfirmAction === 'approve' ? 'fas fa-user-check' : 'fas fa-user-slash'"></i>
+                        </div>
+                        <div class="min-w-0">
+                            <h3 class="text-base font-semibold text-gray-900">{{ userStatusConfirmTitle }}</h3>
+                            <p class="mt-1 text-sm text-gray-600">{{ userStatusConfirmDescription }}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="px-5 py-4 space-y-4">
+                    <div class="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                        <div class="text-xs text-gray-400 mb-1">账号</div>
+                        <div class="font-semibold text-gray-900">{{ userStatusConfirmName }}</div>
+                        <div class="mt-1 text-xs text-gray-500">用户名：{{ userStatusConfirmTarget?.username || '-' }}</div>
+                    </div>
+                    <div v-if="userStatusConfirmError" class="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+                        {{ userStatusConfirmError }}
+                    </div>
+                </div>
+                <div class="flex items-center justify-end gap-3 border-t border-gray-100 bg-gray-50 px-5 py-4">
+                    <button type="button" @click="closeUserStatusConfirm" :disabled="userStatusConfirmLoading" class="px-4 py-2 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-60">
+                        取消
+                    </button>
+                    <button type="button" @click="confirmUserStatusChange" :disabled="userStatusConfirmLoading" :class="userStatusConfirmAction === 'approve' ? 'bg-green-600 hover:bg-green-700' : 'bg-amber-600 hover:bg-amber-700'" class="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-white disabled:opacity-60">
+                        <i :class="userStatusConfirmLoading ? 'fas fa-spinner fa-spin' : (userStatusConfirmAction === 'approve' ? 'fas fa-check' : 'fas fa-ban')"></i>
+                        <span>{{ userStatusConfirmLoading ? '处理中...' : userStatusConfirmPrimaryText }}</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 角色模态框 -->
+        <div v-if="showRoleModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="p-4 border-b flex justify-between items-center sticky top-0 bg-white">
+                    <h3 class="text-lg font-semibold">{{ roleForm.id ? '编辑角色' : '添加角色' }}</h3>
+                    <button @click="showRoleModal = false" class="text-gray-500 hover:text-gray-700">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <form @submit.prevent="saveRole" class="p-4 space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">角色名称 *</label>
+                        <input v-model="roleForm.display_name" type="text" required="" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">角色标识 *</label>
+                        <input v-model="roleForm.name" type="text" required="" :disabled="roleForm.id === 1" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100">
+                        <p class="text-xs text-gray-500 mt-1">用于程序识别，只能包含字母、数字和下划线</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">角色等级 *</label>
+                        <input v-model.number="roleForm.level" type="number" required="" min="1" :disabled="roleForm.id === 1" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100">
+                        <p class="text-xs text-gray-500 mt-1">数字越小权限越大</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">描述</label>
+                        <textarea v-model="roleForm.description" rows="2" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">权限设置</label>
+                        <div class="border rounded-lg p-3 space-y-2 max-h-48 overflow-y-auto">
+                            <label v-for="p in allPermissions" :key="p.key" class="flex items-center cursor-pointer">
+                                <input type="checkbox" :checked="roleForm.permissionList.includes(p.key)" @change="togglePermission(p.key)" class="w-4 h-4 rounded border-gray-300 text-blue-600">
+                                <span class="ml-2 text-sm"><span class="text-gray-400 text-xs">[{{ p.group }}]</span> {{ p.name }}</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">状态</label>
+                        <select v-model="roleForm.status" class="w-full px-4 py-2 border rounded-lg">
+                            <option :value="1">正常</option>
+                            <option :value="0">禁用</option>
+                        </select>
+                    </div>
+                    <div class="flex justify-end space-x-3 pt-4">
+                        <button type="button" @click="showRoleModal = false" class="px-4 py-2 border rounded-lg hover:bg-gray-50">取消</button>
+                        <button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">保存</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 权限设置模态框 -->
+        <div v-if="showPermissionModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
+                <div class="p-4 border-b flex justify-between items-center">
+                    <h3 class="text-lg font-semibold">权限信息 - {{ permissionUser?.realname || permissionUser?.username }}</h3>
+                    <button @click="showPermissionModal = false" class="text-gray-500 hover:text-gray-700">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="p-6">
+                    <div class="text-center">
+                        <i class="fas fa-user-shield text-5xl text-blue-500 mb-4"></i>
+                        <p class="text-gray-600 mb-4">用户权限从角色自动继承，无需单独设置。</p>
+                        <div class="bg-gray-50 rounded-lg p-4 text-left">
+                            <p class="text-sm text-gray-500 mb-2"><strong>当前角色：</strong>{{ permissionUser?.role?.display_name || '-' }}</p>
+                            <p class="text-sm text-gray-500 mb-2"><strong>关联酒店：</strong>{{ permissionUser?.hotel?.name || '未关联' }}</p>
+                            <p class="text-xs text-gray-400 mt-3">如需修改权限，请联系管理员调整用户角色。</p>
+                        </div>
+                    </div>
+                    <div class="flex justify-end mt-6">
+                        <button type="button" @click="showPermissionModal = false" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">关闭</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+

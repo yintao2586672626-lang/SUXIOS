@@ -1,0 +1,612 @@
+                    <div v-if="currentPage === 'lifecycle'" class="suxi-lifecycle-view max-w-7xl mx-auto space-y-6">
+                        <!-- 核心理念横幅 -->
+                        <div class="suxi-lifecycle-hero rounded-2xl p-4 md:p-5 text-white relative overflow-hidden border border-white/10" style="background: linear-gradient(135deg, #0b376d 0%, #1262a8 58%, #0ea5b7 100%); box-shadow: 0 16px 36px rgba(15, 63, 122, 0.16);">
+                            <div class="absolute inset-x-0 top-0 h-1 bg-cyan-300/70"></div>
+                            <div class="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
+                                <div class="min-w-0 max-w-3xl">
+                                    <div class="flex flex-wrap items-center gap-2 mb-3">
+                                        <span class="suxi-lifecycle-pill inline-flex items-center gap-2 max-w-full bg-white/12 border border-white/15 rounded-full px-3 py-1 text-xs md:text-sm text-white/90">
+                                            <i class="fas fa-route text-cyan-100"></i>
+                                            <span class="truncate">以OTA经营反馈闭环为核心</span>
+                                        </span>
+                                        <span class="suxi-lifecycle-pill hidden sm:inline-flex items-center gap-1.5 bg-white/10 border border-white/10 rounded-full px-3 py-1 text-xs text-cyan-50">
+                                            <i class="fas fa-layer-group text-cyan-100"></i>
+                                            P0主线 + 二期辅助
+                                        </span>
+                                    </div>
+                                    <h2 class="text-xl md:text-2xl font-bold text-white leading-tight">全生命周期辅助视图</h2>
+                                    <p class="text-white/80 text-sm md:text-base mt-2 max-w-3xl">围绕授权 OTA 可见数据的线上获客、收益诊断、动作追踪和效果复盘，保留投前、开业、扩张和转让的辅助判断入口</p>
+                                    <div class="mt-4 hidden sm:flex flex-wrap gap-2 text-xs text-white/80">
+                                        <span class="suxi-lifecycle-tag px-2.5 py-1 rounded-lg bg-white/10 border border-white/10">OTA数据</span>
+                                        <span class="suxi-lifecycle-tag px-2.5 py-1 rounded-lg bg-white/10 border border-white/10">收益诊断</span>
+                                        <span class="suxi-lifecycle-tag px-2.5 py-1 rounded-lg bg-white/10 border border-white/10">运营动作</span>
+                                        <span class="suxi-lifecycle-tag px-2.5 py-1 rounded-lg bg-white/10 border border-white/10">效果复盘</span>
+                                        <span class="suxi-lifecycle-tag px-2.5 py-1 rounded-lg bg-white/10 border border-white/10">投前辅助</span>
+                                    </div>
+                                </div>
+                                <div class="suxi-lifecycle-kpis grid grid-cols-1 sm:grid-cols-3 gap-2 w-full lg:w-80 lg:flex-shrink-0">
+                                    <div class="suxi-lifecycle-kpi rounded-xl bg-white/12 px-2 sm:px-3 py-3 text-center border border-white/12">
+                                        <div class="text-lg sm:text-xl md:text-2xl font-bold leading-none">P0</div>
+                                        <div class="text-xs text-white/75 mt-1.5">主闭环</div>
+                                    </div>
+                                    <div class="suxi-lifecycle-kpi rounded-xl bg-white/12 px-2 sm:px-3 py-3 text-center border border-white/12">
+                                        <div class="text-lg sm:text-xl md:text-2xl font-bold leading-none">二期</div>
+                                        <div class="text-xs text-white/75 mt-1.5">辅助模块</div>
+                                    </div>
+                                    <div class="suxi-lifecycle-kpi rounded-xl bg-white/12 px-2 sm:px-3 py-3 text-center border border-white/12">
+                                        <div class="text-lg sm:text-xl md:text-2xl font-bold leading-none">留痕</div>
+                                        <div class="text-xs text-white/75 mt-1.5">决策依据</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="suxi-lifecycle-sync-panel bg-white rounded-2xl border border-gray-100 p-4 sm:p-5 shadow-sm">
+                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-5">
+                                <div class="flex items-start gap-3 min-w-0">
+                                    <div class="suxi-lifecycle-sync-icon hidden sm:flex w-10 h-10 rounded-xl bg-blue-50 text-blue-600 items-center justify-center flex-shrink-0">
+                                        <i class="fas fa-database"></i>
+                                    </div>
+                                    <div class="min-w-0">
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <h3 class="font-semibold text-gray-900">真实数据联动</h3>
+                                            <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-100">
+                                                <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                                                已同步
+                                            </span>
+                                        </div>
+                                        <p class="text-sm text-gray-500 mt-1">最近更新：{{ lifecycleOverview?.generated_at || '-' }}</p>
+                                    </div>
+                                </div>
+                                <button @click="loadLifecycleOverview" :disabled="lifecycleLoading" class="btn-primary w-full sm:w-auto inline-flex items-center justify-center disabled:opacity-60">
+                                    <i :class="lifecycleLoading ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt'" class="mr-2"></i>{{ lifecycleLoading ? '加载中' : '刷新数据' }}
+                                </button>
+                            </div>
+                            <div v-if="lifecycleLoading" class="py-8 text-center text-gray-400">正在加载生命周期数据...</div>
+                            <div v-else-if="lifecycleOverview?.stages?.length" class="suxi-lifecycle-stage-grid grid sm:grid-cols-2 xl:grid-cols-5 gap-3">
+                                <div v-for="(stage, index) in lifecycleOverview.stages" :key="stage.key" class="suxi-lifecycle-status-card rounded-xl border p-3 sm:p-4 overflow-hidden" :class="lifecycleStageStatusClass(stage.status)">
+                                    <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-3 mb-3">
+                                        <div class="flex items-center gap-2 min-w-0">
+                                            <span class="w-7 h-7 rounded-lg bg-white border border-gray-100 text-xs font-semibold text-gray-500 flex items-center justify-center flex-shrink-0">0{{ index + 1 }}</span>
+                                            <div class="font-semibold text-gray-900 truncate">{{ lifecycleStageTitle(stage) }}</div>
+                                        </div>
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium flex-shrink-0" :class="stage.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'">
+                                            {{ stage.status_text === 'linked' ? '已联动' : '待数据' }}
+                                        </span>
+                                    </div>
+                                    <div v-if="(stage.metrics || []).length" class="space-y-2 text-sm">
+                                        <div v-for="metric in (stage.metrics || [])" :key="metric.label" class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-3 rounded-lg bg-white/70 border border-white px-3 py-2 min-w-0">
+                                            <span class="text-gray-500 sm:flex-shrink-0">{{ lifecycleMetricLabel(metric.label) }}</span>
+                                            <span class="font-semibold text-gray-900 text-left sm:text-right truncate min-w-0" :title="metric.value ?? '-'">{{ metric.value ?? '-' }}</span>
+                                        </div>
+                                    </div>
+                                    <div v-else="" class="rounded-lg bg-white/70 border border-white px-3 py-3 text-sm text-gray-400 text-center">暂无指标</div>
+                                </div>
+                            </div>
+                            <div v-else="" class="py-8 text-center text-gray-400">暂无生命周期联动数据</div>
+                        </div>
+
+                        <!-- 五阶段链路 -->
+                        <div class="suxi-lifecycle-chain space-y-5">
+                            <!-- 阶段1: 筹建阶段 -->
+                            <div class="bg-white rounded-2xl border border-blue-100 overflow-hidden transition-all duration-300" style="box-shadow: 0 14px 34px rgba(59, 130, 246, 0.10);">
+                                <div class="bg-gradient-to-r from-blue-500 to-cyan-500 p-5" style="background: linear-gradient(90deg, #2f80ed 0%, #11b5d9 100%);">
+                                    <div class="flex items-center gap-4">
+                                        <div class="w-14 h-14 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center text-2xl font-bold text-white">1</div>
+                                        <div class="flex-1">
+                                            <h3 class="text-xl font-bold text-white">筹建阶段</h3>
+                                            <p class="text-blue-100 text-sm">从"拍脑袋想投"到"算清再投"</p>
+                                        </div>
+                                        <div class="hidden md:flex items-center gap-2 text-blue-100 text-sm">
+                                            <i class="fas fa-chess"></i>
+                                            <span>智略 + 智算 + 智策</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="p-5 space-y-4" style="background: linear-gradient(180deg, #ffffff 0%, #f7fbff 50%, #ffffff 100%);">
+                                    <!-- 阶段定位 -->
+                                    <div class="mb-4 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-xl p-4 border border-blue-100" style="background: linear-gradient(90deg, #eef6ff 0%, #ecfbff 100%);">
+                                        <p class="text-sm text-gray-700"><span class="font-semibold text-blue-600">阶段定位：</span>用"数据算账"替代"经验拍板"，让酒店投资的"第一笔钱"花在刀刃上。</p>
+                                        <p class="text-sm text-gray-700 mt-2"><span class="font-semibold text-blue-600">宿析解法：</span>智略（战略推演引擎）+ 智算（量化风控模型）双轮驱动</p>
+                                        <p class="text-sm text-gray-600 mt-2">把"模糊的投资冲动"变成"可落地的数据蓝图"，让筹建期的每一个选择都有"数"可依。</p>
+                                    </div>
+                                    <!-- 核心问题 -->
+                                    <div class="mb-4">
+                                        <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold" style="background: #e7f1ff; color: #1d4ed8;">
+                                            <i class="fas fa-question-circle"></i>
+                                            <span>核心问题：我的钱够不够？投在哪里能赚回来？</span>
+                                        </div>
+                                    </div>
+                                    <!-- 三大模块 -->
+                                    <div class="grid md:grid-cols-3 gap-4 mb-4">
+                                        <div class="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-xl p-4 border border-blue-100 h-full" style="box-shadow: 0 10px 24px rgba(59, 130, 246, 0.06);">
+                                            <div class="flex items-center gap-2 mb-2">
+                                                <div class="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center">
+                                                    <i class="fas fa-chess text-white text-sm"></i>
+                                                </div>
+                                                <span class="font-semibold text-gray-800">1. 智略定方向</span>
+                                            </div>
+                                            <p class="text-xs text-gray-600 mb-3">用"战略推演"画清"投哪里、投什么"</p>
+                                            <div class="text-xs text-gray-500 space-y-2">
+                                                <div><span class="text-blue-600 font-medium">3年IRR预测</span> 景区旁中端酒店IRR达20%（高于加盟模式12%）</div>
+                                                <div><span class="text-blue-600 font-medium">盈亏平衡点</span> 投资1500w，开业30个月回本</div>
+                                                <div><span class="text-blue-600 font-medium">区域适配性</span> 某二线城市景区旁为"高潜力区位"（客流增速35%）</div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-4 border border-green-100 h-full" style="box-shadow: 0 10px 24px rgba(16, 185, 129, 0.06);">
+                                            <div class="flex items-center gap-2 mb-2">
+                                                <div class="w-8 h-8 rounded-lg bg-green-500 flex items-center justify-center">
+                                                    <i class="fas fa-calculator text-white text-sm"></i>
+                                                </div>
+                                                <span class="font-semibold text-gray-800">2. 智算控风险</span>
+                                            </div>
+                                            <p class="text-xs text-gray-600 mb-3">用"量化拆解"算清"钱够不够、怎么花更赚"</p>
+                                            <div class="text-xs text-gray-500 space-y-2">
+                                                <div><span class="text-green-600 font-medium">成本红线</span> 装修成本≤45%时，RevPAR可提升12%</div>
+                                                <div><span class="text-green-600 font-medium">资金规划</span> 首年现金流缺口**万，可通过供应链赋能延缓账期</div>
+                                                <div><span class="text-green-600 font-medium">风险预警</span> 竞对密度超6家/平方公里，IRR将降至10%</div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-4 border border-purple-100 h-full" style="box-shadow: 0 10px 24px rgba(168, 85, 247, 0.06);">
+                                            <div class="flex items-center gap-2 mb-2">
+                                                <div class="w-8 h-8 rounded-lg bg-purple-500 flex items-center justify-center">
+                                                    <i class="fas fa-chart-bar text-white text-sm"></i>
+                                                </div>
+                                                <span class="font-semibold text-gray-800">3. 决策依据</span>
+                                            </div>
+                                            <p class="text-xs text-gray-600 mb-3">10+维度数据，让"投与否"不再是赌运气</p>
+                                            <div class="text-xs text-gray-500 space-y-2">
+                                                <div>区域客流增速 <span class="text-purple-600 font-medium">25%</span></div>
+                                                <div>竞对密度 <span class="text-purple-600 font-medium">每平方公里2家</span></div>
+                                                <div class="pt-2 border-t border-purple-100">历史案例（同区位酒店3年RevPAR增长曲线）</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <!-- 宿析总结 -->
+                                    <div class="bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl p-4 text-white relative z-10" style="background: linear-gradient(90deg, #2f80ed 0%, #11b5d9 100%); box-shadow: 0 14px 30px rgba(47, 128, 237, 0.24);">
+                                        <div class="flex items-center gap-3">
+                                            <i class="fas fa-heart text-xl"></i>
+                                            <div>
+                                                <div class="font-semibold">宿析 莫裕生</div>
+                                                <div class="text-sm text-white/90">让每个筹建决策，都有数据依据——从"要不要做"到"怎么做"，用"智略+智算"双引擎算清"投入产出比、风险收益比、时机适配性"，让酒店投资的"第一笔钱"，花得明白、赚得踏实。</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 阶段2: 开业阶段 -->
+                            <div class="bg-white rounded-2xl border border-green-100 overflow-hidden transition-all duration-300" style="box-shadow: 0 14px 34px rgba(16, 185, 129, 0.10);">
+                                <div class="bg-gradient-to-r from-green-500 to-emerald-500 p-5" style="background: linear-gradient(90deg, #18b981 0%, #0fb9a8 100%);">
+                                    <div class="flex items-center gap-4">
+                                        <div class="w-14 h-14 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center text-2xl font-bold text-white">2</div>
+                                        <div class="flex-1">
+                                            <h3 class="text-xl font-bold text-white">开业阶段</h3>
+                                            <p class="text-green-100 text-sm">从"手忙脚乱上线"到"开业即高效"</p>
+                                        </div>
+                                        <div class="hidden md:flex items-center gap-2 text-green-100 text-sm">
+                                            <i class="fas fa-rocket"></i>
+                                            <span>AI + 智联 + 演练</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="p-5 space-y-4" style="background: linear-gradient(180deg, #ffffff 0%, #f5fffb 50%, #ffffff 100%);">
+                                    <!-- 阶段定位 -->
+                                    <div class="mb-4 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl p-4 border border-green-100" style="background: linear-gradient(90deg, #ecfdf5 0%, #e9fffb 100%);">
+                                        <p class="text-sm text-gray-700"><span class="font-semibold text-green-600">阶段定位：</span>用"AI提效+数据融合"替代"人工协调"，让酒店从"AI部署"到"人员就绪"无缝衔接，确保"开业即跑赢盈利起跑线"。</p>
+                                        <p class="text-sm text-gray-700 mt-2"><span class="font-semibold text-green-600">宿析解法：</span>AI（快速部署AI）+ 嗨蚁 AI（数据融合AI）+ 员工端AI演练（技能速成模块）三管齐下</p>
+                                        <p class="text-sm text-gray-600 mt-2">把"开业混乱期"压缩到最短，用"效率数据"证明"AI部署快、数据不孤岛、员工上手易"，让开业从"救火"变"从容"。</p>
+                                    </div>
+                                    <!-- 核心问题 -->
+                                    <div class="mb-4">
+                                        <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold" style="background: #dffbef; color: #047857;">
+                                            <i class="fas fa-question-circle"></i>
+                                            <span>核心问题：AI能不能快速上线？员工会不会用？</span>
+                                        </div>
+                                    </div>
+                                    <!-- 三大模块 -->
+                                    <div class="grid md:grid-cols-3 gap-4 mb-4">
+                                        <div class="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-4 border border-green-100 h-full" style="box-shadow: 0 10px 24px rgba(16, 185, 129, 0.06);">
+                                            <div class="flex items-center gap-2 mb-2">
+                                                <div class="w-8 h-8 rounded-lg bg-green-500 flex items-center justify-center">
+                                                    <i class="fas fa-bolt text-white text-sm"></i>
+                                                </div>
+                                                <span class="font-semibold text-gray-800">1. AI快上线</span>
+                                            </div>
+                                            <p class="text-xs text-gray-600 mb-3">用"嗨蚁 AI一键部署"解决"接受慢"痛点</p>
+                                            <div class="text-xs text-gray-500 space-y-2">
+                                                <div><span class="text-green-600 font-medium">上线时效</span> 3天完成AI初始化，较传统2周效率提升<span class="text-green-600 font-medium">76%</span></div>
+                                                <div><span class="text-green-600 font-medium">开业就绪度</span> AI上线当天即实现"房态实时更新、订单自动分账、公安数据直传"</div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-4 border border-blue-100 h-full" style="box-shadow: 0 10px 24px rgba(59, 130, 246, 0.06);">
+                                            <div class="flex items-center gap-2 mb-2">
+                                                <div class="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center">
+                                                    <i class="fas fa-network-wired text-white text-sm"></i>
+                                                </div>
+                                                <span class="font-semibold text-gray-800">2. 数据不孤岛</span>
+                                            </div>
+                                            <p class="text-xs text-gray-600 mb-3">用"嗨蚁 AI融合"解决"AI割裂"痛点</p>
+                                            <div class="text-xs text-gray-500 space-y-2">
+                                                <div><span class="text-blue-600 font-medium">单客视图</span> 客户偏好、消费记录、服务历史"一键调取"，服务响应速度提升<span class="text-blue-600 font-medium">80%</span></div>
+                                                <div><span class="text-blue-600 font-medium">连通率</span> AI系统间数据同步延迟≤1秒，连通率达<span class="text-blue-600 font-medium">99.98%</span></div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-gradient-to-br from-orange-50 to-yellow-50 rounded-xl p-4 border border-orange-100 h-full" style="box-shadow: 0 10px 24px rgba(249, 115, 22, 0.06);">
+                                            <div class="flex items-center gap-2 mb-2">
+                                                <div class="w-8 h-8 rounded-lg bg-orange-500 flex items-center justify-center">
+                                                    <i class="fas fa-user-graduate text-white text-sm"></i>
+                                                </div>
+                                                <span class="font-semibold text-gray-800">3. 员工速上手</span>
+                                            </div>
+                                            <p class="text-xs text-gray-600 mb-3">用"AI模拟演练"解决"培训难"痛点</p>
+                                            <div class="text-xs text-gray-500 space-y-2">
+                                                <div><span class="text-orange-600 font-medium">培训时间</span> 新员工从"7天脱岗培训"压缩至"3天AI线上演练+1天现场带教"，总时长缩短<span class="text-orange-600 font-medium">50%</span></div>
+                                                <div><span class="text-orange-600 font-medium">操作熟练度</span> 核心功能操作失误率从25%降至<span class="text-orange-600 font-medium">3%</span></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <!-- 宿析总结 -->
+                                    <div class="bg-gradient-to-r from-green-500 to-emerald-500 rounded-xl p-4 text-white relative z-10" style="background: linear-gradient(90deg, #18b981 0%, #0fb9a8 100%); box-shadow: 0 14px 30px rgba(16, 185, 129, 0.24);">
+                                        <div class="flex items-center gap-3">
+                                            <i class="fas fa-heart text-xl"></i>
+                                            <div>
+                                                <div class="font-semibold">宿析 肖立华</div>
+                                                <div class="text-sm text-white/90">让每个开业决策，都有数据依据——从"AI部署"到"人员就绪"，用AI的"快"、嗨蚁 AI的"通"、AI演练的"准"，将开业准备从"经验试错"转为"数据可控"，确保"开业即高效"，为后续运营盈利抢跑3个月时间。</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 阶段3: 运营阶段 -->
+                            <div class="bg-white rounded-2xl border border-orange-100 overflow-hidden transition-all duration-300" style="box-shadow: 0 14px 34px rgba(249, 115, 22, 0.10);">
+                                <div class="bg-gradient-to-r from-orange-600 via-orange-500 to-red-500 p-5 relative z-10" style="background: linear-gradient(90deg, #f97316 0%, #ef4444 100%);">
+                                    <div class="flex items-center gap-4">
+                                        <div class="w-14 h-14 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center text-2xl font-bold text-white">3</div>
+                                        <div class="flex-1">
+                                            <h3 class="text-xl font-bold text-white">运营阶段</h3>
+                                            <p class="text-orange-100 text-sm">从"凭感觉调策略"到"数据给答案"</p>
+                                        </div>
+                                        <div class="hidden md:flex items-center gap-2 text-orange-100 text-sm">
+                                            <i class="fas fa-cogs"></i>
+                                            <span>智策AI：策源→策析→策见→策案→策行</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="p-5 space-y-4" style="background: linear-gradient(180deg, #ffffff 0%, #fff9f2 50%, #ffffff 100%);">
+                                    <!-- 阶段定位 -->
+                                    <div class="mb-4 bg-gradient-to-r from-orange-50 to-red-50 rounded-xl p-4 border border-orange-100" style="background: linear-gradient(90deg, #fff7ed 0%, #fff1f2 100%);">
+                                        <p class="text-sm text-gray-700"><span class="font-semibold text-orange-600">阶段定位：</span>用"数据推演+模拟验证"替代"经验拍板"，让酒店从"启→稳"阶段，实现"效率升、收益增、体验优"的精细化运营，从"活下来"到"活得好"。</p>
+                                        <p class="text-sm text-gray-700 mt-2"><span class="font-semibold text-orange-600">宿析解法：</span>智策AI（"策"字闭环引擎）</p>
+                                        <p class="text-sm text-gray-600 mt-2">以"策源→策析→策见→策案→策行"的AI驱动闭环，把"模糊的经验判断"变成"可量化、可验证的数据决策"，让"为什么降"有根因、"怎么办"有选项、"效果如何"有追踪。</p>
+                                    </div>
+                                    <!-- 核心问题 -->
+                                    <div class="mb-4">
+                                        <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold" style="background: #ffedd5; color: #c2410c;">
+                                            <i class="fas fa-question-circle"></i>
+                                            <span>核心问题：为什么入住率下降？该怎么提价？</span>
+                                        </div>
+                                    </div>
+                                    <!-- 五大模块 -->
+                                    <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+                                        <div class="bg-gradient-to-br from-orange-50 to-red-50 rounded-xl p-4 border border-orange-100 h-full" style="box-shadow: 0 10px 24px rgba(249, 115, 22, 0.06);">
+                                            <div class="flex items-center gap-2 mb-2">
+                                                <div class="w-8 h-8 rounded-lg bg-orange-500 flex items-center justify-center">
+                                                    <i class="fas fa-search text-white text-sm"></i>
+                                                </div>
+                                                <span class="font-semibold text-gray-800">1. 策源找病灶</span>
+                                            </div>
+                                            <p class="text-xs text-gray-600 mb-3">用"全维数据整合"定位"问题是什么"</p>
+                                            <div class="text-xs text-gray-500 space-y-2">
+                                                <div><span class="text-orange-600 font-medium">实时数据</span> 市场仪表盘显示"入住率环比下降<span class="text-orange-600 font-medium">8%</span>"</div>
+                                                <div><span class="text-orange-600 font-medium">数据覆盖</span> 整合OTA渠道占比（60%）、会员复购率（25%）等<span class="text-orange-600 font-medium">12项</span>指标</div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-4 border border-purple-100 h-full" style="box-shadow: 0 10px 24px rgba(168, 85, 247, 0.06);">
+                                            <div class="flex items-center gap-2 mb-2">
+                                                <div class="w-8 h-8 rounded-lg bg-purple-500 flex items-center justify-center">
+                                                    <i class="fas fa-microscope text-white text-sm"></i>
+                                                </div>
+                                                <span class="font-semibold text-gray-800">2. 策析挖根源</span>
+                                            </div>
+                                            <p class="text-xs text-gray-600 mb-3">用"根因分析AI"回答"为什么降"</p>
+                                            <div class="text-xs text-gray-500 space-y-2">
+                                                <div><span class="text-purple-600 font-medium">根因定位</span> 入住率降【8%】= 竞品分流【20%】+ 展会减少【15%】+ 亲子客流失【10%】</div>
+                                                <div><span class="text-purple-600 font-medium">影响量化</span> 明确"竞品分流"是核心矛盾（贡献60%的下降幅度）</div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-gradient-to-br from-cyan-50 to-blue-50 rounded-xl p-4 border border-cyan-100 h-full" style="box-shadow: 0 10px 24px rgba(6, 182, 212, 0.06);">
+                                            <div class="flex items-center gap-2 mb-2">
+                                                <div class="w-8 h-8 rounded-lg bg-cyan-500 flex items-center justify-center">
+                                                    <i class="fas fa-bell text-white text-sm"></i>
+                                                </div>
+                                                <span class="font-semibold text-gray-800">3. 策见早预警</span>
+                                            </div>
+                                            <p class="text-xs text-gray-600 mb-3">用"智瞰AI监控"提前"防问题"</p>
+                                            <div class="text-xs text-gray-500 space-y-2">
+                                                <div><span class="text-cyan-600 font-medium">预警1</span> "竞品X明日将涨价【15%】"（红色标签标注"紧急"）</div>
+                                                <div><span class="text-cyan-600 font-medium">预警2</span> "本地音乐节下周开幕，预计客流增【80%】"</div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-gradient-to-br from-orange-50 to-amber-50 rounded-xl p-4 border border-orange-100 h-full" style="background: linear-gradient(135deg, #fff7ed 0%, #fffbeb 100%); border: 1px solid #fed7aa; box-shadow: 0 10px 24px rgba(249, 115, 22, 0.06);">
+                                            <div class="flex items-center gap-2 mb-2">
+                                                <div class="w-8 h-8 rounded-lg bg-orange-500 flex items-center justify-center" style="background: #f97316;">
+                                                    <i class="fas fa-lightbulb text-white text-sm"></i>
+                                                </div>
+                                                <span class="font-semibold text-gray-800">4. 策案给选项</span>
+                                            </div>
+                                            <p class="text-xs text-gray-600 mb-3">用"智算AI模拟"回答"怎么办"</p>
+                                            <div class="text-xs text-gray-500 space-y-2">
+                                                <div><span class="text-orange-600 font-medium" style="color: #ea580c;">模拟结果</span> "涨价【8%】+ 推亲子套餐"预计RevPAR升【13%】</div>
+                                                <div><span class="text-orange-600 font-medium" style="color: #ea580c;">选项说明</span> 输出"保守方案""进取方案""平衡方案"各方案适用场景</div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl p-4 border border-indigo-100 h-full" style="box-shadow: 0 10px 24px rgba(99, 102, 241, 0.06);">
+                                            <div class="flex items-center gap-2 mb-2">
+                                                <div class="w-8 h-8 rounded-lg bg-indigo-500 flex items-center justify-center">
+                                                    <i class="fas fa-play-circle text-white text-sm"></i>
+                                                </div>
+                                                <span class="font-semibold text-gray-800">5. 策行追效果</span>
+                                            </div>
+                                            <p class="text-xs text-gray-600 mb-3">用"智达AI执行"验证"效果好不好"</p>
+                                            <div class="text-xs text-gray-500 space-y-2">
+                                                <div><span class="text-indigo-600 font-medium">执行效率</span> 策略同步时间从"1天"缩至"<span class="text-indigo-600 font-medium">10分钟</span>"</div>
+                                                <div><span class="text-indigo-600 font-medium">效果追踪</span> 套餐销量日环比增【25%】、入住率回升【3%】</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <!-- 宿析总结 -->
+                                    <div class="bg-gradient-to-r from-orange-600 via-orange-500 to-red-500 rounded-xl p-4 text-white relative z-10" style="background: linear-gradient(90deg, #f97316 0%, #ef4444 100%); box-shadow: 0 14px 30px rgba(249, 115, 22, 0.24);">
+                                        <div class="flex items-center gap-3">
+                                            <i class="fas fa-heart text-xl"></i>
+                                            <div>
+                                                <div class="font-semibold">宿析 刑明礼</div>
+                                                <div class="text-sm text-white/90">让每个运营决策，都有数据依据——从"为什么降"到"怎么办"，用智策AI的"策字闭环"把"凭感觉调策略"转为"数据给答案"：策源找病灶、策析挖根源、策见早预警、策案给选项、策行追效果，让提价、促销不再靠猜，最终实现"稳定盈利"的运营目标。</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 阶段4: 扩张阶段 -->
+                            <div class="bg-white rounded-2xl border border-indigo-100 overflow-hidden transition-all duration-300" style="box-shadow: 0 14px 34px rgba(79, 70, 229, 0.10);">
+                                <div class="p-5 relative z-10" style="background: linear-gradient(90deg, #5b5ff7 0%, #8b5cf6 100%);">
+                                    <div class="flex flex-wrap items-center gap-3 sm:gap-4">
+                                        <div class="w-12 h-12 sm:w-14 sm:h-14 rounded-xl flex-none flex items-center justify-center text-2xl font-bold" style="background: rgba(255,255,255,0.18); color: #ffffff; border: 1px solid rgba(255,255,255,0.24);">4</div>
+                                        <div class="flex-none min-w-max">
+                                            <h3 class="text-lg sm:text-xl font-bold leading-tight whitespace-nowrap" style="color: #ffffff; text-shadow: 0 1px 2px rgba(31, 41, 55, 0.22);">扩张阶段</h3>
+                                            <p class="text-sm" style="color: rgba(255,255,255,0.88);">从"盲目复制"到"精准扩量"</p>
+                                        </div>
+                                        <div class="hidden md:flex items-center gap-2 text-sm ml-auto shrink-0" style="color: rgba(255,255,255,0.88);">
+                                            <i class="fas fa-expand-arrows-alt"></i>
+                                            <span>智投 + 智瞰 + 智联</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="p-5 space-y-4" style="background: linear-gradient(180deg, #fbfbff 0%, #f7f5ff 54%, #ffffff 100%);">
+                                    <div class="mb-4">
+                                        <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold" style="background: #e9e8ff; color: #4338ca;">
+                                            <i class="fas fa-question-circle"></i>
+                                            <span>核心问题：新市场能不能进？复制哪家店的模式？</span>
+                                        </div>
+                                    </div>
+                                    <div class="bg-gradient-to-r from-indigo-50 to-violet-50 rounded-xl p-4 mb-4" style="background: linear-gradient(90deg, #ebeaff 0%, #f4edff 100%); border: 1px solid #dedcff;">
+                                        <div class="flex items-center gap-2 mb-2">
+                                            <i class="fas fa-lightbulb text-indigo-600"></i>
+                                            <span class="font-semibold text-gray-800">阶段定位</span>
+                                        </div>
+                                        <p class="text-sm text-gray-600">用"AI评估+数据选模"替代"经验判断"，让酒店从"稳→量"（稳定到规模增长）阶段，实现"进对市场、复制对模式、扩张提效率"的精准扩量，让规模增长不踩坑。</p>
+                                    </div>
+                                    <div class="bg-gradient-to-r from-indigo-50 to-violet-50 rounded-xl p-4 mb-4" style="background: linear-gradient(90deg, #ebeaff 0%, #f4edff 100%); border: 1px solid #dedcff;">
+                                        <div class="flex items-center gap-2 mb-2">
+                                            <i class="fas fa-cogs text-indigo-600"></i>
+                                            <span class="font-semibold text-gray-800">宿析解法</span>
+                                        </div>
+                                        <p class="text-sm text-gray-600 mb-2">智投AI（投资分析AI）+ 智瞰AI（态势感知AI）+ 智联AI（协同优化AI）三管齐下</p>
+                                        <p class="text-sm text-gray-600">把"扩张的盲目性"转为"数据的确定性"，用"市场评估、标杆选模、协同提效"三步，让"能不能进"有依据、"复制谁"有标准、"扩张后"有效率。</p>
+                                    </div>
+                                    <div class="grid md:grid-cols-3 gap-4 mb-4">
+                                        <div class="bg-gradient-to-br from-indigo-50 to-violet-50 rounded-xl p-4" style="background: linear-gradient(135deg, #eceeff 0%, #f5efff 100%); border: 1px solid #dfe2ff; box-shadow: 0 12px 26px rgba(79, 70, 229, 0.08);">
+                                            <div class="flex items-center gap-2 mb-2">
+                                                <div class="w-8 h-8 rounded-lg bg-indigo-500 flex items-center justify-center">
+                                                    <i class="fas fa-chart-line text-white text-sm"></i>
+                                                </div>
+                                                <span class="font-semibold text-gray-800">1. 智投评市场</span>
+                                            </div>
+                                            <p class="text-sm text-gray-600 mb-2">用"市场评估AI"解决"能不能进"痛点</p>
+                                            <p class="text-xs text-gray-500 mb-2">智投AI整合"目标区域客流增速、竞对密度、消费能力、政策红利"等10+维度数据，通过"市场潜力模型"输出《新市场进入可行性报告》</p>
+                                            <div class="mt-3 pt-3 border-t border-indigo-100">
+                                                <div class="text-xs text-gray-500 space-y-1">
+                                                    <div class="flex items-center gap-1"><i class="fas fa-users text-indigo-400"></i> 客流增速：三线城市年增 <span class="font-semibold text-indigo-600">28%</span></div>
+                                                    <div class="flex items-center gap-1"><i class="fas fa-building text-indigo-400"></i> 竞对密度：每平方公里 <span class="font-semibold text-indigo-600">2.5家</span></div>
+                                                    <div class="flex items-center gap-1"><i class="fas fa-wallet text-indigo-400"></i> 消费能力：人均GDP <span class="font-semibold text-indigo-600">13万元</span></div>
+                                                    <div class="flex items-center gap-1"><i class="fas fa-percentage text-indigo-400"></i> 综合结论：3年ROI预测 <span class="font-semibold text-indigo-600">22%</span></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-gradient-to-br from-indigo-50 to-violet-50 rounded-xl p-4" style="background: linear-gradient(135deg, #eceeff 0%, #f5efff 100%); border: 1px solid #dfe2ff; box-shadow: 0 12px 26px rgba(79, 70, 229, 0.08);">
+                                            <div class="flex items-center gap-2 mb-2">
+                                                <div class="w-8 h-8 rounded-lg bg-indigo-500 flex items-center justify-center">
+                                                    <i class="fas fa-eye text-white text-sm"></i>
+                                                </div>
+                                                <span class="font-semibold text-gray-800">2. 智瞰选标杆</span>
+                                            </div>
+                                            <p class="text-sm text-gray-600 mb-2">用"标杆分析AI"解决"复制谁"痛点</p>
+                                            <p class="text-xs text-gray-500 mb-2">实时监控各门店"OCC（入住率）、ADR（平均房价）、RevPAR（每间可售房收入）"，通过"标杆筛选模型"识别"高收益店"及其成功模式</p>
+                                            <div class="mt-3 pt-3 border-t border-indigo-100">
+                                                <div class="text-xs text-gray-500 space-y-1">
+                                                    <div class="flex items-center gap-1"><i class="fas fa-star text-indigo-500"></i> 标杆识别：A店"亲子套餐"贡献 <span class="font-semibold text-indigo-600">40%</span> 营收</div>
+                                                    <div class="flex items-center gap-1"><i class="fas fa-balance-scale text-indigo-500"></i> 模式对比：会员复购率 A店<span class="font-semibold text-indigo-600">50%</span> vs B店<span class="font-semibold text-indigo-600">25%</span></div>
+                                                    <div class="flex items-center gap-1"><i class="fas fa-exclamation-triangle text-yellow-500"></i> 风险提示：C店"过度依赖散客"RevPAR波动大</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-gradient-to-br from-pink-50 to-rose-50 rounded-xl p-4" style="background: linear-gradient(135deg, #fff0f8 0%, #fff7fb 100%); border: 1px solid #ffd7ea; box-shadow: 0 12px 26px rgba(236, 72, 153, 0.08);">
+                                            <div class="flex items-center gap-2 mb-2">
+                                                <div class="w-8 h-8 rounded-lg bg-pink-500 flex items-center justify-center">
+                                                    <i class="fas fa-link text-white text-sm"></i>
+                                                </div>
+                                                <span class="font-semibold text-gray-800">3. 智联提效率</span>
+                                            </div>
+                                            <p class="text-sm text-gray-600 mb-2">用"协同优化AI"解决"扩张后效率"痛点</p>
+                                            <p class="text-xs text-gray-500 mb-2">打通总部与门店"采购、营销、会员"体系，通过"资源调度模型"实现规模化降本增效</p>
+                                            <div class="mt-3 pt-3 border-t border-pink-100">
+                                                <div class="text-xs text-gray-500 space-y-1">
+                                                    <div class="flex items-center gap-1"><i class="fas fa-coins text-pink-500"></i> 成本降低：单店运营成本降 <span class="font-semibold text-pink-600">20%</span></div>
+                                                    <div class="flex items-center gap-1"><i class="fas fa-clock text-pink-500"></i> 效率提升：采购周期从7天缩至 <span class="font-semibold text-pink-600">3天</span></div>
+                                                    <div class="flex items-center gap-1"><i class="fas fa-users-cog text-pink-500"></i> 会员共享：复购率提升 <span class="font-semibold text-pink-600">30%</span></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="bg-gradient-to-r from-indigo-100 to-violet-100 rounded-xl p-4 mb-4" style="background: linear-gradient(90deg, #e2e5ff 0%, #ede4ff 100%); border: 1px solid #d5d1ff;">
+                                        <div class="flex items-center gap-2 mb-2">
+                                            <i class="fas fa-chart-pie text-indigo-600"></i>
+                                            <span class="font-semibold text-gray-800">4. 决策依据：扩张决策数据看板</span>
+                                        </div>
+                                        <div class="grid md:grid-cols-3 gap-3 mt-3">
+                                            <div class="bg-white/60 rounded-lg p-3">
+                                                <div class="text-xs font-medium text-indigo-700 mb-1">智投：市场评估雷达图</div>
+                                                <div class="text-xs text-gray-600">客流【28%】、竞对【2.5家/km²】、消费【13万元】</div>
+                                            </div>
+                                            <div class="bg-white/60 rounded-lg p-3">
+                                                <div class="text-xs font-medium text-cyan-700 mb-1">智瞰：标杆门店对比表</div>
+                                                <div class="text-xs text-gray-600">A店亲子套餐【40%】营收、复购率【50%】</div>
+                                            </div>
+                                            <div class="bg-white/60 rounded-lg p-3">
+                                                <div class="text-xs font-medium text-pink-700 mb-1">智联：成本对比图</div>
+                                                <div class="text-xs text-gray-600">单店成本降【20%】、采购周期【3天】</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="bg-gradient-to-r from-indigo-500 to-violet-500 rounded-xl p-4 text-white relative z-10" style="background: linear-gradient(90deg, #5b5ff7 0%, #8b5cf6 100%); box-shadow: 0 14px 30px rgba(91, 95, 247, 0.28);">
+                                        <div class="flex items-center gap-3">
+                                            <i class="fas fa-heart text-xl"></i>
+                                            <div>
+                                                <div class="font-semibold">宿析 苏鸫</div>
+                                                <div class="text-sm text-white/80">让每个扩张决策，都有数据依据——从"能不能进"到"复制谁"，用智投AI的"市场评估"算清"进对门"、智瞰AI的"标杆选模"找准"复制谁"、智联AI的"协同提效"确保"扩张稳"，让规模增长从"盲目试错"转为"数据可控"，最终实现"扩量不踩坑、增长有质量"</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 阶段5: 转让阶段 -->
+                            <div class="bg-white rounded-2xl border border-purple-100 overflow-hidden transition-all duration-300" style="box-shadow: 0 14px 34px rgba(168, 85, 247, 0.10);">
+                                <div class="p-5 relative z-10" style="background: linear-gradient(90deg, #8b5cf6 0%, #ec4899 100%);">
+                                    <div class="flex flex-wrap items-center gap-3 sm:gap-4">
+                                        <div class="w-12 h-12 sm:w-14 sm:h-14 rounded-xl flex-none flex items-center justify-center text-2xl font-bold" style="background: rgba(255,255,255,0.18); color: #ffffff; border: 1px solid rgba(255,255,255,0.24);">5</div>
+                                        <div class="flex-none min-w-max">
+                                            <h3 class="text-lg sm:text-xl font-bold leading-tight whitespace-nowrap" style="color: #ffffff; text-shadow: 0 1px 2px rgba(31, 41, 55, 0.22);">转让阶段</h3>
+                                            <p class="text-sm" style="color: rgba(255,255,255,0.88);">从"纠结何时卖"到"算清变现价"</p>
+                                        </div>
+                                        <div class="hidden md:flex items-center gap-2 text-sm ml-auto shrink-0" style="color: rgba(255,255,255,0.88);">
+                                            <i class="fas fa-balance-scale"></i>
+                                            <span>智算 + 智略</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="p-5 space-y-4" style="background: linear-gradient(180deg, #fffaff 0%, #fff4fb 54%, #ffffff 100%);">
+                                    <div class="mb-4">
+                                        <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold" style="background: #f2e7ff; color: #7c3aed;">
+                                            <i class="fas fa-question-circle"></i>
+                                            <span>核心问题：现在卖划算吗？能卖多少钱？</span>
+                                        </div>
+                                    </div>
+                                    <div class="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-4 mb-4" style="background: linear-gradient(90deg, #f2e7ff 0%, #ffeaf5 100%); border: 1px solid #e8d3ff;">
+                                        <div class="flex items-center gap-2 mb-2">
+                                            <i class="fas fa-lightbulb text-purple-600"></i>
+                                            <span class="font-semibold text-gray-800">阶段定位</span>
+                                        </div>
+                                        <p class="text-sm text-gray-600">用"AI定价+时机推演"替代"经验纠结"，让酒店从"量→退"（规模增长到价值兑现）阶段，实现"算清卖价、择对时机、变现增值"的精准转让，让资产价值最大化。</p>
+                                    </div>
+                                    <div class="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-4 mb-4" style="background: linear-gradient(90deg, #f2e7ff 0%, #ffeaf5 100%); border: 1px solid #e8d3ff;">
+                                        <div class="flex items-center gap-2 mb-2">
+                                            <i class="fas fa-cogs text-purple-600"></i>
+                                            <span class="font-semibold text-gray-800">宿析解法</span>
+                                        </div>
+                                        <p class="text-sm text-gray-600 mb-2">智算AI（资产定价AI）+ 智略AI（时机推演AI）双轮驱动</p>
+                                        <p class="text-sm text-gray-600">把"转让的博弈感"转为"数据的确定性"，用"定价模型算清'卖多少'、时机推演选对'何时卖'"，让"卖不卖、卖多少、何时卖"都有数据撑腰。</p>
+                                    </div>
+                                    <div class="grid md:grid-cols-2 gap-4 mb-4">
+                                        <div class="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-4" style="background: linear-gradient(135deg, #f1e7ff 0%, #fff0f8 100%); border: 1px solid #e6d1ff; box-shadow: 0 12px 26px rgba(139, 92, 246, 0.08);">
+                                            <div class="flex items-center gap-2 mb-2">
+                                                <div class="w-8 h-8 rounded-lg bg-purple-500 flex items-center justify-center">
+                                                    <i class="fas fa-calculator text-white text-sm"></i>
+                                                </div>
+                                                <span class="font-semibold text-gray-800">1. 智算定价格</span>
+                                            </div>
+                                            <p class="text-sm text-gray-600 mb-2">用"资产定价AI"解决"能卖多少钱"痛点</p>
+                                            <p class="text-xs text-gray-500 mb-2">整合"市场供需、折旧成本、可比案例、未来收益"等10+维度数据，通过"收益法+市场法+成本法"三维模型生成《资产估值报告》</p>
+                                            <div class="mt-3 pt-3 border-t border-purple-100">
+                                                <div class="text-xs text-gray-500 space-y-1">
+                                                    <div class="flex items-center gap-1"><i class="fas fa-chart-bar text-purple-400"></i> 市场供需：文旅地产热季"供需比1:3"</div>
+                                                    <div class="flex items-center gap-1"><i class="fas fa-minus-circle text-purple-400"></i> 折旧成本：年均折旧率 <span class="font-semibold text-purple-600">5%</span></div>
+                                                    <div class="flex items-center gap-1"><i class="fas fa-coins text-purple-400"></i> 未来收益折现：【2500万】（按8%折现率）</div>
+                                                    <div class="flex items-center gap-1"><i class="fas fa-building text-purple-400"></i> 可比案例：同档次成交价【2400万】vs 智算估值【2600万】（含品牌溢价10%）</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-4" style="background: linear-gradient(135deg, #f1e7ff 0%, #fff0f8 100%); border: 1px solid #e6d1ff; box-shadow: 0 12px 26px rgba(139, 92, 246, 0.08);">
+                                            <div class="flex items-center gap-2 mb-2">
+                                                <div class="w-8 h-8 rounded-lg bg-purple-500 flex items-center justify-center">
+                                                    <i class="fas fa-chess text-white text-sm"></i>
+                                                </div>
+                                                <span class="font-semibold text-gray-800">2. 智略择时机</span>
+                                            </div>
+                                            <p class="text-sm text-gray-600 mb-2">用"时机推演AI"解决"现在卖划算吗"痛点</p>
+                                            <p class="text-xs text-gray-500 mb-2">模拟"不同出售时机+资金再投资"的收益组合，通过"机会成本模型"输出《转让时机建议书》</p>
+                                            <div class="mt-3 pt-3 border-t border-purple-100">
+                                                <div class="text-xs text-gray-500 space-y-1">
+                                                    <div class="flex items-center gap-1"><i class="fas fa-calendar-alt text-purple-500"></i> 时机对比：明年Q3出售可享文旅热季溢价 <span class="font-semibold text-purple-600">15%</span></div>
+                                                    <div class="flex items-center gap-1"><i class="fas fa-redo text-purple-500"></i> 再投资收益：售房款投"新区域中端酒店"IRR达 <span class="font-semibold text-purple-600">20%</span></div>
+                                                    <div class="flex items-center gap-1"><i class="fas fa-exclamation-triangle text-red-400"></i> 风险预警：后年Q2新竞品入市，售价或下跌 <span class="font-semibold text-red-500">8%</span></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="bg-gradient-to-r from-purple-100 to-pink-100 rounded-xl p-4 mb-4" style="background: linear-gradient(90deg, #e8dcff 0%, #ffddec 100%); border: 1px solid #dec6ff;">
+                                        <div class="flex items-center gap-2 mb-2">
+                                            <i class="fas fa-chart-pie text-purple-600"></i>
+                                            <span class="font-semibold text-gray-800">3. 决策依据：转让决策数据看板</span>
+                                        </div>
+                                        <div class="grid md:grid-cols-2 gap-3 mt-3">
+                                            <div class="bg-white/60 rounded-lg p-3">
+                                                <div class="text-xs font-medium text-purple-700 mb-1">智算：资产估值报告摘要</div>
+                                                <div class="text-xs text-gray-600">智算估值【2600万】、年均折旧【5%】、收益折现价【2500万】</div>
+                                            </div>
+                                            <div class="bg-white/60 rounded-lg p-3">
+                                                <div class="text-xs font-medium text-amber-700 mb-1">智略：时机收益对比表</div>
+                                                <div class="text-xs text-gray-600">明年Q3出售溢价【15%】、再投资IRR【20%】</div>
+                                            </div>
+                                            <div class="bg-white/60 rounded-lg p-3 md:col-span-2">
+                                                <div class="text-xs font-medium text-red-600 mb-1">风险提示</div>
+                                                <div class="text-xs text-gray-600">竞品入市影响（售价【-8%】）、政策变动预警</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="bg-gradient-to-r from-violet-500 to-pink-500 rounded-xl p-4 text-white relative z-10" style="background: linear-gradient(90deg, #8b5cf6 0%, #ec4899 100%); box-shadow: 0 14px 30px rgba(236, 72, 153, 0.24);">
+                                        <div class="flex items-center gap-3">
+                                            <i class="fas fa-heart text-xl"></i>
+                                            <div>
+                                                <div class="font-semibold">宿析 殷涛</div>
+                                                <div class="text-sm text-white/90">让每个转让决策，都有数据依据——从"卖不卖"到"卖多少"，用智算AI的"资产定价"算清"合理售价"、智略AI的"时机推演"选对"变现窗口"，将转让从"纠结博弈"转为"数据可控"，最终实现"资产价值最大化"（如"溢价【15%】出售+再投资IRR【20%】"的双重收益）</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 底部总结 -->
+                        <div class="suxi-lifecycle-footer mt-8 bg-gradient-to-r from-gray-900 to-gray-800 rounded-2xl p-6 text-white text-center">
+                            <div class="text-3xl mb-3">
+                                <i class="fas fa-infinity"></i>
+                            </div>
+                            <h3 class="text-xl font-bold mb-2">宿析OS - 让每个决策，都有数据依据</h3>
+                            <p class="text-gray-400 text-sm">筹建 → 开业 → 运营 → 扩张 → 转让，5大阶段全覆盖</p>
+                        </div>
+                    </div>
+
+                    <!-- 操作日志管理 (仅超级管理员) -->

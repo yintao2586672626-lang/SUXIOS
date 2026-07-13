@@ -11,3 +11,4 @@ hotelx_dump.sql export-ignore
 *_backup*.sql export-ignore
 .env export-ignore
 .env.* export-ignore
+resources/frontend/templates/fragments/*.html whitespace=-blank-at-eof

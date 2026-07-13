@@ -1,0 +1,13 @@
+        <!-- Toast 提示 -->
+        <div v-if="toast.show" class="fixed top-4 right-4 z-50 px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 animate-slide-in" :class="{
+                'bg-green-500 text-white': toast.type === 'success',
+                'bg-red-500 text-white': toast.type === 'error',
+                'bg-yellow-500 text-white': toast.type === 'warning',
+                'bg-blue-500 text-white': toast.type === 'info'
+            }">
+            <i v-if="toast.type === 'success'" class="fas fa-check-circle"></i>
+            <i v-else-if="toast.type === 'error'" class="fas fa-exclamation-circle"></i>
+            <i v-else-if="toast.type === 'warning'" class="fas fa-exclamation-triangle"></i>
+            <i v-else-if="toast.type === 'info'" class="fas fa-info-circle"></i>
+            <span>{{ toast.message }}</span>
+        </div>

@@ -1,0 +1,128 @@
+                    <div v-if="currentPage === 'collaboration-efficiency' || currentPage === 'sync-efficiency'">
+                        <div class="ai-page-hero mb-6 rounded-2xl p-6 text-white bg-gradient-to-r from-slate-900 via-blue-900 to-cyan-800 shadow-sm">
+                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                                <div>
+                                    <h2 class="text-2xl font-bold">智联·协同提效</h2>
+                                    <p class="text-sm text-cyan-100 mt-1">二期协同能力：将扩张项目拆解为评估、签约、筹建、上线任务</p>
+                                </div>
+                                <button @click="handleCollaborationEfficiency" :disabled="collaborationEfficiencyLoading" class="bg-white/15 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-60 disabled:cursor-not-allowed">
+                                    <i :class="collaborationEfficiencyLoading ? 'fas fa-spinner fa-spin' : 'fas fa-link'"></i>
+                                    <span>{{ collaborationEfficiencyLoading ? '生成中...' : '生成协同看板' }}</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                            <div class="xl:col-span-4 space-y-5">
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <h3 class="font-bold text-gray-800 mb-4">项目概览</h3>
+                                    <div class="space-y-4">
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">项目名称</label>
+                                            <input v-model="collaborationProject.project_name" class="input-field w-full">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">城市/区域</label>
+                                            <input v-model="collaborationProject.city_area" class="input-field w-full">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">当前阶段</label>
+                                            <select v-model="collaborationProject.current_stage" class="input-field w-full">
+                                                <option>评估</option>
+                                                <option>签约</option>
+                                                <option>筹建</option>
+                                                <option>上线</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">负责人</label>
+                                            <input v-model="collaborationProject.owner" class="input-field w-full">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">预计上线时间</label>
+                                            <input type="date" v-model="collaborationProject.expected_online_date" class="input-field w-full">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="xl:col-span-8 space-y-5">
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <h3 class="font-bold text-gray-800 mb-4">任务看板</h3>
+                                    <div class="overflow-x-auto">
+                                        <table class="min-w-full text-sm">
+                                            <thead class="bg-gray-50 text-gray-500">
+                                                <tr>
+                                                    <th class="px-3 py-3 text-left">任务</th>
+                                                    <th class="px-3 py-3 text-left">状态</th>
+                                                    <th class="px-3 py-3 text-left">负责人</th>
+                                                    <th class="px-3 py-3 text-left">截止时间</th>
+                                                    <th class="px-3 py-3 text-left">风险说明</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="divide-y divide-gray-100">
+                                                <tr v-for="task in collaborationTasks" :key="task.name">
+                                                    <td class="px-3 py-3 font-medium text-gray-800">{{ task.name }}</td>
+                                                    <td class="px-3 py-3">
+                                                        <select v-model="task.status" class="input-field w-28">
+                                                            <option v-for="status in collaborationStatusOptions" :key="status">{{ status }}</option>
+                                                        </select>
+                                                    </td>
+                                                    <td class="px-3 py-3">
+                                                        <input v-model="task.owner" class="input-field w-28">
+                                                    </td>
+                                                    <td class="px-3 py-3">
+                                                        <input type="date" v-model="task.due_date" class="input-field w-36">
+                                                    </td>
+                                                    <td class="px-3 py-3">
+                                                        <input v-model="task.risk_note" class="input-field w-48">
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <template v-if="collaborationEfficiencyResult">
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                                            <div class="text-xs text-gray-500">当前项目进度</div>
+                                            <div class="text-3xl font-bold text-blue-700 mt-2">{{ collaborationEfficiencyResult.progress.percent }}%</div>
+                                            <div class="text-xs text-gray-400 mt-1">{{ collaborationEfficiencyResult.progress.status_text }}</div>
+                                        </div>
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                                            <div class="text-xs text-gray-500">延误风险</div>
+                                            <div class="mt-2">
+                                                <span :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(collaborationEfficiencyResult.delay_risk.level)]">{{ collaborationEfficiencyResult.delay_risk.level }}</span>
+                                            </div>
+                                        </div>
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                                            <div class="text-xs text-gray-500">距上线</div>
+                                            <div class="text-2xl font-bold text-gray-800 mt-2">{{ collaborationEfficiencyResult.project_overview.days_to_online }}天</div>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                            <h3 class="font-bold text-gray-800 mb-3">延误风险</h3>
+                                            <div class="space-y-2 text-sm text-gray-700">
+                                                <div v-for="item in collaborationEfficiencyResult.delay_risk.points" :key="item" class="flex gap-2">
+                                                    <i class="fas fa-exclamation-triangle text-amber-500 mt-1"></i>
+                                                    <span>{{ item }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                            <h3 class="font-bold text-gray-800 mb-3">下一步动作建议</h3>
+                                            <div class="space-y-2 text-sm text-gray-700">
+                                                <div v-for="item in collaborationEfficiencyResult.next_actions" :key="item" class="flex gap-2">
+                                                    <i class="fas fa-arrow-right text-blue-500 mt-1"></i>
+                                                    <span>{{ item }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+

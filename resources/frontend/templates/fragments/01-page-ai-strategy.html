@@ -1,0 +1,245 @@
+                    <div v-if="currentPage === 'ai-strategy'">
+                        <div class="ai-page-hero mb-6 rounded-2xl p-6 text-white bg-gradient-to-r from-slate-900 via-blue-900 to-indigo-800 shadow-sm">
+                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                                <div>
+                                    <h2 class="text-2xl font-bold">智略·战略推演</h2>
+                                    <p class="text-sm text-blue-100 mt-1">判断项目适不适合做酒店，以及适合做什么模型</p>
+                                </div>
+                                <button @click="handleStrategy" :disabled="aiStrategyLoading" class="bg-white/15 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-60 disabled:cursor-not-allowed">
+                                    <i :class="aiStrategyLoading ? 'fas fa-spinner fa-spin' : 'fas fa-chess'"></i>
+                                    <span>{{ aiStrategyLoading ? '推演中...' : '生成战略推荐' }}</span>
+                                </button>
+                                <button @click="loadStrategyRecords" :disabled="aiStrategyRecordsLoading" class="bg-white/10 hover:bg-white/15 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-50">
+                                    <i :class="aiStrategyRecordsLoading ? 'fas fa-spinner fa-spin' : 'fas fa-history'"></i>
+                                    <span>刷新历史</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                            <div class="xl:col-span-7 space-y-5">
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <h3 class="font-bold text-gray-800 mb-4 flex items-center gap-2"><i class="fas fa-building text-blue-500"></i> 项目基础信息</h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">项目名称</label>
+                                            <input v-model="aiProject.project_name" data-testid="field-strategy-project-name" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">城市线级</label>
+                                            <select v-model="aiProject.city_tier" data-testid="field-strategy-city-tier" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                                <option v-for="tier in marketEvaluationCityTierOptions" :key="tier" :value="tier">{{ tier }}</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">城市</label>
+                                            <select v-model="aiProject.city" data-testid="field-strategy-city" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                                <option v-for="city in filteredStrategyCityOptions" :key="city.name" :value="city.name">{{ city.name }}</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">区域</label>
+                                            <select v-model="aiProject.district" data-testid="field-strategy-district" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                                <option v-for="district in filteredStrategyDistrictOptions" :key="district" :value="district">{{ district }}</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">地址</label>
+                                            <select v-model="aiProject.address" data-testid="field-strategy-address" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                                <option v-for="keyword in filteredStrategyAddressKeywordOptions" :key="keyword" :value="keyword">{{ keyword }}</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">物业面积(㎡)</label>
+                                            <input type="number" v-model.number="aiProject.property_area" data-testid="field-strategy-property-area" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">计划房间数</label>
+                                            <input type="number" v-model.number="aiProject.room_count" data-testid="field-strategy-room-count" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">月租金(元)</label>
+                                            <input type="number" v-model.number="aiProject.monthly_rent" data-testid="field-strategy-monthly-rent" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">装修预算(元)</label>
+                                            <input type="number" v-model.number="aiProject.decoration_budget" data-testid="field-strategy-decoration-budget" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">租期(年)</label>
+                                            <input type="number" v-model.number="aiProject.lease_years" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">免租期(月)</label>
+                                            <input type="number" v-model.number="aiProject.rent_free_months" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                        <h3 class="font-bold text-gray-800 mb-4">市场需求判断</h3>
+                                        <div class="space-y-3">
+                                            <div>
+                                                <label class="block text-xs text-gray-500 mb-1">商圈类型</label>
+                                                <select v-model="aiProject.business_type" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                                    <option>核心商务区</option>
+                                                    <option>交通枢纽</option>
+                                                    <option>文旅景区</option>
+                                                    <option>社区配套</option>
+                                                    <option>产业园区</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs text-gray-500 mb-1">主要客源</label>
+                                                <select v-model="aiProject.primary_customer" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                                    <option>商务差旅</option>
+                                                    <option>会议会展</option>
+                                                    <option>休闲旅游</option>
+                                                    <option>长住公寓</option>
+                                                    <option>电竞娱乐</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                        <h3 class="font-bold text-gray-800 mb-4">竞争与定位判断</h3>
+                                        <div class="space-y-3">
+                                            <div>
+                                                <label class="block text-xs text-gray-500 mb-1">周边竞品数量</label>
+                                                <input type="number" v-model.number="aiProject.competitor_count" data-testid="field-strategy-competitor-count" readonly="" class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-700 cursor-not-allowed focus:ring-2 focus:ring-blue-500 outline-none">
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs text-gray-500 mb-1">目标酒店档次</label>
+                                                <select v-model="aiProject.target_grade" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                                                    <option>经济型</option>
+                                                    <option>中端精选</option>
+                                                    <option>中高端商务</option>
+                                                    <option>精品度假</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="xl:col-span-5 space-y-5">
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <div class="flex items-center justify-between mb-4">
+                                        <h3 class="font-bold text-gray-800">AI赋能战略推演结果</h3>
+                                        <div v-if="aiStrategyResult" class="flex items-center gap-2">
+                                            <span v-if="aiStrategyResult.ai_evaluation" :class="['px-2 py-1 rounded text-xs border', aiStrategyResult.ai_evaluation.source === 'llm' ? 'bg-cyan-50 text-cyan-700 border-cyan-100' : 'bg-gray-50 text-gray-600 border-gray-100']">{{ strategyAiSourceLabel }}</span>
+                                            <span class="px-2 py-1 rounded text-xs border bg-slate-50 text-slate-600 border-slate-200">{{ strategyFreshnessLabel }}</span>
+                                            <span :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(aiStrategyResult.risk_level)]">{{ aiStrategyResult.risk_level }}</span>
+                                        </div>
+                                    </div>
+                                    <div v-if="aiStrategyResult" class="space-y-5">
+                                        <div v-if="strategyDataNotice" class="rounded-lg border border-amber-100 bg-amber-50 text-amber-700 text-xs px-3 py-2">
+                                            {{ strategyDataNotice }}
+                                        </div>
+                                        <div v-if="strategyCurrentReadiness" class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                                            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                                                <div>
+                                                    <div class="font-semibold">{{ strategyCurrentReadiness.notice }}</div>
+                                                    <div class="mt-1">{{ simulationReadinessMissingText(strategyCurrentReadiness) }}</div>
+                                                </div>
+                                                <span :class="['rounded-md border px-2.5 py-1 whitespace-nowrap', simulationReadinessBadgeClass(strategyCurrentReadiness.stage)]">
+                                                    {{ strategyCurrentReadiness.status_label }} · {{ strategyCurrentReadiness.score }}分
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div class="rounded-lg border border-slate-100 bg-slate-50 p-3 text-xs text-slate-600">
+                                            <div class="font-semibold text-slate-800 mb-2">数据口径</div>
+                                            <div class="space-y-1">
+                                                <div v-for="row in strategyDataSourceRows" :key="row.label" class="flex items-start justify-between gap-3">
+                                                    <span class="text-slate-500">{{ row.label }}</span>
+                                                    <span class="text-right text-slate-700">{{ row.value }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div v-if="aiStrategyResult.ai_evaluation" class="border-l-4 border-cyan-400 bg-cyan-50/60 px-3 py-2 text-sm text-slate-700">
+                                            <div class="flex items-center justify-between gap-3 mb-1">
+                                                <div class="font-semibold text-cyan-900">AI推演结论</div>
+                                                <span class="text-xs text-cyan-700">{{ strategyAiSourceLabel }}</span>
+                                            </div>
+                                            <p v-if="aiStrategyResult.ai_evaluation.summary" class="text-xs text-slate-600">{{ aiStrategyResult.ai_evaluation.summary }}</p>
+                                            <div v-if="aiStrategyResult.ai_evaluation.decision" class="mt-2 text-sm font-medium text-slate-800">{{ aiStrategyResult.ai_evaluation.decision }}</div>
+                                            <div v-if="aiStrategyResult.ai_evaluation.key_actions.length" class="mt-2 flex flex-wrap gap-2">
+                                                <span v-for="item in aiStrategyResult.ai_evaluation.key_actions.slice(0, 3)" :key="item" class="rounded bg-white/70 px-2 py-1 text-xs text-cyan-800 border border-cyan-100">{{ item }}</span>
+                                            </div>
+                                        </div>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                            <div v-for="card in strategyAiEmpowermentCards" :key="card.label" class="rounded-lg border border-cyan-100 bg-white p-3 min-w-0">
+                                                <div class="flex items-center justify-between gap-2 mb-1">
+                                                    <div class="text-xs font-semibold text-cyan-700">{{ card.label }}</div>
+                                                    <i :class="card.icon" class="text-cyan-600"></i>
+                                                </div>
+                                                <div class="font-semibold text-slate-900 break-words">{{ card.value }}</div>
+                                                <div class="text-xs text-slate-500 mt-1 leading-relaxed break-words">{{ card.hint }}</div>
+                                            </div>
+                                        </div>
+                                        <div class="rounded-xl p-5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
+                                            <div class="text-sm text-blue-100">项目适配评分</div>
+                                            <div class="text-4xl font-bold mt-1">【{{ aiStrategyResult.total_score }}】</div>
+                                            <div class="mt-2 text-sm">{{ aiStrategyResult.strategy_conclusion }}</div>
+                                        </div>
+                                        <div class="grid grid-cols-2 gap-3">
+                                            <div v-for="item in strategyScoreCards" :key="item.label" class="rounded-lg bg-gray-50 border border-gray-100 p-3">
+                                                <div class="text-xs text-gray-500">{{ item.label }}</div>
+                                                <div class="text-xl font-bold text-gray-800 mt-1">【{{ item.value }}】</div>
+                                                <div class="text-[11px] text-gray-400 mt-1">{{ item.level }} · {{ item.reason }}</div>
+                                            </div>
+                                        </div>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                            <div class="rounded-lg border border-blue-100 bg-blue-50 p-3">
+                                                <div class="text-xs text-blue-500 mb-1">推荐模型</div>
+                                                <div class="font-semibold text-blue-900">{{ aiStrategyResult.recommended_model }}</div>
+                                            </div>
+                                            <div class="rounded-lg border border-indigo-100 bg-indigo-50 p-3">
+                                                <div class="text-xs text-indigo-500 mb-1">目标客源</div>
+                                                <div class="font-semibold text-indigo-900">{{ aiStrategyResult.target_customer }}</div>
+                                            </div>
+                                            <div class="rounded-lg border border-orange-100 bg-orange-50 p-3">
+                                                <div class="text-xs text-orange-500 mb-1">竞争压力</div>
+                                                <div class="font-semibold text-orange-900">{{ aiStrategyResult.competition_pressure }}</div>
+                                            </div>
+                                            <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                                                <div class="text-xs text-gray-500 mb-1">决策闭环</div>
+                                                <div class="font-semibold text-gray-800">{{ aiStrategyResult.decision_direction }}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div v-else="" class="py-16 text-center text-gray-400">
+                                        <i class="fas fa-route text-4xl mb-3 opacity-50"></i>
+                                        <p>录入项目参数后生成AI赋能战略推演结果</p>
+                                    </div>
+                                </div>
+
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <div class="flex items-center justify-between mb-3">
+                                        <h3 class="font-bold text-gray-800">战略推演历史</h3>
+                                        <span class="text-xs text-gray-400">{{ aiStrategyRecords.length }} 条</span>
+                                    </div>
+                                    <div v-if="aiStrategyRecords.length" class="divide-y divide-gray-100">
+                                        <div v-for="record in aiStrategyRecords" :key="record.id" class="py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                                            <div>
+                                                <div class="font-medium text-gray-900">{{ record.project_name || '战略推演项目' }}</div>
+                                                <div class="text-xs text-gray-500 mt-1">{{ record.city || '-' }}{{ record.district ? ' · ' + record.district : '' }} · 评分 {{ record.total_score || 0 }} · {{ record.created_at || '-' }}</div>
+                                            </div>
+                                            <div class="flex items-center gap-2">
+                                                <span :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(record.risk_level)]">{{ record.risk_level || '-' }}</span>
+                                                <span v-if="record.execution_readiness" :class="['px-2 py-1 rounded text-xs border whitespace-nowrap', simulationReadinessBadgeClass(record.execution_readiness.stage)]">{{ record.execution_readiness.status_label }}</span>
+                                                <button @click="loadStrategyDetail(record.id)" :data-testid="`history-strategy-view-${record.id}`" class="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs hover:bg-gray-50">查看</button>
+                                                <button @click="reuseStrategyRecord(record)" :data-testid="`history-strategy-reuse-${record.id}`" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700">复用输入</button>
+                                                <button @click="archiveStrategyRecord(record)" :data-testid="`history-strategy-archive-${record.id}`" class="px-3 py-1.5 rounded-lg border border-red-200 text-red-600 text-xs hover:bg-red-50">删除</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div v-else="" class="py-8 text-center text-gray-400 text-sm">暂无战略推演历史</div>
+                                </div>
+
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 智算·量化模拟 -->

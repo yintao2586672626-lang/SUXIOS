@@ -1,0 +1,381 @@
+                    <div v-if="currentPage === 'ai-feasibility'" class="feasibility-page">
+                        <div class="feasibility-hero">
+                            <div class="feasibility-hero-main">
+                                <div class="min-w-0">
+                                    <div class="feasibility-eyebrow">
+                                        <i class="fas fa-file-contract"></i>
+                                        <span>AI筹建决策</span>
+                                    </div>
+                                    <h2><span>智策</span><span>·可行性报告</span></h2>
+                                    <p>读取智略与智算结果，生成项目可行性报告。</p>
+                                </div>
+                                <div class="feasibility-actions">
+                                    <button @click="handleFeasibility" :disabled="aiFeasibilityLoading" class="feasibility-action-primary">
+                                        <i :class="aiFeasibilityLoading ? 'fas fa-spinner fa-spin' : 'fas fa-magic'"></i>
+                                        <span>{{ aiFeasibilityLoading ? '生成中...' : (aiFeasibilityResult ? '重新生成' : '生成报告') }}</span>
+                                    </button>
+                                    <button @click="copyFeasibilityReport" :disabled="!aiFeasibilityResult" class="feasibility-action-secondary">
+                                        <i class="fas fa-copy"></i>
+                                        <span>复制报告</span>
+                                    </button>
+                                    <button @click="printFeasibilityReport" :disabled="!aiFeasibilityResult" class="feasibility-action-secondary">
+                                        <i class="fas fa-print"></i>
+                                        <span>浏览器打印</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="feasibility-hero-metrics">
+                                <div v-for="card in feasibilityInputCards" :key="card.label" class="feasibility-hero-metric">
+                                    <span>{{ card.label }}</span>
+                                    <strong>{{ card.value }}</strong>
+                                    <em>{{ card.meta }}</em>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 xl:grid-cols-12 gap-5 mb-6">
+                            <section class="feasibility-panel xl:col-span-12">
+                                <div class="feasibility-section-head">
+                                    <div>
+                                        <h3>项目输入</h3>
+                                        <p>位置、规模、租金、装修改造与客群定位</p>
+                                    </div>
+                                    <span class="feasibility-count-badge">12项</span>
+                                </div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                                    <label class="feasibility-field xl:col-span-2">
+                                        <span>项目名称</span>
+                                        <input v-model="aiProject.project_name" class="input-field w-full">
+                                    </label>
+                                    <label class="feasibility-field">
+                                        <span>城市</span>
+                                        <input v-model="aiProject.city" class="input-field w-full">
+                                    </label>
+                                    <label class="feasibility-field">
+                                        <span>区域</span>
+                                        <input v-model="aiProject.district" class="input-field w-full">
+                                    </label>
+                                    <label class="feasibility-field xl:col-span-2">
+                                        <span>地址</span>
+                                        <input v-model="aiProject.address" class="input-field w-full">
+                                    </label>
+                                    <label class="feasibility-field">
+                                        <span>物业面积(㎡)</span>
+                                        <input type="number" v-model.number="aiProject.property_area" class="input-field w-full">
+                                    </label>
+                                    <label class="feasibility-field">
+                                        <span>房间数</span>
+                                        <input type="number" v-model.number="aiProject.room_count" class="input-field w-full">
+                                    </label>
+                                    <label class="feasibility-field">
+                                        <span>月租金(元)</span>
+                                        <input type="number" v-model.number="aiProject.monthly_rent" class="input-field w-full">
+                                    </label>
+                                    <label class="feasibility-field">
+                                        <span>装修预算(元)</span>
+                                        <input type="number" v-model.number="aiProject.decoration_budget" class="input-field w-full">
+                                    </label>
+                                    <label class="feasibility-field">
+                                        <span>转让费(元)</span>
+                                        <input type="number" v-model.number="aiProject.transfer_fee" class="input-field w-full">
+                                    </label>
+                                    <label class="feasibility-field">
+                                        <span>租期(年)</span>
+                                        <input type="number" v-model.number="aiProject.lease_years" class="input-field w-full">
+                                    </label>
+                                    <label class="feasibility-field">
+                                        <span>目标档次</span>
+                                        <input v-model="aiProject.target_brand_level" class="input-field w-full">
+                                    </label>
+                                    <label class="feasibility-field">
+                                        <span>目标客群</span>
+                                        <input v-model="aiProject.target_customer" class="input-field w-full">
+                                    </label>
+                                </div>
+                                <label class="feasibility-field block mt-4">
+                                    <span>补充说明</span>
+                                    <textarea v-model="aiProject.notes" rows="3" class="input-field w-full"></textarea>
+                                </label>
+                                <div v-if="aiFeasibilityError" class="feasibility-error">
+                                    <i class="fas fa-circle-exclamation"></i>
+                                    <span>{{ aiFeasibilityError }}</span>
+                                </div>
+                            </section>
+
+                            <section class="feasibility-panel xl:col-span-12">
+                                <div class="feasibility-section-head compact">
+                                    <div>
+                                        <h3>历史报告记录</h3>
+                                        <p>保留可行性报告输入与结论，支持查看和复用。</p>
+                                    </div>
+                                    <span class="feasibility-count-badge">{{ aiFeasibilityRecords.length }}条</span>
+                                </div>
+                                <div v-if="aiFeasibilityRecords.length" class="divide-y divide-gray-100">
+                                    <div v-for="record in aiFeasibilityRecords" :key="record.id" class="py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                                        <div>
+                                            <div class="font-medium text-gray-900">{{ record.project_name || '可行性报告项目' }}</div>
+                                            <div class="text-xs text-gray-500 mt-1">{{ record.city || '-' }}{{ record.district ? ' · ' + record.district : '' }} · {{ record.conclusion_grade || '-' }}级 · {{ record.created_at || '-' }}</div>
+                                        </div>
+                                        <div class="flex items-center gap-2">
+                                            <span v-if="record.feasibility_readiness" :class="['px-2 py-1 rounded text-xs border', feasibilityReadinessBadgeClass(record.feasibility_readiness.stage)]">{{ record.feasibility_readiness.status_label }}</span>
+                                            <span :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(record.risk_level)]">{{ record.risk_level || '-' }}</span>
+                                            <button @click="loadFeasibilityDetail(record.id)" :data-testid="`history-feasibility-view-${record.id}`" class="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs hover:bg-gray-50">查看</button>
+                                            <button @click="reuseFeasibilityRecord(record)" :data-testid="`history-feasibility-reuse-${record.id}`" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700">复用输入</button>
+                                            <button @click="archiveFeasibilityRecord(record)" :data-testid="`history-feasibility-archive-${record.id}`" class="px-3 py-1.5 rounded-lg border border-red-200 text-red-600 text-xs hover:bg-red-50">归档</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div v-else="" class="py-8 text-center text-gray-400 text-sm">暂无可行性报告历史</div>
+                            </section>
+
+                        </div>
+
+                        <div v-if="aiFeasibilityResult" class="grid grid-cols-1 xl:grid-cols-12 gap-5">
+                            <section class="feasibility-ai-result xl:col-span-12">
+                                <div class="feasibility-ai-result-head">
+                                    <div>
+                                        <span>AI赋能结果</span>
+                                        <h3>{{ feasibilityAiEmpowerment.headline }}</h3>
+                                        <p>{{ feasibilityAiEmpowerment.conclusion }}</p>
+                                    </div>
+                                    <div :class="['feasibility-ai-source', feasibilityAiEmpowerment.isFallback ? 'fallback' : 'active']">
+                                        <i :class="feasibilityAiEmpowerment.isFallback ? 'fas fa-shield-alt' : 'fas fa-wand-magic-sparkles'"></i>
+                                        <span>{{ feasibilityAiEmpowerment.sourceLabel }}</span>
+                                    </div>
+                                </div>
+                                <div class="feasibility-ai-result-grid">
+                                    <div v-for="card in feasibilityAiEmpowerment.cards" :key="card.label">
+                                        <span>{{ card.label }}</span>
+                                        <strong>{{ card.value }}</strong>
+                                        <em>{{ card.meta }}</em>
+                                    </div>
+                                </div>
+                                <div class="feasibility-ai-result-foot">
+                                    <div>
+                                        <strong>下一步动作</strong>
+                                        <p>{{ feasibilityAiEmpowerment.nextAction }}</p>
+                                    </div>
+                                    <div>
+                                        <strong>证据来源</strong>
+                                        <p>{{ feasibilityAiEmpowerment.evidenceText }}</p>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <aside class="xl:col-span-4 space-y-5">
+                                <section class="feasibility-decision-card">
+                                    <div class="feasibility-decision-top">
+                                        <div>
+                                            <span>项目结论</span>
+                                            <strong>{{ aiFeasibilityResult.conclusion_text }}</strong>
+                                        </div>
+                                        <div :class="['feasibility-grade-large', feasibilityDecisionClass]">{{ aiFeasibilityResult.conclusion_grade || '-' }}</div>
+                                    </div>
+                                    <p>{{ aiFeasibilityResult.core_reason }}</p>
+                                </section>
+
+                                <section v-if="aiFeasibilityReadiness" class="feasibility-panel">
+                                    <div class="feasibility-section-head compact">
+                                        <h3>投决闭环状态</h3>
+                                    </div>
+                                    <div class="space-y-2">
+                                        <div class="flex items-center justify-between gap-3">
+                                            <span :class="['px-2 py-1 rounded text-xs border', feasibilityReadinessBadgeClass(aiFeasibilityReadiness.stage)]">{{ aiFeasibilityReadiness.status_label }}</span>
+                                            <strong class="text-sm text-gray-900">{{ aiFeasibilityReadiness.score }}分</strong>
+                                        </div>
+                                        <p class="text-xs text-gray-500 leading-relaxed">{{ aiFeasibilityReadiness.notice }}</p>
+                                        <p class="text-xs text-gray-500 leading-relaxed">{{ feasibilityReadinessMissingText(aiFeasibilityReadiness) }}</p>
+                                        <div class="pt-2 flex flex-col sm:flex-row gap-2">
+                                            <select v-model="aiFeasibilityExecutionHotelId" class="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white min-w-0 flex-1">
+                                                <option value="">选择跟踪酒店</option>
+                                                <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                            </select>
+                                            <button @click="createFeasibilityExecutionIntent" :disabled="aiFeasibilityExecutionLoading || !aiFeasibilityRecordId || feasibilityExecutionLinked" class="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap">
+                                                <i :class="aiFeasibilityExecutionLoading ? 'fas fa-spinner fa-spin' : 'fas fa-tasks'" class="mr-1"></i>{{ feasibilityExecutionLinked ? '已转跟踪' : '转投后跟踪' }}
+                                            </button>
+                                        </div>
+                                        <p v-if="feasibilityExecutionIntentId" class="text-xs text-indigo-600">执行意图 #{{ feasibilityExecutionIntentId }}</p>
+                                    </div>
+                                </section>
+
+                                <section class="feasibility-panel">
+                                    <div class="feasibility-section-head compact">
+                                        <h3>关键指标</h3>
+                                    </div>
+                                    <div class="feasibility-report-metrics">
+                                        <div v-for="card in feasibilityReportCards" :key="card.label">
+                                            <span>{{ card.label }}</span>
+                                            <strong>{{ card.value }}</strong>
+                                            <em>{{ card.meta }}</em>
+                                        </div>
+                                    </div>
+                                </section>
+
+                                <section class="feasibility-panel">
+                                    <div class="feasibility-section-head compact">
+                                        <h3>项目摘要</h3>
+                                    </div>
+                                    <div class="feasibility-summary-list">
+                                        <div><span>项目</span><strong>{{ aiFeasibilityResult.summary.project_name }}</strong></div>
+                                        <div><span>位置</span><strong>{{ aiFeasibilityResult.summary.location }}</strong></div>
+                                        <div><span>房量</span><strong>{{ aiFeasibilityResult.summary.room_count }}间</strong></div>
+                                        <div><span>总投资</span><strong>{{ formatMoney(aiFeasibilityResult.summary.total_investment) }}</strong></div>
+                                        <div><span>回本周期</span><strong>{{ aiFeasibilityResult.summary.payback_months === null || aiFeasibilityResult.summary.payback_months === undefined ? '不可回本' : aiFeasibilityResult.summary.payback_months + '个月' }}</strong></div>
+                                    </div>
+                                </section>
+
+                                <section class="feasibility-panel">
+                                    <div class="feasibility-section-head compact">
+                                        <h3>后续行动计划</h3>
+                                    </div>
+                                    <div class="feasibility-action-plan">
+                                        <div v-for="item in aiFeasibilityResult.action_plan" :key="item.title">
+                                            <span>{{ item.priority }}</span>
+                                            <div>
+                                                <strong>{{ item.title }}</strong>
+                                                <p>{{ item.detail }}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </section>
+                            </aside>
+
+                            <section class="xl:col-span-8">
+                                <div id="feasibility-report-print" class="feasibility-report">
+                                    <header class="feasibility-report-header">
+                                        <div>
+                                            <span>宿析OS AI筹建决策模型</span>
+                                            <h1>{{ aiFeasibilityResult.summary.project_name }}可行性报告</h1>
+                                        </div>
+                                        <div :class="['feasibility-grade-badge strong', feasibilityDecisionClass]">{{ aiFeasibilityResult.conclusion_grade || '-' }}</div>
+                                    </header>
+
+                                    <section class="feasibility-report-section">
+                                        <h3>AI赋能结果</h3>
+                                        <div class="feasibility-ai-print-brief">
+                                            <div><span>生成状态</span><strong>{{ feasibilityAiEmpowerment.sourceLabel }}</strong></div>
+                                            <div><span>核心结论</span><strong>{{ feasibilityAiEmpowerment.headline }}</strong></div>
+                                            <div><span>下一步动作</span><strong>{{ feasibilityAiEmpowerment.nextAction }}</strong></div>
+                                        </div>
+                                    </section>
+
+                                    <section class="feasibility-report-section">
+                                        <h3>1. 项目摘要</h3>
+                                        <div class="feasibility-report-callout">
+                                            <p>【项目结论】{{ aiFeasibilityResult.conclusion_grade }}级｜{{ aiFeasibilityResult.conclusion_text }}</p>
+                                            <p>【核心理由】{{ aiFeasibilityResult.core_reason }}</p>
+                                        </div>
+                                    </section>
+
+                                    <section class="feasibility-report-section">
+                                        <h3>2. 基础信息</h3>
+                                        <div class="feasibility-basic-grid">
+                                            <div v-for="item in aiFeasibilityResult.basic_info" :key="item.label">
+                                                <span>{{ item.label }} · {{ item.source }}</span>
+                                                <strong>{{ item.value }}</strong>
+                                            </div>
+                                        </div>
+                                    </section>
+
+                                    <section class="feasibility-report-section">
+                                        <h3>3. 市场判断与产品定位</h3>
+                                        <div class="feasibility-market-grid">
+                                            <div>
+                                                <span>市场评分</span>
+                                                <strong>{{ aiFeasibilityResult.market_judgement.market_score }}</strong>
+                                            </div>
+                                            <div>
+                                                <span>竞争强度</span>
+                                                <strong>{{ aiFeasibilityResult.market_judgement.competition_level }}</strong>
+                                            </div>
+                                            <div>
+                                                <span>推荐模型</span>
+                                                <strong>{{ aiFeasibilityResult.market_judgement.recommended_model }}</strong>
+                                            </div>
+                                            <div>
+                                                <span>目标客源</span>
+                                                <strong>{{ aiFeasibilityResult.market_judgement.target_customer }}</strong>
+                                            </div>
+                                        </div>
+                                        <p class="feasibility-section-note">{{ aiFeasibilityResult.market_judgement.reasoning }}</p>
+                                    </section>
+
+                                    <section class="feasibility-report-section">
+                                        <h3>4. 投资测算与三情景模拟</h3>
+                                        <div class="feasibility-table-wrap">
+                                            <table class="feasibility-report-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>情景</th>
+                                                        <th class="text-right">ADR</th>
+                                                        <th class="text-right">OCC</th>
+                                                        <th class="text-right">月收入</th>
+                                                        <th class="text-right">月净现金流</th>
+                                                        <th class="text-right">回本周期</th>
+                                                        <th class="text-right">租金占比</th>
+                                                        <th class="text-right">风险等级</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr v-for="row in aiFeasibilityResult.financial_scenarios" :key="row.name">
+                                                        <td><strong>{{ row.name }}</strong></td>
+                                                        <td class="text-right">{{ formatMoney(row.adr) }}</td>
+                                                        <td class="text-right">{{ formatPercent(row.occ) }}</td>
+                                                        <td class="text-right">{{ formatCurrency(row.monthly_revenue) }}</td>
+                                                        <td class="text-right">{{ formatCurrency(row.monthly_net_cashflow) }}</td>
+                                                        <td class="text-right">{{ row.payback_months === null ? '不可回本' : row.payback_months + '个月' }}</td>
+                                                        <td class="text-right">{{ formatPercent(row.rent_ratio) }}</td>
+                                                        <td class="text-right"><span :class="['feasibility-risk-pill', riskBadgeClass(row.risk_level)]">{{ row.risk_level }}</span></td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </section>
+
+                                    <section class="feasibility-report-section">
+                                        <h3>5. 风险清单</h3>
+                                        <div class="feasibility-risk-list">
+                                            <div v-for="risk in aiFeasibilityResult.risk_list" :key="risk.risk">
+                                                <div>
+                                                    <span :class="['feasibility-risk-pill', riskBadgeClass(risk.level)]">{{ risk.level }}风险</span>
+                                                    <strong>{{ risk.risk }}</strong>
+                                                </div>
+                                                <p>{{ risk.reason }}</p>
+                                                <em>应对：{{ risk.action }}</em>
+                                            </div>
+                                        </div>
+                                    </section>
+
+                                    <section class="feasibility-report-section">
+                                        <h3>6. 假设与证据</h3>
+                                        <div class="feasibility-evidence-box">
+                                            <div>
+                                                <strong>模型假设</strong>
+                                                <ul>
+                                                    <li v-for="item in aiFeasibilityResult.assumptions" :key="item">{{ item }}</li>
+                                                </ul>
+                                            </div>
+                                            <div>
+                                                <strong>数据证据</strong>
+                                                <p v-for="item in aiFeasibilityResult.evidence" :key="item.title">
+                                                    <span>{{ item.source }}</span> · {{ item.title }}：{{ item.summary }}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </section>
+                                </div>
+                            </section>
+                        </div>
+                        <div v-else="" class="feasibility-empty">
+                            <i :class="aiFeasibilityLoading ? 'fas fa-spinner fa-spin' : 'fas fa-file-contract'"></i>
+                            <strong>{{ aiFeasibilityLoading ? '正在生成结构化报告...' : '等待生成可行性报告' }}</strong>
+                            <div class="feasibility-empty-metrics">
+                                <div v-for="card in feasibilityInputCards" :key="`empty-${card.label}`">
+                                    <span>{{ card.label }}</span>
+                                    <b>{{ card.value }}</b>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 智投·市场评估 -->

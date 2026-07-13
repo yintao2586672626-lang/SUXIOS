@@ -1,0 +1,214 @@
+                    <div v-if="currentPage === 'opening-overview'" class="max-w-7xl mx-auto space-y-6">
+                        <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+                            <div>
+                                <h2 class="text-2xl font-bold text-gray-900">开业准备工作台</h2>
+                                <p class="text-sm text-gray-500 mt-1">先选择已有项目或创建新项目，再生成清单、分派责任人与跟踪风险</p>
+                            </div>
+                            <div class="flex flex-wrap items-center gap-3">
+                                <select v-model="selectedOpeningProjectId" @change="selectOpeningProject" class="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white min-w-[220px]">
+                                    <option value="">选择已有开业项目</option>
+                                    <option v-for="project in openingProjects" :key="project.id" :value="project.id">{{ project.project_name }} · {{ project.hotel_name }}</option>
+                                </select>
+                                <button @click="startOpeningProjectCreate" class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm hover:bg-slate-800"><i class="fas fa-plus mr-1"></i>新建项目</button>
+                                <button @click="loadOpeningProjects" class="px-3 py-2 rounded-lg border border-gray-200 text-gray-700 text-sm hover:bg-gray-50"><i class="fas fa-sync-alt mr-1"></i>刷新</button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div :class="selectedOpeningProjectId || openingProjectForm.project_name ? 'border-blue-200 bg-blue-50 text-blue-800' : 'border-gray-100 bg-white text-gray-600'" class="rounded-xl border p-4">
+                                <div class="text-xs font-medium mb-1">1. 项目建档</div>
+                                <div class="text-sm">录入项目基础信息</div>
+                            </div>
+                            <div :class="openingTasks.length &gt; 0 ? 'border-blue-200 bg-blue-50 text-blue-800' : 'border-gray-100 bg-white text-gray-600'" class="rounded-xl border p-4">
+                                <div class="text-xs font-medium mb-1">2. 生成清单</div>
+                                <div class="text-sm">生成标准检查项并分派责任人</div>
+                            </div>
+                            <div :class="openingOverview ? 'border-blue-200 bg-blue-50 text-blue-800' : 'border-gray-100 bg-white text-gray-600'" class="rounded-xl border p-4">
+                                <div class="text-xs font-medium mb-1">3. 跟踪风险</div>
+                                <div class="text-sm">更新状态后刷新评分和风险等级</div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                            <div class="xl:col-span-1 bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h3 class="font-bold text-gray-900">{{ selectedOpeningProjectId ? '项目基础信息' : '创建开业项目' }}</h3>
+                                    <span v-if="selectedOpeningProjectId" :class="openingRiskClass(openingOverview?.project?.risk_level)" class="px-2 py-1 rounded-full text-xs font-medium">{{ openingRiskText(openingOverview?.project?.risk_level) }}</span>
+                                </div>
+                                <div class="mb-4 rounded-lg border border-blue-100 bg-blue-50 px-3 py-3">
+                                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                        <div>
+                                            <div class="text-sm font-medium text-blue-900">{{ selectedOpeningProjectId ? '修改后需要保存' : '填写项目后创建项目' }}</div>
+                                            <div class="text-xs text-blue-700 mt-1">{{ selectedOpeningProjectId ? '调整基础信息后点击保存项目，再进入清单更新任务状态。' : '系统会保存项目，并自动生成开业检查清单。' }}</div>
+                                        </div>
+                                        <button @click="saveOpeningProject" :disabled="openingLoading" class="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap">
+                                            <i class="fas fa-save mr-1"></i>{{ selectedOpeningProjectId ? '保存项目' : '创建并生成清单' }}
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="space-y-3">
+                                    <div>
+                                        <label class="block text-xs font-medium text-gray-600 mb-1">项目名称 <span class="text-red-500">*</span></label>
+                                        <input v-model="openingProjectForm.project_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="如：巢湖测试店开业项目">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-medium text-gray-600 mb-1">开业门店名称 <span class="text-red-500">*</span></label>
+                                        <input v-model="openingProjectForm.hotel_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="如：巢湖测试店">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-medium text-gray-600 mb-1">绑定系统门店</label>
+                                        <select v-model="openingProjectForm.hotel_id" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                                            <option value="">暂不绑定</option>
+                                            <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
+                                        </select>
+                                        <div v-if="!openingProjectForm.hotel_id" class="mt-1 text-xs text-amber-600">未绑定时只能作为开业清单，不能证明真实门店闭环。</div>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-600 mb-1">城市</label>
+                                            <input v-model="openingProjectForm.city" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="如：西安">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-600 mb-1">房间数</label>
+                                            <input v-model.number="openingProjectForm.room_count" type="number" min="0" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="如：86">
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-600 mb-1">品牌</label>
+                                            <input v-model="openingProjectForm.brand" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="如：宿析">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-600 mb-1">定位</label>
+                                            <input v-model="openingProjectForm.positioning" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="如：中端商务">
+                                            <div class="mt-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
+                                                <div class="text-xs font-medium text-blue-700">影响准备项</div>
+                                                <div class="text-xs text-blue-700 mt-1 leading-relaxed">{{ openingPositioningImpact.summary }}</div>
+                                                <div class="flex flex-wrap gap-1 mt-2">
+                                                    <span v-for="item in openingPositioningImpact.items" :key="item" class="px-2 py-0.5 rounded-full bg-white text-blue-700 text-xs border border-blue-100">{{ item }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-600 mb-1">负责人</label>
+                                            <input v-model="openingProjectForm.manager_name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="项目负责人">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-600 mb-1">计划开业日期 <span class="text-red-500">*</span></label>
+                                            <input v-model="openingProjectForm.opening_date" type="date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                        </div>
+                                    </div>
+                                    <button @click="saveOpeningProject" :disabled="openingLoading" class="w-full px-4 py-2.5 rounded-lg bg-slate-900 text-white text-sm hover:bg-slate-800 disabled:opacity-50"><i class="fas fa-save mr-1"></i>{{ selectedOpeningProjectId ? '保存项目' : '创建并生成清单' }}</button>
+                                    <div v-if="selectedOpeningProjectId" class="grid grid-cols-2 gap-3">
+                                        <button @click="openOpeningChecklist" :disabled="openingLoading" class="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 text-sm hover:bg-gray-50 disabled:opacity-50"><i class="fas fa-tasks mr-1"></i>查看清单</button>
+                                        <button @click="recalculateOpening" :disabled="openingLoading" class="px-4 py-2 rounded-lg border border-blue-200 text-blue-700 text-sm hover:bg-blue-50 disabled:opacity-50"><i class="fas fa-calculator mr-1"></i>刷新评分</button>
+                                        <button @click="createOpeningExecutionIntent" :disabled="openingLoading || !selectedOpeningProjectId || openingExecutionIntentId" class="px-4 py-2 rounded-lg border border-indigo-200 text-indigo-700 text-sm hover:bg-indigo-50 disabled:opacity-50"><i class="fas fa-tasks mr-1"></i>{{ openingExecutionIntentId ? '已转跟踪' : '转执行跟踪' }}</button>
+                                        <div v-if="openingExecutionIntentId" class="px-4 py-2 rounded-lg bg-indigo-50 text-indigo-700 text-sm">执行 #{{ openingExecutionIntentId }}</div>
+                                    </div>
+                                    <button v-if="selectedOpeningProjectId &amp;&amp; openingTasks.length === 0" @click="generateOpeningTasks" :disabled="openingLoading" class="w-full px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50"><i class="fas fa-magic mr-1"></i>生成检查清单</button>
+                                    <button v-if="selectedOpeningProjectId" @click="archiveOpeningProject" :disabled="openingLoading" class="w-full px-4 py-2 rounded-lg border border-red-200 text-red-600 text-sm hover:bg-red-50 disabled:opacity-50"><i class="fas fa-archive mr-1"></i>归档项目</button>
+                                </div>
+                            </div>
+
+                            <div class="xl:col-span-2 space-y-6">
+                                <div v-if="openingOverview" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                                    <div v-for="card in openingOverviewCards" :key="card.label" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                                        <div class="flex items-start justify-between gap-3">
+                                            <div class="min-w-0">
+                                                <div class="text-xs text-gray-500 font-medium">{{ card.label }}</div>
+                                                <div :class="['mt-2 text-2xl font-bold leading-none break-words', card.valueClass || 'text-gray-900']">{{ card.value }}</div>
+                                            </div>
+                                            <div :class="['w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0', card.iconClass || 'bg-blue-50 text-blue-600']">
+                                                <i :class="card.icon || 'fas fa-chart-line'"></i>
+                                            </div>
+                                        </div>
+                                        <div class="text-xs text-gray-500 mt-3 leading-relaxed">{{ card.hint }}</div>
+                                        <div v-if="card.progress != null" class="mt-3">
+                                            <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
+                                                <div :class="['h-full rounded-full', card.progressClass || 'bg-blue-600']" :style="{ width: card.progress + '%' }"></div>
+                                            </div>
+                                            <div class="mt-2 flex items-center justify-between gap-2 text-xs text-gray-500">
+                                                <span class="truncate">{{ card.countLabel }}</span>
+                                                <span class="font-medium text-gray-700">{{ card.progress }}%</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div v-if="openingOverview &amp;&amp; openingTasks.length === 0" class="bg-blue-50 border border-blue-100 rounded-xl p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                                    <div>
+                                        <div class="font-semibold text-blue-900">标准检查清单尚未生成</div>
+                                        <div class="text-sm text-blue-700 mt-1">生成后将自动带出责任人、截止时间、验收标准和AI建议。</div>
+                                    </div>
+                                    <button @click="generateOpeningTasks" :disabled="openingLoading" class="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50">
+                                        <i class="fas fa-magic mr-1"></i>生成检查清单
+                                    </button>
+                                </div>
+                                <div v-if="!openingOverview" class="bg-white rounded-xl shadow-sm border border-gray-100 p-10 text-center text-gray-400">
+                                    <i class="fas fa-clipboard-list text-4xl mb-3"></i>
+                                    <div>请选择或创建开业项目</div>
+                                </div>
+
+                                <div v-if="openingOverview" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <div>
+                                                <h3 class="font-bold text-gray-900">开业准备总览</h3>
+                                                <p class="text-xs text-gray-500 mt-1">按评分权重归类，完成后同步刷新总评分</p>
+                                            </div>
+                                            <span :class="openingRiskClass(openingOverview.project.risk_level)" class="px-2 py-1 rounded-full text-xs font-medium">{{ openingRiskText(openingOverview.project.risk_level) }}</span>
+                                        </div>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <div v-for="item in openingCategoryProgressCards" :key="item.category" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                                <div class="flex items-start justify-between gap-3">
+                                                    <div class="min-w-0">
+                                                        <div class="font-medium text-gray-800 truncate">{{ item.category }}</div>
+                                                        <div class="text-xs text-gray-500 mt-1">{{ item.countLabel }}</div>
+                                                    </div>
+                                                    <span :class="['px-2 py-1 rounded-full text-xs font-medium flex-shrink-0', item.statusClass]">{{ item.status }}</span>
+                                                </div>
+                                                <div class="mt-3 h-2 bg-white rounded-full overflow-hidden">
+                                                    <div :class="['h-full rounded-full', item.progressClass]" :style="{ width: item.progress + '%' }"></div>
+                                                </div>
+                                                <div class="mt-2 flex items-center justify-between text-xs text-gray-500">
+                                                    <span>{{ item.progressHint }}</span>
+                                                    <span class="font-semibold text-gray-800">{{ item.progress }}%</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                        <h3 class="font-bold text-gray-900 mb-4">AI开业建议</h3>
+                                        <div class="space-y-3">
+                                            <div v-for="item in openingOverview.ai_suggestions" :key="item" class="flex gap-2 text-sm text-gray-700 leading-relaxed">
+                                                <i class="fas fa-robot text-blue-500 mt-1"></i><span>{{ item }}</span>
+                                            </div>
+                                        </div>
+                                        <div class="mt-5 pt-4 border-t border-gray-100">
+                                            <div class="text-xs text-gray-500 mb-2">最近一次结果</div>
+                                            <div class="text-sm text-gray-700">评分 {{ openingOverview.recent_result.overall_score }}，风险 {{ openingRiskText(openingOverview.recent_result.risk_level) }}，更新时间 {{ openingOverview.recent_result.updated_at || '-' }}</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div v-if="openingProjects.length" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                                    <div class="px-5 py-4 border-b border-gray-100 font-bold text-gray-900">历史开业项目</div>
+                                    <div class="divide-y divide-gray-50">
+                                        <button v-for="project in openingProjects" :key="project.id" @click="selectedOpeningProjectId = project.id; selectOpeningProject()" class="w-full px-5 py-3 text-left hover:bg-gray-50 flex items-center justify-between">
+                                            <div>
+                                                <div class="font-medium text-gray-900">{{ project.project_name }}</div>
+                                                <div class="text-xs text-gray-500 mt-1">{{ project.hotel_name }} · {{ project.opening_date }} · {{ project.manager_name || '未设置负责人' }}</div>
+                                            </div>
+                                            <div class="text-right">
+                                                <div class="font-semibold text-gray-900">{{ project.overall_score || 0 }}</div>
+                                                <div :class="openingRiskTextClass(project.risk_level)" class="text-xs">{{ openingRiskText(project.risk_level) }}</div>
+                                            </div>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 开业检查清单 -->

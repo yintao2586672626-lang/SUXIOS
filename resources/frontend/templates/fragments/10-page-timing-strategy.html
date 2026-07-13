@@ -1,0 +1,133 @@
+                    <div v-if="currentPage === 'timing-strategy'">
+                        <div class="ai-page-hero mb-6 rounded-2xl p-6 text-white bg-gradient-to-r from-slate-900 via-blue-900 to-indigo-800 shadow-sm">
+                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                                <div>
+                                    <h2 class="text-2xl font-bold">智略·时机推演</h2>
+                                    <p class="text-sm text-blue-100 mt-1">二期测算能力：判断当前是否适合转让，并给出下一步动作</p>
+                                </div>
+                                <button @click="handleTransferTiming" :disabled="transferTimingLoading" class="bg-white/15 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-60 disabled:cursor-not-allowed">
+                                    <i :class="transferTimingLoading ? 'fas fa-spinner fa-spin' : 'fas fa-chess-knight'"></i>
+                                    <span>{{ transferTimingLoading ? '推演中...' : '生成时机判断' }}</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                            <div class="xl:col-span-5 space-y-5">
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <h3 class="font-bold text-gray-800 mb-4">趋势与窗口</h3>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div v-for="field in transferTimingCompareFields" :key="field.key">
+                                            <label class="block text-xs text-gray-500 mb-1">{{ field.label }}</label>
+                                            <input type="number" v-model.number="transferTimingForm[field.key]" class="input-field w-full">
+                                        </div>
+                                        <div v-for="field in transferTimingNumberFields" :key="field.key">
+                                            <label class="block text-xs text-gray-500 mb-1">{{ field.label }}</label>
+                                            <input type="number" v-model.number="transferTimingForm[field.key]" class="input-field w-full">
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+                                        <label class="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                                            <input type="checkbox" v-model="transferTimingForm.is_peak_season" class="rounded border-gray-300">
+                                            <span>是否旺季</span>
+                                        </label>
+                                        <label class="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                                            <input type="checkbox" v-model="transferTimingForm.has_data_anomaly" class="rounded border-gray-300">
+                                            <span>是否存在数据异常</span>
+                                        </label>
+                                        <label class="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                                            <input type="checkbox" v-model="transferTimingForm.has_data_gap" class="rounded border-gray-300">
+                                            <span>是否数据断档</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                    <h3 class="font-bold text-gray-800 mb-4">数据异常校验</h3>
+                                    <div :class="['mb-4 rounded-lg border px-4 py-3', transferTimingDataCheck.panelClass]">
+                                        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                            <div class="min-w-0">
+                                                <div class="flex flex-wrap items-center gap-2">
+                                                    <i :class="transferTimingDataCheck.iconClass"></i>
+                                                    <span class="text-sm font-semibold text-gray-800">数据口径预判</span>
+                                                    <span :class="['px-2 py-0.5 rounded-full text-xs border', transferTimingDataCheck.badgeClass]">{{ transferTimingDataCheck.status }}</span>
+                                                </div>
+                                                <p class="mt-2 text-xs leading-5 text-gray-600">{{ transferTimingDataCheck.message }}</p>
+                                                <p class="mt-1 text-xs leading-5" :class="transferTimingDataCheck.suggestionClass">{{ transferTimingDataCheck.suggestion }}</p>
+                                            </div>
+                                            <div class="grid grid-cols-2 gap-3 text-right sm:w-40">
+                                                <div>
+                                                    <div class="text-xs text-gray-500">参考转化</div>
+                                                    <div class="text-sm font-semibold text-gray-800">{{ transferTimingDataCheck.derivedConversionLabel }}</div>
+                                                </div>
+                                                <div>
+                                                    <div class="text-xs text-gray-500">间夜/订单</div>
+                                                    <div class="text-sm font-semibold text-gray-800">{{ transferTimingDataCheck.roomNightPerOrderLabel }}</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div v-for="field in transferTimingDataFields" :key="field.key">
+                                            <label class="block text-xs text-gray-500 mb-1">{{ field.label }}</label>
+                                            <input type="number" v-model.number="transferTimingForm[field.key]" :step="field.step || 1" :min="field.min === undefined ? 0 : field.min" inputmode="decimal" class="input-field w-full">
+                                            <p v-if="field.hint" class="mt-1 text-[11px] leading-4 text-gray-400">{{ field.hint }}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="xl:col-span-7 space-y-5">
+                                <div v-if="transferTimingResult" class="space-y-5">
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                            <div class="text-xs text-gray-500">时机评分</div>
+                                            <div class="text-4xl font-bold text-blue-700 mt-2">{{ transferTimingResult.timing_score }}分</div>
+                                        </div>
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                            <div class="text-xs text-gray-500">判断结果</div>
+                                            <div :class="['text-2xl font-bold mt-2', transferDecisionClass(transferTimingResult.decision)]">{{ transferTimingResult.decision }}</div>
+                                        </div>
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                            <div class="text-xs text-gray-500">数据口径</div>
+                                            <div class="text-lg font-semibold text-gray-800 mt-2">{{ transferTimingResult.data_quality.notice }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                            <h3 class="font-bold text-gray-800 mb-3">主要原因</h3>
+                                            <div class="space-y-2 text-sm text-gray-700">
+                                                <div v-for="item in transferTimingResult.main_reasons" :key="item" class="flex gap-2">
+                                                    <i class="fas fa-check-circle text-blue-500 mt-1"></i>
+                                                    <span>{{ item }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                            <h3 class="font-bold text-gray-800 mb-3">风险点</h3>
+                                            <div class="space-y-2 text-sm text-gray-700">
+                                                <div v-for="item in transferTimingResult.risk_points" :key="item" class="flex gap-2">
+                                                    <i class="fas fa-exclamation-triangle text-amber-500 mt-1"></i>
+                                                    <span>{{ item }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                            <h3 class="font-bold text-gray-800 mb-3">下一步建议</h3>
+                                            <div class="space-y-2 text-sm text-gray-700">
+                                                <div v-for="item in transferTimingResult.next_suggestions" :key="item" class="flex gap-2">
+                                                    <i class="fas fa-arrow-right text-indigo-500 mt-1"></i>
+                                                    <span>{{ item }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div v-else="" class="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-400">
+                                    <i class="fas fa-chess-knight text-4xl mb-3 opacity-50"></i>
+                                    <p>录入趋势与数据口径后生成时机判断</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 智决·数据看板 -->

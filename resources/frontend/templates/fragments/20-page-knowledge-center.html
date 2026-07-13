@@ -1,0 +1,124 @@
+                    <div v-if="currentPage === 'knowledge-center'" class="max-w-6xl mx-auto space-y-4">
+                        <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                                <div>
+                                    <h2 class="text-2xl font-bold text-gray-900">智能知识中枢</h2>
+                                    <p class="text-sm text-gray-500 mt-2">复制粘贴门店文档，选择 AI 模型读取后，知识会绑定到对应门店分析。</p>
+                                </div>
+                                <button @click="openKnowledgeImportModal('document')" class="btn-primary text-sm flex items-center justify-center gap-2">
+                                    <i class="fas fa-paste"></i>粘贴文档
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                            <div class="flex flex-col md:flex-row gap-3 md:items-center">
+                                <input v-model="knowledgeCenterFilter.keyword" @keyup.enter="reloadKnowledgeCenter" type="text" placeholder="搜索知识名称或描述" class="flex-1 px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <select v-model="knowledgeCenterFilter.status" @change="reloadKnowledgeCenter" class="md:w-36 px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <option value="">全部状态</option>
+                                    <option value="done">已完成</option>
+                                    <option value="pending">待处理</option>
+                                    <option value="error">异常</option>
+                                </select>
+                                <button @click="loadKnowledgeCenter" class="btn-secondary text-sm flex items-center justify-center gap-2">
+                                    <i class="fas fa-sync-alt" :class="{ 'fa-spin': knowledgeCenterLoading }"></i>刷新
+                                </button>
+                                <button @click="batchDeleteKnowledgeUnits" :disabled="selectedKnowledgeCenterUnitIds.length === 0 || knowledgeCenterBatchDeleting" class="px-4 py-2 rounded-lg border border-red-200 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 disabled:hover:bg-transparent flex items-center justify-center gap-2">
+                                    <i class="fas fa-trash-alt"></i>
+                                    批量删除<span v-if="selectedKnowledgeCenterUnitIds.length">({{ selectedKnowledgeCenterUnitIds.length }})</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                            <div class="overflow-x-auto">
+                                <table class="w-full">
+                                    <thead>
+                                        <tr class="bg-gradient-to-b from-gray-50 to-gray-100/80">
+                                            <th class="px-4 py-4 text-left">
+                                                <input type="checkbox" :checked="isAllKnowledgeCenterPageSelected" :disabled="knowledgeCenterUnits.length === 0 || knowledgeCenterLoading" @change="toggleSelectAllKnowledgeCenterUnits($event.target.checked)" class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" aria-label="选择当前页知识">
+                                            </th>
+                                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600">经验名称</th>
+                                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600">门店</th>
+                                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600">状态</th>
+                                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600">更新时间</th>
+                                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr v-if="knowledgeCenterLoading" v-for="i in 4" :key="'knowledge-loading-' + i" class="border-b border-gray-100">
+                                            <td colspan="6" class="px-6 py-4">
+                                                <div class="h-5 bg-gray-100 rounded animate-pulse"></div>
+                                            </td>
+                                        </tr>
+                                        <tr v-for="unit in knowledgeCenterUnits" :key="unit.unit_id" class="border-b border-gray-100 hover:bg-blue-50/30 transition-colors" :class="selectedKnowledgeCenterUnitIds.includes(String(unit.unit_id)) ? 'bg-blue-50/60' : ''">
+                                            <td class="px-4 py-4">
+                                                <input type="checkbox" v-model="selectedKnowledgeCenterUnitIds" :value="String(unit.unit_id)" :aria-label="`选择知识：${unit.name || unit.unit_id}`" class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                            </td>
+                                            <td class="px-6 py-4">
+                                                <div class="text-sm font-semibold text-gray-800">{{ unit.name }}</div>
+                                                <div class="text-xs text-gray-400 truncate max-w-xs">{{ unit.description || '-' }}</div>
+                                                <div class="mt-1 flex flex-wrap gap-1 max-w-md">
+                                                    <span v-for="tag in unit.tags" :key="tag" class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-xs">{{ tag }}</span>
+                                                </div>
+                                            </td>
+                                            <td class="px-6 py-4 text-sm">
+                                                <span v-if="Number(unit.hotel_id || 0) &gt; 0" class="text-blue-600">{{ getHotelNameById(unit.hotel_id) || ('#' + unit.hotel_id) }}</span>
+                                                <span v-else="" class="text-gray-400">通用</span>
+                                            </td>
+                                            <td class="px-6 py-4">
+                                                <span :class="knowledgeCenterStatusClass(unit.status)" class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium">
+                                                    {{ knowledgeCenterStatusLabel(unit.status) }}
+                                                </span>
+                                                <div v-if="unit.readiness" class="mt-1">
+                                                    <span :title="unit.readiness.notice" :class="['inline-flex rounded border px-2 py-0.5 text-xs whitespace-nowrap', knowledgeCenterReadinessClass(unit.readiness.stage)]">
+                                                        {{ unit.readiness.status_label }}
+                                                    </span>
+                                                </div>
+                                                <div v-if="unit.readiness?.next_action" class="mt-1 text-[11px] text-gray-400 line-clamp-1">
+                                                    {{ unit.readiness.next_action }}
+                                                </div>
+                                            </td>
+                                            <td class="px-6 py-4 text-sm text-gray-500">{{ unit.updated_at || unit.created_at || '-' }}</td>
+                                            <td class="px-6 py-4">
+                                                <div class="flex items-center gap-2">
+                                                    <button @click="openKnowledgeChunks(unit)" class="p-1.5 text-indigo-500 hover:bg-indigo-100 rounded transition-colors" title="查看片段">
+                                                        <i class="fas fa-layer-group text-sm"></i>
+                                                    </button>
+                                                    <button @click="refreshKnowledgeUnit(unit)" class="p-1.5 text-green-500 hover:bg-green-100 rounded transition-colors" title="刷新">
+                                                        <i class="fas fa-sync-alt text-sm"></i>
+                                                    </button>
+                                                    <button @click="deleteKnowledgeUnit(unit)" class="p-1.5 text-red-500 hover:bg-red-100 rounded transition-colors" title="删除">
+                                                        <i class="fas fa-trash-alt text-sm"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div v-if="!knowledgeCenterLoading &amp;&amp; knowledgeCenterUnits.length === 0" class="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
+                            <div class="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <i class="fas fa-brain text-gray-300 text-3xl"></i>
+                            </div>
+                            <h3 class="text-lg font-medium text-gray-800 mb-2">{{ knowledgeCenterIsFiltered ? '没有匹配的知识' : '暂无门店知识' }}</h3>
+                            <p class="text-gray-500 text-sm mb-4">{{ knowledgeCenterIsFiltered ? '调整筛选条件后重新查看。' : '先复制粘贴门店文档，系统会调用 AI 读取并绑定到门店。' }}</p>
+                            <div class="flex flex-wrap items-center justify-center gap-3">
+                                <button v-if="knowledgeCenterIsFiltered" @click="resetKnowledgeCenterFilter" class="btn-secondary text-sm">清空筛选</button>
+                                <button @click="openKnowledgeImportModal('document')" class="btn-primary text-sm">粘贴文档</button>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                            <div class="text-sm text-gray-500">共 {{ knowledgeCenterPagination.total }} 条，每页 {{ knowledgeCenterPagination.page_size }} 条</div>
+                            <div class="flex items-center gap-2">
+                                <button @click="changeKnowledgeCenterPage(knowledgeCenterPagination.page - 1)" :disabled="knowledgeCenterPagination.page &lt;= 1" class="btn-secondary text-sm">上一页</button>
+                                <span class="text-sm text-gray-600">{{ knowledgeCenterPagination.page }} / {{ knowledgeCenterPagination.total_page || 1 }}</span>
+                                <button @click="changeKnowledgeCenterPage(knowledgeCenterPagination.page + 1)" :disabled="knowledgeCenterPagination.page &gt;= (knowledgeCenterPagination.total_page || 1)" class="btn-secondary text-sm">下一页</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 用户管理 -->

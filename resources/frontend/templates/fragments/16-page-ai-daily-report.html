@@ -1,0 +1,249 @@
+                    <div v-if="currentPage === 'ai-daily-report'" class="max-w-7xl mx-auto space-y-6">
+                        <div class="bg-slate-900 rounded-xl border border-slate-800 p-6 shadow-sm text-white">
+                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                                <div>
+                                    <div class="text-xs font-semibold text-blue-200 uppercase tracking-wide">AI Daily Operations</div>
+                                    <h2 class="text-2xl font-bold mt-2">AI经营日报</h2>
+                                    <p class="text-sm text-slate-300 mt-2 max-w-3xl">把昨日结果、异常指标、竞对变化、数据缺口和3条建议动作集中管理，并推进到执行单和ROI复盘。</p>
+                                </div>
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <button @click="loadAiDailyReport" :disabled="operationLoading.aiDailyReport" class="px-3 py-2 rounded-lg border border-white/15 bg-white/10 text-sm text-white hover:bg-white/15 disabled:opacity-60">
+                                        <i class="fas fa-sync-alt mr-2" :class="{ 'fa-spin': operationLoading.aiDailyReport }"></i>刷新
+                                    </button>
+                                    <button @click="currentPage = 'ops-track'; loadOperationActions()" class="px-3 py-2 rounded-lg bg-white text-sm text-slate-900 hover:bg-slate-100">
+                                        <i class="fas fa-play-circle mr-2"></i>执行闭环
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <section data-testid="ai-daily-fact-gate" class="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                            <div class="flex flex-col gap-3 border-b border-slate-200 px-4 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-5">
+                                <div class="min-w-0">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <h3 class="text-base font-semibold text-slate-900">昨日 OTA 事实早报</h3>
+                                        <span class="rounded-md border px-2 py-0.5 text-xs" :class="aiDailyFactGate.statusClass">{{ aiDailyFactGate.statusText }}</span>
+                                    </div>
+                                    <p class="mt-1 text-xs leading-5 text-slate-500">只读取现有状态，不触发OTA采集、不写业务数据。{{ aiDailyFactGate.scopeText }}</p>
+                                </div>
+                                <button type="button" @click="loadAiDailyFactGate()" :disabled="aiDailyFactGateLoading" title="刷新 OTA 事实" class="inline-flex min-h-9 shrink-0 self-start items-center justify-center whitespace-nowrap rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 sm:self-auto">
+                                    <i :class="aiDailyFactGateLoading ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt'" aria-hidden="true"></i>
+                                    <span class="ml-2">刷新事实</span>
+                                </button>
+                            </div>
+                            <div v-if="aiDailyFactGateLoading" class="flex items-center gap-2 px-4 py-4 text-sm text-blue-700 sm:px-5">
+                                <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
+                                <span>正在读取 Profile、目标日入库和字段事实状态</span>
+                            </div>
+                            <template v-else="">
+                                <div v-if="aiDailyFactGate.errorText" class="border-b border-red-100 bg-red-50 px-4 py-3 text-xs leading-5 text-red-700 sm:px-5">
+                                    未核验原因：{{ aiDailyFactGate.errorText }}。不会以空数据或旧状态标记为就绪。
+                                </div>
+                                <div class="grid grid-cols-2 border-b border-slate-200 bg-slate-50 lg:grid-cols-5">
+                                    <div v-for="stage in aiDailyFactGate.chain" :key="stage.key" class="min-w-0 border-b border-r border-slate-200 px-3 py-3 last:border-r-0 lg:border-b-0">
+                                        <div class="text-xs font-semibold text-slate-800">{{ stage.label }}</div>
+                                        <span :class="stage.className" class="mt-1 inline-flex max-w-full rounded-md border px-2 py-0.5 text-[11px]">{{ stage.text }}</span>
+                                    </div>
+                                </div>
+                                <div class="divide-y divide-slate-100">
+                                    <div v-for="row in aiDailyFactGate.platformRows" :key="row.platform" class="grid grid-cols-1 gap-3 px-4 py-3 text-xs sm:px-5 md:grid-cols-12 md:items-center">
+                                        <div class="md:col-span-2">
+                                            <div class="font-semibold text-slate-900">{{ row.label }}</div>
+                                            <div class="mt-1 text-[11px] text-slate-400">{{ row.applicable ? '适用渠道' : '未配置渠道' }}</div>
+                                        </div>
+                                        <div class="min-w-0 md:col-span-2" :title="row.loginStatus">
+                                            <div class="text-[11px] text-slate-400">Profile</div>
+                                            <div class="mt-1 truncate text-slate-700">{{ row.loginText }}</div>
+                                        </div>
+                                        <div class="min-w-0 md:col-span-3">
+                                            <div class="text-[11px] text-slate-400">目标日入库 · {{ aiDailyFactGate.targetDate || '-' }}</div>
+                                            <div class="mt-1 truncate text-slate-700">{{ row.collectionText }} · {{ row.targetDateRows }} 行</div>
+                                        </div>
+                                        <div class="min-w-0 md:col-span-2">
+                                            <div class="text-[11px] text-slate-400">字段事实</div>
+                                            <div class="mt-1 truncate text-slate-700">{{ row.fieldText }}</div>
+                                        </div>
+                                        <div class="min-w-0 md:col-span-3">
+                                            <span :class="row.statusClass" class="inline-flex rounded-md border px-2 py-0.5 text-[11px]">{{ row.statusText }}</span>
+                                            <div class="mt-1 truncate text-[11px] text-slate-500" :title="row.nextAction">{{ row.nextAction }}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="flex flex-col gap-1 border-t border-slate-200 bg-slate-50 px-4 py-3 text-[11px] text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                                    <span>适用渠道 {{ aiDailyFactGate.configuredCount }} / 就绪 {{ aiDailyFactGate.readyCount }} / 字段缺口 {{ aiDailyFactGate.fieldGapCount }}</span>
+                                    <span class="truncate" :title="aiDailyFactGate.sourceRefs.join(' / ')">来源：{{ aiDailyFactGate.sourceRefs.join(' / ') }}<template v-if="aiDailyFactGate.generatedAt"> · {{ aiDailyFactGate.generatedAt }}</template></span>
+                                </div>
+                            </template>
+                        </section>
+                        <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
+                            <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4 mb-4">
+                                <div>
+                                    <h3 class="font-bold text-gray-900">生成与查看</h3>
+                                    <p class="text-sm text-gray-500 mt-1">日报只使用已授权OTA与运营数据，缺失项会显式展示，不触碰订单手机号、房态或房源映射。</p>
+                                </div>
+                                <div class="grid grid-cols-1 sm:grid-cols-4 gap-2 xl:w-[680px]">
+                                    <select v-model="aiDailyReportForm.hotel_id" @change="loadAiDailyFactGate()" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                        <option value="">自动选择可见酒店</option>
+                                        <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
+                                    </select>
+                                    <input v-model="aiDailyReportForm.report_date" @change="loadAiDailyFactGate()" type="date" class="px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                                    <label class="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600">
+                                        <input v-model="aiDailyReportForm.use_llm" type="checkbox" class="rounded border-gray-300">
+                                        <span>调用AI</span>
+                                    </label>
+                                    <button @click="generateAiDailyReport" :disabled="operationLoading.aiDailyReport" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-60">
+                                        <i class="fas fa-robot mr-2" :class="{ 'fa-spin': operationLoading.aiDailyReport }"></i>生成日报
+                                    </button>
+                                </div>
+                            </div>
+                            <div v-if="operationError.aiDailyReport" class="mb-4 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-600">{{ operationError.aiDailyReport }}</div>
+                            <div v-if="!aiDailyReport &amp;&amp; !operationLoading.aiDailyReport" class="rounded-lg border border-dashed border-gray-200 p-8 text-center">
+                                <div class="mx-auto w-11 h-11 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center mb-3">
+                                    <i class="fas fa-file-alt"></i>
+                                </div>
+                                <div class="text-sm font-medium text-gray-900">当前门店还没有AI经营日报</div>
+                                <div class="text-xs text-gray-500 mt-1">选择酒店和日期后生成，系统会同步标出数据来源与缺失项。</div>
+                            </div>
+                            <template v-if="aiDailyReport">
+                                <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3 rounded-lg border border-blue-100 bg-blue-50/60 p-4">
+                                    <div>
+                                        <div class="text-xs text-blue-600 font-semibold">日报日期：{{ aiDailyReport.report_date }}</div>
+                                        <div class="mt-1 text-lg font-bold text-gray-900">{{ aiDailyReport.summary || '暂无摘要' }}</div>
+                                        <div class="mt-2 flex flex-wrap gap-2 text-xs">
+                                            <span :class="aiDailyReportModelClass" class="rounded-full px-2 py-1">{{ aiDailyReportModelText }}</span>
+                                            <span v-if="aiDailyReportReadiness" :class="['rounded-full border px-2 py-1', aiDailyReportReadinessClass(aiDailyReportReadiness.stage)]">
+                                                {{ aiDailyReportReadiness.status_label }} · {{ aiDailyReportReadiness.score }}分
+                                            </span>
+                                            <span class="rounded-full bg-white text-gray-500 px-2 py-1">来源 {{ aiDailyReportSourceCount }} 项</span>
+                                            <span class="rounded-full bg-white text-gray-500 px-2 py-1">缺失 {{ aiDailyReportDataGaps.length }} 项</span>
+                                            <span class="rounded-full bg-white text-gray-500 px-2 py-1">可转单 {{ aiDailyReportTransferableCount }} 条</span>
+                                        </div>
+                                        <div v-if="aiDailyReportReadiness?.next_action" class="mt-2 text-xs text-blue-700">
+                                            下一步：{{ aiDailyReportReadiness.next_action }}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div v-if="aiDailyReportReadiness" class="grid grid-cols-2 md:grid-cols-5 gap-3 mt-4">
+                                    <div v-for="card in aiDailyReportReadinessCards" :key="card.key" class="rounded-lg border border-gray-100 bg-white p-3">
+                                        <div class="text-xs text-gray-500">{{ card.label }}</div>
+                                        <div class="mt-1 text-xl font-bold text-gray-900">{{ card.value }}</div>
+                                        <div class="mt-1 text-[11px] text-gray-400">{{ card.hint }}</div>
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mt-4">
+                                    <div v-for="metric in aiDailyReportMetricCards" :key="metric.key" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                        <div class="text-xs text-gray-500">{{ metric.label || metric.key }}</div>
+                                        <div class="text-xl font-bold text-gray-900 mt-1">{{ aiDailyReportMetricValue(metric) }}</div>
+                                        <div class="text-[11px] text-gray-400 mt-2 truncate">{{ metric.source_ref }}</div>
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-1 xl:grid-cols-3 gap-4 mt-4">
+                                    <div class="rounded-lg border border-gray-100 p-4">
+                                        <div class="text-sm font-semibold text-gray-900 mb-3">异常指标</div>
+                                        <div v-if="!aiDailyReportAbnormalMetrics.length" class="text-sm text-gray-400">暂无明确异常</div>
+                                        <div v-for="(item, index) in aiDailyReportAbnormalMetrics" :key="(item.label || item.type || 'abnormal') + index" class="mb-3 last:mb-0">
+                                            <div class="text-sm text-gray-900">{{ item.label || item.type }}</div>
+                                            <div class="text-xs text-gray-500 mt-1">{{ item.evidence || item.source_ref }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="rounded-lg border border-gray-100 p-4">
+                                        <div class="text-sm font-semibold text-gray-900 mb-3">竞对变化</div>
+                                        <div v-if="!aiDailyReportCompetitorChanges.length" class="text-sm text-gray-400">暂无竞对变化样本</div>
+                                        <div v-for="(item, index) in aiDailyReportCompetitorChanges" :key="(item.label || 'competitor') + index" class="mb-3 last:mb-0">
+                                            <div class="text-sm text-gray-900">{{ item.label || '竞对信号' }}</div>
+                                            <div v-if="item.top_hotel || item.self_position || item.vip_signal" class="text-xs text-gray-500 mt-1">
+                                                TOP1 {{ item.top_hotel || '-' }} / 本店 {{ item.self_position || '-' }} / 差距 {{ item.gap_to_previous || item.top1_gap || '-' }} / {{ operationDataStatusText(item.data_status) }}
+                                            </div>
+                                            <div v-else="" class="text-xs text-gray-500 mt-1">均价 {{ operationMoney(item.avg_price) }} / 价差 {{ operationMoney(item.price_gap) }} / {{ operationDataStatusText(item.data_status) }}</div>
+                                            <div v-if="item.vip_signal || item.rank_trend || item.note" class="text-xs text-gray-400 mt-1">
+                                                {{ item.vip_signal || 'VIP标签未返回，不推断VIP' }} / {{ item.rank_trend || item.note }}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="rounded-lg border border-gray-100 p-4">
+                                        <div class="text-sm font-semibold text-gray-900 mb-3">数据缺口</div>
+                                        <div v-if="!aiDailyReportDataGaps.length" class="text-sm text-green-600">未发现显式缺口</div>
+                                        <div v-for="(gap, index) in aiDailyReportDataGaps" :key="(gap.code || 'gap') + (gap.message || '') + index" class="mb-3 last:mb-0">
+                                            <div class="text-sm text-amber-700">{{ gap.message || gap.code }}</div>
+                                            <div class="text-xs text-gray-500 mt-1">{{ gap.source_ref || 'source pending' }}</div>
+                                            <button type="button" @click="goAiDailyReportDataGap(gap)" class="mt-2 inline-flex items-center rounded-md border border-amber-200 bg-white px-2 py-1 text-xs text-amber-700 hover:bg-amber-50">
+                                                <i class="fas fa-tools mr-1"></i>{{ aiDailyReportGapActionText(gap) }}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mt-4 rounded-lg border border-gray-100 overflow-hidden">
+                                    <div v-if="aiDailyReportBlockingRows.length" class="border-b border-amber-100 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+                                        <div class="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                                            <div class="font-semibold">执行门禁：{{ aiDailyReportBlockingSummary.total }} 项仍需先处理</div>
+                                            <div class="text-[11px] text-amber-700">{{ aiDailyReportBlockingSummary.detail }}</div>
+                                        </div>
+                                        <div class="mt-1 text-[11px] text-amber-700">{{ aiDailyReportBlockingSummary.gateText }}</div>
+                                        <div class="mt-1 flex flex-wrap gap-2">
+                                            <button v-for="row in aiDailyReportBlockingRows.slice(0, 4)" :key="row.key" type="button" @click="openAiDailyReportEvidenceTarget(row)" class="rounded-md border border-amber-200 bg-white px-2 py-1 text-left hover:bg-amber-100">
+                                                <span class="block font-medium">{{ row.label }}：{{ row.nextAction }}</span>
+                                                <span class="mt-0.5 block text-[11px] text-amber-600">{{ row.actionText }} · {{ row.sourceRef }}</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-12 bg-gray-50 text-xs text-gray-500 px-4 py-3">
+                                        <div class="col-span-4">建议</div>
+                                        <div class="col-span-3">原因/来源</div>
+                                        <div class="col-span-2">预期指标</div>
+                                        <div class="col-span-2">状态</div>
+                                        <div class="col-span-1 text-right">操作</div>
+                                    </div>
+                                    <div v-for="(action, index) in aiDailyReportActions" :key="(action.title || 'action') + index" class="grid grid-cols-12 gap-3 px-4 py-3 border-t border-gray-100 text-sm">
+                                        <div class="col-span-12 md:col-span-4">
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <div class="font-medium text-gray-900">{{ action.title || ('建议' + (index + 1)) }}</div>
+                                                <span v-if="aiDailyReportActionIsInvestigationOnly(action)" class="rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700">调查项 · 不可执行</span>
+                                            </div>
+                                            <div class="text-xs text-gray-500 mt-1 leading-relaxed">{{ action.action }}</div>
+                                        </div>
+                                        <div class="col-span-12 md:col-span-3 text-gray-600">
+                                            <div class="line-clamp-2">{{ action.reason || '-' }}</div>
+                                            <div class="text-xs text-gray-400 mt-1">{{ aiDailyReportActionSources(action) }}</div>
+                                        </div>
+                                        <div class="col-span-6 md:col-span-2 text-gray-600">{{ action.expected_metric || '-' }}</div>
+                                        <div class="col-span-6 md:col-span-2">
+                                            <span :class="aiDailyReportActionStatusClass(action)" class="rounded-full px-2 py-1 text-xs">{{ aiDailyReportActionStatusText(action) }}</span>
+                                            <div v-if="action.action_readiness?.next_action" class="mt-1 text-[11px] text-gray-400 line-clamp-1">
+                                                {{ action.action_readiness.next_action }}
+                                            </div>
+                                            <div v-if="aiDailyReportActionBlockedText(action)" class="mt-1 text-[11px] text-amber-700 line-clamp-2">
+                                                {{ aiDailyReportActionBlockedText(action) }}
+                                            </div>
+                                        </div>
+                                        <div class="col-span-12 md:col-span-1 md:text-right">
+                                            <button @click="handleAiDailyReportActionPrimary(action, index)" :disabled="operationLoading.aiDailyReport || action.execution_intent_id" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700 disabled:opacity-50">{{ aiDailyReportActionButtonText(action) }}</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div v-if="aiDailyReport.model_message" class="mt-4 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                                    模型状态：{{ aiDailyReport.model_message }}
+                                </div>
+                                <div class="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-4">
+                                    <div class="flex items-center justify-between gap-3 mb-3">
+                                        <div>
+                                            <div class="text-sm font-semibold text-gray-900">证据包预览</div>
+                                            <div class="text-xs text-gray-500 mt-1">仅展示来源、缺口和动作引用；不展示订单手机号、Cookie/API 辅助内容或原始敏感数据。</div>
+                                        </div>
+                                        <span class="rounded-full bg-white px-2 py-1 text-xs text-gray-500">{{ aiDailyReportEvidenceRows.length }} 项</span>
+                                    </div>
+                                    <div v-if="!aiDailyReportEvidenceRows.length" class="text-sm text-gray-400">暂无可展示证据引用</div>
+                                    <div v-else="" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                                        <div v-for="row in aiDailyReportEvidenceRows" :key="row.key" class="rounded-lg border border-gray-200 bg-white p-3">
+                                            <div class="flex items-center justify-between gap-2">
+                                                <span :class="['rounded-md px-2 py-0.5 text-[11px]', row.className]">{{ row.type }}</span>
+                                                <span class="truncate text-[11px] text-gray-400">{{ row.ref }}</span>
+                                            </div>
+                                            <div class="mt-2 text-sm font-medium text-gray-900">{{ row.title }}</div>
+                                            <div class="mt-1 line-clamp-2 text-xs text-gray-500">{{ row.detail }}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- 运营管理：策行·效果追踪 -->

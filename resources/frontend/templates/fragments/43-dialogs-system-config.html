@@ -1,0 +1,251 @@
+        <!-- 系统配置模态框 -->
+        <div v-if="showSystemConfigModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="p-4 border-b flex justify-between items-center sticky top-0 bg-white">
+                    <h3 class="text-lg font-semibold">系统配置</h3>
+                    <button @click="showSystemConfigModal = false" class="text-gray-500 hover:text-gray-700">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <form @submit.prevent="saveSystemConfig" class="p-4 space-y-4 max-h-[70vh] overflow-y-auto">
+                    <div class="bg-blue-50 p-3 rounded text-sm text-blue-700 mb-4">
+                        <i class="fas fa-info-circle mr-2"></i>修改系统配置后，所有用户将看到更新后的设置。
+                    </div>
+
+                    <!-- 配置分组标签页 -->
+                    <div class="border-b border-gray-200 mb-4">
+                        <nav class="flex space-x-4" aria-label="Tabs">
+                            <button v-for="group in configGroups" :key="group.key" @click="activeConfigGroup = group.key" :class="[
+                                    activeConfigGroup === group.key
+                                        ? 'border-blue-500 text-blue-600'
+                                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300',
+                                    'whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm flex items-center gap-2'
+                                ]">
+                                <i :class="group.icon"></i>
+                                {{ group.title }}
+                            </button>
+                        </nav>
+                    </div>
+
+                    <!-- 基础设置 -->
+                    <div v-if="activeConfigGroup === 'basic'" class="space-y-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">系统名称 <span class="text-red-500">*</span></label>
+                                <input v-model="systemConfigForm.system_name" type="text" required="" placeholder="显示在侧边栏顶部" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">系统Logo URL</label>
+                                <input v-model="systemConfigForm.logo_url" type="text" placeholder="图片URL地址，留空显示默认图标" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">浏览器图标(Favicon) URL</label>
+                            <input v-model="systemConfigForm.favicon_url" type="text" placeholder="favicon图标地址" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">系统描述</label>
+                            <textarea v-model="systemConfigForm.system_description" rows="2" placeholder="用于SEO和系统介绍" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">系统关键词</label>
+                            <input v-model="systemConfigForm.system_keywords" type="text" placeholder="多个关键词用逗号分隔" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                    </div>
+
+                    <!-- 菜单配置 -->
+                    <div v-if="activeConfigGroup === 'menu'" class="space-y-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div v-for="menu in menuConfigItems" :key="menu.key">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">{{ menu.label }}</label>
+                                <input v-model="systemConfigForm[menu.key]" type="text" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 显示设置 -->
+                    <div v-if="activeConfigGroup === 'display'" class="space-y-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">主题风格</label>
+                                <select v-model="systemConfigForm.theme" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <option value="light">浅色主题</option>
+                                    <option value="dark">深色主题</option>
+                                    <option value="auto">跟随系统</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">主题色</label>
+                                <div class="flex items-center gap-2">
+                                    <input v-model="systemConfigForm.primary_color" type="color" class="w-10 h-10 border rounded cursor-pointer">
+                                    <input v-model="systemConfigForm.primary_color" type="text" class="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">日期格式</label>
+                                <select v-model="systemConfigForm.date_format" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <option value="Y-m-d">YYYY-MM-DD</option>
+                                    <option value="Y/m/d">YYYY/MM/DD</option>
+                                    <option value="d-m-Y">DD-MM-YYYY</option>
+                                    <option value="d/m/Y">DD/MM/YYYY</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">时间格式</label>
+                                <select v-model="systemConfigForm.time_format" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <option value="H:i:s">24小时制 (HH:mm:ss)</option>
+                                    <option value="h:i:s A">12小时制 (hh:mm:ss AM/PM)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">分页选项</label>
+                                <input v-model="systemConfigForm.page_size_options" type="text" placeholder="如: 10,20,50,100" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">默认分页大小</label>
+                                <select v-model="systemConfigForm.default_page_size" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <option value="10">10 条/页</option>
+                                    <option value="20">20 条/页</option>
+                                    <option value="50">50 条/页</option>
+                                    <option value="100">100 条/页</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 功能开关 -->
+                    <div v-if="activeConfigGroup === 'feature'" class="space-y-3">
+                        <div v-for="feature in featureSwitches" :key="feature.key" class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <div>
+                                <div class="font-medium text-gray-800">{{ feature.label }}</div>
+                                <div class="text-sm text-gray-500">{{ feature.description }}</div>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" v-model="systemConfigForm[feature.key]" :true-value="'1'" :false-value="'0'" class="sr-only peer">
+                                <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- 安全设置 -->
+                    <div v-if="activeConfigGroup === 'security'" class="space-y-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">会话超时时间(分钟)</label>
+                                <input v-model="systemConfigForm.session_timeout" type="number" min="30" max="1440" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">密码最小长度</label>
+                                <input v-model="systemConfigForm.password_min_length" type="number" min="6" max="20" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <div>
+                                <div class="font-medium text-gray-800">密码要求特殊字符</div>
+                                <div class="text-sm text-gray-500">强制密码包含特殊字符</div>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" v-model="systemConfigForm.password_require_special" :true-value="'1'" :false-value="'0'" class="sr-only peer">
+                                <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- 通知设置 -->
+                    <div v-if="activeConfigGroup === 'notification'" class="space-y-4">
+                        <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg mb-4">
+                            <div>
+                                <div class="font-medium text-gray-800">启用邮件通知</div>
+                                <div class="text-sm text-gray-500">开启后系统将发送邮件通知</div>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" v-model="systemConfigForm.notify_email_enabled" :true-value="'1'" :false-value="'0'" class="sr-only peer">
+                                <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                            </label>
+                        </div>
+
+                        <div v-if="systemConfigForm.notify_email_enabled === '1'" class="space-y-4 border-t pt-4">
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">SMTP服务器</label>
+                                    <input v-model="systemConfigForm.notify_email_server" type="text" placeholder="如: smtp.qq.com" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">SMTP端口</label>
+                                    <input v-model="systemConfigForm.notify_email_port" type="number" placeholder="如: 587" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">SMTP用户名</label>
+                                    <input v-model="systemConfigForm.notify_email_user" type="text" placeholder="邮箱地址" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">SMTP密码</label>
+                                    <input v-model="systemConfigForm.notify_email_pass" type="password" placeholder="授权码或密码" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <div class="flex justify-between items-center pt-4 border-t">
+                        <div class="flex space-x-2">
+                            <button type="button" @click="exportSystemConfig" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700 flex items-center gap-2">
+                                <i class="fas fa-download"></i>导出配置
+                            </button>
+                            <button type="button" @click="showImportConfigModal = true" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700 flex items-center gap-2">
+                                <i class="fas fa-upload"></i>导入配置
+                            </button>
+                            <button type="button" @click="resetSystemConfig" class="px-4 py-2 border border-red-300 rounded-lg hover:bg-red-50 text-red-700 flex items-center gap-2">
+                                <i class="fas fa-undo"></i>重置
+                            </button>
+                        </div>
+                        <div class="flex space-x-3">
+                            <button type="button" @click="showSystemConfigModal = false" class="px-4 py-2 border rounded-lg hover:bg-gray-50">取消</button>
+                            <button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 flex items-center gap-2">
+                                <i class="fas fa-save"></i>保存配置
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 导入配置模态框 -->
+        <div v-if="showImportConfigModal" class="fixed inset-0 z-[60] flex items-center justify-center modal-overlay">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
+                <div class="p-4 border-b flex justify-between items-center">
+                    <h3 class="text-lg font-semibold">导入系统配置</h3>
+                    <button @click="showImportConfigModal = false" class="text-gray-500 hover:text-gray-700">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="p-4 space-y-4">
+                    <div class="bg-yellow-50 p-3 rounded text-sm text-yellow-700">
+                        <i class="fas fa-exclamation-triangle mr-2"></i>
+                        导入配置将覆盖现有设置，请谨慎操作！
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">选择配置文件</label>
+                        <input type="file" ref="configFileInput" accept=".json" @change="handleConfigFileChange" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div v-if="importConfigPreview" class="bg-gray-50 p-3 rounded text-sm">
+                        <div class="font-medium mb-2">配置预览:</div>
+                        <div class="text-gray-600">共 {{ importConfigPreview.count }} 项配置</div>
+                        <div class="text-gray-600">导出时间: {{ importConfigPreview.time }}</div>
+                    </div>
+                </div>
+                <div class="p-4 border-t flex justify-end space-x-3">
+                    <button @click="showImportConfigModal = false" class="px-4 py-2 border rounded-lg hover:bg-gray-50">取消</button>
+                    <button @click="importSystemConfig" :disabled="!importConfigFile" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed">
+                        确认导入
+                    </button>
+                </div>
+            </div>
+        </div>
+

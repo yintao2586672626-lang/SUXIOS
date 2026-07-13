@@ -1,0 +1,267 @@
+                    <div v-if="currentPage === 'opening-checklist'" class="max-w-7xl mx-auto space-y-6">
+                        <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+                            <div>
+                                <h2 class="text-2xl font-bold text-gray-900">开业检查清单</h2>
+                                <p class="text-sm text-gray-500 mt-1">按分类、状态、风险筛选，管理负责人、截止时间、进度保存和备注</p>
+                            </div>
+                            <div class="flex flex-wrap items-center gap-3">
+                                <select v-model="selectedOpeningProjectId" @change="selectOpeningProject" class="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white min-w-[220px]">
+                                    <option value="">选择开业项目</option>
+                                    <option v-for="project in openingProjects" :key="project.id" :value="project.id">{{ project.project_name }} · {{ project.hotel_name }}</option>
+                                </select>
+                                <button @click="generateOpeningTasks" :disabled="!selectedOpeningProjectId || openingLoading" class="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50"><i class="fas fa-magic mr-1"></i>AI生成清单</button>
+                            </div>
+                        </div>
+
+                        <div v-if="selectedOpeningProjectId" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+                            <div v-for="card in openingTaskProgressCards" :key="card.label" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                                <div class="flex items-start justify-between gap-3">
+                                    <div>
+                                        <div class="text-xs text-gray-500">{{ card.label }}</div>
+                                        <div :class="['mt-2 text-2xl font-bold', card.valueClass || 'text-gray-900']">{{ card.value }}</div>
+                                    </div>
+                                    <div :class="['w-10 h-10 rounded-lg flex items-center justify-center', card.iconClass]">
+                                        <i :class="card.icon"></i>
+                                    </div>
+                                </div>
+                                <div class="text-xs text-gray-500 mt-3">{{ card.hint }}</div>
+                                <div v-if="card.progress !== null" class="mt-3 h-2 bg-gray-100 rounded-full overflow-hidden">
+                                    <div :class="['h-full rounded-full', card.progressClass || 'bg-blue-600']" :style="{ width: card.progress + '%' }"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="selectedOpeningProjectId" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
+                                <div>
+                                    <div class="font-medium text-gray-900">项目进度展示</div>
+                                    <div class="text-xs text-gray-500 mt-1">按每个检查项保存的进度百分比计算</div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-2xl font-bold text-blue-600">{{ openingTaskStats.averageProgress }}%</div>
+                                    <div class="text-xs text-gray-500">任务进度均值</div>
+                                </div>
+                            </div>
+                            <div class="h-3 bg-gray-100 rounded-full overflow-hidden">
+                                <div class="h-full rounded-full bg-blue-600" :style="{ width: openingTaskStats.averageProgress + '%' }"></div>
+                            </div>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+                                <div v-for="stage in openingTaskProgressStages" :key="stage.label" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-xs text-gray-500">{{ stage.label }}</span>
+                                        <span :class="stage.className" class="text-sm font-semibold">{{ stage.count }}</span>
+                                    </div>
+                                    <div class="mt-2 h-1.5 bg-white rounded-full overflow-hidden">
+                                        <div :class="stage.barClass" class="h-full rounded-full" :style="{ width: stage.percent + '%' }"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="selectedOpeningProjectId" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                            <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4">
+                                <div>
+                                    <div class="font-medium text-gray-900">AI输出结果</div>
+                                    <div class="text-xs text-gray-500 mt-1">直接展示AI生成清单与开业总览返回的建议结果</div>
+                                </div>
+                                <span :class="openingAiOutputResult.badgeClass" class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium">
+                                    <i class="fas fa-robot mr-1"></i>{{ openingAiOutputResult.badgeText }}
+                                </span>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                                <div v-for="card in openingAiOutputResult.cards" :key="card.label" class="border-l-4 pl-3" :class="card.borderClass">
+                                    <div class="flex items-center justify-between gap-2">
+                                        <div class="text-xs text-gray-500">{{ card.label }}</div>
+                                        <i :class="[card.icon, card.iconClass]"></i>
+                                    </div>
+                                    <div :class="['text-xl font-bold mt-1', card.valueClass || 'text-gray-900']">{{ card.value }}</div>
+                                    <div class="text-xs text-gray-500 mt-1 leading-relaxed">{{ card.hint }}</div>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-1 xl:grid-cols-2 gap-5 mt-5 pt-4 border-t border-gray-100">
+                                <div>
+                                    <div class="text-sm font-semibold text-gray-900 mb-3">总览AI输出</div>
+                                    <div v-if="openingAiOutputResult.overviewOutputs.length" class="space-y-2">
+                                        <div v-for="item in openingAiOutputResult.overviewOutputs" :key="item" class="flex gap-2 text-sm text-gray-700 leading-relaxed">
+                                            <i class="fas fa-check-circle text-blue-500 mt-0.5"></i>
+                                            <span>{{ item }}</span>
+                                        </div>
+                                    </div>
+                                    <div v-else="" class="text-sm text-gray-400">暂无总览AI输出，请先生成清单或刷新开业总览</div>
+                                </div>
+                                <div>
+                                    <div class="text-sm font-semibold text-gray-900 mb-3">检查项AI输出</div>
+                                    <div v-if="openingAiOutputResult.taskOutputs.length" class="space-y-2">
+                                        <div v-for="task in openingAiOutputResult.taskOutputs" :key="task.id" class="border-b border-gray-50 pb-2 last:border-b-0 last:pb-0">
+                                            <div class="flex items-start justify-between gap-3">
+                                                <div class="min-w-0">
+                                                    <div class="text-sm font-medium text-gray-900 truncate">{{ task.task_name }}</div>
+                                                    <div class="text-xs text-gray-500 mt-1">{{ task.category }} · {{ task.owner_name || '未分配负责人' }} · {{ task.progress }}%</div>
+                                                </div>
+                                                <div :class="task.className" class="text-xs font-semibold flex-shrink-0">{{ task.reason }}</div>
+                                            </div>
+                                            <div class="text-sm text-gray-700 leading-relaxed mt-2">{{ task.suggestion }}</div>
+                                        </div>
+                                    </div>
+                                    <div v-else="" class="text-sm text-gray-400">暂无检查项AI输出</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
+                                <div>
+                                    <div class="font-medium text-gray-900">进度筛选</div>
+                                    <div class="text-xs text-gray-500 mt-1">当前渲染 {{ openingTaskPagination.start }}-{{ openingTaskPagination.end }} / 筛选 {{ filteredOpeningTasks.length }} / 全部 {{ openingTasks.length }} 项</div>
+                                </div>
+                                <button @click="resetOpeningTaskFilter" class="inline-flex items-center justify-center px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">
+                                    <i class="fas fa-redo mr-1"></i>重置筛选
+                                </button>
+                            </div>
+                            <div class="flex flex-wrap gap-2 mb-3">
+                                <button v-for="item in openingStatusFilterChips" :key="item.value || 'all'" @click="openingTaskFilter.status = item.value" :class="openingTaskFilter.status === item.value ? item.activeClass : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'" class="px-3 py-1.5 rounded-full border text-xs font-medium">
+                                    {{ item.label }} <span class="ml-1">{{ item.count }}</span>
+                                </button>
+                            </div>
+                            <div class="flex flex-wrap gap-2 mb-4">
+                                <button v-for="item in openingAttentionFilterChips" :key="item.value" @click="openingTaskFilter.attention = openingTaskFilter.attention === item.value ? '' : item.value" :class="openingTaskFilter.attention === item.value ? item.activeClass : 'bg-gray-50 text-gray-600 border-gray-100 hover:bg-gray-100'" class="px-3 py-1.5 rounded-full border text-xs font-medium">
+                                    {{ item.label }} <span class="ml-1">{{ item.count }}</span>
+                                </button>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                <select v-model="openingTaskFilter.category" class="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                                    <option value="">全部分类</option>
+                                    <option v-for="category in openingCategories" :key="category" :value="category">{{ category }}</option>
+                                </select>
+                                <select v-model="openingTaskFilter.status" class="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                                    <option value="">全部状态</option>
+                                    <option v-for="status in openingStatusOptions" :key="status.value" :value="status.value">{{ status.label }}</option>
+                                </select>
+                                <select v-model="openingTaskFilter.risk" class="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                                    <option value="">全部风险</option>
+                                    <option value="high">高风险</option>
+                                    <option value="medium">中风险</option>
+                                    <option value="low">低风险</option>
+                                </select>
+                                <select v-model="openingTaskFilter.attention" class="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                                    <option value="">全部重点项</option>
+                                    <option value="overdue">逾期未完成</option>
+                                    <option value="dueSoon">7天内到期</option>
+                                    <option value="high">高风险</option>
+                                    <option value="blocked">受阻</option>
+                                    <option value="noOwner">未分配负责人</option>
+                                    <option value="core">核心项</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                            <div class="px-4 py-3 border-b border-gray-100 bg-gray-50/70 flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
+                                <div>
+                                    <div class="text-sm font-semibold text-gray-900">批量处理</div>
+                                    <div class="text-xs text-gray-500 mt-1">已选 {{ selectedOpeningTasks.length }} 项，可按当前筛选全选后统一更新状态或进度</div>
+                                </div>
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <button @click="toggleSelectAllFilteredOpeningTasks(true)" :disabled="!filteredOpeningTasks.length || openingLoading" class="inline-flex items-center px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                                        <i class="fas fa-check-square mr-1"></i>选中当前筛选
+                                    </button>
+                                    <button @click="clearSelectedOpeningTasks" :disabled="!selectedOpeningTasks.length || openingLoading" class="inline-flex items-center px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50">
+                                        <i class="fas fa-times mr-1"></i>清空
+                                    </button>
+                                    <span class="text-xs text-gray-400 px-1">状态</span>
+                                    <button @click="batchUpdateOpeningTasks({ status: 'doing' })" :disabled="!selectedOpeningTasks.length || openingLoading" class="px-3 py-1.5 rounded-lg border border-blue-100 bg-blue-50 text-xs text-blue-700 hover:bg-blue-100 disabled:opacity-50">进行中</button>
+                                    <button @click="batchUpdateOpeningTasks({ status: 'done' })" :disabled="!selectedOpeningTasks.length || openingLoading" class="px-3 py-1.5 rounded-lg border border-green-100 bg-green-50 text-xs text-green-700 hover:bg-green-100 disabled:opacity-50">完成</button>
+                                    <button @click="batchUpdateOpeningTasks({ status: 'blocked' })" :disabled="!selectedOpeningTasks.length || openingLoading" class="px-3 py-1.5 rounded-lg border border-yellow-100 bg-yellow-50 text-xs text-yellow-700 hover:bg-yellow-100 disabled:opacity-50">受阻</button>
+                                    <span class="text-xs text-gray-400 px-1">进度</span>
+                                    <button v-for="value in openingProgressQuickValues" :key="`batch-progress-${value}`" @click="batchUpdateOpeningTasks({ progress_percent: value })" :disabled="!selectedOpeningTasks.length || openingLoading" class="px-2 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50">{{ value }}%</button>
+                                </div>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="min-w-full divide-y divide-gray-100">
+                                    <thead class="bg-gray-50">
+                                        <tr>
+                                            <th class="w-12 px-4 py-3 text-left">
+                                                <input type="checkbox" :checked="isAllFilteredOpeningTasksSelected" :disabled="!filteredOpeningTasks.length || openingLoading" @change="toggleSelectAllFilteredOpeningTasks($event.target.checked)" aria-label="选择当前筛选检查项" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                            </th>
+                                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">检查项</th>
+                                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">负责人</th>
+                                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">截止时间</th>
+                                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">状态</th>
+                                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">进度保存</th>
+                                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">风险</th>
+                                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">AI建议 / 验收标准</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-50">
+                                        <tr v-for="task in pagedOpeningTasks" :key="task.id" class="hover:bg-gray-50 align-top">
+                                            <td class="px-4 py-4">
+                                                <input type="checkbox" v-model="selectedOpeningTaskIds" :value="String(task.id)" :aria-label="`选择检查项：${task.task_name || task.id}`" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                            </td>
+                                            <td class="px-4 py-4 min-w-[260px]">
+                                                <div class="flex items-center gap-2">
+                                                    <span class="text-xs px-2 py-1 rounded-full bg-blue-50 text-blue-700">{{ task.category }}</span>
+                                                    <span v-if="Number(task.is_core) === 1" class="text-xs px-2 py-1 rounded-full bg-yellow-50 text-yellow-700">核心</span>
+                                                </div>
+                                                <div class="font-medium text-gray-900 mt-2">{{ task.task_name }}</div>
+                                                <div class="text-xs text-gray-500 mt-1 leading-relaxed">{{ task.task_desc }}</div>
+                                            </td>
+                                            <td class="px-4 py-4 min-w-[150px]">
+                                                <input v-model="task.owner_name" @change="updateOpeningTask(task)" class="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm" placeholder="负责人">
+                                                <input v-model="task.collaborator_name" @change="updateOpeningTask(task)" class="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs mt-2" placeholder="协同人">
+                                            </td>
+                                            <td class="px-4 py-4 min-w-[150px]">
+                                                <input v-model="task.deadline" @change="updateOpeningTask(task, { refreshOverview: true })" type="date" class="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm">
+                                                <div :class="openingTaskDueClass(task)" class="text-xs mt-2">{{ openingTaskDueLabel(task) }}</div>
+                                            </td>
+                                            <td class="px-4 py-4 min-w-[130px]">
+                                                <select v-model="task.status" @change="handleOpeningTaskStatusChange(task)" class="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-sm bg-white">
+                                                    <option v-for="status in openingStatusOptions" :key="status.value" :value="status.value">{{ status.label }}</option>
+                                                </select>
+                                                <div class="flex flex-wrap gap-1 mt-2">
+                                                    <button v-if="task.status !== 'doing'" @click.stop="setOpeningTaskStatus(task, 'doing')" class="w-7 h-7 rounded-lg border border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100" title="标记进行中"><i class="fas fa-play text-xs"></i></button>
+                                                    <button v-if="task.status !== 'done'" @click.stop="setOpeningTaskStatus(task, 'done')" class="w-7 h-7 rounded-lg border border-green-100 bg-green-50 text-green-600 hover:bg-green-100" title="标记完成"><i class="fas fa-check text-xs"></i></button>
+                                                    <button v-if="task.status !== 'blocked'" @click.stop="setOpeningTaskStatus(task, 'blocked')" class="w-7 h-7 rounded-lg border border-yellow-100 bg-yellow-50 text-yellow-700 hover:bg-yellow-100" title="标记受阻"><i class="fas fa-ban text-xs"></i></button>
+                                                </div>
+                                                <textarea v-model="task.remark" @change="updateOpeningTask(task)" rows="2" class="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs mt-2" placeholder="备注"></textarea>
+                                            </td>
+                                            <td class="px-4 py-4 min-w-[190px]">
+                                                <div class="flex items-center justify-between text-xs mb-2">
+                                                    <span :class="openingTaskProgressTextClass(task)" class="font-semibold">{{ openingTaskProgressPercent(task) }}%</span>
+                                                    <span class="text-gray-500">{{ openingTaskProgressStage(task) }}</span>
+                                                </div>
+                                                <input v-model.number="task.progress_percent" @input="handleOpeningTaskProgressInput(task)" type="range" min="0" max="100" step="5" class="w-full">
+                                                <div class="flex flex-wrap gap-1 mt-2">
+                                                    <button v-for="value in openingProgressQuickValues" :key="value" @click.stop="setOpeningTaskProgress(task, value)" :class="openingTaskProgressPercent(task) === value ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'" class="px-2 py-1 rounded border text-xs">{{ value }}%</button>
+                                                </div>
+                                                <button @click.stop="saveOpeningTaskProgress(task)" class="mt-2 w-full px-2 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700">
+                                                    <i class="fas fa-save mr-1"></i>保存进度
+                                                </button>
+                                            </td>
+                                            <td class="px-4 py-4"><span :class="openingRiskClass(task.risk_level)" class="px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap">{{ openingRiskText(task.risk_level) }}</span></td>
+                                            <td class="px-4 py-4 min-w-[320px]">
+                                                <div class="text-xs text-gray-500 mb-1">AI建议</div>
+                                                <div class="text-sm text-gray-700 leading-relaxed">{{ task.ai_suggestion || '-' }}</div>
+                                                <div class="text-xs text-gray-500 mt-3 mb-1">验收标准</div>
+                                                <div class="text-sm text-gray-700 leading-relaxed">{{ task.acceptance_standard || '-' }}</div>
+                                            </td>
+                                        </tr>
+                                        <tr v-if="!filteredOpeningTasks.length">
+                                            <td colspan="8" class="px-4 py-12 text-center text-gray-400"><i class="fas fa-inbox text-3xl mb-2"></i><div>{{ selectedOpeningProjectId ? '暂无检查项，请先生成清单' : '请先选择开业项目' }}</div></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div v-if="openingTaskPagination.total &gt; openingTaskPagination.pageSize" class="px-4 py-3 border-t border-gray-100 bg-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                <div class="text-xs text-gray-500">
+                                    已分页渲染，每页 {{ openingTaskPagination.pageSize }} 项，当前 {{ openingTaskPagination.start }}-{{ openingTaskPagination.end }} / {{ openingTaskPagination.total }}
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <button @click="changeOpeningTaskPage(openingTaskPage - 1)" :disabled="openingTaskPage &lt;= 1" class="px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50">上一页</button>
+                                    <span class="px-2 text-xs text-gray-500">{{ openingTaskPagination.page }} / {{ openingTaskPagination.totalPages }}</span>
+                                    <button @click="changeOpeningTaskPage(openingTaskPage + 1)" :disabled="openingTaskPage &gt;= openingTaskPagination.totalPages" class="px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50">下一页</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 运营管理：策源·全维数据 -->
