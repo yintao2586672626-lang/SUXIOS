@@ -104,6 +104,7 @@ public/ui-example.html
 # Public obsolete build leftovers
 public/assets/
 public/app-main.*
+!public/app-main.js
 public/app-styles.css
 public/app.js
 public/components.css
