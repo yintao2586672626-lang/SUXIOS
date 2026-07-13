@@ -1085,7 +1085,7 @@ trait AutoFetchConcern
             if (!in_array($status, ['ready', 'success', 'partial_success'], true)) {
                 continue;
             }
-            if (!$proofService->isCurrentVerified($source)) {
+            if (empty($proofService->profileReuseState($source)['is_reusable'])) {
                 continue;
             }
             $verified[] = $source;
@@ -2109,9 +2109,9 @@ trait AutoFetchConcern
                 return 'profile_reusable';
             }
             if (($reuseState['status'] ?? '') === 'expired') {
-                return 'profile_reusable';
+                return 'login_expired';
             }
-            return 'profile_reusable';
+            return 'waiting_login';
         }
         return 'waiting_login';
     }
@@ -5078,9 +5078,15 @@ trait AutoFetchConcern
         if ($profileId === '') {
             return ['success' => false, 'skipped' => true, 'message' => '未配置携程 Profile ID', 'saved_count' => 0];
         }
-        $profileSource = $this->loadProfileSessionSource('ctrip', $hotelId, $profileId);
-        if (!$interactiveBrowser && !(new OtaProfileSessionProofService())->isCurrentVerified($profileSource ?? [])) {
-            return ['success' => false, 'skipped' => true, 'message' => 'current_session_not_verified', 'status_code' => 'current_session_not_verified', 'saved_count' => 0];
+        if (!$interactiveBrowser) {
+            $profileSource = $this->loadProfileSessionSource('ctrip', $hotelId, $profileId);
+            $reuseState = (new OtaProfileSessionProofService())->profileReuseState($profileSource ?? []);
+            if (empty($reuseState['is_reusable'])) {
+                $statusCode = ($reuseState['status'] ?? '') === 'expired'
+                    ? 'profile_session_expired'
+                    : 'profile_session_unverified';
+                return ['success' => false, 'skipped' => true, 'message' => $statusCode, 'status_code' => $statusCode, 'saved_count' => 0];
+            }
         }
         if (!$this->ctripProfileExistsForConfig($config, $hotelId) && !$interactiveBrowser) {
             return ['success' => false, 'skipped' => true, 'message' => "未找到 storage/ctrip_profile_{$profileId}", 'saved_count' => 0];
@@ -6236,9 +6242,15 @@ trait AutoFetchConcern
         if ($storeId === '') {
             return ['success' => false, 'skipped' => true, 'message' => '未配置 Store ID / POI ID', 'saved_count' => 0];
         }
-        $profileSource = $this->loadProfileSessionSource('meituan', $hotelId, $storeId);
-        if (!$interactiveBrowser && !(new OtaProfileSessionProofService())->isCurrentVerified($profileSource ?? [])) {
-            return ['success' => false, 'skipped' => true, 'message' => 'current_session_not_verified', 'status_code' => 'current_session_not_verified', 'saved_count' => 0];
+        if (!$interactiveBrowser) {
+            $profileSource = $this->loadProfileSessionSource('meituan', $hotelId, $storeId);
+            $reuseState = (new OtaProfileSessionProofService())->profileReuseState($profileSource ?? []);
+            if (empty($reuseState['is_reusable'])) {
+                $statusCode = ($reuseState['status'] ?? '') === 'expired'
+                    ? 'profile_session_expired'
+                    : 'profile_session_unverified';
+                return ['success' => false, 'skipped' => true, 'message' => $statusCode, 'status_code' => $statusCode, 'saved_count' => 0];
+            }
         }
         if (!$this->meituanProfileExistsForConfig($config) && !$interactiveBrowser) {
             return ['success' => false, 'skipped' => true, 'message' => '未发现本地美团浏览器 Profile，跳过浏览器采集', 'saved_count' => 0];

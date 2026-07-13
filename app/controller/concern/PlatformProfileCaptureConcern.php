@@ -434,7 +434,13 @@ trait PlatformProfileCaptureConcern
 
     private function profileCookieSourceLoginMissingRequirements(array $source): array
     {
-        return [];
+        $reuseState = (new OtaProfileSessionProofService())->profileReuseState($source);
+        if (!empty($reuseState['is_reusable'])) {
+            return [];
+        }
+        return [($reuseState['status'] ?? '') === 'expired'
+            ? 'profile_session_expired'
+            : 'profile_session_unverified'];
     }
 
     private function loadProfileSessionSource(

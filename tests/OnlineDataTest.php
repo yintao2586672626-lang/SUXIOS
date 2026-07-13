@@ -1093,11 +1093,11 @@ final class OnlineDataTest extends TestCase
         self::assertNotContains('ctrip-cookie-api', array_column($tasks, 'label'));
     }
 
-    public function testProfileDerivedCookieExtractionDoesNotRequireSameDayProof(): void
+    public function testProfileDerivedCookieExtractionRequiresAuthoritativeReusableProof(): void
     {
         $controller = $this->controller();
 
-        self::assertSame([], $this->invokeNonPublic(
+        self::assertSame(['profile_session_unverified'], $this->invokeNonPublic(
             $controller,
             'profileCookieSourceLoginMissingRequirements',
             [[
@@ -3623,11 +3623,11 @@ final class OnlineDataTest extends TestCase
         ]));
     }
 
-    public function testAvailableProfileCanBeAttemptedWithoutCurrentLoginProof(): void
+    public function testAvailableProfileWithoutAuthoritativeProofWaitsForLogin(): void
     {
         $controller = $this->controller();
 
-        self::assertSame('profile_reusable', $this->invokeNonPublic($controller, 'resolvePlatformProfileStatusCode', [
+        self::assertSame('waiting_login', $this->invokeNonPublic($controller, 'resolvePlatformProfileStatusCode', [
             'profile-58',
             true,
             ['ingestion_method' => 'browser_profile', 'status' => 'ready'],
@@ -6603,7 +6603,7 @@ final class OnlineDataTest extends TestCase
         self::assertSame(['Partner ID', 'POI ID'], $status['one_time_required_fields']);
     }
 
-    public function testMeituanAutoFetchConfigStatusAllowsExistingProfileSourceWithoutSameDayProof(): void
+    public function testMeituanAutoFetchConfigStatusRejectsProfileDirectoryWithoutReusableProof(): void
     {
         $controller = $this->controller();
         $projectRoot = dirname(__DIR__);
@@ -6624,17 +6624,17 @@ final class OnlineDataTest extends TestCase
                 'last_login_verified_at' => '2026-05-18 09:00:00',
             ]]);
 
-            self::assertTrue($status['api_configured']);
-            self::assertTrue($status['has_cookies']);
-            self::assertTrue($status['has_profile_cookie_source']);
-            self::assertSame([], $status['profile_cookie_missing_requirements']);
-            self::assertNotContains('profile_session_unverified', $status['missing_fields']);
+            self::assertFalse($status['api_configured']);
+            self::assertFalse($status['has_cookies']);
+            self::assertFalse($status['has_profile_cookie_source']);
+            self::assertSame(['profile_session_unverified'], $status['profile_cookie_missing_requirements']);
+            self::assertContains('profile_session_unverified', $status['missing_fields']);
         } finally {
             @rmdir($profileDir);
         }
     }
 
-    public function testMeituanAutoFetchConfigStatusAttemptsUnverifiedExistingProfileSource(): void
+    public function testMeituanAutoFetchConfigStatusRejectsUnverifiedExistingProfileSource(): void
     {
         $controller = $this->controller();
         $projectRoot = dirname(__DIR__);
@@ -6654,12 +6654,12 @@ final class OnlineDataTest extends TestCase
                 'last_login_verified_at' => '2026-05-18 09:00:00',
             ]]);
 
-            self::assertTrue($status['api_configured']);
-            self::assertTrue($status['has_cookies']);
-            self::assertTrue($status['has_profile_cookie_source']);
+            self::assertFalse($status['api_configured']);
+            self::assertFalse($status['has_cookies']);
+            self::assertFalse($status['has_profile_cookie_source']);
             self::assertTrue($status['profile_cookie_source_candidate']);
-            self::assertSame([], $status['profile_cookie_missing_requirements']);
-            self::assertNotContains('profile_session_unverified', $status['missing_fields']);
+            self::assertSame(['profile_session_unverified'], $status['profile_cookie_missing_requirements']);
+            self::assertContains('profile_session_unverified', $status['missing_fields']);
         } finally {
             @rmdir($profileDir);
         }
@@ -8823,7 +8823,7 @@ final class OnlineDataTest extends TestCase
         self::assertSame(10, $selected[0]['id']);
     }
 
-    public function testAutoFetchUsesReadyBrowserProfileSourcesWithoutSameDayProof(): void
+    public function testAutoFetchRejectsReadyBrowserProfileSourcesWithoutAuthoritativeReusableProof(): void
     {
         $controller = $this->controller();
 
@@ -8837,7 +8837,7 @@ final class OnlineDataTest extends TestCase
 
         $filtered = $this->invokeNonPublic($controller, 'filterCollectableBrowserProfileDataSources', [$sources, 'ctrip']);
 
-        self::assertSame([13, 12], array_column($filtered, 'id'));
+        self::assertSame([], array_column($filtered, 'id'));
     }
 
     public function testCtripSoftCoverageGateFailureCanContinueWithWarning(): void

@@ -3036,7 +3036,18 @@ final class PlatformDataSyncService
      */
     private function browserProfileBackgroundSyncLoginMissingRequirements(array $source, array $options): array
     {
-        return [];
+        if (!$this->isOtaBrowserProfileSource($source)
+            || !empty($options['interactive_browser'])
+        ) {
+            return [];
+        }
+        $reuseState = $this->profileSessionProofService->profileReuseState($source);
+        if (!empty($reuseState['is_reusable'])) {
+            return [];
+        }
+        return [($reuseState['status'] ?? '') === 'expired'
+            ? 'profile_session_expired'
+            : 'profile_session_unverified'];
     }
 
     /**
