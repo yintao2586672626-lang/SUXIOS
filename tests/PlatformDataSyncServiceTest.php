@@ -156,13 +156,16 @@ final class PlatformDataSyncServiceTest extends TestCase
         ]);
     }
 
-    public function testBrowserProfileBackgroundSyncDoesNotRequireCurrentSessionProof(): void
+    public function testBrowserProfileBackgroundSyncRequiresReusableSessionProof(): void
     {
         $service = new PlatformDataSyncService();
         $method = new \ReflectionMethod($service, 'assertBrowserProfileBackgroundSyncLoginVerified');
         $method->setAccessible(true);
 
-        self::assertNull($method->invoke($service, [
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('profile_session_unverified');
+
+        $method->invoke($service, [
             'id' => 79,
             'platform' => 'ctrip',
             'data_type' => 'traffic',
@@ -177,10 +180,10 @@ final class PlatformDataSyncServiceTest extends TestCase
         ], [
             'trigger_type' => 'daily_profile_reuse',
             'interactive_browser' => false,
-        ]));
+        ]);
     }
 
-    public function testBrowserProfileBackgroundSyncAllowsHistoricalStatusAndTimeForAnAttempt(): void
+    public function testBrowserProfileBackgroundSyncReportsUnverifiedHistoricalStatus(): void
     {
         $service = new PlatformDataSyncService();
         $method = new \ReflectionMethod($service, 'browserProfileBackgroundSyncLoginMissingRequirements');
@@ -202,7 +205,7 @@ final class PlatformDataSyncServiceTest extends TestCase
             'interactive_browser' => false,
         ]);
 
-        self::assertSame([], $missing);
+        self::assertSame(['profile_session_unverified'], $missing);
     }
 
     public function testBrowserProfileInteractiveSynchronizationDoesNotRequireCurrentSessionProof(): void
@@ -227,13 +230,16 @@ final class PlatformDataSyncServiceTest extends TestCase
 
     }
 
-    public function testBrowserProfileBackgroundSyncAttemptsHistoricalVerifiedManualLoginState(): void
+    public function testBrowserProfileBackgroundSyncRejectsHistoricalVerifiedManualLoginWithoutReusableProof(): void
     {
         $service = new PlatformDataSyncService();
         $method = new \ReflectionMethod($service, 'assertBrowserProfileBackgroundSyncLoginVerified');
         $method->setAccessible(true);
 
-        self::assertNull($method->invoke($service, [
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('profile_session_unverified');
+
+        $method->invoke($service, [
             'id' => 82,
             'platform' => 'meituan',
             'data_type' => 'traffic',
@@ -248,7 +254,7 @@ final class PlatformDataSyncServiceTest extends TestCase
         ], [
             'trigger_type' => 'daily_profile_reuse',
             'interactive_browser' => false,
-        ]));
+        ]);
 
     }
 

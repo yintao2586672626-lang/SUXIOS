@@ -55,6 +55,25 @@ final class OtaTrafficAttributionService
         return $compareType === '' || $compareType === 'self';
     }
 
+    /**
+     * @param array<int, int|string> $sourceHotelIds
+     * @param array<int, int|string> $profileBindingHotelIds
+     * @param array<int, int|string> $storedTrafficHotelIds
+     * @return array<int, int>
+     */
+    public static function mergeP0HotelScopeIds(
+        array $sourceHotelIds,
+        array $profileBindingHotelIds,
+        array $storedTrafficHotelIds
+    ): array {
+        $hotelIds = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $value): int => (int)$value,
+            array_merge($sourceHotelIds, $profileBindingHotelIds, $storedTrafficHotelIds)
+        ), static fn(int $hotelId): bool => $hotelId > 0)));
+        sort($hotelIds, SORT_NUMERIC);
+        return $hotelIds;
+    }
+
     /** @return array<int, string> */
     private static function flattenSectionValues(mixed $value): array
     {

@@ -2431,6 +2431,41 @@ window.SUXI_CTRIP_STATIC = (() => {
 
     const hasVisibleCtripMetricValue = (value) => value !== undefined && value !== null && value !== '';
 
+    const ctripUnsupportedEstimateKeys = [
+        'aiEstimatedTotalRoomNights',
+        'ai_estimated_total_room_nights',
+    ];
+
+    const omitUnsupportedCtripEstimate = (source = {}) => {
+        const result = { ...(source && typeof source === 'object' ? source : {}) };
+        ctripUnsupportedEstimateKeys.forEach(key => delete result[key]);
+        return result;
+    };
+
+    const buildTruthfulCtripDisplayModel = (rows = [], summary = null) => {
+        const displayRows = Array.isArray(rows) ? rows.map(omitUnsupportedCtripEstimate) : [];
+        if (!summary || typeof summary !== 'object') {
+            return { rows: displayRows, summary };
+        }
+        const normalizedSummary = { ...summary };
+        if (normalizedSummary.metrics && typeof normalizedSummary.metrics === 'object') {
+            normalizedSummary.metrics = omitUnsupportedCtripEstimate(normalizedSummary.metrics);
+        }
+        if (Array.isArray(normalizedSummary.cards)) {
+            normalizedSummary.cards = normalizedSummary.cards.filter(card => (
+                !ctripUnsupportedEstimateKeys.includes(String(card?.key || ''))
+            ));
+        }
+        return { rows: displayRows, summary: normalizedSummary };
+    };
+
+    const isCtripLatestRequestCurrent = (requestContext = {}, currentContext = {}) => (
+        Number(requestContext.seq || 0) > 0
+        && Number(requestContext.seq || 0) === Number(currentContext.activeSeq || 0)
+        && String(requestContext.hotelId || '').trim() === String(currentContext.hotelId || '').trim()
+        && String(requestContext.range || '').trim() === String(currentContext.range || '').trim()
+    );
+
     const ctripSortMetricValue = (row = {}, field = '') => {
         if (field === 'amount') return row.amount || 0;
         if (field === 'quantity') return row.quantity || 0;
@@ -2438,7 +2473,6 @@ window.SUXI_CTRIP_STATIC = (() => {
         if (field === 'ari') return row.ari || 0;
         if (field === 'sci') return row.sci || 0;
         if (field === 'bookOrderNum') return row.bookOrderNum || 0;
-        if (field === 'aiEstimatedTotalRoomNights') return row.aiEstimatedTotalRoomNights || 0;
         if (field === 'totalOrderNum') return row.totalOrderNum || 0;
         if (field === 'commentScore') return row.commentScore || 0;
         if (field === 'qunarCommentScore') return row.qunarCommentScore || 0;
@@ -3348,6 +3382,8 @@ window.SUXI_CTRIP_STATIC = (() => {
         buildCtripFetchRawFailureResult,
         runCtripFetchDataFlow,
         buildLatestCtripSnapshotModel,
+        buildTruthfulCtripDisplayModel,
+        isCtripLatestRequestCurrent,
         buildCtripTrafficFetchRequestBody,
         buildCtripTrafficResponseModel,
         runCtripTrafficFetchFlow,

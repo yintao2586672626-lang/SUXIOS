@@ -12,6 +12,15 @@ final class CtripCompetitionCirclePersistenceService
     public const INGESTION_METHOD = 'manual_cookie_api';
     public const BACKFILL_INGESTION_METHOD = 'historical_backfill';
 
+    private ?\Closure $readbackReader;
+
+    public function __construct(?callable $readbackReader = null)
+    {
+        $this->readbackReader = $readbackReader !== null
+            ? \Closure::fromCallable($readbackReader)
+            : null;
+    }
+
     /**
      * Competition-circle rows are hotel entities with the three daily business
      * facts plus at least one rank fact. This deliberately excludes generic
@@ -299,7 +308,7 @@ final class CtripCompetitionCirclePersistenceService
     }
 
     /**
-     * @return array{saved_count:int,inserted_count:int,updated_count:int,skipped_count:int,row_ids:array<int,int>}
+     * @return array{saved_count:int,processed_count:int,inserted_count:int,updated_count:int,skipped_count:int,row_ids:array<int,int>,readback_count:int,readback_verified:bool,readback_reason:string}
      */
     public function persistRows(
         array $rows,
@@ -311,8 +320,10 @@ final class CtripCompetitionCirclePersistenceService
         $now = self::normalizeDateTime($context['fetched_at'] ?? null) ?? date('Y-m-d H:i:s');
         $inserted = 0;
         $updated = 0;
-        $skipped = 0;
+        [$rows, $duplicateCount] = self::deduplicatePersistenceRows($rows, $dataDate, $systemHotelId);
+        $skipped = $duplicateCount;
         $rowIds = [];
+        $expectedRows = [];
         $contextDataSourceId = (int)($context['data_source_id'] ?? 0);
         $contextSyncTaskId = (int)($context['sync_task_id'] ?? 0);
         $evidenceFlagCodes = [];
@@ -388,6 +399,7 @@ final class CtripCompetitionCirclePersistenceService
                 Db::name('online_daily_data')->where('id', $id)->update($data);
                 $updated++;
                 $rowIds[] = $id;
+                $expectedRows[$id] = $this->buildReadbackExpectation($id, $data);
                 continue;
             }
 
@@ -397,15 +409,171 @@ final class CtripCompetitionCirclePersistenceService
             $id = (int)Db::name('online_daily_data')->insertGetId($data);
             $inserted++;
             $rowIds[] = $id;
+            $expectedRows[$id] = $this->buildReadbackExpectation($id, $data);
         }
 
+        $readback = $this->verifyPersistedRows($expectedRows);
+        $processedCount = $inserted + $updated;
+
         return [
-            'saved_count' => $inserted + $updated,
+            'saved_count' => $readback['matched_count'],
+            'processed_count' => $processedCount,
             'inserted_count' => $inserted,
             'updated_count' => $updated,
             'skipped_count' => $skipped,
             'row_ids' => $rowIds,
+            'readback_count' => $readback['matched_count'],
+            'readback_verified' => $readback['verified'],
+            'readback_reason' => $readback['reason'],
         ];
+    }
+
+    /** @return array{0:array<int,mixed>,1:int} */
+    private static function deduplicatePersistenceRows(array $rows, string $dataDate, int $systemHotelId): array
+    {
+        $unique = [];
+        $seen = [];
+        $duplicateCount = 0;
+        foreach ($rows as $row) {
+            if (!is_array($row) || !self::hasCompetitionCircleSignature($row)) {
+                $unique[] = $row;
+                continue;
+            }
+            $rowDate = self::normalizeDate(
+                $row['dataDate']
+                ?? $row['date']
+                ?? $row['data_date']
+                ?? $row['statDate']
+                ?? $dataDate
+            ) ?: $dataDate;
+            $key = implode('|', [$systemHotelId, self::platformHotelId($row), $rowDate]);
+            if (isset($seen[$key])) {
+                $duplicateCount++;
+                continue;
+            }
+            $seen[$key] = true;
+            $unique[] = $row;
+        }
+        return [$unique, $duplicateCount];
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $expectedRows
+     * @return array{verified:bool,expected_count:int,matched_count:int,row_ids:array<int,int>,reason:string}
+     */
+    public function verifyPersistedRows(array $expectedRows): array
+    {
+        $expectedRows = array_filter(
+            $expectedRows,
+            static fn(array $row, int|string $id): bool => (int)$id > 0 && (int)($row['id'] ?? 0) === (int)$id,
+            ARRAY_FILTER_USE_BOTH
+        );
+        if ($expectedRows === []) {
+            return [
+                'verified' => false,
+                'expected_count' => 0,
+                'matched_count' => 0,
+                'row_ids' => [],
+                'reason' => 'database_readback_expectation_missing',
+            ];
+        }
+
+        $rowIds = array_map('intval', array_keys($expectedRows));
+        $storedRows = $this->readbackReader !== null
+            ? ($this->readbackReader)(['row_ids' => $rowIds])
+            : Db::name('online_daily_data')->whereIn('id', $rowIds)->select()->toArray();
+        $storedById = [];
+        foreach (is_array($storedRows) ? $storedRows : [] as $row) {
+            $id = is_array($row) ? (int)($row['id'] ?? 0) : 0;
+            if ($id > 0) {
+                $storedById[$id] = $row;
+            }
+        }
+
+        $matchedIds = [];
+        foreach ($expectedRows as $id => $expected) {
+            $id = (int)$id;
+            $stored = $storedById[$id] ?? null;
+            if (is_array($stored) && $this->persistedRowMatchesExpectation($stored, $expected)) {
+                $matchedIds[] = $id;
+            }
+        }
+
+        $verified = count($matchedIds) === count($expectedRows);
+        return [
+            'verified' => $verified,
+            'expected_count' => count($expectedRows),
+            'matched_count' => count($matchedIds),
+            'row_ids' => $matchedIds,
+            'reason' => $verified ? '' : 'database_readback_mismatch',
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function buildReadbackExpectation(int $id, array $data): array
+    {
+        $fields = [
+            'id',
+            'system_hotel_id',
+            'hotel_id',
+            'data_date',
+            'source',
+            'data_type',
+            'dimension',
+            'source_trace_id',
+            'amount',
+            'quantity',
+            'book_order_num',
+            'comment_score',
+            'qunar_comment_score',
+        ];
+        $expectation = ['id' => $id];
+        foreach ($fields as $field) {
+            if ($field !== 'id' && array_key_exists($field, $data)) {
+                $expectation[$field] = $data[$field];
+            }
+        }
+        return $expectation;
+    }
+
+    private function persistedRowMatchesExpectation(array $stored, array $expected): bool
+    {
+        $numericFields = ['amount', 'quantity', 'book_order_num', 'comment_score', 'qunar_comment_score'];
+        foreach ($expected as $field => $expectedValue) {
+            if (!array_key_exists($field, $stored)) {
+                return false;
+            }
+            $storedValue = $stored[$field];
+            if (in_array($field, $numericFields, true)) {
+                if ($expectedValue === null || $expectedValue === '') {
+                    if ($storedValue !== null && $storedValue !== '') {
+                        return false;
+                    }
+                    continue;
+                }
+                if (!is_numeric($storedValue)
+                    || !$this->persistedNumericValueMatches($field, (float)$storedValue, (float)$expectedValue)) {
+                    return false;
+                }
+                continue;
+            }
+            if ((string)$storedValue !== (string)$expectedValue) {
+                return false;
+            }
+        }
+        return trim((string)($expected['source_trace_id'] ?? '')) !== '';
+    }
+
+    private function persistedNumericValueMatches(string $field, float $storedValue, float $expectedValue): bool
+    {
+        $scale = match ($field) {
+            'comment_score', 'qunar_comment_score' => 1,
+            'amount' => 2,
+            default => 0,
+        };
+        $storedValue = round($storedValue, $scale);
+        $expectedValue = round($expectedValue, $scale);
+        return abs($storedValue - $expectedValue) < (10 ** (-$scale - 2));
     }
 
     private function findExistingCompetitionRow(
@@ -494,10 +662,12 @@ final class CtripCompetitionCirclePersistenceService
                 continue;
             }
             if (!is_numeric($row[$key])) {
-                return null;
+                continue;
             }
             $value = (float)$row[$key];
-            return $value > 0.0 && $value <= 5.0 ? $value : null;
+            if ($value > 0.0 && $value <= 5.0) {
+                return $value;
+            }
         }
         return null;
     }
@@ -550,7 +720,9 @@ final class CtripCompetitionCirclePersistenceService
             if (is_numeric($row[$key])) {
                 return (float)$row[$key];
             }
-            return null;
+            // Some Ctrip responses expose multiple aliases at once. A malformed
+            // earlier alias must not hide a valid value returned by a later one.
+            continue;
         }
         return null;
     }

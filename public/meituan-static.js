@@ -378,6 +378,12 @@ window.SUXI_MEITUAN_STATIC = (() => {
         const pending = source.filter(isMeituanPendingResult);
         const background = source.filter(isMeituanBackgroundResult);
         const completedCount = source.filter(item => item?.rankDataComplete === true).length;
+        const derivedCount = source.filter(item => (
+            item?.rankDataComplete === true && String(item?.rankDataMode || '').toLowerCase() === 'derived'
+        )).length;
+        const selfOnlyCount = source.filter(item => (
+            item?.rankDataComplete === true && String(item?.rankDataMode || '').toLowerCase() === 'self_only'
+        )).length;
         const returnedCount = source.filter(item => (
             item?.platformResponseReceived === true
             || item?.rankDataComplete === true
@@ -404,6 +410,8 @@ window.SUXI_MEITUAN_STATIC = (() => {
         return {
             totalCount,
             completedCount,
+            derivedCount,
+            selfOnlyCount,
             returnedCount,
             failedCount,
             inProgress,
@@ -421,8 +429,12 @@ window.SUXI_MEITUAN_STATIC = (() => {
             return source;
         }
         const completedCount = Math.max(0, Number(presentation?.completedCount || 0));
+        const derivedCount = Math.max(0, Number(presentation?.derivedCount || 0));
+        const selfOnlyCount = Math.max(0, Number(presentation?.selfOnlyCount || 0));
         const partial = Boolean(presentation?.isPartial || presentation?.hasErrors);
-        const stateText = presentation?.inProgress ? '本次抓取中' : (partial ? '本次部分返回' : '本次已完整');
+        const stateText = presentation?.inProgress
+            ? '本次抓取中'
+            : (partial ? '本次部分返回' : ((derivedCount > 0 || selfOnlyCount > 0) ? '本次可用' : '本次已完整'));
         return source.map(card => {
             const isRankHealth = card?.key === 'rankHealth'
                 || card?.key === 'fallback-rank-health'
@@ -438,8 +450,12 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 note: presentation?.inProgress
                     ? `本次已有 ${completedCount}/${totalCount} 类榜单字段完整`
                     : (partial
-                        ? `本次 ${completedCount}/${totalCount} 类榜单字段完整，其余保持缺失`
-                        : `本次 ${completedCount}/${totalCount} 类榜单字段完整`),
+                        ? `本次 ${completedCount}/${totalCount} 类榜单可用，其余保持缺失`
+                        : (selfOnlyCount > 0
+                            ? `本次 ${completedCount}/${totalCount} 类榜单可用，其中 ${selfOnlyCount} 类为本店实时值和同行名次`
+                            : (derivedCount > 0
+                                ? `本次 ${completedCount}/${totalCount} 类榜单可用，其中 ${derivedCount} 类按本店真实值和平台百分比计算`
+                                : `本次 ${completedCount}/${totalCount} 类榜单原始字段完整`))),
                 valueClass: presentation?.inProgress ? 'text-blue-700' : (partial ? 'text-amber-700' : (card?.valueClass || 'text-blue-700')),
                 panelClass: presentation?.inProgress
                     ? 'bg-blue-50 border border-blue-200'
@@ -484,11 +500,17 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 };
             }
             if (result?.rankDataComplete === true) {
+                const isDerived = String(result?.rankDataMode || '').toLowerCase() === 'derived';
+                const isSelfOnly = String(result?.rankDataMode || '').toLowerCase() === 'self_only';
                 return {
                     ...row,
                     status: 'ok',
-                    statusText: '已完整',
-                    sourceLabel: '本次榜单字段完整',
+                    statusText: isSelfOnly ? '本店实时值可用' : (isDerived ? '比例结果可用' : '原始完整'),
+                    sourceLabel: isSelfOnly
+                        ? '本店真实值 + 同行名次；同行数值未开放'
+                        : (isDerived
+                            ? '平台百分比 + 本店真实值锚点，已保存并可回显'
+                            : '本次平台原始字段完整'),
                     className: 'bg-emerald-50 text-emerald-700 border-emerald-100',
                 };
             }
@@ -1229,11 +1251,12 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 const rangeName = meituanBatchDateRangeNames[dateRange] || dateRange;
                 const rankName = meituanBatchRankTypeNames[rankType] || rankType;
                 const includeSelfMetrics = rankIndex === 0;
+                const includeSelfTradeMetrics = ['P_RZ', 'P_XS'].includes(rankType);
                 const body = {
                     config_id: String(configId || '').trim(),
                     rank_type: rankType,
                     date_range: dateRange,
-                    include_self_trade_metrics: includeSelfMetrics,
+                    include_self_trade_metrics: includeSelfTradeMetrics,
                     include_self_traffic_metrics: includeSelfMetrics,
                     include_self_business_metrics: includeSelfMetrics,
                     auto_save: false,
@@ -1400,9 +1423,10 @@ window.SUXI_MEITUAN_STATIC = (() => {
         return Array.isArray(dimensions) ? dimensions : [];
     };
     const meituanTodayExtendedRetryRankTypes = new Set(['P_RZ', 'P_XS']);
+    const meituanRealtimeSelfOnlyRankTypes = new Set(['P_RZ']);
     const meituanRankMaxAttempts = (task = {}) => (
         String(task?.dateRange ?? task?.date_range ?? '') === '0'
-            ? (meituanTodayExtendedRetryRankTypes.has(String(task?.rankType ?? task?.rank_type ?? '')) ? 10 : 5)
+            ? (meituanRealtimeSelfOnlyRankTypes.has(String(task?.rankType ?? task?.rank_type ?? '')) ? 1 : 3)
             : 3
     );
     const meituanRetryDelayMs = (attempt = 1) => Math.min(2500, Math.max(600, Number(attempt || 1) * 600));
@@ -1446,23 +1470,39 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 + selfRowCount,
         };
     };
+    const meituanRankCandidateValueMode = (response = {}) => String(
+        response?.data?.rank_candidate?.value_mode
+        || response?.data?.rank_candidate?.valueMode
+        || ''
+    ).trim().toLowerCase();
+    const hasMeituanCompleteAbsoluteRankRows = (response = {}) => {
+        const dimensions = meituanPeerRankDimensions(response);
+        return dimensions.length >= 2 && dimensions.every(dimension => {
+            const rows = Array.isArray(dimension?.roundRanks) ? dimension.roundRanks : [];
+            return rows.length > 0 && rows.every(row => (
+                row?.dataValue !== null
+                && row?.dataValue !== undefined
+                && row?.dataValue !== ''
+            ));
+        });
+    };
     const isMeituanRankResponseComplete = (response = {}, task = {}) => {
         if (response?.code !== 200 || isMeituanBackgroundAcceptedResponse(response)) {
             return false;
         }
         const quality = meituanRankResponseQuality(response);
         if (quality.dimensionCount > 0) {
-            const requiresCompleteAbsoluteRows = meituanTodayExtendedRetryRankTypes.has(String(task?.rankType ?? task?.rank_type ?? ''));
-            if (requiresCompleteAbsoluteRows) {
-                const dimensions = meituanPeerRankDimensions(response);
-                return dimensions.length >= 2 && dimensions.every(dimension => {
-                    const rows = Array.isArray(dimension?.roundRanks) ? dimension.roundRanks : [];
-                    return rows.length > 0 && rows.every(row => (
-                        row?.dataValue !== null
-                        && row?.dataValue !== undefined
-                        && row?.dataValue !== ''
-                    ));
-                });
+            const rankType = String(task?.rankType ?? task?.rank_type ?? '');
+            const isStayOrSales = meituanTodayExtendedRetryRankTypes.has(rankType);
+            if (isStayOrSales) {
+                if (hasMeituanCompleteAbsoluteRankRows(response)) {
+                    return true;
+                }
+                if (String(task?.dateRange ?? task?.date_range ?? '') === '0') {
+                    return meituanRealtimeSelfOnlyRankTypes.has(rankType)
+                        && meituanRankCandidateValueMode(response) === 'self_only';
+                }
+                return meituanRankCandidateValueMode(response) === 'derived';
             }
             return quality.dimensionCount >= 2 && quality.signalDimensionCount === quality.dimensionCount;
         }
@@ -1548,7 +1588,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         if (explicit) return explicit;
         const hotelName = String(options?.hotelName || '').trim();
         const poiId = String(form?.poi_id || form?.poiId || '').trim();
-        const fallbackDate = String(options?.fallbackDate || '').trim() || new Date().toISOString().slice(0, 10);
+        const fallbackDate = String(options?.fallbackDate || '').trim() || todayDateText();
         if (hotelName) return `${hotelName}美团Cookie`;
         if (poiId) return `美团${poiId}Cookie`;
         return `美团Cookie ${fallbackDate}`;
@@ -2582,6 +2622,13 @@ window.SUXI_MEITUAN_STATIC = (() => {
     return new Date().getFullYear() + '-' + mmdd;
   }
 
+  function localDateText() {
+    var date = new Date();
+    var month = String(date.getMonth() + 1).padStart(2, '0');
+    var day = String(date.getDate()).padStart(2, '0');
+    return date.getFullYear() + '-' + month + '-' + day;
+  }
+
   function nearestOrderContainer(anchor) {
     var node = anchor;
     for (var i = 0; i < 12 && node && node.parentElement; i++) {
@@ -2645,7 +2692,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = '美团订单_订单页导出_' + new Date().toISOString().slice(0, 10) + '_共' + data.length + '条.csv';
+    a.download = '美团订单_订单页导出_' + localDateText() + '_共' + data.length + '条.csv';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -2816,7 +2863,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 poi_name: hotelName,
                 system_hotel_id: systemHotelId,
                 config_id: String(configId || '').trim(),
-                default_data_date: form.endDate || form.startDate || new Date().toISOString().slice(0, 10),
+                default_data_date: form.endDate || form.startDate || todayDateText(),
                 data_period: 'manual_dom_csv',
                 orders,
             },
@@ -3270,7 +3317,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                             break;
                         }
                         if (isMeituanHistoricalPercentOnlyStayOrSales(attemptResponse, task)) {
-                            terminalPartialMessage = `${task.dateRangeName || '历史区间'}平台仅返回排名百分比，未返回实际数值；已停止无效重复等待`;
+                            terminalPartialMessage = `${task.dateRangeName || '历史区间'}平台仅返回排名百分比，但本店真实值锚点不足，无法计算并保存；已停止无效重复等待`;
                             results[index] = {
                                 ...attemptEntry,
                                 status: 'partial',
@@ -3301,6 +3348,8 @@ window.SUXI_MEITUAN_STATIC = (() => {
                     const accepted = isMeituanBackgroundAcceptedResponse(res);
                     const rankDataComplete = isMeituanRankResponseComplete(res, task);
                     const rankCandidate = res?.data?.rank_candidate;
+                    const rankDataMode = meituanRankCandidateValueMode(res)
+                        || (hasMeituanCompleteAbsoluteRankRows(res) ? 'raw' : 'platform');
                     if (rankDataComplete
                         && typeof requestCommit === 'function'
                         && !rankCandidate?.candidate_id) {
@@ -3314,11 +3363,16 @@ window.SUXI_MEITUAN_STATIC = (() => {
                         results[index] = {
                             ...savingEntry,
                             status: 'saving',
-                            message: '平台榜单已返回，正在保存并核对数据库',
+                            message: rankDataMode === 'self_only'
+                                ? '本店实时值已返回，正在保存榜单名次并核对数据库'
+                                : (rankDataMode === 'derived'
+                                    ? '平台仅返回百分比，已按本店真实值和平台百分比计算；正在保存并核对数据库'
+                                    : '平台榜单原始字段已返回，正在保存并核对数据库'),
                             attemptCount,
                             retryCount: Math.max(0, attemptCount - 1),
                             maxAttempts,
                             rankDataComplete: true,
+                            rankDataMode,
                             retryExhausted: false,
                         };
                         if (runIsActive()) {
@@ -3361,6 +3415,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                         retryCount: Math.max(0, attemptCount - 1),
                         maxAttempts,
                         rankDataComplete,
+                        rankDataMode,
                         retryExhausted,
                         ...(retryExhausted ? {
                             status: 'incomplete',

@@ -5,9 +5,9 @@ description: 用于宿析OS OTA运营、携程/美团数据获取、手动采集
 
 # Suxi OTA Ops
 
-## Plugin Priority
+## Tool Choice
 
-Use `suxi-plugin-priority-router` before manual OTA/browser work. Prefer Browser for local SUXIOS UI checks, Chrome only when the user's logged-in browser state is required, and Computer Use for desktop/XAMPP or non-web operations. Do not use plugins to bypass OTA login, captcha, SMS, authorization, or tenant boundaries.
+Choose the shortest verified path for the specific OTA task. Use Browser for local SUXIOS UI checks, Chrome only when the user's visible logged-in browser state is required, and Computer Use for desktop/XAMPP or non-web operations. Do not run a generic plugin-routing gate first, and never use tools to bypass OTA login, captcha, SMS, authorization, or tenant boundaries.
 
 ## Business Goal
 

@@ -25,7 +25,7 @@ test('manual one-click fetch is the first online data surface and keeps diagnost
   assert.match(onlinePage, /manualOneClickFetchRows/);
   assert.match(onlinePage, /manualOneClickFetchCards/);
   assert.match(onlinePage, /一键获取携程/);
-  assert.match(onlinePage, /一键获取美团/);
+  assert.match(onlinePage, /一键获取美团|更新美团竞争圈/);
   assert.match(onlinePage, /双平台一键获取/);
   assert.match(onlinePage, /runManualOneClickFetch/);
   assert.match(onlinePage, /fetchCtripData/);

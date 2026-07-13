@@ -1,5 +1,6 @@
 import {
   extractPhpMethod,
+  formatDateInTimeZone,
   parseArgs,
   safeName,
   timestamp,
@@ -23,6 +24,10 @@ assertContract(parsed.loginMode === 'true', 'parseArgs must treat flag-only args
 assertContract(parsed.empty === '', 'parseArgs must preserve explicit empty values');
 assertContract(safeName('hotel/59:ctrip*main') === 'hotel_59_ctrip_main', 'safeName must normalize unsafe path characters');
 assertContract(/^\d{14}$/.test(timestamp(new Date('2026-05-29T01:02:03Z'))), 'timestamp must be compact and stable');
+assertContract(
+  formatDateInTimeZone(new Date('2026-07-12T16:30:00Z'), 'Asia/Shanghai') === '2026-07-13',
+  'formatDateInTimeZone must use the requested business timezone',
+);
 
 const methodBody = extractPhpMethod(`<?php
 class Demo {

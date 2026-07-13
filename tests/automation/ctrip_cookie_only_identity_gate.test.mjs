@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const backend = readFileSync(new URL('../../app/controller/concern/OnlineDataManualFetchConcern.php', import.meta.url), 'utf8');
-const requestSanitizer = backend.match(/private function sanitizeCtripManualFetchRequestData[\s\S]*?\n    private function sanitizeMeituanManualFetchRequestData/);
+const requestSanitizer = backend.match(/private function sanitizeCtripManualFetchRequestData[\s\S]*?(?=\n    private function sanitizeCtripTemporaryCookieRequestData)/);
 const executionBoundary = backend.match(/public function fetchCtrip\(\): Response[\s\S]*?\n    private function executeCtripManualFetch/);
 const validator = backend.match(/private function validateCtripManualBusinessHotelIdentity[\s\S]*?\n    private function resolveCtripManualBusinessIdentityConfig/);
 const metadataReader = backend.match(/private function readSafeCtripIdentityMetadataList\(\): array[\s\S]*?\n    private function resolveCtripManualBusinessIdentityConfig/);

@@ -36,12 +36,12 @@ final class MeituanRankCandidateService
     /**
      * @param array<string, mixed> $binding
      * @param array<string, mixed> $payload
-     * @return array{candidate_id:string,expires_in:int}
+     * @return array{candidate_id:string,expires_in:int,value_mode:string}
      */
     public function issue(array $binding, array $payload): array
     {
         $binding = $this->normalizeBinding($binding);
-        $this->validatePayload($binding, $payload);
+        $validation = $this->validatePayload($binding, $payload);
 
         $candidateId = strtolower(trim((string)($this->idGenerator)()));
         if (preg_match(self::CANDIDATE_ID_PATTERN, $candidateId) !== 1) {
@@ -59,7 +59,11 @@ final class MeituanRankCandidateService
             throw new RuntimeException('Unable to persist Meituan rank candidate.');
         }
 
-        return ['candidate_id' => $candidateId, 'expires_in' => self::TTL_SECONDS];
+        return [
+            'candidate_id' => $candidateId,
+            'expires_in' => self::TTL_SECONDS,
+            'value_mode' => (string)($validation['value_mode'] ?? 'raw'),
+        ];
     }
 
     /**
@@ -135,7 +139,7 @@ final class MeituanRankCandidateService
     /**
      * @param array<string, mixed> $binding
      * @param array<string, mixed> $payload
-     * @return array{dimension_count:int,row_count:int,target_poi_matched:bool}
+     * @return array{dimension_count:int,row_count:int,target_poi_matched:bool,value_mode:string,derived_dimension_count:int,self_only_dimension_count:int}
      */
     public function validatePayload(array $binding, array $payload): array
     {
@@ -180,8 +184,13 @@ final class MeituanRankCandidateService
             throw new InvalidArgumentException('Meituan rank candidate is incomplete: expected dimensions were not returned.');
         }
 
-        $requiresAbsoluteRows = in_array($binding['rank_type'], ['P_RZ', 'P_XS'], true);
-        foreach ($dimensions as $dimensionRows) {
+        $isStayOrSales = in_array($binding['rank_type'], ['P_RZ', 'P_XS'], true);
+        $isTodayRealtimeStay = $binding['date_range'] === '0' && $binding['rank_type'] === 'P_RZ';
+        $requiresAbsoluteRows = $binding['date_range'] === '0' && $binding['rank_type'] === 'P_XS';
+        $selfMetricValues = is_array($payload['self_metric_values'] ?? null) ? $payload['self_metric_values'] : [];
+        $derivedDimensionCount = 0;
+        $selfOnlyDimensionCount = 0;
+        foreach ($dimensions as $dimension => $dimensionRows) {
             if ($dimensionRows === []) {
                 throw new InvalidArgumentException('Meituan rank candidate is incomplete: empty dimension.');
             }
@@ -191,6 +200,56 @@ final class MeituanRankCandidateService
                     if ($value === null || $value === '') {
                         throw new InvalidArgumentException('Meituan rank candidate is incomplete: absolute values are missing.');
                     }
+                }
+                continue;
+            }
+            if ($isStayOrSales) {
+                $missingAbsoluteRows = [];
+                $targetPercent = null;
+                $targetRowPresent = false;
+                $dimensionHasRankOrPercentSignal = false;
+                foreach ($dimensionRows as $row) {
+                    $value = $row['dataValue'] ?? $row['data_value'] ?? null;
+                    $percent = $this->candidateNumber($row['percent'] ?? null);
+                    $rank = $this->candidateNumber($row['rank'] ?? $row['ranking'] ?? null);
+                    $poiId = trim((string)($row['poiId'] ?? $row['poi_id'] ?? $row['shopId'] ?? $row['shop_id'] ?? $row['hotelId'] ?? ''));
+                    if ($poiId !== '' && hash_equals($binding['poi_id'], $poiId)) {
+                        $targetRowPresent = true;
+                        if ($percent !== null && $percent > 0) {
+                            $targetPercent = $percent;
+                        }
+                    }
+                    if (($rank !== null && $rank > 0) || ($percent !== null && $percent >= 0)) {
+                        $dimensionHasRankOrPercentSignal = true;
+                    }
+                    if ($value !== null && $value !== '') {
+                        continue;
+                    }
+                    if (!$isTodayRealtimeStay && ($percent === null || $percent < 0)) {
+                        throw new InvalidArgumentException('Meituan rank candidate is incomplete: a percent-only row has no usable percent.');
+                    }
+                    $missingAbsoluteRows[] = $row;
+                }
+                if ($missingAbsoluteRows !== []) {
+                    $anchorField = $this->selfMetricFieldForRankDimension(
+                        $binding['rank_type'],
+                        (string)$dimension,
+                        $dimensionRows
+                    );
+                    $anchorValue = $anchorField !== ''
+                        ? $this->candidateNumber($selfMetricValues[$anchorField] ?? null)
+                        : null;
+                    if ($isTodayRealtimeStay) {
+                        if ($anchorField === '' || !$targetRowPresent || !$dimensionHasRankOrPercentSignal || $anchorValue === null || $anchorValue <= 0) {
+                            throw new InvalidArgumentException('Meituan rank candidate is incomplete: realtime self-only values require a positive self metric anchor and target rank signal.');
+                        }
+                        $selfOnlyDimensionCount++;
+                        continue;
+                    }
+                    if ($anchorField === '' || $targetPercent === null || $targetPercent <= 0 || $anchorValue === null || $anchorValue <= 0) {
+                        throw new InvalidArgumentException('Meituan rank candidate is incomplete: percent-only values require a positive self metric anchor and self percent.');
+                    }
+                    $derivedDimensionCount++;
                 }
                 continue;
             }
@@ -212,7 +271,54 @@ final class MeituanRankCandidateService
             'dimension_count' => count($dimensions),
             'row_count' => count($rows),
             'target_poi_matched' => true,
+            'value_mode' => $selfOnlyDimensionCount > 0
+                ? 'self_only'
+                : ($derivedDimensionCount > 0 ? 'derived' : 'raw'),
+            'derived_dimension_count' => $derivedDimensionCount,
+            'self_only_dimension_count' => $selfOnlyDimensionCount,
         ];
+    }
+
+    private function candidateNumber(mixed $value): ?float
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        $normalized = is_string($value)
+            ? str_replace([',', '%', ' '], '', trim($value))
+            : $value;
+        return is_numeric($normalized) ? (float)$normalized : null;
+    }
+
+    /** @param array<int, array<string, mixed>> $rows */
+    private function selfMetricFieldForRankDimension(string $rankType, string $dimension, array $rows): string
+    {
+        $metricName = '';
+        foreach ($rows as $row) {
+            $candidate = trim((string)($row['_aiMetricName'] ?? $row['aiMetricName'] ?? ''));
+            if ($candidate !== '') {
+                $metricName = $candidate;
+                break;
+            }
+        }
+        $label = $dimension . '|' . strtoupper($metricName);
+        if ($rankType === 'P_RZ') {
+            if (preg_match('/入住.*间夜|P_RZ.*(NIGHT|ROOM_COUNT)/iu', $label) === 1) {
+                return 'roomNights';
+            }
+            if (preg_match('/房费.*收入|P_RZ.*(REVENUE|AMOUNT|AMT|ROOM_PAY)/iu', $label) === 1) {
+                return 'roomRevenue';
+            }
+        }
+        if ($rankType === 'P_XS') {
+            if (preg_match('/销售.*间夜|P_XS.*(NIGHT|ROOM_COUNT)/iu', $label) === 1) {
+                return 'salesRoomNights';
+            }
+            if (preg_match('/销售额|P_XS.*(REVENUE|AMOUNT|AMT|ROOM_PAY)/iu', $label) === 1) {
+                return 'sales';
+            }
+        }
+        return '';
     }
 
     /** @param array<string, mixed> $binding */

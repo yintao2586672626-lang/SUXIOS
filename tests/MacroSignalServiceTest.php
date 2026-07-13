@@ -141,4 +141,80 @@ final class MacroSignalServiceTest extends TestCase
         self::assertSame(25.0, $traffic['conversion']);
         self::assertSame(200.0, $adr);
     }
+
+    public function testTrendCardsJudgeEvidenceIndependently(): void
+    {
+        $service = new MacroSignalService();
+        $rows = [
+            [
+                'revenue' => null,
+                'orders' => 3.0,
+                'adr' => null,
+                'channel_conversion' => 5.0,
+                'exposure' => 100.0,
+            ],
+            [
+                'revenue' => null,
+                'orders' => 4.0,
+                'adr' => null,
+                'channel_conversion' => 6.0,
+                'exposure' => 120.0,
+            ],
+        ];
+
+        $revenue = $this->invokeNonPublic($service, 'buildRevenueTrendCard', [$rows, '近2日']);
+        $demand = $this->invokeNonPublic($service, 'buildDemandTrendCard', [$rows, [], '近2日']);
+        $price = $this->invokeNonPublic($service, 'buildPriceTrendCard', [$rows, 0.0, '近2日']);
+        $channel = $this->invokeNonPublic($service, 'buildChannelTrendCard', [$rows, '近2日']);
+
+        self::assertSame('missing', $revenue['status']);
+        self::assertSame('--', $revenue['value']);
+        self::assertSame('available', $demand['status']);
+        self::assertSame('7单', $demand['value']);
+        self::assertSame('missing', $price['status']);
+        self::assertSame('--', $price['value']);
+        self::assertSame('available', $channel['status']);
+    }
+
+    public function testDemandTrendDoesNotTurnMissingEvidenceIntoZeroForecast(): void
+    {
+        $card = $this->invokeNonPublic(new MacroSignalService(), 'buildDemandTrendCard', [[
+            ['orders' => 0.0],
+            ['orders' => 0.0],
+        ], [], '近2日']);
+
+        self::assertSame('missing', $card['status']);
+        self::assertSame('--', $card['value']);
+        self::assertNotSame('0间夜', $card['value']);
+        self::assertNotSame('预测可用', $card['direction']);
+    }
+
+    public function testChannelTrendWithExposureOnlyDoesNotInventZeroOrders(): void
+    {
+        $card = $this->invokeNonPublic(new MacroSignalService(), 'buildChannelTrendCard', [[
+            ['orders' => 0.0, 'exposure' => 120.0, 'channel_conversion' => null],
+        ], '近1日']);
+
+        self::assertSame('available', $card['status']);
+        self::assertSame('120曝光', $card['value']);
+        self::assertNotSame('0单', $card['value']);
+        self::assertSame('曝光已同步', $card['direction']);
+    }
+
+    public function testSafeRowsExposesReadFailureInsteadOfReportingInsufficientData(): void
+    {
+        $service = new MacroSignalService();
+
+        $rows = $this->invokeNonPublic($service, 'safeRows', [
+            static function (): array {
+                throw new \RuntimeException('database unavailable');
+            },
+            'daily_reports',
+        ]);
+        $status = $this->invokeNonPublic($service, 'macroReadStatus');
+
+        self::assertSame([], $rows);
+        self::assertSame('read_failed', $status['status']);
+        self::assertSame(['daily_reports'], $status['areas']);
+    }
 }

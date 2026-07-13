@@ -4,6 +4,7 @@ import path from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { compile } from '@vue/compiler-dom';
 import { minify } from 'terser';
+import { withFrontendTemplateLock } from './frontend_template_lock.mjs';
 import { loadFrontendTemplateSource } from './frontend_template_source.mjs';
 
 const EMPTY_V_IF_ANCHOR_SOURCE = '_createCommentVNode("v-if", true)';
@@ -58,7 +59,7 @@ export async function buildFrontendTemplateRender(template) {
 
 const readText = (file) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '');
 
-export async function inspectFrontendTemplateBuild(repoRoot) {
+async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
   const templatePath = path.join(repoRoot, 'resources/frontend/app-template.html');
   const renderPath = path.join(repoRoot, 'public/app-render.min.js');
   const runtimeVuePath = path.join(repoRoot, 'public/vue.runtime.global.prod.js');
@@ -159,4 +160,13 @@ export async function inspectFrontendTemplateBuild(repoRoot) {
       compiler_vue_gzip_bytes: compilerVue ? gzipSync(compilerVue, { level: 6 }).length : 0,
     },
   };
+}
+
+export async function inspectFrontendTemplateBuild(repoRoot, { lockHeld = false } = {}) {
+  if (lockHeld) return inspectFrontendTemplateBuildUnlocked(repoRoot);
+  return withFrontendTemplateLock(
+    repoRoot,
+    () => inspectFrontendTemplateBuildUnlocked(repoRoot),
+    { owner: 'inspect-frontend-template-build' },
+  );
 }

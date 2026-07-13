@@ -98,7 +98,7 @@ final class MeituanRankCandidateServiceTest extends TestCase
         }
     }
 
-    public function testHistoricalPercentOnlyCandidateIsNotTreatedAsCompleteData(): void
+    public function testHistoricalPercentOnlyCandidateUsesVerifiedSelfAnchors(): void
     {
         $service = new MeituanRankCandidateService(
             static fn(string $_key): mixed => null,
@@ -109,6 +109,139 @@ final class MeituanRankCandidateServiceTest extends TestCase
         );
         $binding = [...$this->binding(), 'date_range' => '1'];
         $payload = $this->completePayload($binding['poi_id']);
+        foreach ($payload['response_data']['data']['peerRankData'] as &$dimension) {
+            foreach ($dimension['roundRanks'] as &$row) {
+                $row['dataValue'] = null;
+                $row['percent'] = 100;
+            }
+            unset($row);
+        }
+        unset($dimension);
+
+        $issued = $service->issue($binding, $payload);
+
+        self::assertSame('derived', $issued['value_mode']);
+    }
+
+    public function testHistoricalPercentOnlyCandidateRejectsMissingSelfAnchor(): void
+    {
+        $service = new MeituanRankCandidateService(
+            static fn(string $_key): mixed => null,
+            static fn(string $_key, array $_value, int $_ttl): bool => true,
+            static fn(string $_key): bool => true,
+            static fn(): int => 1_000,
+            static fn(): string => str_repeat('f', 32),
+        );
+        $binding = [...$this->binding(), 'date_range' => '7'];
+        $payload = $this->completePayload($binding['poi_id']);
+        unset($payload['self_metric_values']['roomRevenue']);
+        foreach ($payload['response_data']['data']['peerRankData'] as &$dimension) {
+            foreach ($dimension['roundRanks'] as &$row) {
+                $row['dataValue'] = null;
+                $row['percent'] = 100;
+            }
+            unset($row);
+        }
+        unset($dimension);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('self metric anchor');
+        $service->issue($binding, $payload);
+    }
+
+    public function testHistoricalMixedAbsoluteAndPercentRowsUseTargetPercentFromAbsoluteRow(): void
+    {
+        $service = new MeituanRankCandidateService(
+            static fn(string $_key): mixed => null,
+            static fn(string $_key, array $_value, int $_ttl): bool => true,
+            static fn(string $_key): bool => true,
+            static fn(): int => 1_000,
+            static fn(): string => str_repeat('b', 32),
+        );
+        $binding = [...$this->binding(), 'date_range' => '1'];
+        $payload = $this->completePayload($binding['poi_id']);
+        foreach ($payload['response_data']['data']['peerRankData'] as &$dimension) {
+            $dimension['roundRanks'][0]['percent'] = 40;
+            $dimension['roundRanks'][1]['dataValue'] = null;
+            $dimension['roundRanks'][1]['percent'] = 60;
+        }
+        unset($dimension);
+
+        $issued = $service->issue($binding, $payload);
+
+        self::assertSame('derived', $issued['value_mode']);
+    }
+
+    public function testTodayStayPercentOnlyCandidateUsesRealtimeSelfOnlyMode(): void
+    {
+        $service = new MeituanRankCandidateService(
+            static fn(string $_key): mixed => null,
+            static fn(string $_key, array $_value, int $_ttl): bool => true,
+            static fn(string $_key): bool => true,
+            static fn(): int => 1_000,
+            static fn(): string => str_repeat('a', 32),
+        );
+        $binding = $this->binding();
+        $payload = $this->completePayload($binding['poi_id']);
+        foreach ($payload['response_data']['data']['peerRankData'] as &$dimension) {
+            foreach ($dimension['roundRanks'] as &$row) {
+                $row['dataValue'] = null;
+                $row['percent'] = 100;
+            }
+            unset($row);
+        }
+        unset($dimension);
+
+        $validation = $service->validatePayload($binding, $payload);
+        $issued = $service->issue($binding, $payload);
+
+        self::assertSame('self_only', $validation['value_mode']);
+        self::assertSame(2, $validation['self_only_dimension_count']);
+        self::assertSame('self_only', $issued['value_mode']);
+    }
+
+    public function testTodayStayPercentOnlyCandidateRejectsMissingSelfAnchor(): void
+    {
+        $service = new MeituanRankCandidateService(
+            static fn(string $_key): mixed => null,
+            static fn(string $_key, array $_value, int $_ttl): bool => true,
+            static fn(string $_key): bool => true,
+            static fn(): int => 1_000,
+            static fn(): string => str_repeat('c', 32),
+        );
+        $binding = $this->binding();
+        $payload = $this->completePayload($binding['poi_id']);
+        unset($payload['self_metric_values']['roomRevenue']);
+        foreach ($payload['response_data']['data']['peerRankData'] as &$dimension) {
+            foreach ($dimension['roundRanks'] as &$row) {
+                $row['dataValue'] = null;
+                $row['percent'] = 100;
+            }
+            unset($row);
+        }
+        unset($dimension);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('realtime self-only values require');
+        $service->issue($binding, $payload);
+    }
+
+    public function testTodaySalesPercentOnlyCandidateStillRequiresPlatformAbsoluteValues(): void
+    {
+        $service = new MeituanRankCandidateService(
+            static fn(string $_key): mixed => null,
+            static fn(string $_key, array $_value, int $_ttl): bool => true,
+            static fn(string $_key): bool => true,
+            static fn(): int => 1_000,
+            static fn(): string => str_repeat('d', 32),
+        );
+        $binding = [...$this->binding(), 'rank_type' => 'P_XS'];
+        $payload = $this->completePayload($binding['poi_id']);
+        $payload['response_data']['data']['peerRankData'][0]['dimName'] = '销售间夜';
+        $payload['response_data']['data']['peerRankData'][0]['aiMetricName'] = 'P_XS_NIGHT_COUNT';
+        $payload['response_data']['data']['peerRankData'][1]['dimName'] = '销售额';
+        $payload['response_data']['data']['peerRankData'][1]['aiMetricName'] = 'P_XS_REVENUE';
+        $payload['self_metric_values'] = ['salesRoomNights' => 3, 'sales' => 680];
         foreach ($payload['response_data']['data']['peerRankData'] as &$dimension) {
             foreach ($dimension['roundRanks'] as &$row) {
                 $row['dataValue'] = null;

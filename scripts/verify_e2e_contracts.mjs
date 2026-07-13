@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import vm from 'node:vm';
 
@@ -204,8 +205,9 @@ requireText('public/index.html', 'const dualOtaMetricNoteText = (note = \'\') =>
 requireText('public/index.html', 'const dualOtaIsCtripTrafficPendingWindow = () => {', 'AI workbench has an explicit early-morning Ctrip traffic pending window');
 requireText('public/index.html', "const dualOtaCtripTrafficPendingNote = '凌晨0-8点携程流量数据待更新';", 'AI workbench labels early-morning missing Ctrip traffic as pending update');
 requireText('public/index.html', "return dualOtaMetric(label, '待更新', dualOtaCtripTrafficPendingNote, 'warning');", 'AI workbench renders missing Ctrip traffic as pending during the early-morning window');
-requireText('public/index.html', 'const dualOtaRowIsPlatformSelf = (row = {}) => {', 'AI workbench can identify the Ctrip platform self row when the OTA detail name differs from the system hotel name');
-requireText('public/index.html', 'return rows.find(dualOtaRowMatchesSelectedHotel) || rows.find(dualOtaRowIsPlatformSelf) || null;', 'AI workbench uses the Ctrip platform self row after explicit current-hotel matching fails');
+requireText('public/dual-ota-home-static.js', "const resolveDualOtaBoundHotelRow = (rows = [], systemHotelId = '') => {", 'AI workbench resolves the Ctrip current-hotel row only from a verified system hotel binding');
+requireText('public/index.html', 'return resolveDualOtaBoundHotelRow(rows, selectedId);', 'AI workbench uses the verified system hotel binding for the Ctrip current-hotel row');
+requireNoText('public/index.html', 'dualOtaRowIsPlatformSelf', 'AI workbench no longer falls back to an unverified platform-self row');
 requireText('public/index.html', "dualOtaMissingCtripMetric('销售额', '当前门店携程明细行未返回')", 'AI workbench current-store Ctrip column keeps the competitor-average metric shape and explains the missing range when the self row is missing');
 requireText('public/index.html', "dualOtaMetric('竞争力指数', sciValue, '当前门店携程综合竞争力'", 'AI workbench current-store Ctrip column shows own competitive index in the same slot as competitor average');
 requireText('public/index.html', "dualOtaMissingMetric('营收', '当前门店美团明细行未返回')", 'AI workbench current-store Meituan column keeps the competitor-average metric shape when the self row is missing');
@@ -226,7 +228,8 @@ requireText('public/style.css', 'main[data-current-page="ai-workbench"] .dual-ot
 requireText('public/index.html', 'const dualOtaRatePreviousExtra = (value) => {', 'AI workbench normalizes previous-period rate metrics before comparison');
 requireText('public/index.html', 'ctripLatestComparison.value = payload?.rank?.comparison || null;', 'AI workbench stores Ctrip latest comparison snapshot from backend response');
 requireText('public/index.html', "const latestRange = isCompassDataPage() ? String(dualOtaSelectedRange.value || '').trim() : '';", 'AI workbench sends selected range when loading latest Ctrip data');
-requireText('public/index.html', "if (latestRange) params.append('range', latestRange);", 'AI workbench appends selected range to latest Ctrip data request');
+requireText('public/index.html', 'const requestRange = explicitRange || latestRange || resolveCtripLatestRequestRange();', 'AI workbench resolves one explicit latest-data range before the Ctrip request');
+requireText('public/index.html', "if (requestRange) params.append('range', requestRange);", 'AI workbench appends the resolved range to the latest Ctrip data request');
 requireText('public/index.html', "const res = await request(`/online-data/ctrip/latest${query ? '?' + query : ''}`);", 'AI workbench keeps Ctrip latest request query-driven after adding range');
 requireText('public/index.html', "const summaryRange = isCompassDataPage() ? String(dualOtaSelectedRange.value || '').trim() : '';", 'AI workbench sends selected range when loading Meituan competitor summary');
 requireText('public/index.html', "if (summaryRange) params.append('range', summaryRange);", 'AI workbench appends selected range to Meituan competitor summary request');
@@ -394,17 +397,16 @@ requireText('public/ctrip-static.js', 'const runCtripAdsFetchFlow', 'Ctrip stati
 requireText('public/ctrip-static.js', 'const buildCtripCookieApiFetchRequestBody', 'Ctrip static builds Cookie API fetch request bodies');
 requireText('public/index.html', "requireCtripStatic('runCtripCookieApiCaptureFlow')", 'entry uses extracted Ctrip Cookie API capture flow runner');
 requireText('public/ctrip-static.js', 'const runCtripCookieApiCaptureFlow', 'Ctrip static runs Cookie API capture flow');
-requireText('public/index.html', "sortCtripTable('aiEstimatedTotalRoomNights')", 'Ctrip sales table sorts the AI estimated room-night column by its own derived field');
-requireText('public/index.html', 'hotel.aiEstimatedTotalRoomNights ||', 'Ctrip sales table renders AI estimated room nights instead of reusing totalOrderNum');
-requireText('public/index.html', 'const ctripAiEstimatedRoomNights = (row = {}) => {', 'Ctrip display rows derive AI estimated total room nights for old snapshots');
+requireNoText('resources/frontend/app-template.html', '全渠道AI预计总间夜数', 'Ctrip sales tables omit the unsupported all-channel AI room-night estimate');
+requireNoText('public/app-main.js', 'const ctripAiEstimatedRoomNights = (row = {}) => {', 'Ctrip display rows do not synthesize room nights from booking orders');
+requireNoText('public/app-main.js', '全渠道AI预计总间夜数', 'Ctrip export omits the unsupported all-channel AI room-night estimate');
 requireText('public/index.html', 'const ctripTargetHotelOptions = computed(() => {', 'Ctrip manual target hotel list is filtered to configured Ctrip data sources');
 requireText('public/index.html', '<option v-for="hotel in ctripTargetHotelOptions" :key="hotel.id" :value="hotel.id">', 'Ctrip manual target selects do not list unbound hotels');
 requireText('public/index.html', 'const meituanTargetHotelOptions = computed(() => {', 'Meituan manual target hotel list is filtered to configured Meituan data sources');
 requireText('public/index.html', '<option v-for="hotel in meituanTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>', 'Meituan manual target selects do not list unbound hotels');
 requireText('public/index.html', '<span class="text-xs text-gray-400">仅显示已配置酒店</span>', 'manual OTA target hotel helper text matches the filtered list behavior');
-requireText('public/ctrip-static.js', "if (field === 'aiEstimatedTotalRoomNights') return row.aiEstimatedTotalRoomNights || 0;", 'Ctrip static sorter supports AI estimated room nights');
-requireText('app/controller/concern/BusinessDisplayConcern.php', "'aiEstimatedTotalRoomNights' => \$this->ctripAiEstimatedTotalRoomNights(\$bookOrderNum, \$hotelSeed),", 'Ctrip backend display rows expose AI estimated room nights from booking orders');
-requireText('app/controller/concern/BusinessDisplayConcern.php', '$ratio = 1.15 + (($hash % 21) / 100);', 'Ctrip backend AI estimated room-night ratio stays within the requested 1.15 to 1.35 band');
+requireText('public/ctrip-static.js', 'const buildTruthfulCtripDisplayModel', 'Ctrip display strips unsupported estimate fields from legacy snapshots');
+requireNoText('public/ctrip-static.js', "if (field === 'aiEstimatedTotalRoomNights')", 'Ctrip static sorter omits the unsupported AI estimate field');
 requireText('app/controller/concern/OnlineDataHistoryConcern.php', 'findLatestCtripRankRowsWithTraffic($latest, $hotelId, $currentUser, $columns)', 'Ctrip latest rank display falls back to the newest rank batch with traffic when the latest batch has no traffic fields');
 requireText('app/controller/concern/OnlineDataHistoryConcern.php', "'reason' => 'latest_rank_without_traffic'", 'Ctrip latest traffic fallback exposes an explicit reason');
 requireText('app/controller/concern/OnlineDataHistoryConcern.php', '当前最新批次未返回流量字段，已展示最近一组有流量的携程竞争圈数据。', 'Ctrip latest traffic fallback exposes source notice instead of silently mixing data');
@@ -1792,7 +1794,16 @@ requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeAi
 requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeOperationSummary')", 'entry uses extracted Phase1 operation summary builder');
 requireText('public/index.html', "requireDataHealthStatic('buildPhase1EmployeeClosureSummary')", 'entry uses extracted Phase1 closure summary builder');
 requireText('public/index.html', "requireDataHealthStatic('formatOnlineHistoryRaw')", 'entry uses extracted online history raw formatter');
-requireText('public/index.html', 'data-health-static.js?v=20260704-manual-one-click-fetch-20260705-ai-workbench-meituan-comparison-data-health-refresh-state-20260708-public-endpoints-release-evidence-panel-ota-field-gap-queue-employee-ota-checklist-public-token-summary-card-manual-fetch-result-qunar-quality-action-gates-workbench-write-boundary-manual-surface-focus-20260712-competition-count-source-v7-result-filter-history-count-fix', 'entry bumps data-health static helper version after adding result filters and migrating historical competition count wording');
+const dataHealthStaticHash = crypto
+  .createHash('sha256')
+  .update(readRaw('public/data-health-static.js'))
+  .digest('hex')
+  .slice(0, 10);
+requirePattern(
+  'public/index.html',
+  new RegExp(`data-health-static\\.js\\?v=[^"'<>\\s]*-h${dataHealthStaticHash}`),
+  'entry cache key follows the current data-health static helper content hash',
+);
 requireText('public/data-health-static.js', 'const buildOnlineHistoryQueryParams', 'data-health static builds online history query parameters');
 requireText('public/data-health-static.js', 'const formatOnlineHistoryHotelOption', 'data-health static formats online history hotel options');
 requireText('public/data-health-static.js', 'const formatOnlineHistoryRaw', 'data-health static formats online history raw payloads');

@@ -67,18 +67,9 @@ final class OtaCredentialMigrationService
             $result = Db::transaction(function () use ($inventory): array {
                 $migrated = [];
                 $sanitized = [];
-                $migrationPlan = $this->buildCredentialMigrationPlan($inventory['items']);
                 foreach ($inventory['items'] as $item) {
                     if (($item['classification'] ?? '') === 'bound_verified') {
-                        $itemId = (string)($item['item_id'] ?? '');
-                        if (isset($migrationPlan['superseded'][$itemId])) {
-                            $sanitized[] = $this->sanitizeSupersededCredential(
-                                $item,
-                                $migrationPlan['superseded'][$itemId]
-                            );
-                        } else {
-                            $migrated[] = $this->migrateItem($item);
-                        }
+                        $migrated[] = $this->migrateItem($item);
                     } elseif (($item['classification'] ?? '') === 'profile_secret_cleanup_required') {
                         $sanitized[] = $this->sanitizeProfileCredentialMaterial($item, $inventory['items']);
                     } elseif ($this->isMissingHotelCredential($item)) {
@@ -696,8 +687,9 @@ final class OtaCredentialMigrationService
                 || $tenantId <= 0
                 || ($providedTenantPresent && ($providedTenantId === null || $providedTenantId !== $tenantId)));
 
+        $credentialStatus = strtolower(trim((string)($metadata['credential_status'] ?? '')));
         $hasExistingMetadata = $this->strictPositiveInt($metadata['credential_ref'] ?? null) !== null
-            || in_array(strtolower(trim((string)($metadata['credential_status'] ?? ''))), ['ready', 'revoked', 'superseded'], true);
+            || in_array($credentialStatus, ['ready', 'revoked', 'superseded'], true);
         $vaultRecordExists = $tenantId !== null
             && $tenantId > 0
             && $boundHotelId !== null
@@ -709,11 +701,7 @@ final class OtaCredentialMigrationService
             : null;
         $existingVault = is_array($verifiedVaultMetadata);
         $credentialRef = $this->strictPositiveInt($metadata['credential_ref'] ?? null);
-        $credentialStatus = strtolower(trim((string)($metadata['credential_status'] ?? '')));
-        $supersededMetadata = $credentialStatus === 'superseded'
-            && !$this->truthy($metadata['migration_required'] ?? false)
-            && $this->validConfigId(trim((string)($metadata['superseded_by_config_id'] ?? '')))
-            && !$this->hasNonEmptyScalar($secrets);
+        $legacySuperseded = $credentialStatus === 'superseded';
         $vaultCredentialRef = $this->strictPositiveInt($verifiedVaultMetadata['credential_ref'] ?? null);
         $credentialReferenceMatches = $existingVault
             && $credentialRef !== null
@@ -756,9 +744,9 @@ final class OtaCredentialMigrationService
         } elseif ($tenantMismatch) {
             $classification = 'tenant_mismatch';
             $reasonCode = $tenantId === null ? 'hotel_not_found' : 'tenant_binding_mismatch';
-        } elseif ($supersededMetadata) {
-            $classification = 'already_migrated';
-            $reasonCode = 'credential_superseded';
+        } elseif ($legacySuperseded && !$existingVault && !$this->hasNonEmptyScalar($secrets)) {
+            $classification = 'unbound';
+            $reasonCode = 'superseded_credential_requires_reentry';
         } elseif ($vaultRecordExists && !$existingVault && !$this->hasNonEmptyScalar($secrets)) {
             $classification = 'unbound';
             $reasonCode = 'credential_vault_not_ready';
@@ -845,74 +833,6 @@ final class OtaCredentialMigrationService
     }
 
     /**
-     * @param array<int, array<string, mixed>> $items
-     * @return array{superseded:array<string,array<string,mixed>>}
-     */
-    private function buildCredentialMigrationPlan(array $items): array
-    {
-        $groups = [];
-        foreach ($items as $item) {
-            if (($item['classification'] ?? '') !== 'bound_verified') {
-                continue;
-            }
-            $groupKey = implode('|', [
-                (string)($item['tenant_id'] ?? ''),
-                (string)($item['system_hotel_id'] ?? ''),
-                (string)($item['platform'] ?? ''),
-            ]);
-            $groups[$groupKey][] = $item;
-        }
-
-        $superseded = [];
-        foreach ($groups as $group) {
-            usort($group, function (array $left, array $right): int {
-                $priority = $this->credentialMigrationSourcePriority($left)
-                    <=> $this->credentialMigrationSourcePriority($right);
-                if ($priority !== 0) {
-                    return $priority;
-                }
-                return strcmp(
-                    implode('|', [
-                        (string)($left['source_table'] ?? ''),
-                        str_pad((string)($left['source_row_id'] ?? 0), 20, '0', STR_PAD_LEFT),
-                        (string)($left['entry_key'] ?? ''),
-                        (string)($left['item_id'] ?? ''),
-                    ]),
-                    implode('|', [
-                        (string)($right['source_table'] ?? ''),
-                        str_pad((string)($right['source_row_id'] ?? 0), 20, '0', STR_PAD_LEFT),
-                        (string)($right['entry_key'] ?? ''),
-                        (string)($right['item_id'] ?? ''),
-                    ])
-                );
-            });
-            $canonical = $group[0] ?? null;
-            if (!is_array($canonical)) {
-                continue;
-            }
-            foreach (array_slice($group, 1) as $item) {
-                $itemId = (string)($item['item_id'] ?? '');
-                if ($itemId !== '') {
-                    $superseded[$itemId] = $canonical;
-                }
-            }
-        }
-        return ['superseded' => $superseded];
-    }
-
-    /** @param array<string, mixed> $item */
-    private function credentialMigrationSourcePriority(array $item): int
-    {
-        return match ((string)($item['source_kind'] ?? '')) {
-            'config_list' => 10,
-            'data_config' => 20,
-            'platform_source' => 30,
-            'cookie_cache' => 40,
-            default => 50,
-        };
-    }
-
-    /**
      * @param array<string, mixed> $item
      * @return array<string, mixed>
      */
@@ -974,61 +894,6 @@ final class OtaCredentialMigrationService
             'source_table' => (string)$item['source_table'],
             'source_row_id' => (int)$item['source_row_id'],
             'credential_ref' => $credentialRef,
-        ];
-    }
-
-    /**
-     * @param array<string, mixed> $item
-     * @param array<string, mixed> $canonical
-     * @return array<string, mixed>
-     */
-    private function sanitizeSupersededCredential(array $item, array $canonical): array
-    {
-        foreach (['tenant_id', 'system_hotel_id', 'platform'] as $field) {
-            if ((string)($item[$field] ?? '') !== (string)($canonical[$field] ?? '')) {
-                throw new RuntimeException('Superseded OTA credential scope is invalid.');
-            }
-        }
-        $canonicalConfigId = trim((string)($canonical['config_id'] ?? ''));
-        if (!$this->validConfigId($canonicalConfigId)) {
-            throw new RuntimeException('Canonical OTA credential locator is invalid.');
-        }
-
-        $current = $this->currentSourceMaterial($item);
-        if (!hash_equals((string)$item['fingerprint'], $this->fingerprint($current['fingerprint_payload']))) {
-            throw new RuntimeException('Legacy OTA source changed during migration.');
-        }
-
-        $safeMetadata = $current['metadata'];
-        foreach ([
-            'credential_ref',
-            'credential_status',
-            'has_cookies',
-            'has_secret',
-            'secret_mask',
-            'migration_required',
-            'migration_reason',
-            'superseded_by_config_id',
-            'key_id',
-            'payload_version',
-            'encrypted_payload',
-            'ciphertext',
-        ] as $legacyCredentialKey) {
-            unset($safeMetadata[$legacyCredentialKey]);
-        }
-        $safeMetadata['credential_status'] = 'superseded';
-        $safeMetadata['migration_required'] = false;
-        $safeMetadata['has_cookies'] = false;
-        $safeMetadata['secret_mask'] = '';
-        $safeMetadata['superseded_by_config_id'] = $canonicalConfigId;
-
-        $this->writeSanitizedSource($item, $current, $safeMetadata);
-
-        return [
-            'item_id' => (string)$item['item_id'],
-            'source_table' => (string)$item['source_table'],
-            'source_row_id' => (int)$item['source_row_id'],
-            'reason_code' => 'credential_superseded',
         ];
     }
 

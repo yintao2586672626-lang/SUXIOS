@@ -1,4 +1,7 @@
 interface:
-  display_name: Impeccable
-  short_description: Use when the user wants to design, redesign, shape, critique, audit, polish, clarify,...
-  default_prompt: Use Impeccable to redesign, critique, audit, or polish this frontend.
+  display_name: "Impeccable（手动）"
+  short_description: "完整前端设计、审查和打磨流程；仅在明确点名时使用"
+  default_prompt: "Use $impeccable to run a complete frontend design or critique workflow."
+
+policy:
+  allow_implicit_invocation: false

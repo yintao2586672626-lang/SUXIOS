@@ -700,6 +700,32 @@ test('manual one-click fetch result helpers make Ctrip Qunar zero retryable fail
   assert.equal(ctripLoginFailure.message, 'Cookie已失效，请重新登录携程');
 });
 
+test('manual one-click fetch skips Qunar auto retry from midnight until 06:00', () => {
+  assert.equal(typeof helpers.manualOneClickFetchQunarAutoRetryAllowedAt, 'function');
+  assert.equal(helpers.manualOneClickFetchQunarAutoRetryAllowedAt({ getHours: () => 0 }), false);
+  assert.equal(helpers.manualOneClickFetchQunarAutoRetryAllowedAt({ getHours: () => 5 }), false);
+  assert.equal(helpers.manualOneClickFetchQunarAutoRetryAllowedAt({ getHours: () => 6 }), true);
+  assert.equal(helpers.manualOneClickFetchQunarAutoRetryAllowedAt({ getHours: () => 23 }), true);
+
+  const quietHoursGap = helpers.summarizeManualOneClickFetchResult({
+    platform: 'ctrip',
+    result: { code: 200, message: '获取成功' },
+    savedCount: 26,
+    ctripQunarQuality: { rowCount: 26, total: 0, ready: false },
+    qunarRetryCount: 0,
+    qunarVisitorNeedsRetry: true,
+    qunarAutoRetrySuppressed: true,
+  });
+  assert.equal(quietHoursGap.status, 'failed');
+  assert.match(quietHoursGap.message, /00:00–05:59/);
+  assert.match(quietHoursGap.message, /已跳过自动重抓/);
+  assert.doesNotMatch(quietHoursGap.message, /已自动重抓/);
+
+  assert.match(publicEntry, /requireDataHealthStatic\('manualOneClickFetchQunarAutoRetryAllowedAt'\)/);
+  assert.match(publicEntry, /qunarAutoRetryAllowed = manualOneClickFetchQunarAutoRetryAllowedAt\(\)/);
+  assert.match(publicEntry, /!qunarAutoRetryAllowed/);
+});
+
 test('manual one-click fetch display helpers stay pure and status aware', () => {
   const normalized = helpers.normalizeManualOneClickFetchStoredRows([
     { status: 'running', savedCount: '2', retryCount: '1', qunarVisitorTotal: '0' },
@@ -886,7 +912,7 @@ test('manual one-click fetch display helpers stay pure and status aware', () => 
   assert.match(resultTable, /row\.detailMessage/);
   assert.match(resultTable, /查看详情/);
   assert.doesNotMatch(resultTable, /min-w-\[\d+rem\]/);
-  assert.match(publicEntry, /data-health-static\.js\?v=[^\"]*20260713-manual-result-compact-v1/);
+  assert.match(publicEntry, /data-health-static\.js\?v=20260714-ota-config-overview-h76c81ec35b/);
 
   const directIssueStart = publicEntry.indexOf('const otaDirectManualFailureBuckets = computed');
   const directIssueEnd = publicEntry.indexOf('const otaDirectViewCards = computed', directIssueStart);

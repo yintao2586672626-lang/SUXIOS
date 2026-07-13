@@ -14,12 +14,14 @@ test('static router caches level-6 gzip output under a level-specific identity',
 
 test('static router completes conditional cache hits before payload or gzip work', () => {
   const router = fs.readFileSync('public/router.php', 'utf8');
-  const conditionalOffset = router.indexOf("if ($ifNoneMatch === $etag");
+  const conditionalOffset = router.indexOf('$notModified = $ifNoneMatch');
   const payloadOffset = router.indexOf('$responsePayload = suxi_static_response_payload');
 
   assert.match(router, /\$ifNoneMatch = trim\(\(string\)\(\$_SERVER\['HTTP_IF_NONE_MATCH'\]/);
   assert.match(router, /\$ifModifiedSince = trim\(\(string\)\(\$_SERVER\['HTTP_IF_MODIFIED_SINCE'\]/);
-  assert.match(router, /http_response_code\(304\);\s*return true;/);
+  assert.match(router, /\$notModified = \$ifNoneMatch !== ''\s*\? \$ifNoneMatch === \$etag\s*:\s*\(\$ifModifiedSince !== '' && strtotime\(\$ifModifiedSince\) >= \$mtime\);/);
+  assert.match(router, /if \(\$notModified\) \{\s*http_response_code\(304\);\s*return true;/);
+  assert.doesNotMatch(router, /\$ifNoneMatch === \$etag \|\|/);
   assert.ok(conditionalOffset >= 0 && payloadOffset > conditionalOffset);
 });
 

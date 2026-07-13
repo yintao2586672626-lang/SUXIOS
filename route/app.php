@@ -56,7 +56,10 @@ if (!function_exists('suxi_root_index_response')) {
         );
         $etagMatches = in_array('*', $ifNoneMatchValues, true)
             || in_array($etagValue, $ifNoneMatchValues, true);
-        if ($etagMatches || ($ifModifiedSince !== '' && strtotime($ifModifiedSince) >= $mtime)) {
+        $notModified = $ifNoneMatch !== ''
+            ? $etagMatches
+            : ($ifModifiedSince !== '' && strtotime($ifModifiedSince) >= $mtime);
+        if ($notModified) {
             return response('', 304, $headers);
         }
 

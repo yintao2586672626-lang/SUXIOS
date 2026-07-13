@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { readFrontendContractSource } from './helpers/frontend_source.mjs';
@@ -6,6 +7,7 @@ import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 const html = readFrontendContractSource();
 const systemStatic = readFileSync('public/system-static.js', 'utf8');
 const style = readFileSync('public/style.css', 'utf8');
+const styleHash = createHash('sha256').update(style).digest('hex').slice(0, 10);
 
 test('sidebar defaults to expanded on desktop and remembers manual toggle', () => {
   assert.match(systemStatic, /const sidebarPreferenceKey = 'suxios_sidebar_collapsed'/);
@@ -22,7 +24,7 @@ test('sidebar defaults to expanded on desktop and remembers manual toggle', () =
 });
 
 test('expanded desktop sidebar is one fifth narrower without changing compact widths', () => {
-  assert.match(html, /style\.css\?v=20260712-sidebar-expanded-205-collapsed-72/);
+  assert.match(html, new RegExp(`style\\.css\\?v=[^"']*h${styleHash}`));
   assert.match(style, /aside\.sidebar\s*\{[\s\S]*?width:\s*205px;[\s\S]*?min-width:\s*205px;/);
   assert.match(style, /aside\.sidebar\.collapsed\s*\{[\s\S]*?width:\s*72px\s*!important;[\s\S]*?min-width:\s*72px\s*!important;[\s\S]*?max-width:\s*72px\s*!important;[\s\S]*?flex:\s*0 0 72px\s*!important;/);
   assert.match(style, /@media\s*\(max-width:\s*640px\)[\s\S]*?aside\.sidebar\.sidebar\s*\{[\s\S]*?width:\s*64px\s*!important;/);

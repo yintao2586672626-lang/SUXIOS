@@ -186,6 +186,7 @@ trait MeituanConfigConcern
             $list = $this->filterOtaConfigListForCurrentUser($list);
             $list = $this->sanitizeStoredOtaConfigListForRuntime($list);
             $list = $this->collapseMeituanConfigListByHotel(array_values($list));
+            $list = $this->appendOtaConfigCollectionEvidence(array_values($list), 'meituan');
             return $this->success($list);
         } catch (\Throwable) {
             return $this->error('获取美团配置列表失败', 500);

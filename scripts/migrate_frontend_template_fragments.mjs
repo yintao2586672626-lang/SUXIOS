@@ -7,8 +7,14 @@ import {
   FRONTEND_TEMPLATE_MANIFEST_RELATIVE_PATH,
   loadFrontendTemplateSource,
 } from './lib/frontend_template_source.mjs';
+import {
+  acquireFrontendTemplateLock,
+  writeFileAtomic,
+} from './lib/frontend_template_lock.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const releaseLock = await acquireFrontendTemplateLock(repoRoot, { owner: 'migrate-frontend-template-fragments' });
+try {
 const canonicalPath = path.join(repoRoot, 'resources/frontend/app-template.html');
 const templatesRoot = path.join(repoRoot, 'resources/frontend/templates');
 const manifestPath = path.join(repoRoot, FRONTEND_TEMPLATE_MANIFEST_RELATIVE_PATH);
@@ -73,11 +79,9 @@ if (!checkOnly) {
   }
   for (const fragment of expectedFragments) {
     const outputPath = path.resolve(templatesRoot, fragment.path);
-    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-    fs.writeFileSync(outputPath, fragment.buffer);
+    writeFileAtomic(outputPath, fragment.buffer);
   }
-  fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
-  fs.writeFileSync(manifestPath, manifestSource, 'utf8');
+  writeFileAtomic(manifestPath, manifestSource);
 }
 
 if (!checkOnly || fs.existsSync(manifestPath)) {
@@ -96,3 +100,6 @@ console.log(JSON.stringify({
   template_bytes: canonicalBuffer.length,
   conflicts,
 }, null, 2));
+} finally {
+  releaseLock();
+}

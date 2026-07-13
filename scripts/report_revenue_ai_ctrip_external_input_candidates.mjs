@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { formatDateInTimeZone } from './lib/shared_helpers.mjs';
 
 const defaultRoot = process.env.SUXIOS_CTRIP_EXTERNAL_INPUT_ROOT || 'E:\\杂项\\重庆香格里拉项目';
 const allowlistedFiles = [
@@ -70,7 +71,7 @@ function parseArgs(argv) {
   }
 
   if (options.date === '') {
-    options.date = new Date().toISOString().slice(0, 10);
+    options.date = formatDateInTimeZone(new Date(), 'Asia/Shanghai');
   }
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(options.date)) {

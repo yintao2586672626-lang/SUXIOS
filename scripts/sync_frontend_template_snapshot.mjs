@@ -2,9 +2,15 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  acquireFrontendTemplateLock,
+  writeFileAtomic,
+} from './lib/frontend_template_lock.mjs';
 import { loadFrontendTemplateSource } from './lib/frontend_template_source.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const releaseLock = await acquireFrontendTemplateLock(repoRoot, { owner: 'sync-frontend-template-snapshot' });
+try {
 const checkOnly = process.argv.includes('--check');
 const force = process.argv.includes('--force');
 const hash = (buffer) => crypto.createHash('sha256').update(buffer).digest('hex');
@@ -49,7 +55,7 @@ if (!checkOnly) {
     if (fs.existsSync(snapshotPath) && !fs.readFileSync(snapshotPath).equals(snapshotBuffer)) {
       throw new Error('Frontend template compatibility snapshot changed during synchronization; retry.');
     }
-    fs.writeFileSync(snapshotPath, source.templateBuffer);
+    writeFileAtomic(snapshotPath, source.templateBuffer);
     snapshotChanged = true;
   }
 
@@ -65,7 +71,7 @@ if (!checkOnly) {
   };
   const nextManifestSource = `${JSON.stringify(nextManifest, null, 2)}\n`;
   if (nextManifestSource !== manifestSourceBefore) {
-    fs.writeFileSync(source.manifestPath, nextManifestSource, 'utf8');
+    writeFileAtomic(source.manifestPath, nextManifestSource);
     manifestChanged = true;
   }
 }
@@ -87,3 +93,6 @@ console.log(JSON.stringify({
   snapshot_changed: snapshotChanged,
   manifest_changed: manifestChanged,
 }, null, 2));
+} finally {
+  releaseLock();
+}

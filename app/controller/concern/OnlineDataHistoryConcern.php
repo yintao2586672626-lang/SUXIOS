@@ -692,18 +692,26 @@ trait OnlineDataHistoryConcern
             'hotelId' => $row['hotel_id'] ?? '',
             'hotelName' => $row['hotel_name'] ?? '',
             'date' => $row['data_date'] ?? '',
-            'amount' => (float)($row['amount'] ?? 0),
-            'quantity' => (int)($row['quantity'] ?? 0),
-            'bookOrderNum' => (int)($row['book_order_num'] ?? 0),
-            'commentScore' => (float)($row['comment_score'] ?? 0),
-            'qunarCommentScore' => (float)($row['qunar_comment_score'] ?? 0),
-            'dataValue' => (float)($row['data_value'] ?? 0),
-            'listExposure' => (int)($row['list_exposure'] ?? 0),
-            'detailExposure' => (int)($row['detail_exposure'] ?? 0),
-            'flowRate' => (float)($row['flow_rate'] ?? 0),
-            'orderFillingNum' => (int)($row['order_filling_num'] ?? 0),
-            'orderSubmitNum' => (int)($row['order_submit_num'] ?? 0),
+            'amount' => $this->nullableOnlineRowMetric($row, 'amount'),
+            'quantity' => $this->nullableOnlineRowMetric($row, 'quantity', true),
+            'bookOrderNum' => $this->nullableOnlineRowMetric($row, 'book_order_num', true),
+            'commentScore' => $this->nullableOnlineRowMetric($row, 'comment_score'),
+            'qunarCommentScore' => $this->nullableOnlineRowMetric($row, 'qunar_comment_score'),
+            'dataValue' => $this->nullableOnlineRowMetric($row, 'data_value'),
+            'listExposure' => $this->nullableOnlineRowMetric($row, 'list_exposure', true),
+            'detailExposure' => $this->nullableOnlineRowMetric($row, 'detail_exposure', true),
+            'flowRate' => $this->nullableOnlineRowMetric($row, 'flow_rate'),
+            'orderFillingNum' => $this->nullableOnlineRowMetric($row, 'order_filling_num', true),
+            'orderSubmitNum' => $this->nullableOnlineRowMetric($row, 'order_submit_num', true),
         ];
+    }
+
+    private function nullableOnlineRowMetric(array $row, string $field, bool $integer = false): int|float|null
+    {
+        if (!array_key_exists($field, $row) || $row[$field] === null || $row[$field] === '' || !is_numeric($row[$field])) {
+            return null;
+        }
+        return $integer ? (int)$row[$field] : (float)$row[$field];
     }
 
     private function applyOnlineHistoryFilters($query, $currentUser): void

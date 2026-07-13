@@ -129,6 +129,146 @@ final class CtripCompetitionCirclePersistenceServiceTest extends TestCase
         self::assertNotContains('field_missing:book_order_num', $zero['validation_flag_codes']);
     }
 
+    public function testMalformedPrimaryAliasesDoNotHideValidFallbackAliases(): void
+    {
+        $normalized = CtripCompetitionCirclePersistenceService::normalizeRowSemantics(
+            $this->competitionRow([
+                'amount' => '--',
+                'Amount' => '1280.5',
+                'quantity' => 'bad',
+                'Quantity' => '7',
+                'bookOrderNum' => 'bad',
+                'book_order_num' => '3',
+            ])
+        );
+
+        self::assertSame(1280.5, $normalized['amount']);
+        self::assertSame(7, $normalized['quantity']);
+        self::assertSame(3, $normalized['book_order_num']);
+        self::assertNotContains('field_missing:amount', $normalized['validation_flag_codes']);
+        self::assertNotContains('field_missing:quantity', $normalized['validation_flag_codes']);
+        self::assertNotContains('field_missing:book_order_num', $normalized['validation_flag_codes']);
+    }
+
+    public function testMalformedPrimaryScoreAliasDoesNotHideValidFallbackScore(): void
+    {
+        $normalized = CtripCompetitionCirclePersistenceService::normalizeRowSemantics(
+            $this->competitionRow([
+                'commentScore' => '--',
+                'comment_score' => '4.6',
+                'qunarCommentScore' => 7,
+                'qunar_comment_score' => '4.8',
+            ])
+        );
+
+        self::assertSame(4.6, $normalized['comment_score']);
+        self::assertSame(4.8, $normalized['qunar_comment_score']);
+    }
+
+    public function testPersistenceReadbackRequiresIdentityTraceAndMetricsToMatch(): void
+    {
+        $expected = [
+            11 => [
+                'id' => 11,
+                'system_hotel_id' => 7,
+                'hotel_id' => '832085',
+                'data_date' => '2026-07-13',
+                'source' => 'ctrip',
+                'data_type' => 'competitor',
+                'dimension' => 'competition_circle_hotel',
+                'source_trace_id' => 'ctrip-cc:trace-a',
+                'amount' => 1280.5,
+                'quantity' => 7,
+                'book_order_num' => 3,
+                'comment_score' => null,
+            ],
+            12 => [
+                'id' => 12,
+                'system_hotel_id' => 7,
+                'hotel_id' => '688665',
+                'data_date' => '2026-07-13',
+                'source' => 'ctrip',
+                'data_type' => 'competitor',
+                'dimension' => 'competition_circle_hotel',
+                'source_trace_id' => 'ctrip-cc:trace-a',
+                'amount' => 980.0,
+                'quantity' => 5,
+                'book_order_num' => 2,
+                'comment_score' => 4.6,
+            ],
+        ];
+        $matchingRows = array_values($expected);
+
+        $verified = (new CtripCompetitionCirclePersistenceService(
+            static fn(array $_scope): array => $matchingRows
+        ))->verifyPersistedRows($expected);
+        self::assertTrue($verified['verified']);
+        self::assertSame(2, $verified['matched_count']);
+        self::assertSame([11, 12], $verified['row_ids']);
+
+        $mismatchRows = $matchingRows;
+        $mismatchRows[1]['amount'] = 0;
+        $mismatch = (new CtripCompetitionCirclePersistenceService(
+            static fn(array $_scope): array => $mismatchRows
+        ))->verifyPersistedRows($expected);
+        self::assertFalse($mismatch['verified']);
+        self::assertSame(1, $mismatch['matched_count']);
+        self::assertSame('database_readback_mismatch', $mismatch['reason']);
+
+        $missingTrace = $expected;
+        $missingTrace[11]['source_trace_id'] = '';
+        $traceFailure = (new CtripCompetitionCirclePersistenceService(
+            static fn(array $_scope): array => $matchingRows
+        ))->verifyPersistedRows($missingTrace);
+        self::assertFalse($traceFailure['verified']);
+    }
+
+    public function testPersistenceReadbackUsesDatabaseDecimalPrecision(): void
+    {
+        $expected = [
+            21 => [
+                'id' => 21,
+                'system_hotel_id' => 7,
+                'hotel_id' => '832085',
+                'data_date' => '2026-07-13',
+                'source' => 'ctrip',
+                'data_type' => 'competitor',
+                'dimension' => 'competition_circle_hotel',
+                'source_trace_id' => 'ctrip-cc:precision',
+                'amount' => 88.505,
+                'quantity' => 7,
+                'book_order_num' => 3,
+                'comment_score' => 4.74,
+                'qunar_comment_score' => 4.86,
+            ],
+        ];
+        $stored = array_values($expected);
+        $stored[0]['amount'] = '88.51';
+        $stored[0]['comment_score'] = '4.7';
+        $stored[0]['qunar_comment_score'] = '4.9';
+
+        $result = (new CtripCompetitionCirclePersistenceService(
+            static fn(array $_scope): array => $stored
+        ))->verifyPersistedRows($expected);
+
+        self::assertTrue($result['verified']);
+        self::assertSame(1, $result['matched_count']);
+    }
+
+    public function testDuplicateHotelDateInputIsOnePersistenceLocator(): void
+    {
+        $method = new \ReflectionMethod(CtripCompetitionCirclePersistenceService::class, 'deduplicatePersistenceRows');
+        $method->setAccessible(true);
+        [$unique, $duplicateCount] = $method->invoke(null, [
+            $this->competitionRow(['amount' => 100]),
+            $this->competitionRow(['amount' => 200]),
+        ], '2026-07-13', 7);
+
+        self::assertCount(1, $unique);
+        self::assertSame(1, $duplicateCount);
+        self::assertSame(100, $unique[0]['amount']);
+    }
+
     public function testLegacyBackfillTraceIsMigrationEvidenceNotPlatformProof(): void
     {
         $fields = CtripCompetitionCirclePersistenceService::buildLegacyBackfillFields(

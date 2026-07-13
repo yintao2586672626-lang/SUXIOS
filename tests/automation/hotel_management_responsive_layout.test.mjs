@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const indexHtml = readFrontendContractSource();
 const styleCss = fs.readFileSync(new URL('../../public/style.css', import.meta.url), 'utf8');
+const styleHash = createHash('sha256').update(styleCss).digest('hex').slice(0, 10);
 const systemStaticSource = fs.readFileSync(new URL('../../public/system-static.js', import.meta.url), 'utf8');
 const systemStaticSandbox = { window: {}, console, setTimeout, clearTimeout };
 vm.runInNewContext(systemStaticSource, systemStaticSandbox, { filename: 'public/system-static.js' });
@@ -12,7 +14,7 @@ const { sortHotelManagementRows } = systemStaticSandbox.window.SUXI_SYSTEM_STATI
 
 assert.match(
   indexHtml,
-  /style\.css\?v=20260712-sidebar-expanded-205-collapsed-72/,
+  new RegExp(`style\\.css\\?v=[^"']*h${styleHash}`),
   'responsive hotel styles must use a fresh browser cache key'
 );
 

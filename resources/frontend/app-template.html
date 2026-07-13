@@ -4894,7 +4894,45 @@
                                                         <option value="">全部门店</option>
                                                         <option v-for="hotel in dualOtaCurrentHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
                                                     </select>
+                                                    <button type="button" data-testid="dual-ota-hotel-order-open" class="inline-flex shrink-0 items-center justify-center gap-1 rounded-lg border border-amber-200 bg-white px-2.5 py-2 text-xs font-semibold text-amber-800 shadow-sm transition hover:bg-amber-50" :title="`当前为${dualOtaHotelOrderModeText}，点击设置我的门店顺序`" aria-haspopup="dialog" @click="openDualOtaHotelOrder">
+                                                        <i class="fas fa-sort-amount-down" aria-hidden="true"></i>
+                                                        <span>排序</span>
+                                                    </button>
                                                 </span>
+                                                <div v-if="showDualOtaHotelOrderModal" data-testid="dual-ota-hotel-order-dialog" role="dialog" aria-modal="true" aria-labelledby="dual-ota-hotel-order-title" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" @click.self="closeDualOtaHotelOrder">
+                                                    <div class="w-full max-w-xl overflow-hidden rounded-2xl border border-amber-100 bg-white shadow-2xl">
+                                                        <div class="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
+                                                            <div class="min-w-0">
+                                                                <h3 id="dual-ota-hotel-order-title" class="text-lg font-bold text-slate-950">我的门店顺序</h3>
+                                                                <p class="mt-1 text-xs leading-5 text-slate-500">只改变当前账号的下拉顺序，不改变门店权限或经营数据；新授权门店会自动追加到末尾。</p>
+                                                            </div>
+                                                            <button type="button" class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800" aria-label="关闭门店排序" @click="closeDualOtaHotelOrder">
+                                                                <i class="fas fa-times" aria-hidden="true"></i>
+                                                            </button>
+                                                        </div>
+                                                        <div class="max-h-96 space-y-2 overflow-y-auto bg-slate-50 px-4 py-3">
+                                                            <div v-for="(hotel, index) in dualOtaHotelOrderRows" :key="hotel.id" class="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
+                                                                <span class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-50 text-xs font-bold text-amber-800">{{ index + 1 }}</span>
+                                                                <div class="min-w-0 flex-1">
+                                                                    <div class="truncate text-sm font-semibold text-slate-900">{{ hotel.name }}</div>
+                                                                    <div v-if="hotel.code" class="mt-0.5 truncate text-xs text-slate-400">{{ hotel.code }}</div>
+                                                                </div>
+                                                                <div class="flex shrink-0 items-center gap-1">
+                                                                    <button type="button" class="rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-semibold text-slate-600 hover:border-amber-200 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-40" :disabled="index === 0" :aria-label="`将${hotel.name}置顶`" @click="moveDualOtaHotelOrderToTop(hotel.id)">置顶</button>
+                                                                    <button type="button" class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:border-amber-200 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-40" :disabled="index === 0" :aria-label="`将${hotel.name}上移`" @click="moveDualOtaHotelOrder(hotel.id, 'up')"><i class="fas fa-arrow-up" aria-hidden="true"></i></button>
+                                                                    <button type="button" class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:border-amber-200 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-40" :disabled="index === dualOtaHotelOrderRows.length - 1" :aria-label="`将${hotel.name}下移`" @click="moveDualOtaHotelOrder(hotel.id, 'down')"><i class="fas fa-arrow-down" aria-hidden="true"></i></button>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div class="flex flex-col-reverse gap-2 border-t border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                                                            <button type="button" class="rounded-lg px-3 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-50 hover:text-slate-800" @click="resetDualOtaHotelOrder">恢复常用优先</button>
+                                                            <div class="flex gap-2">
+                                                                <button type="button" class="flex-1 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 sm:flex-none" @click="closeDualOtaHotelOrder">取消</button>
+                                                                <button type="button" class="flex-1 rounded-lg bg-amber-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-800 sm:flex-none" @click="saveDualOtaHotelOrder">保存顺序</button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
                                                 <div class="dual-ota-store-scope-list" role="list" aria-label="OTA平台选择">
                                                     <button type="button" :class="['dual-ota-compare-toggle', dualOtaCompareEnabled ? 'is-active' : '']" :aria-pressed="dualOtaCompareEnabled ? 'true' : 'false'" @click="toggleDualOtaCompare">
                                                         <span>同期对比</span>
@@ -4989,10 +5027,16 @@
 
                                         <section class="dual-ota-card dual-ota-deprioritized" data-testid="dual-ota-deprioritized-modules">
                                             <div class="dual-ota-deprioritized-list">
-                                                <span v-for="item in dualOtaDashboard.deprioritizedModules" :key="item.name">
-                                                    <strong>{{ item.name }}</strong>
-                                                    <em v-if="item.reason">{{ item.reason }}</em>
-                                                </span>
+                                                <template v-for="item in dualOtaDashboard.deprioritizedModules" :key="item.name">
+                                                    <button v-if="dualOtaModuleNavigationTarget(item)" type="button" class="dual-ota-deprioritized-link" :data-testid="`dual-ota-${dualOtaModuleNavigationTarget(item)}-shortcut`" :aria-label="`${item.name}，进入数据抓取页面`" @click="openDualOtaModule(item)">
+                                                        <strong>{{ item.name }}</strong>
+                                                        <em>{{ item.reason || '进入抓取' }}</em>
+                                                    </button>
+                                                    <span v-else="">
+                                                        <strong>{{ item.name }}</strong>
+                                                        <em v-if="item.reason">{{ item.reason }}</em>
+                                                    </span>
+                                                </template>
                                             </div>
                                         </section>
 
@@ -6168,8 +6212,8 @@
                                     <button @click="openCtripManualTab('ctrip-ads')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-ads' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         广告数据
                                     </button>
-                                    <button @click="openCtripManualTab('ctrip-review-match')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-review-match' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
-                                        评价匹配
+                                    <button type="button" disabled data-testid="ctrip-review-match-policy-disabled" title="隐私策略已停用该能力：不会反查匿名住客身份，也不会执行评价与订单自动绑定。" class="px-6 py-3 font-medium text-gray-400 cursor-not-allowed">
+                                        评价匹配（隐私保护停用）
                                     </button>
                                     <button @click="switchToDownloadCenter" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-download' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         查询结果存储
@@ -6274,71 +6318,64 @@
                                     <div v-else-if="collectionReliabilityError" class="p-4 border border-red-100 rounded-lg bg-red-50 text-red-700 text-sm">{{ collectionReliabilityError }}</div>
                                     <template v-else="">
                                         <div v-if="ctripEbookingSecondaryPanelsReady" class="space-y-4">
-                                        <div data-testid="ctrip-data-health-priority-strip" class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                            <div class="rounded-lg border border-gray-200 bg-white p-3">
-                                                <div class="flex items-center justify-between gap-2">
-                                                    <div class="text-sm font-semibold text-gray-900">登录/Cookie 到期提醒</div>
-                                                    <span :class="['rounded-md border px-2 py-0.5 text-xs', dataHealthCookieAlertSummary.high ? dataHealthPriorityClass('high') : (dataHealthCookieAlertSummary.total ? dataHealthPriorityClass('medium') : dataHealthPriorityClass('ok'))]">{{ dataHealthCookieAlertSummary.total }} 项</span>
+                                        <div data-testid="ctrip-data-health-priority-strip" class="overflow-hidden rounded-lg border border-gray-200 bg-white">
+                                            <div class="grid grid-cols-1 divide-y divide-gray-100 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+                                                <div class="flex items-center justify-between gap-3 px-3 py-2.5">
+                                                    <span class="text-xs font-medium text-gray-600">登录授权</span>
+                                                    <span :class="['rounded-md border px-2 py-0.5 text-xs', dataHealthCookieAlertSummary.high ? dataHealthPriorityClass('high') : (dataHealthCookieAlertSummary.total ? dataHealthPriorityClass('medium') : dataHealthPriorityClass('ok'))]">{{ dataHealthCookieAlertSummary.total ? dataHealthCookieAlertSummary.total + ' 项' : '正常' }}</span>
                                                 </div>
-                                                <div class="mt-2 text-xs text-gray-500 truncate" :title="dataHealthCookieAlertRows[0]?.message || '暂无授权风险'">{{ dataHealthCookieAlertRows[0]?.message || '暂无授权风险' }}</div>
-                                            </div>
-                                            <div class="rounded-lg border border-gray-200 bg-white p-3">
-                                                <div class="flex items-center justify-between gap-2">
-                                                    <div class="text-sm font-semibold text-gray-900">数据质量任务</div>
+                                                <div class="flex items-center justify-between gap-3 px-3 py-2.5">
+                                                    <span class="text-xs font-medium text-gray-600">数据任务</span>
                                                     <span :class="['rounded-md border px-2 py-0.5 text-xs', dataHealthQualityTaskRows.some(row =&gt; row.priority === 'high') ? dataHealthPriorityClass('high') : (dataHealthQualityTaskRows.length ? dataHealthPriorityClass('medium') : dataHealthPriorityClass('ok'))]">{{ dataHealthQualityTaskRows.length }} 项</span>
                                                 </div>
-                                                <div class="mt-2 text-xs text-gray-500 truncate" :title="dataHealthQualityTaskRows[0]?.title || '暂无待处理任务'">{{ dataHealthQualityTaskRows[0]?.title || '暂无待处理任务' }}</div>
-                                            </div>
-                                            <div class="rounded-lg border border-gray-200 bg-white p-3">
-                                                <div class="flex items-center justify-between gap-2">
-                                                    <div class="text-sm font-semibold text-gray-900">高风险后台动作</div>
+                                                <div class="flex items-center justify-between gap-3 px-3 py-2.5">
+                                                    <span class="text-xs font-medium text-gray-600">高风险动作</span>
                                                     <span :class="['rounded-md border px-2 py-0.5 text-xs', dataHealthPriorityClass(dataHealthHighRiskSummary.status)]">{{ dataHealthHighRiskSummary.text }}</span>
                                                 </div>
-                                                <div class="mt-2 text-xs text-gray-500 truncate" :title="dataHealthHighRiskActionRows[0]?.title || dataHealthHighRiskSummary.detail">{{ dataHealthHighRiskActionRows[0]?.title || dataHealthHighRiskSummary.detail }}</div>
                                             </div>
                                         </div>
 
-                                        <div data-testid="data-health-today-work-orders" class="border rounded-lg bg-white overflow-hidden">
-                                            <div class="px-4 py-3 border-b flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
-                                                <div>
-                                                    <h4 class="text-lg font-semibold text-gray-900">今日处置工单</h4>
-                                                    <div class="text-xs text-gray-500 mt-1">按授权、采集失败、字段缺口和高风险动作排序；仅代表 OTA 渠道数据质量，不代表全酒店经营口径。</div>
-                                                </div>
-                                                <span :class="['px-2 py-1 rounded-full border text-xs w-fit', dataHealthTodayWorkOrders.some(row =&gt; row.priority === 'high') ? dataHealthPriorityClass('high') : (dataHealthTodayWorkOrders.length ? dataHealthPriorityClass('medium') : dataHealthPriorityClass('ok'))]">
-                                                    {{ dataHealthTodayWorkOrders.length ? dataHealthTodayWorkOrders.length + ' 项待处理' : '暂无待处理' }}
+                                        <details data-testid="data-health-today-work-orders" class="overflow-hidden rounded-lg border border-gray-200 bg-white">
+                                            <summary class="cursor-pointer px-4 py-3 hover:bg-gray-50">
+                                                <span class="ml-1 inline-flex items-center gap-2 text-sm font-semibold text-gray-900">
+                                                    今日处置
+                                                    <span :class="['rounded-full border px-2 py-0.5 text-xs font-normal', dataHealthTodayWorkOrders.some(row =&gt; row.priority === 'high') ? dataHealthPriorityClass('high') : (dataHealthTodayWorkOrders.length ? dataHealthPriorityClass('medium') : dataHealthPriorityClass('ok'))]">
+                                                        {{ dataHealthTodayWorkOrders.length ? dataHealthTodayWorkOrders.length + ' 项' : '无待处理' }}
+                                                    </span>
                                                 </span>
-                                            </div>
-                                            <div v-if="dataHealthTodayWorkOrders.length" class="divide-y divide-gray-100">
-                                                <div v-for="row in dataHealthTodayWorkOrders" :key="row.key" class="px-4 py-3 flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
-                                                    <div class="min-w-0">
-                                                        <div class="flex flex-wrap items-center gap-2">
-                                                            <span :class="['rounded-md border px-2 py-0.5 text-[11px] whitespace-nowrap', dataHealthPriorityClass(row.priority)]">{{ dataHealthPriorityText(row.priority) }}</span>
-                                                            <span class="text-xs text-gray-400">{{ row.platform_label || 'OTA' }}</span>
-                                                            <span class="text-xs text-gray-400">{{ row.source_label }}</span>
+                                                <span class="float-right text-xs font-normal text-gray-400">点击展开</span>
+                                            </summary>
+                                            <div class="border-t border-gray-100">
+                                                <div v-if="dataHealthTodayWorkOrders.length" class="divide-y divide-gray-100">
+                                                    <div v-for="row in dataHealthTodayWorkOrders" :key="row.key" class="flex flex-col gap-2 px-4 py-2.5 xl:flex-row xl:items-center xl:justify-between">
+                                                        <div class="min-w-0 flex-1">
+                                                            <div class="flex min-w-0 flex-wrap items-center gap-2">
+                                                                <span :class="['rounded-md border px-2 py-0.5 text-[11px] whitespace-nowrap', dataHealthPriorityClass(row.priority)]">{{ dataHealthPriorityText(row.priority) }}</span>
+                                                                <span class="min-w-0 truncate text-sm font-medium text-gray-900" :title="row.title">{{ row.title }}</span>
+                                                                <span class="text-[11px] text-gray-400">{{ row.platform_label || 'OTA' }} · {{ row.source_label }}</span>
+                                                            </div>
+                                                            <div class="mt-1 truncate text-xs text-gray-500" :title="row.detail">{{ row.detail }}</div>
                                                         </div>
-                                                        <div class="mt-1 text-sm font-semibold text-gray-900 truncate" :title="row.title">{{ row.title }}</div>
-                                                        <div class="mt-1 text-xs text-gray-500 truncate" :title="row.detail">{{ row.detail }}</div>
-                                                    </div>
-                                                    <div class="flex flex-wrap items-center gap-2 shrink-0">
-                                                        <button v-if="row.action_type === 'cookie'" type="button" @click="openCtripCookieCreateFromHealth" class="rounded-md border border-blue-200 bg-white px-2 py-1 text-xs text-blue-700 hover:bg-blue-50">
-                                                            更新 Cookie/API 辅助
-                                                        </button>
-                                                        <button v-else-if="row.action_type === 'fetch' &amp;&amp; row.action_tab" type="button" @click="runCtripOverviewFetchAction(row.action_tab)" :disabled="fetchingData || !!ctripOverviewFetchActionLoading || ctripOverviewCoreFetchRunning" class="rounded-md border border-blue-200 bg-white px-2 py-1 text-xs text-blue-700 hover:bg-blue-50 disabled:text-gray-400">
-                                                            {{ row.button_text || '补抓数据' }}
-                                                        </button>
-                                                        <button v-else-if="row.action_type === 'log'" type="button" @click="currentPage = 'operation-logs'; reloadOperationLogs()" class="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50">
-                                                            查看日志
-                                                        </button>
-                                                        <button v-else="" type="button" @click="switchToDownloadCenter" class="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50">
-                                                            查看历史
-                                                        </button>
+                                                        <div class="flex shrink-0 flex-wrap items-center gap-2">
+                                                            <button v-if="row.action_type === 'cookie'" type="button" @click="openCtripCookieCreateFromHealth" class="rounded-md border border-blue-200 bg-white px-2 py-1 text-xs text-blue-700 hover:bg-blue-50">
+                                                                更新授权
+                                                            </button>
+                                                            <button v-else-if="row.action_type === 'fetch' &amp;&amp; row.action_tab" type="button" @click="runCtripOverviewFetchAction(row.action_tab)" :disabled="fetchingData || !!ctripOverviewFetchActionLoading || ctripOverviewCoreFetchRunning" class="rounded-md border border-blue-200 bg-white px-2 py-1 text-xs text-blue-700 hover:bg-blue-50 disabled:text-gray-400">
+                                                                {{ row.button_text || '补抓数据' }}
+                                                            </button>
+                                                            <button v-else-if="row.action_type === 'log'" type="button" @click="currentPage = 'operation-logs'; reloadOperationLogs()" class="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50">
+                                                                查看日志
+                                                            </button>
+                                                            <button v-else="" type="button" @click="switchToDownloadCenter" class="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50">
+                                                                查看历史
+                                                            </button>
+                                                        </div>
                                                     </div>
                                                 </div>
+                                                <div v-else="" class="px-4 py-4 text-sm text-gray-500">暂无需要立即处理的 OTA 数据任务。</div>
+                                                <div class="border-t border-gray-100 bg-gray-50 px-4 py-2 text-[11px] text-gray-400">仅表示 OTA 渠道数据质量，不代表全酒店经营口径。</div>
                                             </div>
-                                            <div v-else="" class="px-4 py-5 text-sm text-gray-500">
-                                                暂无需要立即处理的 OTA 数据质量工单；仍可展开下方诊断查看采集覆盖、失败原因和历史回放。
-                                            </div>
-                                        </div>
+                                        </details>
 
                                         <div v-if="ctripEbookingDeepPanelsReady" class="space-y-4">
                                         <div data-testid="ctrip-store-overview-business-board" class="space-y-4">
@@ -6624,6 +6661,10 @@
                                                 <i class="fas fa-sync-alt"></i>
                                             </button>
                                         </div>
+                                        <div class="mt-2 text-xs leading-5 text-slate-600">
+                                            本次结果统一归属于所选门店的竞争圈；酒店ID缺失或不一致会提示但不阻断查询。
+                                            携程返回 hotelId 与该门店配置的携程 hotelId 一致时可确认本店身份；酒店名称和备注名不参与判定，只有明确的本店跨门店冲突才停止入库。
+                                        </div>
                                         <div v-if="selectedCtripHotelId &amp;&amp; selectedCtripHotelConfig" :class="['mt-1 text-xs', selectedCtripManualCredentialState.canFetch ? 'text-green-600' : 'text-amber-700']">
                                             <div>{{ getHotelNameById(selectedCtripHotelId) }}｜{{ selectedCtripManualCredentialState.label }}｜上次更新 {{ formatConfigDate(selectedCtripHotelConfig.update_time || selectedCtripHotelConfig.created_at) || '-' }}</div>
                                             <div v-if="!selectedCtripManualCredentialState.canFetch" class="mt-1">{{ selectedCtripManualCredentialState.detail }}</div>
@@ -6724,7 +6765,6 @@
                                                         <th class="px-3 py-2 text-center border text-xs bg-purple-50 cursor-pointer hover:bg-purple-100" @click="sortCtripTable('ari')">平均房价指数(ARI) <span v-if="ctripSortField === 'ari'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-cyan-50 cursor-pointer hover:bg-cyan-100" @click="sortCtripTable('sci')">综合竞争力指数(SCI) <span v-if="ctripSortField === 'sci'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('bookOrderNum')">携程预定订单 <span v-if="ctripSortField === 'bookOrderNum'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                                        <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('aiEstimatedTotalRoomNights')">全渠道AI预计总间夜数 <span v-if="ctripSortField === 'aiEstimatedTotalRoomNights'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('commentScore')">携程点评分 <span v-if="ctripSortField === 'commentScore'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('qunarCommentScore')">去哪儿点评分 <span v-if="ctripSortField === 'qunarCommentScore'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                     </tr>
@@ -6746,7 +6786,6 @@
                                                         <td class="px-3 py-2 border text-center font-medium text-purple-600">{{ hotel.ariText || '-' }}</td>
                                                         <td class="px-3 py-2 border text-center font-medium text-cyan-600">{{ hotel.sciText || '-' }}</td>
                                                         <td class="px-3 py-2 border text-center">{{ hotel.bookOrderNum || '-' }}</td>
-                                                        <td class="px-3 py-2 border text-center">{{ hotel.aiEstimatedTotalRoomNights || '-' }}</td>
                                                         <td class="px-3 py-2 border text-center">
                                                             <span :class="hotel.commentScore &gt;= 4.5 ? 'text-green-600 font-medium' : 'text-gray-600'">
                                                                 {{ hotel.commentScore || '-' }}
@@ -6916,46 +6955,6 @@
                                             <button type="button" @click="openTargetSite(defaultCtripLoginUrl)" class="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600">
                                                 <i class="fas fa-external-link-alt mr-2"></i>打开携程ebooking
                                             </button>
-                                        </div>
-                                        <details class="mb-4 border border-cyan-100 bg-cyan-50 rounded-lg p-3">
-                                            <summary class="cursor-pointer text-sm font-medium text-cyan-800">高级排障：手动接口参数（可选）</summary>
-                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
-                                                <div>
-                                                    <label class="block text-sm font-medium text-gray-700 mb-1">请求方式</label>
-                                                    <select v-model="ctripFlowOverviewForm.method" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                                                        <option value="GET">GET</option>
-                                                        <option value="POST">POST</option>
-                                                    </select>
-                                                </div>
-                                                <div>
-                                                    <label class="block text-sm font-medium text-gray-700 mb-1">携程酒店ID（hotelId）</label>
-                                                    <input v-model="ctripFlowOverviewForm.hotelId" type="text" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="填写该门店携程返回的 hotelId（不要填 nodeId）">
-                                                </div>
-                                                <div class="md:col-span-2">
-                                                    <label class="block text-sm font-medium text-gray-700 mb-1">接口请求地址</label>
-                                                    <textarea v-model="ctripFlowOverviewForm.requestUrls" rows="3" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 font-mono text-sm" placeholder="仅在手动按接口地址获取时填写；每行粘贴一个高级排障中命中的完整请求地址"></textarea>
-                                                </div>
-                                                <div class="md:col-span-2">
-                                                    <label class="block text-sm font-medium text-gray-700 mb-1">临时 Cookie/API 辅助内容</label>
-                                                    <textarea v-model="ctripFlowOverviewForm.cookies" disabled="" rows="2" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 font-mono text-sm" placeholder="默认读取该酒店已保存的临时 Cookie/API 辅助内容，也可手动粘贴"></textarea>
-                                                </div>
-                                                <div class="md:col-span-2">
-                                                    <label class="block text-sm font-medium text-gray-700 mb-1">请求正文（可选）</label>
-                                                    <textarea v-model="ctripFlowOverviewForm.payloadJson" disabled="" rows="2" class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500 font-mono text-sm" placeholder="可选；接口需要提交正文时粘贴，系统会补齐酒店和日期信息"></textarea>
-                                                </div>
-                                            </div>
-                                            <div class="flex flex-wrap items-center gap-3 mt-3">
-                                                <button type="button" @click="fetchCtripFlowOverviewData" :disabled="ctripFlowOverviewFetching" class="px-4 py-2 bg-white border border-cyan-300 text-cyan-700 rounded-lg hover:bg-cyan-50 disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200">
-                                                    <i :class="ctripFlowOverviewFetching ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-download mr-2'"></i>
-                                                    {{ ctripFlowOverviewFetching ? '获取中...' : '按接口 URL 获取' }}
-                                                </button>
-                                            </div>
-                                        </details>
-                                        <div v-if="user?.is_super_admin" class="mb-4">
-                                            <div class="text-sm font-medium text-gray-700 mb-2">本板块接口</div>
-                                            <div class="flex flex-wrap gap-2">
-                                                <span v-for="keyword in ctripFlowOverviewApiKeywords" :key="keyword" class="px-2 py-1 rounded bg-cyan-50 border border-cyan-100 text-xs text-cyan-700 font-mono">{{ keyword }}</span>
-                                            </div>
                                         </div>
                                         <div v-if="ctripFlowOverviewFetching" class="mt-3 text-sm text-cyan-700 bg-cyan-50 border border-cyan-100 rounded px-3 py-2">
                                             正在使用已保存的 Cookie/API 辅助内容同步流量概要数据。
@@ -7299,66 +7298,57 @@
                                     </div>
 
                                     <div v-if="ctripTrafficView === 'history' &amp;&amp; ctripTrafficRows.length" class="mt-4">
-                                        <div class="mb-4 rounded-lg border border-slate-200 bg-white p-4">
-                                            <h4 class="font-semibold text-slate-900"><i class="fas fa-history mr-2 text-blue-600"></i>历史流量数据</h4>
-                                            <p class="mt-1 text-xs text-slate-500">按历史日期展示我的酒店与竞争圈曝光、访客和转化数据。</p>
-                                        </div>
                                         <div :class="['border rounded-lg p-3 mb-4 text-sm', ctripTrafficBusinessQuality.className]">
                                             <div class="font-medium">{{ ctripTrafficBusinessQuality.title }}</div>
                                             <div class="mt-1 text-xs">{{ ctripTrafficBusinessQuality.detail }}</div>
                                         </div>
 
-                                        <div v-if="ctripTrafficSummary" class="responsive-metric-grid is-compact mb-4">
-                                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-center responsive-metric-card">
-                                                <div class="text-xl font-bold text-blue-700">{{ formatNumber(ctripTrafficSummary.self.listExposure) }}</div>
-                                                <div class="text-xs text-gray-500">列表页曝光量</div>
+                                        <div v-if="ctripTrafficSummary" data-testid="ctrip-traffic-summary-compare" class="grid grid-cols-1 gap-3 mb-4 sm:grid-cols-2 xl:grid-cols-5">
+                                            <div class="rounded-lg border border-blue-200 bg-blue-50 p-3">
+                                                <div class="text-sm font-semibold text-slate-800">列表曝光量</div>
+                                                <div class="mt-3 grid grid-cols-2 divide-x divide-blue-200 text-center">
+                                                    <div><div class="text-xs text-slate-500">本店</div><div class="mt-1 text-lg font-bold text-blue-700">{{ formatNumber(ctripTrafficSummary.self.listExposure) }}</div></div>
+                                                    <div><div class="text-xs text-slate-500">竞争圈</div><div class="mt-1 text-lg font-bold text-emerald-700">{{ formatNumber(ctripTrafficSummary.avg.listExposure) }}</div></div>
+                                                </div>
                                             </div>
-                                            <div class="bg-slate-50 border border-slate-200 rounded-lg p-3 text-center responsive-metric-card">
-                                                <div class="text-xl font-bold text-slate-700">{{ formatNumber(ctripTrafficSummary.avg.listExposure) }}</div>
-                                                <div class="text-xs text-gray-500">竞争圈平均曝光量</div>
+                                            <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                                                <div class="text-sm font-semibold text-slate-800">详情访客量</div>
+                                                <div class="mt-3 grid grid-cols-2 divide-x divide-emerald-200 text-center">
+                                                    <div><div class="text-xs text-slate-500">本店</div><div class="mt-1 text-lg font-bold text-blue-700">{{ formatNumber(ctripTrafficSummary.self.detailExposure) }}</div></div>
+                                                    <div><div class="text-xs text-slate-500">竞争圈</div><div class="mt-1 text-lg font-bold text-emerald-700">{{ formatNumber(ctripTrafficSummary.avg.detailExposure) }}</div></div>
+                                                </div>
                                             </div>
-                                            <div class="bg-green-50 border border-green-200 rounded-lg p-3 text-center responsive-metric-card">
-                                                <div class="text-xl font-bold text-green-700">{{ formatNumber(ctripTrafficSummary.self.detailExposure) }}</div>
-                                                <div class="text-xs text-gray-500">详情页访客量</div>
+                                            <div class="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                                                <div class="text-sm font-semibold text-slate-800">曝光转化率</div>
+                                                <div class="mt-3 grid grid-cols-2 divide-x divide-amber-200 text-center">
+                                                    <div><div class="text-xs text-slate-500">本店</div><div class="mt-1 text-lg font-bold text-blue-700">{{ toFixedSafe(ctripTrafficSummary.self.flowRate, 2) }}%</div></div>
+                                                    <div><div class="text-xs text-slate-500">竞争圈</div><div class="mt-1 text-lg font-bold text-emerald-700">{{ toFixedSafe(ctripTrafficSummary.avg.flowRate, 2) }}%</div></div>
+                                                </div>
                                             </div>
-                                            <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-center responsive-metric-card">
-                                                <div class="text-xl font-bold text-emerald-700">{{ formatNumber(ctripTrafficSummary.avg.detailExposure) }}</div>
-                                                <div class="text-xs text-gray-500">竞争圈平均访客量</div>
+                                            <div class="rounded-lg border border-indigo-200 bg-indigo-50 p-3">
+                                                <div class="text-sm font-semibold text-slate-800">下单转化率</div>
+                                                <div class="mt-3 grid grid-cols-2 divide-x divide-indigo-200 text-center">
+                                                    <div><div class="text-xs text-slate-500">本店</div><div class="mt-1 text-lg font-bold text-blue-700">{{ toFixedSafe(ctripTrafficSummary.self.orderFillRate, 2) }}%</div></div>
+                                                    <div><div class="text-xs text-slate-500">竞争圈</div><div class="mt-1 text-lg font-bold text-emerald-700">{{ toFixedSafe(ctripTrafficSummary.avg.orderFillRate, 2) }}%</div></div>
+                                                </div>
                                             </div>
-                                            <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-center responsive-metric-card">
-                                                <div class="text-xl font-bold text-amber-700">{{ ctripTrafficSummary.self.flowRate.toFixed(2) }}%</div>
-                                                <div class="text-xs text-gray-500">曝光转化率</div>
-                                            </div>
-                                            <div class="bg-orange-50 border border-orange-200 rounded-lg p-3 text-center responsive-metric-card">
-                                                <div class="text-xl font-bold text-orange-700">{{ ctripTrafficSummary.avg.flowRate.toFixed(2) }}%</div>
-                                                <div class="text-xs text-gray-500">竞争圈平均转化率</div>
-                                            </div>
-                                            <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-center responsive-metric-card">
-                                                <div class="text-xl font-bold text-indigo-700">{{ ctripTrafficSummary.self.orderFillRate.toFixed(2) }}%</div>
-                                                <div class="text-xs text-gray-500">下单转化率</div>
-                                            </div>
-                                            <div class="bg-violet-50 border border-violet-200 rounded-lg p-3 text-center responsive-metric-card">
-                                                <div class="text-xl font-bold text-violet-700">{{ ctripTrafficSummary.avg.orderFillRate.toFixed(2) }}%</div>
-                                                <div class="text-xs text-gray-500">竞争圈平均下单转化率</div>
-                                            </div>
-                                            <div class="bg-rose-50 border border-rose-200 rounded-lg p-3 text-center responsive-metric-card">
-                                                <div class="text-xl font-bold text-rose-700">{{ ctripTrafficSummary.self.submitRate.toFixed(2) }}%</div>
-                                                <div class="text-xs text-gray-500">成交转化率</div>
-                                            </div>
-                                            <div class="bg-red-50 border border-red-200 rounded-lg p-3 text-center responsive-metric-card">
-                                                <div class="text-xl font-bold text-red-700">{{ ctripTrafficSummary.avg.submitRate.toFixed(2) }}%</div>
-                                                <div class="text-xs text-gray-500">竞争圈平均成交转化率</div>
+                                            <div class="rounded-lg border border-rose-200 bg-rose-50 p-3">
+                                                <div class="text-sm font-semibold text-slate-800">成交转化率</div>
+                                                <div class="mt-3 grid grid-cols-2 divide-x divide-rose-200 text-center">
+                                                    <div><div class="text-xs text-slate-500">本店</div><div class="mt-1 text-lg font-bold text-blue-700">{{ toFixedSafe(ctripTrafficSummary.self.submitRate, 2) }}%</div></div>
+                                                    <div><div class="text-xs text-slate-500">竞争圈</div><div class="mt-1 text-lg font-bold text-emerald-700">{{ toFixedSafe(ctripTrafficSummary.avg.submitRate, 2) }}%</div></div>
+                                                </div>
                                             </div>
                                         </div>
 
-                                        <div v-if="ctripTrafficAnalysis" class="border border-blue-100 rounded-lg bg-white mb-4 overflow-hidden">
-                                            <div class="px-4 py-3 bg-blue-50 border-b border-blue-100 flex items-center justify-between gap-3">
-                                                <h4 class="font-medium text-blue-900">
+                                        <details v-if="ctripTrafficAnalysis" class="border border-blue-100 rounded-lg bg-white mb-4 overflow-hidden">
+                                            <summary class="px-4 py-3 bg-blue-50 cursor-pointer flex items-center justify-between gap-3">
+                                                <span class="font-medium text-blue-900">
                                                     <i class="fas fa-chart-pie mr-2"></i>APP流量转化衍生指标分析
-                                                </h4>
+                                                </span>
                                                 <span class="text-xs px-2 py-1 rounded bg-blue-100 text-blue-700">{{ ctripTrafficAnalysis.main_problem_stage || '整体接近竞争圈' }}</span>
-                                            </div>
-                                            <div class="p-4">
+                                            </summary>
+                                            <div class="p-4 border-t border-blue-100">
                                                 <p class="text-sm text-gray-700 mb-4">{{ ctripTrafficAnalysis.diagnosis }}</p>
                                                 <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
                                                     <div class="border rounded-lg p-3 text-center">
@@ -7407,46 +7397,32 @@
                                                     <div class="text-sm text-gray-700">{{ (ctripTrafficAnalysis.recommendations || []).join('、') }}</div>
                                                 </div>
                                             </div>
-                                        </div>
+                                        </details>
 
                                         <div v-if="ctripTrafficCompareRows.length" class="overflow-x-auto mb-4">
-                                            <table class="w-full text-sm border-collapse">
+                                            <table data-testid="ctrip-traffic-grouped-compare-table" class="w-full text-sm border-collapse">
                                                 <thead>
                                                     <tr class="bg-gray-50 text-gray-600">
                                                         <th class="px-4 py-2 border text-center min-w-[7.5rem] whitespace-nowrap cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('date')">日期 <span class="text-blue-600">{{ ctripTrafficSortIndicator('date') }}</span></th>
-                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('selfListExposure')">列表页曝光量 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfListExposure') }}</span></th>
-                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('avgListExposure')">竞争圈列表页曝光量 <span class="text-blue-600">{{ ctripTrafficSortIndicator('avgListExposure') }}</span></th>
-                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('selfDetailExposure')">详情页访客量 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfDetailExposure') }}</span></th>
-                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('avgDetailExposure')">竞争圈详情页访客量 <span class="text-blue-600">{{ ctripTrafficSortIndicator('avgDetailExposure') }}</span></th>
-                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('selfFlowRate')">曝光转化率 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfFlowRate') }}</span></th>
-                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('avgFlowRate')">竞争圈曝光转化率 <span class="text-blue-600">{{ ctripTrafficSortIndicator('avgFlowRate') }}</span></th>
-                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('selfOrderFillingNum')">订单页访客量 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfOrderFillingNum') }}</span></th>
-                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('avgOrderFillingNum')">竞争圈订单页访客量 <span class="text-blue-600">{{ ctripTrafficSortIndicator('avgOrderFillingNum') }}</span></th>
-                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('selfOrderFillRate')">下单转化率 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfOrderFillRate') }}</span></th>
-                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('avgOrderFillRate')">竞争圈下单转化率 <span class="text-blue-600">{{ ctripTrafficSortIndicator('avgOrderFillRate') }}</span></th>
-                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('selfOrderSubmitNum')">订单提交人数 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfOrderSubmitNum') }}</span></th>
-                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('avgOrderSubmitNum')">竞争圈订单提交人数 <span class="text-blue-600">{{ ctripTrafficSortIndicator('avgOrderSubmitNum') }}</span></th>
-                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('selfSubmitRate')">成交转化率 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfSubmitRate') }}</span></th>
-                                                        <th class="px-3 py-2 border text-center cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('avgSubmitRate')">竞争圈成交转化率 <span class="text-blue-600">{{ ctripTrafficSortIndicator('avgSubmitRate') }}</span></th>
+                                                        <th class="min-w-[10rem] border px-3 py-2 text-center cursor-pointer hover:bg-gray-100 select-none" title="按本店数据排序" @click="sortCtripTrafficTable('selfListExposure')"><div>列表曝光 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfListExposure') }}</span></div><div class="mt-1 grid grid-cols-2 text-[10px] font-normal"><span class="text-blue-700">本店</span><span class="text-emerald-700">竞争圈</span></div></th>
+                                                        <th class="min-w-[10rem] border px-3 py-2 text-center cursor-pointer hover:bg-gray-100 select-none" title="按本店数据排序" @click="sortCtripTrafficTable('selfDetailExposure')"><div>详情访客 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfDetailExposure') }}</span></div><div class="mt-1 grid grid-cols-2 text-[10px] font-normal"><span class="text-blue-700">本店</span><span class="text-emerald-700">竞争圈</span></div></th>
+                                                        <th class="min-w-[10rem] border px-3 py-2 text-center cursor-pointer hover:bg-gray-100 select-none" title="按本店数据排序" @click="sortCtripTrafficTable('selfFlowRate')"><div>曝光转化率 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfFlowRate') }}</span></div><div class="mt-1 grid grid-cols-2 text-[10px] font-normal"><span class="text-blue-700">本店</span><span class="text-emerald-700">竞争圈</span></div></th>
+                                                        <th class="min-w-[10rem] border px-3 py-2 text-center cursor-pointer hover:bg-gray-100 select-none" title="按本店数据排序" @click="sortCtripTrafficTable('selfOrderFillingNum')"><div>订单页访客 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfOrderFillingNum') }}</span></div><div class="mt-1 grid grid-cols-2 text-[10px] font-normal"><span class="text-blue-700">本店</span><span class="text-emerald-700">竞争圈</span></div></th>
+                                                        <th class="min-w-[10rem] border px-3 py-2 text-center cursor-pointer hover:bg-gray-100 select-none" title="按本店数据排序" @click="sortCtripTrafficTable('selfOrderFillRate')"><div>下单转化率 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfOrderFillRate') }}</span></div><div class="mt-1 grid grid-cols-2 text-[10px] font-normal"><span class="text-blue-700">本店</span><span class="text-emerald-700">竞争圈</span></div></th>
+                                                        <th class="min-w-[10rem] border px-3 py-2 text-center cursor-pointer hover:bg-gray-100 select-none" title="按本店数据排序" @click="sortCtripTrafficTable('selfOrderSubmitNum')"><div>订单提交人数 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfOrderSubmitNum') }}</span></div><div class="mt-1 grid grid-cols-2 text-[10px] font-normal"><span class="text-blue-700">本店</span><span class="text-emerald-700">竞争圈</span></div></th>
+                                                        <th class="min-w-[10rem] border px-3 py-2 text-center cursor-pointer hover:bg-gray-100 select-none" title="按本店数据排序" @click="sortCtripTrafficTable('selfSubmitRate')"><div>成交转化率 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfSubmitRate') }}</span></div><div class="mt-1 grid grid-cols-2 text-[10px] font-normal"><span class="text-blue-700">本店</span><span class="text-emerald-700">竞争圈</span></div></th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                    <tr v-for="row in ctripTrafficCompareRows" :key="row.date">
+                                                    <tr v-for="row in ctripTrafficCompareRows" :key="row.date" class="even:bg-slate-50/70 hover:bg-blue-50/50">
                                                         <td class="px-4 py-2 border text-center min-w-[7.5rem] whitespace-nowrap">{{ row.date }}</td>
-                                                        <td class="px-3 py-2 border text-center">{{ formatNumber(row.self.listExposure) }}</td>
-                                                        <td class="px-3 py-2 border text-center">{{ formatNumber(row.avg.listExposure) }}</td>
-                                                        <td class="px-3 py-2 border text-center">{{ formatNumber(row.self.detailExposure) }}</td>
-                                                        <td class="px-3 py-2 border text-center">{{ formatNumber(row.avg.detailExposure) }}</td>
-                                                        <td class="px-3 py-2 border text-center">{{ toFixedSafe(row.self.flowRate, 2) }}%</td>
-                                                        <td class="px-3 py-2 border text-center">{{ toFixedSafe(row.avg.flowRate, 2) }}%</td>
-                                                        <td class="px-3 py-2 border text-center">{{ formatNumber(row.self.orderFillingNum) }}</td>
-                                                        <td class="px-3 py-2 border text-center">{{ formatNumber(row.avg.orderFillingNum) }}</td>
-                                                        <td class="px-3 py-2 border text-center">{{ toFixedSafe(row.self.orderFillRate, 2) }}%</td>
-                                                        <td class="px-3 py-2 border text-center">{{ toFixedSafe(row.avg.orderFillRate, 2) }}%</td>
-                                                        <td class="px-3 py-2 border text-center">{{ formatNumber(row.self.orderSubmitNum) }}</td>
-                                                        <td class="px-3 py-2 border text-center">{{ formatNumber(row.avg.orderSubmitNum) }}</td>
-                                                        <td class="px-3 py-2 border text-center">{{ toFixedSafe(row.self.submitRate, 2) }}%</td>
-                                                        <td class="px-3 py-2 border text-center">{{ toFixedSafe(row.avg.submitRate, 2) }}%</td>
+                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatNumber(row.self.listExposure) }}</span><span class="font-semibold text-emerald-700">{{ formatNumber(row.avg.listExposure) }}</span></div></td>
+                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatNumber(row.self.detailExposure) }}</span><span class="font-semibold text-emerald-700">{{ formatNumber(row.avg.detailExposure) }}</span></div></td>
+                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ toFixedSafe(row.self.flowRate, 2) }}%</span><span class="font-semibold text-emerald-700">{{ toFixedSafe(row.avg.flowRate, 2) }}%</span></div></td>
+                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatNumber(row.self.orderFillingNum) }}</span><span class="font-semibold text-emerald-700">{{ formatNumber(row.avg.orderFillingNum) }}</span></div></td>
+                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ toFixedSafe(row.self.orderFillRate, 2) }}%</span><span class="font-semibold text-emerald-700">{{ toFixedSafe(row.avg.orderFillRate, 2) }}%</span></div></td>
+                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatNumber(row.self.orderSubmitNum) }}</span><span class="font-semibold text-emerald-700">{{ formatNumber(row.avg.orderSubmitNum) }}</span></div></td>
+                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ toFixedSafe(row.self.submitRate, 2) }}%</span><span class="font-semibold text-emerald-700">{{ toFixedSafe(row.avg.submitRate, 2) }}%</span></div></td>
                                                     </tr>
                                                 </tbody>
                                             </table>
@@ -8210,7 +8186,6 @@
                                                         <th class="px-3 py-2 text-center border text-xs bg-purple-50 cursor-pointer hover:bg-purple-100" @click="sortCtripTable('ari')">平均房价指数(ARI) <span v-if="ctripSortField === 'ari'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs bg-cyan-50 cursor-pointer hover:bg-cyan-100" @click="sortCtripTable('sci')">综合竞争力指数(SCI) <span v-if="ctripSortField === 'sci'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('bookOrderNum')">携程预定订单 <span v-if="ctripSortField === 'bookOrderNum'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
-                                                        <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('aiEstimatedTotalRoomNights')">全渠道AI预计总间夜数 <span v-if="ctripSortField === 'aiEstimatedTotalRoomNights'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('commentScore')">携程点评分 <span v-if="ctripSortField === 'commentScore'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                         <th class="px-3 py-2 text-center border text-xs cursor-pointer hover:bg-gray-100" @click="sortCtripTable('qunarCommentScore')">去哪儿点评分 <span v-if="ctripSortField === 'qunarCommentScore'">{{ ctripSortOrder === 'asc' ? '↑' : '↓' }}</span></th>
                                                     </tr>
@@ -8232,7 +8207,6 @@
                                                         <td class="px-3 py-2 border text-center font-medium text-purple-600">{{ hotel.ariText || '-' }}</td>
                                                         <td class="px-3 py-2 border text-center font-medium text-cyan-600">{{ hotel.sciText || '-' }}</td>
                                                         <td class="px-3 py-2 border text-center">{{ hotel.bookOrderNum || '-' }}</td>
-                                                        <td class="px-3 py-2 border text-center">{{ hotel.aiEstimatedTotalRoomNights || '-' }}</td>
                                                         <td class="px-3 py-2 border text-center">
                                                             <span :class="hotel.commentScore &gt;= 4.5 ? 'text-green-600 font-medium' : 'text-gray-600'">
                                                                 {{ hotel.commentScore || '-' }}
@@ -9143,39 +9117,42 @@
                     <div v-if="currentPage === 'meituan-ebooking'">
                         <div class="bg-white rounded-lg shadow">
                             <div class="p-4 border-b">
-                                <h3 class="font-medium">美团ebooking数据获取</h3>
+                                <h3 class="font-medium">美团数据</h3>
+                                <p class="mt-1 text-xs text-gray-500">先看竞争圈，再看已经入库的经营数据；技术采集参数只在需要排障时展开。</p>
                             </div>
                             <div class="p-6">
-                                <!-- Tabs -->
-                                <div class="flex flex-wrap border-b mb-6 gap-y-1">
-                                    <button @click="openMeituanManualTab('meituan-ranking')" :class="['px-6 py-3 font-medium', onlineDataTab === 'meituan-ranking' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
-                                        榜单数据获取
-                                    </button>
-                                    <button @click="openMeituanManualTab('meituan-traffic')" :class="['px-6 py-3 font-medium', onlineDataTab === 'meituan-traffic' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
-                                        流量数据获取
-                                    </button>
-                                    <button @click="openMeituanManualTab('meituan-orders')" :class="['px-6 py-3 font-medium', onlineDataTab === 'meituan-orders' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
-                                        订单数据获取
-                                    </button>
-                                    <button @click="openMeituanManualTab('meituan-ads')" :class="['px-6 py-3 font-medium', onlineDataTab === 'meituan-ads' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
-                                        推广通广告
-                                    </button>
-                                    <button @click="switchToMeituanDownloadCenter" :class="['px-6 py-3 font-medium', onlineDataTab === 'meituan-download' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
-                                        下载中心
-                                    </button>
-                                    <button @click="openHotelManagementForOta" class="px-6 py-3 font-medium text-gray-500 hover:text-blue-600">
-                                        酒店管理
-                                    </button>
+                                <div data-testid="meituan-owner-navigation" class="mb-6 flex flex-col gap-3 border-b pb-4 lg:flex-row lg:items-center lg:justify-between">
+                                    <div class="flex flex-wrap gap-2">
+                                        <button @click="openMeituanManualTab('meituan-ranking')" type="button" :class="['rounded-lg px-4 py-2.5 text-sm font-semibold transition', onlineDataTab === 'meituan-ranking' ? 'bg-slate-900 text-white shadow-sm' : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900']">
+                                            <i class="fas fa-chart-line mr-1.5"></i>竞争圈
+                                        </button>
+                                        <button type="button" @click="switchToMeituanDownloadCenter" :class="['rounded-lg px-4 py-2.5 text-sm font-semibold transition', onlineDataTab === 'meituan-download' ? 'bg-slate-900 text-white shadow-sm' : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900']">
+                                            <i class="fas fa-table mr-1.5"></i>经营数据
+                                        </button>
+                                        <button type="button" @click="openHotelManagementForOta" class="rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-600 transition hover:bg-gray-50 hover:text-gray-900">
+                                            <i class="fas fa-link mr-1.5"></i>账号设置
+                                        </button>
+                                    </div>
+                                    <details v-if="user?.is_super_admin" data-testid="meituan-advanced-collection" class="rounded-lg border border-dashed border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-600">
+                                        <summary class="cursor-pointer select-none font-medium text-gray-700">高级采集</summary>
+                                        <div class="mt-2 flex flex-wrap gap-2 border-t border-gray-200 pt-2">
+                                            <button @click="openMeituanManualTab('meituan-traffic')" type="button" class="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 hover:border-blue-200 hover:text-blue-700">流量补采</button>
+                                            <button @click="openMeituanManualTab('meituan-orders')" type="button" class="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 hover:border-blue-200 hover:text-blue-700">订单补采</button>
+                                            <button @click="openMeituanManualTab('meituan-ads')" type="button" class="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 hover:border-blue-200 hover:text-blue-700">广告补采</button>
+                                        </div>
+                                    </details>
                                 </div>
+
+                                <!-- 美团老板工作台主内容 -->
 
                                 <!-- 榜单数据获取 -->
                                 <div v-if="onlineDataTab === 'meituan-ranking'">
                                     <div class="bg-cyan-50 border border-cyan-200 rounded-lg p-4 mb-4">
                                         <h4 class="font-medium text-cyan-900 mb-2">
-                                            <i class="fas fa-info-circle mr-2"></i>美团竞对排名获取
+                                            <i class="fas fa-info-circle mr-2"></i>美团竞争圈
                                         </h4>
                                         <p class="text-sm text-slate-600">
-                                            选择目标酒店和时间维度后，点击获取数据。
+                                            选择酒店和时间后更新竞争圈；结果会保存并回显，本页只代表美团 OTA 渠道。
                                         </p>
                                     </div>
 
@@ -9237,7 +9214,10 @@
                                                 <span>历史自定义</span>
                                             </label>
                                         </div>
-                                        <p class="text-sm text-slate-500 mb-2">美团竞对榜单只支持今日实时和历史区间；远期预测/未来入住不属于此接口。多选会同时请求 4 类榜单，耗时会明显增加。</p>
+                                        <p class="text-sm text-slate-500 mb-2">美团竞对榜单只支持今日实时和历史区间；远期预测/未来入住不属于此接口。</p>
+                                        <p v-if="meituanForm.dateRanges.includes('0')" class="mb-2 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm leading-6 text-cyan-900">
+                                            实时榜：本店数值实时更新；「入住间夜 / 房费收入」的同行实时数值美团未开放（其后台对这两列也只显名次、不显具体数字），故同行此两项显示「-」。完整同行数值请看「昨天 / 近7天 / 近30天」。
+                                        </p>
                                         <!-- 自定义时间选择器 -->
                                         <div v-if="meituanForm.dateRanges.includes('custom')" class="grid grid-cols-2 gap-4 mt-2 pl-4 border-l-2 border-cyan-300">
                                             <div>
@@ -9254,8 +9234,11 @@
                                     <!-- API地址已隐藏，使用默认值 -->
                                     <input type="hidden" v-model="meituanForm.url">
                                     <div class="flex gap-3">
-                                        <button @click="fetchMeituanData" :disabled="fetchingData || !canFetchMeituanRankingData()" :class="fetchingData || !canFetchMeituanRankingData() ? 'border-gray-200 bg-gray-100 text-gray-500 cursor-not-allowed' : 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700'" class="inline-flex items-center rounded-lg border px-4 py-3 text-base font-medium transition-colors">
+                                        <button aria-label="更新竞争圈" @click="fetchMeituanData" :disabled="fetchingData || !canFetchMeituanRankingData()" :class="fetchingData || !canFetchMeituanRankingData() ? 'border-gray-200 bg-gray-100 text-gray-500 cursor-not-allowed' : 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700'" class="inline-flex items-center rounded-lg border px-4 py-3 text-base font-medium transition-colors">
                                             <i class="fas fa-download mr-2"></i>{{ meituanFetchButtonText }}
+                                        </button>
+                                        <button type="button" @click="switchToMeituanDownloadCenter" class="inline-flex items-center rounded-lg border border-gray-200 bg-white px-4 py-3 text-base font-medium text-gray-700 transition-colors hover:bg-gray-50">
+                                            <i class="fas fa-table mr-2"></i>查看经营数据
                                         </button>
                                     </div>
 
@@ -9280,14 +9263,17 @@
                                                         </span>
                                                     </div>
                                                 </div>
-                                                <div v-if="user?.is_super_admin" class="flex gap-2">
-                                                    <button @click="showRawData = !showRawData" class="px-3 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 text-sm">
-                                                        <i :class="showRawData ? 'fas fa-chevron-up' : 'fas fa-chevron-down'" class="mr-1"></i>展开高级排障数据
-                                                    </button>
-                                                    <button @click="copyToClipboard(JSON.stringify(onlineDataResult, null, 2))" class="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm">
-                                                        <i class="fas fa-copy mr-1"></i>复制排障数据
-                                                    </button>
-                                                </div>
+                                                <details v-if="user?.is_super_admin" data-testid="meituan-ranking-advanced-tools" class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600">
+                                                    <summary class="cursor-pointer select-none font-medium text-gray-700">高级排障</summary>
+                                                    <div class="mt-2 flex flex-wrap gap-2 border-t border-gray-100 pt-2">
+                                                        <button @click="showRawData = !showRawData" class="px-3 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 text-sm">
+                                                            <i :class="showRawData ? 'fas fa-chevron-up' : 'fas fa-chevron-down'" class="mr-1"></i>{{ showRawData ? '收起原始结果' : '查看原始结果' }}
+                                                        </button>
+                                                        <button @click="copyToClipboard(JSON.stringify(onlineDataResult, null, 2))" class="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm">
+                                                            <i class="fas fa-copy mr-1"></i>复制排障数据
+                                                        </button>
+                                                    </div>
+                                                </details>
                                             </div>
                                             <div v-if="onlineDataResult &amp;&amp; onlineDataResult.length &gt; 0" class="text-sm">
                                                 <div v-for="(result, idx) in onlineDataResult" :key="idx" class="mb-1 p-2 bg-white rounded border-l-4" :class="result.error ? 'border-red-400 bg-red-50' : (result.savedCount ? 'border-green-400 bg-green-50' : 'border-yellow-400 bg-yellow-50')">
@@ -9295,7 +9281,7 @@
                                                     <span class="font-medium">{{ result.rankName }}</span>:
                                                     <span v-if="result.retryExhausted" class="text-red-600">✗ {{ result.dateRangeName }}已抓 {{ result.attemptCount }} 轮，榜单仍未完整</span>
                                                     <span v-else-if="isMeituanPendingResult(result)" class="text-blue-600">
-                                                        <template v-if="result.status === 'saving'">正在保存并核对数据库</template>
+                                                        <template v-if="result.status === 'saving'">{{ result.rankDataMode === 'self_only' ? '本店实时值已返回，正在保存榜单名次并核对数据库' : (result.rankDataMode === 'derived' ? '按本店真实值和平台百分比计算，正在保存并核对数据库' : '正在保存并核对数据库') }}</template>
                                                         <template v-else="">
                                                             正在请求平台接口<span v-if="result.attemptCount"> · 第 {{ result.attemptCount }} / {{ result.maxAttempts }} 轮</span>
                                                             <span v-else-if="result.maxAttempts"> · 等待第 1 轮返回，最多 {{ result.maxAttempts }} 轮</span>
@@ -9305,13 +9291,13 @@
                                                         后台执行中<span v-if="result.taskId"> · 任务 {{ result.taskId }}</span>
                                                     </span>
                                                     <span v-else-if="result.terminalPartial" class="text-amber-700">⚠ {{ result.message }}</span>
-                                                    <span v-else-if="result.savedCount" class="text-green-600">✓ 已保存 {{ result.savedCount }} 条数据</span>
+                                                    <span v-else-if="result.savedCount" class="text-green-600">✓ {{ result.rankDataMode === 'self_only' ? '本店实时值及榜单名次已保存' : (result.rankDataMode === 'derived' ? '比例计算结果已保存并可回显' : `已保存 ${result.savedCount} 条数据`) }}</span>
                                                     <span v-else-if="result.error" class="text-red-600">✗ 失败: {{ result.error }}</span>
                                                     <span v-else-if="result.displayCount" class="text-yellow-600">
                                                         ⚠ 后端返回 {{ result.displayCount }} 条展示数据，但未新增保存（可能重复）
                                                     </span>
                                                     <span v-else="" class="text-gray-500">⚠ 平台未返回有效数据，请检查授权是否过期</span>
-                                                    <span v-if="result.rankDataComplete" class="ml-2 text-xs text-blue-600">· {{ result.dateRangeName }}第 {{ result.attemptCount }} 轮已抓完整</span>
+                                                    <span v-if="result.rankDataComplete" class="ml-2 text-xs text-blue-600">· {{ result.rankDataMode === 'self_only' ? '同行实时数值未开放，显示 -' : (result.rankDataMode === 'derived' ? '平台原值缺失，已按本店真实值和平台百分比计算' : `${result.dateRangeName}第 ${result.attemptCount} 轮原始字段完整`) }}</span>
                                                 </div>
                                             </div>
                                         </div>
@@ -9810,10 +9796,13 @@
                                 <!-- 点评数据获取 -->
                                 <!-- 下载中心 -->
                                 <div v-if="onlineDataTab === 'meituan-download'">
+                                    <div class="mb-4 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+                                        这里汇总已经入库的美团 OTA 数据。没有数据时会明确显示为空，不会用旧数据或默认值代替。
+                                    </div>
                                     <!-- 子Tab导航 -->
                                     <div class="flex border-b mb-4">
                                         <button @click="switchDownloadTab('overview')" :class="['px-6 py-3 font-medium', downloadCenterTab === 'overview' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
-                                            <i class="fas fa-chart-line mr-2"></i>经营概况
+                                            <i class="fas fa-chart-line mr-2"></i>竞争圈明细
                                         </button>
                                         <button @click="switchDownloadTab('traffic')" :class="['px-6 py-3 font-medium', downloadCenterTab === 'traffic' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                             <i class="fas fa-chart-bar mr-2"></i>流量分析
@@ -9893,7 +9882,7 @@
                                                             <button @click="viewOnlineDataDetail(item)" class="text-blue-500 hover:text-blue-700 mr-2">
                                                                 <i class="fas fa-eye"></i>
                                                             </button>
-                                                            <button @click="deleteOnlineDataItem(item.id)" class="text-red-500 hover:text-red-700">
+                                                            <button v-if="user?.is_super_admin" @click="deleteOnlineDataItem(item.id)" class="text-red-500 hover:text-red-700">
                                                                 <i class="fas fa-trash"></i>
                                                             </button>
                                                         </td>
@@ -9953,7 +9942,7 @@
                                                             <button @click="viewOnlineDataDetail(item)" class="text-blue-500 hover:text-blue-700 mr-2">
                                                                 <i class="fas fa-eye"></i>
                                                             </button>
-                                                            <button @click="deleteOnlineDataItem(item.id)" class="text-red-500 hover:text-red-700">
+                                                            <button v-if="user?.is_super_admin" @click="deleteOnlineDataItem(item.id)" class="text-red-500 hover:text-red-700">
                                                                 <i class="fas fa-trash"></i>
                                                             </button>
                                                         </td>
@@ -10011,7 +10000,7 @@
                                                             <button @click="viewOnlineDataDetail(item)" class="text-blue-500 hover:text-blue-700 mr-2">
                                                                 <i class="fas fa-eye"></i>
                                                             </button>
-                                                            <button @click="deleteOnlineDataItem(item.id)" class="text-red-500 hover:text-red-700">
+                                                            <button v-if="user?.is_super_admin" @click="deleteOnlineDataItem(item.id)" class="text-red-500 hover:text-red-700">
                                                                 <i class="fas fa-trash"></i>
                                                             </button>
                                                         </td>
@@ -10071,7 +10060,7 @@
                                                             <button @click="viewOnlineDataDetail(item)" class="text-blue-500 hover:text-blue-700 mr-2">
                                                                 <i class="fas fa-eye"></i>
                                                             </button>
-                                                            <button @click="deleteOnlineDataItem(item.id)" class="text-red-500 hover:text-red-700">
+                                                            <button v-if="user?.is_super_admin" @click="deleteOnlineDataItem(item.id)" class="text-red-500 hover:text-red-700">
                                                                 <i class="fas fa-trash"></i>
                                                             </button>
                                                         </td>
@@ -13238,50 +13227,73 @@
                                     <div data-testid="ota-direct-view-overview" class="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
                                         <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                                             <div>
-                                                <h4 class="text-base font-semibold text-gray-900">OTA数据直接查看</h4>
-                                                <div class="mt-1 text-xs text-gray-500 leading-5">先看目标日是否有入库数据，再看 Cookie/平台标识是否可用；采集失败只做诊断，不阻断已有数据查看。</div>
+                                                <h4 class="text-base font-semibold text-gray-900">平台配置与最近成功</h4>
+                                                <div class="mt-1 text-xs leading-5 text-gray-500">直接看携程和美团配置、当前是否生效、最近一次真实入库时间。</div>
                                             </div>
                                             <button type="button" @click="refreshManualOneClickFetchConfig" :disabled="manualOneClickFetchRunning || ctripConfigListLoading || meituanConfigListLoading" class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
-                                                <i :class="(ctripConfigListLoading || meituanConfigListLoading) ? 'fas fa-spinner fa-spin mr-1' : 'fas fa-sync-alt mr-1'"></i>{{ ctripConfigListLoading || meituanConfigListLoading ? '刷新中' : '刷新配置' }}
+                                                <i :class="(ctripConfigListLoading || meituanConfigListLoading) ? 'fas fa-spinner fa-spin mr-1' : 'fas fa-sync-alt mr-1'"></i>{{ ctripConfigListLoading || meituanConfigListLoading ? '刷新中' : '刷新状态' }}
                                             </button>
                                         </div>
-                                        <div class="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-2">
-                                            <div v-for="card in otaDirectViewCards" :key="card.key" class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 min-w-0">
-                                                <div class="text-[11px] text-gray-500 truncate">{{ card.label }}</div>
-                                                <div :class="['mt-1 text-lg font-semibold truncate', card.className]" :title="card.rawValue">{{ card.value }}</div>
-                                                <div class="mt-1 text-[11px] text-gray-400 truncate" :title="card.detail">{{ card.detail }}</div>
-                                            </div>
-                                        </div>
-                                        <div class="mt-4 overflow-x-auto">
-                                            <table v-if="otaDirectIssueRows.length" class="min-w-full divide-y divide-gray-200 text-sm">
-                                                <thead class="bg-gray-50 text-left text-xs text-gray-500">
-                                                    <tr>
-                                                        <th class="px-3 py-2 font-medium">问题</th>
-                                                        <th class="px-3 py-2 font-medium">影响</th>
-                                                        <th class="px-3 py-2 font-medium">处理</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody class="divide-y divide-gray-100 bg-white">
-                                                    <tr v-for="row in otaDirectIssueRows" :key="row.key">
-                                                        <td class="px-3 py-3 min-w-[12rem]">
-                                                            <span :class="['rounded-md border px-2 py-0.5 text-[11px]', row.className]">{{ row.title }}</span>
-                                                            <div class="mt-1 text-[11px] text-gray-500 truncate" :title="row.scope">{{ row.scope }}</div>
-                                                        </td>
-                                                        <td class="px-3 py-3 min-w-[18rem] text-xs text-gray-700 leading-5" :title="row.detail">{{ row.detail }}</td>
-                                                        <td class="px-3 py-3 min-w-[18rem] text-xs leading-5" :title="row.action">
-                                                            <div class="text-blue-700">{{ row.action }}</div>
-                                                            <div v-if="row.actions &amp;&amp; row.actions.length" class="mt-2 flex flex-wrap items-center gap-1.5">
-                                                                <button v-for="action in row.actions" :key="action.key" type="button" @click="handleOtaDirectIssueAction(row, action.key)" class="inline-flex items-center rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-medium text-blue-700 hover:border-blue-300 hover:bg-blue-100">
-                                                                    <i :class="action.icon || 'fas fa-external-link-alt mr-1'"></i>{{ action.label }}
-                                                                </button>
+
+                                        <div data-testid="ota-config-overview" class="mt-4 grid gap-4 xl:grid-cols-2">
+                                            <section v-for="group in otaConfigOverviewGroups" :key="group.platform" :data-testid="'ota-config-platform-' + group.platform" class="overflow-hidden rounded-xl border border-gray-200 bg-white">
+                                                <div class="border-b border-gray-100 bg-gray-50/80 px-4 py-3">
+                                                    <div class="flex items-start justify-between gap-3">
+                                                        <div class="min-w-0">
+                                                            <div class="flex items-center gap-2">
+                                                                <span :class="['flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs text-white', group.platform === 'ctrip' ? 'bg-blue-600' : 'bg-emerald-600']">
+                                                                    <i :class="group.platform === 'ctrip' ? 'fas fa-plane' : 'fas fa-store'"></i>
+                                                                </span>
+                                                                <div>
+                                                                    <h5 class="text-sm font-semibold text-gray-900">{{ group.title }}</h5>
+                                                                    <div class="text-[11px] text-gray-500">共 {{ group.summary.total }} 条配置</div>
+                                                                </div>
                                                             </div>
-                                                        </td>
-                                                    </tr>
-                                                </tbody>
-                                            </table>
-                                            <div v-else="" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">当前没有需要优先处理的 OTA 查看问题；仍以目标日 OTA 入库事实为准。</div>
+                                                        </div>
+                                                        <button v-if="canManageOwnHotels()" type="button" @click="manageOtaConfigOverview(group.platform)" class="shrink-0 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-gray-700 hover:border-gray-300 hover:bg-gray-50">管理配置</button>
+                                                    </div>
+                                                    <div class="mt-3 grid grid-cols-3 divide-x divide-gray-200 rounded-lg border border-gray-200 bg-white py-2 text-center">
+                                                        <div class="px-2">
+                                                            <div class="text-[11px] text-gray-500">已生效</div>
+                                                            <div class="mt-0.5 text-base font-semibold text-emerald-700">{{ group.summary.effective }}</div>
+                                                        </div>
+                                                        <div class="px-2">
+                                                            <div class="text-[11px] text-gray-500">需处理</div>
+                                                            <div :class="['mt-0.5 text-base font-semibold', group.summary.needsAttention ? 'text-amber-700' : 'text-gray-900']">{{ group.summary.needsAttention }}</div>
+                                                        </div>
+                                                        <div class="min-w-0 px-2">
+                                                            <div class="text-[11px] text-gray-500">最近成功</div>
+                                                            <div class="mt-0.5 truncate text-xs font-semibold text-gray-900" :title="group.summary.latestSuccessAt">{{ group.summary.latestSuccessText }}</div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div v-if="group.rows.length" class="divide-y divide-gray-100 px-4">
+                                                    <div v-for="row in otaConfigOverviewVisibleRows(group)" :key="row.key" data-testid="ota-config-row" class="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+                                                        <div class="min-w-0 flex-1">
+                                                            <div class="truncate text-sm font-medium text-gray-900" :title="row.hotelName">{{ row.hotelName }}</div>
+                                                            <div class="mt-0.5 truncate text-[11px] text-gray-500" :title="row.configName + ' · ' + row.platformIdentityText">{{ row.configName }} · {{ row.platformIdentityText }}</div>
+                                                        </div>
+                                                        <div class="flex shrink-0 items-center justify-between gap-3 sm:justify-end">
+                                                            <div class="text-right">
+                                                                <span :class="['inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium', row.effectClass]" :title="row.effectDetail">{{ row.effectText }}</span>
+                                                                <div class="mt-1 text-[11px] text-gray-500" :title="row.latestSuccessAt">最近成功：{{ row.latestSuccessText }}</div>
+                                                            </div>
+                                                            <button v-if="canManageOwnHotels()" type="button" @click="editOtaConfigOverviewRow(row)" class="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-medium text-blue-700 hover:border-blue-300 hover:bg-blue-100">编辑</button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div v-else class="px-4 py-6 text-center">
+                                                    <div class="text-sm text-gray-500">暂无{{ group.platform === 'ctrip' ? '携程' : '美团' }}配置</div>
+                                                    <button v-if="canManageOwnHotels()" type="button" @click="manageOtaConfigOverview(group.platform)" class="mt-2 text-xs font-medium text-blue-700 hover:text-blue-800">去配置</button>
+                                                </div>
+                                                <button v-if="group.rows.length > 4" type="button" @click="toggleOtaConfigOverview(group.platform)" class="flex w-full items-center justify-center border-t border-gray-100 bg-gray-50/70 px-4 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100">
+                                                    {{ otaConfigOverviewExpanded[group.platform] ? '收起' : '查看全部 ' + group.rows.length + ' 条' }}
+                                                    <i :class="otaConfigOverviewExpanded[group.platform] ? 'fas fa-chevron-up ml-1.5' : 'fas fa-chevron-down ml-1.5'"></i>
+                                                </button>
+                                            </section>
                                         </div>
-                                        <div class="mt-3 text-[11px] text-gray-400 leading-5">边界：这里不改变携程数据页和美团数据页；只把 OTA 数据可信度页整理成更直接的查看入口。</div>
+                                        <div class="mt-3 text-[11px] leading-5 text-gray-400">“已生效”仅表示当前配置保存后，该门店该平台已有成功入库；这是 OTA 渠道证据，不等同于全酒店经营数据完整。</div>
                                     </div>
                                     <div data-testid="manual-one-click-fetch" class="rounded-xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm">
                                         <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
@@ -13295,7 +13307,7 @@
                                                     <i :class="manualOneClickFetchRunning === 'ctrip' ? 'fas fa-spinner fa-spin mr-1.5' : 'fas fa-cloud-download-alt mr-1.5'"></i>一键获取携程
                                                 </button>
                                                 <button type="button" @click="runManualOneClickFetch('meituan')" :disabled="manualOneClickFetchRunning || fetchingData || meituanConfigListLoading" class="inline-flex items-center justify-center rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none">
-                                                    <i :class="manualOneClickFetchRunning === 'meituan' ? 'fas fa-spinner fa-spin mr-1.5' : 'fas fa-cloud-download-alt mr-1.5'"></i>一键获取美团
+                                                    <i :class="manualOneClickFetchRunning === 'meituan' ? 'fas fa-spinner fa-spin mr-1.5' : 'fas fa-cloud-download-alt mr-1.5'"></i>更新美团竞争圈
                                                 </button>
                                                 <button type="button" @click="runManualOneClickFetch('all')" :disabled="manualOneClickFetchRunning || fetchingData || ctripConfigListLoading || meituanConfigListLoading" class="inline-flex items-center justify-center rounded-lg border border-gray-900 bg-gray-900 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-gray-800 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none">
                                                     <i :class="manualOneClickFetchRunning === 'all' ? 'fas fa-spinner fa-spin mr-1.5' : 'fas fa-database mr-1.5'"></i>双平台一键获取

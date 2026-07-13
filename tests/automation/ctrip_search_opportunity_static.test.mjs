@@ -158,14 +158,14 @@ test('future search gap stays missing when competitor denominator is zero', () =
   assert.equal(api.gapRate(0, 10), -100);
 });
 
-test('future search comparisons state the direction and use percent-symbol wording', () => {
+test('future search comparisons distinguish relative percent from percentage-point gaps', () => {
   const api = loadApi();
 
   assert.equal(api.formatRelativeComparison(100), '高 100.00%');
   assert.equal(api.formatRelativeComparison(-18.18), '低 18.18%');
   assert.equal(api.formatRelativeComparison(0), '持平');
-  assert.equal(api.formatPercentagePointGap(7.78), '高 7.78%');
-  assert.equal(api.formatPercentagePointGap(-4), '低 4.00%');
+  assert.equal(api.formatPercentagePointGap(7.78), '高 7.78 个百分点');
+  assert.equal(api.formatPercentagePointGap(-4), '低 4.00 个百分点');
   assert.equal(api.formatPercentagePointGap(null), '-');
 });
 
@@ -459,7 +459,8 @@ test('future search detail table keeps only interpretable comparison columns', (
   assert.match(table, /UV差异/);
   assert.match(table, /转化率差异/);
   assert.equal((table.match(/本店对比竞争圈/g) || []).length, 2);
-  assert.doesNotMatch(table, /本店较圈|个百分点/);
+  assert.doesNotMatch(table, /本店较圈/);
+  assert.match(table, /formatCtripSearchOpportunityPercentagePointGap/);
   assert.match(table, /累计.*formatCtripSearchOpportunityRelativeComparison/s);
   assert.match(table, /昨日.*formatCtripSearchOpportunityRelativeComparison/s);
   assert.match(table, /formatCtripSearchOpportunityPercentagePointGap/);

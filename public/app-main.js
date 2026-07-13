@@ -473,6 +473,7 @@
                 }
             };
             const formOperationSupportScript = 'form-operation-support.js';
+            const formOperationSupportScriptVersion = '20260713-checkbox-false-restore';
             let formOperationSupportLoadPromise = null;
             let formOperationSupportLoadTimer = null;
             const loadFormOperationSupport = () => {
@@ -483,7 +484,7 @@
                 if (!formOperationSupportLoadPromise) {
                     formOperationSupportLoadPromise = new Promise((resolve, reject) => {
                         const script = document.createElement('script');
-                        script.src = formOperationSupportScript;
+                        script.src = formOperationSupportScript + '?v=' + formOperationSupportScriptVersion;
                         script.async = true;
                         script.onload = () => {
                             if (window.SuxiFormOperationSupport?.init) {
@@ -1239,6 +1240,8 @@
             const isCtripRankingFormAlignedWithConfig = requireCtripStatic('isCtripRankingFormAlignedWithConfig');
             const buildCtripManualCredentialState = requireCtripStatic('buildCtripManualCredentialState');
             const buildLatestCtripSnapshotModel = requireCtripStatic('buildLatestCtripSnapshotModel');
+            const buildTruthfulCtripDisplayModel = requireCtripStatic('buildTruthfulCtripDisplayModel');
+            const isCtripLatestRequestCurrent = requireCtripStatic('isCtripLatestRequestCurrent');
             const runCtripTrafficFetchFlow = requireCtripStatic('runCtripTrafficFetchFlow');
             const runCtripOverviewFetchFlow = requireCtripStatic('runCtripOverviewFetchFlow');
             const buildCtripProfileRecheckRunContext = requireCtripStatic('buildCtripProfileRecheckRunContext');
@@ -2088,6 +2091,8 @@
             const autoFetchRecordStatusClass = requireDataHealthStatic('autoFetchRecordStatusClass');
             const manualOneClickFetchPlatformText = requireDataHealthStatic('manualOneClickFetchPlatformText');
             const manualOneClickFetchNowText = requireDataHealthStatic('manualOneClickFetchNowText');
+            const buildOtaConfigOverviewRows = requireDataHealthStatic('buildOtaConfigOverviewRows');
+            const summarizeOtaConfigOverviewRows = requireDataHealthStatic('summarizeOtaConfigOverviewRows');
             const normalizeManualOneClickFetchStoredRows = requireDataHealthStatic('normalizeManualOneClickFetchStoredRows');
             const summarizeManualOneClickFetchRows = requireDataHealthStatic('summarizeManualOneClickFetchRows');
             const buildManualOneClickFetchCards = requireDataHealthStatic('buildManualOneClickFetchCards');
@@ -2111,6 +2116,7 @@
             const buildManualOneClickFetchFailureRow = requireDataHealthStatic('buildManualOneClickFetchFailureRow');
             const summarizeManualOneClickFetchQunarVisitorQuality = requireDataHealthStatic('summarizeManualOneClickFetchQunarVisitorQuality');
             const manualOneClickFetchQunarVisitorNeedsRetry = requireDataHealthStatic('manualOneClickFetchQunarVisitorNeedsRetry');
+            const manualOneClickFetchQunarAutoRetryAllowedAt = requireDataHealthStatic('manualOneClickFetchQunarAutoRetryAllowedAt');
             const manualOneClickFetchSavedCount = requireDataHealthStatic('manualOneClickFetchSavedCount');
             const summarizeManualOneClickFetchResult = requireDataHealthStatic('summarizeManualOneClickFetchResult');
             const buildOnlineHistoryQueryParams = requireDataHealthStatic('buildOnlineHistoryQueryParams');
@@ -3233,9 +3239,18 @@
             const competitorSummarySourceNotice = requireHomeStatic('competitorSummarySourceNotice');
             const competitorSummaryReadinessClass = requireHomeStatic('competitorSummaryReadinessClass');
             const dualOtaHomeStatic = window.SUXI_DUAL_OTA_HOME;
-            if (!dualOtaHomeStatic || typeof dualOtaHomeStatic.cloneDashboardData !== 'function') {
+            if (!dualOtaHomeStatic
+                || typeof dualOtaHomeStatic.cloneDashboardData !== 'function'
+                || typeof dualOtaHomeStatic.buildDualOtaConnectionRows !== 'function'
+                || typeof dualOtaHomeStatic.hasAllDualOtaConnections !== 'function'
+                || typeof dualOtaHomeStatic.resolveDualOtaBoundHotelRow !== 'function'
+                || typeof dualOtaHomeStatic.isDualOtaWorkbenchRequestCurrent !== 'function') {
                 throw new Error('缺少双 OTA 首页静态数据：dual-ota-home-static.js 未加载');
             }
+            const buildDualOtaConnectionRows = dualOtaHomeStatic.buildDualOtaConnectionRows;
+            const hasAllDualOtaConnections = dualOtaHomeStatic.hasAllDualOtaConnections;
+            const resolveDualOtaBoundHotelRow = dualOtaHomeStatic.resolveDualOtaBoundHotelRow;
+            const isDualOtaWorkbenchRequestCurrent = dualOtaHomeStatic.isDualOtaWorkbenchRequestCurrent;
             const dualOtaDashboard = ref(dualOtaHomeStatic.cloneDashboardData());
             const dualOtaSelectedPlatform = ref(dualOtaDashboard.value.lossChain.activePlatform || 'combined');
             const dualOtaSelectedRange = ref(dualOtaDashboard.value.lossChain.activeRange || 'yesterday');
@@ -3250,11 +3265,6 @@
             const dualOtaLastRecordText = ref('');
             let dualOtaCurrentLossNodes = () => [];
             let dualOtaCurrentLossExplanation = () => null;
-            const dualOtaHasConnectedPlatforms = computed(() => {
-                const requiredPlatforms = ['美团', '携程'];
-                const connections = Array.isArray(dualOtaDashboard.value.connections) ? dualOtaDashboard.value.connections : [];
-                return requiredPlatforms.every(name => connections.some(item => item.name === name && item.status === 'connected'));
-            });
             const dualOtaActiveLossNodes = computed(() => {
                 const currentNodes = dualOtaCurrentLossNodes();
                 if (Array.isArray(currentNodes) && currentNodes.length) return currentNodes;
@@ -3508,6 +3518,7 @@
                 const text = String(value || '').trim();
                 return text && text !== '-' && text !== '未返回' ? text : '';
             };
+            const filterReportHotel = ref('');
             const dualOtaSelectedHotel = computed(() => {
                 const selectedId = String(filterReportHotel.value || '').trim();
                 if (!selectedId) return null;
@@ -3535,6 +3546,9 @@
             const dualOtaReadyStoreScopes = computed(() => dualOtaSelectedHotelPlatformRows.value
                 .filter(row => row?.level === 'ready' && ['ctrip', 'meituan'].includes(row.platform))
                 .map(row => row.platform));
+            // 这里保留旧模板变量名，但显示条件只取决于是否已选定授权门店。
+            // 单个平台缺数据时由指标卡逐项显示“未返回”，不能再隐藏整套工作台。
+            const dualOtaHasConnectedPlatforms = computed(() => !!dualOtaSelectedHotel.value);
             const dualOtaResolveStoreScope = (scope) => {
                 const requested = String(scope || 'combined').trim() || 'combined';
                 if (requested !== 'combined') return requested;
@@ -3546,22 +3560,15 @@
             const dualOtaEffectiveStoreScope = computed(() => dualOtaResolveStoreScope(dualOtaSelectedStoreScope.value));
             const dualOtaEffectivePlatform = computed(() => dualOtaResolveStoreScope(dualOtaSelectedPlatform.value));
             const dualOtaNormalizeMatchText = (value) => String(value || '').trim().replace(/\s+/g, '').toLowerCase();
-            const dualOtaRowIsPlatformSelf = (row = {}) => {
-                const name = dualOtaNormalizeMatchText(row.hotelName || row.hotel_name || row.name || row.poiName || row.poi_name || '');
-                return ['我的酒店', '本店'].includes(name);
-            };
-            const dualOtaRowMatchesSelectedHotel = (row) => {
+            const dualOtaRowMatchesSelectedHotel = (row = {}) => {
                 const selectedId = String(filterReportHotel.value || '').trim();
-                if (!row || !selectedId) return false;
-                const rowIds = [
+                if (!selectedId) return false;
+                const rowSystemHotelIds = [
                     row.systemHotelId,
                     row.system_hotel_id,
                     row.system_hotel_id_text,
-                    row.hotelId,
-                    row.hotel_id,
-                    row.id,
                 ].map(value => String(value || '').trim()).filter(Boolean);
-                if (rowIds.includes(selectedId)) return true;
+                if (rowSystemHotelIds.includes(selectedId)) return true;
                 const selectedName = dualOtaNormalizeMatchText(dualOtaSelectedHotel.value?.name || '');
                 if (!selectedName) return false;
                 return [
@@ -3576,7 +3583,7 @@
                 const selectedId = String(filterReportHotel.value || '').trim();
                 if (!selectedId) return null;
                 const rows = Array.isArray(ctripHotelsList.value) ? ctripHotelsList.value.filter(Boolean) : [];
-                return rows.find(dualOtaRowMatchesSelectedHotel) || rows.find(dualOtaRowIsPlatformSelf) || null;
+                return resolveDualOtaBoundHotelRow(rows, selectedId);
             };
             const dualOtaMetricPreviousExtra = (value) => {
                 const number = dualOtaFiniteNumber(value);
@@ -4248,23 +4255,38 @@
                 }
                 return false;
             };
+            let dualOtaWorkbenchRequestSeq = 0;
             const refreshDualOtaWorkbenchData = async ({ allowFetch = false, silent = true } = {}) => {
                 if (!isCompassDataPage()) return;
                 const hotelId = dualOtaSyncFetchContext();
                 const range = dualOtaSelectedRangeValue();
+                const requestSeq = ++dualOtaWorkbenchRequestSeq;
+                const isCurrentRequest = () => isDualOtaWorkbenchRequestCurrent(
+                    { seq: requestSeq, hotelId, range },
+                    {
+                        activeSeq: dualOtaWorkbenchRequestSeq,
+                        hotelId: String(filterReportHotel.value || '').trim(),
+                        range: dualOtaSelectedRangeValue(),
+                    }
+                );
                 if (dualOtaStoreScopeIncludesPlatform('ctrip')) {
                     const ctripLoaded = await loadLatestCtripData({ silent: true, hotelId });
+                    if (!isCurrentRequest()) return null;
                     if (!ctripLoaded && allowFetch) {
                         await dualOtaEnsureCtripWorkbenchData({ hotelId, silent });
+                        if (!isCurrentRequest()) return null;
                     }
                 }
                 if (dualOtaStoreScopeIncludesPlatform('meituan')) {
                     dualOtaApplyMeituanRangeToForm(range);
                     const meituanSummary = await loadCompetitorSummary({ requireCompass: true, force: true });
+                    if (!isCurrentRequest()) return null;
                     if (!dualOtaCompetitorSummaryHasData(meituanSummary) && allowFetch) {
                         await dualOtaEnsureMeituanWorkbenchData({ hotelId, silent });
+                        if (!isCurrentRequest()) return null;
                     }
                 }
+                return true;
             };
             const setDualOtaPlatform = (platform, options = {}) => {
                 const value = String(platform || '').trim();
@@ -4299,6 +4321,40 @@
             };
             const switchDualOtaConnection = (connection) => {
                 setDualOtaPlatform(dualOtaConnectionPlatformValue(connection));
+            };
+            const dualOtaModuleNavigationTarget = (item) => ({
+                '携程竞争圈数据': 'ctrip-ranking',
+                '美团竞争圈数据': 'meituan-ranking',
+            })[String(item?.name || '').trim()] || '';
+            const openDualOtaModule = async (item) => {
+                const target = dualOtaModuleNavigationTarget(item);
+                const hotelId = String(filterReportHotel.value || '').trim();
+                if (target === 'ctrip-ranking') {
+                    if (hotelId) {
+                        ctripTargetHotelManuallySelected.value = true;
+                        selectedCtripHotelId.value = hotelId;
+                    }
+                    currentPage.value = 'ctrip-ebooking';
+                    await nextTick();
+                    if (currentPage.value !== 'ctrip-ebooking') return;
+                    openCtripManualTab('ctrip-ranking');
+                    return;
+                }
+                if (target === 'meituan-ranking') {
+                    if (hotelId && String(meituanForm.value.hotelId || '') !== hotelId) {
+                        suppressNextMeituanHotelConfigApply = true;
+                        meituanForm.value.hotelId = hotelId;
+                    }
+                    currentPage.value = 'meituan-ebooking';
+                    onlineDataTab.value = 'meituan-ranking';
+                    await nextTick();
+                    if (currentPage.value !== 'meituan-ebooking') return;
+                    scheduleMeituanHotelConfigApply({
+                        delayMs: 0,
+                        refreshList: false,
+                        skipIfAligned: true,
+                    });
+                }
             };
             const dualOtaTrustClass = (status) => {
                 if (status === 'available') return 'is-available';
@@ -10246,8 +10302,44 @@
             const filterUserStatus = ref('');
             const filterUserHotelId = ref('');
             const pendingUserAuthorizationHotel = ref(null);
-            const filterReportHotel = ref('');
             const compassHotelOptions = computed(() => permittedHotels.value.length ? permittedHotels.value : hotels.value);
+            const dualOtaHotelOrderStorageKey = () => `suxios_dual_ota_hotel_order_${user.value?.id || 'guest'}_v1`;
+            const normalizeDualOtaHotelOrderIds = (orderIds = [], options = []) => {
+                const availableIds = (Array.isArray(options) ? options : [])
+                    .map(hotel => String(hotel?.id || '').trim())
+                    .filter(Boolean);
+                const availableSet = new Set(availableIds);
+                const seen = new Set();
+                const orderedIds = [];
+                (Array.isArray(orderIds) ? orderIds : []).forEach((hotelId) => {
+                    const key = String(hotelId || '').trim();
+                    if (!key || !availableSet.has(key) || seen.has(key)) return;
+                    seen.add(key);
+                    orderedIds.push(key);
+                });
+                availableIds.forEach((hotelId) => {
+                    if (seen.has(hotelId)) return;
+                    seen.add(hotelId);
+                    orderedIds.push(hotelId);
+                });
+                return orderedIds;
+            };
+            const readDualOtaHotelOrderIds = () => {
+                try {
+                    const parsed = JSON.parse(localStorage.getItem(dualOtaHotelOrderStorageKey()) || '[]');
+                    if (!Array.isArray(parsed)) return [];
+                    return [...new Set(parsed
+                        .map(hotelId => String(hotelId || '').trim())
+                        .filter(Boolean))].slice(0, 500);
+                } catch (error) {
+                    return [];
+                }
+            };
+            const dualOtaHotelOrderIds = ref(readDualOtaHotelOrderIds());
+            const dualOtaHotelOrderDraftIds = ref([]);
+            const showDualOtaHotelOrderModal = ref(false);
+            const dualOtaHasCustomHotelOrder = computed(() => dualOtaHotelOrderIds.value.length > 0);
+            const dualOtaHotelOrderModeText = computed(() => dualOtaHasCustomHotelOrder.value ? '我的排序' : '常用优先');
             const dualOtaHotelSearchCountStorageKey = () => `suxios_dual_ota_hotel_search_counts_${user.value?.id || 'guest'}_v1`;
             const readDualOtaHotelSearchCounts = () => {
                 try {
@@ -10266,7 +10358,7 @@
                 try {
                     localStorage.setItem(dualOtaHotelSearchCountStorageKey(), JSON.stringify(dualOtaHotelSearchCounts.value || {}));
                 } catch (error) {
-                    console.warn('保存今日经营看板门店排序失败:', error);
+                    console.warn('保存今日经营看板门店使用记录失败:', error);
                 }
             };
             const recordDualOtaHotelSearch = (hotelId) => {
@@ -10281,6 +10373,11 @@
             };
             const dualOtaCurrentHotelOptions = computed(() => {
                 const options = Array.isArray(compassHotelOptions.value) ? compassHotelOptions.value : [];
+                if (dualOtaHasCustomHotelOrder.value) {
+                    const orderIds = normalizeDualOtaHotelOrderIds(dualOtaHotelOrderIds.value, options);
+                    const optionById = new Map(options.map(hotel => [String(hotel?.id || '').trim(), hotel]));
+                    return orderIds.map(hotelId => optionById.get(hotelId)).filter(Boolean);
+                }
                 const counts = dualOtaHotelSearchCounts.value || {};
                 return options
                     .map((hotel, index) => ({
@@ -10291,6 +10388,77 @@
                     .sort((a, b) => (b.count - a.count) || (a.index - b.index))
                     .map(item => item.hotel);
             });
+            const dualOtaHotelOrderRows = computed(() => {
+                const options = Array.isArray(compassHotelOptions.value) ? compassHotelOptions.value : [];
+                const optionById = new Map(options.map(hotel => [String(hotel?.id || '').trim(), hotel]));
+                return normalizeDualOtaHotelOrderIds(dualOtaHotelOrderDraftIds.value, options)
+                    .map(hotelId => optionById.get(hotelId))
+                    .filter(Boolean);
+            });
+            const openDualOtaHotelOrder = () => {
+                if (!dualOtaCurrentHotelOptions.value.length) {
+                    showToast('当前账号暂无可排序门店', 'warning');
+                    return;
+                }
+                dualOtaHotelOrderDraftIds.value = dualOtaCurrentHotelOptions.value
+                    .map(hotel => String(hotel?.id || '').trim())
+                    .filter(Boolean);
+                showDualOtaHotelOrderModal.value = true;
+            };
+            const closeDualOtaHotelOrder = () => {
+                showDualOtaHotelOrderModal.value = false;
+                dualOtaHotelOrderDraftIds.value = [];
+            };
+            const moveDualOtaHotelOrder = (hotelId, direction) => {
+                const options = Array.isArray(compassHotelOptions.value) ? compassHotelOptions.value : [];
+                const orderIds = normalizeDualOtaHotelOrderIds(dualOtaHotelOrderDraftIds.value, options);
+                const key = String(hotelId || '').trim();
+                const currentIndex = orderIds.indexOf(key);
+                const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+                if (currentIndex < 0 || nextIndex < 0 || nextIndex >= orderIds.length) return;
+                [orderIds[currentIndex], orderIds[nextIndex]] = [orderIds[nextIndex], orderIds[currentIndex]];
+                dualOtaHotelOrderDraftIds.value = orderIds;
+            };
+            const moveDualOtaHotelOrderToTop = (hotelId) => {
+                const options = Array.isArray(compassHotelOptions.value) ? compassHotelOptions.value : [];
+                const orderIds = normalizeDualOtaHotelOrderIds(dualOtaHotelOrderDraftIds.value, options);
+                const key = String(hotelId || '').trim();
+                const currentIndex = orderIds.indexOf(key);
+                if (currentIndex <= 0) return;
+                orderIds.splice(currentIndex, 1);
+                orderIds.unshift(key);
+                dualOtaHotelOrderDraftIds.value = orderIds;
+            };
+            const saveDualOtaHotelOrder = () => {
+                const options = Array.isArray(compassHotelOptions.value) ? compassHotelOptions.value : [];
+                const normalizedOrder = normalizeDualOtaHotelOrderIds(dualOtaHotelOrderDraftIds.value, options);
+                if (!normalizedOrder.length) {
+                    showToast('当前账号暂无可保存门店', 'warning');
+                    return;
+                }
+                try {
+                    localStorage.setItem(dualOtaHotelOrderStorageKey(), JSON.stringify(normalizedOrder));
+                } catch (error) {
+                    console.warn('保存当前账号门店顺序失败:', error);
+                    showToast('门店顺序保存失败，请检查浏览器存储权限', 'error');
+                    return;
+                }
+                dualOtaHotelOrderIds.value = normalizedOrder;
+                closeDualOtaHotelOrder();
+                showToast('已保存我的门店顺序');
+            };
+            const resetDualOtaHotelOrder = () => {
+                try {
+                    localStorage.removeItem(dualOtaHotelOrderStorageKey());
+                } catch (error) {
+                    console.warn('恢复常用优先门店顺序失败:', error);
+                    showToast('恢复默认顺序失败，请检查浏览器存储权限', 'error');
+                    return;
+                }
+                dualOtaHotelOrderIds.value = [];
+                closeDualOtaHotelOrder();
+                showToast('已恢复常用优先排序');
+            };
             const reportHotelOptionExists = (hotelId) => {
                 const key = String(hotelId || '').trim();
                 if (!key) return false;
@@ -10305,10 +10473,7 @@
                 const firstPermittedHotelId = String(permittedHotels.value?.[0]?.id || '').trim();
                 if (firstPermittedHotelId) return firstPermittedHotelId;
                 const options = permittedHotels.value.length ? permittedHotels.value : hotels.value;
-                if (!user.value?.is_super_admin && Array.isArray(options) && options.length === 1) {
-                    return String(options[0]?.id || '').trim();
-                }
-                return '';
+                return String((Array.isArray(options) ? options : [])[0]?.id || '').trim();
             };
             const applyDefaultReportHotel = () => {
                 if (String(filterReportHotel.value || '').trim()) return;
@@ -10320,7 +10485,7 @@
                     dualOtaSuppressHotelSearchRecord = false;
                 });
             };
-            applyDefaultReportHotel();
+            watch(compassHotelOptions, () => applyDefaultReportHotel(), { immediate: true });
             const knowledgeCenterHotelOptions = computed(() => {
                 const pool = permittedHotels.value.length ? permittedHotels.value : hotels.value;
                 return (Array.isArray(pool) ? pool : []).filter(item => item && item.id);
@@ -13287,7 +13452,7 @@
             const platformSyncActionText = (message) => autoFetchStatic.value?.platformSyncActionText?.(message) || '';
 
             const operationStaticScript = 'operation-static.js';
-            const operationStaticScriptVersion = '20260613-ai-evidence';
+            const operationStaticScriptVersion = '20260713-ai-coverage-full-count';
             let operationStaticLoadPromise = null;
             const loadOperationStatic = () => {
                 const currentStatic = window.SUXI_OPERATION_STATIC;
@@ -13324,7 +13489,7 @@
                 return value;
             };
 
-            const operationToday = new Date().toISOString().split('T')[0];
+            const operationToday = formatDate(new Date());
             const operationYesterday = formatDate(new Date(Date.now() - 24 * 60 * 60 * 1000));
             const lifecycleMetricLabels = ref({});
             const lifecycleStageTitles = ref({});
@@ -16389,6 +16554,10 @@
                 });
             };
 
+            watch([dualOtaReadyStoreScopes, dualOtaSelectedHotel], () => {
+                dualOtaDashboard.value.connections = buildDualOtaConnectionRows(dualOtaReadyStoreScopes.value);
+            }, { immediate: true });
+
             const hotelApplicablePlatformBindingRows = (hotel = {}) => {
                 return hotelPlatformBindingRows(hotel).filter(row => hotelPlatformApplicable(hotel, row.platform));
             };
@@ -17749,6 +17918,7 @@
                     let ctripQunarQuality = null;
                     let attempts = 0;
                     let qunarRetryCount = 0;
+                    let qunarAutoRetrySuppressed = false;
                     let savedCount = 0;
                     if (platform === 'ctrip') {
                         selectedCtripHotelId.value = hotelId;
@@ -17772,7 +17942,12 @@
                             result = await fetchCtripData();
                             savedCount = Math.max(savedCount, manualOneClickFetchSavedCount(result));
                             ctripQunarQuality = summarizeManualOneClickFetchQunarVisitorQuality(ctripHotelsList.value);
-                            if (!manualOneClickFetchQunarVisitorNeedsRetry(ctripQunarQuality) || qunarRetryCount >= CTRIP_QUNAR_VISITOR_AUTO_RETRY_LIMIT) {
+                            const qunarVisitorNeedsRetry = manualOneClickFetchQunarVisitorNeedsRetry(ctripQunarQuality);
+                            const qunarAutoRetryAllowed = manualOneClickFetchQunarAutoRetryAllowedAt();
+                            if (qunarVisitorNeedsRetry && !qunarAutoRetryAllowed) {
+                                qunarAutoRetrySuppressed = true;
+                            }
+                            if (!qunarVisitorNeedsRetry || !qunarAutoRetryAllowed || qunarRetryCount >= CTRIP_QUNAR_VISITOR_AUTO_RETRY_LIMIT) {
                                 break;
                             }
                             qunarRetryCount += 1;
@@ -17799,6 +17974,7 @@
                         ctripQunarQuality,
                         qunarRetryCount,
                         qunarVisitorNeedsRetry: platform === 'ctrip' && manualOneClickFetchQunarVisitorNeedsRetry(ctripQunarQuality),
+                        qunarAutoRetrySuppressed,
                     });
                     upsertManualOneClickFetchRow(buildManualOneClickFetchResultRow({
                         baseRow,
@@ -17973,7 +18149,7 @@
             const refreshManualOneClickFetchConfig = async () => {
                 if (manualOneClickFetchRunning.value) return;
                 await ensureHotelOtaConfigLists({ force: true });
-                showToast('手动获取配置已刷新', 'success');
+                showToast('配置状态与最近成功记录已刷新', 'success');
             };
             const scrollDataHealthSectionIntoView = async (selector) => {
                 currentPage.value = 'online-data';
@@ -20020,6 +20196,89 @@
                     .map(key => String(config?.[key] || '').trim())
                     .find(value => value && value !== internalId) || '';
             };
+            const otaConfigOverviewExpanded = ref({ ctrip: false, meituan: false });
+            const otaDirectCtripConfigRows = computed(() => buildOtaConfigOverviewRows({
+                platform: 'ctrip',
+                configs: ctripConfigList.value,
+                hotelNameResolver: platformConfigHotelName,
+            }));
+            const otaDirectMeituanConfigRows = computed(() => buildOtaConfigOverviewRows({
+                platform: 'meituan',
+                configs: meituanConfigList.value,
+                hotelNameResolver: platformConfigHotelName,
+                missingFieldsResolver: meituanConfigMissingFields,
+            }));
+            const otaConfigOverviewGroups = computed(() => [{
+                platform: 'ctrip',
+                title: '携程配置',
+                description: 'Cookie/API 辅助配置与真实入库证据',
+                rows: otaDirectCtripConfigRows.value,
+                summary: summarizeOtaConfigOverviewRows(otaDirectCtripConfigRows.value),
+            }, {
+                platform: 'meituan',
+                title: '美团配置',
+                description: 'partner / poi / 授权配置与真实入库证据',
+                rows: otaDirectMeituanConfigRows.value,
+                summary: summarizeOtaConfigOverviewRows(otaDirectMeituanConfigRows.value),
+            }]);
+            const otaConfigOverviewVisibleRows = (group = {}) => {
+                const rows = Array.isArray(group?.rows) ? group.rows : [];
+                return otaConfigOverviewExpanded.value[group?.platform] ? rows : rows.slice(0, 4);
+            };
+            const toggleOtaConfigOverview = (platform = 'ctrip') => {
+                const key = platform === 'meituan' ? 'meituan' : 'ctrip';
+                otaConfigOverviewExpanded.value = {
+                    ...otaConfigOverviewExpanded.value,
+                    [key]: !otaConfigOverviewExpanded.value[key],
+                };
+            };
+            const manageOtaConfigOverview = async (platform = 'ctrip') => {
+                if (!canManageOwnHotels()) {
+                    showToast('当前账号没有平台配置维护权限', 'warning');
+                    return;
+                }
+                await handleOtaDirectIssueAction({}, platform === 'meituan' ? 'meituan-config' : 'ctrip-config');
+            };
+            const editOtaConfigOverviewRow = async (row = {}) => {
+                if (!canManageOwnHotels()) {
+                    showToast('当前账号没有平台配置维护权限', 'warning');
+                    return;
+                }
+                const platform = row?.platform === 'meituan' ? 'meituan' : 'ctrip';
+                const hotelId = String(row?.hotelId || '').trim();
+                if (!hotelId) {
+                    await manageOtaConfigOverview(platform);
+                    return;
+                }
+                await ensureHotelOtaConfigLists({ force: true });
+                const hotel = platformTargetHotelPool.value.find(item => String(item?.id || '') === hotelId)
+                    || hotels.value.find(item => String(item?.id || '') === hotelId)
+                    || { id: hotelId, name: row?.hotelName || `门店 ${hotelId}` };
+                if (platform === 'meituan') {
+                    const config = findMeituanConfigByHotelId(hotelId);
+                    if (config) {
+                        await editMeituanConfig(config);
+                        currentPage.value = 'meituan-ebooking';
+                        meituanForm.value.hotelId = hotelId;
+                        await nextTick();
+                        openMeituanManualTab('meituan-config');
+                        return;
+                    }
+                    await openHotelManualFetchConfig(hotel, platform);
+                    return;
+                }
+                const config = findCtripConfigByHotelId(hotelId);
+                if (config) {
+                    await editCtripConfig(config);
+                    selectedCtripHotelId.value = hotelId;
+                    ctripTargetHotelManuallySelected.value = true;
+                    currentPage.value = 'ctrip-ebooking';
+                    await nextTick();
+                    openCtripManualTab('ctrip-config');
+                    return;
+                }
+                await openHotelManualFetchConfig(hotel, platform);
+            };
             const otaDirectCtripStats = computed(() => {
                 const configs = Array.isArray(ctripConfigList.value) ? ctripConfigList.value : [];
                 const withCookie = configs.filter(config => String(config?.cookies || '').trim() || config?.has_cookies).length;
@@ -20641,7 +20900,7 @@
             // 收益管理Agent
             const revenueAgentTab = ref('config');
             const priceSuggestions = ref([]);
-            const priceSuggestionFilter = ref({ date: new Date().toISOString().split('T')[0], status: 0 });
+            const priceSuggestionFilter = ref({ date: formatDate(new Date()), status: 0 });
             const priceSuggestionGenerating = ref(false);
             const priceSuggestionGenerateResult = ref(null);
             const priceSuggestionReview = ref(null);
@@ -20688,8 +20947,8 @@
             // 需求预测
             const demandForecasts = ref([]);
             const forecastFilter = ref({
-                start_date: new Date().toISOString().split('T')[0],
-                end_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+                start_date: formatDate(new Date()),
+                end_date: formatDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000))
             });
             const createDemandForecastForm = () => ({
                 forecast_date: priceSuggestionFilter.value.date || formatDate(new Date()),
@@ -20710,7 +20969,7 @@
 
             // 竞对分析
             const competitorAnalysis = ref({ price_matrix: {}, alerts: [], trends: {} });
-            const competitorFilter = ref({ date: new Date().toISOString().split('T')[0] });
+            const competitorFilter = ref({ date: formatDate(new Date()) });
             const createCompetitorPriceForm = () => ({
                 analysis_date: competitorFilter.value.date || priceSuggestionFilter.value.date || formatDate(new Date()),
                 room_type_id: firstEnabledRoomTypeId(),
@@ -21886,6 +22145,8 @@
 
             watch(() => user.value?.id, () => {
                 dualOtaHotelSearchCounts.value = readDualOtaHotelSearchCounts();
+                dualOtaHotelOrderIds.value = readDualOtaHotelOrderIds();
+                closeDualOtaHotelOrder();
             });
 
             watch(filterReportHotel, () => {
@@ -21961,31 +22222,13 @@
                 return map[key] || key;
             };
 
-            const ctripStableEstimateRatio = (seed = '') => {
-                const text = String(seed || '');
-                let hash = 0;
-                for (let index = 0; index < text.length; index += 1) {
-                    hash = ((hash * 31) + text.charCodeAt(index)) % 100000;
-                }
-                return 1.15 + ((hash % 21) / 100);
-            };
-            const ctripAiEstimatedRoomNights = (row = {}) => {
-                const existing = Number(row.aiEstimatedTotalRoomNights || row.ai_estimated_total_room_nights || 0);
-                if (existing > 0) return Math.round(existing);
-                const orders = Number(row.bookOrderNum || row.book_order_num || 0);
-                if (orders <= 0) return 0;
-                const seed = row.hotelId || row.hotel_id || row.hotelName || row.hotel_name || '';
-                return Math.round(orders * ctripStableEstimateRatio(seed));
-            };
-            const normalizeCtripDisplayHotelRow = (row = {}) => ({
-                ...row,
-                aiEstimatedTotalRoomNights: ctripAiEstimatedRoomNights(row),
-            });
-
             const useCtripDisplayHotels = (rows, summary = null, options = {}) => {
-                const allHotels = Array.isArray(rows) ? rows.map(normalizeCtripDisplayHotelRow) : [];
+                const displayModel = buildTruthfulCtripDisplayModel(rows, summary);
+                const allHotels = displayModel.rows;
                 ctripHotelsList.value = allHotels;
-                ctripBusinessSummary.value = summary && Array.isArray(summary.cards) ? summary : emptyCtripBusinessSummary();
+                ctripBusinessSummary.value = displayModel.summary && Array.isArray(displayModel.summary.cards)
+                    ? displayModel.summary
+                    : emptyCtripBusinessSummary();
                 topTenHotels.value = allHotels.slice(0, 10);
                 const activateDisplay = options.activateDisplay !== false;
                 if (activateDisplay) {
@@ -22338,20 +22581,30 @@
                 return currentPage.value !== 'ctrip-ebooking';
             };
 
+            let ctripLatestRequestSeq = 0;
             const loadLatestCtripData = async ({ silent = false, hotelId = '', hydrateDisplay = null, range = '' } = {}) => {
                 if (!isLoggedIn.value && !token.value) return false;
+                const selectedHotelId = String(hotelId || getSelectedCtripHotelId()).trim();
+                const explicitRange = String(range || '').trim();
+                const latestRange = isCompassDataPage() ? String(dualOtaSelectedRange.value || '').trim() : '';
+                const requestRange = explicitRange || latestRange || resolveCtripLatestRequestRange();
+                const requestSeq = ++ctripLatestRequestSeq;
+                const isCurrentRequest = () => isCtripLatestRequestCurrent(
+                    { seq: requestSeq, hotelId: selectedHotelId, range: requestRange },
+                    {
+                        activeSeq: ctripLatestRequestSeq,
+                        hotelId: String(getSelectedCtripHotelId()).trim(),
+                        range: resolveCtripLatestRequestRange(),
+                    }
+                );
                 ctripLatestLoading.value = true;
                 try {
                     const params = new URLSearchParams();
-                    const selectedHotelId = String(hotelId || getSelectedCtripHotelId()).trim();
                     if (selectedHotelId) params.append('hotel_id', selectedHotelId);
-                    const explicitRange = String(range || '').trim();
-                    const latestRange = isCompassDataPage() ? String(dualOtaSelectedRange.value || '').trim() : '';
-                    const fallbackLatestRange = explicitRange || latestRange || resolveCtripLatestRequestRange();
-                    if (latestRange) params.append('range', latestRange);
-                    else if (fallbackLatestRange) params.append('range', fallbackLatestRange);
+                    if (requestRange) params.append('range', requestRange);
                     const query = params.toString();
                     const res = await request(`/online-data/ctrip/latest${query ? '?' + query : ''}`);
+                    if (!isCurrentRequest()) return null;
                     if (res.code === 200) {
                         applyLatestCtripSnapshot(res.data || {}, {
                             hydrateDisplay: shouldHydrateLatestCtripDisplay(hydrateDisplay),
@@ -22363,12 +22616,15 @@
                     }
                     return false;
                 } catch (e) {
+                    if (!isCurrentRequest()) return null;
                     if (!silent) {
                         showToast('加载最近采集数据失败: ' + e.message, 'error');
                     }
                     return false;
                 } finally {
-                    ctripLatestLoading.value = false;
+                    if (requestSeq === ctripLatestRequestSeq) {
+                        ctripLatestLoading.value = false;
+                    }
                 }
             };
 
@@ -25243,7 +25499,7 @@
 
             const ctripDownloadRows = () => {
                 const rankText = (rank) => rank ? `第${rank}名` : '-';
-                const percentText = (value) => value ? `${value}%` : '-';
+                const percentText = (value) => value === null || value === undefined || value === '' ? '-' : `${value}%`;
                 const rows = Array.isArray(pagedCtripSortedHotelsList.value) ? pagedCtripSortedHotelsList.value : [];
                 const rankOffset = Number(ctripTableRankOffset.value || 0);
                 if (ctripTableTab.value === 'traffic') {
@@ -25283,14 +25539,13 @@
                         { label: '酒店名称', width: 260, value: row => row.hotelName || '-', align: 'left' },
                         { label: '酒店ID', width: 95, value: row => row.hotelId || '-', align: 'center' },
                         { label: '离店销售额', width: 125, value: row => `¥${formatNumber(row.amount)}`, align: 'right' },
-                        { label: '离店间夜量', width: 105, value: row => row.quantity || '-', align: 'right' },
+                        { label: '离店间夜量', width: 105, value: row => formatNumber(row.quantity), align: 'right' },
                         { label: '平均房价', width: 105, value: row => row.adrText !== '-' ? `¥${row.adrText}` : '-', align: 'right' },
                         { label: '平均房价指数(ARI)', width: 145, value: row => row.ariText || '-', align: 'right' },
                         { label: '综合竞争力指数(SCI)', width: 145, value: row => row.sciText || '-', align: 'right' },
-                        { label: '携程预定订单', width: 125, value: row => row.bookOrderNum || '-', align: 'right' },
-                        { label: '全渠道AI预计总间夜数', width: 160, value: row => row.aiEstimatedTotalRoomNights || '-', align: 'right' },
-                        { label: '携程点评分', width: 105, value: row => row.commentScore || '-', align: 'right' },
-                        { label: '去哪儿点评分', width: 115, value: row => row.qunarCommentScore || '-', align: 'right' },
+                        { label: '携程预定订单', width: 125, value: row => formatNumber(row.bookOrderNum), align: 'right' },
+                        { label: '携程点评分', width: 105, value: row => formatNumber(row.commentScore), align: 'right' },
+                        { label: '去哪儿点评分', width: 115, value: row => formatNumber(row.qunarCommentScore), align: 'right' },
                     ],
                     rows,
                 };
@@ -25337,7 +25592,7 @@
                 return [
                     { value: formatCtripSearchOpportunityGap(summary.pv_gap_rate), label: `30天累计PV差距 · 本店 ${formatCtripSearchOpportunityValue(summary.self_pv, 'pv')} / 圈 ${formatCtripSearchOpportunityValue(summary.competitor_pv, 'pv')}`, panelClass: 'bg-blue-50' },
                     { value: formatCtripSearchOpportunityGap(summary.uv_gap_rate), label: `30天累计UV差距 · 本店 ${formatCtripSearchOpportunityValue(summary.self_uv, 'uv')} / 圈 ${formatCtripSearchOpportunityValue(summary.competitor_uv, 'uv')}`, panelClass: 'bg-cyan-50' },
-                    { value: formatCtripSearchOpportunityGap(summary.conversion_gap, '%'), label: `30天平均转化率差距 · 本店 ${formatCtripSearchOpportunityValue(summary.self_conversion, 'conversion_rate')} / 圈 ${formatCtripSearchOpportunityValue(summary.competitor_conversion, 'conversion_rate')}`, panelClass: 'bg-amber-50' },
+                    { value: formatCtripSearchOpportunityPercentagePointGap(summary.conversion_gap), label: `30天平均转化率差距 · 本店 ${formatCtripSearchOpportunityValue(summary.self_conversion, 'conversion_rate')} / 圈 ${formatCtripSearchOpportunityValue(summary.competitor_conversion, 'conversion_rate')}`, panelClass: 'bg-amber-50' },
                     { value: formatCtripSearchOpportunityValue(summary.self_estimated_orders, 'estimated_order_count'), label: `30天预计订单 · 竞争圈 ${formatCtripSearchOpportunityValue(summary.competitor_estimated_orders, 'estimated_order_count')}`, panelClass: 'bg-emerald-50' },
                     { value: `本店 ${summary.self_days || 0}/30天`, label: `数据覆盖 · 竞争圈 ${summary.competitor_days || 0}/30天`, panelClass: 'bg-violet-50' },
                 ];
@@ -25363,7 +25618,7 @@
                     });
                     const blob = await canvasToPngBlob(canvas);
                     const hotelName = String(getHotelNameById(selectedCtripHotelId.value) || 'hotel').replace(/[\\/:*?"<>|\s]+/g, '-');
-                    const dateText = String(ctripSearchOpportunityView.value.capture_date || new Date().toISOString().slice(0, 10)).replace(/[^\d-]/g, '');
+                    const dateText = String(ctripSearchOpportunityView.value.capture_date || formatDate(new Date())).replace(/[^\d-]/g, '');
                     downloadBlob(blob, `ctrip-future-search-${hotelName}-${dateText || 'latest'}.png`);
                     showToast('未来搜索整页数据图片已保存');
                 } catch (error) {
@@ -25384,7 +25639,7 @@
                     showToast('正在生成数据图片...', 'info');
                     const canvas = buildCtripBusinessCanvas();
                     const blob = await canvasToPngBlob(canvas);
-                    const dateText = String(ctripLatestMeta.value?.data_date || new Date().toISOString().slice(0, 10)).replace(/[^\d-]/g, '');
+                    const dateText = String(ctripLatestMeta.value?.data_date || formatDate(new Date())).replace(/[^\d-]/g, '');
                     downloadBlob(blob, `ctrip-ebooking-data-${dateText || 'latest'}.png`);
                     showToast('数据图片已下载');
                 } catch (error) {
@@ -26239,7 +26494,7 @@
                     const url = URL.createObjectURL(blob);
                     const link = document.createElement('a');
                     link.href = url;
-                    link.download = `system_config_${new Date().toISOString().slice(0, 10)}.json`;
+                    link.download = `system_config_${formatDate(new Date())}.json`;
                     document.body.appendChild(link);
                     link.click();
                     document.body.removeChild(link);
@@ -26386,6 +26641,7 @@
                             loadData();
                             showAuthNotices(res.data);
                             if (isCompassDataPage()) {
+                                currentPage.value = 'ai-workbench';
                                 scheduleInitialCompassLoad({ force: true, delayMs: 4500 });
                                 scheduleHomeSecondaryPanelsReady();
                             }
@@ -27957,11 +28213,11 @@
                 homeObservation, homeTrendCards, homeTrendRanges, homeTrendRange, homeTrendMetrics, homeTrendMetric, homeTrendLoading, homeTrendCustomRange, homeTrendHasSamples, homeTrendInterpretation, homeTrendEmptyState,
                 homeBoardTrendRanges, homeTrendRangeLabel, homeDecisionSummaryRows, homeExecutiveAnswer, homeMinimalWorkbench, homeAiWorkbenchPrimaryMetric, homeAiWorkbenchSecondaryMetrics, homeAiWorkbenchReadySummary, homeOperatingResultCards, homeCausalChainNodes, homeCompetitorSummaryCards, homeBoardActionRows,
                 dualOtaDashboard, dualOtaSelectedPlatform, dualOtaSelectedRange, dualOtaCompareEnabled, dualOtaSelectedStoreScope, dualOtaEffectiveStoreScope, dualOtaEffectivePlatform, dualOtaSelectedLossNodeId, dualOtaSelectedAnomalyRank, dualOtaActionItems, dualOtaReviewMemory, dualOtaExpandedMemoryId, dualOtaLastRecordText, dualOtaHasConnectedPlatforms, dualOtaActiveLossNodes, dualOtaSelectedLossExplanation, dualOtaSelectedAnomaly, dualOtaSystemOverviewGroups, dualOtaPlatformRevenueTitle, dualOtaPlatformRevenueSubtitle, dualOtaPlatformRevenuePlatforms, dualOtaPlatformRevenueHasContribution,
-                dualOtaConnectionClass, dualOtaConnectionPlatformValue, switchDualOtaConnection, setDualOtaPlatform, setDualOtaRange, setDualOtaStoreScope, dualOtaMetricComparisonText, toggleDualOtaCompare, dualOtaTrustClass, dualOtaSeverityClass, dualOtaHeatClass, dualOtaActionStatusClass, setDualOtaLossNode, setDualOtaAnomaly, syncDualOtaActionStatus, toggleDualOtaAction, copyDualOtaAdvice, openDualOtaBackendPlaceholder, recordDualOtaExecution, toggleDualOtaMemory,
+                dualOtaConnectionClass, dualOtaConnectionPlatformValue, switchDualOtaConnection, setDualOtaPlatform, setDualOtaRange, setDualOtaStoreScope, dualOtaMetricComparisonText, toggleDualOtaCompare, dualOtaModuleNavigationTarget, openDualOtaModule, dualOtaTrustClass, dualOtaSeverityClass, dualOtaHeatClass, dualOtaActionStatusClass, setDualOtaLossNode, setDualOtaAnomaly, syncDualOtaActionStatus, toggleDualOtaAction, copyDualOtaAdvice, openDualOtaBackendPlaceholder, recordDualOtaExecution, toggleDualOtaMemory,
                 revenueAiOverview, revenueAiOverviewLoading, revenueAiOverviewError, revenueAiBusinessClosure, revenueAiStatusRows, revenueAiMetricCards, revenueAiGapRows, revenueAiGapSummary, revenueAiSignalRows, revenueAiActionRows, revenueAiEvidenceWorkbenchRows, revenueAiEvidenceWorkbenchSummary, revenueAiPricingGateRows, revenueAiAgentActivitySummary, revenueAiAgentActivityRows, revenueAiExecutionSummary, revenueAiExecutionRows, revenueAiEffectReviewRows, revenueAiStatusClass, revenueAiStatusLabel, revenueAiSeverityClass, openRevenueAiGap, openRevenueAiMetric, openRevenueAiDecisionBasis, openRevenueAiExecutionItem, openRevenueAiReviewItem, submitRevenueAiReviewAction, isRevenueAiReviewActionLoading,
                 selectHomeTrendRange, selectHomeTrendMetric, loadHomeTrends,
                 macroSignalCards, macroSignalViewCards, macroSignalLoading, activeMacroSignal, macroSignalDetail, macroSignalDetailLoading, macroSignalLevelClass, loadMacroSignalDetail, closeMacroSignalDetail, homeDataSources, homeMarketForecastItems, homeMarketForecastStatus, homeMarketForecastSummaryRows, homeMarketForecastAction, holidayRevenue, holidayRevenueLoading, holidayOperationCountdown, holidayOperationStageText, holidayOperationSuggestions,
-                compassHotelOptions, dualOtaCurrentHotelOptions, compassLoading, compassLastSyncedAt, compassDataReadiness, homeSecondaryPanelsReady, homeClosedLoopStages, homeAiTraceRows, refreshCompassDashboard,
+                compassHotelOptions, dualOtaCurrentHotelOptions, dualOtaHotelOrderRows, dualOtaHotelOrderModeText, showDualOtaHotelOrderModal, openDualOtaHotelOrder, closeDualOtaHotelOrder, moveDualOtaHotelOrder, moveDualOtaHotelOrderToTop, saveDualOtaHotelOrder, resetDualOtaHotelOrder, compassLoading, compassLastSyncedAt, compassDataReadiness, homeSecondaryPanelsReady, homeClosedLoopStages, homeAiTraceRows, refreshCompassDashboard,
                 dailyOpsPrimaryActions, dailyOpsStatusCards, dailyOpsMetricRows, dailyOpsFieldCount, dailyOpsReviewSteps, dailyOpsMonitorConclusion,
                 autoFetchFieldScopeGroups, autoFetchScopeStatusClass,
                 weatherDemandHint, weatherDecisionTags, weatherDecisionInsights, weatherLocationName, selectedWeatherCity, weatherCityPickerOpen, weatherCityChoices, selectWeatherCity, defaultWeatherCity, weatherSelectableCities, displayWeather, weatherToday, weatherForecastDays, weatherImpactTone, weatherLoading, weatherError, weatherDataSourceLabel,
@@ -28045,7 +28301,7 @@
                 onlineDataFilter, onlineDataList, onlineDataPagination, onlineDataPage, onlineDataHotelList, onlineDataSummary,
                 onlineDataQualitySummary, onlineDataQualityStatusText, onlineDataQualityStatusClass, onlineDataQualityPromptList, onlineDataQualityScopeText, autoFetchRecordStatusClass,
                 collectionReliability, collectionReliabilityLoading, collectionReliabilityError,
-                dailyWorkbench, dailyWorkbenchLoading, dailyWorkbenchError, dailyWorkbenchPatrol, dailyWorkbenchPatrolLoading, dailyWorkbenchPatrolRunning, dailyWorkbenchPatrolActionUpdating, dailyWorkbenchPatrolError, phase3OperationEffectLoop, phase3OperationEffectLoopLedger, phase3OperationEffectLoopLoading, phase3OperationEffectLoopError, phase3OperationEffectLoopActionUpdating, phase3OperationEffectLoopSummary, phase3OperationEffectLoopCards, phase3OperationEffectLoopRows, phase3OperationEffectLoopBoundaryText, phase3OperationEffectLoopLedgerText, phase3OperationEffectLoopEmptyText, phase3OperationEffectLoopStatusText, phase3OperationEffectLoopStatusClass, phase3OperationEffectLoopActionKey, dailyWorkbenchWriteBoundary, dailyWorkbenchSummary, dailyWorkbenchScopeText, dailyWorkbenchSummaryCards, dailyWorkbenchRows, employeeOtaChecklistScopeText, employeeOtaChecklistCards, employeeOtaChecklistHeadline, employeeOtaChecklistRows, employeeOtaChecklistEmptyText, employeeOtaChecklistActionRunning, runEmployeeOtaChecklistAction, dataAcquisitionWorkbenchRows, dataAcquisitionIssueGroups, dataAcquisitionWorkbenchCards, dataAcquisitionWorkbenchScopeText, dataAcquisitionWorkbenchHeadline, dataAcquisitionWorkbenchEmptyText, dataAcquisitionPrimaryFetchHotelId, dataAcquisitionFetchableHotelIds, otaDirectViewCards, otaDirectIssueRows, handleOtaDirectIssueAction, manualOneClickFetchRunning, manualOneClickFetchRows, manualOneClickFetchDisplayRows, manualOneClickFetchCards, manualOneClickFetchScopeText, manualOneClickFetchEvidenceError, manualOneClickFetchStatusFilter, manualOneClickFetchFilterOptions, manualOneClickFetchFilteredEmptyText, manualOneClickFetchEmptyText, manualOneClickFetchStatusClass, canEditManualOneClickFetchRow, canRetryManualOneClickFetchRow, canDeleteManualOneClickFetchRow, canSupplementManualOneClickFetchRow, editManualOneClickFetchFailure, retryManualOneClickFetchFailure, deleteManualOneClickFetchConfig, supplementManualOneClickFetchConfig, runManualOneClickFetch, refreshManualOneClickFetchConfig, dailyWorkbenchNextActions, dailyWorkbenchPatrolVisibleActions, dailyWorkbenchEmptyText, dailyWorkbenchStatusText, dailyWorkbenchStatusClass, dailyWorkbenchPatrolLatest, dailyWorkbenchPatrolHealth, dailyWorkbenchPatrolHealthText, dailyWorkbenchPatrolHealthClass, dailyWorkbenchPatrolAutomationText, dailyWorkbenchPatrolAutomationClass, dailyWorkbenchPatrolNextActionText, dailyWorkbenchPatrolLatestText, dailyWorkbenchPatrolLatestRawText, dailyWorkbenchPatrolActionText, dailyWorkbenchPatrolBoundaryText, dailyWorkbenchPatrolTrackedStatusText, dailyWorkbenchPatrolTrackedStatusClass, dailyWorkbenchPatrolExecutionText, dailyWorkbenchPatrolTaskId, dailyWorkbenchPatrolReviewText, dailyWorkbenchPatrolReviewClass, dailyWorkbenchPatrolActionUpdatingKey, dailyWorkbenchPatrolReviewUpdatingKey,
+                dailyWorkbench, dailyWorkbenchLoading, dailyWorkbenchError, dailyWorkbenchPatrol, dailyWorkbenchPatrolLoading, dailyWorkbenchPatrolRunning, dailyWorkbenchPatrolActionUpdating, dailyWorkbenchPatrolError, phase3OperationEffectLoop, phase3OperationEffectLoopLedger, phase3OperationEffectLoopLoading, phase3OperationEffectLoopError, phase3OperationEffectLoopActionUpdating, phase3OperationEffectLoopSummary, phase3OperationEffectLoopCards, phase3OperationEffectLoopRows, phase3OperationEffectLoopBoundaryText, phase3OperationEffectLoopLedgerText, phase3OperationEffectLoopEmptyText, phase3OperationEffectLoopStatusText, phase3OperationEffectLoopStatusClass, phase3OperationEffectLoopActionKey, dailyWorkbenchWriteBoundary, dailyWorkbenchSummary, dailyWorkbenchScopeText, dailyWorkbenchSummaryCards, dailyWorkbenchRows, employeeOtaChecklistScopeText, employeeOtaChecklistCards, employeeOtaChecklistHeadline, employeeOtaChecklistRows, employeeOtaChecklistEmptyText, employeeOtaChecklistActionRunning, runEmployeeOtaChecklistAction, dataAcquisitionWorkbenchRows, dataAcquisitionIssueGroups, dataAcquisitionWorkbenchCards, dataAcquisitionWorkbenchScopeText, dataAcquisitionWorkbenchHeadline, dataAcquisitionWorkbenchEmptyText, dataAcquisitionPrimaryFetchHotelId, dataAcquisitionFetchableHotelIds, otaConfigOverviewGroups, otaConfigOverviewExpanded, otaConfigOverviewVisibleRows, toggleOtaConfigOverview, manageOtaConfigOverview, editOtaConfigOverviewRow, otaDirectViewCards, otaDirectIssueRows, handleOtaDirectIssueAction, manualOneClickFetchRunning, manualOneClickFetchRows, manualOneClickFetchDisplayRows, manualOneClickFetchCards, manualOneClickFetchScopeText, manualOneClickFetchEvidenceError, manualOneClickFetchStatusFilter, manualOneClickFetchFilterOptions, manualOneClickFetchFilteredEmptyText, manualOneClickFetchEmptyText, manualOneClickFetchStatusClass, canEditManualOneClickFetchRow, canRetryManualOneClickFetchRow, canDeleteManualOneClickFetchRow, canSupplementManualOneClickFetchRow, editManualOneClickFetchFailure, retryManualOneClickFetchFailure, deleteManualOneClickFetchConfig, supplementManualOneClickFetchConfig, runManualOneClickFetch, refreshManualOneClickFetchConfig, dailyWorkbenchNextActions, dailyWorkbenchPatrolVisibleActions, dailyWorkbenchEmptyText, dailyWorkbenchStatusText, dailyWorkbenchStatusClass, dailyWorkbenchPatrolLatest, dailyWorkbenchPatrolHealth, dailyWorkbenchPatrolHealthText, dailyWorkbenchPatrolHealthClass, dailyWorkbenchPatrolAutomationText, dailyWorkbenchPatrolAutomationClass, dailyWorkbenchPatrolNextActionText, dailyWorkbenchPatrolLatestText, dailyWorkbenchPatrolLatestRawText, dailyWorkbenchPatrolActionText, dailyWorkbenchPatrolBoundaryText, dailyWorkbenchPatrolTrackedStatusText, dailyWorkbenchPatrolTrackedStatusClass, dailyWorkbenchPatrolExecutionText, dailyWorkbenchPatrolTaskId, dailyWorkbenchPatrolReviewText, dailyWorkbenchPatrolReviewClass, dailyWorkbenchPatrolActionUpdatingKey, dailyWorkbenchPatrolReviewUpdatingKey,
                 dashboardAccountOverview, dashboardHotelPortrait, dashboardDataSources, hotelDashboardLoading, hotelDashboardError, dataHealthFullDiagnosticsLoaded, dataHealthSecondaryPanelsReady, dataHealthDetailPanelsReady, dataHealthEmployeePanelsReady, ctripEbookingModuleCardsReady, ctripEbookingSecondaryPanelsReady, ctripEbookingDeepPanelsReady, ctripEbookingBusinessDetailsReady, ctripEbookingDiagnosticsPanelsReady, handleCtripEbookingDiagnosticsToggle, dashboardHotelId,
                 dashboardStateText, dashboardStateClass, dashboardMetricText, dashboardEvidenceText, dashboardHotelOptions,
                 dashboardAccountSummaryCards, dashboardCoreKpis, dashboardRiskAlerts, dashboardTodayActions, dashboardPortraitSections, dashboardDataSourceDiagnostics,

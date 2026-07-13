@@ -100,7 +100,12 @@ includesAll('route/app.php', 'employee workflow routes exist', [
   "Route::get('/execution-flow', 'OperationManagement/executionFlow');",
 ]);
 
-includesAllSources(['public/index.html', 'public/data-health-static.js'], 'data health UI exposes collection state, field assets, and next actions', [
+includesAllSources([
+  'public/index.html',
+  'resources/frontend/app-template.html',
+  'public/app-main.js',
+  'public/data-health-static.js',
+], 'data health UI exposes collection state, field assets, and next actions', [
   'collectionHealthSummaryCards',
   'collectionHealthStatusText',
   'collectionHealthFieldAssetCards',
@@ -875,7 +880,11 @@ includesAll('scripts/verify_phase1_live_action_queue_runtime.mjs', 'live action 
   'payload_file_present_requires_importer_dry_run',
 ]);
 
-includesAll('public/index.html', 'AI diagnosis and operation UI bindings exist', [
+includesAllSources([
+  'public/index.html',
+  'resources/frontend/app-template.html',
+  'public/app-main.js',
+], 'AI diagnosis and operation UI bindings exist', [
   'otaDiagnosisMetricCards',
   'otaDiagnosisResultSections',
   'otaDiagnosisResult',
@@ -1111,10 +1120,11 @@ includesAll('docs/phase1_ota_trusted_loop_audit.md', 'audit document references 
 
 packageScript('verify:phase1-employee-console', 'node scripts/verify_phase1_ota_employee_console_contract.mjs && node --test tests/automation/p0_profile_next_steps_report.test.mjs');
 
-const publicEntry = read('public/index.html');
+const publicEntry = `${read('public/index.html')}\n${read('resources/frontend/app-template.html')}`;
+const appMainEntry = read('public/app-main.js');
 const dataHealthStaticEntry = read('public/data-health-static.js');
 const autoFetchStaticEntry = read('public/auto-fetch-static.js');
-const frontendEntry = `${dataHealthStaticEntry}\n${autoFetchStaticEntry}\n${publicEntry}`;
+const frontendEntry = `${dataHealthStaticEntry}\n${autoFetchStaticEntry}\n${appMainEntry}\n${publicEntry}`;
 const collectionSourceRowSource = [
   sliceBetween(frontendEntry, [
     'const phase1EmployeeCollectionDataTypeText = (type) => {',

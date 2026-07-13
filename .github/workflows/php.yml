@@ -51,6 +51,11 @@ jobs:
       - name: Run backend tests
         run: composer test
 
+      - name: Run Node automation tests
+        env:
+          PHP_BINARY: php
+        run: npm run test:node
+
       - name: Run project guards
         run: npm run verify:p0-guards
 

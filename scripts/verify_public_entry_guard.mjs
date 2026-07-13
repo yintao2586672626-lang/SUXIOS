@@ -214,10 +214,16 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
   const meituanStaticHash = meituanStaticContent
     ? crypto.createHash('sha256').update(meituanStaticContent).digest('hex').slice(0, 10)
     : '';
+  const dataHealthStaticVersionMatch = htmlContent.match(/<script\s+(?:defer\s+)?src="data-health-static\.js\?v=([^"]+)"/);
+  const dataHealthStaticHash = dataHealthStaticContent
+    ? crypto.createHash('sha256').update(dataHealthStaticContent).digest('hex').slice(0, 10)
+    : '';
   if (!ctripStaticVersionMatch
     || !ctripStaticVersionMatch[1].includes(`h${ctripStaticHash}`)
     || !meituanStaticVersionMatch
-    || !meituanStaticVersionMatch[1].includes(`h${meituanStaticHash}`)) {
+    || !meituanStaticVersionMatch[1].includes(`h${meituanStaticHash}`)
+    || !dataHealthStaticVersionMatch
+    || !dataHealthStaticVersionMatch[1].includes(`h${dataHealthStaticHash}`)) {
     failures.push('public/index.html must keep static helper cache versions aligned with changed helper files.');
   }
   try {
@@ -2503,7 +2509,7 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
     || !content.includes("const formatOnlineHistoryHotelOption = requireDataHealthStatic('formatOnlineHistoryHotelOption');")
     || !content.includes("const formatOnlineHistoryRaw = requireDataHealthStatic('formatOnlineHistoryRaw');")
     || !content.includes("const buildHotelDataDashboardRequests = requireDataHealthStatic('buildHotelDataDashboardRequests');")
-    || !content.includes('data-health-static.js?v=20260704-manual-one-click-fetch')
+    || !dataHealthStaticVersionMatch
     || !onlineHistorySource.includes('const params = buildOnlineHistoryQueryParams({')
     || !hotelDashboardSource.includes('const requests = buildHotelDataDashboardRequests({ selectedHotelId });')
     || hotelDashboardSource.includes('const accountParams = new URLSearchParams();')

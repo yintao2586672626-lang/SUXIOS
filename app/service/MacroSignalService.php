@@ -13,6 +13,11 @@ class MacroSignalService
 
     private ExternalSignalService $external;
 
+    private bool $readFailed = false;
+
+    /** @var string[] */
+    private array $readFailureAreas = [];
+
     public function __construct(?ExternalSignalService $external = null)
     {
         $this->external = $external ?: new ExternalSignalService();
@@ -39,6 +44,7 @@ class MacroSignalService
 
     public function trendOverview(array $hotelIds = [], string $range = '30', string $startDate = '', string $endDate = ''): array
     {
+        $this->resetReadState();
         [$startDate, $endDate, $rangeKey, $rangeLabel] = $this->resolveTrendRange($range, $startDate, $endDate);
 
         $dailyRows = $this->readDailyRowsBetween($hotelIds, $startDate, $endDate);
@@ -47,16 +53,16 @@ class MacroSignalService
         $forecasts = $this->readDemandForecasts($hotelIds);
         $series = $this->buildTrendSeries($dailyRows, $onlineRows, $competitorRows, $startDate, $endDate);
         $sampleDays = count(array_filter($series['rows'], static fn (array $row): bool => (bool)$row['has_sample']));
-        $hasSamples = $sampleDays >= 2;
 
         $cards = [
-            $this->buildRevenueTrendCard($series['rows'], $rangeLabel, $hasSamples),
-            $this->buildDemandTrendCard($series['rows'], $forecasts, $rangeLabel, $hasSamples),
-            $this->buildPriceTrendCard($series['rows'], $series['competitor_avg'], $rangeLabel, $hasSamples),
-            $this->buildChannelTrendCard($series['rows'], $rangeLabel, $hasSamples),
+            $this->buildRevenueTrendCard($series['rows'], $rangeLabel),
+            $this->buildDemandTrendCard($series['rows'], $forecasts, $rangeLabel),
+            $this->buildPriceTrendCard($series['rows'], $series['competitor_avg'], $rangeLabel),
+            $this->buildChannelTrendCard($series['rows'], $rangeLabel),
         ];
         $displayCards = array_values(array_filter($cards, fn (array $card): bool => $this->isTrendDisplayCard($card)));
         $interpretationCards = !empty($displayCards) ? $displayCards : $cards;
+        $readStatus = $this->macroReadStatus();
 
         return [
             'range' => [
@@ -65,10 +71,13 @@ class MacroSignalService
                 'start_date' => $startDate,
                 'end_date' => $endDate,
             ],
-            'data_status' => $hasSamples ? 'ok' : 'insufficient',
+            'data_status' => $readStatus['status'] === 'read_failed'
+                ? 'read_failed'
+                : ($sampleDays >= 2 ? 'ok' : 'insufficient'),
+            'read_failure_areas' => $readStatus['areas'],
             'sample_days' => $sampleDays,
             'updated_at' => date('Y-m-d H:i:s'),
-            'cards' => $displayCards,
+            'cards' => $cards,
             'chart' => [
                 'labels' => array_column($series['rows'], 'label'),
                 'metrics' => [
@@ -638,18 +647,19 @@ class MacroSignalService
         return $total;
     }
 
-    private function buildRevenueTrendCard(array $rows, string $rangeLabel, bool $hasSamples): array
+    private function buildRevenueTrendCard(array $rows, string $rangeLabel): array
     {
-        if (!$hasSamples) {
+        $values = $this->positiveNumericValues(array_column($rows, 'revenue'));
+        if (count($values) < 2) {
             return $this->trendPendingCard('revenue', '收益趋势', '等待线上数据或经营日报同步后生成收益趋势');
         }
 
-        $values = array_column($rows, 'revenue');
         $trend = $this->compareSeries($values);
-        $total = array_sum(array_map(static fn ($value): float => (float)($value ?? 0), $values));
+        $total = array_sum($values);
         $direction = $this->trendDirectionText($trend);
         return [
             'key' => 'revenue',
+            'status' => 'available',
             'name' => '收益趋势',
             'value' => $this->formatMoneyShort($total),
             'direction' => $direction,
@@ -661,16 +671,17 @@ class MacroSignalService
         ];
     }
 
-    private function buildDemandTrendCard(array $rows, array $forecasts, string $rangeLabel, bool $hasSamples): array
+    private function buildDemandTrendCard(array $rows, array $forecasts, string $rangeLabel): array
     {
-        $orderValues = array_map(static fn (array $row): ?float => $row['orders'] > 0 ? (float)$row['orders'] : null, $rows);
-        $forecastDemand = (int)$this->sumField($forecasts, 'predicted_demand');
-        if (!$hasSamples && $forecastDemand <= 0) {
+        $orderValues = $this->positiveNumericValues(array_column($rows, 'orders'));
+        $forecastValues = $this->positiveNumericValues(array_column($forecasts, 'predicted_demand'));
+        $forecastDemand = (int)round(array_sum($forecastValues));
+        if ($orderValues === [] && $forecastValues === []) {
             return $this->trendPendingCard('demand', '市场需求', '数据依据不足，暂不生成趋势判断');
         }
 
         $trend = $this->compareSeries($orderValues);
-        $orders = array_sum(array_map(static fn ($value): float => (float)($value ?? 0), $orderValues));
+        $orders = array_sum($orderValues);
         $direction = $this->trendDirectionText($trend);
         $value = $orders > 0 ? (int)round($orders) . '单' : $forecastDemand . '间夜';
         $note = $orders > 0
@@ -679,6 +690,7 @@ class MacroSignalService
 
         return [
             'key' => 'demand',
+            'status' => 'available',
             'name' => '市场需求',
             'value' => $value,
             'direction' => $orders > 0 ? $direction : '预测可用',
@@ -690,11 +702,11 @@ class MacroSignalService
         ];
     }
 
-    private function buildPriceTrendCard(array $rows, float $competitorAvg, string $rangeLabel, bool $hasSamples): array
+    private function buildPriceTrendCard(array $rows, float $competitorAvg, string $rangeLabel): array
     {
-        $values = array_column($rows, 'adr');
+        $values = $this->positiveNumericValues(array_column($rows, 'adr'));
         $avgAdr = $this->avgNumeric($values);
-        if (!$hasSamples || $avgAdr <= 0) {
+        if ($avgAdr <= 0 || (count($values) < 2 && $competitorAvg <= 0)) {
             return $this->trendPendingCard('price', '价格竞争', '等待 ADR 或竞对价格同步后判断价格走势');
         }
 
@@ -723,6 +735,7 @@ class MacroSignalService
 
         return [
             'key' => 'price',
+            'status' => 'available',
             'name' => '价格竞争',
             'value' => $priceBand['value'],
             'direction' => $badge,
@@ -738,20 +751,28 @@ class MacroSignalService
         ];
     }
 
-    private function buildChannelTrendCard(array $rows, string $rangeLabel, bool $hasSamples): array
+    private function buildChannelTrendCard(array $rows, string $rangeLabel): array
     {
         $conversionValues = array_column($rows, 'channel_conversion');
         $avgConversion = $this->avgNumeric($conversionValues);
-        $orders = array_sum(array_map(static fn (array $row): float => (float)$row['orders'], $rows));
-        $exposure = array_sum(array_map(static fn (array $row): float => (float)$row['exposure'], $rows));
-        if (!$hasSamples || ($avgConversion <= 0 && $orders <= 0 && $exposure <= 0)) {
+        $orders = array_sum($this->positiveNumericValues(array_column($rows, 'orders')));
+        $exposure = array_sum($this->positiveNumericValues(array_column($rows, 'exposure')));
+        if ($avgConversion <= 0 && $orders <= 0 && $exposure <= 0) {
             return $this->trendPendingCard('channel', '渠道表现', '等待 OTA 曝光、访客、转化和订单数据同步');
         }
 
         $trend = $this->compareSeries($avgConversion > 0 ? $conversionValues : array_map(static fn (array $row): ?float => $row['orders'] > 0 ? (float)$row['orders'] : null, $rows));
         $direction = $this->trendDirectionText($trend);
         $level = $trend['level'];
-        $value = $avgConversion > 0 ? round($avgConversion, 1) . '%' : (int)round($orders) . '单';
+        if ($avgConversion > 0) {
+            $value = round($avgConversion, 1) . '%';
+        } elseif ($orders > 0) {
+            $value = (int)round($orders) . '单';
+        } else {
+            $value = (int)round($exposure) . '曝光';
+            $direction = '曝光已同步';
+            $level = 'blue';
+        }
         if ($avgConversion > 0 && $avgConversion < 3) {
             $level = 'yellow';
             $direction = '转化偏低';
@@ -759,13 +780,16 @@ class MacroSignalService
 
         return [
             'key' => 'channel',
+            'status' => 'available',
             'name' => '渠道表现',
             'value' => $value,
             'direction' => $direction,
             'level' => $level,
             'note' => $avgConversion > 0
                 ? "{$rangeLabel}OTA平均转化率{$value}，持续跟踪曝光到订单效率"
-                : "{$rangeLabel}OTA订单{$direction}，较前段" . $this->formatChangeRate($trend['change_rate']),
+                : ($orders > 0
+                    ? "{$rangeLabel}OTA订单{$direction}，较前段" . $this->formatChangeRate($trend['change_rate'])
+                    : "{$rangeLabel}OTA曝光已同步，等待访客、转化和订单样本"),
             'source' => '来源：OTA 曝光、访客、转化和订单数据',
             'spark' => $this->sparkline($avgConversion > 0 ? $conversionValues : array_column($rows, 'orders')),
             'change_rate' => $trend['change_rate'],
@@ -809,6 +833,7 @@ class MacroSignalService
     {
         return [
             'key' => $key,
+            'status' => 'missing',
             'name' => $name,
             'value' => '--',
             'direction' => $key === 'demand' ? '数据不足' : '待同步',
@@ -821,6 +846,9 @@ class MacroSignalService
 
     private function isTrendDisplayCard(array $card): bool
     {
+        if (array_key_exists('status', $card)) {
+            return ($card['status'] ?? '') === 'available';
+        }
         $value = trim((string)($card['value'] ?? ''));
         $direction = trim((string)($card['direction'] ?? ''));
         if ($value === '' || in_array($value, ['--', '-', '待同步'], true)) {
@@ -907,6 +935,15 @@ class MacroSignalService
     {
         $values = array_values(array_filter($values, static fn ($value): bool => is_numeric($value) && (float)$value > 0));
         return empty($values) ? 0.0 : array_sum($values) / count($values);
+    }
+
+    /** @return float[] */
+    private function positiveNumericValues(array $values): array
+    {
+        return array_values(array_map(
+            static fn($value): float => (float)$value,
+            array_filter($values, static fn($value): bool => is_numeric($value) && (float)$value > 0)
+        ));
     }
 
     private function priceBandFromSamples(array $values, float $competitorAvg = 0.0): array
@@ -1053,7 +1090,7 @@ class MacroSignalService
                 ->where('report_date', '>=', $start),
             'hotel_id',
             $hotelIds
-        )->order('report_date', 'desc')->select()->toArray());
+        )->order('report_date', 'desc')->select()->toArray(), 'daily_reports');
     }
 
     private function readOnlineRows(array $hotelIds, int $days): array
@@ -1066,7 +1103,7 @@ class MacroSignalService
                 ->where('data_date', '>=', $start),
             'system_hotel_id',
             $hotelIds
-        )->order('data_date', 'desc')->select()->toArray());
+        )->order('data_date', 'desc')->select()->toArray(), 'online_daily_data');
     }
 
     private function readCompetitorPrices(array $hotelIds, int $days): array
@@ -1082,7 +1119,7 @@ class MacroSignalService
                 }),
             'store_id',
             $hotelIds
-        )->order('id', 'desc')->limit(200)->select()->toArray());
+        )->order('id', 'desc')->limit(200)->select()->toArray(), 'competitor_price_log');
     }
 
     private function readDemandForecasts(array $hotelIds): array
@@ -1096,7 +1133,7 @@ class MacroSignalService
                 ->whereBetween('forecast_date', [$today, $end]),
             'hotel_id',
             $hotelIds
-        )->order('forecast_date', 'asc')->select()->toArray());
+        )->order('forecast_date', 'asc')->select()->toArray(), 'demand_forecasts');
     }
 
     private function readDailyRowsBetween(array $hotelIds, string $startDate, string $endDate): array
@@ -1107,7 +1144,7 @@ class MacroSignalService
                 ->whereBetween('report_date', [$startDate, $endDate]),
             'hotel_id',
             $hotelIds
-        )->order('report_date', 'asc')->select()->toArray());
+        )->order('report_date', 'asc')->select()->toArray(), 'daily_reports');
     }
 
     private function readOnlineRowsBetween(array $hotelIds, string $startDate, string $endDate): array
@@ -1118,7 +1155,7 @@ class MacroSignalService
                 ->whereBetween('data_date', [$startDate, $endDate]),
             'system_hotel_id',
             $hotelIds
-        )->order('data_date', 'asc')->select()->toArray());
+        )->order('data_date', 'asc')->select()->toArray(), 'online_daily_data');
     }
 
     private function readCompetitorPricesBetween(array $hotelIds, string $startDate, string $endDate): array
@@ -1137,7 +1174,7 @@ class MacroSignalService
                 }),
             'store_id',
             $hotelIds
-        )->order('id', 'desc')->limit(500)->select()->toArray());
+        )->order('id', 'desc')->limit(500)->select()->toArray(), 'competitor_price_log');
     }
 
     private function withHotelIds($query, string $field, array $hotelIds)
@@ -1155,12 +1192,30 @@ class MacroSignalService
         return $query;
     }
 
-    private function safeRows(callable $reader): array
+    private function resetReadState(): void
+    {
+        $this->readFailed = false;
+        $this->readFailureAreas = [];
+    }
+
+    private function macroReadStatus(): array
+    {
+        return [
+            'status' => $this->readFailed ? 'read_failed' : 'ok',
+            'areas' => $this->readFailureAreas,
+        ];
+    }
+
+    private function safeRows(callable $reader, string $area = 'database'): array
     {
         try {
             $rows = $reader();
             return is_array($rows) ? $rows : [];
         } catch (Throwable $e) {
+            $this->readFailed = true;
+            if (!in_array($area, $this->readFailureAreas, true)) {
+                $this->readFailureAreas[] = $area;
+            }
             return [];
         }
     }

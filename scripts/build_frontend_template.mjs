@@ -3,9 +3,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildFrontendTemplateRender } from './lib/frontend_template_build.mjs';
+import {
+  acquireFrontendTemplateLock,
+  writeFileAtomic,
+} from './lib/frontend_template_lock.mjs';
 import { loadFrontendTemplateSource } from './lib/frontend_template_source.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const releaseLock = await acquireFrontendTemplateLock(repoRoot, { owner: 'build-frontend-template' });
+try {
 const templatePath = path.join(repoRoot, 'resources/frontend/app-template.html');
 const renderPath = path.join(repoRoot, 'public/app-render.min.js');
 const runtimeVueSourcePath = path.join(repoRoot, 'node_modules/vue/dist/vue.runtime.global.prod.js');
@@ -33,7 +39,7 @@ if (!currentTemplateSnapshotBuffer.equals(templateSnapshotBuffer)
 function writeFileIfChanged(file, content) {
   const next = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8');
   if (fs.existsSync(file) && fs.readFileSync(file).equals(next)) return false;
-  fs.writeFileSync(file, next);
+  writeFileAtomic(file, next);
   return true;
 }
 
@@ -51,3 +57,6 @@ console.log(JSON.stringify({
   render_changed: renderChanged,
   runtime_vue_changed: runtimeVueChanged,
 }, null, 2));
+} finally {
+  releaseLock();
+}

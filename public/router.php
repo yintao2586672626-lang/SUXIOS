@@ -146,7 +146,10 @@ if ($publicRoot !== false
         header('Cache-Control: no-cache');
     }
 
-    if ($ifNoneMatch === $etag || ($ifModifiedSince !== '' && strtotime($ifModifiedSince) >= $mtime)) {
+    $notModified = $ifNoneMatch !== ''
+        ? $ifNoneMatch === $etag
+        : ($ifModifiedSince !== '' && strtotime($ifModifiedSince) >= $mtime);
+    if ($notModified) {
         http_response_code(304);
         return true;
     }

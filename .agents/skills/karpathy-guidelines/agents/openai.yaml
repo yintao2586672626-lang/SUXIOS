@@ -1,0 +1,5 @@
+interface:
+  display_name: "Karpathy 编码指南（手动）"
+  short_description: "通用谨慎编码与假设检查指南；仅在用户明确点名时使用"
+policy:
+  allow_implicit_invocation: false

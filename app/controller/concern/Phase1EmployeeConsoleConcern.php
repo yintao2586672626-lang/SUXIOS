@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller\concern;
 
 use app\service\OperationManagementService;
+use app\service\OtaP0ScopeProjectionService;
 use app\service\OtaProfileSessionProofService;
 use app\service\OtaRevenueMetricService;
 use app\service\OtaStandardEtlService;
@@ -3138,7 +3139,10 @@ trait Phase1EmployeeConsoleConcern
         $requiredFieldFactKeys = $this->phase1P0TrafficRequiredFieldFactKeys();
         $targetDate = trim((string)($context['target_date'] ?? ''));
         $targetDateRows = max(0, (int)($context['target_date_rows'] ?? 0));
-        $targetDateTrafficRows = max(0, (int)($context['target_date_traffic_rows'] ?? 0));
+        $scopeProjection = (new OtaP0ScopeProjectionService())->project($platform, $targetDate);
+        $targetDateTrafficRows = (string)($scopeProjection['status'] ?? '') === 'ready'
+            ? max(0, (int)($scopeProjection['own_traffic_row_count'] ?? 0))
+            : 0;
         $targetDateDataTypes = array_values(array_filter(array_map(
             static fn($value): string => strtolower(trim((string)$value)),
             (array)($context['target_date_data_types'] ?? [])
@@ -3242,6 +3246,7 @@ trait Phase1EmployeeConsoleConcern
             'p0_source_chain_reference_only' => $sourceChainReferenceOnly,
             'p0_source_chain_scope' => $sourceChainScope,
             'p0_source_chain_policy' => $sourceChainPolicy,
+            'p0_scope_projection_status' => (string)($scopeProjection['status'] ?? 'projection_unavailable'),
         ];
         $base = array_merge($base, $p0StandardFactSummary);
 
@@ -3285,11 +3290,19 @@ trait Phase1EmployeeConsoleConcern
 
         $lastSyncCounts = [];
         $issueCounts = [];
+        $trafficSourceHotelIds = [];
+        $candidateHotelIds = [];
+        $profileReadinessByHotel = [];
+        $profilePriorityByHotel = [];
         foreach ($rows as $row) {
             $config = json_decode((string)($row['config_json'] ?? ''), true);
             $config = is_array($config) ? $config : [];
             if (!OtaTrafficAttributionService::sourceCanProvideTraffic($row, $config)) {
                 continue;
+            }
+            $systemHotelId = (int)($row['system_hotel_id'] ?? 0);
+            if ($systemHotelId > 0) {
+                $trafficSourceHotelIds[] = $systemHotelId;
             }
             $base['traffic_source_count']++;
             $enabled = (int)($row['enabled'] ?? 0) === 1;
@@ -3312,7 +3325,19 @@ trait Phase1EmployeeConsoleConcern
             $latestSyncTask = $this->phase1P0TrafficSourceLatestSyncTask((int)($row['id'] ?? 0), $targetDate);
             $currentSessionVerified = $this->phase1TrafficProfileLoginStateVerified($row);
             $historicalLoginMetadataPresent = $this->phase1TrafficHistoricalLoginMetadataPresent($config);
-            $profileLoginTrigger = $this->phase1P0ProfileLoginTriggerAction($platform, (int)($row['id'] ?? 0), (int)($row['system_hotel_id'] ?? 0), $targetDate);
+            $profileLoginTrigger = $this->phase1P0ProfileLoginTriggerAction($platform, (int)($row['id'] ?? 0), $systemHotelId, $targetDate);
+            $profilePriority = (($config['registered_by'] ?? '') === 'p0_ota_field_loop' ? 8 : 0)
+                + ((int)($row['id'] ?? 0) > 0 ? 4 : 0)
+                + (in_array($status, ['ready', 'success'], true) ? 1 : 0);
+            if ($systemHotelId > 0
+                && (!isset($profileReadinessByHotel[$systemHotelId]) || $profilePriority > (int)$profilePriorityByHotel[$systemHotelId])
+            ) {
+                $profileReadinessByHotel[$systemHotelId] = [
+                    'current_session_verified' => $currentSessionVerified,
+                    'profile_login_trigger' => $profileLoginTrigger,
+                ];
+                $profilePriorityByHotel[$systemHotelId] = $profilePriority;
+            }
             $this->phase1P0AccumulateTrafficLatestSyncTask($base, $latestSyncTask);
             if ($currentSessionVerified) {
                 $base['p0_manual_login_state_verified_count']++;
@@ -3355,7 +3380,10 @@ trait Phase1EmployeeConsoleConcern
             }
             if (($config['registered_by'] ?? '') === 'p0_ota_field_loop') {
                 $base['traffic_managed_count']++;
-                $candidate = $this->phase1P0TrafficPayloadCandidate($platform, $targetDate, (int)($row['system_hotel_id'] ?? 0));
+                if ($systemHotelId > 0) {
+                    $candidateHotelIds[] = $systemHotelId;
+                }
+                $candidate = $this->phase1P0TrafficPayloadCandidate($platform, $targetDate, $systemHotelId);
                 $candidateStatus = (string)($candidate['status'] ?? '');
                 if ($candidateStatus !== '') {
                     $base['p0_payload_candidate_status_counts'][$candidateStatus] = ((int)($base['p0_payload_candidate_status_counts'][$candidateStatus] ?? 0)) + 1;
@@ -3408,6 +3436,45 @@ trait Phase1EmployeeConsoleConcern
             }
         }
 
+        $expectedHotelIds = OtaTrafficAttributionService::mergeP0HotelScopeIds(
+            $trafficSourceHotelIds,
+            (array)($scopeProjection['profile_binding_hotel_ids'] ?? []),
+            (array)($scopeProjection['stored_traffic_hotel_ids'] ?? [])
+        );
+        $candidateHotelIds = array_values(array_unique(array_map('intval', $candidateHotelIds)));
+        foreach (array_values(array_diff($expectedHotelIds, $candidateHotelIds)) as $systemHotelId) {
+            OtaP0ScopeProjectionService::accumulatePayloadCandidate(
+                $base,
+                $this->phase1P0TrafficPayloadCandidate($platform, $targetDate, $systemHotelId)
+            );
+        }
+        $base['p0_profile_login_trigger_available_count'] = 0;
+        $base['p0_profile_login_trigger_unavailable_count'] = 0;
+        $base['p0_after_login_sync_available_count'] = 0;
+        $base['p0_manual_login_state_verified_count'] = 0;
+        foreach ($expectedHotelIds as $systemHotelId) {
+            $profileReadiness = is_array($profileReadinessByHotel[$systemHotelId] ?? null)
+                ? $profileReadinessByHotel[$systemHotelId]
+                : [];
+            if (!empty($profileReadiness['current_session_verified'])) {
+                $base['p0_manual_login_state_verified_count']++;
+            }
+            $profileLoginTrigger = is_array($profileReadiness['profile_login_trigger'] ?? null)
+                ? $profileReadiness['profile_login_trigger']
+                : [];
+            if ((string)($profileLoginTrigger['status'] ?? '') === 'available') {
+                $base['p0_profile_login_trigger_available_count']++;
+            } else {
+                $base['p0_profile_login_trigger_unavailable_count']++;
+            }
+            $afterLoginSync = is_array($profileLoginTrigger['after_login_sync'] ?? null)
+                ? $profileLoginTrigger['after_login_sync']
+                : [];
+            if (trim((string)($afterLoginSync['entry'] ?? '')) !== '') {
+                $base['p0_after_login_sync_available_count']++;
+            }
+        }
+
         ksort($lastSyncCounts);
         ksort($issueCounts);
         ksort($base['traffic_latest_sync_task_status_counts']);
@@ -3440,7 +3507,7 @@ trait Phase1EmployeeConsoleConcern
         $base['p0_traffic_gate_status'] = $p0TrafficGateStatus;
         $base['p0_next_action_mode'] = $recommendedMode;
         $base['p0_next_action_entry'] = $base['action_entry'];
-        $base['p0_next_step_count'] = max(0, (int)$base['traffic_managed_count']);
+        $base['p0_next_step_count'] = count($expectedHotelIds);
         $base['required_next_inputs'] = $this->phase1TrafficSourceRequiredNextInputs($platform, $base);
 
         return $base;

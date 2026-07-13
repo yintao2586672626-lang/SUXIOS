@@ -59,8 +59,10 @@ final class CtripTemporaryCookieQueryTest extends TestCase
             '/executeCtripManualFetch\(\s*\$requestData,\s*\$credentialPayload,\s*0\s*\)/s',
             $source
         );
-        self::assertStringContainsString("'save_status' => \$qunarVisitorGap", $source);
-        self::assertStringContainsString(": (\$autoSave ? 'saved_or_empty' : 'display_only')", $source);
-        self::assertStringContainsString('buildCtripPersistenceState($autoSave, $savedCount)', $source);
+        self::assertStringContainsString("'save_status' => \$persistenceOutcome['save_status'] !== ''", $source);
+        self::assertStringContainsString(": (\$autoSave ? 'saved_or_empty' : 'display_only'))", $source);
+        self::assertStringContainsString('buildCtripPersistenceState(', $source);
+        self::assertStringContainsString('buildCtripManualFetchPersistenceOutcome(', $source);
+        self::assertStringContainsString('$readbackVerified', $source);
     }
 }

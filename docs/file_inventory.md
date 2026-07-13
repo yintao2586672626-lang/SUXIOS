@@ -1,6 +1,6 @@
 # 文件用途与合并清单
 
-更新时间：2026-05-17
+更新时间：2026-05-17（前端模板结构于 2026-07-14 校正）
 
 ## 范围
 
@@ -16,7 +16,7 @@
 | 类型 | 处理 | 原因 |
 |---|---|---|
 | Vite 旧构建产物 | 已删除 `public/assets/` | 当前 `public/index.html` 未引用，保留会造成多版本前端入口混淆 |
-| 前端过渡文件 | 已删除 `public/app-main.*`、`public/app.js`、`public/app-styles.css` | 当前页面未引用，`PACKAGE_MANIFEST.md` 已标记为过渡/废弃 |
+| 前端过渡文件 | 已删除 `public/app.js`、`public/app-styles.css` | `public/app-main.js` 现为运行逻辑入口，`public/app-main.min.js` 为生成产物，不属于已删除过渡文件 |
 | 未引用样式 | 已删除 `public/components.css`、`public/enhanced-components.css`、`public/tailwind-custom.css` | 当前入口未加载，实际样式来源为 `tailwind.min.css`、`style.css`、`ai-custom.css` |
 | 备份样式 | 已删除 `public/tailwind.min.css.bak` | 与当前 `tailwind.min.css` 重复 |
 | 无效配置 | 已删除 `public/nginx.htaccess` | 空文件且当前本地服务使用 ThinkPHP/PHP 内置或 Apache 入口 |
@@ -234,14 +234,21 @@
 |---|---|---|
 | `public/.htaccess` | Apache 重写配置 | 保留 |
 | `public/index.php` | ThinkPHP Web 入口 | 保留 |
-| `public/index.html` | 当前 Vue CDN 单文件 SPA | 保留，核心 |
+| `public/index.html` | Vue 3 runtime-only 启动壳，加载预编译模板与静态 helper | 保留，运行入口 |
+| `public/app-render.min.js` | 由业务模板预编译生成的根渲染函数 | 保留，生成产物 |
+| `public/app-main.js` | Vue setup 与前端业务逻辑入口 | 保留，继续按 helper 边界拆分 |
+| `public/app-main.min.js` | `app-main.js` 的运行产物 | 保留，生成产物 |
+| `resources/frontend/templates/manifest.json` | 业务模板分片顺序、锚点与兼容快照校验信息 | 保留，模板源码清单 |
+| `resources/frontend/templates/fragments/*.html` | 按业务页面拆分的前端模板唯一编辑源 | 保留，模板源码 |
+| `resources/frontend/app-template.html` | 由业务分片同步生成的兼容快照 | 保留，不独立编辑 |
 | `public/router.php` | PHP 内置服务路由 | 保留 |
 | `public/robots.txt` | 搜索引擎规则 | 保留 |
 | `public/favicon.ico` | 浏览器图标 | 保留 |
 | `public/qrcode.png` | 二维码静态资源 | 保留 |
 | `public/images/logo.svg` | Logo 资源 | 保留 |
 | `public/static/.gitignore` | static 目录占位 | 保留 |
-| `public/vue.global.prod.js` | Vue 3 CDN 本地副本 | 保留 |
+| `public/vue.runtime.global.prod.js` | 当前入口加载的 Vue 3 runtime-only 本地副本 | 保留，运行依赖 |
+| `public/vue.global.prod.js` | 含编译器的 Vue 3 完整构建，正常启动路径不加载 | 保留，回滚资产 |
 | `public/tailwind.min.css` | Tailwind 本地 CSS | 保留 |
 | `public/font-awesome.min.css` | FontAwesome CSS | 保留 |
 | `public/webfonts/fa-solid-900.woff2` | FontAwesome 字体 | 保留 |

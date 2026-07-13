@@ -123,7 +123,11 @@ $compassViewSource = file_get_contents(__DIR__ . '/../app/view/admin/compass/ind
 $robotListViewSource = file_get_contents(__DIR__ . '/../app/view/admin/competitor_wechat_robot/index.html');
 $robotAddViewSource = file_get_contents(__DIR__ . '/../app/view/admin/competitor_wechat_robot/add.html');
 $robotEditViewSource = file_get_contents(__DIR__ . '/../app/view/admin/competitor_wechat_robot/edit.html');
-$publicIndexSource = file_get_contents(__DIR__ . '/../public/index.html');
+$publicIndexSource = implode("\n", [
+    file_get_contents(__DIR__ . '/../public/index.html'),
+    file_get_contents(__DIR__ . '/../resources/frontend/app-template.html'),
+    file_get_contents(__DIR__ . '/../public/app-main.js'),
+]);
 $routeSource = file_get_contents(__DIR__ . '/../route/app.php');
 $ctripBrowserAdapterSource = file_get_contents(__DIR__ . '/../app/service/platform/CtripBrowserProfileDataSourceAdapter.php');
 $meituanBrowserAdapterSource = file_get_contents(__DIR__ . '/../app/service/platform/MeituanBrowserProfileDataSourceAdapter.php');

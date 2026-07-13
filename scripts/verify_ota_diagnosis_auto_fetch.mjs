@@ -12,13 +12,27 @@ const readBackendSource = () => {
 };
 
 const indexSource = readFileSync('public/index.html', 'utf8');
+const appTemplateSource = existsSync('resources/frontend/app-template.html')
+  ? readFileSync('resources/frontend/app-template.html', 'utf8')
+  : '';
+const appMainSource = existsSync('public/app-main.js') ? readFileSync('public/app-main.js', 'utf8') : '';
 const otaDiagnosisStaticSource = existsSync('public/ota-diagnosis-static.js') ? readFileSync('public/ota-diagnosis-static.js', 'utf8') : '';
 const autoFetchStaticSource = existsSync('public/auto-fetch-static.js') ? readFileSync('public/auto-fetch-static.js', 'utf8') : '';
 const platformAutoSettingsSource = existsSync('public/components/online-data/platform-auto-settings-panels.js') ? readFileSync('public/components/online-data/platform-auto-settings-panels.js', 'utf8') : '';
 const ctripStaticSource = readFileSync('public/ctrip-static.js', 'utf8');
 const systemStaticSource = readFileSync('public/system-static.js', 'utf8');
 const meituanStaticSource = existsSync('public/meituan-static.js') ? readFileSync('public/meituan-static.js', 'utf8') : '';
-const source = [indexSource, otaDiagnosisStaticSource, autoFetchStaticSource, platformAutoSettingsSource, ctripStaticSource, systemStaticSource, meituanStaticSource].join('\n');
+const source = [
+  indexSource,
+  appTemplateSource,
+  appMainSource,
+  otaDiagnosisStaticSource,
+  autoFetchStaticSource,
+  platformAutoSettingsSource,
+  ctripStaticSource,
+  systemStaticSource,
+  meituanStaticSource,
+].join('\n');
 const controllerSource = readBackendSource();
 const requestConcernSource = readFileSync('app/controller/concern/OnlineDataRequestConcern.php', 'utf8');
 const cookieEndpointSource = readFileSync('app/controller/concern/CookieEndpointConcern.php', 'utf8');
@@ -324,7 +338,7 @@ const checks = [
       && autoFetchStaticSource.includes('const buildDataConfigTestRequest = ({')
       && autoFetchStaticSource.includes("status: 'credential_not_ready'")
       && autoFetchStaticSource.includes("!String(body.config_id || '').trim() || !String(body.system_hotel_id || '').trim()")
-      && indexSource.includes('const buildDataConfigForSave = () => stripDataConfigCredentialFields('),
+      && source.includes('const buildDataConfigForSave = () => stripDataConfigCredentialFields('),
   },
   {
     name: 'Ctrip Cookie API execution does not extract browser Profile secrets or accept profile-derived Cookie payloads',

@@ -64,8 +64,10 @@ trait MeituanCapturedDataConcern
             }
         }
 
-        foreach ($this->extractMeituanCapturedSection($payload, 'ads') as $item) {
-            $row = $this->normalizeMeituanCapturedAdsRow($item, $context);
+        foreach ($this->extractMeituanCapturedSection($payload, 'ads') as $index => $item) {
+            $row = $this->normalizeMeituanCapturedAdsRow($item, array_merge($context, [
+                'captured_row_index' => (int)$index,
+            ]));
             if ($row !== null) {
                 $rows[] = $row;
             }
@@ -530,6 +532,29 @@ trait MeituanCapturedDataConcern
             'order_amount' => $orderAmount,
             'book_order_num' => $orders,
         ], static fn($value): bool => $value !== null), $roas !== null ? ['roas' => $roas] : []);
+        $identityParts = [];
+        foreach ([
+            'ad' => ['adId', 'ad_id'],
+            'campaign' => ['campaignId', 'campaign_id'],
+            'plan' => ['planId', 'plan_id'],
+        ] as $identityType => $identityKeys) {
+            $identityValue = trim((string)$this->firstMeituanValue($item, $identityKeys, ''));
+            if ($identityValue !== '') {
+                $identityParts[] = $identityType . '=' . $identityValue;
+            }
+        }
+        if ($identityParts !== []) {
+            $adDimension = 'ads:identity:' . substr(hash('sha256', 'meituan_ads|' . implode('|', $identityParts)), 0, 24);
+        } else {
+            $factSource['ad_identity_status'] = 'missing_stable_id';
+            $fingerprintSource = $this->canonicalizeMeituanAdsFingerprintValue(
+                $this->sanitizeOnlineOrderRawData($item)
+            );
+            $adDimension = 'ads:unidentified:' . substr(hash(
+                'sha256',
+                'meituan_ads_unidentified|' . json_encode($fingerprintSource, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE)
+            ), 0, 24);
+        }
 
         return $this->baseMeituanCapturedRow($factSource, $context, [
             'data_date' => $dataDate,
@@ -539,7 +564,7 @@ trait MeituanCapturedDataConcern
             'comment_score' => 0,
             'data_value' => $roas !== null ? round($roas, 2) : null,
             'data_type' => 'advertising',
-            'dimension' => 'ads',
+            'dimension' => $adDimension,
             'platform' => 'Meituan',
             'compare_type' => 'self',
             'list_exposure' => $exposure,
@@ -548,6 +573,21 @@ trait MeituanCapturedDataConcern
             'order_filling_num' => $clicks,
             'order_submit_num' => $orders,
         ]);
+    }
+
+    private function canonicalizeMeituanAdsFingerprintValue(mixed $value): mixed
+    {
+        if (!is_array($value)) {
+            return $value;
+        }
+        if (array_is_list($value)) {
+            return array_map(fn(mixed $item): mixed => $this->canonicalizeMeituanAdsFingerprintValue($item), $value);
+        }
+        ksort($value);
+        foreach ($value as $key => $item) {
+            $value[$key] = $this->canonicalizeMeituanAdsFingerprintValue($item);
+        }
+        return $value;
     }
 
     private function normalizeMeituanCapturedReviewRow(array $item, array $context): ?array
@@ -920,7 +960,7 @@ trait MeituanCapturedDataConcern
         $savedCount = 0;
         $now = date('Y-m-d H:i:s');
 
-        foreach ($rows as $row) {
+        foreach ($this->uniqueMeituanCapturedRowsForPersistence($rows) as $row) {
             if (!is_array($row) || empty($row['data_date']) || empty($row['data_type'])) {
                 continue;
             }
@@ -970,12 +1010,47 @@ trait MeituanCapturedDataConcern
         return $savedCount;
     }
 
+    /** @return array<int,array<string,mixed>> */
+    private function uniqueMeituanCapturedRowsForPersistence(array $rows): array
+    {
+        $unique = [];
+        $seen = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $locator = json_encode([
+                'source' => (string)($row['source'] ?? ''),
+                'data_type' => (string)($row['data_type'] ?? ''),
+                'data_date' => (string)($row['data_date'] ?? ''),
+                'dimension' => (string)($row['dimension'] ?? ''),
+                'hotel_id' => (string)($row['hotel_id'] ?? ''),
+                'hotel_name' => (string)($row['hotel_name'] ?? ''),
+                'system_hotel_id' => $row['system_hotel_id'] ?? null,
+                'data_period' => (string)($row['data_period'] ?? ''),
+                'snapshot_time' => (string)($row['snapshot_time'] ?? ''),
+                'snapshot_bucket' => (string)($row['snapshot_bucket'] ?? ''),
+            ], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+            if (isset($seen[$locator])) {
+                continue;
+            }
+            $seen[$locator] = true;
+            $unique[] = $row;
+        }
+        return $unique;
+    }
+
     private function verifyMeituanCapturedDailyRowReadback(int $rowId, array $expected): bool
     {
         $persisted = Db::name('online_daily_data')->where('id', $rowId)->find();
         if (!is_array($persisted)) {
             return false;
         }
+        return $this->meituanCapturedRowMatchesReadback($persisted, $expected);
+    }
+
+    private function meituanCapturedRowMatchesReadback(array $persisted, array $expected): bool
+    {
         foreach (['source', 'data_type', 'data_date', 'dimension'] as $field) {
             if ((string)($persisted[$field] ?? '') !== (string)($expected[$field] ?? '')) {
                 return false;
@@ -989,11 +1064,53 @@ trait MeituanCapturedDataConcern
             return false;
         }
 
+        foreach ([
+            'amount',
+            'quantity',
+            'book_order_num',
+            'comment_score',
+            'qunar_comment_score',
+            'data_value',
+            'list_exposure',
+            'detail_exposure',
+            'flow_rate',
+            'order_filling_num',
+            'order_submit_num',
+        ] as $field) {
+            if (!array_key_exists($field, $expected)) {
+                continue;
+            }
+            $expectedValue = $expected[$field];
+            $persistedValue = $persisted[$field] ?? null;
+            if ($expectedValue === null || $expectedValue === '') {
+                if ($persistedValue !== null && $persistedValue !== '') {
+                    return false;
+                }
+                continue;
+            }
+            if (!is_numeric($persistedValue)
+                || !$this->meituanCapturedNumericReadbackMatches($field, (float)$persistedValue, (float)$expectedValue)) {
+                return false;
+            }
+        }
+
         $expectedSystemHotelId = $expected['system_hotel_id'] ?? null;
         $persistedSystemHotelId = $persisted['system_hotel_id'] ?? null;
         return $expectedSystemHotelId === null
             ? $persistedSystemHotelId === null
             : (int)$persistedSystemHotelId === (int)$expectedSystemHotelId;
+    }
+
+    private function meituanCapturedNumericReadbackMatches(string $field, float $persistedValue, float $expectedValue): bool
+    {
+        $scale = match ($field) {
+            'comment_score', 'qunar_comment_score' => 1,
+            'amount', 'data_value', 'flow_rate' => 2,
+            default => 0,
+        };
+        $persistedValue = round($persistedValue, $scale);
+        $expectedValue = round($expectedValue, $scale);
+        return abs($persistedValue - $expectedValue) < (10 ** (-$scale - 2));
     }
 
     private function summarizeMeituanCapturedRows(array $rows): array

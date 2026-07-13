@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
+import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const read = (path) => fs.readFileSync(path, 'utf8');
 
@@ -8,7 +9,7 @@ test('project copy keeps the OTA evidence to action review logic explicit', () =
   const readme = read('README.md');
   const systemLogic = read('docs/system_design_logic.md');
   const terminology = read('docs/ota_i18n_terminology_logic.md');
-  const publicEntry = read('public/index.html');
+  const publicEntry = readFrontendContractSource();
   const systemStatic = read('public/system-static.js');
 
   assert.match(readme, /授权 OTA 可见数据 -> 采集证据 -> 字段目录 -> 标准事实/);

@@ -11,6 +11,7 @@ use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use Tests\Support\ReflectionHelper;
+use think\App;
 
 final class OnlineDataTest extends TestCase
 {
@@ -1182,6 +1183,57 @@ final class OnlineDataTest extends TestCase
         self::assertSame(9, $hotels[0]['HotelId']);
     }
 
+    public function testUnknownLegacyMetricsStayNullAcrossAnalyticsHistoryAndFingerprinting(): void
+    {
+        $controller = $this->controller();
+        $aggregated = $this->invokeNonPublic($controller, 'aggregateByDimension', [[
+            [
+                'data_date' => '2026-07-13',
+                'amount' => null,
+                'quantity' => null,
+                'data_value' => null,
+                'book_order_num' => null,
+                'comment_score' => null,
+            ],
+        ], 'day']);
+
+        self::assertNull($aggregated[0]['amount']);
+        self::assertNull($aggregated[0]['quantity']);
+        self::assertNull($aggregated[0]['data_value']);
+        self::assertNull($aggregated[0]['book_order_num']);
+        self::assertNull($aggregated[0]['avg_comment_score']);
+        self::assertSame('partial', $aggregated[0]['data_status']);
+        self::assertContains('amount', $aggregated[0]['data_gaps']);
+
+        $unknownHistory = $this->invokeNonPublic($controller, 'buildOnlineRowPayload', [[
+            'hotel_id' => '832085',
+            'hotel_name' => 'A',
+            'data_date' => '2026-07-13',
+            'amount' => null,
+        ]]);
+        $zeroHistory = $this->invokeNonPublic($controller, 'buildOnlineRowPayload', [[
+            'hotel_id' => '832085',
+            'hotel_name' => 'A',
+            'data_date' => '2026-07-13',
+            'amount' => 0,
+            'quantity' => '0',
+            'book_order_num' => 0,
+        ]]);
+        self::assertNull($unknownHistory['amount']);
+        self::assertNull($unknownHistory['quantity']);
+        self::assertSame(0.0, $zeroHistory['amount']);
+        self::assertSame(0, $zeroHistory['quantity']);
+        self::assertSame(0, $zeroHistory['bookOrderNum']);
+
+        $missingFingerprint = $this->invokeNonPublic($controller, 'buildCtripBusinessFingerprint', [[
+            ['hotelId' => '832085', 'hotelName' => 'A'],
+        ]]);
+        $zeroFingerprint = $this->invokeNonPublic($controller, 'buildCtripBusinessFingerprint', [[
+            ['hotelId' => '832085', 'hotelName' => 'A', 'amount' => 0],
+        ]]);
+        self::assertNotSame($missingFingerprint, $zeroFingerprint);
+    }
+
     public function testBackendBuildsCtripBusinessDisplayRowsForFrontend(): void
     {
         $controller = $this->controller();
@@ -1202,6 +1254,26 @@ final class OnlineDataTest extends TestCase
         self::assertSame(3, $rows[0]['totalOrderNum']);
         self::assertSame('携程竞争圈返回', $rows[0]['sourceStatusText']);
         self::assertSame('携程竞争圈返回', $rows[0]['metricSourceStatus']['amount']);
+    }
+
+    public function testBackendDoesNotInventAiEstimatedRoomNights(): void
+    {
+        $controller = $this->controller();
+
+        $missing = $this->invokeNonPublic($controller, 'buildCtripBusinessDisplayHotels', [[
+            ['hotelId' => 'A', 'hotelName' => 'A', 'bookOrderNum' => 10],
+        ]]);
+        $returned = $this->invokeNonPublic($controller, 'buildCtripBusinessDisplayHotels', [[
+            ['hotelId' => 'B', 'hotelName' => 'B', 'bookOrderNum' => 10, 'aiEstimatedTotalRoomNights' => 12],
+        ]]);
+        $summary = $this->invokeNonPublic($controller, 'buildCtripBusinessDisplaySummary', [$missing]);
+
+        self::assertNull($missing[0]['aiEstimatedTotalRoomNights']);
+        self::assertSame(12, $returned[0]['aiEstimatedTotalRoomNights']);
+        self::assertNull($summary['metrics']['aiEstimatedTotalRoomNights']);
+        self::assertNotContains('aiEstimatedTotalRoomNights', array_column($summary['cards'], 'key'));
+        self::assertStringNotContainsString('全渠道AI预计总间夜数', $summary['source_notice']);
+        self::assertStringNotContainsString('AI推导', $summary['source_notice']);
     }
 
     public function testBackendBuildsCtripBusinessDisplayRowsFromStoredRawData(): void
@@ -1528,6 +1600,95 @@ final class OnlineDataTest extends TestCase
         ], $requiredFields]));
     }
 
+    public function testBackendReusesMeituanSelfTradeMetricsWithinShortCacheWindow(): void
+    {
+        (new App(dirname(__DIR__)))->initialize();
+        restore_error_handler();
+        restore_exception_handler();
+        $controller = $this->controller();
+        $cacheKey = $this->invokeNonPublic($controller, 'meituanSelfTradeMetricCacheKey', [
+            'partner-1',
+            'poi-1',
+            '2026-07-14',
+            '2026-07-14',
+            'cookie-a',
+            '0',
+        ]);
+        cache($cacheKey, [
+            'status' => 'returned',
+            'values' => ['roomNights' => 21, 'roomRevenue' => 3409],
+            'message' => '',
+            'update_time' => '2026-07-14 00:21:46',
+            'cache_hit' => false,
+        ], 120);
+
+        try {
+            $result = $this->invokeNonPublic($controller, 'fetchMeituanSelfTradeMetricValues', [
+                'partner-1',
+                'poi-1',
+                '2026-07-14',
+                '2026-07-14',
+                'cookie-a',
+                [],
+                '0',
+            ]);
+
+            self::assertTrue($result['cache_hit']);
+            self::assertSame(21.0, $result['values']['roomNights']);
+            self::assertSame(3409.0, $result['values']['roomRevenue']);
+        } finally {
+            cache($cacheKey, null);
+        }
+    }
+
+    public function testBackendKeepsRealtimePeerStayValuesMissingWhileShowingSelfActuals(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanBusinessDisplayHotels', [[
+            'data' => [
+                'peerRankData' => [
+                    [
+                        'dimName' => '入住间夜榜',
+                        'aiMetricName' => 'P_RZ_NIGHT_COUNT',
+                        'roundRanks' => [
+                            ['poiId' => 'SELF', 'poiName' => 'Self Hotel', 'dataValue' => null, 'percent' => 50, 'rank' => 3],
+                            ['poiId' => 'RIVAL', 'poiName' => 'Rival Hotel', 'dataValue' => null, 'percent' => 100, 'rank' => 1],
+                        ],
+                    ],
+                    [
+                        'dimName' => '房费收入榜',
+                        'aiMetricName' => 'P_RZ_ROOM_PAY',
+                        'roundRanks' => [
+                            ['poiId' => 'SELF', 'poiName' => 'Self Hotel', 'dataValue' => null, 'percent' => 50, 'rank' => 3],
+                            ['poiId' => 'RIVAL', 'poiName' => 'Rival Hotel', 'dataValue' => null, 'percent' => 100, 'rank' => 1],
+                        ],
+                    ],
+                ],
+            ],
+        ], [
+            'date_range' => '0',
+            'rank_type' => 'P_RZ',
+            'target_poi_id' => 'SELF',
+            'self_metric_values' => [
+                'roomNights' => 21,
+                'roomRevenue' => 3409,
+            ],
+        ]]);
+
+        $rowsByPoi = [];
+        foreach ($rows as $row) {
+            $rowsByPoi[$row['poiId']] = $row;
+        }
+
+        self::assertSame('21', $rowsByPoi['SELF']['roomNightsText']);
+        self::assertSame('3,409', $rowsByPoi['SELF']['roomRevenueText']);
+        self::assertSame('-', $rowsByPoi['RIVAL']['roomNightsText']);
+        self::assertSame('-', $rowsByPoi['RIVAL']['roomRevenueText']);
+        self::assertArrayNotHasKey('roomNights', $rowsByPoi['RIVAL']['metricDerived']);
+        self::assertArrayNotHasKey('roomRevenue', $rowsByPoi['RIVAL']['metricDerived']);
+    }
+
     public function testBackendDerivesMeituanRoomRevenueFromSelfMetricsBeforeRankAmount(): void
     {
         $controller = $this->controller();
@@ -1569,7 +1730,7 @@ final class OnlineDataTest extends TestCase
         self::assertSame(15400.0, $rowsByPoi['SELF']['roomRevenue']);
         self::assertArrayNotHasKey('roomRevenue', $rowsByPoi['SELF']['metricDerived']);
         self::assertSame(30800.0, $rowsByPoi['RIVAL']['roomRevenue']);
-        self::assertSame('推算 ¥', $rowsByPoi['RIVAL']['roomRevenuePrefix']);
+        self::assertSame('¥', $rowsByPoi['RIVAL']['roomRevenuePrefix']);
         self::assertSame('30,800', $rowsByPoi['RIVAL']['roomRevenueText']);
         self::assertSame(63.0, $rowsByPoi['RIVAL']['avgRoomPrice']);
         self::assertSame('63', $rowsByPoi['RIVAL']['avgRoomPriceText']);
@@ -1718,7 +1879,7 @@ final class OnlineDataTest extends TestCase
         self::assertSame('¥', $rowsByPoi['SELF']['salesPrefix']);
         self::assertSame(16.0, $rowsByPoi['RIVAL']['salesRoomNights']);
         self::assertSame(2115.0, $rowsByPoi['RIVAL']['sales']);
-        self::assertSame('推算 ¥', $rowsByPoi['RIVAL']['salesPrefix']);
+        self::assertSame('¥', $rowsByPoi['RIVAL']['salesPrefix']);
         self::assertSame('2,115', $rowsByPoi['RIVAL']['salesText']);
         self::assertSame(80.0, $rowsByPoi['RIVAL']['metricRankPercent']['salesRoomNights']);
         self::assertSame('按本店值和美团百分比推导', $rowsByPoi['RIVAL']['metricSourceStatus']['sales']);
@@ -1909,8 +2070,8 @@ final class OnlineDataTest extends TestCase
         self::assertSame('', $rowsByPoi['SELF']['viewsPrefix']);
         self::assertSame(6000.0, $rowsByPoi['RIVAL']['exposure']);
         self::assertSame(1000.0, $rowsByPoi['RIVAL']['views']);
-        self::assertSame('推算 ', $rowsByPoi['RIVAL']['exposurePrefix']);
-        self::assertSame('推算 ', $rowsByPoi['RIVAL']['viewsPrefix']);
+        self::assertSame('', $rowsByPoi['RIVAL']['exposurePrefix']);
+        self::assertSame('', $rowsByPoi['RIVAL']['viewsPrefix']);
         self::assertSame('self_value_times_row_percent_div_self_percent', $rowsByPoi['RIVAL']['metricDerived']['exposure']['method']);
         self::assertSame('self_value_times_row_percent_div_self_percent', $rowsByPoi['RIVAL']['metricDerived']['views']['method']);
     }
@@ -1959,8 +2120,8 @@ final class OnlineDataTest extends TestCase
         self::assertSame('meituan_stored_self_traffic', $rowsByPoi['SELF']['metricSourceStatus']['views']);
         self::assertSame(6000.0, $rowsByPoi['RIVAL']['exposure']);
         self::assertSame(1000.0, $rowsByPoi['RIVAL']['views']);
-        self::assertSame('推算 ', $rowsByPoi['RIVAL']['exposurePrefix']);
-        self::assertSame('推算 ', $rowsByPoi['RIVAL']['viewsPrefix']);
+        self::assertSame('', $rowsByPoi['RIVAL']['exposurePrefix']);
+        self::assertSame('', $rowsByPoi['RIVAL']['viewsPrefix']);
         self::assertSame('self_value_times_row_percent_div_self_percent', $rowsByPoi['RIVAL']['metricDerived']['exposure']['method']);
         self::assertSame('self_value_times_row_percent_div_self_percent', $rowsByPoi['RIVAL']['metricDerived']['views']['method']);
     }
@@ -2318,12 +2479,14 @@ final class OnlineDataTest extends TestCase
         self::assertSame('20', $cardsByKey['marketInventory']['value']);
     }
 
-    public function testMeituanSevenDayTradePresetUsesWeekDateType(): void
+    public function testMeituanHistoricalTradePresetsUseCustomDateType(): void
     {
         $controller = $this->controller();
 
-        self::assertSame('WEEK', $this->invokeNonPublic($controller, 'meituanSelfTradeDateType', ['7', '2026-07-04', '2026-07-11']));
-        self::assertSame('MONTH', $this->invokeNonPublic($controller, 'meituanSelfTradeDateType', ['30', '2026-06-12', '2026-07-11']));
+        self::assertSame('CUSTOM', $this->invokeNonPublic($controller, 'meituanSelfTradeDateType', ['7', '2026-07-04', '2026-07-11']));
+        self::assertSame('CUSTOM', $this->invokeNonPublic($controller, 'meituanSelfTradeDateType', ['30', '2026-06-12', '2026-07-11']));
+        self::assertSame('CUSTOM', $this->invokeNonPublic($controller, 'meituanSelfTradeDateType', ['1', '2026-06-12', '2026-07-11']));
+        self::assertSame('DAY', $this->invokeNonPublic($controller, 'meituanSelfTradeDateType', ['1', '2026-07-11', '2026-07-11']));
     }
 
     public function testMeituanSevenDayMissingTradeAnchorFallsBackToDailyTotals(): void
@@ -2372,6 +2535,45 @@ final class OnlineDataTest extends TestCase
         self::assertSame(21.0, $result['values']['salesRoomNights']);
         self::assertSame(840.0, $result['values']['sales']);
         self::assertSame(7.0, $result['values']['orderCount']);
+    }
+
+    public function testMeituanThirtyDayMissingRoomRevenueAnchorFallsBackToDailyTotals(): void
+    {
+        $controller = $this->controller();
+        $requestedDates = [];
+
+        $result = $this->invokeNonPublic($controller, 'fetchMeituanSelfDailyTradeMetricValues', [
+            'partner-1',
+            'poi-1',
+            '2026-06-12',
+            '2026-07-11',
+            'cookie',
+            [],
+            static function (string $date) use (&$requestedDates): array {
+                $requestedDates[] = $date;
+                return [
+                    'status' => 'returned',
+                    'values' => [
+                        'roomNights' => 2,
+                        'roomRevenue' => 100,
+                        'salesRoomNights' => 3,
+                        'sales' => 120,
+                        'orderCount' => 1,
+                    ],
+                ];
+            },
+        ]);
+
+        self::assertCount(30, $requestedDates);
+        self::assertSame('2026-06-12', $requestedDates[0]);
+        self::assertSame('2026-07-11', $requestedDates[29]);
+        self::assertSame('returned', $result['status']);
+        self::assertSame(30, $result['days_returned']);
+        self::assertSame(60.0, $result['values']['roomNights']);
+        self::assertSame(3000.0, $result['values']['roomRevenue']);
+        self::assertSame(90.0, $result['values']['salesRoomNights']);
+        self::assertSame(3600.0, $result['values']['sales']);
+        self::assertSame(30.0, $result['values']['orderCount']);
     }
 
     public function testMeituanBooleanVipTagIsPreservedForDisplay(): void
@@ -6107,6 +6309,101 @@ final class OnlineDataTest extends TestCase
         self::assertStringNotContainsString('order-1', (string)$rows[3]['dimension']);
         self::assertMatchesRegularExpression('/^order:confirmed:[a-f0-9]{64}$/', (string)$rows[3]['dimension']);
         self::assertStringNotContainsString('order-1', (string)$rows[3]['raw_data']);
+    }
+
+    public function testMeituanAdsKeepIndependentCampaignRowsAndVerifyMetricReadback(): void
+    {
+        $controller = $this->controller();
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanCapturedDailyRows', [[
+            'poi_id' => 'poi-99',
+            'poi_name' => 'Hotel A',
+            'ads' => [
+                [
+                    'campaignId' => 'campaign-1',
+                    'planId' => 'plan-1',
+                    'date' => '2026-07-13',
+                    'cost' => 88.505,
+                    'click_count' => 50,
+                    'orderNum' => 2,
+                ],
+                [
+                    'campaignId' => 'campaign-1',
+                    'planId' => 'plan-2',
+                    'date' => '2026-07-13',
+                    'cost' => 40,
+                    'click_count' => 20,
+                    'orderNum' => 1,
+                ],
+            ],
+        ], 99]);
+
+        self::assertCount(2, $rows);
+        self::assertCount(2, array_unique(array_column($rows, 'dimension')));
+        $uniqueRows = $this->invokeNonPublic(
+            $controller,
+            'uniqueMeituanCapturedRowsForPersistence',
+            [[$rows[0], $rows[0], $rows[1]]]
+        );
+        self::assertCount(2, $uniqueRows);
+        $deduplicatedPersistenceState = $this->invokeNonPublic(
+            $controller,
+            'buildMeituanDirectPersistenceState',
+            [true, count($uniqueRows), count($uniqueRows), 'meituan_ads']
+        );
+        self::assertTrue($deduplicatedPersistenceState['persisted']);
+        self::assertSame('readback_verified', $deduplicatedPersistenceState['persistence_status']);
+        self::assertMatchesRegularExpression('/^ads:identity:[a-f0-9]{24}$/', $rows[0]['dimension']);
+        self::assertStringNotContainsString('campaign-1', $rows[0]['dimension']);
+        self::assertTrue($this->invokeNonPublic(
+            $controller,
+            'meituanCapturedRowMatchesReadback',
+            [$rows[0], $rows[0]]
+        ));
+
+        $wrongAmount = $rows[0];
+        $wrongAmount['amount'] = 0;
+        self::assertFalse($this->invokeNonPublic(
+            $controller,
+            'meituanCapturedRowMatchesReadback',
+            [$wrongAmount, $rows[0]]
+        ));
+
+        $persistedZeroQuantity = $rows[0];
+        $persistedZeroQuantity['quantity'] = 0;
+        self::assertNull($rows[0]['quantity']);
+        self::assertFalse($this->invokeNonPublic(
+            $controller,
+            'meituanCapturedRowMatchesReadback',
+            [$persistedZeroQuantity, $rows[0]]
+        ));
+
+        $roundedByDatabase = $rows[0];
+        $roundedByDatabase['amount'] = 88.51;
+        self::assertTrue($this->invokeNonPublic(
+            $controller,
+            'meituanCapturedRowMatchesReadback',
+            [$roundedByDatabase, $rows[0]]
+        ));
+    }
+
+    public function testMeituanAdsWithoutStableIdUseContentFingerprintInsteadOfBatchIndex(): void
+    {
+        $controller = $this->controller();
+        $payload = [
+            'poi_id' => 'poi-99',
+            'poi_name' => 'Hotel A',
+            'ads' => [[
+                'date' => '2026-07-13',
+                'cost' => 30,
+                'click_count' => 5,
+            ]],
+        ];
+        $first = $this->invokeNonPublic($controller, 'buildMeituanCapturedDailyRows', [$payload, 99]);
+        $second = $this->invokeNonPublic($controller, 'buildMeituanCapturedDailyRows', [$payload, 99]);
+
+        self::assertSame($first[0]['dimension'], $second[0]['dimension']);
+        self::assertMatchesRegularExpression('/^ads:unidentified:[a-f0-9]{24}$/', $first[0]['dimension']);
+        self::assertStringContainsString('"ad_identity_status":"missing_stable_id"', (string)$first[0]['raw_data']);
     }
 
     public function testOnlineDailyDataValidationFieldsMarkAbnormalRows(): void

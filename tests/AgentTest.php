@@ -190,6 +190,62 @@ final class AgentTest extends TestCase
         self::assertNotContains('review', $sectionKeys);
     }
 
+    public function testOtaDiagnosisKeepsMissingMetricsNullAndRealZeroObservable(): void
+    {
+        $controller = $this->controller();
+        $baseDataSet = [
+            'hotel' => ['id' => 7, 'name' => 'Hotel Alpha'],
+            'daily_reports' => [],
+            'competitor_prices' => [],
+            'competitor_analyses' => [],
+            'price_suggestions' => [],
+            'sync_logs' => [],
+        ];
+        $arguments = [7, '7', 'Hotel Alpha', 'ctrip', '2026-07-13', '2026-07-13', 'all'];
+
+        $missing = $this->invokeNonPublic($controller, 'buildOtaDiagnosisResult', [array_merge($baseDataSet, [
+            'online_rows' => [[
+                'id' => 71,
+                'source' => 'ctrip',
+                'data_type' => 'business',
+                'data_date' => '2026-07-13',
+                'hotel_name' => 'Hotel Alpha',
+                'amount' => null,
+                'quantity' => null,
+                'book_order_num' => null,
+                'data_value' => null,
+                'raw_data' => '{}',
+            ]],
+        ]), ...$arguments]);
+
+        self::assertNull($missing['metrics']['amount']);
+        self::assertNull($missing['metrics']['quantity']);
+        self::assertNull($missing['metrics']['list_exposure']);
+        self::assertContains('metric_missing:amount', $missing['data_gaps']);
+        self::assertStringContainsString('核心指标未返回', implode(' ', $missing['source_summary']['data_anomalies']));
+        self::assertStringNotContainsString('全指标为 0', implode(' ', $missing['source_summary']['data_anomalies']));
+        self::assertStringContainsString('未返回', implode(' ', $missing['diagnosis']['data_overview']));
+
+        $zero = $this->invokeNonPublic($controller, 'buildOtaDiagnosisResult', [array_merge($baseDataSet, [
+            'online_rows' => [[
+                'id' => 72,
+                'source' => 'ctrip',
+                'data_type' => 'business',
+                'data_date' => '2026-07-13',
+                'hotel_name' => 'Hotel Alpha',
+                'amount' => 0,
+                'quantity' => 0,
+                'book_order_num' => 0,
+                'data_value' => 0,
+                'raw_data' => '{}',
+            ]],
+        ]), ...$arguments]);
+
+        self::assertSame(0.0, $zero['metrics']['amount']);
+        self::assertSame(0, $zero['metrics']['quantity']);
+        self::assertStringContainsString('全指标为 0', implode(' ', $zero['source_summary']['data_anomalies']));
+    }
+
     public function testOtaDiagnosisPromptAndParserUseAdvertisingQualitySchema(): void
     {
         $controller = $this->controller();

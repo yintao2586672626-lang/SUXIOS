@@ -278,7 +278,8 @@ function validatePlatform(platform, p0Result, inspection) {
   check(`${prefix} standard fact diagnostics match P0 verifier`, sameJson(ui.standardFact, p0.standardFact), JSON.stringify({ ui: ui.standardFact, p0: p0.standardFact }));
 
   check(`${prefix} UI next step count matches P0 hotel scoped steps`, Number(ui.row.p0_next_step_count ?? 0) === p0.steps.length, JSON.stringify({ ui: ui.row.p0_next_step_count, p0: p0.steps.length }));
-  check(`${prefix} UI managed source count matches P0 hotel scoped steps`, Number(ui.row.traffic_managed_count ?? 0) === p0.steps.length, JSON.stringify({ ui: ui.row.traffic_managed_count, p0: p0.steps.length }));
+  const managedStepCount = p0.steps.filter((step) => step?.managed_by_p0 === true).length;
+  check(`${prefix} UI managed source count matches P0-managed sources`, Number(ui.row.traffic_managed_count ?? 0) === managedStepCount, JSON.stringify({ ui: ui.row.traffic_managed_count, p0: managedStepCount }));
   check(`${prefix} UI gate status matches P0 gate`, String(ui.row.p0_traffic_gate_status ?? '') === String(p0.gate.status ?? ''), JSON.stringify({ ui: ui.row.p0_traffic_gate_status, p0: p0.gate.status }));
   check(`${prefix} UI target traffic rows match P0 gate`, Number(ui.row.target_date_traffic_rows ?? 0) === Number(p0.gate.traffic_rows ?? 0), JSON.stringify({ ui: ui.row.target_date_traffic_rows, p0: p0.gate.traffic_rows }));
   const requiredPayloadDiagnosticKeys = [

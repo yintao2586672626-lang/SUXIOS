@@ -55,7 +55,7 @@
     };
 
     const formatRelativeComparison = value => formatDirectionalDifference(value, '%');
-    const formatPercentagePointGap = value => formatDirectionalDifference(value, '%');
+    const formatPercentagePointGap = value => formatDirectionalDifference(value, ' 个百分点');
 
     const toggleSeriesVisibility = (current = {}, key = '') => {
         const next = {

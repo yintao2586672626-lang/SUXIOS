@@ -101,14 +101,13 @@ class OperationLogController extends Base
         return mb_substr($value, 0, max(0, $limit));
     }
 
-    /**
-     * 只有超级管理员可以访问
-     */
-    protected function initialize()
+    private function requireSuperAdminAccess(): void
     {
-        parent::initialize();
-        if (!$this->currentUser || !$this->currentUser->isSuperAdmin()) {
-            throw new ValidateException('无权访问');
+        if (!$this->currentUser) {
+            abort(401, '未登录');
+        }
+        if (!$this->currentUser->isSuperAdmin()) {
+            abort(403, '仅超级管理员可访问操作日志');
         }
     }
 
@@ -117,6 +116,8 @@ class OperationLogController extends Base
      */
     public function index(Request $request)
     {
+        $this->requireSuperAdminAccess();
+
         $page = (int)$request->param('page', 1);
         $pageSize = min(self::MAX_PAGE_SIZE, max(1, (int)$request->param('page_size', 20)));
         $module = $request->param('module', '');
@@ -188,6 +189,8 @@ class OperationLogController extends Base
 
     public function highRiskSummary(Request $request)
     {
+        $this->requireSuperAdminAccess();
+
         $days = min(30, max(1, (int)$request->param('days', 7)));
         $limit = min(self::HIGH_RISK_SUMMARY_LIMIT, max(1, (int)$request->param('limit', self::HIGH_RISK_SUMMARY_LIMIT)));
         $endDate = date('Y-m-d');
@@ -238,6 +241,8 @@ class OperationLogController extends Base
      */
     public function detail(Request $request)
     {
+        $this->requireSuperAdminAccess();
+
         $id = (int)$request->param('id');
         if (!$id) {
             throw new ValidateException('参数错误');
@@ -263,6 +268,8 @@ class OperationLogController extends Base
      */
     public function stats(Request $request)
     {
+        $this->requireSuperAdminAccess();
+
         $startDate = $request->param('start_date', date('Y-m-d', strtotime('-7 days')));
         $endDate = $request->param('end_date', date('Y-m-d'));
 

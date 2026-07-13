@@ -1,0 +1,5 @@
+interface:
+  display_name: "PMS 采集编排（手动）"
+  short_description: "执行明确授权的 PMS 采集闭环，不自动访问真实系统"
+policy:
+  allow_implicit_invocation: false

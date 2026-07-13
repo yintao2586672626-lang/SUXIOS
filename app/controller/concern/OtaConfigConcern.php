@@ -2030,6 +2030,102 @@ trait OtaConfigConcern
         return null;
     }
 
+    /**
+     * Attach hotel-scoped persisted OTA evidence to already-filtered config rows.
+     * This deliberately runs after the current-user visibility filter so the
+     * evidence query can never widen the caller's hotel scope.
+     *
+     * @param array<int, array<string, mixed>> $list
+     * @return array<int, array<string, mixed>>
+     */
+    private function appendOtaConfigCollectionEvidence(array $list, string $platform): array
+    {
+        $platform = strtolower(trim($platform));
+        if (!in_array($platform, ['ctrip', 'meituan'], true)) {
+            return $list;
+        }
+
+        $hotelIds = [];
+        foreach ($list as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $hotelId = $this->otaConfigBoundSystemHotelId($item);
+            if ($hotelId !== null) {
+                $hotelIds[$hotelId] = $hotelId;
+            }
+        }
+
+        $evidenceByHotelId = [];
+        $queryFailed = false;
+        if ($hotelIds !== []) {
+            try {
+                $rows = Db::name('online_daily_data')
+                    ->field('system_hotel_id, MAX(COALESCE(update_time, create_time)) AS latest_platform_success_at, MAX(data_date) AS latest_platform_data_date, COUNT(*) AS stored_platform_row_count')
+                    ->where('source', $platform)
+                    ->whereIn('system_hotel_id', array_values($hotelIds))
+                    ->group('system_hotel_id')
+                    ->select()
+                    ->toArray();
+                foreach ($rows as $row) {
+                    $hotelId = $this->positiveOtaConfigHotelId($row['system_hotel_id'] ?? null);
+                    if ($hotelId !== null) {
+                        $evidenceByHotelId[$hotelId] = $row;
+                    }
+                }
+            } catch (\Throwable $e) {
+                $queryFailed = true;
+                Log::warning('读取 OTA 配置入库证据失败', [
+                    'platform' => $platform,
+                    'hotel_ids' => array_values($hotelIds),
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        foreach ($list as &$item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $item['collection_evidence_policy'] = 'hotel_platform_persisted_rows_only';
+            $item['latest_platform_success_at'] = '';
+            $item['latest_platform_data_date'] = '';
+            $item['stored_platform_row_count'] = 0;
+
+            $hotelId = $this->otaConfigBoundSystemHotelId($item);
+            if ($hotelId === null) {
+                $item['collection_evidence_status'] = 'unbound';
+                continue;
+            }
+            if ($queryFailed) {
+                $item['collection_evidence_status'] = 'unverified';
+                continue;
+            }
+
+            $evidence = $evidenceByHotelId[$hotelId] ?? null;
+            if (!is_array($evidence) || (int)($evidence['stored_platform_row_count'] ?? 0) <= 0) {
+                $item['collection_evidence_status'] = 'no_successful_storage';
+                continue;
+            }
+
+            $latestSuccessAt = trim((string)($evidence['latest_platform_success_at'] ?? ''));
+            $item['latest_platform_success_at'] = $latestSuccessAt;
+            $item['latest_platform_data_date'] = trim((string)($evidence['latest_platform_data_date'] ?? ''));
+            $item['stored_platform_row_count'] = max(0, (int)($evidence['stored_platform_row_count'] ?? 0));
+
+            $configUpdatedAt = trim((string)($item['update_time'] ?? $item['updated_at'] ?? $item['created_at'] ?? ''));
+            $latestSuccessTimestamp = $latestSuccessAt !== '' ? strtotime($latestSuccessAt) : false;
+            $configUpdatedTimestamp = $configUpdatedAt !== '' ? strtotime($configUpdatedAt) : false;
+            $item['collection_evidence_status'] = $latestSuccessTimestamp !== false
+                && ($configUpdatedTimestamp === false || $latestSuccessTimestamp >= $configUpdatedTimestamp)
+                ? 'success_after_current_config'
+                : 'historical_success_before_config_update';
+        }
+        unset($item);
+
+        return $list;
+    }
+
     private function otaConfigHasHotelBindingConflict(array $item): bool
     {
         $systemHotelId = $this->positiveOtaConfigHotelId($item['system_hotel_id'] ?? null);

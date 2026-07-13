@@ -48,25 +48,22 @@ test('Ctrip AI selection exposes only the owned self hotel and keeps peers read-
   assert.equal(result.comparisonHotels[0].hotelName, '巢湖碧桂园凤悦凤凰酒店');
 });
 
-test('Ctrip UI keeps the requested estimate title and discloses derivation and health formula', () => {
+test('Ctrip UI removes the unsupported all-channel AI room-night estimate', () => {
   const html = readFrontendContractSource();
-  const backend = fs.readFileSync(path.join(root, 'app/controller/concern/BusinessDisplayConcern.php'), 'utf8');
+  const ctripStatic = fs.readFileSync(path.join(root, 'public/ctrip-static.js'), 'utf8');
 
-  assert.match(html, /全渠道AI预计总间夜数/);
-  assert.match(backend, /AI推导，非平台原始字段/);
-  assert.match(backend, /房价离散系数=价格标准差\/圈内平均房价/);
-  assert.doesNotMatch(backend, /\[INF,\s*'恶化'/);
+  assert.doesNotMatch(html, /全渠道AI预计总间夜数|aiEstimatedTotalRoomNights|ai_estimated_total_room_nights/);
+  assert.match(ctripStatic, /buildTruthfulCtripDisplayModel/);
+  assert.doesNotMatch(ctripStatic, /field === 'aiEstimatedTotalRoomNights'/);
 });
 
-test('competition-circle copy assigns the result to the selected store and treats ID gaps as warnings', () => {
+test('competition-circle copy separates selected-store persistence from temporary display-only queries', () => {
   const html = readFrontendContractSource();
 
-  assert.match(html, /本次结果统一归属于所选门店的竞争圈/);
-  assert.match(html, /酒店ID缺失或不一致会提示但不阻断查询/);
-  assert.match(html, /携程返回 hotelId 与该门店配置的携程 hotelId 一致/);
-  assert.match(html, /酒店名称和备注名不参与判定/);
-  assert.match(html, /明确的本店跨门店冲突才停止入库/);
-  assert.doesNotMatch(html, /识别不到时只展示数据、不入库/);
+  assert.match(html, /选择门店时使用该门店已保存的 Cookie\/API 凭据并按身份校验后入库/);
+  assert.match(html, /不选择门店时可粘贴临时 Cookie，仅查询和展示本次结果，不建立门店归属/);
+  assert.match(html, /已选门店：凭据库授权并可入库；未选门店：临时 Cookie，仅本页展示/);
+  assert.match(html, /仅用于本次查询，不保存 Cookie、不创建门店、不入库/);
 });
 
 test('history labels a competition circle with its owning system hotel', () => {

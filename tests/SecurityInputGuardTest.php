@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use app\controller\Base;
 use app\controller\CompetitorApi;
 use app\controller\OperationLogController;
 use app\controller\SystemConfigController;
@@ -10,6 +11,7 @@ use app\model\SystemConfig;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
+use ReflectionProperty;
 use Tests\Support\ReflectionHelper;
 use think\exception\HttpException;
 
@@ -300,5 +302,37 @@ final class SecurityInputGuardTest extends TestCase
         }
         self::assertStringContainsString('****', (string)$encoded);
         self::assertSame('high', $summary['risk_priority']);
+    }
+
+    public function testOperationLogGuardRejectsUnauthenticatedAccess(): void
+    {
+        $controller = $this->controller(OperationLogController::class);
+
+        try {
+            $this->invokeNonPublic($controller, 'requireSuperAdminAccess');
+            self::fail('Unauthenticated operation-log access must be rejected.');
+        } catch (HttpException $e) {
+            self::assertSame(401, $e->getStatusCode());
+        }
+    }
+
+    public function testOperationLogGuardRejectsNonSuperAdminAccess(): void
+    {
+        $controller = $this->controller(OperationLogController::class);
+        $currentUser = new ReflectionProperty(Base::class, 'currentUser');
+        $currentUser->setAccessible(true);
+        $currentUser->setValue($controller, new class {
+            public function isSuperAdmin(): bool
+            {
+                return false;
+            }
+        });
+
+        try {
+            $this->invokeNonPublic($controller, 'requireSuperAdminAccess');
+            self::fail('Non-super-admin operation-log access must be rejected.');
+        } catch (HttpException $e) {
+            self::assertSame(403, $e->getStatusCode());
+        }
     }
 }

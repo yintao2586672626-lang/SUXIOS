@@ -837,7 +837,7 @@ window.SUXI_OPERATION_STATIC = (() => {
         const overviewOutputs = Array.isArray(overviewSuggestions)
             ? overviewSuggestions.map(item => String(item || '').trim()).filter(Boolean)
             : [];
-        const taskOutputs = taskRows
+        const allTaskOutputs = taskRows
             .filter(task => String(task.ai_suggestion || '').trim())
             .map(task => {
                 const reason = openingAiTaskReason(task, helpers);
@@ -853,10 +853,10 @@ window.SUXI_OPERATION_STATIC = (() => {
                     priorityScore: openingAiTaskPriorityScore(task, helpers),
                 };
             })
-            .sort((a, b) => b.priorityScore - a.priorityScore)
-            .slice(0, 6);
+            .sort((a, b) => b.priorityScore - a.priorityScore);
+        const taskOutputs = allTaskOutputs.slice(0, 6);
         const total = Math.max(0, Number(stats.total || 0));
-        const aiCovered = taskOutputs.length;
+        const aiCovered = allTaskOutputs.length;
         const aiCoverage = total > 0 ? Math.round(aiCovered / total * 100) : 0;
         const riskOutputCount = taskRows
             .filter(task => (task.risk_level === 'high') || (typeof helpers.taskIsOverdue === 'function' ? helpers.taskIsOverdue(task) : Number(task?.is_overdue) === 1) || task.status === 'blocked')

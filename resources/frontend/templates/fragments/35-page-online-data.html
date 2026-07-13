@@ -42,50 +42,73 @@
                                     <div data-testid="ota-direct-view-overview" class="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
                                         <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                                             <div>
-                                                <h4 class="text-base font-semibold text-gray-900">OTA数据直接查看</h4>
-                                                <div class="mt-1 text-xs text-gray-500 leading-5">先看目标日是否有入库数据，再看 Cookie/平台标识是否可用；采集失败只做诊断，不阻断已有数据查看。</div>
+                                                <h4 class="text-base font-semibold text-gray-900">平台配置与最近成功</h4>
+                                                <div class="mt-1 text-xs leading-5 text-gray-500">直接看携程和美团配置、当前是否生效、最近一次真实入库时间。</div>
                                             </div>
                                             <button type="button" @click="refreshManualOneClickFetchConfig" :disabled="manualOneClickFetchRunning || ctripConfigListLoading || meituanConfigListLoading" class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
-                                                <i :class="(ctripConfigListLoading || meituanConfigListLoading) ? 'fas fa-spinner fa-spin mr-1' : 'fas fa-sync-alt mr-1'"></i>{{ ctripConfigListLoading || meituanConfigListLoading ? '刷新中' : '刷新配置' }}
+                                                <i :class="(ctripConfigListLoading || meituanConfigListLoading) ? 'fas fa-spinner fa-spin mr-1' : 'fas fa-sync-alt mr-1'"></i>{{ ctripConfigListLoading || meituanConfigListLoading ? '刷新中' : '刷新状态' }}
                                             </button>
                                         </div>
-                                        <div class="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-2">
-                                            <div v-for="card in otaDirectViewCards" :key="card.key" class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 min-w-0">
-                                                <div class="text-[11px] text-gray-500 truncate">{{ card.label }}</div>
-                                                <div :class="['mt-1 text-lg font-semibold truncate', card.className]" :title="card.rawValue">{{ card.value }}</div>
-                                                <div class="mt-1 text-[11px] text-gray-400 truncate" :title="card.detail">{{ card.detail }}</div>
-                                            </div>
-                                        </div>
-                                        <div class="mt-4 overflow-x-auto">
-                                            <table v-if="otaDirectIssueRows.length" class="min-w-full divide-y divide-gray-200 text-sm">
-                                                <thead class="bg-gray-50 text-left text-xs text-gray-500">
-                                                    <tr>
-                                                        <th class="px-3 py-2 font-medium">问题</th>
-                                                        <th class="px-3 py-2 font-medium">影响</th>
-                                                        <th class="px-3 py-2 font-medium">处理</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody class="divide-y divide-gray-100 bg-white">
-                                                    <tr v-for="row in otaDirectIssueRows" :key="row.key">
-                                                        <td class="px-3 py-3 min-w-[12rem]">
-                                                            <span :class="['rounded-md border px-2 py-0.5 text-[11px]', row.className]">{{ row.title }}</span>
-                                                            <div class="mt-1 text-[11px] text-gray-500 truncate" :title="row.scope">{{ row.scope }}</div>
-                                                        </td>
-                                                        <td class="px-3 py-3 min-w-[18rem] text-xs text-gray-700 leading-5" :title="row.detail">{{ row.detail }}</td>
-                                                        <td class="px-3 py-3 min-w-[18rem] text-xs leading-5" :title="row.action">
-                                                            <div class="text-blue-700">{{ row.action }}</div>
-                                                            <div v-if="row.actions &amp;&amp; row.actions.length" class="mt-2 flex flex-wrap items-center gap-1.5">
-                                                                <button v-for="action in row.actions" :key="action.key" type="button" @click="handleOtaDirectIssueAction(row, action.key)" class="inline-flex items-center rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-medium text-blue-700 hover:border-blue-300 hover:bg-blue-100">
-                                                                    <i :class="action.icon || 'fas fa-external-link-alt mr-1'"></i>{{ action.label }}
-                                                                </button>
+
+                                        <div data-testid="ota-config-overview" class="mt-4 grid gap-4 xl:grid-cols-2">
+                                            <section v-for="group in otaConfigOverviewGroups" :key="group.platform" :data-testid="'ota-config-platform-' + group.platform" class="overflow-hidden rounded-xl border border-gray-200 bg-white">
+                                                <div class="border-b border-gray-100 bg-gray-50/80 px-4 py-3">
+                                                    <div class="flex items-start justify-between gap-3">
+                                                        <div class="min-w-0">
+                                                            <div class="flex items-center gap-2">
+                                                                <span :class="['flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs text-white', group.platform === 'ctrip' ? 'bg-blue-600' : 'bg-emerald-600']">
+                                                                    <i :class="group.platform === 'ctrip' ? 'fas fa-plane' : 'fas fa-store'"></i>
+                                                                </span>
+                                                                <div>
+                                                                    <h5 class="text-sm font-semibold text-gray-900">{{ group.title }}</h5>
+                                                                    <div class="text-[11px] text-gray-500">共 {{ group.summary.total }} 条配置</div>
+                                                                </div>
                                                             </div>
-                                                        </td>
-                                                    </tr>
-                                                </tbody>
-                                            </table>
-                                            <div v-else="" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">当前没有需要优先处理的 OTA 查看问题；仍以目标日 OTA 入库事实为准。</div>
+                                                        </div>
+                                                        <button v-if="canManageOwnHotels()" type="button" @click="manageOtaConfigOverview(group.platform)" class="shrink-0 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-gray-700 hover:border-gray-300 hover:bg-gray-50">管理配置</button>
+                                                    </div>
+                                                    <div class="mt-3 grid grid-cols-3 divide-x divide-gray-200 rounded-lg border border-gray-200 bg-white py-2 text-center">
+                                                        <div class="px-2">
+                                                            <div class="text-[11px] text-gray-500">已生效</div>
+                                                            <div class="mt-0.5 text-base font-semibold text-emerald-700">{{ group.summary.effective }}</div>
+                                                        </div>
+                                                        <div class="px-2">
+                                                            <div class="text-[11px] text-gray-500">需处理</div>
+                                                            <div :class="['mt-0.5 text-base font-semibold', group.summary.needsAttention ? 'text-amber-700' : 'text-gray-900']">{{ group.summary.needsAttention }}</div>
+                                                        </div>
+                                                        <div class="min-w-0 px-2">
+                                                            <div class="text-[11px] text-gray-500">最近成功</div>
+                                                            <div class="mt-0.5 truncate text-xs font-semibold text-gray-900" :title="group.summary.latestSuccessAt">{{ group.summary.latestSuccessText }}</div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div v-if="group.rows.length" class="divide-y divide-gray-100 px-4">
+                                                    <div v-for="row in otaConfigOverviewVisibleRows(group)" :key="row.key" data-testid="ota-config-row" class="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+                                                        <div class="min-w-0 flex-1">
+                                                            <div class="truncate text-sm font-medium text-gray-900" :title="row.hotelName">{{ row.hotelName }}</div>
+                                                            <div class="mt-0.5 truncate text-[11px] text-gray-500" :title="row.configName + ' · ' + row.platformIdentityText">{{ row.configName }} · {{ row.platformIdentityText }}</div>
+                                                        </div>
+                                                        <div class="flex shrink-0 items-center justify-between gap-3 sm:justify-end">
+                                                            <div class="text-right">
+                                                                <span :class="['inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium', row.effectClass]" :title="row.effectDetail">{{ row.effectText }}</span>
+                                                                <div class="mt-1 text-[11px] text-gray-500" :title="row.latestSuccessAt">最近成功：{{ row.latestSuccessText }}</div>
+                                                            </div>
+                                                            <button v-if="canManageOwnHotels()" type="button" @click="editOtaConfigOverviewRow(row)" class="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-medium text-blue-700 hover:border-blue-300 hover:bg-blue-100">编辑</button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div v-else class="px-4 py-6 text-center">
+                                                    <div class="text-sm text-gray-500">暂无{{ group.platform === 'ctrip' ? '携程' : '美团' }}配置</div>
+                                                    <button v-if="canManageOwnHotels()" type="button" @click="manageOtaConfigOverview(group.platform)" class="mt-2 text-xs font-medium text-blue-700 hover:text-blue-800">去配置</button>
+                                                </div>
+                                                <button v-if="group.rows.length > 4" type="button" @click="toggleOtaConfigOverview(group.platform)" class="flex w-full items-center justify-center border-t border-gray-100 bg-gray-50/70 px-4 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100">
+                                                    {{ otaConfigOverviewExpanded[group.platform] ? '收起' : '查看全部 ' + group.rows.length + ' 条' }}
+                                                    <i :class="otaConfigOverviewExpanded[group.platform] ? 'fas fa-chevron-up ml-1.5' : 'fas fa-chevron-down ml-1.5'"></i>
+                                                </button>
+                                            </section>
                                         </div>
-                                        <div class="mt-3 text-[11px] text-gray-400 leading-5">边界：这里不改变携程数据页和美团数据页；只把 OTA 数据可信度页整理成更直接的查看入口。</div>
+                                        <div class="mt-3 text-[11px] leading-5 text-gray-400">“已生效”仅表示当前配置保存后，该门店该平台已有成功入库；这是 OTA 渠道证据，不等同于全酒店经营数据完整。</div>
                                     </div>
                                     <div data-testid="manual-one-click-fetch" class="rounded-xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm">
                                         <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-4">
@@ -99,7 +122,7 @@
                                                     <i :class="manualOneClickFetchRunning === 'ctrip' ? 'fas fa-spinner fa-spin mr-1.5' : 'fas fa-cloud-download-alt mr-1.5'"></i>一键获取携程
                                                 </button>
                                                 <button type="button" @click="runManualOneClickFetch('meituan')" :disabled="manualOneClickFetchRunning || fetchingData || meituanConfigListLoading" class="inline-flex items-center justify-center rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none">
-                                                    <i :class="manualOneClickFetchRunning === 'meituan' ? 'fas fa-spinner fa-spin mr-1.5' : 'fas fa-cloud-download-alt mr-1.5'"></i>一键获取美团
+                                                    <i :class="manualOneClickFetchRunning === 'meituan' ? 'fas fa-spinner fa-spin mr-1.5' : 'fas fa-cloud-download-alt mr-1.5'"></i>更新美团竞争圈
                                                 </button>
                                                 <button type="button" @click="runManualOneClickFetch('all')" :disabled="manualOneClickFetchRunning || fetchingData || ctripConfigListLoading || meituanConfigListLoading" class="inline-flex items-center justify-center rounded-lg border border-gray-900 bg-gray-900 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-gray-800 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none">
                                                     <i :class="manualOneClickFetchRunning === 'all' ? 'fas fa-spinner fa-spin mr-1.5' : 'fas fa-database mr-1.5'"></i>双平台一键获取

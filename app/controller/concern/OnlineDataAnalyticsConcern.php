@@ -127,13 +127,16 @@ trait OnlineDataAnalyticsConcern
         $aggregated = $this->aggregateByDimension($data, $dimension);
 
         // 计算汇总统计 - 基于聚合数据
-        $totalAmount = array_sum(array_column($aggregated, 'amount'));
-        $totalQuantity = array_sum(array_column($aggregated, 'quantity'));
-        $totalDataValue = array_sum(array_column($aggregated, 'data_value'));
-        $totalOrders = array_sum(array_column($aggregated, 'book_order_num'));
+        $totalAmount = $this->sumNullableAggregateMetric($aggregated, 'amount');
+        $totalQuantity = $this->sumNullableAggregateMetric($aggregated, 'quantity');
+        $totalDataValue = $this->sumNullableAggregateMetric($aggregated, 'data_value');
+        $totalOrders = $this->sumNullableAggregateMetric($aggregated, 'book_order_num');
         $periodCount = count($aggregated);
 
-        $validScores = array_filter(array_column($data, 'comment_score'), fn($s) => $s > 0);
+        $validScores = array_values(array_filter(
+            array_column($data, 'comment_score'),
+            static fn($score): bool => is_numeric($score) && (float)$score > 0
+        ));
         $latestDataDate = '';
         foreach ($data as $row) {
             $rowDate = (string)($row['data_date'] ?? '');
@@ -147,14 +150,22 @@ trait OnlineDataAnalyticsConcern
             'total_data_value' => $totalDataValue,
             'total_orders' => $totalOrders,
             'total_record_count' => count($data),
-            'avg_score' => count($validScores) > 0 ? array_sum($validScores) / count($validScores) : 0,
+            'avg_score' => $validScores !== [] ? array_sum($validScores) / count($validScores) : null,
             'period_count' => $periodCount, // 维度周期数（天数/周数/月数）
             'hotel_count' => count(array_unique(array_filter(array_map([$this, 'onlineDataHotelKey'], $data), static fn($value): bool => $value !== ''))),
-            'avg_amount' => $periodCount > 0 ? $totalAmount / $periodCount : 0, // 平均每周期销售额
-            'avg_quantity' => $periodCount > 0 ? $totalQuantity / $periodCount : 0, // 平均每周期房晚数
-            'avg_data_value' => $periodCount > 0 ? $totalDataValue / $periodCount : 0, // 平均每周期月间夜
+            'avg_amount' => $this->averageNullableAggregateMetric($aggregated, 'amount', $totalAmount),
+            'avg_quantity' => $this->averageNullableAggregateMetric($aggregated, 'quantity', $totalQuantity),
+            'avg_data_value' => $this->averageNullableAggregateMetric($aggregated, 'data_value', $totalDataValue),
             'latest_data_date' => $latestDataDate,
         ];
+        $summary['data_gaps'] = array_keys(array_filter([
+            'total_amount' => $totalAmount === null,
+            'total_quantity' => $totalQuantity === null,
+            'total_data_value' => $totalDataValue === null,
+            'total_orders' => $totalOrders === null,
+            'avg_score' => $validScores === [],
+        ]));
+        $summary['data_status'] = $summary['data_gaps'] === [] ? 'ok' : 'partial';
 
         // 图表数据
         $chartData = $this->buildChartData($aggregated, $dimension);
@@ -188,21 +199,25 @@ trait OnlineDataAnalyticsConcern
             if (!isset($result[$key])) {
                 $result[$key] = [
                     'period' => $key,
-                    'amount' => 0,
-                    'quantity' => 0,
-                    'data_value' => 0,
-                    'book_order_num' => 0,
+                    'amount' => null,
+                    'quantity' => null,
+                    'data_value' => null,
+                    'book_order_num' => null,
+                    'amount_seen_count' => 0,
+                    'quantity_seen_count' => 0,
+                    'data_value_seen_count' => 0,
+                    'book_order_num_seen_count' => 0,
                     'comment_score_sum' => 0,
                     'comment_score_count' => 0,
                     'record_count' => 0,
                 ];
             }
 
-            $result[$key]['amount'] += floatval($item['amount']);
-            $result[$key]['quantity'] += intval($item['quantity']);
-            $result[$key]['data_value'] += floatval($item['data_value'] ?? 0);
-            $result[$key]['book_order_num'] += intval($item['book_order_num']);
-            if (floatval($item['comment_score']) > 0) {
+            $this->accumulateNullableAggregateMetric($result[$key], $item, 'amount');
+            $this->accumulateNullableAggregateMetric($result[$key], $item, 'quantity', true);
+            $this->accumulateNullableAggregateMetric($result[$key], $item, 'data_value');
+            $this->accumulateNullableAggregateMetric($result[$key], $item, 'book_order_num', true);
+            if (is_numeric($item['comment_score'] ?? null) && (float)$item['comment_score'] > 0) {
                 $result[$key]['comment_score_sum'] += floatval($item['comment_score']);
                 $result[$key]['comment_score_count']++;
             }
@@ -213,11 +228,75 @@ trait OnlineDataAnalyticsConcern
         foreach ($result as &$item) {
             $item['avg_comment_score'] = $item['comment_score_count'] > 0
                 ? round($item['comment_score_sum'] / $item['comment_score_count'], 2)
-                : 0;
+                : null;
+            $item['metric_observation_counts'] = [
+                'amount' => $item['amount_seen_count'],
+                'quantity' => $item['quantity_seen_count'],
+                'data_value' => $item['data_value_seen_count'],
+                'book_order_num' => $item['book_order_num_seen_count'],
+                'comment_score' => $item['comment_score_count'],
+            ];
+            $item['data_gaps'] = array_keys(array_filter([
+                'amount' => $item['amount_seen_count'] === 0,
+                'quantity' => $item['quantity_seen_count'] === 0,
+                'data_value' => $item['data_value_seen_count'] === 0,
+                'book_order_num' => $item['book_order_num_seen_count'] === 0,
+                'comment_score' => $item['comment_score_count'] === 0,
+            ]));
+            $item['data_status'] = $item['data_gaps'] === [] ? 'ok' : 'partial';
+            unset(
+                $item['amount_seen_count'],
+                $item['quantity_seen_count'],
+                $item['data_value_seen_count'],
+                $item['book_order_num_seen_count']
+            );
         }
 
         ksort($result);
         return array_values($result);
+    }
+
+    private function accumulateNullableAggregateMetric(array &$bucket, array $row, string $field, bool $integer = false): void
+    {
+        $value = $row[$field] ?? null;
+        if ($value === null || $value === '' || !is_numeric($value)) {
+            return;
+        }
+        $seenField = $field . '_seen_count';
+        if (($bucket[$seenField] ?? 0) === 0) {
+            $bucket[$field] = $integer ? 0 : 0.0;
+        }
+        $bucket[$field] += $integer ? (int)$value : (float)$value;
+        $bucket[$seenField]++;
+    }
+
+    private function sumNullableAggregateMetric(array $rows, string $field): int|float|null
+    {
+        $sum = 0.0;
+        $seen = false;
+        foreach ($rows as $row) {
+            $value = $row[$field] ?? null;
+            if ($value === null || $value === '' || !is_numeric($value)) {
+                continue;
+            }
+            $sum += (float)$value;
+            $seen = true;
+        }
+        return $seen ? $sum : null;
+    }
+
+    private function averageNullableAggregateMetric(array $rows, string $field, int|float|null $total): ?float
+    {
+        if ($total === null) {
+            return null;
+        }
+        $observedPeriods = count(array_filter(
+            $rows,
+            static fn(array $row): bool => array_key_exists($field, $row)
+                && $row[$field] !== null
+                && is_numeric($row[$field])
+        ));
+        return $observedPeriods > 0 ? (float)$total / $observedPeriods : null;
     }
 
     /**
@@ -236,7 +315,10 @@ trait OnlineDataAnalyticsConcern
             'datasets' => [
                 [
                     'label' => '销售额',
-                    'data' => array_map('round', $amounts, array_fill(0, count($amounts), 2)),
+                    'data' => array_map(
+                        static fn($value): ?float => is_numeric($value) ? round((float)$value, 2) : null,
+                        $amounts
+                    ),
                     'borderColor' => 'rgb(59, 130, 246)',
                     'backgroundColor' => 'rgba(59, 130, 246, 0.1)',
                     'yAxisID' => 'y',
@@ -319,21 +401,48 @@ trait OnlineDataAnalyticsConcern
                     'hotel_id' => $hotelId,
                     'hotel_name' => $item['hotel_name'] ?: '未知酒店',
                     'period' => $periodKey,
-                    'amount' => 0,
-                    'quantity' => 0,
-                    'book_order_num' => 0,
+                    'amount' => null,
+                    'quantity' => null,
+                    'book_order_num' => null,
+                    'amount_seen_count' => 0,
+                    'quantity_seen_count' => 0,
+                    'book_order_num_seen_count' => 0,
                     'record_count' => 0,
                 ];
             }
 
-            $hotels[$key]['amount'] += floatval($item['amount']);
-            $hotels[$key]['quantity'] += intval($item['quantity']);
-            $hotels[$key]['book_order_num'] += intval($item['book_order_num']);
+            $this->accumulateNullableAggregateMetric($hotels[$key], $item, 'amount');
+            $this->accumulateNullableAggregateMetric($hotels[$key], $item, 'quantity', true);
+            $this->accumulateNullableAggregateMetric($hotels[$key], $item, 'book_order_num', true);
             $hotels[$key]['record_count']++;
         }
 
+        foreach ($hotels as &$hotel) {
+            $hotel['metric_observation_counts'] = [
+                'amount' => $hotel['amount_seen_count'],
+                'quantity' => $hotel['quantity_seen_count'],
+                'book_order_num' => $hotel['book_order_num_seen_count'],
+            ];
+            $hotel['data_gaps'] = array_keys(array_filter([
+                'amount' => $hotel['amount_seen_count'] === 0,
+                'quantity' => $hotel['quantity_seen_count'] === 0,
+                'book_order_num' => $hotel['book_order_num_seen_count'] === 0,
+            ]));
+            $hotel['data_status'] = $hotel['data_gaps'] === [] ? 'ok' : 'partial';
+            unset($hotel['amount_seen_count'], $hotel['quantity_seen_count'], $hotel['book_order_num_seen_count']);
+        }
+        unset($hotel);
+
         // 按间夜数排序
-        usort($hotels, fn($a, $b) => $b['quantity'] <=> $a['quantity']);
+        usort($hotels, static function (array $left, array $right): int {
+            if ($left['quantity'] === null) {
+                return $right['quantity'] === null ? 0 : 1;
+            }
+            if ($right['quantity'] === null) {
+                return -1;
+            }
+            return $right['quantity'] <=> $left['quantity'];
+        });
 
         return array_slice($hotels, 0, 10);
     }

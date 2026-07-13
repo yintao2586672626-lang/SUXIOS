@@ -1,4 +1,41 @@
 window.SUXI_DUAL_OTA_HOME = (() => {
+    const normalizeDualOtaContextValue = value => String(value || '').trim();
+
+    const buildDualOtaConnectionRows = (readyPlatforms = []) => {
+        const ready = new Set((Array.isArray(readyPlatforms) ? readyPlatforms : [])
+            .map(normalizeDualOtaContextValue)
+            .filter(Boolean));
+        return [
+            { platform: 'ctrip', name: '携程', status: ready.has('ctrip') ? 'connected' : 'disconnected', label: '携程' },
+            { platform: 'meituan', name: '美团', status: ready.has('meituan') ? 'connected' : 'disconnected', label: '美团' },
+            { platform: 'external', name: '外部市场', status: 'disabled', label: '外部未接' },
+        ];
+    };
+
+    const hasAllDualOtaConnections = (connections = []) => {
+        const rows = Array.isArray(connections) ? connections : [];
+        return ['ctrip', 'meituan'].every(platform => rows.some(row => (
+            normalizeDualOtaContextValue(row?.platform) === platform && row?.status === 'connected'
+        )));
+    };
+
+    const resolveDualOtaBoundHotelRow = (rows = [], systemHotelId = '') => {
+        const selectedId = normalizeDualOtaContextValue(systemHotelId);
+        if (!selectedId) return null;
+        return (Array.isArray(rows) ? rows : []).find(row => [
+            row?.systemHotelId,
+            row?.system_hotel_id,
+            row?.system_hotel_id_text,
+        ].some(value => normalizeDualOtaContextValue(value) === selectedId)) || null;
+    };
+
+    const isDualOtaWorkbenchRequestCurrent = (requestContext = {}, currentContext = {}) => (
+        Number(requestContext.seq || 0) > 0
+        && Number(requestContext.seq || 0) === Number(currentContext.activeSeq || 0)
+        && normalizeDualOtaContextValue(requestContext.hotelId) === normalizeDualOtaContextValue(currentContext.hotelId)
+        && normalizeDualOtaContextValue(requestContext.range) === normalizeDualOtaContextValue(currentContext.range)
+    );
+
     const buildPendingMarketMetrics = (platformLabel, rankLabel) => ([
         { label: '营收', value: '待接入', note: `${platformLabel}${rankLabel}待接入` },
         { label: '订单', value: '待接入', note: `${platformLabel}${rankLabel}待接入` },
@@ -102,11 +139,7 @@ window.SUXI_DUAL_OTA_HOME = (() => {
             pageTitle: '',
             subtitle: '',
         },
-        connections: [
-            { name: '携程', status: 'connected', label: '携程' },
-            { name: '美团', status: 'connected', label: '美团' },
-            { name: '外部市场', status: 'disabled', label: '外部未接' },
-        ],
+        connections: buildDualOtaConnectionRows(),
         timeRanges: [
             { value: 'realtime', label: '今日实时' },
             { value: 'yesterday', label: '昨日' },
@@ -446,5 +479,9 @@ window.SUXI_DUAL_OTA_HOME = (() => {
     return {
         dashboardData,
         cloneDashboardData,
+        buildDualOtaConnectionRows,
+        hasAllDualOtaConnections,
+        resolveDualOtaBoundHotelRow,
+        isDualOtaWorkbenchRequestCurrent,
     };
 })();

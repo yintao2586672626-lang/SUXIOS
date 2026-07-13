@@ -118,7 +118,7 @@ const codeChecks = [
   ['app/service/OperationManagementService.php', 'buildExecutionFlowSummary', 'operation execution summary'],
   ['database/migrations/20260526_create_operation_execution_loop_tables.sql', 'operation_execution_intents', 'operation intent table'],
   ['database/migrations/20260526_create_operation_execution_loop_tables.sql', 'operation_execution_evidence', 'operation evidence table'],
-  ['public/index.html', 'operationExecutionFlow', 'operation execution UI'],
+  ['public/app-main.js', 'operationExecutionFlow', 'operation execution UI'],
   ['app/service/ExpansionService.php', 'saveRecord', 'expansion persistence'],
   ['app/service/TransferDecisionService.php', 'saveRecord', 'transfer persistence'],
   ['app/service/QuantSimulationService.php', 'quant_simulation_records', 'quant simulation persistence'],

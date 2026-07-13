@@ -450,6 +450,27 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
         self::assertStringContainsString('Profile', $reusableMeituan['message']);
     }
 
+    public function testInteractiveCtripProfileFetchKeepsDataSourceProvenance(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/AutoFetchConcern.php');
+        $start = strpos($source, 'private function executeCtripBrowserProfileAutoFetch');
+        $end = strpos($source, 'private function saveCtripBrowserProfilePayload', $start === false ? 0 : $start);
+
+        self::assertNotFalse($start);
+        self::assertNotFalse($end);
+        $methodSource = substr($source, (int)$start, (int)$end - (int)$start);
+        $loadPosition = strpos($methodSource, '$profileSource = $this->loadProfileSessionSource');
+        $interactiveGatePosition = strpos($methodSource, 'if (!$interactiveBrowser)');
+
+        self::assertNotFalse($loadPosition);
+        self::assertNotFalse($interactiveGatePosition);
+        self::assertLessThan($interactiveGatePosition, $loadPosition);
+        self::assertStringContainsString(
+            '$profileDataSourceId = (int)($profileSource[\'id\'] ?? 0);',
+            $methodSource
+        );
+    }
+
     public function testDataSyncSurfacesStableProfileReuseFailureCodes(): void
     {
         $service = new PlatformDataSyncService();

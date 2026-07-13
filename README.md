@@ -76,7 +76,7 @@
 - 数据库：MySQL
 - 默认数据库名：hotelx
 - Web 根目录：public
-- 前端：public/index.html 单文件 Vue 3 CDN 页面
+- 前端：Vue 3 runtime-only；业务模板按页面拆分在 `resources/frontend/templates/fragments/`，`public/index.html` 仅保留启动壳
 - 一键启动：start-hotel.bat
 
 ## 快速启动
@@ -104,6 +104,20 @@ http://127.0.0.1:8080/
 ```text
 http://127.0.0.1:8080/api/health
 ```
+
+## 前端模板维护
+
+- 业务页面模板以 `resources/frontend/templates/fragments/*.html` 为唯一编辑源，加载顺序由 `resources/frontend/templates/manifest.json` 固定。
+- `resources/frontend/app-template.html` 是由业务分片生成的兼容快照，不应独立修改；`public/app-render.min.js` 是预编译运行产物。
+- 修改业务分片后依次运行：
+
+```powershell
+node scripts/sync_frontend_template_snapshot.mjs
+npm.cmd run build:frontend-template
+npm.cmd run verify:frontend-template
+```
+
+如果发现旧工具直接改动了兼容快照，先运行 `node scripts/migrate_frontend_template_fragments.mjs --check` 检查冲突；仅在人工确认需要以该快照覆盖分片后再使用 `--force`。
 
 ## 数据库
 

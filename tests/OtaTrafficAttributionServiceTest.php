@@ -51,4 +51,16 @@ final class OtaTrafficAttributionServiceTest extends TestCase
             'compare_type' => '',
         ], 'meituan'));
     }
+
+    public function testP0HotelScopeIncludesSourcesBindingsAndStoredOwnTraffic(): void
+    {
+        self::assertSame(
+            [7, 61, 64, 80, 94, 107, 133],
+            OtaTrafficAttributionService::mergeP0HotelScopeIds(
+                [64, 80, 94, 107],
+                [7, 61, 64, 80, 94, 107],
+                [64, 80, 107, 133]
+            )
+        );
+    }
 }

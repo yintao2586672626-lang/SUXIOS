@@ -1576,7 +1576,7 @@ test('Meituan ranking commits only the complete candidate for each retry task', 
     requestFetch: async body => {
       const attempt = (requestCounts.get(body.rank_type) || 0) + 1;
       requestCounts.set(body.rank_type, attempt);
-      const complete = body.rank_type !== 'P_RZ' || attempt === 2;
+      const complete = body.rank_type !== 'P_XS' || attempt === 2;
       const requiresAbsolute = ['P_RZ', 'P_XS'].includes(body.rank_type);
       return {
         code: 200,
@@ -1619,8 +1619,8 @@ test('Meituan ranking commits only the complete candidate for each retry task', 
     useDisplayModel: data => data.display_hotels || [],
   });
 
-  assert.equal(requestCounts.get('P_RZ'), 2);
-  assert.deepEqual(committed.filter(item => item.rank_type === 'P_RZ').map(item => item.candidate_id), ['P_RZ-2']);
+  assert.equal(requestCounts.get('P_XS'), 2);
+  assert.deepEqual(committed.filter(item => item.rank_type === 'P_XS').map(item => item.candidate_id), ['P_XS-2']);
   assert.equal(committed.length, 4);
   assert.equal(result.totalSavedCount, 80);
 });
@@ -1870,7 +1870,7 @@ test('Meituan today ranking stops each rank task as soon as its data is complete
       const count = (requestCounts.get(body.rank_type) || 0) + 1;
       requestCounts.set(body.rank_type, count);
       const completeAt = {
-        P_RZ: 10,
+        P_RZ: 1,
         P_XS: 2,
         P_ZH: 1,
         P_LL: 2,
@@ -1882,27 +1882,27 @@ test('Meituan today ranking stops each rank task as soon as its data is complete
   });
 
   assert.equal(result.status, 'success');
-  assert.equal(requestCounts.get('P_RZ'), 10);
+  assert.equal(requestCounts.get('P_RZ'), 1);
   assert.equal(requestCounts.get('P_XS'), 2);
   assert.equal(requestCounts.get('P_ZH'), 1);
   assert.equal(requestCounts.get('P_LL'), 2);
   const stayResult = result.results.find(item => item.rankType === 'P_RZ');
-  assert.equal(stayResult.attemptCount, 10);
-  assert.equal(stayResult.retryCount, 9);
-  assert.equal(stayResult.maxAttempts, 10);
+  assert.equal(stayResult.attemptCount, 1);
+  assert.equal(stayResult.retryCount, 0);
+  assert.equal(stayResult.maxAttempts, 1);
   assert.equal(stayResult.rankDataComplete, true);
   assert.equal(stayResult.retryExhausted, false);
   assert.equal(stayResult.data.data.peerRankData[0].roundRanks[1].percent, 100);
   const salesResult = result.results.find(item => item.rankType === 'P_XS');
   assert.equal(salesResult.attemptCount, 2);
-  assert.equal(salesResult.maxAttempts, 10);
+  assert.equal(salesResult.maxAttempts, 3);
   assert.equal(salesResult.rankDataComplete, true);
   const conversionResult = result.results.find(item => item.rankType === 'P_ZH');
   assert.equal(conversionResult.attemptCount, 1);
-  assert.equal(conversionResult.maxAttempts, 5);
+  assert.equal(conversionResult.maxAttempts, 3);
   const trafficResult = result.results.find(item => item.rankType === 'P_LL');
   assert.equal(trafficResult.attemptCount, 2);
-  assert.equal(trafficResult.maxAttempts, 5);
+  assert.equal(trafficResult.maxAttempts, 3);
   const stayRequests = requestBodies.filter(body => body.rank_type === 'P_RZ');
   assert.equal(stayRequests[0].include_self_trade_metrics, true);
   stayRequests.slice(1).forEach(body => {
@@ -1911,13 +1911,14 @@ test('Meituan today ranking stops each rank task as soon as its data is complete
     assert.equal(body.include_self_business_metrics, false);
   });
   assert.match(html, /result\.rankDataComplete/);
-  assert.match(html, /result\.dateRangeName.*第.*attemptCount.*轮已抓完整/);
+  assert.match(html, /result\.rankDataMode === 'derived'.*原始字段完整/s);
   assert.match(html, /result\.retryExhausted/);
   assert.match(html, /仍未完整/);
 });
 
-test('Meituan today stay and sales do not mark percent-only rows as complete', async () => {
+test('Meituan today stay accepts server-approved self-only data while sales stays strict', async () => {
   const requestCounts = new Map();
+  const committed = [];
   const resultWrites = [];
   const normalRetryDelays = [];
   const result = await meituanStaticApi.runMeituanBatchFetchFlow({
@@ -1935,7 +1936,12 @@ test('Meituan today stay and sales do not mark percent-only rows as complete', a
       return {
         code: 200,
         data: {
-          saved_count: 20,
+          saved_count: 0,
+          rank_candidate: body.rank_type === 'P_RZ'
+            ? { candidate_id: 'P_RZ-self-only', value_mode: 'self_only', rank_type: 'P_RZ' }
+            : (['P_ZH', 'P_LL'].includes(body.rank_type)
+              ? { candidate_id: `${body.rank_type}-raw`, value_mode: 'raw', rank_type: body.rank_type }
+              : null),
           data: {
             status: 0,
             data: {
@@ -1955,73 +1961,86 @@ test('Meituan today stay and sales do not mark percent-only rows as complete', a
         },
       };
     },
+    requestCommit: async body => {
+      committed.push({ ...body });
+      return { code: 200, data: { saved_count: 22, persistence_status: 'readback_verified' } };
+    },
     requestDisplayModel: async () => ({ code: 200, data: { display_hotels: [] } }),
     useDisplayModel: data => data.display_hotels || [],
     setOnlineDataResult: value => resultWrites.push(JSON.parse(JSON.stringify(value))),
     waitForRetry: async delayMs => { normalRetryDelays.push(delayMs); },
   });
 
-  assert.equal(requestCounts.get('P_RZ'), 10);
-  assert.equal(requestCounts.get('P_XS'), 10);
+  assert.equal(requestCounts.get('P_RZ'), 1);
+  assert.equal(requestCounts.get('P_XS'), 3);
   assert.equal(requestCounts.get('P_ZH'), 1);
   assert.equal(requestCounts.get('P_LL'), 1);
   const initialStay = resultWrites.find(Array.isArray)?.find(item => item.rankType === 'P_RZ');
   assert.equal(initialStay?.attemptCount, 0);
-  assert.equal(initialStay?.maxAttempts, 10);
-  ['P_RZ', 'P_XS'].forEach(rankType => {
-    const rankResult = result.results.find(item => item.rankType === rankType);
-    assert.equal(rankResult.rankDataComplete, false);
-    assert.equal(rankResult.retryExhausted, true);
-  });
-  const stayProgress = resultWrites
+  assert.equal(initialStay?.maxAttempts, 1);
+  const stayResult = result.results.find(item => item.rankType === 'P_RZ');
+  assert.equal(stayResult.rankDataComplete, true);
+  assert.equal(stayResult.rankDataMode, 'self_only');
+  assert.equal(stayResult.attemptCount, 1);
+  assert.equal(stayResult.maxAttempts, 1);
+  assert.equal(stayResult.savedCount, 22);
+  const salesResult = result.results.find(item => item.rankType === 'P_XS');
+  assert.equal(salesResult.rankDataComplete, false);
+  assert.equal(salesResult.retryExhausted, true);
+  assert.equal(salesResult.attemptCount, 3);
+  assert.equal(salesResult.maxAttempts, 3);
+  const salesProgress = resultWrites
     .flatMap(value => Array.isArray(value) ? value : [])
-    .filter(item => item.rankType === 'P_RZ' && item.status === 'fetching' && item.attemptCount > 0);
-  assert.equal(stayProgress.at(-1)?.attemptCount, 10);
-  assert.equal(stayProgress.at(-1)?.maxAttempts, 10);
+    .filter(item => item.rankType === 'P_XS' && item.status === 'fetching' && item.attemptCount > 0);
+  assert.equal(salesProgress.at(-1)?.attemptCount, 3);
+  assert.equal(salesProgress.at(-1)?.maxAttempts, 3);
+  assert.equal(committed.some(item => item.value_mode === 'self_only'), true);
   assert.match(html, /isMeituanPendingResult\(result\).*result\.attemptCount.*result\.maxAttempts/s);
   assert.match(html, /result\.maxAttempts.*等待第 1 轮返回/s);
+  assert.match(html, /rankDataMode === 'self_only'.*同行实时数值未开放/s);
   assert.equal(normalRetryDelays.length, 0);
   assert.equal(result.status, 'partial');
 });
 
 test('Meituan fetch presentation exposes live rounds and truthful partial health', () => {
   const progress = meituanStaticApi.buildMeituanFetchPresentation([
-    { rankType: 'P_RZ', status: 'fetching', attemptCount: 6, maxAttempts: 10, rankDataComplete: false },
-    { rankType: 'P_XS', status: 'fetching', attemptCount: 5, maxAttempts: 10, rankDataComplete: false },
-    { rankType: 'P_ZH', status: 'success', attemptCount: 1, maxAttempts: 5, rankDataComplete: true },
-    { rankType: 'P_LL', status: 'success', attemptCount: 1, maxAttempts: 5, rankDataComplete: true },
+    { rankType: 'P_RZ', status: 'fetching', attemptCount: 0, maxAttempts: 1, rankDataComplete: false },
+    { rankType: 'P_XS', status: 'fetching', attemptCount: 2, maxAttempts: 3, rankDataComplete: false },
+    { rankType: 'P_ZH', status: 'success', attemptCount: 1, maxAttempts: 3, rankDataComplete: true },
+    { rankType: 'P_LL', status: 'success', attemptCount: 1, maxAttempts: 3, rankDataComplete: true },
   ]);
   assert.equal(progress.inProgress, true);
   assert.equal(progress.completedCount, 2);
   assert.equal(progress.returnedCount, 2);
   assert.equal(progress.totalCount, 4);
-  assert.equal(progress.buttonText, '获取中 · 已返回2/4榜 · 第6/10轮');
+  assert.equal(progress.buttonText, '获取中 · 已返回2/4榜 · 第2/3轮');
 
   const partialResults = [
-    { rankType: 'P_RZ', status: 'incomplete', attemptCount: 10, maxAttempts: 10, rankDataComplete: false, retryExhausted: true, error: '未完整' },
-    { rankType: 'P_XS', status: 'incomplete', attemptCount: 10, maxAttempts: 10, rankDataComplete: false, retryExhausted: true, error: '未完整' },
-    { rankType: 'P_ZH', status: 'success', attemptCount: 1, maxAttempts: 5, rankDataComplete: true },
-    { rankType: 'P_LL', status: 'success', attemptCount: 1, maxAttempts: 5, rankDataComplete: true },
+    { rankType: 'P_RZ', status: 'success', attemptCount: 1, maxAttempts: 1, rankDataComplete: true, rankDataMode: 'self_only' },
+    { rankType: 'P_XS', status: 'incomplete', attemptCount: 3, maxAttempts: 3, rankDataComplete: false, retryExhausted: true, error: '未完整' },
+    { rankType: 'P_ZH', status: 'success', attemptCount: 1, maxAttempts: 3, rankDataComplete: true },
+    { rankType: 'P_LL', status: 'success', attemptCount: 1, maxAttempts: 3, rankDataComplete: true },
   ];
   const partial = meituanStaticApi.buildMeituanFetchPresentation(partialResults);
   assert.equal(partial.inProgress, false);
   assert.equal(partial.hasErrors, true);
   assert.equal(partial.isPartial, true);
-  assert.equal(partial.completedCount, 2);
+  assert.equal(partial.completedCount, 3);
+  assert.equal(partial.selfOnlyCount, 1);
 
   const cards = meituanStaticApi.applyMeituanFetchHealthToCards([
     { key: 'rankHealth', label: '榜单健康度', value: '4/4', level: '四类榜单' },
     { key: 'hotelCount', label: '酒店总数', value: '10' },
   ], partial);
-  assert.equal(cards[0].value, '2/4');
+  assert.equal(cards[0].value, '3/4');
   assert.equal(cards[0].level, '本次部分返回');
   assert.equal(cards[1].value, '10');
 
   const insights = meituanStaticApi.applyMeituanFetchHealthToCards([
     { key: 'rank-health', label: '榜单健康度', value: '4/4', note: '四类榜单均有返回', className: 'old' },
   ], partial);
-  assert.equal(insights[0].value, '2/4');
-  assert.equal(insights[0].note, '本次 2/4 类榜单字段完整，其余保持缺失');
+  assert.equal(insights[0].value, '3/4');
+  assert.equal(insights[0].note, '本次 3/4 类榜单可用，其余保持缺失');
   assert.match(insights[0].className, /amber/);
 
   const healthRows = meituanStaticApi.applyMeituanFetchHealthToRows([
@@ -2033,10 +2052,10 @@ test('Meituan fetch presentation exposes live rounds and truthful partial health
   assert.deepEqual(
     JSON.parse(JSON.stringify(healthRows.map(row => [row.key, row.status, row.statusText]))),
     [
-      ['P_RZ', 'incomplete', '未完整'],
+      ['P_RZ', 'ok', '本店实时值可用'],
       ['P_XS', 'incomplete', '未完整'],
-      ['P_LL', 'ok', '已完整'],
-      ['P_ZH', 'ok', '已完整'],
+      ['P_LL', 'ok', '原始完整'],
+      ['P_ZH', 'ok', '原始完整'],
     ]
   );
   assert.match(html, /\{\{ meituanFetchButtonText \}\}/);
@@ -2059,15 +2078,15 @@ test('Meituan retry preserves a non-missing self metric status from an earlier a
       const count = (requestCounts.get(body.rank_type) || 0) + 1;
       requestCounts.set(body.rank_type, count);
       const needsAbsoluteValues = ['P_RZ', 'P_XS'].includes(body.rank_type);
-      const absoluteReady = body.rank_type !== 'P_RZ' || count >= 2;
+      const absoluteReady = body.rank_type !== 'P_XS' || count >= 2;
       return {
         code: 200,
         data: {
           saved_count: 20,
-          self_metric_values: body.rank_type === 'P_RZ' && count === 1
-            ? { roomNights: 3, roomRevenue: 900 }
+          self_metric_values: body.rank_type === 'P_XS' && count === 1
+            ? { salesRoomNights: 3, sales: 900 }
             : {},
-          self_metric_status: body.rank_type === 'P_RZ' && count === 1 ? 'trade_returned' : 'missing',
+          self_metric_status: body.rank_type === 'P_XS' && count === 1 ? 'trade_returned' : 'missing',
           data: {
             status: 0,
             data: {
@@ -2101,12 +2120,12 @@ test('Meituan retry preserves a non-missing self metric status from an earlier a
     useDisplayModel: data => data.display_hotels || [],
   });
 
-  const stayResult = result.results.find(item => item.rankType === 'P_RZ');
-  assert.equal(stayResult.attemptCount, 2);
-  assert.equal(stayResult.rankDataComplete, true);
-  assert.equal(stayResult.selfMetricStatus, 'trade_returned');
-  assert.equal(stayResult.selfMetricValues.roomNights, 3);
-  assert.equal(stayResult.selfMetricValues.roomRevenue, 900);
+  const salesResult = result.results.find(item => item.rankType === 'P_XS');
+  assert.equal(salesResult.attemptCount, 2);
+  assert.equal(salesResult.rankDataComplete, true);
+  assert.equal(salesResult.selfMetricStatus, 'trade_returned');
+  assert.equal(salesResult.selfMetricValues.salesRoomNights, 3);
+  assert.equal(salesResult.selfMetricValues.sales, 900);
 });
 
 test('Meituan today ranking retries transient platform errors with spacing', async () => {
@@ -2125,7 +2144,7 @@ test('Meituan today ranking retries transient platform errors with spacing', asy
     requestFetch: async body => {
       const count = (requestCounts.get(body.rank_type) || 0) + 1;
       requestCounts.set(body.rank_type, count);
-      if (body.rank_type === 'P_RZ' && count === 1) {
+      if (body.rank_type === 'P_XS' && count === 1) {
         throw new Error('请求失败: 美团API返回错误: 状态码: 33202');
       }
       const requiresAbsolute = ['P_RZ', 'P_XS'].includes(body.rank_type);
@@ -2157,13 +2176,13 @@ test('Meituan today ranking retries transient platform errors with spacing', asy
     useDisplayModel: data => data.display_hotels || [],
   });
 
-  assert.equal(requestCounts.get('P_RZ'), 2);
-  assert.equal(result.results.find(item => item.rankType === 'P_RZ')?.rankDataComplete, true);
+  assert.equal(requestCounts.get('P_XS'), 2);
+  assert.equal(result.results.find(item => item.rankType === 'P_XS')?.rankDataComplete, true);
   assert.equal(retryDelays.length, 1);
   assert.ok(retryDelays[0] >= 500);
 });
 
-test('Meituan today stay and sales rankings stop after 10 incomplete attempts and report partial', async () => {
+test('Meituan today sales ranking stops after 3 incomplete attempts and reports partial', async () => {
   const requestCounts = new Map();
   const makeResponse = (rankType, positive) => ({
     code: 200,
@@ -2219,14 +2238,14 @@ test('Meituan today stay and sales rankings stop after 10 incomplete attempts an
   });
 
   assert.equal(requestCounts.get('P_RZ'), 1);
-  assert.equal(requestCounts.get('P_XS'), 10);
+  assert.equal(requestCounts.get('P_XS'), 3);
   assert.equal(requestCounts.get('P_ZH'), 1);
   assert.equal(requestCounts.get('P_LL'), 1);
   const salesResult = result.results.find(item => item.rankType === 'P_XS');
-  assert.equal(salesResult.attemptCount, 10);
+  assert.equal(salesResult.attemptCount, 3);
   assert.equal(salesResult.rankDataComplete, false);
   assert.equal(salesResult.retryExhausted, true);
-  assert.match(salesResult.error, /10.*仍未完整/);
+  assert.match(salesResult.error, /3.*仍未完整/);
   assert.equal(result.status, 'partial');
 });
 
@@ -2288,11 +2307,94 @@ test('Meituan historical ranking stops when complete and retries incomplete data
   assert.equal(trafficResult.rankDataComplete, false);
   assert.equal(trafficResult.retryExhausted, true);
   assert.match(trafficResult.error, /昨日.*3.*仍未完整/);
-  assert.match(html, /result\.dateRangeName.*第.*attemptCount.*轮已抓完整/);
+  assert.match(html, /result\.rankDataMode === 'derived'.*原始字段完整/s);
   assert.match(html, /result\.dateRangeName.*榜单仍未完整/);
 });
 
-test('Meituan historical percent-only stay and sales stop early as partial instead of false complete', async () => {
+test('Meituan historical percent-only stay and sales save as derived when the server approves self anchors', async () => {
+  const requestCounts = new Map();
+  const committed = [];
+  const result = await meituanStaticApi.runMeituanBatchFetchFlow({
+    getForm: () => ({ hotelId: 58, poiId: 'self', dateRanges: ['1'] }),
+    getSelectedConfig: () => ({
+      id: 'meituan-58',
+      config_id: 'meituan-58',
+      hotel_id: 58,
+      has_cookies: true,
+      credential_status: 'ready',
+      configuration_verified: true,
+    }),
+    requestFetch: async body => {
+      requestCounts.set(body.rank_type, (requestCounts.get(body.rank_type) || 0) + 1);
+      return {
+        code: 200,
+        data: {
+          saved_count: 0,
+          rank_candidate: {
+            candidate_id: `${body.rank_type}-derived-candidate`,
+            value_mode: ['P_RZ', 'P_XS'].includes(body.rank_type) ? 'derived' : 'raw',
+            rank_type: body.rank_type,
+            date_range: body.date_range,
+          },
+          self_metric_values: {
+            roomNights: 18,
+            roomRevenue: 1588,
+            salesRoomNights: 22,
+            sales: 1956,
+          },
+          self_metric_status: 'trade_returned',
+          data: {
+            status: 0,
+            data: {
+              peerRankData: [
+                { aiMetricName: `${body.rank_type}_A`, roundRanks: [{ poiId: 'self', rank: 1, dataValue: null, percent: 100 }] },
+                { aiMetricName: `${body.rank_type}_B`, roundRanks: [{ poiId: 'self', rank: 1, dataValue: null, percent: 80 }] },
+              ],
+            },
+          },
+          display_hotels: [{ poiId: 'self', hotelName: 'Self Hotel', isSelf: true }],
+        },
+      };
+    },
+    requestCommit: async body => {
+      committed.push({ ...body });
+      return { code: 200, data: { saved_count: 22, persistence_status: 'readback_verified' } };
+    },
+    requestDisplayModel: async () => ({ code: 200, data: { display_hotels: [{ poiId: 'self', hotelName: 'Self Hotel' }] } }),
+    useDisplayModel: data => data.display_hotels || [],
+  });
+
+  assert.equal(requestCounts.get('P_RZ'), 1);
+  assert.equal(requestCounts.get('P_XS'), 1);
+  assert.equal(requestCounts.get('P_ZH'), 1);
+  assert.equal(requestCounts.get('P_LL'), 1);
+  assert.equal(result.status, 'success');
+  assert.equal(result.totalSavedCount, 88);
+  assert.equal(committed.length, 4);
+  for (const rankType of ['P_RZ', 'P_XS']) {
+    const item = result.results.find(row => row.rankType === rankType);
+    assert.equal(item.rankDataComplete, true);
+    assert.equal(item.rankDataMode, 'derived');
+    assert.equal(item.terminalPartial, undefined);
+    assert.equal(item.savedCount, 22);
+  }
+  for (const rankType of ['P_ZH', 'P_LL']) {
+    assert.equal(result.results.find(row => row.rankType === rankType)?.rankDataComplete, true);
+  }
+  const presentation = meituanStaticApi.buildMeituanFetchPresentation(result.results);
+  assert.equal(presentation.completedCount, 4);
+  assert.equal(presentation.derivedCount, 2);
+  const salesRequest = committed.find(row => row.rank_type === 'P_XS');
+  assert.equal(salesRequest?.value_mode, 'derived');
+  const tasks = meituanStaticApi.buildMeituanBatchFetchTasks({
+    form: { hotelId: 58, dateRanges: ['7'] },
+    configId: 'meituan-58',
+  });
+  assert.equal(tasks.find(task => task.rankType === 'P_XS')?.body.include_self_trade_metrics, true);
+  assert.match(html, /result\.rankDataMode === 'derived'.*本店真实值和平台百分比计算/s);
+});
+
+test('Meituan historical percent-only stay and sales remain partial without approved self anchors', async () => {
   const requestCounts = new Map();
   const result = await meituanStaticApi.runMeituanBatchFetchFlow({
     getForm: () => ({ hotelId: 58, poiId: 'self', dateRanges: ['1'] }),
@@ -2310,6 +2412,9 @@ test('Meituan historical percent-only stay and sales stop early as partial inste
         code: 200,
         data: {
           saved_count: 0,
+          rank_candidate: ['P_ZH', 'P_LL'].includes(body.rank_type)
+            ? { candidate_id: `${body.rank_type}-candidate`, value_mode: 'raw', rank_type: body.rank_type }
+            : null,
           data: {
             status: 0,
             data: {
@@ -2329,17 +2434,12 @@ test('Meituan historical percent-only stay and sales stop early as partial inste
 
   assert.equal(requestCounts.get('P_RZ'), 1);
   assert.equal(requestCounts.get('P_XS'), 1);
-  assert.equal(requestCounts.get('P_ZH'), 1);
-  assert.equal(requestCounts.get('P_LL'), 1);
   assert.equal(result.status, 'partial');
   for (const rankType of ['P_RZ', 'P_XS']) {
     const item = result.results.find(row => row.rankType === rankType);
     assert.equal(item.rankDataComplete, false);
     assert.equal(item.terminalPartial, true);
-    assert.match(item.message, /仅返回排名百分比.*未返回实际数值/);
-  }
-  for (const rankType of ['P_ZH', 'P_LL']) {
-    assert.equal(result.results.find(row => row.rankType === rankType)?.rankDataComplete, true);
+    assert.match(item.message, /仅返回排名百分比.*本店真实值锚点不足.*无法计算并保存/);
   }
   assert.match(html, /result\.terminalPartial.*result\.message/s);
 });
@@ -2442,12 +2542,13 @@ test('Meituan ranking money cells use backend source prefixes', () => {
   assert.match(displayPayload, /display_hotels:\s*displayGroups\.length > 0 \? \[\] : buildMeituanDisplayModelRows/);
   assert.match(displayPayload, /display_groups:\s*displayGroups/);
   assert.match(fetchTasks, /const includeSelfMetrics = rankIndex === 0;/);
-  assert.match(fetchTasks, /include_self_trade_metrics:\s*includeSelfMetrics/);
+  assert.match(fetchTasks, /const includeSelfTradeMetrics = \['P_RZ', 'P_XS'\]\.includes\(rankType\);/);
+  assert.match(fetchTasks, /include_self_trade_metrics:\s*includeSelfTradeMetrics/);
   assert.match(fetchTasks, /include_self_traffic_metrics:\s*includeSelfMetrics/);
   assert.match(fetchTasks, /include_self_business_metrics:\s*includeSelfMetrics/);
 });
 
-test('Meituan batch fetch only requests self metric supplements once per date range', () => {
+test('Meituan batch fetch requests trade anchors for stay and sales while sharing other supplements', () => {
   const tasks = meituanStaticApi.buildMeituanBatchFetchTasks({
     form: {
       url: 'https://eb.meituan.com/api/v1/ebooking/data/rank',
@@ -2465,11 +2566,14 @@ test('Meituan batch fetch only requests self metric supplements once per date ra
   ['1', '7', 'custom'].forEach(dateRange => {
     const rangeTasks = tasks.filter(task => task.dateRange === dateRange);
     assert.equal(rangeTasks.length, 4);
-    assert.equal(rangeTasks.filter(task => task.body.include_self_trade_metrics === true).length, 1);
+    assert.equal(rangeTasks.filter(task => task.body.include_self_trade_metrics === true).length, 2);
     assert.equal(rangeTasks.filter(task => task.body.include_self_traffic_metrics === true).length, 1);
     assert.equal(rangeTasks.filter(task => task.body.include_self_business_metrics === true).length, 1);
-    assert.equal(rangeTasks.find(task => task.body.include_self_trade_metrics === true)?.rankType, 'P_RZ');
-    assert.equal(rangeTasks.filter(task => task.body.include_self_trade_metrics === false).length, 3);
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(rangeTasks.filter(task => task.body.include_self_trade_metrics === true).map(task => task.rankType))),
+      ['P_RZ', 'P_XS']
+    );
+    assert.equal(rangeTasks.filter(task => task.body.include_self_trade_metrics === false).length, 2);
   });
 });
 
@@ -3242,7 +3346,7 @@ test('Form operation support loads after login instead of blocking the login she
   const loadData = sliceFrom('const loadData = async () => {', '\n\n            //');
 
   assert.doesNotMatch(html, /<script\s+src=["']form-operation-support\.js["']/);
-  assert.match(formOperationLoader, /script\.src = formOperationSupportScript;/);
+  assert.match(formOperationLoader, /script\.src = formOperationSupportScript \+ '\?v=' \+ formOperationSupportScriptVersion;/);
   assert.match(formOperationLoader, /window\.SuxiFormOperationSupport\.init\(window\);/);
   assert.match(formOperationLoader, /const shouldDeferFormOperationSupportLoad = \(\) => isCompassDataPage\(\) \|\| isCoreOtaPageVisible\(\);/);
   assert.match(formOperationLoader, /const pageDelay = shouldDeferFormOperationSupportLoad\(\) \? 6400 : 5200;/);

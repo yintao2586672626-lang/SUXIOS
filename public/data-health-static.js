@@ -42,6 +42,183 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
 
     const manualOneClickFetchNowText = (date = new Date()) => date.toLocaleString('zh-CN', { hour12: false });
 
+    const otaConfigTimestampValue = (value = '') => {
+        const text = String(value || '').trim();
+        if (!text) return 0;
+        const parsed = Date.parse(text.includes('T') ? text : text.replace(' ', 'T'));
+        return Number.isFinite(parsed) ? parsed : 0;
+    };
+
+    const otaConfigTimestampText = (value = '', emptyText = '暂无成功入库') => {
+        const text = String(value || '').trim();
+        if (!text) return emptyText;
+        const normalized = text.replace('T', ' ').replace(/\.\d+(?:Z)?$/i, '').replace(/Z$/i, '');
+        return normalized.length >= 16 ? normalized.slice(0, 16) : normalized;
+    };
+
+    const otaConfigCredentialReady = (config = {}) => {
+        const status = String(config?.credential_status || '').trim().toLowerCase();
+        if (['revoked', 'missing', 'blocked', 'migration_required', 'invalid'].includes(status)) return false;
+        if (status === 'ready') return true;
+        return Boolean(config?.has_cookies || String(config?.cookies || '').trim() || config?.has_profile_cookie_source);
+    };
+
+    const otaConfigEffectState = ({
+        config = {},
+        platform = 'ctrip',
+        missingFields = [],
+    } = {}) => {
+        const evidenceStatus = String(config?.collection_evidence_status || '').trim();
+        const hasHistoricalSuccess = Number(config?.stored_platform_row_count || 0) > 0
+            || Boolean(String(config?.latest_platform_success_at || '').trim());
+        const missing = Array.isArray(missingFields) ? missingFields.filter(Boolean) : [];
+        const hotelId = String(config?.system_hotel_id || config?.hotel_id || '').trim();
+        if (!hotelId || evidenceStatus === 'unbound') {
+            return {
+                status: 'blocked',
+                text: '未关联门店',
+                detail: '先关联宿析OS门店，才能核对该配置的入库结果。',
+                className: 'border-red-100 bg-red-50 text-red-700',
+            };
+        }
+        if (missing.length || !otaConfigCredentialReady(config)) {
+            return {
+                status: 'blocked',
+                text: hasHistoricalSuccess ? '成功过，当前需处理' : '需补配置',
+                detail: missing.length
+                    ? `缺少：${missing.join('、')}`
+                    : '当前凭据未就绪，不能确认仍可采集。',
+                className: 'border-red-100 bg-red-50 text-red-700',
+            };
+        }
+        if (evidenceStatus === 'success_after_current_config') {
+            return {
+                status: 'effective',
+                text: '已生效',
+                detail: '当前配置保存后已有该平台真实入库。',
+                className: 'border-emerald-100 bg-emerald-50 text-emerald-700',
+            };
+        }
+        if (evidenceStatus === 'historical_success_before_config_update') {
+            return {
+                status: 'pending',
+                text: '配置已更新，待验证',
+                detail: '有历史成功记录，但早于当前配置更新时间。',
+                className: 'border-amber-100 bg-amber-50 text-amber-700',
+            };
+        }
+        if (evidenceStatus === 'unverified') {
+            return {
+                status: 'unknown',
+                text: '证据未验证',
+                detail: '配置已保存，但入库证据读取失败，不能判定是否生效。',
+                className: 'border-slate-200 bg-slate-50 text-slate-600',
+            };
+        }
+        return {
+            status: 'pending',
+            text: '待首次成功',
+            detail: `${platform === 'meituan' ? '美团' : '携程'}配置可尝试，尚无成功入库证据。`,
+            className: 'border-amber-100 bg-amber-50 text-amber-700',
+        };
+    };
+
+    const otaConfigPlatformIdentityText = (config = {}, platform = 'ctrip') => {
+        if (platform === 'meituan') {
+            const partnerId = String(config?.partner_id || config?.partnerId || '').trim();
+            const poiId = String(config?.poi_id || config?.poiId || config?.store_id || config?.storeId || '').trim();
+            const parts = [];
+            if (partnerId) parts.push(`partner ${partnerId}`);
+            if (poiId) parts.push(`poi ${poiId}`);
+            return parts.join(' / ') || 'partner / poi 待补';
+        }
+        const internalId = String(config?.system_hotel_id || config?.hotel_id || '').trim();
+        const platformId = [
+            config?.ctrip_hotel_id,
+            config?.ctripHotelId,
+            config?.ota_hotel_id,
+            config?.otaHotelId,
+            config?.platform_hotel_id,
+            config?.platformHotelId,
+            config?.masterHotelId,
+            config?.master_hotel_id,
+        ].map(value => String(value || '').trim()).find(value => value && value !== internalId) || '';
+        return platformId ? `hotelId ${platformId}` : '平台 hotelId 待识别';
+    };
+
+    const buildOtaConfigOverviewRows = ({
+        platform = 'ctrip',
+        configs = [],
+        hotelNameResolver = null,
+        missingFieldsResolver = null,
+    } = {}) => {
+        const normalizedPlatform = platform === 'meituan' ? 'meituan' : 'ctrip';
+        const statusRank = { blocked: 0, pending: 1, unknown: 2, effective: 3 };
+        return (Array.isArray(configs) ? configs : [])
+            .filter(config => config && typeof config === 'object')
+            .map((config, index) => {
+                const hotelId = String(config?.system_hotel_id || config?.hotel_id || '').trim();
+                const hotelName = typeof hotelNameResolver === 'function'
+                    ? String(hotelNameResolver(config, hotelId) || '').trim()
+                    : String(config?.hotel_name || config?.hotelName || '').trim();
+                const missingFields = typeof missingFieldsResolver === 'function'
+                    ? missingFieldsResolver(config)
+                    : [];
+                const effect = otaConfigEffectState({ config, platform: normalizedPlatform, missingFields });
+                const latestSuccessAt = String(config?.latest_platform_success_at || '').trim();
+                return {
+                    key: `${normalizedPlatform}:${String(config?.config_id || config?.id || hotelId || index)}`,
+                    platform: normalizedPlatform,
+                    platformText: normalizedPlatform === 'meituan' ? '美团' : '携程',
+                    hotelId,
+                    hotelName: hotelName || (hotelId ? `门店 ${hotelId}` : '未关联门店'),
+                    configName: String(config?.name || '').trim() || '未命名配置',
+                    platformIdentityText: otaConfigPlatformIdentityText(config, normalizedPlatform),
+                    effectStatus: effect.status,
+                    effectText: effect.text,
+                    effectDetail: effect.detail,
+                    effectClass: effect.className,
+                    latestSuccessAt,
+                    latestSuccessText: otaConfigTimestampText(latestSuccessAt),
+                    latestDataDate: String(config?.latest_platform_data_date || '').trim(),
+                    configUpdatedAt: String(config?.update_time || config?.updated_at || config?.created_at || '').trim(),
+                    storedRowCount: Math.max(0, Number(config?.stored_platform_row_count || 0)),
+                    historyCount: Math.max(0, Number(config?.history_count || 0)),
+                    config,
+                };
+            })
+            .sort((left, right) => {
+                const statusDiff = (statusRank[left.effectStatus] ?? 9) - (statusRank[right.effectStatus] ?? 9);
+                if (statusDiff !== 0) return statusDiff;
+                const successDiff = otaConfigTimestampValue(right.latestSuccessAt) - otaConfigTimestampValue(left.latestSuccessAt);
+                if (successDiff !== 0) return successDiff;
+                return left.hotelName.localeCompare(right.hotelName, 'zh-CN');
+            });
+    };
+
+    const summarizeOtaConfigOverviewRows = (rows = []) => {
+        const safeRows = Array.isArray(rows) ? rows : [];
+        const latestSuccessAt = safeRows.reduce((latest, row) => (
+            otaConfigTimestampValue(row?.latestSuccessAt) > otaConfigTimestampValue(latest)
+                ? String(row?.latestSuccessAt || '')
+                : latest
+        ), '');
+        const effective = safeRows.filter(row => row?.effectStatus === 'effective').length;
+        const blocked = safeRows.filter(row => row?.effectStatus === 'blocked').length;
+        const pending = safeRows.filter(row => row?.effectStatus === 'pending').length;
+        const unknown = safeRows.filter(row => row?.effectStatus === 'unknown').length;
+        return {
+            total: safeRows.length,
+            effective,
+            blocked,
+            pending,
+            unknown,
+            needsAttention: blocked + pending + unknown,
+            latestSuccessAt,
+            latestSuccessText: otaConfigTimestampText(latestSuccessAt),
+        };
+    };
+
     const manualOneClickFetchRankIssueCount = (message = '', pattern = /./) => {
         const labels = new Set();
         String(message || '').split(/[；\n]+/).forEach((section) => {
@@ -495,6 +672,12 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         && Number(quality?.total || 0) <= 0
         && quality?.ready !== true;
 
+    const manualOneClickFetchQunarAutoRetryAllowedAt = (date = new Date()) => {
+        const hour = Number(date?.getHours?.());
+        if (!Number.isInteger(hour) || hour < 0 || hour > 23) return true;
+        return hour >= 6;
+    };
+
     const manualOneClickFetchSavedCount = (result = {}) => {
         const candidates = [
             result?.saved_count,
@@ -537,6 +720,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         ctripQunarQuality = null,
         qunarRetryCount = 0,
         qunarVisitorNeedsRetry = false,
+        qunarAutoRetrySuppressed = false,
     } = {}) => {
         const normalizedPlatform = platform === 'ctrip' ? 'ctrip' : 'meituan';
         const count = Number(savedCount || 0);
@@ -603,8 +787,10 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
                 : `${issueCount} 个榜单缺少实际数值，未形成完整入库。`;
         } else if (normalizedPlatform === 'ctrip' && qunarVisitorIncomplete) {
             const competitionText = manualOneClickFetchCompetitionCountText(ctripCompetitionSummary);
-            const retryExhaustedText = retryCount > 0 ? `；已自动重抓 ${retryCount} 次` : '';
-            message = `携程竞争圈本次返回 ${competitionText}${count > 0 ? `并入库 ${count} 条` : ''}；去哪儿字段未返回有效数据${retryExhaustedText}；本次补采判定失败，可重新补采。`;
+            const retryStateText = qunarAutoRetrySuppressed
+                ? '；当前为 00:00–05:59 去哪儿流量不可用时段，已跳过自动重抓，06:00 后可重新补采'
+                : (retryCount > 0 ? `；已自动重抓 ${retryCount} 次` : '');
+            message = `携程竞争圈本次返回 ${competitionText}${count > 0 ? `并入库 ${count} 条` : ''}；去哪儿字段未返回有效数据${retryStateText}；本次补采判定失败，可重新补采。`;
         } else if (normalizedPlatform === 'ctrip' && status === 'success') {
             const competitionText = manualOneClickFetchCompetitionCountText(ctripCompetitionSummary);
             message = `携程竞争圈本次返回 ${competitionText}${count > 0 ? `并入库 ${count} 条` : ''}；数量以平台实际返回为准。`;
@@ -5911,46 +6097,51 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         psi: 'PSI',
     }[type] || type || '-');
 
+    const onlineAnalysisMetricText = (value, formatNumber = metric => String(metric ?? ''), prefix = '') => {
+        if (value === null || value === undefined || value === '') return '-';
+        return `${prefix}${formatNumber(value)}`;
+    };
+
     const buildOnlineAnalysisSummaryCards = (summary = {}, dimension = 'day', formatNumber = value => String(value ?? '')) => [
         {
             key: 'amount',
             label: 'OTA销售额',
-            value: `¥${formatNumber(summary.total_amount || 0)}`,
+            value: onlineAnalysisMetricText(summary.total_amount, formatNumber, '¥'),
             sub: `${dimension === 'day' ? '日' : dimension === 'week' ? '周' : '月'}维度汇总`,
             className: 'text-emerald-700',
         },
         {
             key: 'quantity',
             label: 'OTA间夜',
-            value: formatNumber(summary.total_quantity || 0),
-            sub: `均值 ${formatNumber(summary.avg_quantity || 0)}`,
+            value: onlineAnalysisMetricText(summary.total_quantity, formatNumber),
+            sub: `均值 ${onlineAnalysisMetricText(summary.avg_quantity, formatNumber)}`,
             className: 'text-blue-700',
         },
         {
             key: 'orders',
             label: 'OTA订单',
-            value: formatNumber(summary.total_orders || 0),
-            sub: `评分 ${formatNumber(summary.avg_score || 0)}`,
+            value: onlineAnalysisMetricText(summary.total_orders, formatNumber),
+            sub: `评分 ${onlineAnalysisMetricText(summary.avg_score, formatNumber)}`,
             className: 'text-amber-700',
         },
         {
             key: 'metric_value',
             label: '指标值',
-            value: formatNumber(summary.total_data_value || 0),
+            value: onlineAnalysisMetricText(summary.total_data_value, formatNumber),
             sub: '流量/排名/服务等扩展指标',
             className: 'text-indigo-700',
         },
         {
             key: 'records',
             label: '入库事实行',
-            value: formatNumber(summary.total_record_count || 0),
+            value: formatNumber(summary.total_record_count ?? 0),
             sub: 'online_daily_data',
             className: 'text-slate-900',
         },
         {
             key: 'hotels',
             label: '覆盖酒店',
-            value: formatNumber(summary.hotel_count || 0),
+            value: formatNumber(summary.hotel_count ?? 0),
             sub: summary.latest_data_date ? `最新 ${summary.latest_data_date}` : '暂无日期',
             className: 'text-gray-700',
         },
@@ -6125,6 +6316,12 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         autoFetchRecordStatusClass,
         manualOneClickFetchPlatformText,
         manualOneClickFetchNowText,
+        otaConfigTimestampText,
+        otaConfigCredentialReady,
+        otaConfigEffectState,
+        otaConfigPlatformIdentityText,
+        buildOtaConfigOverviewRows,
+        summarizeOtaConfigOverviewRows,
         normalizeManualOneClickFetchStoredMessage,
         normalizeManualOneClickFetchStoredRows,
         summarizeManualOneClickFetchRows,
@@ -6153,6 +6350,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         manualOneClickFetchQunarVisitorNumber,
         summarizeManualOneClickFetchQunarVisitorQuality,
         manualOneClickFetchQunarVisitorNeedsRetry,
+        manualOneClickFetchQunarAutoRetryAllowedAt,
         manualOneClickFetchSavedCount,
         manualOneClickFetchResultMessage,
         summarizeManualOneClickFetchResult,

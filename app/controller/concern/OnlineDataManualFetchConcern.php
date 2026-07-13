@@ -541,8 +541,12 @@ trait OnlineDataManualFetchConcern
             $responseData = null;
             $rawResponse = '';
             $savedCount = 0;
+            $processedCount = 0;
+            $readbackCount = 0;
+            $readbackVerified = true;
             $insertedCount = 0;
             $updatedCount = 0;
+            $skippedCount = 0;
             $competitionDataSourceId = 0;
             $competitionSyncTaskId = 0;
             $competitionPersistence = null;
@@ -702,28 +706,52 @@ trait OnlineDataManualFetchConcern
                             'ingestion_method' => CtripCompetitionCirclePersistenceService::INGESTION_METHOD,
                         ]
                     );
-                    $dateResult['saved_count'] = (int)$saveResult['saved_count'];
+                    $dateProcessedCount = max(0, (int)($saveResult['processed_count'] ?? $saveResult['saved_count'] ?? 0));
+                    $dateReadbackCount = max(0, (int)($saveResult['readback_count'] ?? 0));
+                    $dateReadbackVerified = !empty($saveResult['readback_verified']);
+                    $dateResult['processed_count'] = $dateProcessedCount;
+                    $dateResult['saved_count'] = $dateReadbackCount;
                     $dateResult['inserted_count'] = (int)$saveResult['inserted_count'];
                     $dateResult['updated_count'] = (int)$saveResult['updated_count'];
+                    $dateResult['skipped_count'] = (int)($saveResult['skipped_count'] ?? 0);
+                    $dateResult['readback_count'] = $dateReadbackCount;
+                    $dateResult['readback_verified'] = $dateReadbackVerified;
+                    $dateResult['readback_reason'] = (string)($saveResult['readback_reason'] ?? '');
                     $dateResult['source_trace_id'] = $traceId;
-                    $savedCount += $dateResult['saved_count'];
+                    $processedCount += $dateProcessedCount;
+                    $readbackCount += $dateReadbackCount;
+                    $readbackVerified = $readbackVerified && $dateReadbackVerified;
+                    $savedCount += $dateReadbackCount;
                     $insertedCount += $dateResult['inserted_count'];
                     $updatedCount += $dateResult['updated_count'];
+                    $skippedCount += $dateResult['skipped_count'];
                 }
                 unset($dateResult);
 
                 if ($competitionPersistence && $competitionSyncTaskId > 0) {
-                    $competitionPersistence->finishSyncTask(
-                        $competitionSyncTaskId,
-                        $competitionDataSourceId,
-                        [
-                            'saved_count' => $savedCount,
-                            'inserted_count' => $insertedCount,
-                            'updated_count' => $updatedCount,
-                            'date_count' => count($dateResults),
-                            'self_hotel_ids' => $selfHotelIds,
-                        ]
-                    );
+                    if ($processedCount > 0 && $readbackVerified && $readbackCount === $processedCount) {
+                        $competitionPersistence->finishSyncTask(
+                            $competitionSyncTaskId,
+                            $competitionDataSourceId,
+                            [
+                                'processed_count' => $processedCount,
+                                'saved_count' => $savedCount,
+                                'readback_count' => $readbackCount,
+                                'readback_verified' => true,
+                                'inserted_count' => $insertedCount,
+                                'updated_count' => $updatedCount,
+                                'skipped_count' => $skippedCount,
+                                'date_count' => count($dateResults),
+                                'self_hotel_ids' => $selfHotelIds,
+                            ]
+                        );
+                    } else {
+                        $competitionPersistence->failSyncTask(
+                            $competitionSyncTaskId,
+                            $competitionDataSourceId,
+                            'competition_circle_readback_failed'
+                        );
+                    }
                 }
             } catch (\Throwable $e) {
                 if ($competitionPersistence && $competitionSyncTaskId > 0) {
@@ -737,7 +765,14 @@ trait OnlineDataManualFetchConcern
             }
 
             $displayDataDate = $startDate === $endDate ? $startDate : $startDate . ' 至 ' . $endDate;
-            $persistenceState = $this->buildCtripPersistenceState($autoSave, $savedCount);
+            $persistenceState = $this->buildCtripPersistenceState(
+                $autoSave,
+                $processedCount,
+                false,
+                $readbackCount,
+                $readbackVerified
+            );
+            $persistenceOutcome = $this->buildCtripManualFetchPersistenceOutcome($autoSave, $persistenceState);
             if ($systemHotelId > 0 && $persistenceState['persisted']) {
                 $this->updateCtripLatestFetchStatus($systemHotelId, $fetchedAt, $displayDataDate, $savedCount);
             }
@@ -760,14 +795,16 @@ trait OnlineDataManualFetchConcern
             }
 
             return json([
-                'code' => 200,
-                'message' => !$autoSave
+                'code' => $persistenceOutcome['code'],
+                'message' => $persistenceOutcome['message'] !== ''
+                    ? $persistenceOutcome['message']
+                    : (!$autoSave
                     ? '临时 Cookie 查询成功；结果仅本页展示，未保存 Cookie、未创建门店、未入库。'
                     : (!empty($identityCheck['warning']) && !empty($identityCheck['message'])
                         ? (string)$identityCheck['message'] . $this->ctripCompetitionSaveSummaryText($insertedCount, $updatedCount)
                         : ($qunarVisitorGap
                             ? '携程数据已获取；去哪儿访客为 0 仅作为字段缺口提示，不阻断携程竞争圈获取和入库。' . $this->ctripCompetitionSaveSummaryText($insertedCount, $updatedCount)
-                            : '获取成功' . $this->ctripCompetitionSaveSummaryText($insertedCount, $updatedCount))),
+                            : '获取成功' . $this->ctripCompetitionSaveSummaryText($insertedCount, $updatedCount)))),
                 'data' => array_merge([
                     'data' => $responseData,
                     'date_results' => $dateResults,
@@ -775,6 +812,7 @@ trait OnlineDataManualFetchConcern
                     'saved_count' => $savedCount,
                     'inserted_count' => $insertedCount,
                     'updated_count' => $updatedCount,
+                    'skipped_count' => $skippedCount,
                     'data_source_id' => $competitionDataSourceId ?: null,
                     'sync_task_id' => $competitionSyncTaskId ?: null,
                     'fetched_at' => $fetchedAt,
@@ -785,16 +823,18 @@ trait OnlineDataManualFetchConcern
                     'display_hotel_count' => count($displayHotels),
                     'display_summary' => $displaySummary,
                     'qunar_visitor_quality' => $qunarVisitorQuality,
-                    'save_status' => $qunarVisitorGap
+                    'save_status' => $persistenceOutcome['save_status'] !== ''
+                        ? $persistenceOutcome['save_status']
+                        : ($qunarVisitorGap
                         ? ($autoSave
                             ? ($savedCount > 0 ? 'saved_with_qunar_visitor_gap' : 'no_saved_with_qunar_visitor_gap')
                             : 'display_only')
-                        : ($autoSave ? 'saved_or_empty' : 'display_only'),
+                        : ($autoSave ? 'saved_or_empty' : 'display_only')),
                     'save_operation' => $insertedCount > 0 && $updatedCount > 0
                         ? 'inserted_and_updated'
                         : ($insertedCount > 0 ? 'inserted' : ($updatedCount > 0 ? 'updated' : 'none')),
                 ], $persistenceState)
-            ]);
+            ], $persistenceOutcome['http_status']);
         } catch (\DomainException) {
             return json([
                 'code' => 409,
@@ -809,19 +849,48 @@ trait OnlineDataManualFetchConcern
         }
     }
 
-    /** @return array{persistence_status:string,persisted:bool} */
-    private function buildCtripPersistenceState(bool $autoSave, int $savedCount, bool $blocked = false): array
+    /** @return array{persistence_status:string,persisted:bool,processed_count:int,saved_count:int,readback_count:int,readback_verified:bool} */
+    private function buildCtripPersistenceState(
+        bool $autoSave,
+        int $processedCount,
+        bool $blocked = false,
+        int $readbackCount = 0,
+        bool $readbackVerified = false
+    ): array
     {
+        $counts = [
+            'processed_count' => max(0, $processedCount),
+            'saved_count' => max(0, $readbackCount),
+            'readback_count' => max(0, $readbackCount),
+            'readback_verified' => $readbackVerified,
+        ];
         if ($blocked) {
-            return ['persistence_status' => 'blocked', 'persisted' => false];
+            return array_merge(['persistence_status' => 'blocked', 'persisted' => false], $counts);
         }
         if (!$autoSave) {
-            return ['persistence_status' => 'display_only', 'persisted' => false];
+            return array_merge(['persistence_status' => 'display_only', 'persisted' => false], $counts);
         }
-        if ($savedCount <= 0) {
-            return ['persistence_status' => 'not_persisted', 'persisted' => false];
+        if ($processedCount <= 0) {
+            return array_merge(['persistence_status' => 'not_persisted', 'persisted' => false], $counts);
         }
-        return ['persistence_status' => 'persisted', 'persisted' => true];
+        if (!$readbackVerified || $readbackCount !== $processedCount) {
+            return array_merge(['persistence_status' => 'readback_failed', 'persisted' => false], $counts);
+        }
+        return array_merge(['persistence_status' => 'readback_verified', 'persisted' => true], $counts);
+    }
+
+    /** @return array{code:int,http_status:int,save_status:string,message:string} */
+    private function buildCtripManualFetchPersistenceOutcome(bool $autoSave, array $persistenceState): array
+    {
+        if ($autoSave && ($persistenceState['persistence_status'] ?? '') === 'readback_failed') {
+            return [
+                'code' => 500,
+                'http_status' => 500,
+                'save_status' => 'readback_failed',
+                'message' => '携程数据已获取，但数据库回读校验失败，未确认入库；本次结果仅作当前页面参考。',
+            ];
+        }
+        return ['code' => 200, 'http_status' => 200, 'save_status' => '', 'message' => ''];
     }
 
     /**
@@ -2139,7 +2208,9 @@ trait OnlineDataManualFetchConcern
                     $selfMetricMessage = (string)($selfBusinessResult['message'] ?? $selfMetricMessage);
                 }
             }
-            if ((string)$dateRange === '7' && (float)($selfMetricValues['roomRevenue'] ?? 0) <= 0) {
+            $needsDailyRoomRevenueFallback = (string)$dateRange === '7'
+                || ((string)$dateRange === '30' && strtoupper((string)$rankType) === 'P_RZ');
+            if ($needsDailyRoomRevenueFallback && (float)($selfMetricValues['roomRevenue'] ?? 0) <= 0) {
                 $dailyTradeResult = $this->fetchMeituanSelfDailyTradeMetricValues(
                     (string)$partnerId,
                     (string)$poiId,
@@ -3301,7 +3372,9 @@ trait OnlineDataManualFetchConcern
                 'default_data_date' => $endDate ?: $startDate,
                 $section => $items,
             ];
-            $rows = $this->buildMeituanCapturedDailyRows($capturedPayload, $systemHotelId ? (int)$systemHotelId : null);
+            $rows = $this->uniqueMeituanCapturedRowsForPersistence(
+                $this->buildMeituanCapturedDailyRows($capturedPayload, $systemHotelId ? (int)$systemHotelId : null)
+            );
             $savedCount = ($autoSave && !empty($rows)) ? $this->saveMeituanCapturedDailyRows($rows) : 0;
             $persistenceState = $this->buildMeituanDirectPersistenceState(
                 $autoSave,

@@ -1,6 +1,6 @@
 # Revenue AI 核心范围优先级
 
-更新日期：2026-06-27
+更新日期：2026-07-14
 
 本文件用于把“只保留核心功能”的产品边界固化为当前重构基线。它不是删除旧模块的执行命令；任何删除、隐藏或迁移仍必须按最小改动、旧链接兼容和验证结果逐项执行。
 
@@ -37,9 +37,10 @@
 | 模块 | 当前状态 | 后续动作 |
 |---|---|---|
 | `app/service/RevenueAiOverviewService.php` | Revenue AI 首页聚合服务 | 继续承载只读聚合、缺口原因、执行复盘摘要 |
-| `public/revenue-ai-static.js` | Revenue AI 首页展示 helper | 继续拆分展示整形逻辑，保持 `public/index.html` 变薄 |
+| `public/revenue-ai-static.js` | Revenue AI 首页展示 helper | 继续拆分展示整形逻辑，保持运行入口轻量 |
 | `app/controller/OnlineData.php` | 最大 OTA 采集控制器候选 | 后续按携程/美团、手动/自动、数据模块逐步拆 service |
-| `public/index.html` | 最大前端入口候选 | 后续按页面/helper 边界拆，不重启 Vite，不改全局导航语义 |
+| `resources/frontend/templates/fragments/*.html` | 根模板已按业务页面完成拆分 | 后续只编辑对应业务分片，并同步兼容快照和运行产物 |
+| `public/app-main.js` | 前端逻辑入口与 helper 拆分候选 | 后续按业务 helper 边界继续拆分，不重启 Vite，不改全局导航语义 |
 
 ## P2 下沉
 

@@ -5629,7 +5629,8 @@ function p0_platform_traffic_gate_next_steps(array $traffic): array
         }
     }
 
-    $steps = [];
+    $stepsByHotel = [];
+    $stepPriorityByHotel = [];
     foreach (p0_array($traffic['hotel_scoped_sources'] ?? null) as $source) {
         if (!is_array($source)) {
             continue;
@@ -5641,10 +5642,11 @@ function p0_platform_traffic_gate_next_steps(array $traffic): array
         $command = p0_array($commandsByHotel[$systemHotelId] ?? null);
         $bridge = p0_array($bridgesByHotel[$systemHotelId] ?? null);
         $payloadCandidateScan = p0_array($source['payload_candidate_scan'] ?? null);
-        $steps[] = [
+        $step = [
             'platform' => (string)($source['platform'] ?? $traffic['platform'] ?? ''),
             'system_hotel_id' => $systemHotelId,
             'data_source_id' => $source['data_source_id'] ?? null,
+            'managed_by_p0' => (bool)($source['managed_by_p0'] ?? false),
             'data_source_status' => (string)($source['status'] ?? ''),
             'last_sync_status' => (string)($source['last_sync_status'] ?? ''),
             'capture_sections_has_traffic' => (bool)($source['capture_sections_has_traffic'] ?? false),
@@ -5689,9 +5691,17 @@ function p0_platform_traffic_gate_next_steps(array $traffic): array
             'post_import_verifier_command' => (string)($bridge['post_import_verifier_command'] ?? ''),
             'manual_gates' => array_values(array_map('strval', (array)($bridge['manual_gates'] ?? []))),
         ];
+        $priority = (!empty($source['managed_by_p0']) ? 8 : 0)
+            + ((int)($source['data_source_id'] ?? 0) > 0 ? 4 : 0)
+            + (strtolower(trim((string)($source['profile_binding_status'] ?? ''))) === 'ready' ? 2 : 0)
+            + (in_array(strtolower(trim((string)($source['status'] ?? ''))), ['ready', 'success'], true) ? 1 : 0);
+        if (!isset($stepsByHotel[$systemHotelId]) || $priority > (int)$stepPriorityByHotel[$systemHotelId]) {
+            $stepsByHotel[$systemHotelId] = $step;
+            $stepPriorityByHotel[$systemHotelId] = $priority;
+        }
     }
 
-    return $steps;
+    return array_values($stepsByHotel);
 }
 
 /**
@@ -6385,7 +6395,12 @@ try {
     $scripts = p0_package_scripts();
     $p0Command = 'C:\\xampp\\php\\php.exe scripts\\verify_p0_ota_field_loop_closure.php';
     $p0ImportCommand = 'C:\\xampp\\php\\php.exe scripts\\import_p0_ota_traffic_payload.php';
-    $frontendSourcePaths = ['public/index.html', 'public/data-health-static.js'];
+    $frontendSourcePaths = [
+        'public/index.html',
+        'resources/frontend/app-template.html',
+        'public/app-main.js',
+        'public/data-health-static.js',
+    ];
     $onlineDataBackendPaths = ['app/controller/OnlineData.php', 'app/controller/concern/OnlineDataQualityConcern.php'];
     $uiBackend = p0_source_contains_any($onlineDataBackendPaths, 'buildOnlineDataFieldFactStatus')
         && p0_source_contains_any($onlineDataBackendPaths, 'field_fact_status');

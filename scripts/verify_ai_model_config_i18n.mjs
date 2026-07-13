@@ -3,7 +3,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const html = readFileSync(join(root, 'public/index.html'), 'utf8');
+const publicEntry = readFileSync(join(root, 'public/index.html'), 'utf8');
+const appTemplate = readFileSync(join(root, 'resources/frontend/app-template.html'), 'utf8');
+const appMain = readFileSync(join(root, 'public/app-main.js'), 'utf8');
+const html = `${publicEntry}\n${appTemplate}\n${appMain}`;
 const systemStatic = readFileSync(join(root, 'public/system-static.js'), 'utf8');
 const contractSource = `${html}\n${systemStatic}`;
 
