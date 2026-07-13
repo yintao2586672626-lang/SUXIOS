@@ -2091,18 +2091,21 @@ class Agent extends Base
         $summary = $this->buildOtaDiagnosisSummary($rows, $hotelId, $hotelName, $platform, $startDate, $endDate, $analysisType);
         $totals = $summary['totals'];
         $rates = $summary['derived_rates'];
-        $avgCompetitorPrice = $this->average(array_merge(
+        $avgCompetitorPrice = $this->nullableAverage(array_merge(
             array_map('floatval', array_column($competitorPrices, 'price')),
             array_map('floatval', array_column($competitorAnalyses, 'competitor_price'))
         ));
-        $avgSuggestedPrice = $this->average(array_map('floatval', array_column($priceSuggestions, 'suggested_price')));
-        $dailyRevenue = array_sum(array_map('floatval', array_column($dailyReports, 'revenue')));
-        $hasTraffic = ($totals['list_exposure'] + $totals['detail_visitors'] + $totals['order_visitors'] + $totals['submit_users']) > 0;
+        $avgSuggestedPrice = $this->nullableAverage(array_map('floatval', array_column($priceSuggestions, 'suggested_price')));
+        $dailyRevenue = $dailyReports === [] ? null : array_sum(array_map('floatval', array_column($dailyReports, 'revenue')));
+        $hasTraffic = $this->hasKnownOtaDiagnosisMetric($totals, [
+            'list_exposure', 'detail_visitors', 'order_visitors', 'submit_users',
+        ]);
         $hasComment = false;
         $hasAdvertising = (int)($totals['advertising_rows'] ?? 0) > 0;
         $hasServiceQuality = (int)($totals['service_quality_rows'] ?? 0) > 0;
         $hasCompetitor = !empty($competitorPrices) || !empty($competitorAnalyses) || $this->hasCompareRows($rows);
-        $hasPriceOrder = ((float) $totals['amount'] + (float) $totals['quantity'] + (float) $totals['book_order_num']) > 0 || !empty($priceSuggestions);
+        $hasPriceOrder = $this->hasKnownOtaDiagnosisMetric($totals, ['amount', 'quantity', 'book_order_num'])
+            || !empty($priceSuggestions);
         $hasDaily = !empty($dailyReports);
         $missingSections = [];
         if (!$hasTraffic) {
@@ -2124,32 +2127,32 @@ class Agent extends Base
         $metrics = [
             'record_count' => count($rows),
             'date_count' => $summary['date_count'],
-            'amount' => round((float) $totals['amount'], 2),
-            'quantity' => (int) $totals['quantity'],
-            'book_order_num' => (int) $totals['book_order_num'],
+            'amount' => $totals['amount'] === null ? null : round((float)$totals['amount'], 2),
+            'quantity' => $totals['quantity'] === null ? null : (int)$totals['quantity'],
+            'book_order_num' => $totals['book_order_num'] === null ? null : (int)$totals['book_order_num'],
             'adr' => $summary['averages']['adr'],
-            'list_exposure' => (int) $totals['list_exposure'],
-            'detail_visitors' => (int) $totals['detail_visitors'],
-            'order_visitors' => (int) $totals['order_visitors'],
-            'submit_users' => (int) $totals['submit_users'],
+            'list_exposure' => $totals['list_exposure'] === null ? null : (int)$totals['list_exposure'],
+            'detail_visitors' => $totals['detail_visitors'] === null ? null : (int)$totals['detail_visitors'],
+            'order_visitors' => $totals['order_visitors'] === null ? null : (int)$totals['order_visitors'],
+            'submit_users' => $totals['submit_users'] === null ? null : (int)$totals['submit_users'],
             'detail_rate' => $rates['detail_rate'],
             'order_rate' => $rates['order_rate'],
             'submit_rate' => $rates['submit_rate'],
-            'comment_score' => 0.0,
-            'qunar_comment_score' => 0.0,
-            'advertising_spend' => round((float)($totals['advertising_spend'] ?? 0), 2),
-            'advertising_order_amount' => round((float)($totals['advertising_order_amount'] ?? 0), 2),
-            'advertising_bookings' => (int)($totals['advertising_bookings'] ?? 0),
-            'advertising_room_nights' => round((float)($totals['advertising_room_nights'] ?? 0), 2),
-            'advertising_impressions' => (int)round((float)($totals['advertising_impressions'] ?? 0)),
-            'advertising_clicks' => (int)round((float)($totals['advertising_clicks'] ?? 0)),
+            'comment_score' => null,
+            'qunar_comment_score' => null,
+            'advertising_spend' => $totals['advertising_spend'] === null ? null : round((float)$totals['advertising_spend'], 2),
+            'advertising_order_amount' => $totals['advertising_order_amount'] === null ? null : round((float)$totals['advertising_order_amount'], 2),
+            'advertising_bookings' => $totals['advertising_bookings'] === null ? null : (int)$totals['advertising_bookings'],
+            'advertising_room_nights' => $totals['advertising_room_nights'] === null ? null : round((float)$totals['advertising_room_nights'], 2),
+            'advertising_impressions' => $totals['advertising_impressions'] === null ? null : (int)round((float)$totals['advertising_impressions']),
+            'advertising_clicks' => $totals['advertising_clicks'] === null ? null : (int)round((float)$totals['advertising_clicks']),
             'advertising_roas' => $summary['averages']['advertising_roas'],
             'avg_psi_score' => $summary['averages']['avg_psi_score'],
             'avg_service_score' => $summary['averages']['avg_service_score'],
             'avg_im_score' => $summary['averages']['avg_im_score'],
             'avg_reply_rate' => $summary['averages']['avg_reply_rate'],
-            'hotel_collect' => (int)($totals['hotel_collect'] ?? 0),
-            'daily_report_revenue' => round($dailyRevenue, 2),
+            'hotel_collect' => $totals['hotel_collect'] === null ? null : (int)$totals['hotel_collect'],
+            'daily_report_revenue' => $dailyRevenue === null ? null : round($dailyRevenue, 2),
             'competitor_avg_price' => $avgCompetitorPrice,
             'suggested_avg_price' => $avgSuggestedPrice,
             'daily_report_count' => count($dailyReports),
@@ -2159,10 +2162,10 @@ class Agent extends Base
             'sync_log_count' => count($syncLogs),
         ];
         $abnormal = $summary['data_anomalies'];
-        if ($hasTraffic && $rates['detail_rate'] > 0 && $rates['detail_rate'] < 5) {
+        if ($hasTraffic && is_numeric($rates['detail_rate']) && $rates['detail_rate'] > 0 && $rates['detail_rate'] < 5) {
             $abnormal[] = '曝光到访问转化偏低';
         }
-        if ($hasTraffic && $rates['order_rate'] > 0 && $rates['order_rate'] < 3) {
+        if ($hasTraffic && is_numeric($rates['order_rate']) && $rates['order_rate'] > 0 && $rates['order_rate'] < 3) {
             $abnormal[] = '访问到订单转化偏低';
         }
         if ($hasAdvertising && (float)($metrics['advertising_roas'] ?? 0) > 0 && (float)$metrics['advertising_roas'] < 3) {
@@ -2181,19 +2184,19 @@ class Agent extends Base
             'data_overview' => [
                 'OTA记录数: ' . count($rows),
                 '日期覆盖: ' . $summary['date_count'] . ' 天',
-                '收入: ' . $metrics['amount'],
-                '间夜: ' . $metrics['quantity'],
-                '订单: ' . $metrics['book_order_num'],
+                '收入: ' . $this->formatOtaDiagnosisMetric($metrics['amount']),
+                '间夜: ' . $this->formatOtaDiagnosisMetric($metrics['quantity']),
+                '订单: ' . $this->formatOtaDiagnosisMetric($metrics['book_order_num']),
             ],
             'abnormal_metrics' => $abnormal,
-            'traffic_analysis' => $hasTraffic ? sprintf('曝光%d，访问%d，曝光到访问率%s%%。', $metrics['list_exposure'], $metrics['detail_visitors'], $metrics['detail_rate']) : '缺少OTA流量数据，无法判断曝光和访问漏斗。',
-            'exposure_analysis' => $hasTraffic ? sprintf('曝光%d，访问%d，曝光到访问率%s%%。', $metrics['list_exposure'], $metrics['detail_visitors'], $metrics['detail_rate']) : '缺少OTA流量数据，无法判断曝光表现。',
-            'visit_conversion_analysis' => $hasTraffic ? sprintf('访问%d，订单意向%d，访问到订单率%s%%。', $metrics['detail_visitors'], $metrics['order_visitors'], $metrics['order_rate']) : '缺少访问转化数据。',
-            'order_conversion_analysis' => $hasTraffic ? sprintf('订单意向%d，提交用户%d，提交率%s%%。', $metrics['order_visitors'], $metrics['submit_users'], $metrics['submit_rate']) : '缺少订单转化数据。',
-            'price_analysis' => $avgCompetitorPrice > 0 ? sprintf('竞对均价%s，本店ADR%s，需结合房型和日期校准价差。', $avgCompetitorPrice, $metrics['adr']) : ($avgSuggestedPrice > 0 ? sprintf('已有%d条定价建议，建议均价%s，可结合房态和订单转化复核。', count($priceSuggestions), $avgSuggestedPrice) : '缺少价格/房态/订单相关数据，暂不能判断价格竞争力。'),
+            'traffic_analysis' => $hasTraffic ? sprintf('曝光%s，访问%s，曝光到访问率%s。', $this->formatOtaDiagnosisMetric($metrics['list_exposure']), $this->formatOtaDiagnosisMetric($metrics['detail_visitors']), $this->formatOtaDiagnosisMetric($metrics['detail_rate'], '%')) : '缺少OTA流量数据，无法判断曝光和访问漏斗。',
+            'exposure_analysis' => $hasTraffic ? sprintf('曝光%s，访问%s，曝光到访问率%s。', $this->formatOtaDiagnosisMetric($metrics['list_exposure']), $this->formatOtaDiagnosisMetric($metrics['detail_visitors']), $this->formatOtaDiagnosisMetric($metrics['detail_rate'], '%')) : '缺少OTA流量数据，无法判断曝光表现。',
+            'visit_conversion_analysis' => $hasTraffic ? sprintf('访问%s，订单意向%s，访问到订单率%s。', $this->formatOtaDiagnosisMetric($metrics['detail_visitors']), $this->formatOtaDiagnosisMetric($metrics['order_visitors']), $this->formatOtaDiagnosisMetric($metrics['order_rate'], '%')) : '缺少访问转化数据。',
+            'order_conversion_analysis' => $hasTraffic ? sprintf('订单意向%s，提交用户%s，提交率%s。', $this->formatOtaDiagnosisMetric($metrics['order_visitors']), $this->formatOtaDiagnosisMetric($metrics['submit_users']), $this->formatOtaDiagnosisMetric($metrics['submit_rate'], '%')) : '缺少订单转化数据。',
+            'price_analysis' => $avgCompetitorPrice > 0 ? sprintf('竞对均价%s，本店ADR%s，需结合房型和日期校准价差。', $avgCompetitorPrice, $this->formatOtaDiagnosisMetric($metrics['adr'])) : ($avgSuggestedPrice > 0 ? sprintf('已有%d条定价建议，建议均价%s，可结合房态和订单转化复核。', count($priceSuggestions), $avgSuggestedPrice) : '缺少价格/房态/订单相关数据，暂不能判断价格竞争力。'),
             'competitor_analysis' => $hasCompetitor ? '已有竞对或对比数据，可继续关注价格、曝光和转化差距。' : '缺少竞对数据，无法判断同商圈机会。',
-            'advertising_analysis' => $hasAdvertising ? sprintf('OTA广告花费%s，归因订单金额%s，ROAS %s。', $metrics['advertising_spend'], $metrics['advertising_order_amount'], $metrics['advertising_roas']) : '缺少OTA广告数据，暂不评估投放效率。',
-            'service_quality_analysis' => $hasServiceQuality ? sprintf('OTA服务质量分%s，服务评分%s。', $metrics['avg_psi_score'], $metrics['avg_service_score']) : '缺少OTA服务质量数据，暂不评估服务质量对转化的影响。',
+            'advertising_analysis' => $hasAdvertising ? sprintf('OTA广告花费%s，归因订单金额%s，ROAS %s。', $this->formatOtaDiagnosisMetric($metrics['advertising_spend']), $this->formatOtaDiagnosisMetric($metrics['advertising_order_amount']), $this->formatOtaDiagnosisMetric($metrics['advertising_roas'])) : '缺少OTA广告数据，暂不评估投放效率。',
+            'service_quality_analysis' => $hasServiceQuality ? sprintf('OTA服务质量分%s，服务评分%s。', $this->formatOtaDiagnosisMetric($metrics['avg_psi_score']), $this->formatOtaDiagnosisMetric($metrics['avg_service_score'])) : '缺少OTA服务质量数据，暂不评估服务质量对转化的影响。',
             'comment_analysis' => '',
             'actions' => $this->buildOtaDiagnosisActions($hasTraffic, $hasCompetitor, $hasAdvertising, $hasServiceQuality, $metrics),
         ];
@@ -2225,6 +2228,7 @@ class Agent extends Base
             'diagnosis' => $diagnosis,
             'diagnosis_sections' => $this->buildOtaDiagnosisSections($diagnosis, array_values(array_unique($missingSections))),
             'missing_sections' => array_values(array_unique($missingSections)),
+            'data_gaps' => $summary['data_gaps'] ?? [],
             'priority' => in_array('访问到订单转化偏低', $abnormal, true) || in_array('曝光到访问转化偏低', $abnormal, true) ? 'high' : 'medium',
             'source_summary' => $summary,
         ];
@@ -2233,10 +2237,10 @@ class Agent extends Base
     private function buildOtaDiagnosisActions(bool $hasTraffic, bool $hasCompetitor, bool $hasAdvertising, bool $hasServiceQuality, array $metrics): array
     {
         $actions = [];
-        if ($hasTraffic && (float) ($metrics['detail_rate'] ?? 0) < 5) {
+        if ($hasTraffic && is_numeric($metrics['detail_rate'] ?? null) && (float)$metrics['detail_rate'] < 5) {
             $actions[] = '优先优化列表页主图、标题卖点和价格展示，提升曝光到访问转化。';
         }
-        if ($hasTraffic && (float) ($metrics['order_rate'] ?? 0) < 3) {
+        if ($hasTraffic && is_numeric($metrics['order_rate'] ?? null) && (float)$metrics['order_rate'] < 3) {
             $actions[] = '检查详情页房型、取消政策、促销和价格阶梯，降低访问后的下单阻力。';
         }
         if ($hasCompetitor) {
@@ -3034,28 +3038,28 @@ class Agent extends Base
             'date_count' => 0,
             'hotel_names' => [],
             'totals' => [
-                'amount' => 0.0,
-                'quantity' => 0,
-                'book_order_num' => 0,
-                'data_value' => 0.0,
-                'list_exposure' => 0.0,
-                'detail_visitors' => 0.0,
-                'order_visitors' => 0.0,
-                'submit_users' => 0.0,
-                'advertising_spend' => 0.0,
-                'advertising_order_amount' => 0.0,
-                'advertising_bookings' => 0,
-                'advertising_room_nights' => 0.0,
-                'advertising_impressions' => 0.0,
-                'advertising_clicks' => 0.0,
+                'amount' => null,
+                'quantity' => null,
+                'book_order_num' => null,
+                'data_value' => null,
+                'list_exposure' => null,
+                'detail_visitors' => null,
+                'order_visitors' => null,
+                'submit_users' => null,
+                'advertising_spend' => null,
+                'advertising_order_amount' => null,
+                'advertising_bookings' => null,
+                'advertising_room_nights' => null,
+                'advertising_impressions' => null,
+                'advertising_clicks' => null,
                 'advertising_rows' => 0,
                 'service_quality_rows' => 0,
-                'hotel_collect' => 0,
+                'hotel_collect' => null,
             ],
             'averages' => [
-                'comment_score' => 0.0,
-                'qunar_comment_score' => 0.0,
-                'adr' => 0.0,
+                'comment_score' => null,
+                'qunar_comment_score' => null,
+                'adr' => null,
                 'avg_psi_score' => null,
                 'avg_service_score' => null,
                 'avg_im_score' => null,
@@ -3072,6 +3076,7 @@ class Agent extends Base
         $replyRates = [];
         $invalidRawCount = 0;
         $zeroValueCount = 0;
+        $missingCoreValueCount = 0;
 
         foreach ($rows as $row) {
             $date = (string) ($row['data_date'] ?? '');
@@ -3079,10 +3084,10 @@ class Agent extends Base
                 continue;
             }
 
-            $amount = (float) ($row['amount'] ?? 0);
-            $quantity = (int) ($row['quantity'] ?? 0);
-            $bookOrderNum = (int) ($row['book_order_num'] ?? 0);
-            $dataValue = (float) ($row['data_value'] ?? 0);
+            $amount = $this->readRowNumber($row, 'amount');
+            $quantity = $this->readRowNumber($row, 'quantity');
+            $bookOrderNum = $this->readRowNumber($row, 'book_order_num');
+            $dataValue = $this->readRowNumber($row, 'data_value');
             $dataType = $this->normalizeOtaDiagnosisDataType((string)($row['data_type'] ?? ''));
 
             $raw = [];
@@ -3104,23 +3109,23 @@ class Agent extends Base
             if (!isset($summary['daily'][$date])) {
                 $summary['daily'][$date] = [
                     'date' => $date,
-                    'amount' => 0.0,
-                    'quantity' => 0,
-                    'book_order_num' => 0,
-                    'data_value' => 0.0,
-                    'list_exposure' => 0.0,
-                    'detail_visitors' => 0.0,
-                    'order_visitors' => 0.0,
-                    'submit_users' => 0.0,
-                    'advertising_spend' => 0.0,
-                    'advertising_order_amount' => 0.0,
-                    'advertising_bookings' => 0,
-                    'advertising_room_nights' => 0.0,
-                    'advertising_impressions' => 0.0,
-                    'advertising_clicks' => 0.0,
+                    'amount' => null,
+                    'quantity' => null,
+                    'book_order_num' => null,
+                    'data_value' => null,
+                    'list_exposure' => null,
+                    'detail_visitors' => null,
+                    'order_visitors' => null,
+                    'submit_users' => null,
+                    'advertising_spend' => null,
+                    'advertising_order_amount' => null,
+                    'advertising_bookings' => null,
+                    'advertising_room_nights' => null,
+                    'advertising_impressions' => null,
+                    'advertising_clicks' => null,
                     'advertising_rows' => 0,
                     'service_quality_rows' => 0,
-                    'hotel_collect' => 0,
+                    'hotel_collect' => null,
                 ];
             }
 
@@ -3132,27 +3137,27 @@ class Agent extends Base
             $dimension = trim((string) ($row['dimension'] ?? ''));
             $dimensionKey = $dimension !== '' ? $dimension : '未标注维度';
             if (!isset($summary['dimensions'][$dimensionKey])) {
-                $summary['dimensions'][$dimensionKey] = ['record_count' => 0, 'data_value' => 0.0];
+                $summary['dimensions'][$dimensionKey] = ['record_count' => 0, 'data_value' => null];
             }
 
             if (!in_array($dataType, ['advertising', 'quality', 'review'], true)) {
-                $summary['totals']['amount'] += $amount;
-                $summary['totals']['quantity'] += $quantity;
-                $summary['totals']['book_order_num'] += $bookOrderNum;
-                $summary['daily'][$date]['amount'] += $amount;
-                $summary['daily'][$date]['quantity'] += $quantity;
-                $summary['daily'][$date]['book_order_num'] += $bookOrderNum;
+                $this->addNullableOtaDiagnosisMetric($summary['totals'], 'amount', $amount);
+                $this->addNullableOtaDiagnosisMetric($summary['totals'], 'quantity', $quantity);
+                $this->addNullableOtaDiagnosisMetric($summary['totals'], 'book_order_num', $bookOrderNum);
+                $this->addNullableOtaDiagnosisMetric($summary['daily'][$date], 'amount', $amount);
+                $this->addNullableOtaDiagnosisMetric($summary['daily'][$date], 'quantity', $quantity);
+                $this->addNullableOtaDiagnosisMetric($summary['daily'][$date], 'book_order_num', $bookOrderNum);
             }
-            $summary['totals']['data_value'] += $dataValue;
-            $summary['daily'][$date]['data_value'] += $dataValue;
+            $this->addNullableOtaDiagnosisMetric($summary['totals'], 'data_value', $dataValue);
+            $this->addNullableOtaDiagnosisMetric($summary['daily'][$date], 'data_value', $dataValue);
             $summary['dimensions'][$dimensionKey]['record_count']++;
-            $summary['dimensions'][$dimensionKey]['data_value'] += $dataValue;
+            $this->addNullableOtaDiagnosisMetric($summary['dimensions'][$dimensionKey], 'data_value', $dataValue);
 
             if ($dataType === 'advertising') {
                 $advertising = $this->extractOtaAdvertisingMetrics($row, $raw);
                 foreach ($advertising as $key => $value) {
-                    $summary['totals'][$key] += $value;
-                    $summary['daily'][$date][$key] += $value;
+                    $this->addNullableOtaDiagnosisMetric($summary['totals'], $key, $value);
+                    $this->addNullableOtaDiagnosisMetric($summary['daily'][$date], $key, $value);
                 }
                 $summary['totals']['advertising_rows']++;
                 $summary['daily'][$date]['advertising_rows']++;
@@ -3162,8 +3167,8 @@ class Agent extends Base
                 $quality = $this->extractOtaQualityMetrics($row, $raw);
                 $summary['totals']['service_quality_rows']++;
                 $summary['daily'][$date]['service_quality_rows']++;
-                $summary['totals']['hotel_collect'] += (int)($quality['hotel_collect'] ?? 0);
-                $summary['daily'][$date]['hotel_collect'] += (int)($quality['hotel_collect'] ?? 0);
+                $this->addNullableOtaDiagnosisMetric($summary['totals'], 'hotel_collect', $quality['hotel_collect'] ?? null);
+                $this->addNullableOtaDiagnosisMetric($summary['daily'][$date], 'hotel_collect', $quality['hotel_collect'] ?? null);
                 if ($quality['avg_psi_score'] !== null) {
                     $psiScores[] = (float)$quality['avg_psi_score'];
                 }
@@ -3180,11 +3185,17 @@ class Agent extends Base
 
             $traffic = $this->extractOtaTrafficMetrics($row, $raw);
             foreach ($traffic as $key => $value) {
-                $summary['totals'][$key] += $value;
-                $summary['daily'][$date][$key] += $value;
+                $this->addNullableOtaDiagnosisMetric($summary['totals'], $key, $value);
+                $this->addNullableOtaDiagnosisMetric($summary['daily'][$date], $key, $value);
             }
 
-            if ($amount <= 0 && $quantity <= 0 && $bookOrderNum <= 0 && $dataValue <= 0) {
+            $knownCoreValues = array_values(array_filter(
+                [$amount, $quantity, $bookOrderNum, $dataValue],
+                static fn(?float $value): bool => $value !== null
+            ));
+            if ($knownCoreValues === []) {
+                $missingCoreValueCount++;
+            } elseif (count(array_filter($knownCoreValues, static fn(float $value): bool => $value > 0)) === 0) {
                 $zeroValueCount++;
             }
         }
@@ -3193,17 +3204,25 @@ class Agent extends Base
         $summary['hotel_names'] = array_values(array_keys($summary['hotel_names']));
         $summary['daily'] = array_values($summary['daily']);
         $summary['dimensions'] = $this->topDimensionStats($summary['dimensions']);
-        $summary['averages']['adr'] = $this->percentSafeAverage($summary['totals']['amount'], $summary['totals']['quantity']);
-        $summary['averages']['avg_psi_score'] = $this->average($psiScores);
-        $summary['averages']['avg_service_score'] = $this->average($serviceScores);
-        $summary['averages']['avg_im_score'] = $this->average($imScores);
-        $summary['averages']['avg_reply_rate'] = $this->average($replyRates);
-        $summary['averages']['advertising_roas'] = $this->percentSafeAverage($summary['totals']['advertising_order_amount'], $summary['totals']['advertising_spend']);
+        $summary['averages']['adr'] = $this->nullableSafeAverage($summary['totals']['amount'], $summary['totals']['quantity']);
+        $summary['averages']['avg_psi_score'] = $this->nullableAverage($psiScores);
+        $summary['averages']['avg_service_score'] = $this->nullableAverage($serviceScores);
+        $summary['averages']['avg_im_score'] = $this->nullableAverage($imScores);
+        $summary['averages']['avg_reply_rate'] = $this->nullableAverage($replyRates);
+        $summary['averages']['advertising_roas'] = $this->nullableSafeAverage($summary['totals']['advertising_order_amount'], $summary['totals']['advertising_spend']);
         $summary['derived_rates'] = [
-            'detail_rate' => $this->percentRate($summary['totals']['detail_visitors'], $summary['totals']['list_exposure']),
-            'order_rate' => $this->percentRate($summary['totals']['order_visitors'], $summary['totals']['detail_visitors']),
-            'submit_rate' => $this->percentRate($summary['totals']['submit_users'], $summary['totals']['order_visitors']),
+            'detail_rate' => $this->nullablePercentRate($summary['totals']['detail_visitors'], $summary['totals']['list_exposure']),
+            'order_rate' => $this->nullablePercentRate($summary['totals']['order_visitors'], $summary['totals']['detail_visitors']),
+            'submit_rate' => $this->nullablePercentRate($summary['totals']['submit_users'], $summary['totals']['order_visitors']),
         ];
+        $summary['data_gaps'] = array_values(array_map(
+            static fn(string $field): string => 'metric_missing:' . $field,
+            array_keys(array_filter(
+                $summary['totals'],
+                static fn(mixed $value, string $field): bool => !in_array($field, ['advertising_rows', 'service_quality_rows'], true) && $value === null,
+                ARRAY_FILTER_USE_BOTH
+            ))
+        ));
 
         $missingDates = $this->missingDates($startDate, $endDate, array_column($summary['daily'], 'date'));
         if (!empty($missingDates)) {
@@ -3214,6 +3233,9 @@ class Agent extends Base
         }
         if ($zeroValueCount > 0) {
             $summary['data_anomalies'][] = '全指标为 0 的记录数: ' . $zeroValueCount;
+        }
+        if ($missingCoreValueCount > 0) {
+            $summary['data_anomalies'][] = '核心指标未返回的记录数: ' . $missingCoreValueCount;
         }
 
         return $summary;
@@ -3226,29 +3248,29 @@ class Agent extends Base
             $listExposure = $this->readSummaryNumber($raw, ['listExposure', 'list_exposure', 'exposure'], null);
         }
         if ($listExposure === null && ($row['data_type'] ?? '') === 'traffic') {
-            $listExposure = (float) ($row['data_value'] ?? 0);
+            $listExposure = $this->readRowNumber($row, 'data_value');
         }
 
         $detailVisitors = $this->readRowNumber($row, 'detail_exposure');
         if ($detailVisitors === null) {
-            $detailVisitors = $this->readSummaryNumber($raw, ['detailExposure', 'detail_exposure', 'totalDetailNum', 'detailVisitors', 'qunarDetailVisitors'], 0);
+            $detailVisitors = $this->readSummaryNumber($raw, ['detailExposure', 'detail_exposure', 'totalDetailNum', 'detailVisitors', 'qunarDetailVisitors'], null);
         }
 
         $orderVisitors = $this->readRowNumber($row, 'order_filling_num');
         if ($orderVisitors === null) {
-            $orderVisitors = $this->readSummaryNumber($raw, ['orderFillingNum', 'order_filling_num', 'orderVisitors'], 0);
+            $orderVisitors = $this->readSummaryNumber($raw, ['orderFillingNum', 'order_filling_num', 'orderVisitors'], null);
         }
 
         $submitUsers = $this->readRowNumber($row, 'order_submit_num');
         if ($submitUsers === null) {
-            $submitUsers = $this->readSummaryNumber($raw, ['orderSubmitNum', 'order_submit_num', 'submitUsers'], 0);
+            $submitUsers = $this->readSummaryNumber($raw, ['orderSubmitNum', 'order_submit_num', 'submitUsers'], null);
         }
 
         return [
-            'list_exposure' => (float) ($listExposure ?? 0),
-            'detail_visitors' => (float) ($detailVisitors ?? 0),
-            'order_visitors' => (float) ($orderVisitors ?? 0),
-            'submit_users' => (float) ($submitUsers ?? 0),
+            'list_exposure' => $listExposure,
+            'detail_visitors' => $detailVisitors,
+            'order_visitors' => $orderVisitors,
+            'submit_users' => $submitUsers,
         ];
     }
 
@@ -3274,25 +3296,25 @@ class Agent extends Base
     {
         $detail = $this->otaDiagnosisRawDetail($raw);
         $spend = $this->readRowNumberFromKeys($row, ['amount', 'spend', 'cost', 'today_cost'])
-            ?? $this->readSummaryNumber($detail, ['spend', 'cost', 'todayCost', 'today_cost'], 0);
+            ?? $this->readSummaryNumber($detail, ['spend', 'cost', 'todayCost', 'today_cost'], null);
         $orderAmount = $this->readSummaryNumber($detail, ['orderAmount', 'order_amount', 'bookAmount', 'saleAmount', 'revenue'], null);
         if ($orderAmount === null) {
             $roas = $this->readRowNumberFromKeys($row, ['data_value', 'roas'])
                 ?? $this->readSummaryNumber($detail, ['roas', 'roi'], null);
-            $orderAmount = $spend !== null && $roas !== null ? (float)$spend * (float)$roas : 0.0;
+            $orderAmount = $spend !== null && $roas !== null ? (float)$spend * (float)$roas : null;
         }
 
         return [
-            'advertising_spend' => (float)($spend ?? 0),
-            'advertising_order_amount' => (float)$orderAmount,
-            'advertising_bookings' => (int)round($this->readRowNumberFromKeys($row, ['book_order_num', 'bookings', 'order_count'])
-                ?? $this->readSummaryNumber($detail, ['bookings', 'bookingCount', 'orderCount', 'orderQuantity'], 0)),
-            'advertising_room_nights' => (float)($this->readRowNumberFromKeys($row, ['quantity', 'room_nights'])
-                ?? $this->readSummaryNumber($detail, ['roomNights', 'room_nights', 'nights'], 0)),
-            'advertising_impressions' => (float)($this->readRowNumberFromKeys($row, ['list_exposure', 'impressions'])
-                ?? $this->readSummaryNumber($detail, ['impressions', 'exposure', 'listExposure'], 0)),
-            'advertising_clicks' => (float)($this->readRowNumberFromKeys($row, ['detail_exposure', 'clicks'])
-                ?? $this->readSummaryNumber($detail, ['clicks', 'clickCount', 'detailExposure'], 0)),
+            'advertising_spend' => $spend,
+            'advertising_order_amount' => $orderAmount,
+            'advertising_bookings' => $this->readRowNumberFromKeys($row, ['book_order_num', 'bookings', 'order_count'])
+                ?? $this->readSummaryNumber($detail, ['bookings', 'bookingCount', 'orderCount', 'orderQuantity'], null),
+            'advertising_room_nights' => $this->readRowNumberFromKeys($row, ['quantity', 'room_nights'])
+                ?? $this->readSummaryNumber($detail, ['roomNights', 'room_nights', 'nights'], null),
+            'advertising_impressions' => $this->readRowNumberFromKeys($row, ['list_exposure', 'impressions'])
+                ?? $this->readSummaryNumber($detail, ['impressions', 'exposure', 'listExposure'], null),
+            'advertising_clicks' => $this->readRowNumberFromKeys($row, ['detail_exposure', 'clicks'])
+                ?? $this->readSummaryNumber($detail, ['clicks', 'clickCount', 'detailExposure'], null),
         ];
     }
 
@@ -3313,8 +3335,8 @@ class Agent extends Base
                 ?? $this->readRowNumberFromKeys($row, ['im_score']),
             'avg_reply_rate' => $this->readSummaryNumber($detail, ['replyRate', 'reply_rate'], null)
                 ?? $this->readRowNumberFromKeys($row, ['reply_rate']),
-            'hotel_collect' => (int)round($this->readSummaryNumber($detail, ['hotelCollect', 'hotel_collect'], 0)
-                ?? $this->readRowNumberFromKeys($row, ['hotel_collect']) ?? 0),
+            'hotel_collect' => $this->readSummaryNumber($detail, ['hotelCollect', 'hotel_collect'], null)
+                ?? $this->readRowNumberFromKeys($row, ['hotel_collect']),
         ];
     }
 
@@ -3352,10 +3374,60 @@ class Agent extends Base
         return $default;
     }
 
+    private function addNullableOtaDiagnosisMetric(array &$bucket, string $field, mixed $value): void
+    {
+        if ($value === null || $value === '' || !is_numeric($value)) {
+            return;
+        }
+        $bucket[$field] = ($bucket[$field] ?? 0) + (float)$value;
+    }
+
+    private function hasKnownOtaDiagnosisMetric(array $metrics, array $fields): bool
+    {
+        foreach ($fields as $field) {
+            if (array_key_exists($field, $metrics) && $metrics[$field] !== null && $metrics[$field] !== '') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function nullablePercentRate(mixed $numerator, mixed $denominator): ?float
+    {
+        if (!is_numeric($numerator) || !is_numeric($denominator) || (float)$denominator <= 0) {
+            return null;
+        }
+        return round((float)$numerator / (float)$denominator * 100, 2);
+    }
+
+    private function nullableSafeAverage(mixed $numerator, mixed $denominator): ?float
+    {
+        if (!is_numeric($numerator) || !is_numeric($denominator) || (float)$denominator <= 0) {
+            return null;
+        }
+        return round((float)$numerator / (float)$denominator, 2);
+    }
+
+    private function formatOtaDiagnosisMetric(mixed $value, string $suffix = ''): string
+    {
+        if ($value === null || $value === '' || !is_numeric($value)) {
+            return '未返回';
+        }
+        return (string)$value . $suffix;
+    }
+
     private function topDimensionStats(array $dimensions): array
     {
         uasort($dimensions, function (array $a, array $b): int {
-            return $b['data_value'] <=> $a['data_value'];
+            $left = $a['data_value'] ?? null;
+            $right = $b['data_value'] ?? null;
+            if ($left === null) {
+                return $right === null ? 0 : 1;
+            }
+            if ($right === null) {
+                return -1;
+            }
+            return (float)$right <=> (float)$left;
         });
         return array_slice($dimensions, 0, 10, true);
     }
@@ -3366,6 +3438,11 @@ class Agent extends Base
             return 0.0;
         }
         return round(array_sum($values) / count($values), 2);
+    }
+
+    private function nullableAverage(array $values): ?float
+    {
+        return $values === [] ? null : $this->average($values);
     }
 
     private function percentRate(float $numerator, float $denominator): float

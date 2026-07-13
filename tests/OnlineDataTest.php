@@ -1182,6 +1182,57 @@ final class OnlineDataTest extends TestCase
         self::assertSame(9, $hotels[0]['HotelId']);
     }
 
+    public function testUnknownLegacyMetricsStayNullAcrossAnalyticsHistoryAndFingerprinting(): void
+    {
+        $controller = $this->controller();
+        $aggregated = $this->invokeNonPublic($controller, 'aggregateByDimension', [[
+            [
+                'data_date' => '2026-07-13',
+                'amount' => null,
+                'quantity' => null,
+                'data_value' => null,
+                'book_order_num' => null,
+                'comment_score' => null,
+            ],
+        ], 'day']);
+
+        self::assertNull($aggregated[0]['amount']);
+        self::assertNull($aggregated[0]['quantity']);
+        self::assertNull($aggregated[0]['data_value']);
+        self::assertNull($aggregated[0]['book_order_num']);
+        self::assertNull($aggregated[0]['avg_comment_score']);
+        self::assertSame('partial', $aggregated[0]['data_status']);
+        self::assertContains('amount', $aggregated[0]['data_gaps']);
+
+        $unknownHistory = $this->invokeNonPublic($controller, 'buildOnlineRowPayload', [[
+            'hotel_id' => '832085',
+            'hotel_name' => 'A',
+            'data_date' => '2026-07-13',
+            'amount' => null,
+        ]]);
+        $zeroHistory = $this->invokeNonPublic($controller, 'buildOnlineRowPayload', [[
+            'hotel_id' => '832085',
+            'hotel_name' => 'A',
+            'data_date' => '2026-07-13',
+            'amount' => 0,
+            'quantity' => '0',
+            'book_order_num' => 0,
+        ]]);
+        self::assertNull($unknownHistory['amount']);
+        self::assertNull($unknownHistory['quantity']);
+        self::assertSame(0.0, $zeroHistory['amount']);
+        self::assertSame(0, $zeroHistory['quantity']);
+        self::assertSame(0, $zeroHistory['bookOrderNum']);
+
+        $missingFingerprint = $this->invokeNonPublic($controller, 'buildCtripBusinessFingerprint', [[
+            ['hotelId' => '832085', 'hotelName' => 'A'],
+        ]]);
+        $zeroFingerprint = $this->invokeNonPublic($controller, 'buildCtripBusinessFingerprint', [[
+            ['hotelId' => '832085', 'hotelName' => 'A', 'amount' => 0],
+        ]]);
+        self::assertNotSame($missingFingerprint, $zeroFingerprint);
+    }
+
     public function testBackendBuildsCtripBusinessDisplayRowsForFrontend(): void
     {
         $controller = $this->controller();
@@ -6107,6 +6158,101 @@ final class OnlineDataTest extends TestCase
         self::assertStringNotContainsString('order-1', (string)$rows[3]['dimension']);
         self::assertMatchesRegularExpression('/^order:confirmed:[a-f0-9]{64}$/', (string)$rows[3]['dimension']);
         self::assertStringNotContainsString('order-1', (string)$rows[3]['raw_data']);
+    }
+
+    public function testMeituanAdsKeepIndependentCampaignRowsAndVerifyMetricReadback(): void
+    {
+        $controller = $this->controller();
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanCapturedDailyRows', [[
+            'poi_id' => 'poi-99',
+            'poi_name' => 'Hotel A',
+            'ads' => [
+                [
+                    'campaignId' => 'campaign-1',
+                    'planId' => 'plan-1',
+                    'date' => '2026-07-13',
+                    'cost' => 88.505,
+                    'click_count' => 50,
+                    'orderNum' => 2,
+                ],
+                [
+                    'campaignId' => 'campaign-1',
+                    'planId' => 'plan-2',
+                    'date' => '2026-07-13',
+                    'cost' => 40,
+                    'click_count' => 20,
+                    'orderNum' => 1,
+                ],
+            ],
+        ], 99]);
+
+        self::assertCount(2, $rows);
+        self::assertCount(2, array_unique(array_column($rows, 'dimension')));
+        $uniqueRows = $this->invokeNonPublic(
+            $controller,
+            'uniqueMeituanCapturedRowsForPersistence',
+            [[$rows[0], $rows[0], $rows[1]]]
+        );
+        self::assertCount(2, $uniqueRows);
+        $deduplicatedPersistenceState = $this->invokeNonPublic(
+            $controller,
+            'buildMeituanDirectPersistenceState',
+            [true, count($uniqueRows), count($uniqueRows), 'meituan_ads']
+        );
+        self::assertTrue($deduplicatedPersistenceState['persisted']);
+        self::assertSame('readback_verified', $deduplicatedPersistenceState['persistence_status']);
+        self::assertMatchesRegularExpression('/^ads:identity:[a-f0-9]{24}$/', $rows[0]['dimension']);
+        self::assertStringNotContainsString('campaign-1', $rows[0]['dimension']);
+        self::assertTrue($this->invokeNonPublic(
+            $controller,
+            'meituanCapturedRowMatchesReadback',
+            [$rows[0], $rows[0]]
+        ));
+
+        $wrongAmount = $rows[0];
+        $wrongAmount['amount'] = 0;
+        self::assertFalse($this->invokeNonPublic(
+            $controller,
+            'meituanCapturedRowMatchesReadback',
+            [$wrongAmount, $rows[0]]
+        ));
+
+        $persistedZeroQuantity = $rows[0];
+        $persistedZeroQuantity['quantity'] = 0;
+        self::assertNull($rows[0]['quantity']);
+        self::assertFalse($this->invokeNonPublic(
+            $controller,
+            'meituanCapturedRowMatchesReadback',
+            [$persistedZeroQuantity, $rows[0]]
+        ));
+
+        $roundedByDatabase = $rows[0];
+        $roundedByDatabase['amount'] = 88.51;
+        self::assertTrue($this->invokeNonPublic(
+            $controller,
+            'meituanCapturedRowMatchesReadback',
+            [$roundedByDatabase, $rows[0]]
+        ));
+    }
+
+    public function testMeituanAdsWithoutStableIdUseContentFingerprintInsteadOfBatchIndex(): void
+    {
+        $controller = $this->controller();
+        $payload = [
+            'poi_id' => 'poi-99',
+            'poi_name' => 'Hotel A',
+            'ads' => [[
+                'date' => '2026-07-13',
+                'cost' => 30,
+                'click_count' => 5,
+            ]],
+        ];
+        $first = $this->invokeNonPublic($controller, 'buildMeituanCapturedDailyRows', [$payload, 99]);
+        $second = $this->invokeNonPublic($controller, 'buildMeituanCapturedDailyRows', [$payload, 99]);
+
+        self::assertSame($first[0]['dimension'], $second[0]['dimension']);
+        self::assertMatchesRegularExpression('/^ads:unidentified:[a-f0-9]{24}$/', $first[0]['dimension']);
+        self::assertStringContainsString('"ad_identity_status":"missing_stable_id"', (string)$first[0]['raw_data']);
     }
 
     public function testOnlineDailyDataValidationFieldsMarkAbnormalRows(): void

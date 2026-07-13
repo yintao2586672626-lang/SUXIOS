@@ -14,22 +14,39 @@ final class ManualFetchPersistenceStateTest extends TestCase
         $harness = $this->harness();
         $method = $this->stateMethod($harness, 'buildCtripPersistenceState');
 
-        self::assertSame(
-            ['persistence_status' => 'blocked', 'persisted' => false],
-            $method->invoke($harness, true, 0, true)
-        );
-        self::assertSame(
-            ['persistence_status' => 'display_only', 'persisted' => false],
-            $method->invoke($harness, false, 0, false)
-        );
-        self::assertSame(
-            ['persistence_status' => 'persisted', 'persisted' => true],
-            $method->invoke($harness, true, 3, false)
-        );
-        self::assertSame(
-            ['persistence_status' => 'not_persisted', 'persisted' => false],
-            $method->invoke($harness, true, 0, false)
-        );
+        $blocked = $method->invoke($harness, true, 0, true);
+        self::assertSame('blocked', $blocked['persistence_status']);
+        self::assertFalse($blocked['persisted']);
+
+        $displayOnly = $method->invoke($harness, false, 0, false);
+        self::assertSame('display_only', $displayOnly['persistence_status']);
+        self::assertFalse($displayOnly['persisted']);
+
+        $mismatch = $method->invoke($harness, true, 3, false, 2, false);
+        self::assertSame('readback_failed', $mismatch['persistence_status']);
+        self::assertFalse($mismatch['persisted']);
+        self::assertSame(3, $mismatch['processed_count']);
+        self::assertSame(2, $mismatch['readback_count']);
+
+        $verified = $method->invoke($harness, true, 3, false, 3, true);
+        self::assertSame('readback_verified', $verified['persistence_status']);
+        self::assertTrue($verified['persisted']);
+        self::assertSame(3, $verified['saved_count']);
+
+        $empty = $method->invoke($harness, true, 0, false, 0, false);
+        self::assertSame('not_persisted', $empty['persistence_status']);
+        self::assertFalse($empty['persisted']);
+
+        $outcomeMethod = $this->stateMethod($harness, 'buildCtripManualFetchPersistenceOutcome');
+        $failureOutcome = $outcomeMethod->invoke($harness, true, $mismatch);
+        self::assertSame(500, $failureOutcome['code']);
+        self::assertSame(500, $failureOutcome['http_status']);
+        self::assertSame('readback_failed', $failureOutcome['save_status']);
+        self::assertStringContainsString('未确认入库', $failureOutcome['message']);
+
+        $successOutcome = $outcomeMethod->invoke($harness, true, $verified);
+        self::assertSame(200, $successOutcome['http_status']);
+        self::assertSame('', $successOutcome['save_status']);
     }
 
     public function testMeituanAutoSaveRequiresRowsAndVerifiedReadback(): void

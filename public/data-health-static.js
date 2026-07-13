@@ -5911,46 +5911,51 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         psi: 'PSI',
     }[type] || type || '-');
 
+    const onlineAnalysisMetricText = (value, formatNumber = metric => String(metric ?? ''), prefix = '') => {
+        if (value === null || value === undefined || value === '') return '-';
+        return `${prefix}${formatNumber(value)}`;
+    };
+
     const buildOnlineAnalysisSummaryCards = (summary = {}, dimension = 'day', formatNumber = value => String(value ?? '')) => [
         {
             key: 'amount',
             label: 'OTA销售额',
-            value: `¥${formatNumber(summary.total_amount || 0)}`,
+            value: onlineAnalysisMetricText(summary.total_amount, formatNumber, '¥'),
             sub: `${dimension === 'day' ? '日' : dimension === 'week' ? '周' : '月'}维度汇总`,
             className: 'text-emerald-700',
         },
         {
             key: 'quantity',
             label: 'OTA间夜',
-            value: formatNumber(summary.total_quantity || 0),
-            sub: `均值 ${formatNumber(summary.avg_quantity || 0)}`,
+            value: onlineAnalysisMetricText(summary.total_quantity, formatNumber),
+            sub: `均值 ${onlineAnalysisMetricText(summary.avg_quantity, formatNumber)}`,
             className: 'text-blue-700',
         },
         {
             key: 'orders',
             label: 'OTA订单',
-            value: formatNumber(summary.total_orders || 0),
-            sub: `评分 ${formatNumber(summary.avg_score || 0)}`,
+            value: onlineAnalysisMetricText(summary.total_orders, formatNumber),
+            sub: `评分 ${onlineAnalysisMetricText(summary.avg_score, formatNumber)}`,
             className: 'text-amber-700',
         },
         {
             key: 'metric_value',
             label: '指标值',
-            value: formatNumber(summary.total_data_value || 0),
+            value: onlineAnalysisMetricText(summary.total_data_value, formatNumber),
             sub: '流量/排名/服务等扩展指标',
             className: 'text-indigo-700',
         },
         {
             key: 'records',
             label: '入库事实行',
-            value: formatNumber(summary.total_record_count || 0),
+            value: formatNumber(summary.total_record_count ?? 0),
             sub: 'online_daily_data',
             className: 'text-slate-900',
         },
         {
             key: 'hotels',
             label: '覆盖酒店',
-            value: formatNumber(summary.hotel_count || 0),
+            value: formatNumber(summary.hotel_count ?? 0),
             sub: summary.latest_data_date ? `最新 ${summary.latest_data_date}` : '暂无日期',
             className: 'text-gray-700',
         },

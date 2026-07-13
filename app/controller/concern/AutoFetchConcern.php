@@ -5078,8 +5078,8 @@ trait AutoFetchConcern
         if ($profileId === '') {
             return ['success' => false, 'skipped' => true, 'message' => '未配置携程 Profile ID', 'saved_count' => 0];
         }
+        $profileSource = $this->loadProfileSessionSource('ctrip', $hotelId, $profileId);
         if (!$interactiveBrowser) {
-            $profileSource = $this->loadProfileSessionSource('ctrip', $hotelId, $profileId);
             $reuseState = (new OtaProfileSessionProofService())->profileReuseState($profileSource ?? []);
             if (empty($reuseState['is_reusable'])) {
                 $statusCode = ($reuseState['status'] ?? '') === 'expired'
@@ -6345,6 +6345,7 @@ trait AutoFetchConcern
             }
             unset($row);
         }
+        $rows = $this->uniqueMeituanCapturedRowsForPersistence($rows);
         $savedCount = empty($rows) ? 0 : $this->saveMeituanCapturedDailyRows($rows);
 
         return [

@@ -794,13 +794,29 @@ trait BusinessDisplayConcern
                 ]
             );
             if ($ownsEvidenceTask) {
-                $persistence->finishSyncTask($syncTaskId, $dataSourceId, [
-                    'saved_count' => (int)($result['saved_count'] ?? 0),
-                    'inserted_count' => (int)($result['inserted_count'] ?? 0),
-                    'updated_count' => (int)($result['updated_count'] ?? 0),
-                    'row_count' => count($rows),
-                    'self_hotel_ids' => array_keys($selfHotelIds),
-                ]);
+                $processedCount = max(0, (int)($result['processed_count'] ?? 0));
+                $readbackCount = max(0, (int)($result['readback_count'] ?? 0));
+                if ($processedCount > 0
+                    && !empty($result['readback_verified'])
+                    && $readbackCount === $processedCount) {
+                    $persistence->finishSyncTask($syncTaskId, $dataSourceId, [
+                        'processed_count' => $processedCount,
+                        'saved_count' => (int)($result['saved_count'] ?? 0),
+                        'readback_count' => $readbackCount,
+                        'readback_verified' => true,
+                        'inserted_count' => (int)($result['inserted_count'] ?? 0),
+                        'updated_count' => (int)($result['updated_count'] ?? 0),
+                        'skipped_count' => (int)($result['skipped_count'] ?? 0),
+                        'row_count' => count($rows),
+                        'self_hotel_ids' => array_keys($selfHotelIds),
+                    ]);
+                } else {
+                    $persistence->failSyncTask(
+                        $syncTaskId,
+                        $dataSourceId,
+                        'competition_circle_readback_failed'
+                    );
+                }
             }
             return (int)($result['saved_count'] ?? 0);
         } catch (\Throwable $e) {
@@ -4319,15 +4335,15 @@ trait BusinessDisplayConcern
             $rows[] = [
                 'hotel_id' => $hotelId,
                 'hotel_name' => (string)($item['hotelName'] ?? $item['hotel_name'] ?? $item['HotelName'] ?? $item['name'] ?? ''),
-                'amount' => (float)($item['amount'] ?? $item['Amount'] ?? $item['totalAmount'] ?? $item['total_amount'] ?? $item['saleAmount'] ?? 0),
-                'quantity' => (int)($item['quantity'] ?? $item['Quantity'] ?? $item['roomNights'] ?? $item['room_nights'] ?? $item['checkOutQuantity'] ?? 0),
-                'book_order_num' => (int)($item['bookOrderNum'] ?? $item['book_order_num'] ?? $item['orderCount'] ?? $item['order_count'] ?? 0),
-                'comment_score' => (float)($item['commentScore'] ?? $item['comment_score'] ?? $item['score'] ?? $item['avgScore'] ?? 0),
-                'qunar_comment_score' => (float)($item['qunarCommentScore'] ?? $item['qunar_comment_score'] ?? $item['qunarScore'] ?? 0),
-                'total_detail_num' => (int)($item['totalDetailNum'] ?? $item['total_detail_num'] ?? $item['exposure'] ?? $item['exposureCount'] ?? $item['pv'] ?? $item['pageView'] ?? $item['viewCount'] ?? $item['detailVisitors'] ?? 0),
-                'convertion_rate' => (float)($item['convertionRate'] ?? $item['convertion_rate'] ?? $item['conversionRate'] ?? 0),
-                'qunar_detail_visitors' => (int)($item['qunarDetailVisitors'] ?? $item['qunar_detail_visitors'] ?? $item['views'] ?? $item['uv'] ?? $item['visitorCount'] ?? $item['detailUv'] ?? 0),
-                'qunar_detail_cr' => (float)($item['qunarDetailCR'] ?? $item['qunar_detail_cr'] ?? $item['qunarDetailConversionRate'] ?? 0),
+                'amount' => $this->ctripFingerprintNullableNumber($item, ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount']),
+                'quantity' => $this->ctripFingerprintNullableNumber($item, ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity'], true),
+                'book_order_num' => $this->ctripFingerprintNullableNumber($item, ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count'], true),
+                'comment_score' => $this->ctripFingerprintNullableNumber($item, ['commentScore', 'comment_score', 'score', 'avgScore']),
+                'qunar_comment_score' => $this->ctripFingerprintNullableNumber($item, ['qunarCommentScore', 'qunar_comment_score', 'qunarScore']),
+                'total_detail_num' => $this->ctripFingerprintNullableNumber($item, ['totalDetailNum', 'total_detail_num', 'exposure', 'exposureCount', 'pv', 'pageView', 'viewCount', 'detailVisitors'], true),
+                'convertion_rate' => $this->ctripFingerprintNullableNumber($item, ['convertionRate', 'convertion_rate', 'conversionRate']),
+                'qunar_detail_visitors' => $this->ctripFingerprintNullableNumber($item, ['qunarDetailVisitors', 'qunar_detail_visitors', 'views', 'uv', 'visitorCount', 'detailUv'], true),
+                'qunar_detail_cr' => $this->ctripFingerprintNullableNumber($item, ['qunarDetailCR', 'qunar_detail_cr', 'qunarDetailConversionRate']),
             ];
         }
 
@@ -4337,6 +4353,20 @@ trait BusinessDisplayConcern
 
         usort($rows, static fn($a, $b) => strcmp($a['hotel_id'], $b['hotel_id']));
         return sha1(json_encode($rows, JSON_UNESCAPED_UNICODE));
+    }
+
+    private function ctripFingerprintNullableNumber(array $row, array $keys, bool $integer = false): int|float|null
+    {
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $row) || $row[$key] === null || $row[$key] === '') {
+                continue;
+            }
+            if (!is_numeric($row[$key])) {
+                continue;
+            }
+            return $integer ? (int)$row[$key] : (float)$row[$key];
+        }
+        return null;
     }
 
     private function extractCtripResponseDates($data): array

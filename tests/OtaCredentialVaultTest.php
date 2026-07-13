@@ -52,24 +52,23 @@ final class OtaCredentialVaultTest extends TestCase
     public function testMissingHotelIsRejected(): void { $this->expectException(\RuntimeException::class); $this->vault()->store(7, 999, 'ctrip', 'main', [], 3); }
     public function testWrongTenantIsRejected(): void { $this->expectException(\RuntimeException::class); $this->vault()->store(8, 101, 'ctrip', 'main', [], 3); }
     public function testUpdateSameScopeKeepsUniqueRow(): void { $v=$this->vault(); $a=$v->store(7,101,'ctrip','main',['token'=>'a'],3); $b=$v->store(7,101,'ctrip','main',['token'=>'b'],4); self::assertSame($a['credential_ref'],$b['credential_ref']); self::assertSame('b',$v->withPayloadForExecution(7,101,'ctrip','main',fn(array $p)=>$p['token'])); }
-    public function testNewConfigRevokesPreviousReadyCredentialForSameHotelAndPlatform(): void
+    public function testDifferentConfigLocatorsRemainIndependentlyExecutable(): void
     {
         $vault = $this->vault();
         $vault->store(7, 101, 'ctrip', 'old-config', ['token' => 'old'], 3);
         $vault->store(7, 101, 'ctrip', 'new-config', ['token' => 'new'], 3);
 
-        self::assertSame('revoked', $vault->metadata(7, 101, 'ctrip', 'old-config')['credential_status']);
+        self::assertSame('ready', $vault->metadata(7, 101, 'ctrip', 'old-config')['credential_status']);
         self::assertSame('ready', $vault->metadata(7, 101, 'ctrip', 'new-config')['credential_status']);
-        self::assertSame(1, (int)Db::name('ota_credentials')
+        self::assertSame(2, (int)Db::name('ota_credentials')
             ->where('tenant_id', 7)
             ->where('system_hotel_id', 101)
             ->where('platform', 'ctrip')
+            ->whereIn('config_id', ['old-config', 'new-config'])
             ->where('credential_status', 'ready')
             ->count());
+        self::assertSame('old', $vault->withPayloadForExecution(7, 101, 'ctrip', 'old-config', fn(array $payload): string => $payload['token']));
         self::assertSame('new', $vault->withPayloadForExecution(7, 101, 'ctrip', 'new-config', fn(array $payload): string => $payload['token']));
-
-        $this->expectException(\RuntimeException::class);
-        $vault->withPayloadForExecution(7, 101, 'ctrip', 'old-config', fn(array $payload): array => $payload);
     }
     public function testVaultDoesNotApplyForUpdateLockToUpdateStatements(): void
     {

@@ -163,6 +163,7 @@ trait OnlineDataRequestConcern
             }
             unset($row);
         }
+        $rows = $this->uniqueMeituanCapturedRowsForPersistence($rows);
         $savedCount = $this->saveMeituanCapturedDailyRows($rows);
         if ($this->currentUser && isset($this->currentUser->id)) {
             OperationLog::record(
@@ -541,6 +542,7 @@ trait OnlineDataRequestConcern
             }
             unset($row);
         }
+        $rows = $this->uniqueMeituanCapturedRowsForPersistence($rows);
         $savedCount = empty($rows) ? 0 : $this->saveMeituanCapturedDailyRows($rows);
 
         if ($this->currentUser && isset($this->currentUser->id)) {
