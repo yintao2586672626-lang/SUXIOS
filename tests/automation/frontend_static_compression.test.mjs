@@ -12,6 +12,17 @@ test('static router caches level-6 gzip output under a level-specific identity',
   assert.doesNotMatch(router, /gzencode\(\$responseContent \?\? '', 1\)/);
 });
 
+test('static router completes conditional cache hits before payload or gzip work', () => {
+  const router = fs.readFileSync('public/router.php', 'utf8');
+  const conditionalOffset = router.indexOf("if ($ifNoneMatch === $etag");
+  const payloadOffset = router.indexOf('$responsePayload = suxi_static_response_payload');
+
+  assert.match(router, /\$ifNoneMatch = trim\(\(string\)\(\$_SERVER\['HTTP_IF_NONE_MATCH'\]/);
+  assert.match(router, /\$ifModifiedSince = trim\(\(string\)\(\$_SERVER\['HTTP_IF_MODIFIED_SINCE'\]/);
+  assert.match(router, /http_response_code\(304\);\s*return true;/);
+  assert.ok(conditionalOffset >= 0 && payloadOffset > conditionalOffset);
+});
+
 test('level-6 gzip materially reduces current entry bytes without changing payloads', () => {
   const assets = [
     'public/index.html',
