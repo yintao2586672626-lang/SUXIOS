@@ -814,11 +814,13 @@ if (!/<script\s+src=["']system-static\.js\?v=[^"']+["']><\/script>/.test(content
     || !content.includes('const ctripManualFetchConfigProofPending = () => {')
     || !content.includes('return !!ctripConfigListLoadingPromise')
     || !ctripCanFetchSource.includes('if (selectedCtripHotelId.value) return selectedCtripManualCredentialState.value.canFetch;')
-    || !ctripCanFetchSource.includes('return buildCtripManualCredentialState(ctripManualFetchConfigCandidate()).canFetch;')
+    || !ctripCanFetchSource.includes("const isRankingTab = onlineDataTab.value === 'ctrip-ranking';")
+    || !ctripCanFetchSource.includes('if (!isRankingTab) return false;')
+    || !ctripCanFetchSource.includes("return normalizeCtripTemporaryCookie(ctripForm.value) !== '';")
     || /ctripManualFetchConfigProofPending|ctripConfigListLoadingPromise|ctripConfigListLoaded|ctripConfigListLoadFailed/.test(ctripCanFetchSource)
     || !content.includes('const resolveCtripManualFetchConfig = async (config) => {')
     || !content.includes('return ctripManualFetchConfigCandidate();')) {
-    failures.push('public/index.html Ctrip ranking/traffic manual fetch must fail closed while config proof is pending/loading/missing and only enable for a ready metadata credential; async prewarm and submit-time resolution must remain.');
+    failures.push('public/index.html Ctrip manual fetch must require a ready saved credential for a selected hotel, or an explicit one-shot Cookie on the unbound ranking query; async prewarm and submit-time resolution must remain.');
   }
   if (!content.includes('const ctripConfigHasManualAuxiliary = (config = null) => {')
     || !content.includes("String(config.credential_status || '') === 'ready'")

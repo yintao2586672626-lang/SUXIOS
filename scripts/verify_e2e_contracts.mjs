@@ -540,7 +540,7 @@ requireText('public/index.html', 'const openPlatformAutoTab = (options = {}) =>'
 requireText('public/index.html', 'const openOnlinePlatformAutoTab = (options = {}) =>', 'cross-page platform auto navigation uses the deduplicated entrypoint');
 requireText('public/index.html', 'const PLATFORM_AUTO_SETTINGS_PANEL_DELAY_MS = 800;', 'platform auto-fetch delays schedule/browser settings behind immediate collect controls');
 requireText('public/index.html', 'const platformAutoSettingsPanelsReady = ref(false);', 'platform auto-fetch tracks settings readiness separately from core controls');
-requireText('public/index.html', "const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260711-live-progress-profile-hotel';", 'platform auto-fetch extension panels use a versioned lazy component script');
+requireText('public/index.html', "const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260712-meituan-ads-not-applicable';", 'platform auto-fetch extension panels use a versioned lazy component script');
 requireText('public/index.html', 'const ensurePlatformAutoPanelsReady = async () => {', 'platform auto-fetch extension panels load only after the delayed panel timers fire');
 requireText('public/index.html', "requireOnlineDataComponent('PlatformAutoSettingsPanelsBody')", 'platform auto-fetch settings panel resolves the lazy body component after script load');
 requireText('public/index.html', "requireOnlineDataComponent('PlatformAutoSecondaryPanelsBody')", 'platform auto-fetch secondary panel resolves the lazy body component after script load');
@@ -1089,8 +1089,9 @@ requireText('public/index.html', "if (ctripConfigListLoadingPromise) {\n        
 requireText('public/index.html', ':disabled="fetchingData || !canFetchCtripManualData()"', 'Ctrip ranking and traffic manual fetch buttons use the fail-closed readiness gate');
 requireText('public/index.html', 'const ctripManualFetchConfigProofPending = () => {', 'Ctrip manual fetch can recognize pending config proof');
 requireText('public/index.html', 'return !!ctripConfigListLoadingPromise', 'Ctrip manual fetch reuses an in-flight config-list proof request');
-requireText('public/index.html', 'if (selectedCtripHotelId.value) return selectedCtripManualCredentialState.value.canFetch;', 'Ctrip selected-hotel fetch readiness comes only from the credential state builder');
-requireText('public/index.html', 'return buildCtripManualCredentialState(ctripManualFetchConfigCandidate()).canFetch;', 'Ctrip auto-resolved fetch readiness comes only from a ready credential candidate');
+requireText('public/index.html', 'if (selectedCtripHotelId.value) return selectedCtripManualCredentialState.value.canFetch;', 'Ctrip selected-hotel fetch readiness comes only from its saved credential state');
+requireText('public/index.html', 'if (!isRankingTab) return false;', 'Ctrip unbound temporary fetch stays limited to the ranking tab');
+requireText('public/index.html', "return normalizeCtripTemporaryCookie(ctripForm.value) !== '';", 'Ctrip unbound ranking fetch requires an explicit one-shot Cookie');
 requireNoTextBetween('public/index.html', 'const canFetchCtripManualData = () => {', 'const resolveCtripManualFetchConfig = async (config) => {', 'ctripManualFetchConfigProofPending', 'Ctrip pending config proof must not enable the fetch button');
 requireNoTextBetween('public/index.html', 'const canFetchCtripManualData = () => {', 'const resolveCtripManualFetchConfig = async (config) => {', 'ctripConfigListLoadingPromise', 'Ctrip config-list loading must not enable the fetch button');
 requireText('public/index.html', 'const resolveCtripManualFetchConfig = async (config) => {', 'Ctrip manual fetch resolves config before backend submission');
@@ -1575,7 +1576,9 @@ requireText('public/auto-fetch-static.js', "return { status: 'accepted'", 'auto-
 requireText('public/index.html', 'async: true, ...buildAutoFetchModePayload()', 'retry auto-fetch submits quickly and lets backend continue collection');
 requireText('public/index.html', "['running', 'queued', 'accepted'].includes(retryStatus)", 'retry auto-fetch treats backend queued state as non-blocking');
 requireText('public/ctrip-static.js', 'const isCtripBackgroundAcceptedResponse', 'Ctrip static shares accepted/running/queued background response detection');
-requireText('public/ctrip-static.js', 'const requestBody = { ...requestContext.requestBody, async: false, background: false };', 'Ctrip ranking manual fetch requests direct results for immediate display');
+requireText('public/ctrip-static.js', 'const requestBody = requestContext.temporaryCookieQuery', 'Ctrip ranking manual fetch separates saved and one-shot request modes');
+requireText('public/ctrip-static.js', ": { ...requestContext.requestBody, async: false, background: false };", 'Ctrip saved-config ranking fetch requests direct results for immediate display');
+requireText('public/ctrip-static.js', "const fetchRequest = requestContext.temporaryCookieQuery && typeof requestTemporaryFetch === 'function'", 'Ctrip one-shot Cookie query uses the dedicated display-only endpoint');
 requireNoText('public/ctrip-static.js', 'const requestBody = { ...requestContext.requestBody, async: true };', 'Ctrip ranking manual fetch must not enqueue background tasks by default');
 requireText('public/ctrip-static.js', 'const directRequestBody = { ...requestBody, async: false, background: false };', 'Ctrip traffic and ads manual fetch flows request direct results');
 requireNoText('public/ctrip-static.js', 'const queuedRequestBody = { ...requestBody, async: true };', 'Ctrip manual fetch flows must not enqueue background tasks by default');
@@ -6136,6 +6139,7 @@ try {
         nodeId: '24588',
         startDate: '2026-06-10',
         endDate: '2026-06-10',
+        cookies: 'sid=temporary',
       },
       configId: 'ctrip-auto',
     });
@@ -6230,8 +6234,9 @@ try {
       logError: (message) => fetchFlowEvents.push(`log-error:${message}`),
     });
     const fetchFlowReturnedBeforePostRefresh = !fetchFlowHistorySettled && !fetchFlowLatestSettled;
-    let autoResolvedFetchFlowRequestedBody = null;
-    const autoResolvedFetchFlowResult = await runCtripFetchDataFlow({
+    let temporaryFetchFlowRequestedBody = null;
+    let temporaryFetchFlowSavedEndpointUsed = false;
+    const temporaryFetchFlowResult = await runCtripFetchDataFlow({
       isLoggedIn: () => true,
       getSelectedCtripHotelId: () => '',
       notify: () => {},
@@ -6247,11 +6252,18 @@ try {
         node_id: '24588',
       }),
       getForm: () => ({
+        url: 'https://ebooking.ctrip.test/api',
+        nodeId: '24588',
         startDate: '2026-06-10',
         endDate: '2026-06-10',
+        cookies: 'sid=temporary-flow',
       }),
-      requestFetch: async requestBody => {
-        autoResolvedFetchFlowRequestedBody = requestBody;
+      requestFetch: async () => {
+        temporaryFetchFlowSavedEndpointUsed = true;
+        throw new Error('saved endpoint must not be used for a one-shot Cookie query');
+      },
+      requestTemporaryFetch: async requestBody => {
+        temporaryFetchFlowRequestedBody = requestBody;
         return {
           code: 200,
           data: {
@@ -6260,6 +6272,7 @@ try {
             display_summary: { status: 'ok' },
             qunar_visitor_quality: { ready: true, status: 'ready', row_count: 1, visitor_total: 8 },
             saved_count: 0,
+            save_status: 'display_only',
             fetched_at: '2026-06-10 14:00:00',
           },
         };
@@ -6806,11 +6819,13 @@ try {
         && fetchContext.requestBody.end_date === '2026-06-10'
         && fetchContext.debugMeta.node_id === '24588'
         && cookieOnlyFetchContext.ok === true
-        && cookieOnlyFetchContext.requestBody.config_id === 'ctrip-auto'
-        && !Object.hasOwn(cookieOnlyFetchContext.requestBody, 'cookies')
-        && cookieOnlyFetchContext.requestBody.system_hotel_id === null
+        && cookieOnlyFetchContext.requestBody.cookies === 'sid=temporary'
+        && cookieOnlyFetchContext.requestBody.auto_save === false
+        && !Object.hasOwn(cookieOnlyFetchContext.requestBody, 'config_id')
+        && !Object.hasOwn(cookieOnlyFetchContext.requestBody, 'system_hotel_id')
         && cookieOnlyFetchContext.requestBody.ctrip_hotel_id === undefined
-        && cookieOnlyFetchContext.debugMeta.system_hotel_id === 'auto_resolve_from_cookie_response'
+        && cookieOnlyFetchContext.debugMeta.credential_mode === 'temporary_cookie_once'
+        && cookieOnlyFetchContext.debugMeta.system_hotel_id === null
         && missingCredentialContext.ok === false
         && missingCredentialContext.status === 'missing_config'
         && fetchBody.url === 'https://ebooking.ctrip.test/api'
@@ -6879,15 +6894,19 @@ try {
         && fetchFlowEvents.includes('refresh-data')
         && alignedCtripRankingForm === true
         && staleCtripRankingForm === false
-        && autoResolvedFetchFlowResult.status === 'success'
-        && autoResolvedFetchFlowRequestedBody.config_id === 'cfg-auto'
-        && !Object.hasOwn(autoResolvedFetchFlowRequestedBody, 'cookies')
-        && autoResolvedFetchFlowRequestedBody.url === 'https://ebooking.ctrip.test/api'
-        && autoResolvedFetchFlowRequestedBody.node_id === '24588'
-        && autoResolvedFetchFlowRequestedBody.system_hotel_id === null
-        && autoResolvedFetchFlowRequestedBody.ctrip_hotel_id === undefined
-        && autoResolvedFetchFlowRequestedBody.ota_hotel_id === undefined
-        && autoResolvedFetchFlowRequestedBody.platform_hotel_id === undefined
+        && temporaryFetchFlowResult.status === 'display_only'
+        && temporaryFetchFlowSavedEndpointUsed === false
+        && temporaryFetchFlowRequestedBody.cookies === 'sid=temporary-flow'
+        && temporaryFetchFlowRequestedBody.auto_save === false
+        && !Object.hasOwn(temporaryFetchFlowRequestedBody, 'config_id')
+        && !Object.hasOwn(temporaryFetchFlowRequestedBody, 'async')
+        && !Object.hasOwn(temporaryFetchFlowRequestedBody, 'background')
+        && temporaryFetchFlowRequestedBody.url === 'https://ebooking.ctrip.test/api'
+        && temporaryFetchFlowRequestedBody.node_id === '24588'
+        && !Object.hasOwn(temporaryFetchFlowRequestedBody, 'system_hotel_id')
+        && temporaryFetchFlowRequestedBody.ctrip_hotel_id === undefined
+        && temporaryFetchFlowRequestedBody.ota_hotel_id === undefined
+        && temporaryFetchFlowRequestedBody.platform_hotel_id === undefined
         && acceptedFetchFlowResult.status === 'accepted'
         && acceptedFetchFlowRequestedBody.async === false
         && acceptedFetchFlowRequestedBody.background === false
