@@ -3286,8 +3286,10 @@ if (!fs.existsSync(publicRouterPath)) {
   if (!routerSource.includes("header('Content-Length: ' . strlen($encoded))")) {
     failures.push('public/router.php must send Content-Length for refreshed gzip assets.');
   }
-  if (!routerSource.includes("gzencode($responseContent ?? '', 1)")) {
-    failures.push('public/router.php must use gzip level 1 on the prepared static response payload when refreshing the static gzip cache.');
+  if (!routerSource.includes('const SUXI_STATIC_GZIP_LEVEL = 6;')
+    || !routerSource.includes("'-gzip-l' . SUXI_STATIC_GZIP_LEVEL . '.gz'")
+    || !routerSource.includes("gzencode($responseContent ?? '', SUXI_STATIC_GZIP_LEVEL)")) {
+    failures.push('public/router.php must cache level-6 gzip output under a level-specific identity.');
   }
 }
 

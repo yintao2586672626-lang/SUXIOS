@@ -4,7 +4,7 @@ import { gzipSync } from 'node:zlib';
 
 export const DEFAULT_FRONTEND_BUDGET = Object.freeze({
   max_index_bytes: 2_000_000,
-  max_startup_gzip_bytes: 1_350_000,
+  max_startup_gzip_bytes: 1_200_000,
   max_inline_script_bytes: 20_000,
   max_blocking_script_count: 0,
 });
@@ -44,7 +44,7 @@ export function collectFrontendEntryMetrics(repoRoot) {
 
   return {
     index_bytes: index.length,
-    startup_gzip_bytes: startupFiles.reduce((total, file) => total + gzipSync(fs.readFileSync(file), { level: 1 }).length, 0),
+    startup_gzip_bytes: startupFiles.reduce((total, file) => total + gzipSync(fs.readFileSync(file), { level: 6 }).length, 0),
     inline_script_bytes: inlineScriptBytes,
     blocking_script_count: blockingScriptCount,
     startup_asset_count: uniqueReferences.length,

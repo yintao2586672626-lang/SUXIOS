@@ -3,6 +3,8 @@
  * 路由入口文件 - 处理所有API请求
  */
 
+const SUXI_STATIC_GZIP_LEVEL = 6;
+
 function suxi_static_response_variant(string $staticFile, string $extension): string
 {
     if ($extension === 'html' && basename($staticFile) === 'index.html') {
@@ -160,7 +162,7 @@ if ($publicRoot !== false
         && str_contains($acceptEncoding, 'gzip');
     if ($canGzip) {
         $gzipCacheRoot = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'static-gzip';
-        $gzipCacheFile = $gzipCacheRoot . DIRECTORY_SEPARATOR . md5($staticFile . '|' . $responseVariant) . '-' . $mtime . '-' . $size . '-' . $responseSize . '.gz';
+        $gzipCacheFile = $gzipCacheRoot . DIRECTORY_SEPARATOR . md5($staticFile . '|' . $responseVariant) . '-' . $mtime . '-' . $size . '-' . $responseSize . '-gzip-l' . SUXI_STATIC_GZIP_LEVEL . '.gz';
         if (is_file($gzipCacheFile)) {
             header('Content-Encoding: gzip');
             header('Content-Length: ' . (int)filesize($gzipCacheFile));
@@ -171,7 +173,7 @@ if ($publicRoot !== false
         if ($responseContent === null && $responseFile !== null) {
             $responseContent = (string)file_get_contents($responseFile);
         }
-        $encoded = gzencode($responseContent ?? '', 1);
+        $encoded = gzencode($responseContent ?? '', SUXI_STATIC_GZIP_LEVEL);
         if ($encoded !== false) {
             if ((is_dir($gzipCacheRoot) || mkdir($gzipCacheRoot, 0775, true)) && is_writable($gzipCacheRoot)) {
                 file_put_contents($gzipCacheFile, $encoded, LOCK_EX);
