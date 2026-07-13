@@ -310,53 +310,114 @@ window.SUXI_CTRIP_STATIC = (() => {
         cookies: '',
         extraParams: '',
     });
-    const extractCtripRealtimeTrafficRank = (row = {}) => {
-        let raw = row?.raw_data ?? row?.rawData ?? row;
-        if (typeof raw === 'string') {
-            try {
-                raw = JSON.parse(raw);
-            } catch (_error) {
-                return null;
+    const extractCtripRealtimeTrafficSnapshot = (items = []) => {
+        const rows = Array.isArray(items) ? items : [items];
+        const snapshot = {
+            status: 'missing',
+            visitor_count: null,
+            competitor_avg_visitor: null,
+            visitor_rank: null,
+            visitor_count_last_week: null,
+            order_count: null,
+            yesterday_order_count: null,
+            rank: null,
+            competitor_rank: null,
+            competitor_hotel_total: null,
+            captured_at: '',
+        };
+        const toMetricNumber = (value, { positiveOnly = false } = {}) => {
+            if (value === null || value === undefined || value === '' || typeof value === 'boolean') return null;
+            const number = Number(value);
+            if (!Number.isFinite(number) || (positiveOnly && number <= 0)) return null;
+            return number;
+        };
+        const assignFirst = (key, candidates, options = {}) => {
+            if (snapshot[key] !== null) return;
+            for (const candidate of candidates) {
+                const value = toMetricNumber(candidate, options);
+                if (value !== null) {
+                    snapshot[key] = value;
+                    return;
+                }
             }
-        }
-        if (!raw || typeof raw !== 'object') return null;
+        };
 
-        const endpointId = String(raw.endpoint_id || raw.endpointId || row?.endpoint_id || '').trim();
-        const sourceUrl = String(raw.source_url || raw.url || row?.source_url || row?.url || '').trim();
-        const isRealtimeEndpoint = endpointId === 'traffic_hotel_seq'
-            || sourceUrl.includes('fetchCurrentHotelSeqInfoV1');
-        if (!isRealtimeEndpoint) return null;
+        rows.forEach(row => {
+            let raw = row?.raw_data ?? row?.rawData ?? row;
+            if (typeof raw === 'string') {
+                try {
+                    raw = JSON.parse(raw);
+                } catch (_error) {
+                    return;
+                }
+            }
+            if (!raw || typeof raw !== 'object') return;
+            const endpointId = String(raw.endpoint_id || raw.endpointId || row?.endpoint_id || '').trim();
+            const sourceUrl = String(raw.source_url || raw.url || row?.source_url || row?.url || '').trim();
+            const facts = Array.isArray(raw.facts) ? raw.facts : [];
+            const factValue = (...sourceKeys) => {
+                const normalizedKeys = sourceKeys.map(key => String(key).toLowerCase());
+                return facts.find(fact => normalizedKeys.includes(String(fact?.source_key || fact?.sourceKey || '').toLowerCase()))?.value;
+            };
+            const responseData = raw?.data?.data && typeof raw.data.data === 'object'
+                ? raw.data.data
+                : (raw?.data && typeof raw.data === 'object' ? raw.data : {});
+            if (!snapshot.captured_at) {
+                snapshot.captured_at = String(raw.captured_at || row?.captured_at || row?.update_time || row?.create_time || '');
+            }
 
-        const facts = Array.isArray(raw.facts) ? raw.facts : [];
-        const ownRankFact = facts.find(fact => {
-            const metricKey = String(fact?.metric_key || fact?.metricKey || '').trim();
-            const sourceKey = String(fact?.source_key || fact?.sourceKey || '').trim().toLowerCase();
-            return metricKey === 'traffic_rank' && ['rank', 'trafficrank', 'seqrank', 'appdetailuvrank'].includes(sourceKey);
+            if (endpointId === 'business_visitor_title' || sourceUrl.includes('fetchVisitorTitleV2')) {
+                assignFirst('visitor_count', [factValue('visitorTotal'), responseData.visitorTotal]);
+                assignFirst('competitor_avg_visitor', [factValue('competitorAvgNumber'), responseData.competitorAvgNumber]);
+                assignFirst('visitor_rank', [factValue('visitorRank'), responseData.visitorRank], { positiveOnly: true });
+                assignFirst('visitor_count_last_week', [factValue('lastVisitorTotal'), responseData.lastVisitorTotal]);
+            }
+            if (endpointId === 'business_realtime' || sourceUrl.includes('getDayReportRealTimeDate')) {
+                assignFirst('visitor_count', [factValue('visitorTotal'), responseData.visitorTotal]);
+                assignFirst('order_count', [factValue('orderQuantity'), responseData.orderQuantity]);
+                assignFirst('yesterday_order_count', [factValue('synchronizationOrderQuantity'), responseData.synchronizationOrderQuantity]);
+            }
+            if (['traffic_hotel_seq', 'business_hotel_seq'].includes(endpointId) || sourceUrl.includes('fetchCurrentHotelSeqInfoV1')) {
+                assignFirst('rank', [
+                    factValue('rank', 'seqRank', 'trafficRank', 'appDetailUvRank'),
+                    responseData.rank,
+                    responseData.trafficRank,
+                    responseData.seqRank,
+                    responseData.appDetailUvRank,
+                    raw?.metrics?.traffic_rank,
+                    raw?.rank_metrics?.traffic_rank,
+                    row?.traffic_rank,
+                    row?.seq_rank,
+                    row?.app_detail_uv_rank,
+                ], { positiveOnly: true });
+                assignFirst('competitor_rank', [
+                    factValue('competitorRank', 'qunarCompetitorRank'),
+                    responseData.competitorRank,
+                    responseData.qunarCompetitorRank,
+                    raw?.metrics?.traffic_competitor_rank,
+                    raw?.rank_metrics?.traffic_competitor_rank,
+                ], { positiveOnly: true });
+                assignFirst('competitor_hotel_total', [
+                    factValue('competitorHotelTotal'),
+                    responseData.competitorHotelTotal,
+                    raw?.metrics?.traffic_competitor_hotel_total,
+                ]);
+            }
         });
-        const responseData = raw?.data?.data && typeof raw.data.data === 'object'
-            ? raw.data.data
-            : (raw?.data && typeof raw.data === 'object' ? raw.data : {});
-        const candidates = [
-            ownRankFact?.value,
-            responseData.rank,
-            responseData.trafficRank,
-            responseData.seqRank,
-            responseData.appDetailUvRank,
-            raw?.metrics?.traffic_rank,
-            raw?.rank_metrics?.traffic_rank,
-            row?.traffic_rank,
-            row?.seq_rank,
-            row?.app_detail_uv_rank,
-        ];
-        const rank = candidates.map(value => Number(value)).find(value => Number.isFinite(value) && value > 0);
-        if (!rank) return null;
 
+        const metricKeys = Object.keys(snapshot).filter(key => !['status', 'captured_at'].includes(key));
+        snapshot.status = metricKeys.some(key => snapshot[key] !== null) ? 'available' : 'missing';
+        return snapshot;
+    };
+    const extractCtripRealtimeTrafficRank = (row = {}) => {
+        const snapshot = extractCtripRealtimeTrafficSnapshot([row]);
+        if (snapshot.rank === null) return null;
         return {
             status: 'available',
-            rank,
+            rank: snapshot.rank,
             metric_key: 'traffic_rank',
-            endpoint_id: endpointId || 'traffic_hotel_seq',
-            captured_at: String(raw.captured_at || row?.captured_at || row?.update_time || row?.create_time || ''),
+            endpoint_id: 'traffic_hotel_seq',
+            captured_at: snapshot.captured_at,
         };
     };
     const createCtripAdsBrowserCaptureForm = () => ({
@@ -2884,6 +2945,16 @@ window.SUXI_CTRIP_STATIC = (() => {
             section: 'traffic_report',
         },
         {
+            request_url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/current/fetchVisitorTitleV2',
+            method: 'POST',
+            section: 'traffic_report',
+        },
+        {
+            request_url: 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportRealTimeDate',
+            method: 'POST',
+            section: 'traffic_report',
+        },
+        {
             request_url: 'https://ebooking.ctrip.com/restapi/soa2/24588/queryScanFlowDetailsV2',
             method: 'POST',
             section: 'traffic_report',
@@ -3225,6 +3296,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         buildCookieConfigBatchDeleteSuccessState,
         buildCookieConfigBatchDeleteFailureState,
         createCtripTrafficForm,
+        extractCtripRealtimeTrafficSnapshot,
         extractCtripRealtimeTrafficRank,
         createCtripAdsBrowserCaptureForm,
         createCtripOverviewForm,

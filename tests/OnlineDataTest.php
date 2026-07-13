@@ -9052,7 +9052,7 @@ final class OnlineDataTest extends TestCase
         self::assertSame('2026-06-10', $endpoints[1]['payload']['startDate'] ?? '');
     }
 
-    public function testCtripCookieApiTrafficPresetBuildsRealtimeRankAndFourTrustedSearchRequests(): void
+    public function testCtripCookieApiTrafficPresetBuildsTodayMetricsAndFourTrustedSearchRequests(): void
     {
         $controller = $this->controller();
 
@@ -9061,13 +9061,18 @@ final class OnlineDataTest extends TestCase
             'VAULT_SPIDERKEY_SENTINEL',
         ]);
 
-        self::assertCount(5, $endpoints);
+        self::assertCount(7, $endpoints);
         $realtimeEndpoint = $endpoints[0];
         self::assertSame('https://ebooking.ctrip.com/datacenter/api/biddingajax/fetchCurrentHotelSeqInfoV1', $realtimeEndpoint['request_url']);
         self::assertSame('POST', $realtimeEndpoint['method']);
         self::assertSame('traffic_report', $realtimeEndpoint['section']);
 
-        $searchEndpoints = array_slice($endpoints, 1);
+        self::assertSame('https://ebooking.ctrip.com/datacenter/api/dataCenter/current/fetchVisitorTitleV2', $endpoints[1]['request_url']);
+        self::assertSame('https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportRealTimeDate', $endpoints[2]['request_url']);
+        self::assertSame('POST', $endpoints[1]['method']);
+        self::assertSame('POST', $endpoints[2]['method']);
+
+        $searchEndpoints = array_slice($endpoints, 3);
         self::assertSame([0, 3, 0, 3], array_column(array_column($searchEndpoints, 'payload'), 'dataType'));
         self::assertSame(['0', '0', '1', '1'], array_column(array_column($searchEndpoints, 'payload'), 'searchType'));
         foreach ($searchEndpoints as $endpoint) {

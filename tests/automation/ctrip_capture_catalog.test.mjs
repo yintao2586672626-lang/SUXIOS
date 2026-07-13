@@ -1162,6 +1162,28 @@ test('maps Ctrip business overview visitor title daily fields', () => {
   assert.equal(row.raw_data.rank_metrics.qunar_visitor_rank, 11);
 });
 
+test('traffic realtime rank keeps hotel, competitor rank, and competitor hotel count separate', () => {
+  const url = 'https://ebooking.ctrip.com/datacenter/api/biddingajax/fetchCurrentHotelSeqInfoV1';
+  const endpoint = findCtripEndpointByUrl(url, { preferredSection: 'traffic_report' });
+  assert.equal(endpoint?.id, 'traffic_hotel_seq');
+  const facts = extractCtripCatalogFacts({
+    rcode: 0,
+    data: { rank: 46, competitorRank: 10, competitorHotelTotal: 26 },
+  }, {
+    endpoint,
+    section: endpoint.section,
+    dataType: endpoint.dataType,
+    hotelId: '130846148',
+    dataDate: '2026-07-13',
+    capturedAt: '2026-07-13T01:02:03.000Z',
+    url,
+  });
+  const byKey = new Map(facts.map(fact => [fact.metric_key, fact.value]));
+  assert.equal(byKey.get('traffic_rank'), 46);
+  assert.equal(byKey.get('traffic_competitor_rank'), 10);
+  assert.equal(byKey.get('traffic_competitor_hotel_total'), 26);
+});
+
 test('derives Ctrip metric-pair actual values from percent when a denominator exists', () => {
   const url = 'https://ebooking.ctrip.com/datacenter/api/dataCenter/current/fetchVisitorTitleV2';
   const endpoint = findCtripEndpointByUrl(url, { preferredSection: 'business_overview' });

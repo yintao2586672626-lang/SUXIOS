@@ -2,7 +2,7 @@
   "platform": "ctrip",
   "section_count": 19,
   "endpoint_count": 79,
-  "field_count": 276,
+  "field_count": 278,
   "default_sections": [
     "business_overview",
     "business_weekly_overview",
@@ -13910,15 +13910,51 @@
         },
         {
           "id": "traffic_rank",
-          "label": "实时流量排名",
+          "label": "本店实时流量排名",
           "sourceKeys": [
             "rank",
             "seqRank",
             "trafficRank",
-            "appDetailUvRank",
-            "qunarRank",
+            "appDetailUvRank"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "traffic_competitor_rank",
+          "label": "竞争圈参考排名",
+          "sourceKeys": [
             "competitorRank",
             "qunarCompetitorRank"
+          ],
+          "description": "",
+          "scope": "ota_channel",
+          "unit": "",
+          "required": false,
+          "valueType": "",
+          "timeScope": "",
+          "sourcePage": "",
+          "sourceInterface": "",
+          "transformRule": "",
+          "missingStatus": "",
+          "sampleValue": "",
+          "confidenceStatus": ""
+        },
+        {
+          "id": "traffic_competitor_hotel_total",
+          "label": "竞争圈酒店数",
+          "sourceKeys": [
+            "competitorHotelTotal"
           ],
           "description": "",
           "scope": "ota_channel",

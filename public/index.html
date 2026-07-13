@@ -70,7 +70,7 @@
     </script>
     <script src="vue.global.prod.js?v=20260628-static-router-fix"></script>
     <script src="shared-components.js?v=20260628-static-router-fix"></script>
-    <script src="ctrip-static.js?v=20260712-traffic-three-views-realtime-rank-h3e7a1d920c"></script>
+    <script src="ctrip-static.js?v=20260713-traffic-today-complete-h7c4f18d2a9"></script>
     <script src="ctrip-search-opportunity-static.js?v=20260712-adaptive-axis-h2033a0576b"></script>
     <script src="meituan-static.js?v=20260712-meituan-truthful-partial-hf687d8d41d"></script>
     <script src="ota-browser-assist-static.js?v=20260629-browser-assist"></script>
@@ -7433,7 +7433,7 @@
                                         <h4 class="font-medium text-blue-800">
                                             <i class="fas fa-chart-line mr-2"></i>携程流量数据
                                         </h4>
-                                        <p class="mt-1 text-sm text-blue-700">一次获取过去30天、今日实时排名及未来搜索数据。</p>
+                                        <p class="mt-1 text-sm text-blue-700">一次获取历史数据、今日实时及未来搜索数据。</p>
                                     </div>
 
                                     <div class="mb-4">
@@ -7455,7 +7455,7 @@
                                     </div>
 
                                     <div class="mb-4 inline-flex overflow-hidden rounded-lg border border-slate-200 bg-white">
-                                        <button type="button" @click="ctripTrafficView = 'history'" :class="['px-4 py-2 text-sm', ctripTrafficView === 'history' ? 'bg-slate-900 text-white' : 'text-slate-600']">过去30天</button>
+                                        <button type="button" @click="ctripTrafficView = 'history'" :class="['px-4 py-2 text-sm', ctripTrafficView === 'history' ? 'bg-slate-900 text-white' : 'text-slate-600']">历史数据</button>
                                         <button type="button" @click="ctripTrafficView = 'realtime'" :class="['border-l px-4 py-2 text-sm', ctripTrafficView === 'realtime' ? 'bg-slate-900 text-white' : 'text-slate-600']">今日实时</button>
                                         <button type="button" @click="ctripTrafficView = 'future'" :class="['border-l px-4 py-2 text-sm', ctripTrafficView === 'future' ? 'bg-slate-900 text-white' : 'text-slate-600']">未来搜索</button>
                                     </div>
@@ -7489,23 +7489,52 @@
                                     <div v-if="ctripTrafficView === 'realtime'" class="mb-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                                         <div class="flex items-start justify-between gap-4">
                                             <div>
-                                                <h4 class="font-semibold text-slate-900"><i class="fas fa-bolt mr-2 text-amber-500"></i>今日实时流量</h4>
-                                                <p class="mt-1 text-xs text-slate-500">仅展示携程当前酒店实时流量排名，不与过去30天或未来搜索混算。</p>
+                                                <h4 class="font-semibold text-slate-900"><i class="fas fa-bolt mr-2 text-amber-500"></i>今日实时数据</h4>
+                                                <p class="mt-1 text-xs text-slate-500">展示携程当前酒店实时访客、竞争圈对比、排名和订单；不与历史或未来搜索混算。</p>
                                             </div>
                                             <span class="rounded-full bg-amber-50 px-2 py-1 text-xs text-amber-700">实时排名</span>
                                         </div>
-                                        <div v-if="ctripRealtimeTrafficView.status === 'available'" class="mt-5 rounded-lg border border-amber-100 bg-amber-50 p-5">
-                                            <div class="text-xs text-slate-500">当前酒店实时流量排名</div>
-                                            <div class="mt-1 text-3xl font-bold text-amber-700">第 {{ ctripRealtimeTrafficView.rank }} 名</div>
-                                            <div class="mt-2 text-xs text-slate-500">采集时间：{{ formatCtripSearchOpportunityCapturedAt(ctripRealtimeTrafficView.captured_at) || '-' }}</div>
+                                        <div v-if="ctripRealtimeTrafficView.status === 'available'" class="mt-5">
+                                            <div class="grid grid-cols-2 gap-3 lg:grid-cols-3">
+                                                <div class="rounded-lg border border-blue-100 bg-blue-50 p-4">
+                                                    <div class="text-xs text-slate-500">实时访客量</div>
+                                                    <div class="mt-1 text-2xl font-bold text-blue-700">{{ ctripRealtimeTrafficView.visitor_count !== null ? formatNumber(ctripRealtimeTrafficView.visitor_count) : '--' }}<span v-if="ctripRealtimeTrafficView.visitor_count !== null" class="ml-1 text-sm font-medium">人</span></div>
+                                                </div>
+                                                <div class="rounded-lg border border-emerald-100 bg-emerald-50 p-4">
+                                                    <div class="text-xs text-slate-500">竞争圈平均访客</div>
+                                                    <div class="mt-1 text-2xl font-bold text-emerald-700">{{ ctripRealtimeTrafficView.competitor_avg_visitor !== null ? formatNumber(ctripRealtimeTrafficView.competitor_avg_visitor) : '--' }}<span v-if="ctripRealtimeTrafficView.competitor_avg_visitor !== null" class="ml-1 text-sm font-medium">人</span></div>
+                                                </div>
+                                                <div class="rounded-lg border border-amber-100 bg-amber-50 p-4">
+                                                    <div class="text-xs text-slate-500">访客量排名</div>
+                                                    <div class="mt-1 text-2xl font-bold text-amber-700">{{ ctripRealtimeTrafficView.visitor_rank !== null ? `第 ${ctripRealtimeTrafficView.visitor_rank} 名` : '--' }}</div>
+                                                </div>
+                                                <div class="rounded-lg border border-indigo-100 bg-indigo-50 p-4">
+                                                    <div class="text-xs text-slate-500">上周同期</div>
+                                                    <div class="mt-1 text-2xl font-bold text-indigo-700">{{ ctripRealtimeTrafficView.visitor_count_last_week !== null ? formatNumber(ctripRealtimeTrafficView.visitor_count_last_week) : '--' }}<span v-if="ctripRealtimeTrafficView.visitor_count_last_week !== null" class="ml-1 text-sm font-medium">人</span></div>
+                                                </div>
+                                                <div class="rounded-lg border border-violet-100 bg-violet-50 p-4">
+                                                    <div class="text-xs text-slate-500">今日预订订单</div>
+                                                    <div class="mt-1 text-2xl font-bold text-violet-700">{{ ctripRealtimeTrafficView.order_count !== null ? formatNumber(ctripRealtimeTrafficView.order_count) : '--' }}<span v-if="ctripRealtimeTrafficView.order_count !== null" class="ml-1 text-sm font-medium">单</span></div>
+                                                </div>
+                                                <div class="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                                                    <div class="text-xs text-slate-500">昨日预订订单</div>
+                                                    <div class="mt-1 text-2xl font-bold text-slate-700">{{ ctripRealtimeTrafficView.yesterday_order_count !== null ? formatNumber(ctripRealtimeTrafficView.yesterday_order_count) : '--' }}<span v-if="ctripRealtimeTrafficView.yesterday_order_count !== null" class="ml-1 text-sm font-medium">单</span></div>
+                                                </div>
+                                            </div>
+                                            <div class="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
+                                                <span>本店流量排名：<strong class="text-slate-900">{{ ctripRealtimeTrafficView.rank !== null ? `第 ${ctripRealtimeTrafficView.rank} 名` : '--' }}</strong></span>
+                                                <span>竞争圈参考排名：<strong class="text-slate-900">{{ ctripRealtimeTrafficView.competitor_rank !== null ? `第 ${ctripRealtimeTrafficView.competitor_rank} 名` : '--' }}</strong></span>
+                                                <span>竞争圈酒店数：<strong class="text-slate-900">{{ ctripRealtimeTrafficView.competitor_hotel_total !== null ? `${ctripRealtimeTrafficView.competitor_hotel_total} 家` : '--' }}</strong></span>
+                                                <span class="ml-auto">采集时间：{{ formatCtripSearchOpportunityCapturedAt(ctripRealtimeTrafficView.captured_at) || '-' }}</span>
+                                            </div>
                                         </div>
                                         <div v-else class="mt-5 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">
-                                            暂无已验证的今日实时流量；点击“获取流量数据”后，仅在携程返回实时排名时展示。
+                                            暂无已验证的今日实时数据；点击“获取流量数据”后展示携程实际返回的实时指标。
                                         </div>
                                     </div>
 
                                     <div v-if="ctripTrafficView === 'history' && !ctripTrafficRows.length" class="mb-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">
-                                        暂无过去30天流量数据，请点击“获取流量数据”。
+                                        暂无历史流量数据，请点击“获取流量数据”。
                                     </div>
 
                                     <div v-if="ctripTrafficView === 'future'" data-testid="ctrip-search-opportunity-panel" class="mb-5 bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
@@ -7665,7 +7694,7 @@
 
                                     <div v-if="ctripTrafficView === 'history' && ctripTrafficRows.length" class="mt-4">
                                         <div class="mb-4 rounded-lg border border-slate-200 bg-white p-4">
-                                            <h4 class="font-semibold text-slate-900"><i class="fas fa-history mr-2 text-blue-600"></i>过去30天流量</h4>
+                                            <h4 class="font-semibold text-slate-900"><i class="fas fa-history mr-2 text-blue-600"></i>历史流量数据</h4>
                                             <p class="mt-1 text-xs text-slate-500">按历史日期展示我的酒店与竞争圈曝光、访客和转化数据。</p>
                                         </div>
                                         <div :class="['border rounded-lg p-3 mb-4 text-sm', ctripTrafficBusinessQuality.className]">
@@ -19335,6 +19364,7 @@
             const buildCookieConfigBatchDeleteSuccessState = requireCtripStatic('buildCookieConfigBatchDeleteSuccessState');
             const buildCookieConfigBatchDeleteFailureState = requireCtripStatic('buildCookieConfigBatchDeleteFailureState');
             const createCtripTrafficForm = requireCtripStatic('createCtripTrafficForm');
+            const extractCtripRealtimeTrafficSnapshot = requireCtripStatic('extractCtripRealtimeTrafficSnapshot');
             const extractCtripRealtimeTrafficRank = requireCtripStatic('extractCtripRealtimeTrafficRank');
             const createCtripAdsBrowserCaptureForm = requireCtripStatic('createCtripAdsBrowserCaptureForm');
             const createCtripOverviewForm = requireCtripStatic('createCtripOverviewForm');
@@ -19378,11 +19408,7 @@
                     ...(Array.isArray(onlineDataResult.value?.rank?.rows) ? onlineDataResult.value.rank.rows : []),
                     ...(Array.isArray(latestTrafficData.value) ? latestTrafficData.value : []),
                 ];
-                for (const row of rows) {
-                    const realtimeRank = extractCtripRealtimeTrafficRank(row);
-                    if (realtimeRank) return realtimeRank;
-                }
-                return { status: 'missing', rank: null, metric_key: '', captured_at: '' };
+                return extractCtripRealtimeTrafficSnapshot(rows);
             });
             const ctripAdsBrowserCaptureForm = ref(createCtripAdsBrowserCaptureForm());
             const ctripAdsBrowserCaptureResult = ref(null);
@@ -41592,9 +41618,9 @@
                     && cookieData.is_ready !== false
                     && Number(cookieData.saved_count || 0) > 0
                 ) {
-                    ctripRealtimeTrafficRecord.value = (Array.isArray(cookieData.responses) ? cookieData.responses : [])
-                        .map(response => extractCtripRealtimeTrafficRank(response))
-                        .find(Boolean) || null;
+                    ctripRealtimeTrafficRecord.value = extractCtripRealtimeTrafficSnapshot(
+                        Array.isArray(cookieData.responses) ? cookieData.responses : []
+                    );
                     showToast('携程流量数据获取完成');
                     return cookieResult;
                 }

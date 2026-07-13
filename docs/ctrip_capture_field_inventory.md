@@ -195,7 +195,7 @@
 
 - 模块数：19
 - 接口规则数：79
-- 去重字段数：276
+- 去重字段数：278
 - 页面交互计划：16 个模块 / 82 个触发动作
 - 点评明文采集：默认禁用；Profile 仅保留评分汇总、回复率、点评条数和好评/差评聚合等非点评明文指标。
 
@@ -1152,7 +1152,9 @@
 | hotel_id | 酒店ID | masterHotelId, masterhotelid, master_hotel_id, hotelId, hotel_id, hotelID | - |
 | hotel_name | 酒店名称 | hotelName, hotel_name, hotelname, name | - |
 | date | 日期 | date, dataDate, effectDate, effectTime, statDate, startDate, endDate, updateTime | - |
-| traffic_rank | 实时流量排名 | rank, seqRank, trafficRank, appDetailUvRank, qunarRank, competitorRank, qunarCompetitorRank | - |
+| traffic_rank | 本店实时流量排名 | rank, seqRank, trafficRank, appDetailUvRank | - |
+| traffic_competitor_rank | 竞争圈参考排名 | competitorRank, qunarCompetitorRank | - |
+| traffic_competitor_hotel_total | 竞争圈酒店数 | competitorHotelTotal | - |
 
 ### traffic_flow_transform
 

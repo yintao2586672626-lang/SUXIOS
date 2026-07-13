@@ -659,6 +659,18 @@ trait PlatformProfileCaptureConcern
             'payload' => [],
             'headers' => [],
             'section' => 'traffic_report',
+        ], [
+            'request_url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/current/fetchVisitorTitleV2',
+            'method' => 'POST',
+            'payload' => [],
+            'headers' => [],
+            'section' => 'traffic_report',
+        ], [
+            'request_url' => 'https://ebooking.ctrip.com/datacenter/api/dataCenter/report/getDayReportRealTimeDate',
+            'method' => 'POST',
+            'payload' => [],
+            'headers' => [],
+            'section' => 'traffic_report',
         ]];
         foreach ([[0, '0'], [3, '0'], [0, '1'], [3, '1']] as [$dataType, $searchType]) {
             $payload = [

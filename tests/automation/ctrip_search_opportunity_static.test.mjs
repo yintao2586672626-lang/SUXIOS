@@ -214,10 +214,20 @@ test('traffic tab exposes one-click four-scope search opportunity panel', () => 
   assert.match(trafficTab, /ctripTrafficView === 'history'/);
   assert.match(trafficTab, /ctripTrafficView === 'realtime'/);
   assert.match(trafficTab, /ctripTrafficView === 'future'/);
-  assert.match(trafficTab, />过去30天</);
+  assert.match(trafficTab, />历史数据</);
   assert.match(trafficTab, />今日实时</);
   assert.match(trafficTab, />未来搜索</);
-  assert.match(trafficTab, /暂无已验证的今日实时流量/);
+  assert.match(trafficTab, /暂无已验证的今日实时数据/);
+  for (const label of [
+    '实时访客量',
+    '竞争圈平均访客',
+    '访客量排名',
+    '上周同期',
+    '今日预订订单',
+    '昨日预订订单',
+  ]) {
+    assert.match(trafficTab, new RegExp(label));
+  }
   assert.match(ctripStaticSource, /traffic_rank.*seq_rank.*app_detail_uv_rank/s);
   assert.match(trafficTab, /获取流量数据/);
   assert.match(trafficTab, /@change="handleCtripTrafficHotelChange"/);
@@ -335,6 +345,8 @@ test('traffic preset includes the verified current-hotel realtime rank endpoint'
   assert.ok(realtimeEndpoint);
   assert.equal(realtimeEndpoint.request_url, 'https://ebooking.ctrip.com/datacenter/api/biddingajax/fetchCurrentHotelSeqInfoV1');
   assert.equal(realtimeEndpoint.method, 'POST');
+  assert.ok(trafficEndpoints.some(endpoint => endpoint.request_url.includes('fetchVisitorTitleV2')));
+  assert.ok(trafficEndpoints.some(endpoint => endpoint.request_url.includes('getDayReportRealTimeDate')));
 });
 
 test('realtime traffic rank extraction prefers the current hotel rank over competitor rank', () => {
@@ -363,6 +375,52 @@ test('realtime traffic rank extraction prefers the current hotel rank over compe
   assert.equal(storedRank.rank, 46);
   assert.equal(storedRank.captured_at, '2026-07-12T14:32:56.095Z');
   assert.equal(directResponseRank.rank, 46);
+});
+
+test('realtime traffic snapshot preserves current, competitor, reference, and order facts', () => {
+  const context = { window: {}, console };
+  vm.runInNewContext(ctripStaticSource, context, { filename: 'public/ctrip-static.js' });
+  const extractSnapshot = context.window.SUXI_CTRIP_STATIC.extractCtripRealtimeTrafficSnapshot;
+  const snapshot = extractSnapshot([
+    {
+      raw_data: {
+        endpoint_id: 'business_visitor_title',
+        captured_at: '2026-07-13T01:02:03.000Z',
+        facts: [
+          { metric_key: 'visitor_count', source_key: 'visitorTotal', value: 106 },
+          { metric_key: 'visitor_rank', source_key: 'visitorRank', value: 17 },
+          { metric_key: 'visitor_count_last_week', source_key: 'lastVisitorTotal', value: 122 },
+          { metric_key: 'competitor_avg_visitor', source_key: 'competitorAvgNumber', value: 133 },
+        ],
+      },
+    },
+    {
+      raw_data: {
+        endpoint_id: 'business_realtime',
+        facts: [
+          { metric_key: 'order_count', source_key: 'orderQuantity', value: 4 },
+          { metric_key: 'order_count', source_key: 'synchronizationOrderQuantity', value: 10 },
+        ],
+      },
+    },
+    {
+      endpoint_id: 'traffic_hotel_seq',
+      url: 'https://ebooking.ctrip.com/datacenter/api/biddingajax/fetchCurrentHotelSeqInfoV1',
+      data: { rcode: 0, data: { rank: 46, competitorRank: 10, competitorHotelTotal: 26 } },
+    },
+  ]);
+
+  assert.equal(snapshot.status, 'available');
+  assert.equal(snapshot.visitor_count, 106);
+  assert.equal(snapshot.competitor_avg_visitor, 133);
+  assert.equal(snapshot.visitor_rank, 17);
+  assert.equal(snapshot.visitor_count_last_week, 122);
+  assert.equal(snapshot.order_count, 4);
+  assert.equal(snapshot.yesterday_order_count, 10);
+  assert.equal(snapshot.rank, 46);
+  assert.equal(snapshot.competitor_rank, 10);
+  assert.equal(snapshot.competitor_hotel_total, 26);
+  assert.equal(snapshot.captured_at, '2026-07-13T01:02:03.000Z');
 });
 
 test('future search panel saves the complete thirty-day dataset', () => {

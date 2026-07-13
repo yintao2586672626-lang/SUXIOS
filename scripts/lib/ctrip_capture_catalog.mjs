@@ -824,7 +824,9 @@ export const CTRIP_CAPTURE_ENDPOINTS = [
 
   endpoint('traffic_scan_flow', 'traffic_report', ['queryScanFlowDetailsV2'], [...trafficFields]),
   endpoint('traffic_hotel_seq', 'traffic_report', ['fetchCurrentHotelSeqInfoV1'], [
-    field('traffic_rank', '实时流量排名', ['rank', 'seqRank', 'trafficRank', 'appDetailUvRank', 'qunarRank', 'competitorRank', 'qunarCompetitorRank']),
+    field('traffic_rank', '本店实时流量排名', ['rank', 'seqRank', 'trafficRank', 'appDetailUvRank']),
+    field('traffic_competitor_rank', '竞争圈参考排名', ['competitorRank', 'qunarCompetitorRank']),
+    field('traffic_competitor_hotel_total', '竞争圈酒店数', ['competitorHotelTotal']),
   ], { dataType: 'traffic' }),
   endpoint('traffic_flow_transform', 'traffic_report', ['queryFlowTransformNewV1', 'queryFlowTransforNewV1', 'queryFlowTransferNewV1'], [...trafficFields], { dataType: 'traffic' }),
   endpoint('traffic_order_overview', 'traffic_report', ['fetchOrderOverView'], [...revenueFields, ...trafficFields]),

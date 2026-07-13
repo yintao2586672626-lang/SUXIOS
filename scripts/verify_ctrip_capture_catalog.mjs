@@ -419,9 +419,18 @@ function verifyCatalog() {
   assertContract(trafficSeqEndpoint?.section === 'traffic_report', 'fetchCurrentHotelSeqInfoV1 must be available under traffic_report');
   assertContract(trafficSeqEndpoint?.dataType === 'traffic', 'traffic_hotel_seq must remain traffic data');
   const trafficRankField = trafficSeqEndpoint?.fields.find((field) => field.id === 'traffic_rank');
-  for (const sourceKey of ['rank', 'seqRank', 'trafficRank', 'qunarRank', 'qunarCompetitorRank']) {
+  for (const sourceKey of ['rank', 'seqRank', 'trafficRank', 'appDetailUvRank']) {
     assertContract(trafficRankField?.sourceKeys.includes(sourceKey), `traffic_rank must include source key: ${sourceKey}`);
   }
+  const trafficCompetitorRankField = trafficSeqEndpoint?.fields.find((field) => field.id === 'traffic_competitor_rank');
+  for (const sourceKey of ['competitorRank', 'qunarCompetitorRank']) {
+    assertContract(trafficCompetitorRankField?.sourceKeys.includes(sourceKey), `traffic_competitor_rank must include source key: ${sourceKey}`);
+  }
+  const trafficCompetitorTotalField = trafficSeqEndpoint?.fields.find((field) => field.id === 'traffic_competitor_hotel_total');
+  assertContract(
+    trafficCompetitorTotalField?.sourceKeys.includes('competitorHotelTotal'),
+    'traffic_competitor_hotel_total must include source key: competitorHotelTotal',
+  );
   assertContract(
     findCtripEndpointByUrl(
       'https://ebooking.ctrip.com/datacenter/api/dataCenter/current/fetchCurrentHotelSeqInfoV1',
