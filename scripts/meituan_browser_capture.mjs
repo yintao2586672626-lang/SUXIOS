@@ -13,8 +13,10 @@ import {
 } from './lib/ota_capture_standard.mjs';
 import { launchOtaPersistentContext } from './lib/cloakbrowser_launcher.mjs';
 import {
+  buildMeituanOrderFlowReplayUrls,
   isImportableMeituanTrafficRow,
   normalizeMeituanFlowAnalysisRows,
+  normalizeMeituanOrderFlowRows,
   normalizeMeituanPeerRankRows,
   normalizeMeituanSearchKeywordRows,
   normalizeMeituanTrafficCardRows,
@@ -75,6 +77,7 @@ const payload = {
   reviews: [],
   traffic: [],
   flowAnalysis: [],
+  order_flow: [],
   peerRank: [],
   searchKeywords: [],
   trafficForecast: [],
@@ -85,6 +88,7 @@ const payload = {
   auth_status: { ok: false, status: 'pending', message: 'Login status has not been checked.' },
   capture_gate: null,
 };
+const observedOrderFlowRequestUrls = new Set();
 
 const browser = await launchOtaPersistentContext(storageDir, args);
 payload.cookie_injection = await injectBrowserCookies(browser, args, 'meituan');
@@ -121,6 +125,10 @@ try {
       await collectDomFallback(page, payload, 'traffic');
     }
 
+    if (wantsSection('order_flow')) {
+      await capturePage(page, 'orderFlow', URLS.newTraffic);
+    }
+
     if (args.adsUrl && wantsSection('ads')) {
       await capturePage(page, 'ads', String(args.adsUrl));
       await collectDomFallback(page, payload, 'ads');
@@ -133,6 +141,9 @@ try {
   }
 
   Object.assign(payload, filterMeituanCumulativeRowsByTargetDate(payload, defaultDataDate));
+  if (wantsSection('order_flow')) {
+    payload.order_flow = filterMeituanOrderFlowRowsByPeriod(payload.order_flow, dataPeriod);
+  }
   Object.assign(payload, filterMeituanEventRowsByTargetDate(payload, defaultDataDate, captureSections));
   dedupePayloadRows(payload);
   payload.capture_gate = loginOnly
@@ -274,6 +285,8 @@ async function capturePage(page, name, url) {
   await dismissMeituanOverlays(page);
   const interactions = name === 'traffic' || name === 'newTraffic'
     ? await runMeituanTrafficInteractionPlan(page)
+    : name === 'orderFlow'
+      ? await runMeituanOrderFlowInteractionPlan(page)
     : name === 'orders'
       ? await runMeituanOrderInteractionPlan(page)
       : name === 'comments'
@@ -334,6 +347,54 @@ async function runMeituanTrafficInteractionPlan(page) {
     await clickMeituanTrafficStep(page, results, tab, `select traffic forecast ${tab}`, 1500);
   }
 
+  return results;
+}
+
+async function runMeituanOrderFlowInteractionPlan(page) {
+  const results = [];
+  await clickMeituanTrafficStep(page, results, '\u540c\u884c\u5206\u6790', 'open peer analysis tab', 1500);
+  await clickMeituanTrafficStep(page, results, '\u8ba2\u5355\u6d41\u5931', 'open order flow panel', 1800);
+  const periodLabel = {
+    yesterday: '\u6628\u65e5',
+    last_7_days: '\u8fd17\u5929',
+    last_30_days: '\u8fd130\u5929',
+  }[String(dataPeriod || '').trim().toLowerCase()] || '\u6628\u65e5';
+  await clickMeituanTrafficStep(page, results, periodLabel, `select order flow period ${periodLabel}`, 2200);
+  results.push(...await replayMeituanOrderFlowDirections(page));
+  return results;
+}
+
+async function replayMeituanOrderFlowDirections(page) {
+  const sourceUrl = Array.from(observedOrderFlowRequestUrls).reverse()
+    .find(value => buildMeituanOrderFlowReplayUrls(value).length === 2);
+  if (!sourceUrl) {
+    return [{ action: 'replay order flow directions', ok: false, reason: 'verified_order_flow_request_not_observed' }];
+  }
+
+  const results = [];
+  for (const [index, targetUrl] of buildMeituanOrderFlowReplayUrls(sourceUrl).entries()) {
+    try {
+      const response = await page.evaluate(async url => {
+        const result = await fetch(url, { credentials: 'include', headers: { Accept: 'application/json' } });
+        await result.text();
+        return { ok: result.ok, status: result.status };
+      }, targetUrl);
+      results.push({
+        action: 'replay order flow direction',
+        direction: index === 0 ? 'loss' : 'inflow',
+        ok: response?.ok === true,
+        status: Number(response?.status || 0),
+      });
+    } catch (error) {
+      results.push({
+        action: 'replay order flow direction',
+        direction: index === 0 ? 'loss' : 'inflow',
+        ok: false,
+        error: String(error?.message || error || 'request_failed'),
+      });
+    }
+  }
+  await page.waitForTimeout(600);
   return results;
 }
 
@@ -545,6 +606,9 @@ function registerResponseCapture(page, target) {
     if (!section || !wantsSection(section)) {
       return;
     }
+    if (section === 'order_flow') {
+      observedOrderFlowRequestUrls.add(url);
+    }
 
     const status = response.status();
     let body = null;
@@ -630,6 +694,9 @@ function meituanRowsForPayloadKey(payloadKey, safeBody, normalizedRows, meta) {
   if (payloadKey === 'flowAnalysis') {
     return normalizeMeituanFlowAnalysisRows(safeBody, meta);
   }
+  if (payloadKey === 'order_flow') {
+    return normalizeMeituanOrderFlowRows(safeBody, meta);
+  }
   if (payloadKey === 'traffic') {
     return normalizedRows.filter(row => isImportableMeituanTrafficRow(row));
   }
@@ -663,6 +730,9 @@ function isImportableMeituanOrderCaptureRow(row) {
 }
 
 function meituanPayloadKeyForResponse(url, body, section) {
+  if (section === 'order_flow') {
+    return 'order_flow';
+  }
   if (section !== 'traffic') {
     return section;
   }
@@ -692,7 +762,19 @@ function meituanSupplementalResponseMeta(url, requestDateEvidence = {}) {
     rankType: query.get('rankType') || '',
     forecastType: query.get('type') || '',
     analysisType: meituanFlowAnalysisType(url),
+    orderFlowDirection: query.get('lossType') === '1' ? 'inflow' : (query.get('lossType') === '0' ? 'loss' : ''),
+    periodStart: query.get('startDate') || '',
+    periodEnd: query.get('endDate') || '',
   };
+}
+
+function filterMeituanOrderFlowRowsByPeriod(rows, period) {
+  const source = Array.isArray(rows) ? rows : [];
+  const normalized = String(period || '').trim().toLowerCase();
+  if (!['yesterday', 'last_7_days', 'last_30_days'].includes(normalized)) {
+    return source;
+  }
+  return source.filter(row => String(row?.order_flow_period || '').trim().toLowerCase() === normalized);
 }
 
 function meituanFlowAnalysisType(url) {
@@ -1080,7 +1162,7 @@ function appendDomCaptureEvidenceResponses(target, rows, section) {
 }
 
 function dedupePayloadRows(target) {
-  for (const section of ['reviews', 'traffic', 'ads', 'orders']) {
+  for (const section of ['reviews', 'traffic', 'order_flow', 'ads', 'orders']) {
     const seen = new Set();
     target[section] = target[section].filter(row => {
       const key = JSON.stringify([
@@ -1090,6 +1172,7 @@ function dedupePayloadRows(target) {
         row.poi_id ?? row.poiId ?? row.hotel_id ?? row.hotelId ?? '',
         row.source_trace_id ?? row.capture_evidence?.source_trace_id ?? row.source_url_hash ?? row.capture_evidence?.source_url_hash ?? '',
         row._dom_text ?? '',
+        row.dimension ?? '',
       ]);
       if (seen.has(key)) {
         return false;
@@ -1145,6 +1228,7 @@ function summarize(data) {
     reviews: data.reviews.length,
     traffic: data.traffic.length,
     flowAnalysis: data.flowAnalysis.length,
+    order_flow: data.order_flow.length,
     peerRank: data.peerRank.length,
     searchKeywords: data.searchKeywords.length,
     trafficForecast: data.trafficForecast.length,

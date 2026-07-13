@@ -225,4 +225,64 @@ final class MeituanCapturedDataIntegrityTest extends TestCase
         self::assertNull($byType['order']['book_order_num']);
         self::assertNull($byType['order']['data_value']);
     }
+
+    public function testOrderFlowRowsKeepDirectionPeriodAndZeroValuesTruthful(): void
+    {
+        $reflection = new ReflectionClass(OnlineData::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanCapturedDailyRows', [[
+            'storeId' => 'store-80',
+            'poiId' => 'poi-80',
+            'poiName' => '目标酒店',
+            'defaultDataDate' => '2026-07-13',
+            'dataPeriod' => 'last_7_days',
+            'order_flow' => [
+                [
+                    'storeId' => 'store-80',
+                    'order_flow_row_type' => 'summary',
+                    'order_flow_direction' => 'loss',
+                    'order_flow_period' => 'last_7_days',
+                    'period_start' => '2026-07-07',
+                    'period_end' => '2026-07-13',
+                    'order_count' => 0,
+                    'room_nights' => 0,
+                    'amount' => 0,
+                    'dimension' => 'order_flow:last_7_days:loss:summary',
+                ],
+                [
+                    'poiId' => 'peer-1',
+                    'poiName' => '同行酒店',
+                    'order_flow_row_type' => 'hotel_detail',
+                    'order_flow_direction' => 'loss',
+                    'order_flow_period' => 'last_7_days',
+                    'period_start' => '2026-07-07',
+                    'period_end' => '2026-07-13',
+                    'order_count' => 7,
+                    'order_ratio' => 0.0686,
+                    'amount' => 5234,
+                    'lossRoomList' => [['lossRoomName' => '大床房', 'lossRoomCnt' => 4]],
+                    'dimension' => 'order_flow:last_7_days:loss:hotel:peer-1',
+                ],
+            ],
+        ], 80]);
+
+        self::assertCount(2, $rows);
+        self::assertSame('order_flow', $rows[0]['data_type']);
+        self::assertSame('2026-07-13', $rows[0]['data_date']);
+        self::assertSame(0, $rows[0]['book_order_num']);
+        self::assertSame(0, $rows[0]['quantity']);
+        self::assertSame(0.0, $rows[0]['amount']);
+        self::assertSame('self', $rows[0]['compare_type']);
+        self::assertSame('competitor', $rows[1]['compare_type']);
+        self::assertSame('peer-1', $rows[1]['hotel_id']);
+        self::assertSame(7, $rows[1]['book_order_num']);
+        self::assertNull($rows[1]['quantity']);
+        self::assertSame(5234.0, $rows[1]['amount']);
+        self::assertSame(0.0686, $rows[1]['data_value']);
+        $raw = json_decode((string)$rows[1]['raw_data'], true);
+        self::assertSame('last_7_days', $raw['order_flow_period']);
+        self::assertSame('loss', $raw['order_flow_direction']);
+        self::assertSame('大床房', $raw['lossRoomList'][0]['lossRoomName']);
+    }
 }

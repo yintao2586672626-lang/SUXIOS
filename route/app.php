@@ -220,6 +220,7 @@ Route::group('api/online-data', function () {
     Route::post('/fetch-ctrip-traffic', 'OnlineData/fetchCtripTraffic');
     Route::post('/ctrip/traffic', 'OnlineData/fetchCtripTraffic');
     Route::post('/fetch-meituan-traffic', 'OnlineData/fetchMeituanTraffic');
+    Route::post('/fetch-meituan-order-flow', 'OnlineData/fetchMeituanOrderFlow');
     Route::post('/fetch-meituan-orders', 'OnlineData/fetchMeituanOrders');
     Route::post('/fetch-meituan-ads', 'OnlineData/fetchMeituanAds');
     Route::post('/fetch-meituan-comments', 'OnlineData/fetchMeituanComments');

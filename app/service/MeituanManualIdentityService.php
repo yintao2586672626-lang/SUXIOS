@@ -15,7 +15,7 @@ final class MeituanManualIdentityService
     public function resolve(array $requestData, array $storedConfig, string $section): array
     {
         $section = strtolower(trim($section));
-        if (!in_array($section, ['traffic', 'orders', 'ads'], true)) {
+        if (!in_array($section, ['traffic', 'order_flow', 'orders', 'ads'], true)) {
             throw new InvalidArgumentException('invalid_meituan_manual_section', 400);
         }
 
@@ -26,7 +26,7 @@ final class MeituanManualIdentityService
             $shopId = $poiId;
         }
 
-        if ($poiId === '' || (in_array($section, ['traffic', 'orders'], true) && $partnerId === '')) {
+        if ($poiId === '' || (in_array($section, ['traffic', 'order_flow', 'orders'], true) && $partnerId === '')) {
             throw new InvalidArgumentException('meituan_platform_identity_missing', 409);
         }
 

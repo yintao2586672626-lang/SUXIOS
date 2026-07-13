@@ -211,6 +211,7 @@ test('strict manual OTA execution endpoints never receive generic business conte
     '/online-data/fetch-ctrip-overview',
     '/online-data/fetch-ctrip-ads',
     '/online-data/fetch-meituan-traffic',
+    '/online-data/fetch-meituan-order-flow',
     '/online-data/fetch-meituan-orders',
     '/online-data/fetch-meituan-ads',
   ]) {

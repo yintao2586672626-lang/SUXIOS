@@ -172,7 +172,7 @@ final class MeituanRankCandidateServiceTest extends TestCase
         self::assertSame('derived', $issued['value_mode']);
     }
 
-    public function testTodayStayPercentOnlyCandidateUsesRealtimeSelfOnlyMode(): void
+    public function testTodayStayPercentOnlyCandidateUsesVerifiedSelfAnchors(): void
     {
         $service = new MeituanRankCandidateService(
             static fn(string $_key): mixed => null,
@@ -195,9 +195,10 @@ final class MeituanRankCandidateServiceTest extends TestCase
         $validation = $service->validatePayload($binding, $payload);
         $issued = $service->issue($binding, $payload);
 
-        self::assertSame('self_only', $validation['value_mode']);
-        self::assertSame(2, $validation['self_only_dimension_count']);
-        self::assertSame('self_only', $issued['value_mode']);
+        self::assertSame('derived', $validation['value_mode']);
+        self::assertSame(2, $validation['derived_dimension_count']);
+        self::assertSame(0, $validation['self_only_dimension_count']);
+        self::assertSame('derived', $issued['value_mode']);
     }
 
     public function testTodayStayPercentOnlyCandidateRejectsMissingSelfAnchor(): void
@@ -222,7 +223,7 @@ final class MeituanRankCandidateServiceTest extends TestCase
         unset($dimension);
 
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('realtime self-only values require');
+        $this->expectExceptionMessage('self metric anchor and self percent');
         $service->issue($binding, $payload);
     }
 

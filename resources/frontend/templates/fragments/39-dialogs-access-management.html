@@ -1,16 +1,53 @@
+        <!-- 门店用户分配模态框 -->
+        <div v-if="showHotelUserAuthorizationModal" data-testid="hotel-user-authorization-modal" class="fixed inset-0 z-[60] flex items-center justify-center modal-overlay px-4" @click.self="closeHotelUserAuthorization">
+            <div class="flex w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl" style="max-height: 86vh;">
+                <div class="shrink-0 border-b border-blue-100 bg-blue-50 px-5 py-4">
+                    <div class="flex items-start justify-between gap-4">
+                        <div>
+                            <h3 class="text-base font-semibold text-gray-900">分配用户</h3>
+                            <p class="mt-1 text-sm text-gray-600">门店：{{ hotelUserAuthorizationTarget?.name || '-' }}</p>
+                        </div>
+                        <button type="button" @click="closeHotelUserAuthorization" :disabled="hotelUserAuthorizationSaving" class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-white hover:text-gray-600 disabled:opacity-50">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+                    <input v-model="hotelUserAuthorizationSearch" type="search" name="hotel_user_assignment_filter" autocomplete="one-time-code" readonly="" @focus="$event.currentTarget.removeAttribute('readonly')" @pointerdown="$event.currentTarget.removeAttribute('readonly')" placeholder="搜索用户名或姓名" class="mb-3 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100">
+                    <div class="mb-2 text-xs text-gray-500">已选 {{ hotelUserAuthorizationUserIds.length }} 人；仅显示内测用户</div>
+                    <div class="space-y-2 rounded-xl border border-gray-200 bg-white p-2">
+                        <label v-for="candidate in filteredHotelAuthorizationUsers" :key="candidate.id" class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 hover:bg-blue-50">
+                            <input v-model="hotelUserAuthorizationUserIds" type="checkbox" :value="String(candidate.id)" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                            <span class="min-w-0 flex-1">
+                                <span class="block truncate text-sm font-medium text-gray-800">{{ candidate.realname || candidate.username }}</span>
+                                <span class="block truncate text-xs text-gray-500" :title="userHotelScopeSummary(candidate).full">{{ candidate.username }} · {{ userHotelScopeSummary(candidate).summary }}</span>
+                            </span>
+                            <span :class="String(candidate.status) === '1' ? 'text-emerald-700 bg-emerald-50' : 'text-gray-500 bg-gray-100'" class="rounded-full px-2 py-0.5 text-[11px]">{{ String(candidate.status) === '1' ? '正常' : '停用' }}</span>
+                        </label>
+                        <div v-if="!filteredHotelAuthorizationUsers.length" class="px-3 py-5 text-center text-sm text-gray-400">没有可分配的内测用户</div>
+                    </div>
+                </div>
+                <div class="flex shrink-0 justify-end gap-3 border-t border-gray-100 bg-white px-5 py-3">
+                    <button type="button" @click="closeHotelUserAuthorization" :disabled="hotelUserAuthorizationSaving" class="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50">取消</button>
+                    <button type="button" @click="saveHotelUserAuthorization" :disabled="hotelUserAuthorizationSaving" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60">{{ hotelUserAuthorizationSaving ? '保存中...' : '保存分配' }}</button>
+                </div>
+            </div>
+        </div>
+
         <!-- 用户模态框 -->
         <div v-if="showUserModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
-            <div class="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
-                <div class="p-4 border-b flex justify-between items-center sticky top-0 bg-white">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 overflow-hidden flex flex-col" style="max-height: 90vh;">
+                <div class="p-4 border-b flex shrink-0 justify-between items-center bg-white">
                     <h3 class="text-lg font-semibold">{{ userForm.id ? '编辑用户' : '添加用户' }}</h3>
                     <button @click="showUserModal = false" class="text-gray-500 hover:text-gray-700">
                         <i class="fas fa-times"></i>
                     </button>
                 </div>
-                <form @submit.prevent="saveUser" class="p-4 space-y-4">
+                <form @submit.prevent="saveUser" autocomplete="off" class="flex min-h-0 flex-1 flex-col">
+                    <div class="min-h-0 flex-1 overflow-y-auto p-4 space-y-4">
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">用户名 *</label>
-                        <input v-model="userForm.username" data-testid="new-user-username" type="text" required="" :disabled="!canEditUserUsername" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100">
+                        <input v-model="userForm.username" data-testid="new-user-username" type="text" name="account_username" autocomplete="username" required="" :readonly="!canEditUserUsername" :class="!canEditUserUsername ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         <p v-if="!userForm.id" class="mt-1 text-xs text-gray-500">已按现有 VIP 账号自动顺延，可直接修改。</p>
                     </div>
                     <div v-if="!userForm.id">
@@ -22,7 +59,7 @@
                     </div>
                     <div v-else="">
                         <label class="block text-sm font-medium text-gray-700 mb-1">新密码 (留空不修改)</label>
-                        <input v-model="userForm.password" type="password" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <input v-model="userForm.password" data-testid="edit-user-new-password" type="password" name="new_password" autocomplete="new-password" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">姓名</label>
@@ -59,7 +96,7 @@
                         </div>
                         <div v-if="allUserHotelIds.length" class="mb-2 text-xs text-gray-500">已选 {{ userAssignedHotelCount }} / {{ allUserHotelIds.length }}</div>
                         <div class="mb-2 flex gap-2">
-                            <input v-model="userHotelAssignmentSearch" type="search" placeholder="搜索门店名称、编码或ID" class="min-w-0 flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100">
+                            <input v-model="userHotelAssignmentSearch" data-testid="user-hotel-assignment-search" type="search" name="user_hotel_assignment_filter" autocomplete="one-time-code" readonly="" @focus="$event.currentTarget.removeAttribute('readonly')" @pointerdown="$event.currentTarget.removeAttribute('readonly')" placeholder="搜索门店名称、编码或ID" class="min-w-0 flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100">
                             <button type="button" @click="userHotelAssignmentSelectedOnly = !userHotelAssignmentSelectedOnly" :class="userHotelAssignmentSelectedOnly ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600'" class="shrink-0 rounded-lg border px-3 py-2 text-xs font-medium">只看已选</button>
                         </div>
                         <div class="max-h-44 overflow-y-auto rounded-lg border border-gray-200 bg-white px-3 py-2 space-y-2">
@@ -91,9 +128,10 @@
                             <option :value="0">待审核/暂停</option>
                         </select>
                     </div>
-                    <div class="flex justify-end space-x-3 pt-4">
+                    </div>
+                    <div data-testid="user-modal-actions" class="flex shrink-0 justify-end space-x-3 border-t border-gray-100 bg-white px-4 py-3 shadow-lg">
                         <button type="button" @click="showUserModal = false" class="px-4 py-2 border rounded-lg hover:bg-gray-50">取消</button>
-                        <button type="submit" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">保存</button>
+                        <button type="submit" :disabled="userSaving" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60">{{ userSaving ? '保存中...' : '保存' }}</button>
                     </div>
                 </form>
             </div>
@@ -302,4 +340,3 @@
                 </div>
             </div>
         </div>
-

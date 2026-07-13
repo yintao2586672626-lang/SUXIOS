@@ -10,6 +10,7 @@ use app\service\CtripTrafficDisplayService;
 use app\service\ManualOnlineFetchTaskService;
 use app\service\MeituanManualIdentityService;
 use app\service\MeituanManualFetchRequestService;
+use app\service\MeituanOrderFlowService;
 use app\service\MeituanOnlineDataPersistenceService;
 use app\service\MeituanRankCandidateService;
 use app\service\OnlineTrafficDataExtractionService;
@@ -192,6 +193,22 @@ trait OnlineDataManualFetchConcern
             'async',
             'background',
             'background_task',
+        ], [], 'meituan');
+    }
+
+    /**
+     * @param array<string, mixed> $requestData
+     * @return array<string, scalar|null>
+     */
+    private function sanitizeMeituanOrderFlowExecutionRequestData(array $requestData): array
+    {
+        return $this->sanitizePrimaryManualFetchRequestData($requestData, [
+            'config_id',
+            'system_hotel_id',
+            'start_date',
+            'end_date',
+            'period',
+            'auto_save',
         ], [], 'meituan');
     }
 
@@ -2208,9 +2225,11 @@ trait OnlineDataManualFetchConcern
                     $selfMetricMessage = (string)($selfBusinessResult['message'] ?? $selfMetricMessage);
                 }
             }
-            $needsDailyRoomRevenueFallback = (string)$dateRange === '7'
-                || ((string)$dateRange === '30' && strtoupper((string)$rankType) === 'P_RZ');
-            if ($needsDailyRoomRevenueFallback && (float)($selfMetricValues['roomRevenue'] ?? 0) <= 0) {
+            if ($this->shouldFetchMeituanDailyRoomRevenueFallback(
+                (string)$dateRange,
+                (string)$rankType,
+                $selfMetricValues
+            )) {
                 $dailyTradeResult = $this->fetchMeituanSelfDailyTradeMetricValues(
                     (string)$partnerId,
                     (string)$poiId,
@@ -2413,6 +2432,23 @@ trait OnlineDataManualFetchConcern
             ]);
             return $this->error('请求异常', 500);
         }
+    }
+
+    /**
+     * Only the stay ranking needs a daily room-revenue anchor. Running this
+     * fallback for the other three rankings repeats up to 30 platform calls
+     * without contributing to their persisted metrics.
+     *
+     * @param array<string, mixed> $selfMetricValues
+     */
+    private function shouldFetchMeituanDailyRoomRevenueFallback(
+        string $dateRange,
+        string $rankType,
+        array $selfMetricValues
+    ): bool {
+        return in_array(trim($dateRange), ['7', '30'], true)
+            && strtoupper(trim($rankType)) === 'P_RZ'
+            && (float)($selfMetricValues['roomRevenue'] ?? 0) <= 0;
     }
 
     /**
@@ -3187,6 +3223,208 @@ trait OnlineDataManualFetchConcern
             ]);
             return $this->error('请求异常', 500);
         }
+    }
+
+    public function fetchMeituanOrderFlow(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_fetch_online_data');
+
+        $rawRequestData = $this->request->post();
+        try {
+            if (!is_array($rawRequestData)) {
+                throw new \InvalidArgumentException('Invalid Meituan order flow request schema.', 400);
+            }
+            $requestData = $this->sanitizeMeituanOrderFlowExecutionRequestData($rawRequestData);
+            $configId = trim((string)($requestData['config_id'] ?? ''));
+            $systemHotelId = $this->strictPositiveOtaConfigHotelId($requestData['system_hotel_id'] ?? null);
+
+            return $this->withOtaCredentialForExecution(
+                'meituan',
+                $configId,
+                $systemHotelId,
+                fn(array $credentialPayload): Response => $this->executeMeituanOrderFlowFetch(
+                    $requestData,
+                    $credentialPayload,
+                    $systemHotelId
+                ),
+                false,
+                true
+            );
+        } catch (\InvalidArgumentException) {
+            return $this->error('订单流向执行参数无效', 400, [
+                'reason' => 'invalid_meituan_order_flow_request',
+            ]);
+        } catch (OtaExecutionStageException $e) {
+            return $this->otaExecutionStageFailureResponse('meituan_order_flow_fetch', $e);
+        } catch (\Throwable $e) {
+            return $this->otaUnknownExecutionFailureResponse('meituan_order_flow_fetch', $e);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $requestData
+     * @param array<string, mixed> $credentialPayload
+     */
+    private function executeMeituanOrderFlowFetch(
+        array $requestData,
+        array $credentialPayload,
+        int $systemHotelId
+    ): Response {
+        $cookies = trim((string)($credentialPayload['cookies'] ?? $credentialPayload['cookie'] ?? ''));
+        if ($cookies === '') {
+            return $this->error('OTA 凭据缺少登录 Cookies', 409, [
+                'reason' => 'meituan_order_flow_cookie_missing',
+            ]);
+        }
+
+        $authData = $credentialPayload['auth_data'] ?? $credentialPayload['authData'] ?? [];
+        if (is_string($authData)) {
+            $authData = json_decode($authData, true) ?: [];
+        }
+        if (!is_array($authData)) {
+            $authData = [];
+        }
+
+        try {
+            $storedConfig = $this->resolveMeituanManualFetchConfigMetadata(
+                trim((string)($requestData['config_id'] ?? '')),
+                $systemHotelId
+            );
+            $identity = (new MeituanManualIdentityService())->resolve($requestData, $storedConfig, 'order_flow');
+            [$startDate, $endDate] = MeituanManualFetchRequestService::normalizeDateRange(
+                (string)($requestData['start_date'] ?? ''),
+                (string)($requestData['end_date'] ?? '')
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->error('美团门店身份或日期范围无效', $e->getCode() ?: 409, [
+                'reason' => 'meituan_order_flow_identity_or_date_invalid',
+            ]);
+        }
+
+        $autoSave = $this->isTruthyRequestValue($requestData['auto_save'] ?? true);
+        $capturedItems = [];
+        $directionStatus = [];
+        $httpCodes = [];
+        foreach (['loss', 'inflow'] as $direction) {
+            try {
+                $params = MeituanOrderFlowService::buildRequestParams(
+                    $identity['partner_id'],
+                    $identity['poi_id'],
+                    $direction,
+                    $startDate,
+                    $endDate
+                );
+                $result = $this->sendMeituanRequest(
+                    MeituanOrderFlowService::ENDPOINT,
+                    $params,
+                    $cookies,
+                    $authData
+                );
+                $httpCodes[$direction] = (int)($result['http_code'] ?? 0);
+                if (($result['success'] ?? false) !== true) {
+                    $directionStatus[$direction] = [
+                        'status' => 'failed',
+                        'reason' => (string)($result['reason'] ?? 'meituan_order_flow_request_failed'),
+                    ];
+                    continue;
+                }
+                $rows = MeituanOrderFlowService::normalizeResponse(
+                    is_array($result['data'] ?? null) ? $result['data'] : [],
+                    $direction,
+                    $startDate,
+                    $endDate
+                );
+                $capturedItems = array_merge($capturedItems, $rows);
+                $directionStatus[$direction] = [
+                    'status' => 'success',
+                    'row_count' => count($rows),
+                ];
+            } catch (\Throwable $e) {
+                $directionStatus[$direction] = [
+                    'status' => 'failed',
+                    'reason' => 'meituan_order_flow_response_invalid',
+                ];
+                \think\facade\Log::warning('Meituan order flow direction normalization failed.', [
+                    'direction' => $direction,
+                    'exception_type' => get_debug_type($e),
+                    'system_hotel_id' => $systemHotelId,
+                ]);
+            }
+        }
+
+        if ($capturedItems === []) {
+            $this->recordCookieAlert(
+                'meituan',
+                'fetch-meituan-order-flow',
+                'meituan_order_flow_both_directions_failed',
+                $systemHotelId
+            );
+            return $this->error('美团订单流向获取失败，请更新登录 Cookie 后重试', 400, [
+                'reason' => 'meituan_order_flow_fetch_failed',
+                'direction_status' => $directionStatus,
+            ]);
+        }
+
+        $capturedPayload = [
+            'store_id' => $identity['shop_id'] ?: $identity['poi_id'],
+            'poi_id' => $identity['poi_id'],
+            'poi_name' => trim((string)($storedConfig['name'] ?? $storedConfig['hotel_name'] ?? '')),
+            'system_hotel_id' => $systemHotelId,
+            'default_data_date' => $endDate,
+            'data_period' => 'historical_daily',
+            'order_flow' => $capturedItems,
+        ];
+        $rows = $this->uniqueMeituanCapturedRowsForPersistence(
+            $this->buildMeituanCapturedDailyRows($capturedPayload, $systemHotelId)
+        );
+        $savedCount = ($autoSave && $rows !== []) ? $this->saveMeituanCapturedDailyRows($rows) : 0;
+        $persistenceState = $this->buildMeituanDirectPersistenceState(
+            $autoSave,
+            count($rows),
+            $savedCount,
+            'meituan_order_flow'
+        );
+        if ($autoSave && !$persistenceState['persisted']) {
+            return $this->error(
+                $persistenceState['persistence_status'] === 'readback_failed'
+                    ? '订单流向保存后数据库回读不完整'
+                    : '订单流向响应未产生可回读数据',
+                (int)$persistenceState['http_code'],
+                array_merge($persistenceState, [
+                    'direction_status' => $directionStatus,
+                    'row_count' => count($rows),
+                ])
+            );
+        }
+
+        $complete = ($directionStatus['loss']['status'] ?? '') === 'success'
+            && ($directionStatus['inflow']['status'] ?? '') === 'success';
+        if ($this->currentUser && isset($this->currentUser->id)) {
+            OperationLog::record(
+                'online_data',
+                'fetch_meituan_order_flow',
+                '获取美团订单流向数据',
+                $this->currentUser->id,
+                $systemHotelId
+            );
+        }
+
+        return $this->success([
+            'status' => $complete ? 'complete' : 'partial',
+            'rows' => $rows,
+            'row_count' => count($rows),
+            'saved_count' => $savedCount,
+            'processed_count' => count($rows),
+            'persistence_status' => $persistenceState['persistence_status'],
+            'persisted' => $persistenceState['persisted'],
+            'direction_status' => $directionStatus,
+            'http_codes' => $httpCodes,
+            'request_start_date' => $startDate,
+            'request_end_date' => $endDate,
+            'order_flow_period' => MeituanOrderFlowService::resolvePeriod($startDate, $endDate),
+            'amount_unit' => 'yuan',
+        ], $complete ? '订单流向获取成功' : '订单流向部分获取成功');
     }
 
     /**

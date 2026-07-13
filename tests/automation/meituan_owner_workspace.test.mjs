@@ -12,19 +12,23 @@ function sliceBetween(source, start, end) {
   return source.slice(startIndex, endIndex);
 }
 
-test('Meituan owner navigation keeps competition circle and merges secondary data views', () => {
+test('Meituan owner navigation exposes only capturable data categories as primary filters', () => {
   const navigation = sliceBetween(
     template,
     'data-testid="meituan-owner-navigation"',
     '<!-- 美团老板工作台主内容 -->',
   );
 
-  assert.match(navigation, /竞争圈/);
-  assert.match(navigation, /经营数据/);
-  assert.match(navigation, /账号设置/);
-  assert.doesNotMatch(navigation, />流量数据</);
-  assert.doesNotMatch(navigation, />订单数据</);
-  assert.doesNotMatch(navigation, />广告数据</);
+  assert.match(navigation, /同行榜单/);
+  assert.match(navigation, /流量分析/);
+  assert.match(navigation, /订单流向/);
+  assert.match(navigation, /订单数据/);
+  assert.match(navigation, /广告数据/);
+  assert.doesNotMatch(navigation, /经营数据/);
+  assert.match(navigation, /openHotelManagementForOta[^>]*>[\s\S]*?设置/);
+  assert.match(navigation, /openMeituanStoredDataTab\('traffic'\)/);
+  assert.match(navigation, /openMeituanStoredDataTab\('orders'\)/);
+  assert.match(navigation, /openMeituanStoredDataTab\('ads'\)/);
 });
 
 test('technical Meituan collection tools remain collapsed and super-admin only', () => {
@@ -38,6 +42,13 @@ test('technical Meituan collection tools remain collapsed and super-admin only',
   assert.match(advanced, /openMeituanManualTab\('meituan-traffic'\)/);
   assert.match(advanced, /openMeituanManualTab\('meituan-orders'\)/);
   assert.match(advanced, /openMeituanManualTab\('meituan-ads'\)/);
+});
+
+test('Meituan ranking keeps the official freshness notice without extra realtime copy', () => {
+  assert.match(template, />今日实时<\/button>/);
+  assert.doesNotMatch(template, /今日实时\*/);
+  assert.match(template, /\*每日9点更新前日数据。数据仅作经营参考，不作结算依据。/);
+  assert.doesNotMatch(template, /“今日实时”是美团页面筛选名称，不代表秒级实时/);
 });
 
 test('competition-circle action and stored-data actions are truthful for hotel owners', () => {

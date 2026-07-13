@@ -566,6 +566,7 @@ trait OnlineDataRequestConcern
                 'traffic' => $this->countMeituanPayloadSection($payload, 'traffic'),
                 'peer_rank' => $this->countMeituanPayloadSection($payload, 'peerRank'),
                 'traffic_analysis' => $this->countMeituanPayloadSection($payload, 'flowAnalysis'),
+                'order_flow' => $this->countMeituanPayloadSection($payload, 'order_flow'),
                 'search_keywords' => $this->countMeituanPayloadSection($payload, 'searchKeywords'),
                 'traffic_forecast' => $this->countMeituanPayloadSection($payload, 'trafficForecast'),
                 'ads' => $this->countMeituanPayloadSection($payload, 'ads'),

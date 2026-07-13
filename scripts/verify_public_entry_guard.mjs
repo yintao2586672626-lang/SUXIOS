@@ -1814,7 +1814,7 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
     || !content.includes('const switchToMeituanDownloadCenter = () => {')
     || !meituanStaticContent.includes('const buildMeituanDownloadData = (rows = []) => {')
     || !content.includes('const meituanDownloadData = computed(() => buildMeituanDownloadData(onlineDataList.value));')
-    || !content.includes('switchToMeituanDownloadCenter, meituanDownloadData,')
+    || !content.includes('switchToMeituanDownloadCenter, openMeituanStoredDataTab, meituanDownloadData,')
     || !downloadCenterTabSource.includes("await refreshOnlineHistory({ refreshHotels: false });")
     || !downloadCenterTabSource.includes('scheduleDelayedPageTask(() => {')
     || !downloadCenterTabSource.includes('return loadOnlineHistoryHotelList();')

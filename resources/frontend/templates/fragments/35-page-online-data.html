@@ -50,7 +50,50 @@
                                             </button>
                                         </div>
 
-                                        <div data-testid="ota-config-overview" class="mt-4 grid gap-4 xl:grid-cols-2">
+                                        <div data-testid="ota-config-toolbar" class="mt-4 grid grid-cols-1 gap-2 rounded-xl border border-gray-200 bg-gray-50 p-3 sm:grid-cols-2 xl:grid-cols-12">
+                                            <label class="relative sm:col-span-2 xl:col-span-5">
+                                                <span class="sr-only">搜索平台配置</span>
+                                                <i class="fas fa-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400"></i>
+                                                <input v-model.trim="otaConfigOverviewFilters.search" data-testid="ota-config-search" type="search" autocomplete="off" placeholder="搜索门店、配置名称或平台ID" class="w-full rounded-lg border border-gray-300 bg-white py-2 pl-8 pr-3 text-xs text-gray-800 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                            </label>
+                                            <label class="xl:col-span-2">
+                                                <span class="sr-only">筛选平台</span>
+                                                <select v-model="otaConfigOverviewFilters.platform" data-testid="ota-config-platform-filter" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                                    <option value="all">全部平台</option>
+                                                    <option value="ctrip">仅携程</option>
+                                                    <option value="meituan">仅美团</option>
+                                                </select>
+                                            </label>
+                                            <label class="xl:col-span-2">
+                                                <span class="sr-only">筛选生效状态</span>
+                                                <select v-model="otaConfigOverviewFilters.status" data-testid="ota-config-status-filter" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                                    <option value="all">全部状态</option>
+                                                    <option value="effective">已生效</option>
+                                                    <option value="attention">全部需处理</option>
+                                                    <option value="blocked">缺配置/已阻塞</option>
+                                                    <option value="pending">待成功验证</option>
+                                                    <option value="unknown">证据未验证</option>
+                                                </select>
+                                            </label>
+                                            <label class="xl:col-span-2">
+                                                <span class="sr-only">配置排序</span>
+                                                <select v-model="otaConfigOverviewFilters.sort" data-testid="ota-config-sort" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                                    <option value="attention">问题优先</option>
+                                                    <option value="latest_success">最近成功优先</option>
+                                                    <option value="latest_update">最近修改优先</option>
+                                                    <option value="hotel_name">门店名称排序</option>
+                                                </select>
+                                            </label>
+                                            <button type="button" data-testid="ota-config-reset" @click="resetOtaConfigOverviewFilters" :disabled="!otaConfigOverviewHasFilters" class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 xl:col-span-1">
+                                                重置
+                                            </button>
+                                        </div>
+                                        <div data-testid="ota-config-result-count" class="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-500">
+                                            <span>当前显示 {{ otaConfigOverviewFilteredCount }} / {{ otaConfigOverviewTotalCount }} 条配置</span>
+                                            <span v-if="otaConfigOverviewHasFilters" class="text-blue-700">已应用筛选</span>
+                                        </div>
+
+                                        <div data-testid="ota-config-overview" class="mt-3 grid gap-4 xl:grid-cols-2">
                                             <section v-for="group in otaConfigOverviewGroups" :key="group.platform" :data-testid="'ota-config-platform-' + group.platform" class="overflow-hidden rounded-xl border border-gray-200 bg-white">
                                                 <div class="border-b border-gray-100 bg-gray-50/80 px-4 py-3">
                                                     <div class="flex items-start justify-between gap-3">
@@ -61,11 +104,13 @@
                                                                 </span>
                                                                 <div>
                                                                     <h5 class="text-sm font-semibold text-gray-900">{{ group.title }}</h5>
-                                                                    <div class="text-[11px] text-gray-500">共 {{ group.summary.total }} 条配置</div>
+                                                                    <div class="text-[11px] text-gray-500">
+                                                                        共 {{ group.summary.total }} 条配置<template v-if="group.rows.length !== group.totalCount"> · 筛出 {{ group.rows.length }} 条</template>
+                                                                    </div>
                                                                 </div>
                                                             </div>
                                                         </div>
-                                                        <button v-if="canManageOwnHotels()" type="button" @click="manageOtaConfigOverview(group.platform)" class="shrink-0 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-gray-700 hover:border-gray-300 hover:bg-gray-50">管理配置</button>
+                                                        <button v-if="canMaintainOtaConfig()" type="button" @click="manageOtaConfigOverview(group.platform)" class="shrink-0 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-gray-700 hover:border-gray-300 hover:bg-gray-50">新增/管理</button>
                                                     </div>
                                                     <div class="mt-3 grid grid-cols-3 divide-x divide-gray-200 rounded-lg border border-gray-200 bg-white py-2 text-center">
                                                         <div class="px-2">
@@ -88,19 +133,25 @@
                                                         <div class="min-w-0 flex-1">
                                                             <div class="truncate text-sm font-medium text-gray-900" :title="row.hotelName">{{ row.hotelName }}</div>
                                                             <div class="mt-0.5 truncate text-[11px] text-gray-500" :title="row.configName + ' · ' + row.platformIdentityText">{{ row.configName }} · {{ row.platformIdentityText }}</div>
+                                                            <div class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-gray-400">
+                                                                <span v-if="row.latestDataDate">数据日 {{ row.latestDataDate }}</span>
+                                                                <span v-if="row.storedRowCount">当前库内 {{ row.storedRowCount }} 条</span>
+                                                                <span :title="row.configUpdatedAt">配置更新 {{ row.configUpdatedText }}</span>
+                                                            </div>
                                                         </div>
                                                         <div class="flex shrink-0 items-center justify-between gap-3 sm:justify-end">
                                                             <div class="text-right">
                                                                 <span :class="['inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium', row.effectClass]" :title="row.effectDetail">{{ row.effectText }}</span>
                                                                 <div class="mt-1 text-[11px] text-gray-500" :title="row.latestSuccessAt">最近成功：{{ row.latestSuccessText }}</div>
                                                             </div>
-                                                            <button v-if="canManageOwnHotels()" type="button" @click="editOtaConfigOverviewRow(row)" class="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-medium text-blue-700 hover:border-blue-300 hover:bg-blue-100">编辑</button>
+                                                            <button v-if="canMaintainOtaConfig()" type="button" @click="editOtaConfigOverviewRow(row)" :title="'编辑 ' + row.hotelName + ' 的' + row.platformText + '配置'" class="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-medium text-blue-700 hover:border-blue-300 hover:bg-blue-100"><i class="fas fa-edit mr-1"></i>编辑</button>
                                                         </div>
                                                     </div>
                                                 </div>
                                                 <div v-else class="px-4 py-6 text-center">
-                                                    <div class="text-sm text-gray-500">暂无{{ group.platform === 'ctrip' ? '携程' : '美团' }}配置</div>
-                                                    <button v-if="canManageOwnHotels()" type="button" @click="manageOtaConfigOverview(group.platform)" class="mt-2 text-xs font-medium text-blue-700 hover:text-blue-800">去配置</button>
+                                                    <div class="text-sm text-gray-500">{{ group.totalCount ? '没有符合当前筛选的配置' : '暂无' + (group.platform === 'ctrip' ? '携程' : '美团') + '配置' }}</div>
+                                                    <button v-if="group.totalCount" type="button" @click="resetOtaConfigOverviewFilters" class="mt-2 text-xs font-medium text-blue-700 hover:text-blue-800">清除筛选</button>
+                                                    <button v-else-if="canMaintainOtaConfig()" type="button" @click="manageOtaConfigOverview(group.platform)" class="mt-2 text-xs font-medium text-blue-700 hover:text-blue-800">去配置</button>
                                                 </div>
                                                 <button v-if="group.rows.length > 4" type="button" @click="toggleOtaConfigOverview(group.platform)" class="flex w-full items-center justify-center border-t border-gray-100 bg-gray-50/70 px-4 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100">
                                                     {{ otaConfigOverviewExpanded[group.platform] ? '收起' : '查看全部 ' + group.rows.length + ' 条' }}
@@ -136,7 +187,7 @@
                                                 <div class="mt-1 text-[11px] text-gray-400 truncate" :title="card.detail">{{ card.detail }}</div>
                                             </div>
                                         </div>
-                                        <div v-if="manualOneClickFetchRows.length" class="mt-4 flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-3">
+                                        <div v-if="manualOneClickFetchFilterOptions[0].count" class="mt-4 flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-3">
                                             <div class="text-xs text-gray-500">结果筛选</div>
                                             <div class="flex flex-wrap items-center gap-1.5">
                                                 <button v-for="option in manualOneClickFetchFilterOptions" :key="option.key" type="button" @click="manualOneClickFetchStatusFilter = option.key" :class="['rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors', manualOneClickFetchStatusFilter === option.key ? 'border-slate-800 bg-slate-800 text-white' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50']">

@@ -375,6 +375,7 @@
                 '/online-data/fetch-ctrip-overview',
                 '/online-data/fetch-ctrip-ads',
                 '/online-data/fetch-meituan-traffic',
+                '/online-data/fetch-meituan-order-flow',
                 '/online-data/fetch-meituan-orders',
                 '/online-data/fetch-meituan-ads',
             ]);
@@ -453,6 +454,7 @@
             };
             const userHasPermission = (key) => !!(user.value?.permissions || {})[key];
             const canManageOwnHotels = () => !!user.value?.is_super_admin || userHasPermission('can_manage_own_hotels');
+            const canMaintainOtaConfig = () => canManageOwnHotels() || userHasPermission('can_fetch_online_data');
             const currentLocale = ref(getInitialLocale());
             document.documentElement.lang = currentLocale.value;
             const aiModelConfigText = createAiModelConfigText(() => currentLocale.value);
@@ -1591,6 +1593,9 @@
             const createMeituanOrderForm = requireMeituanStatic('createMeituanOrderForm');
             const createMeituanAdsForm = requireMeituanStatic('createMeituanAdsForm');
             const createMeituanBrowserCaptureForm = requireMeituanStatic('createMeituanBrowserCaptureForm');
+            const getMeituanOrderFlowPeriods = requireMeituanStatic('getMeituanOrderFlowPeriods');
+            const resolveMeituanOrderFlowDateRange = requireMeituanStatic('resolveMeituanOrderFlowDateRange');
+            const buildMeituanOrderFlowView = requireMeituanStatic('buildMeituanOrderFlowView');
             const getMeituanBrowserCapturePresets = requireMeituanStatic('getMeituanBrowserCapturePresets');
             const getMeituanBrowserCaptureSupplementModules = requireMeituanStatic('getMeituanBrowserCaptureSupplementModules');
             const buildMeituanBrowserCaptureSupplementCounts = requireMeituanStatic('buildMeituanBrowserCaptureSupplementCounts');
@@ -1621,8 +1626,13 @@
             const buildMeituanDownloadData = requireMeituanStatic('buildMeituanDownloadData');
             const buildMeituanOrderDomCollectorScript = requireMeituanStatic('buildMeituanOrderDomCollectorScript');
             const runMeituanOrderCsvImportFlow = requireMeituanStatic('runMeituanOrderCsvImportFlow');
+            const shouldShowMeituanPreviousDayUpdateNotice = requireMeituanStatic('shouldShowMeituanPreviousDayUpdateNotice');
             const meituanForm = ref(createMeituanRankingForm());
             const meituanRankMaxDate = computed(() => formatDate(new Date()));
+            const showMeituanPreviousDayUpdateNotice = computed(() => {
+                void currentTime.value;
+                return shouldShowMeituanPreviousDayUpdateNotice(meituanForm.value.dateRanges);
+            });
             const meituanTrafficForm = ref(createMeituanTrafficForm());
             const meituanOrderForm = ref(createMeituanOrderForm());
             const meituanOrderResult = ref(null);
@@ -1633,6 +1643,20 @@
             const meituanBrowserCaptureForm = ref(createMeituanBrowserCaptureForm());
             const meituanBrowserCaptureResult = ref(null);
             const meituanBrowserCaptureRunning = ref(false);
+            const meituanOrderFlowPeriods = getMeituanOrderFlowPeriods();
+            const meituanOrderFlowPeriod = ref('last_7_days');
+            const meituanOrderFlowDirection = ref('loss');
+            const meituanOrderFlowRows = ref([]);
+            const meituanOrderFlowLoading = ref(false);
+            const meituanOrderFlowFetching = ref(false);
+            const meituanOrderFlowError = ref('');
+            const meituanOrderFlowDateRange = computed(() => resolveMeituanOrderFlowDateRange(meituanOrderFlowPeriod.value));
+            const meituanOrderFlowView = computed(() => buildMeituanOrderFlowView(meituanOrderFlowRows.value, meituanOrderFlowPeriod.value));
+            const meituanOrderFlowActive = computed(() => (
+                meituanOrderFlowDirection.value === 'inflow'
+                    ? meituanOrderFlowView.value.inflow
+                    : meituanOrderFlowView.value.loss
+            ));
             const meituanBrowserCapturePresets = getMeituanBrowserCapturePresets();
             const meituanBrowserCaptureSupplementModules = getMeituanBrowserCaptureSupplementModules();
             const meituanBrowserCaptureSupplementCounts = computed(() => buildMeituanBrowserCaptureSupplementCounts(meituanBrowserCaptureResult.value || {}));
@@ -2093,6 +2117,7 @@
             const manualOneClickFetchNowText = requireDataHealthStatic('manualOneClickFetchNowText');
             const buildOtaConfigOverviewRows = requireDataHealthStatic('buildOtaConfigOverviewRows');
             const summarizeOtaConfigOverviewRows = requireDataHealthStatic('summarizeOtaConfigOverviewRows');
+            const filterAndSortOtaConfigOverviewRows = requireDataHealthStatic('filterAndSortOtaConfigOverviewRows');
             const normalizeManualOneClickFetchStoredRows = requireDataHealthStatic('normalizeManualOneClickFetchStoredRows');
             const summarizeManualOneClickFetchRows = requireDataHealthStatic('summarizeManualOneClickFetchRows');
             const buildManualOneClickFetchCards = requireDataHealthStatic('buildManualOneClickFetchCards');
@@ -2111,6 +2136,7 @@
             const findManualOneClickFetchExistingStoredRow = requireDataHealthStatic('findManualOneClickFetchExistingStoredRow');
             const buildManualOneClickFetchTasksFromStatic = requireDataHealthStatic('buildManualOneClickFetchTasks');
             const buildManualOneClickFetchBaseRowFromStatic = requireDataHealthStatic('buildManualOneClickFetchBaseRow');
+            const buildManualOneClickFetchCoverageRowsFromStatic = requireDataHealthStatic('buildManualOneClickFetchCoverageRows');
             const buildManualOneClickFetchRunningRow = requireDataHealthStatic('buildManualOneClickFetchRunningRow');
             const buildManualOneClickFetchResultRow = requireDataHealthStatic('buildManualOneClickFetchResultRow');
             const buildManualOneClickFetchFailureRow = requireDataHealthStatic('buildManualOneClickFetchFailureRow');
@@ -6850,6 +6876,12 @@
                 });
             };
 
+            const openMeituanStoredDataTab = (tab) => {
+                if (!['traffic', 'orders', 'ads'].includes(tab)) return;
+                downloadCenterTab.value = tab;
+                switchToMeituanDownloadCenter();
+            };
+
             const meituanDownloadData = computed(() => buildMeituanDownloadData(onlineDataList.value));
 
             const applyOnlineHistoryDatePreset = () => {
@@ -9309,6 +9341,10 @@
                     syncTrafficConfig: syncMeituanTrafficConfigFromSelectedConfig,
                     syncOrderConfig: syncMeituanOrderConfigFromSelectedConfig,
                     syncAdsConfig: syncMeituanAdsConfigFromSelectedConfig,
+                    loadOrderFlow: async () => {
+                        await syncMeituanBrowserCaptureFromSelectedConfig(false);
+                        return loadMeituanOrderFlowData();
+                    },
                     applyRankingConfig: () => applyMeituanHotelConfig(false, {
                         refreshList: false,
                         skipIfAligned: true,
@@ -9750,6 +9786,24 @@
                 meituanDataFetchTime.value = resetState.dataFetchTime;
             };
 
+            const selectMeituanRankingDateRange = (dateRange) => {
+                const normalized = ['0', '1', '7', '30', 'custom'].includes(String(dateRange))
+                    ? String(dateRange)
+                    : '1';
+                const current = Array.isArray(meituanForm.value.dateRanges)
+                    ? meituanForm.value.dateRanges
+                    : [];
+                if (current.length === 1 && current[0] === normalized) return;
+                meituanFetchRunToken += 1;
+                meituanForm.value.dateRanges = [normalized];
+                meituanFetchSuccess.value = false;
+                meituanHotelsList.value = [];
+                meituanBusinessSummary.value = emptyMeituanBusinessSummary();
+                onlineDataResult.value = null;
+                meituanSavedCount.value = 0;
+                meituanDataFetchTime.value = '';
+            };
+
             watch(() => meituanForm.value.hotelId, () => {
                 meituanFetchRunToken += 1;
                 if (suppressNextMeituanHotelConfigApply) {
@@ -9768,6 +9822,14 @@
                 }
                 if (onlineDataTab.value === 'meituan-traffic') {
                     syncMeituanTrafficConfigFromSelectedConfig();
+                }
+                if (onlineDataTab.value === 'meituan-order-flow') {
+                    meituanOrderFlowRows.value = [];
+                    meituanOrderFlowError.value = '';
+                    deferUiTask(async () => {
+                        await syncMeituanBrowserCaptureFromSelectedConfig(false);
+                        return loadMeituanOrderFlowData();
+                    }, 80);
                 }
             });
 
@@ -10590,6 +10652,11 @@
                 form: hotelMergeForm.value,
             }));
             const showUserModal = ref(false);
+            const showHotelUserAuthorizationModal = ref(false);
+            const hotelUserAuthorizationTarget = ref(null);
+            const hotelUserAuthorizationUserIds = ref([]);
+            const hotelUserAuthorizationSearch = ref('');
+            const hotelUserAuthorizationSaving = ref(false);
             const showUserStatusConfirmModal = ref(false);
             const userStatusConfirmTarget = ref(null);
             const userStatusConfirmAction = ref('approve');
@@ -11362,30 +11429,100 @@
                 }
             };
 
+            const hotelAuthorizationEligibleUsers = computed(() => users.value.filter(candidate => (
+                candidate?.id && userRoleIssueProfile(candidate)?.key === 'beta_user'
+            )));
+
+            const filteredHotelAuthorizationUsers = computed(() => {
+                const keyword = String(hotelUserAuthorizationSearch.value || '').trim().toLowerCase();
+                if (!keyword) return hotelAuthorizationEligibleUsers.value;
+                return hotelAuthorizationEligibleUsers.value.filter(candidate => [candidate.username, candidate.realname]
+                    .filter(Boolean)
+                    .some(value => String(value).toLowerCase().includes(keyword)));
+            });
+
+            const closeHotelUserAuthorization = () => {
+                if (hotelUserAuthorizationSaving.value) return;
+                showHotelUserAuthorizationModal.value = false;
+                hotelUserAuthorizationTarget.value = null;
+                hotelUserAuthorizationUserIds.value = [];
+                hotelUserAuthorizationSearch.value = '';
+            };
+
             const openUserAuthorization = async (hotel = null) => {
                 if (!user.value?.is_super_admin) {
                     showToast('只有超级管理员可以分配门店授权', 'error');
                     return;
                 }
+                pendingUserAuthorizationHotel.value = null;
                 searchUser.value = '';
                 filterUserRoleId.value = '';
                 filterUserStatus.value = '';
                 filterUserHotelId.value = '';
-                pendingUserAuthorizationHotel.value = hotel?.id
-                    ? { id: String(hotel.id), name: hotel.name || getHotelNameById(hotel.id) || `门店 ${hotel.id}` }
-                    : null;
-                currentPage.value = 'users';
                 await Promise.allSettled([
                     loadUsers(),
                     roles.value.length ? Promise.resolve() : loadRoles(),
                     hotels.value.length ? Promise.resolve() : loadHotels(),
                 ]);
                 const betaRoleId = betaUserRoleIdForFilter();
-                filterUserRoleId.value = betaRoleId;
-                if (betaRoleId && pendingUserAuthorizationHotel.value) {
-                    showToast(`请选择已有内测用户编辑门店范围：${pendingUserAuthorizationHotel.value.name}`, 'info');
-                } else if (!betaRoleId) {
-                    showToast('未找到内测用户角色，请先检查角色配置', 'warning');
+                if (!hotel?.id) {
+                    currentPage.value = 'users';
+                    filterUserRoleId.value = betaRoleId;
+                    if (!betaRoleId) showToast('未找到内测用户角色，请先检查角色配置', 'warning');
+                    return;
+                }
+                hotelUserAuthorizationTarget.value = {
+                    id: String(hotel.id),
+                    name: hotel.name || getHotelNameById(hotel.id) || `门店 ${hotel.id}`,
+                };
+                hotelUserAuthorizationSearch.value = '';
+                hotelUserAuthorizationUserIds.value = hotelAuthorizationEligibleUsers.value
+                    .filter(candidate => userHotelIdsForForm(candidate).includes(String(hotel.id)))
+                    .map(candidate => String(candidate.id));
+                showHotelUserAuthorizationModal.value = true;
+                if (!betaRoleId || hotelAuthorizationEligibleUsers.value.length === 0) {
+                    showToast('未找到可分配的内测用户，请先创建内测账号', 'warning');
+                }
+            };
+
+            const saveHotelUserAuthorization = async () => {
+                const targetHotelId = String(hotelUserAuthorizationTarget.value?.id || '');
+                if (!targetHotelId || hotelUserAuthorizationSaving.value) return;
+                const selectedUserIdSet = new Set(hotelUserAuthorizationUserIds.value.map(String));
+                const changedUsers = hotelAuthorizationEligibleUsers.value.flatMap(candidate => {
+                    const currentHotelIds = userHotelIdsForForm(candidate);
+                    const currentlyAssigned = currentHotelIds.includes(targetHotelId);
+                    const shouldAssign = selectedUserIdSet.has(String(candidate.id));
+                    if (currentlyAssigned === shouldAssign) return [];
+                    const nextHotelIds = shouldAssign
+                        ? normalizeUserHotelIds([...currentHotelIds, targetHotelId])
+                        : currentHotelIds.filter(id => id !== targetHotelId);
+                    return [{ candidate, nextHotelIds }];
+                });
+                hotelUserAuthorizationSaving.value = true;
+                try {
+                    for (const { candidate, nextHotelIds } of changedUsers) {
+                        const res = await request(`/users/${candidate.id}`, {
+                            method: 'PUT',
+                            body: JSON.stringify({
+                                hotel_ids: nextHotelIds.map(Number),
+                                hotel_id: nextHotelIds[0] ? Number(nextHotelIds[0]) : null,
+                            }),
+                        });
+                        if (res.code !== 200) {
+                            throw new Error(res.message || res.msg || `保存用户 ${candidate.username} 失败`);
+                        }
+                    }
+                    await loadUsers();
+                    showHotelUserAuthorizationModal.value = false;
+                    hotelUserAuthorizationTarget.value = null;
+                    hotelUserAuthorizationUserIds.value = [];
+                    hotelUserAuthorizationSearch.value = '';
+                    showToast(changedUsers.length ? '门店用户分配已保存' : '门店用户分配无变化');
+                } catch (error) {
+                    showToast(error.message || '门店用户分配保存失败', 'error');
+                } finally {
+                    hotelUserAuthorizationSaving.value = false;
                 }
             };
 
@@ -16430,6 +16567,7 @@
             const sanitizePlatformAccountMessage = (value) => {
                 const text = firstNonEmptyText(value);
                 if (!text) return '';
+                if (/^collection[_\s-]?failed$/i.test(text)) return '采集任务执行失败，请查看采集日志';
                 return text
                     .replace(/cookies?/gi, '授权信息')
                     .replace(/cookie/gi, '授权信息')
@@ -16599,7 +16737,20 @@
                 mismatch: '门店不匹配',
             }[String(account.statusCode || '')] || account.statusText || '-');
 
+            const hotelPlatformBlockingIssueText = (account = {}) => {
+                const statusCode = String(account.statusCode || account.readinessCode || '');
+                const captureFailed = account.captureStatusCode === 'failed' || account.captureStatusText === '最近采集失败';
+                if (!['mismatch', 'login_expired', 'permission_denied'].includes(statusCode) && !captureFailed) return '';
+                if (account.blockingReasonText) return account.blockingReasonText;
+                if (statusCode === 'mismatch') return '平台门店与系统门店不一致，已阻止数据入库。';
+                if (['login_expired', 'permission_denied'].includes(statusCode)) return '平台登录或授权已失效，请重新授权后再采集。';
+                if (/最近采集失败|采集失败/.test(String(account.reasonText || ''))) return account.reasonText;
+                return '最近采集失败，请查看采集日志确认平台返回后重试。';
+            };
+
             const hotelPlatformIssueText = (account = {}) => {
+                const blockingIssue = hotelPlatformBlockingIssueText(account);
+                if (blockingIssue) return blockingIssue;
                 if (account.verificationReasonText) return account.verificationReasonText;
                 if (account.reasonText) return account.reasonText;
                 const label = account.label || '渠道';
@@ -16612,6 +16763,15 @@
                 if (account.level !== 'ready') return `${label}未达到可采集状态`;
                 return '';
             };
+
+            const hotelBlockingIssueRows = (hotel = {}) => hotelApplicablePlatformBindingRows(hotel)
+                .map(account => ({
+                    key: account.platform || account.label,
+                    label: account.label || 'OTA渠道',
+                    text: hotelPlatformBlockingIssueText(account),
+                    nextActionText: account.nextActionText || '查看详情',
+                }))
+                .filter(issue => issue.text);
 
             const hotelCompetitorIsReady = (hotel = {}) => ['ok', 'success'].includes(String(hotelCompetitorReadiness(hotel)?.status || ''));
 
@@ -16652,9 +16812,7 @@
                 if (normalizeHotelOtaStrategy(hotel?.ota_channel_strategy) === 'none') return 'inactive';
                 const rows = hotelApplicablePlatformBindingRows(hotel);
                 if (rows.length === 0) return 'todo';
-                const hasBlockingIssue = rows.some(row => {
-                    return ['mismatch', 'login_expired'].includes(row.statusCode) || row.captureStatusText === '最近采集失败';
-                });
+                const hasBlockingIssue = rows.some(row => !!hotelPlatformBlockingIssueText(row));
                 if (hasBlockingIssue) return 'error';
                 if (rows.some(row => row.level !== 'ready')) return 'todo';
                 return 'ready';
@@ -16662,7 +16820,7 @@
 
             const hotelAccountHealthText = (hotel = {}) => {
                 const key = hotelAccountHealthKey(hotel);
-                if (key === 'error') return '账号异常';
+                if (key === 'error') return '采集阻塞';
                 if (key === 'todo') return '账号待补齐';
                 if (key === 'ready') return '可采集';
                 if (key === 'inactive') return '停用';
@@ -16840,6 +16998,13 @@
             };
 
             const hotelPlatformCollectionReadyText = (account = {}) => {
+                const blockingIssue = hotelPlatformBlockingIssueText(account);
+                if (blockingIssue) {
+                    const statusCode = String(account.statusCode || account.readinessCode || '');
+                    if (statusCode === 'mismatch') return '门店不匹配';
+                    if (['login_expired', 'permission_denied'].includes(statusCode)) return '登录失效';
+                    return '采集失败';
+                }
                 if (account.level === 'ready' && account.profileReusable && account.storeIdentitySaved) return '可采集';
                 if (account.statusCode === 'missing_config') return '门店信息待补';
                 if (account.hasManualAssist) return '凭据待验证';
@@ -16847,9 +17012,12 @@
                 return '待配置';
             };
 
-            const hotelPlatformCollectionReadyClass = (account = {}) => account.level === 'ready' && account.profileReusable && account.storeIdentitySaved
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                : 'bg-amber-50 text-amber-700 border-amber-100';
+            const hotelPlatformCollectionReadyClass = (account = {}) => {
+                if (hotelPlatformBlockingIssueText(account)) return 'bg-red-50 text-red-700 border-red-200';
+                return account.level === 'ready' && account.profileReusable && account.storeIdentitySaved
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                    : 'bg-amber-50 text-amber-700 border-amber-100';
+            };
 
             const hotelAccountSummary = (hotel = {}) => {
                 const rows = hotelApplicablePlatformBindingRows(hotel);
@@ -17681,14 +17849,6 @@
             const manualOneClickFetchSummary = computed(() => {
                 return summarizeManualOneClickFetchRows(manualOneClickFetchRows.value);
             });
-            const manualOneClickFetchCards = computed(() => {
-                return buildManualOneClickFetchCards({
-                    ctripReadyCount: ctripTargetHotelOptions.value.length,
-                    meituanReadyCount: meituanTargetHotelOptions.value.length,
-                    summary: manualOneClickFetchSummary.value,
-                    lastRunAt: manualOneClickFetchLastRunAt.value,
-                });
-            });
             const manualOneClickFetchEmptyText = computed(() => {
                 return buildManualOneClickFetchEmptyText({
                     running: manualOneClickFetchRunning.value,
@@ -17697,7 +17857,28 @@
                     pendingCount: buildManualOneClickFetchTasks('all').length,
                 });
             });
-            const manualOneClickFetchSortedRows = computed(() => sortManualOneClickFetchRows(manualOneClickFetchRows.value));
+            const manualOneClickFetchCoverageRows = computed(() => buildManualOneClickFetchCoverageRowsFromStatic({
+                ctripHotels: ctripTargetHotelOptions.value,
+                meituanHotels: meituanTargetHotelOptions.value,
+                resultRows: manualOneClickFetchRows.value,
+                storedRows: manualOneClickFetchEvidenceRows.value,
+                targetDate: manualOneClickFetchTargetDate(),
+                activeRun: Boolean(manualOneClickFetchRunning.value),
+                getHotelNameById,
+            }));
+            const manualOneClickFetchCurrentSummary = computed(() => ({
+                ...summarizeManualOneClickFetchRows(manualOneClickFetchCoverageRows.value),
+                savedCount: manualOneClickFetchSummary.value.savedCount,
+            }));
+            const manualOneClickFetchCards = computed(() => {
+                return buildManualOneClickFetchCards({
+                    ctripReadyCount: ctripTargetHotelOptions.value.length,
+                    meituanReadyCount: meituanTargetHotelOptions.value.length,
+                    summary: manualOneClickFetchCurrentSummary.value,
+                    lastRunAt: manualOneClickFetchLastRunAt.value,
+                });
+            });
+            const manualOneClickFetchSortedRows = computed(() => sortManualOneClickFetchRows(manualOneClickFetchCoverageRows.value));
             const manualOneClickFetchFilterOptions = computed(() => [{
                 key: 'all',
                 label: '全部',
@@ -17710,6 +17891,10 @@
                 key: 'failed',
                 label: '需处理',
                 count: filterManualOneClickFetchDisplayRows(manualOneClickFetchSortedRows.value, { status: 'failed' }).length,
+            }, {
+                key: 'not_run',
+                label: '待补采',
+                count: filterManualOneClickFetchDisplayRows(manualOneClickFetchSortedRows.value, { status: 'not_run' }).length,
             }]);
             const manualOneClickFetchDisplayRows = computed(() => {
                 return filterManualOneClickFetchDisplayRows(manualOneClickFetchSortedRows.value, {
@@ -17717,8 +17902,11 @@
                 });
             });
             const manualOneClickFetchFilteredEmptyText = computed(() => {
-                if (manualOneClickFetchRows.value.length && manualOneClickFetchStatusFilter.value !== 'all') {
-                    return `当前没有${manualOneClickFetchStatusFilter.value === 'success' ? '完整或已入库' : '需处理'}记录，可切换“全部”查看其他状态。`;
+                if (manualOneClickFetchCoverageRows.value.length && manualOneClickFetchStatusFilter.value !== 'all') {
+                    const label = manualOneClickFetchStatusFilter.value === 'success'
+                        ? '目标日已入库'
+                        : (manualOneClickFetchStatusFilter.value === 'failed' ? '需处理' : '待补采');
+                    return `当前没有${label}记录，可切换“全部”查看其他状态。`;
                 }
                 return manualOneClickFetchEmptyText.value;
             });
@@ -18148,8 +18336,11 @@
             };
             const refreshManualOneClickFetchConfig = async () => {
                 if (manualOneClickFetchRunning.value) return;
-                await ensureHotelOtaConfigLists({ force: true });
-                showToast('配置状态与最近成功记录已刷新', 'success');
+                const [, evidenceReady] = await Promise.all([
+                    ensureHotelOtaConfigLists({ force: true }),
+                    loadManualOneClickFetchEvidence(),
+                ]);
+                showToast(evidenceReady ? '配置与目标日入库状态已刷新' : '配置已刷新，目标日入库状态读取失败', evidenceReady ? 'success' : 'warning');
             };
             const scrollDataHealthSectionIntoView = async (selector) => {
                 currentPage.value = 'online-data';
@@ -20197,6 +20388,12 @@
                     .find(value => value && value !== internalId) || '';
             };
             const otaConfigOverviewExpanded = ref({ ctrip: false, meituan: false });
+            const otaConfigOverviewFilters = ref({
+                search: '',
+                platform: 'all',
+                status: 'all',
+                sort: 'attention',
+            });
             const otaDirectCtripConfigRows = computed(() => buildOtaConfigOverviewRows({
                 platform: 'ctrip',
                 configs: ctripConfigList.value,
@@ -20208,19 +20405,53 @@
                 hotelNameResolver: platformConfigHotelName,
                 missingFieldsResolver: meituanConfigMissingFields,
             }));
-            const otaConfigOverviewGroups = computed(() => [{
-                platform: 'ctrip',
-                title: '携程配置',
-                description: 'Cookie/API 辅助配置与真实入库证据',
-                rows: otaDirectCtripConfigRows.value,
-                summary: summarizeOtaConfigOverviewRows(otaDirectCtripConfigRows.value),
-            }, {
-                platform: 'meituan',
-                title: '美团配置',
-                description: 'partner / poi / 授权配置与真实入库证据',
-                rows: otaDirectMeituanConfigRows.value,
-                summary: summarizeOtaConfigOverviewRows(otaDirectMeituanConfigRows.value),
-            }]);
+            const otaConfigOverviewTotalCount = computed(() => (
+                otaDirectCtripConfigRows.value.length + otaDirectMeituanConfigRows.value.length
+            ));
+            const otaConfigOverviewGroups = computed(() => {
+                const filters = otaConfigOverviewFilters.value || {};
+                const platform = ['ctrip', 'meituan'].includes(String(filters.platform || ''))
+                    ? String(filters.platform)
+                    : 'all';
+                return [{
+                    platform: 'ctrip',
+                    title: '携程配置',
+                    description: 'Cookie/API 辅助配置与真实入库证据',
+                    allRows: otaDirectCtripConfigRows.value,
+                }, {
+                    platform: 'meituan',
+                    title: '美团配置',
+                    description: 'partner / poi / 授权配置与真实入库证据',
+                    allRows: otaDirectMeituanConfigRows.value,
+                }]
+                    .filter(group => platform === 'all' || group.platform === platform)
+                    .map(group => ({
+                        ...group,
+                        rows: filterAndSortOtaConfigOverviewRows(group.allRows, filters),
+                        summary: summarizeOtaConfigOverviewRows(group.allRows),
+                        totalCount: group.allRows.length,
+                    }));
+            });
+            const otaConfigOverviewFilteredCount = computed(() => otaConfigOverviewGroups.value.reduce(
+                (total, group) => total + (Array.isArray(group?.rows) ? group.rows.length : 0),
+                0,
+            ));
+            const otaConfigOverviewHasFilters = computed(() => {
+                const filters = otaConfigOverviewFilters.value || {};
+                return Boolean(String(filters.search || '').trim())
+                    || String(filters.platform || 'all') !== 'all'
+                    || String(filters.status || 'all') !== 'all'
+                    || String(filters.sort || 'attention') !== 'attention';
+            });
+            const resetOtaConfigOverviewFilters = () => {
+                otaConfigOverviewFilters.value = {
+                    search: '',
+                    platform: 'all',
+                    status: 'all',
+                    sort: 'attention',
+                };
+                otaConfigOverviewExpanded.value = { ctrip: false, meituan: false };
+            };
             const otaConfigOverviewVisibleRows = (group = {}) => {
                 const rows = Array.isArray(group?.rows) ? group.rows : [];
                 return otaConfigOverviewExpanded.value[group?.platform] ? rows : rows.slice(0, 4);
@@ -20233,14 +20464,14 @@
                 };
             };
             const manageOtaConfigOverview = async (platform = 'ctrip') => {
-                if (!canManageOwnHotels()) {
+                if (!canMaintainOtaConfig()) {
                     showToast('当前账号没有平台配置维护权限', 'warning');
                     return;
                 }
                 await handleOtaDirectIssueAction({}, platform === 'meituan' ? 'meituan-config' : 'ctrip-config');
             };
             const editOtaConfigOverviewRow = async (row = {}) => {
-                if (!canManageOwnHotels()) {
+                if (!canMaintainOtaConfig()) {
                     showToast('当前账号没有平台配置维护权限', 'warning');
                     return;
                 }
@@ -20251,11 +20482,16 @@
                     return;
                 }
                 await ensureHotelOtaConfigLists({ force: true });
+                const configId = String(row?.configId || '').trim();
                 const hotel = platformTargetHotelPool.value.find(item => String(item?.id || '') === hotelId)
                     || hotels.value.find(item => String(item?.id || '') === hotelId)
                     || { id: hotelId, name: row?.hotelName || `门店 ${hotelId}` };
                 if (platform === 'meituan') {
-                    const config = findMeituanConfigByHotelId(hotelId);
+                    const config = meituanConfigList.value.find(item => (
+                        configId
+                        && String(item?.id || item?.config_id || '') === configId
+                        && String(item?.hotel_id || item?.system_hotel_id || '') === hotelId
+                    )) || findMeituanConfigByHotelId(hotelId);
                     if (config) {
                         await editMeituanConfig(config);
                         currentPage.value = 'meituan-ebooking';
@@ -20267,7 +20503,11 @@
                     await openHotelManualFetchConfig(hotel, platform);
                     return;
                 }
-                const config = findCtripConfigByHotelId(hotelId);
+                const config = ctripConfigList.value.find(item => (
+                    configId
+                    && String(item?.id || item?.config_id || '') === configId
+                    && String(item?.hotel_id || item?.system_hotel_id || '') === hotelId
+                )) || findCtripConfigByHotelId(hotelId);
                 if (config) {
                     await editCtripConfig(config);
                     selectedCtripHotelId.value = hotelId;
@@ -24025,7 +24265,8 @@
             const runMeituanBrowserCaptureForSections = async (sections = [], options = {}) => {
                 const runSectionsState = buildMeituanBrowserCaptureRunSectionsState(sections);
                 meituanBrowserCaptureForm.value.captureSections = runSectionsState.captureSections;
-                await runMeituanBrowserCapture(options);
+                const result = await runMeituanBrowserCapture(options);
+                return result;
             };
 
             const runMeituanBrowserCapturePreset = async (preset = {}) => {
@@ -24104,6 +24345,91 @@
                 refreshPlatformProfileStatus: schedulePlatformProfileStatusRefresh,
                 refreshPlatformDataSources: schedulePlatformDataSourcesRefresh,
             });
+
+            const loadMeituanOrderFlowData = async () => {
+                const systemHotelId = String(meituanForm.value.hotelId || user.value?.hotel_id || '').trim();
+                if (!systemHotelId) {
+                    meituanOrderFlowRows.value = [];
+                    meituanOrderFlowError.value = '';
+                    return [];
+                }
+                const range = resolveMeituanOrderFlowDateRange(meituanOrderFlowPeriod.value);
+                const params = new URLSearchParams({
+                    source: 'meituan',
+                    data_type: 'order_flow',
+                    system_hotel_id: systemHotelId,
+                    start_date: range.endDate,
+                    end_date: range.endDate,
+                    page_size: '200',
+                });
+                meituanOrderFlowLoading.value = true;
+                meituanOrderFlowError.value = '';
+                try {
+                    const response = await request(`/online-data/daily-data-list?${params.toString()}`);
+                    if (response.code !== 200) {
+                        throw new Error(response.message || '订单流向数据读取失败');
+                    }
+                    meituanOrderFlowRows.value = Array.isArray(response.data?.list) ? response.data.list : [];
+                    return meituanOrderFlowRows.value;
+                } catch (error) {
+                    meituanOrderFlowRows.value = [];
+                    meituanOrderFlowError.value = error?.message || '订单流向数据读取失败';
+                    return [];
+                } finally {
+                    meituanOrderFlowLoading.value = false;
+                }
+            };
+
+            const selectMeituanOrderFlowPeriod = async (period) => {
+                if (!meituanOrderFlowPeriods.some(item => item.key === period)) return;
+                meituanOrderFlowPeriod.value = period;
+                return loadMeituanOrderFlowData();
+            };
+
+            const refreshMeituanOrderFlowData = async () => {
+                const systemHotelId = String(meituanForm.value.hotelId || '').trim();
+                if (!systemHotelId) {
+                    showToast('请先选择目标酒店', 'warning');
+                    return;
+                }
+                meituanOrderFlowError.value = '';
+                meituanOrderFlowFetching.value = true;
+                try {
+                    await loadMeituanConfigList({ cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS });
+                    const config = selectedMeituanHotelConfig.value;
+                    const configId = isMeituanExecutionConfigReady(config)
+                        ? resolveMeituanExecutionConfigId(config)
+                        : '';
+                    if (!configId) {
+                        throw new Error('当前酒店未配置可用的美团 Cookie/API 数据源');
+                    }
+                    const range = resolveMeituanOrderFlowDateRange(meituanOrderFlowPeriod.value);
+                    const response = await request('/online-data/fetch-meituan-order-flow', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            config_id: configId,
+                            system_hotel_id: systemHotelId,
+                            start_date: range.startDate,
+                            end_date: range.endDate,
+                            period: meituanOrderFlowPeriod.value,
+                            auto_save: true,
+                        }),
+                    });
+                    if (response.code !== 200) {
+                        throw new Error(response.message || '订单流向获取失败');
+                    }
+                    await loadMeituanOrderFlowData();
+                    const partial = response.data?.status === 'partial';
+                    showToast(partial ? '订单流向已部分更新' : '订单流向已更新', partial ? 'warning' : 'success');
+                    return response.data;
+                } catch (error) {
+                    meituanOrderFlowError.value = error?.message || '订单流向获取失败，请更新美团 Cookie 后重试';
+                    showToast(meituanOrderFlowError.value, 'error');
+                    return null;
+                } finally {
+                    meituanOrderFlowFetching.value = false;
+                }
+            };
 
             const runMeituanBrowserProfileLoginOnly = async () => {
                 await loadMeituanConfigList({ cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS });
@@ -26137,6 +26463,7 @@
                             lastUserIssueGuideText.value = nextIssueGuideText;
                             showLastUserIssueGuideText.value = false;
                         }
+                        pendingUserAuthorizationHotel.value = null;
                         showUserModal.value = false;
                         await loadUsers();
                     } else {
@@ -28225,7 +28552,7 @@
                 homeCompetitorReadiness, homeCompetitorPlatformTagText, homeCompetitorPlatformTagClass, competitorSummaryReadinessClass,
                 lifecycleLoading, lifecycleOverview, lifecycleMetricLabel, lifecycleStageTitle, lifecycleStageStatusClass, loadLifecycleOverview,
                 investmentDecisionLoading, investmentDecisionOverview, investmentDecisionSummaryCards, investmentDecisionBusinessChainRows, investmentDecisionActionQueueRows, investmentDecisionSectionRows, investmentDecisionRiskRows, investmentDecisionRecordRows, investmentDecisionFormulaRows, investmentDecisionStatusText, investmentDecisionStatusClass, investmentDecisionSeverityText, investmentDecisionSeverityClass, investmentDecisionPriorityClass, investmentDecisionSourceLabel, loadInvestmentDecisionOverview,
-                isLoggedIn, loading, loginError, registerMode, registerLoading, registerError, registerSuccess, registerForm, user, token, userHasPermission, canManageOwnHotels, currentLocale, languageOptions, switchLocale, currentTime, currentPage, showPassword,
+                isLoggedIn, loading, loginError, registerMode, registerLoading, registerError, registerSuccess, registerForm, user, token, userHasPermission, canManageOwnHotels, canMaintainOtaConfig, currentLocale, languageOptions, switchLocale, currentTime, currentPage, showPassword,
                 directorEntryVisible, directorEntryAnswer, directorEntryError,
                 loginForm, rememberAccount, menuItems, visibleMenuItems, pageTitle, toast, handleMenuClick,
                 globalNotificationOpen, globalNotificationLoading, globalNotificationVisibleItems, globalNotificationUnreadCount,
@@ -28236,6 +28563,8 @@
                 revenueResearchForecastCards, revenueForecastReadinessClass, revenueCompetitorReadinessClass, revenueCompetitorGapText, runRevenueResearchProduct, openRevenueResearchModule,
                 menuTestId, pageTestId,
                 expandedMenus, toggleSubmenu, handleParentMenuClick,
+                showHotelUserAuthorizationModal, hotelUserAuthorizationTarget, hotelUserAuthorizationUserIds, hotelUserAuthorizationSearch, hotelUserAuthorizationSaving, filteredHotelAuthorizationUsers,
+                hotelPlatformBlockingIssueText, hotelBlockingIssueRows,
                 hotels, permittedHotels, hotelColumns, userColumns, users, roles, userSummary, applyUserSummaryFilter, userSummaryCardClass, pendingUserAuthorizationHotel, roleIssueGuideCards, roleIssueProfile, rolePermissionTags, rolePermissionList, roleIssueActionText, userRoleBadgeClass, userRoleBoundaryText, userIssueStatus, selectedUserRoleGuide, canEditUserUsername, allUserHotelIds, userAssignedHotelCount, areAllUserHotelsSelected, userIssueChecklistRows, userIssueBlockingReasons, copyUserIssueGuide, isExternalIssueUser, existingUserIssueGuideBlocker, copyUserIssueGuideForUser, copyUserBasicLoginInfo, lastUserIssueGuideText, showLastUserIssueGuideText, copyLastUserIssueGuide, clearLastUserIssueGuide, toggleAllUserHotels, filteredUserAssignmentHotels, userHotelAssignmentSearch, userHotelAssignmentSelectedOnly, selectedUserIds, userBatchStatusLoading, toggleAllFilteredUsers, batchUpdateUserStatus, getHotelNameById, hotelConfigTargetText, hotelSelectOptionText, normalizeHotelOtaStrategy, hotelOtaStrategyText, hotelOtaStrategyClass, hotelOtaStrategyButtonClass, hotelFormChannelSelected, toggleHotelFormChannel, hotelPlatformApplicable, hotelInactivePlatformText, hotelApplicablePlatformBindingRows, hotelVerifiedOtaState, hotelOtaStatusBadges, userHotelScopeText, userHotelScopeSummary, userDisplaySequence, userLastLoginText, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelOwnerText, hotelCreatedDateText, hotelPlatformRow, hotelPlatformBindingText, hotelPlatformLoginText, hotelPlatformIssueText, hotelIssueRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelPlatformReadyPillClass, hotelPlatformManualCookieReady, hotelPlatformManualCookieText, hotelPlatformFetchConfigReady, hotelPlatformFetchConfigText, hotelPlatformAutomationReady, hotelPlatformAutomationText, hotelPlatformCollectionReadyText, hotelPlatformCollectionReadyClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanelLight, refreshHotelBindingPanel, applyHotelQuickFilter, selectedHotelIds, hotelBatchStatusLoading, expandedHotelIds, isHotelDetailsExpanded, toggleHotelDetails, toggleAllFilteredHotels, batchUpdateHotelStatus, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformCardLogin, openHotelPlatformAccountAction, openHotelSyncLogs, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatHotelCode, formatConfigDate, secretPreview,
                 searchHotel, filterHotelStatus, filterHotelAccountHealth, searchUser, filterUserRoleId, filterUserStatus, filterUserHotelId,
                 filterReportHotel,
@@ -28272,7 +28601,7 @@
                 permissionUser, userPermissions,
                 handleLogin, handleRegister, openRegisterForm, closeRegisterForm, handleLogout, forgotPassword, openDirectorEntry, closeDirectorEntry, verifyDirectorEntry, showToast,
                 openHotelModal, openHotelManagementForOta, saveHotel, openHotelDeleteModal, closeHotelDeleteModal, confirmDeleteHotel, deactivateHotelDeleteTarget, deleteHotel, hotelDeleteIdentityText, openHotelMergeModal, closeHotelMergeModal, invalidateHotelMergePreview, previewHotelMerge, executeHotelMerge, toggleHotelStatus,
-                openUserModal, openUserAuthorization, openUserModalWithRole, applyUserIssueRole, applyUserRoleQuickFilter, resetUserFilters, saveUser, approveUser, deactivateUser, openUserLoginInfoModal, closeUserLoginInfoModal, confirmUserLoginInfoReset, copyLastUserIssueGuide, clearLastUserIssueGuide, closeUserStatusConfirm, confirmUserStatusChange, deleteUser, closeUserDeleteModal, confirmDeleteUser,
+                openUserModal, openUserAuthorization, closeHotelUserAuthorization, saveHotelUserAuthorization, openUserModalWithRole, applyUserIssueRole, applyUserRoleQuickFilter, resetUserFilters, saveUser, approveUser, deactivateUser, openUserLoginInfoModal, closeUserLoginInfoModal, confirmUserLoginInfoReset, copyLastUserIssueGuide, clearLastUserIssueGuide, closeUserStatusConfirm, confirmUserStatusChange, deleteUser, closeUserDeleteModal, confirmDeleteUser,
                 rolesList, allPermissions, showRoleModal, roleForm, openRoleModal, saveRole, deleteRole, togglePermission,
                 openPermissionModal, hasHotelPermission, getPermissionData, toggleHotelPermission, savePermissions,
                 openSystemConfigModal, saveSystemConfig, getMenuItemName,
@@ -28301,7 +28630,7 @@
                 onlineDataFilter, onlineDataList, onlineDataPagination, onlineDataPage, onlineDataHotelList, onlineDataSummary,
                 onlineDataQualitySummary, onlineDataQualityStatusText, onlineDataQualityStatusClass, onlineDataQualityPromptList, onlineDataQualityScopeText, autoFetchRecordStatusClass,
                 collectionReliability, collectionReliabilityLoading, collectionReliabilityError,
-                dailyWorkbench, dailyWorkbenchLoading, dailyWorkbenchError, dailyWorkbenchPatrol, dailyWorkbenchPatrolLoading, dailyWorkbenchPatrolRunning, dailyWorkbenchPatrolActionUpdating, dailyWorkbenchPatrolError, phase3OperationEffectLoop, phase3OperationEffectLoopLedger, phase3OperationEffectLoopLoading, phase3OperationEffectLoopError, phase3OperationEffectLoopActionUpdating, phase3OperationEffectLoopSummary, phase3OperationEffectLoopCards, phase3OperationEffectLoopRows, phase3OperationEffectLoopBoundaryText, phase3OperationEffectLoopLedgerText, phase3OperationEffectLoopEmptyText, phase3OperationEffectLoopStatusText, phase3OperationEffectLoopStatusClass, phase3OperationEffectLoopActionKey, dailyWorkbenchWriteBoundary, dailyWorkbenchSummary, dailyWorkbenchScopeText, dailyWorkbenchSummaryCards, dailyWorkbenchRows, employeeOtaChecklistScopeText, employeeOtaChecklistCards, employeeOtaChecklistHeadline, employeeOtaChecklistRows, employeeOtaChecklistEmptyText, employeeOtaChecklistActionRunning, runEmployeeOtaChecklistAction, dataAcquisitionWorkbenchRows, dataAcquisitionIssueGroups, dataAcquisitionWorkbenchCards, dataAcquisitionWorkbenchScopeText, dataAcquisitionWorkbenchHeadline, dataAcquisitionWorkbenchEmptyText, dataAcquisitionPrimaryFetchHotelId, dataAcquisitionFetchableHotelIds, otaConfigOverviewGroups, otaConfigOverviewExpanded, otaConfigOverviewVisibleRows, toggleOtaConfigOverview, manageOtaConfigOverview, editOtaConfigOverviewRow, otaDirectViewCards, otaDirectIssueRows, handleOtaDirectIssueAction, manualOneClickFetchRunning, manualOneClickFetchRows, manualOneClickFetchDisplayRows, manualOneClickFetchCards, manualOneClickFetchScopeText, manualOneClickFetchEvidenceError, manualOneClickFetchStatusFilter, manualOneClickFetchFilterOptions, manualOneClickFetchFilteredEmptyText, manualOneClickFetchEmptyText, manualOneClickFetchStatusClass, canEditManualOneClickFetchRow, canRetryManualOneClickFetchRow, canDeleteManualOneClickFetchRow, canSupplementManualOneClickFetchRow, editManualOneClickFetchFailure, retryManualOneClickFetchFailure, deleteManualOneClickFetchConfig, supplementManualOneClickFetchConfig, runManualOneClickFetch, refreshManualOneClickFetchConfig, dailyWorkbenchNextActions, dailyWorkbenchPatrolVisibleActions, dailyWorkbenchEmptyText, dailyWorkbenchStatusText, dailyWorkbenchStatusClass, dailyWorkbenchPatrolLatest, dailyWorkbenchPatrolHealth, dailyWorkbenchPatrolHealthText, dailyWorkbenchPatrolHealthClass, dailyWorkbenchPatrolAutomationText, dailyWorkbenchPatrolAutomationClass, dailyWorkbenchPatrolNextActionText, dailyWorkbenchPatrolLatestText, dailyWorkbenchPatrolLatestRawText, dailyWorkbenchPatrolActionText, dailyWorkbenchPatrolBoundaryText, dailyWorkbenchPatrolTrackedStatusText, dailyWorkbenchPatrolTrackedStatusClass, dailyWorkbenchPatrolExecutionText, dailyWorkbenchPatrolTaskId, dailyWorkbenchPatrolReviewText, dailyWorkbenchPatrolReviewClass, dailyWorkbenchPatrolActionUpdatingKey, dailyWorkbenchPatrolReviewUpdatingKey,
+                dailyWorkbench, dailyWorkbenchLoading, dailyWorkbenchError, dailyWorkbenchPatrol, dailyWorkbenchPatrolLoading, dailyWorkbenchPatrolRunning, dailyWorkbenchPatrolActionUpdating, dailyWorkbenchPatrolError, phase3OperationEffectLoop, phase3OperationEffectLoopLedger, phase3OperationEffectLoopLoading, phase3OperationEffectLoopError, phase3OperationEffectLoopActionUpdating, phase3OperationEffectLoopSummary, phase3OperationEffectLoopCards, phase3OperationEffectLoopRows, phase3OperationEffectLoopBoundaryText, phase3OperationEffectLoopLedgerText, phase3OperationEffectLoopEmptyText, phase3OperationEffectLoopStatusText, phase3OperationEffectLoopStatusClass, phase3OperationEffectLoopActionKey, dailyWorkbenchWriteBoundary, dailyWorkbenchSummary, dailyWorkbenchScopeText, dailyWorkbenchSummaryCards, dailyWorkbenchRows, employeeOtaChecklistScopeText, employeeOtaChecklistCards, employeeOtaChecklistHeadline, employeeOtaChecklistRows, employeeOtaChecklistEmptyText, employeeOtaChecklistActionRunning, runEmployeeOtaChecklistAction, dataAcquisitionWorkbenchRows, dataAcquisitionIssueGroups, dataAcquisitionWorkbenchCards, dataAcquisitionWorkbenchScopeText, dataAcquisitionWorkbenchHeadline, dataAcquisitionWorkbenchEmptyText, dataAcquisitionPrimaryFetchHotelId, dataAcquisitionFetchableHotelIds, otaConfigOverviewGroups, otaConfigOverviewExpanded, otaConfigOverviewFilters, otaConfigOverviewTotalCount, otaConfigOverviewFilteredCount, otaConfigOverviewHasFilters, resetOtaConfigOverviewFilters, otaConfigOverviewVisibleRows, toggleOtaConfigOverview, manageOtaConfigOverview, editOtaConfigOverviewRow, otaDirectViewCards, otaDirectIssueRows, handleOtaDirectIssueAction, manualOneClickFetchRunning, manualOneClickFetchRows, manualOneClickFetchDisplayRows, manualOneClickFetchCards, manualOneClickFetchScopeText, manualOneClickFetchEvidenceError, manualOneClickFetchStatusFilter, manualOneClickFetchFilterOptions, manualOneClickFetchFilteredEmptyText, manualOneClickFetchEmptyText, manualOneClickFetchStatusClass, canEditManualOneClickFetchRow, canRetryManualOneClickFetchRow, canDeleteManualOneClickFetchRow, canSupplementManualOneClickFetchRow, editManualOneClickFetchFailure, retryManualOneClickFetchFailure, deleteManualOneClickFetchConfig, supplementManualOneClickFetchConfig, runManualOneClickFetch, refreshManualOneClickFetchConfig, dailyWorkbenchNextActions, dailyWorkbenchPatrolVisibleActions, dailyWorkbenchEmptyText, dailyWorkbenchStatusText, dailyWorkbenchStatusClass, dailyWorkbenchPatrolLatest, dailyWorkbenchPatrolHealth, dailyWorkbenchPatrolHealthText, dailyWorkbenchPatrolHealthClass, dailyWorkbenchPatrolAutomationText, dailyWorkbenchPatrolAutomationClass, dailyWorkbenchPatrolNextActionText, dailyWorkbenchPatrolLatestText, dailyWorkbenchPatrolLatestRawText, dailyWorkbenchPatrolActionText, dailyWorkbenchPatrolBoundaryText, dailyWorkbenchPatrolTrackedStatusText, dailyWorkbenchPatrolTrackedStatusClass, dailyWorkbenchPatrolExecutionText, dailyWorkbenchPatrolTaskId, dailyWorkbenchPatrolReviewText, dailyWorkbenchPatrolReviewClass, dailyWorkbenchPatrolActionUpdatingKey, dailyWorkbenchPatrolReviewUpdatingKey,
                 dashboardAccountOverview, dashboardHotelPortrait, dashboardDataSources, hotelDashboardLoading, hotelDashboardError, dataHealthFullDiagnosticsLoaded, dataHealthSecondaryPanelsReady, dataHealthDetailPanelsReady, dataHealthEmployeePanelsReady, ctripEbookingModuleCardsReady, ctripEbookingSecondaryPanelsReady, ctripEbookingDeepPanelsReady, ctripEbookingBusinessDetailsReady, ctripEbookingDiagnosticsPanelsReady, handleCtripEbookingDiagnosticsToggle, dashboardHotelId,
                 dashboardStateText, dashboardStateClass, dashboardMetricText, dashboardEvidenceText, dashboardHotelOptions,
                 dashboardAccountSummaryCards, dashboardCoreKpis, dashboardRiskAlerts, dashboardTodayActions, dashboardPortraitSections, dashboardDataSourceDiagnostics,
@@ -28337,7 +28666,7 @@
                 autoFetchScheduleTime, autoFetchScheduleMinute, autoFetchRealtimeIntervalHours, autoFetchBrowserHeadless, autoFetchCtripSectionConcurrency, saveFetchSchedule, autoFetchHotelId, autoFetchMode, autoFetchModeOptions, autoFetchModeLabel, autoFetchRunState, autoFetchRunElapsedSeconds, formatAutoFetchElapsed, autoFetchRunningHint, loadAutoFetchPanel, schedulePlatformAutoFetchPanelLoad, openPlatformAutoTab, openOnlinePlatformAutoTab, platformAutoSettingsPanelsReady, platformAutoSettingsPanelsBody, platformAutoSecondaryPanelsReady, platformAutoSecondaryPanelsBody,
                 autoFetchCollectionBlueprintRows, autoFetchPlatformCards, autoFetchPlatformProgressRows, autoFetchPlatformResultRows, autoFetchTimingRows, autoFetchCtripExecutionText, autoFetchResultStatusText, autoFetchResultStatusClass, autoFetchResultMessage, autoFetchModuleLabel, formatAutoFetchMs,
                 autoFetchBackfillDate, autoFetchBackfillingDate, autoFetchMaxBackfillDate, autoFetchLegacyItems, autoFetchRecentRuns, retryAutoFetchDate,
-                loadOnlineDataList, loadOnlineDataHotelList, triggerAutoFetch, refreshOnlineData, changeOnlineDataPage, openAutoFetchRecordAnalysis, viewOnlineDataDetail, switchDownloadTab, switchToDownloadCenter, switchToMeituanDownloadCenter, meituanDownloadData,
+                loadOnlineDataList, loadOnlineDataHotelList, triggerAutoFetch, refreshOnlineData, changeOnlineDataPage, openAutoFetchRecordAnalysis, viewOnlineDataDetail, switchDownloadTab, switchToDownloadCenter, switchToMeituanDownloadCenter, openMeituanStoredDataTab, meituanDownloadData,
                 getMeituanExposureMetric, getMeituanClickMetric, getMeituanVisitorMetric, getMeituanSubmitMetric, getMeituanFlowRateMetric, isMeituanTrafficDataRow, isMeituanOrderDataRow, isMeituanAdsDataRow,
                 editOnlineDataItem, deleteOnlineDataItem, showOnlineDataEditModal, onlineDataEditForm, saveOnlineDataEdit,
                 toNumber, toFixedSafe, safeDivide, formatNumber, calculateHhi, revenueConcentration, visitConcentration, autoFetchEnabled, autoFetchStatus, toggleAutoFetch, loadAutoFetchStatus,
@@ -28352,9 +28681,10 @@
                 loadCtripConfigList, openCtripManualTab, loadLatestCtripData, saveCtripConfig, useCtripConfig, editCtripConfig, toggleSelectAllCtripConfig, isAllCtripConfigSelected, deleteCtripConfig, openCtripCookieCreateFromHealth, openCtripCookieEditorFromHealth, editCtripCookieFromHealth, saveCtripCookieFromHealth, closeCtripCookieEditor, deleteCtripCookieFromHealth, batchDeleteCtripConfigs, generateCtripBookmarklet, openTargetSite, applyCtripConfig, applyCtripHotelConfig, scheduleCtripHotelConfigApply, openCtripOverviewFetchTab, prepareCtripOverviewFetchAction, runCtripOverviewFetchAction, runCtripOverviewCoreFetchAction, refreshCtripHotelConfigOptions, goConfigureCtripForSelectedHotel,
                 // 美团配置管理
                 meituanConfigForm, meituanConfigSaving, meituanConfigList, meituanTargetHotelOptions, meituanConfigListLoading, meituanConfigListLoaded, meituanConfigListLoadFailed, meituanBookmarklet, selectedMeituanHotelConfig, selectedMeituanManualCredentialState, canFetchMeituanRankingData,
-                meituanHotelsList, meituanBusinessSummaryCards, meituanRankInsightCards, meituanVisibleRankInsightCards, meituanRankHealthRows, meituanTopSummaryRows, meituanRankSourceNotice, meituanPlatformTagEvidenceText, meituanPlatformTagEvidenceClass, pagedMeituanHotelsList, meituanTablePagination, meituanTableRankOffset, meituanTablePage, changeMeituanTablePage, meituanFetchSuccess, meituanFetchInProgress, meituanFetchBackgroundAccepted, meituanFetchPartial, meituanFetchHasErrors, meituanFetchButtonText, isMeituanPendingResult, isMeituanBackgroundResult, meituanSavedCount, meituanDataFetchTime,
+                meituanOrderFlowPeriods, meituanOrderFlowPeriod, meituanOrderFlowDirection, meituanOrderFlowRows, meituanOrderFlowLoading, meituanOrderFlowFetching, meituanOrderFlowError, meituanOrderFlowDateRange, meituanOrderFlowView, meituanOrderFlowActive, loadMeituanOrderFlowData, selectMeituanOrderFlowPeriod, refreshMeituanOrderFlowData,
+                meituanHotelsList, meituanBusinessSummaryCards, meituanRankInsightCards, meituanVisibleRankInsightCards, meituanRankHealthRows, meituanTopSummaryRows, meituanRankSourceNotice, meituanPlatformTagEvidenceText, meituanPlatformTagEvidenceClass, pagedMeituanHotelsList, meituanTablePagination, meituanTableRankOffset, meituanTablePage, changeMeituanTablePage, meituanFetchSuccess, meituanFetchInProgress, meituanFetchBackgroundAccepted, meituanFetchPartial, meituanFetchHasErrors, meituanFetchButtonText, showMeituanPreviousDayUpdateNotice, isMeituanPendingResult, isMeituanBackgroundResult, meituanSavedCount, meituanDataFetchTime,
                 meituanSortField, meituanSortOrder, sortMeituanTable,
-                loadMeituanConfigList, openMeituanManualTab, saveMeituanConfigItem, useMeituanConfig, editMeituanConfig, deleteMeituanConfigItem, generateMeituanBookmarklet, applyMeituanHotelConfig, resetMeituanRankingFetchState, goConfigureMeituanForSelectedHotel,
+                loadMeituanConfigList, openMeituanManualTab, saveMeituanConfigItem, useMeituanConfig, editMeituanConfig, deleteMeituanConfigItem, generateMeituanBookmarklet, applyMeituanHotelConfig, resetMeituanRankingFetchState, selectMeituanRankingDateRange, goConfigureMeituanForSelectedHotel,
                 // AI智能分析（携程）
                 aiSelectedHotels, aiAnalysisHotelList, aiAnalyzing, aiAnalysisResult, aiAnalysisHistory,
                 aiAnalysisModelKey, aiAnalysisBatchResults, aiAnalysisCapturedReport, aiAnalysisCapturedError, aiAnalysisProcess, aiAnalysisGroupDetailsOpen, aiAnalysisProgress,

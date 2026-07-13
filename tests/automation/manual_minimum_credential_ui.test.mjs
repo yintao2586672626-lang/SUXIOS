@@ -624,7 +624,7 @@ test('Meituan daily fetch keeps the advanced Profile panel out of the ranking pa
   assert.doesNotMatch(meituanManualHeader, /meituanBrowserCaptureForm/);
   assert.match(meituanManualHeader, /@click="openHotelManagementForOta"/);
   assert.match(rankingPanel, /selectedMeituanManualCredentialState/);
-  assert.match(rankingPanel, /\u9152\u5e97\u7ba1\u7406/);
+  assert.match(rankingPanel, /goConfigureMeituanForSelectedHotel/);
 });
 
 test('Meituan ranking uses selected hotel config without exposing temporary fields', () => {
@@ -645,17 +645,34 @@ test('Meituan ranking uses selected hotel config without exposing temporary fiel
 
   assert.match(rankingPanel, /v-model="meituanForm\.hotelId"/);
   assert.match(rankingPanel, /请选择目标酒店/);
-  assert.match(rankingPanel, /默认建议只取昨日/);
-  assert.match(rankingPanel, /历史自定义/);
-  assert.match(rankingPanel, /px-4 py-3 text-base/);
-  assert.match(rankingPanel, /style="width: 20px; height: 20px;"/);
-  assert.match(rankingPanel, /bg-cyan-50 border border-cyan-200/);
+  assert.match(rankingPanel, /meituan-hotel-picker/);
+  assert.match(rankingPanel, /id="meituan-ranking-hotel"/);
+  assert.match(rankingPanel, /仅显示已绑定美团账号的酒店/);
+  assert.doesNotMatch(rankingPanel, /选择酒店和时间后更新竞争圈/);
+  assert.match(rankingPanel, /每次获取一个周期，默认昨日/);
+  assert.match(rankingPanel, /selectMeituanRankingDateRange\('custom'\)/);
+  assert.match(rankingPanel, /px-4 py-2\.5 text-sm/);
+  assert.doesNotMatch(rankingPanel, /type="checkbox"/);
+  assert.match(rankingPanel, /:aria-pressed="meituanForm\.dateRanges\.includes\('0'\)"/);
+  assert.match(html, /const selectMeituanRankingDateRange = \(dateRange\) => \{/);
+  assert.match(html, /meituanForm\.value\.dateRanges = \[normalized\];/);
+  assert.match(mainSetupReturnSource(), /selectMeituanRankingDateRange/);
+  assert.doesNotMatch(rankingPanel, /选择酒店和时间后更新竞争圈/);
   assert.match(rankingPanel, /border-blue-600 bg-blue-600 text-white/);
   assert.match(rankingPanel, /border-gray-200 bg-gray-100 text-gray-500 cursor-not-allowed/);
   assert.match(rankingPanel, /:max="meituanRankMaxDate"/);
-  assert.match(rankingPanel, /远期预测\/未来入住不属于此接口/);
+  assert.doesNotMatch(rankingPanel, /远期预测\/未来入住不属于此接口/);
+  assert.doesNotMatch(rankingPanel, /今日实时\*/);
+  assert.doesNotMatch(rankingPanel, /\*每日9点更新前日数据/);
+  assert.match(rankingPanel, /v-if="showMeituanPreviousDayUpdateNotice"/);
+  assert.equal(meituanStaticApi.shouldShowMeituanPreviousDayUpdateNotice(['1'], 0), true);
+  assert.equal(meituanStaticApi.shouldShowMeituanPreviousDayUpdateNotice(['1'], 8), true);
+  assert.equal(meituanStaticApi.shouldShowMeituanPreviousDayUpdateNotice(['1'], 9), false);
+  assert.equal(meituanStaticApi.shouldShowMeituanPreviousDayUpdateNotice(['7'], 3), false);
   assert.match(html, /const meituanRankMaxDate = computed\(\(\) => formatDate\(new Date\(\)\)\);/);
   assert.match(html, /meituanRankMaxDate,/);
+  assert.match(html, /const showMeituanPreviousDayUpdateNotice = computed\(\(\) => \{/);
+  assert.match(mainSetupReturnSource(), /showMeituanPreviousDayUpdateNotice/);
   assert.doesNotMatch(html, /仅展示美团榜单已返回字段；未返回字段保留缺失状态。/);
   assert.doesNotMatch(meituanStatic, /仅展示美团榜单已返回字段；未返回字段保留缺失状态。/);
   assert.doesNotMatch(businessDisplayConcern, /仅展示美团榜单已返回字段；未返回字段保留缺失状态。/);
@@ -757,7 +774,8 @@ test('Meituan ranking reset state is owned by the static helper', () => {
   assert.match(changeMeituanTablePage, /meituanTablePage\.value = resolveMeituanTablePage\(page, meituanTablePagination\.value\.totalPages\);/);
   assert.doesNotMatch(changeMeituanTablePage, /Math\.min\(Math\.max\(1, Number\(page\) \|\| 1\), meituanTablePagination\.value\.totalPages\)/);
   assert.doesNotMatch(html, /const meituanSortMetricValue = requireMeituanStatic\('meituanSortMetricValue'\);/);
-  assert.match(meituanStatic, /const createEmptyMeituanBusinessSummary = \(\) => \(\{ status: 'empty', metrics: \{\}, cards: \[\] \}\);/);
+  assert.match(meituanStatic, /const createEmptyMeituanBusinessSummary = \(\) => \(\{/);
+  assert.match(meituanStatic, /update_policy: 'daily_09_previous_day'/);
   assert.match(meituanStatic, /const buildMeituanRankingFetchResetState = \(\) => \(\{/);
   assert.match(meituanStatic, /buildMeituanRankingFetchResetState,/);
   assert.match(meituanStatic, /const isMeituanPendingResult = \(result = \{\}\) =>/);
@@ -795,7 +813,11 @@ test('Meituan ranking reset state is owned by the static helper', () => {
     hotelRoomCount: '',
     competitorRoomCount: '',
   });
-  assert.deepEqual(normalizedBusinessSummary, { status: 'empty', metrics: {}, cards: [] });
+  assert.equal(normalizedBusinessSummary.status, 'empty');
+  assert.deepEqual(normalizedBusinessSummary.metrics, {});
+  assert.deepEqual(normalizedBusinessSummary.cards, []);
+  assert.equal(normalizedBusinessSummary.data_freshness.update_policy, 'daily_09_previous_day');
+  assert.equal(normalizedBusinessSummary.source_notice, '每日9点更新前日数据。数据仅作经营参考，不作结算依据。');
   assert.equal(resetState.fetchSuccess, false);
   assert.equal(resetState.onlineDataResult, null);
   assert.equal(resetState.savedCount, 0);
@@ -1078,7 +1100,8 @@ test('Meituan browser capture preview is owned by the static helper', () => {
   assert.doesNotMatch(syncMeituanBrowserCaptureFromSelectedConfig, /firstDataConfigValue\(/);
   assert.match(runMeituanBrowserCaptureForSections, /const runSectionsState = buildMeituanBrowserCaptureRunSectionsState\(sections\);/);
   assert.match(runMeituanBrowserCaptureForSections, /meituanBrowserCaptureForm\.value\.captureSections = runSectionsState\.captureSections;/);
-  assert.match(runMeituanBrowserCaptureForSections, /await runMeituanBrowserCapture\(options\);/);
+  assert.match(runMeituanBrowserCaptureForSections, /const result = await runMeituanBrowserCapture\(options\);/);
+  assert.match(runMeituanBrowserCaptureForSections, /return result;/);
   assert.doesNotMatch(runMeituanBrowserCaptureForSections, /normalizeMeituanCaptureSections\(sections\)/);
 
   assert.equal(meituanStaticApi.buildMeituanBrowserCaptureSelectedSectionsText([]), '未选择');
@@ -1889,7 +1912,7 @@ test('Meituan today ranking stops each rank task as soon as its data is complete
   const stayResult = result.results.find(item => item.rankType === 'P_RZ');
   assert.equal(stayResult.attemptCount, 1);
   assert.equal(stayResult.retryCount, 0);
-  assert.equal(stayResult.maxAttempts, 1);
+  assert.equal(stayResult.maxAttempts, 3);
   assert.equal(stayResult.rankDataComplete, true);
   assert.equal(stayResult.retryExhausted, false);
   assert.equal(stayResult.data.data.peerRankData[0].roundRanks[1].percent, 100);
@@ -1913,10 +1936,10 @@ test('Meituan today ranking stops each rank task as soon as its data is complete
   assert.match(html, /result\.rankDataComplete/);
   assert.match(html, /result\.rankDataMode === 'derived'.*原始字段完整/s);
   assert.match(html, /result\.retryExhausted/);
-  assert.match(html, /仍未完整/);
+  assert.match(html, /未抓到/);
 });
 
-test('Meituan today stay accepts server-approved self-only data while sales stays strict', async () => {
+test('Meituan today stay accepts server-approved derived data while sales stays strict', async () => {
   const requestCounts = new Map();
   const committed = [];
   const resultWrites = [];
@@ -1938,7 +1961,7 @@ test('Meituan today stay accepts server-approved self-only data while sales stay
         data: {
           saved_count: 0,
           rank_candidate: body.rank_type === 'P_RZ'
-            ? { candidate_id: 'P_RZ-self-only', value_mode: 'self_only', rank_type: 'P_RZ' }
+            ? { candidate_id: 'P_RZ-derived', value_mode: 'derived', rank_type: 'P_RZ' }
             : (['P_ZH', 'P_LL'].includes(body.rank_type)
               ? { candidate_id: `${body.rank_type}-raw`, value_mode: 'raw', rank_type: body.rank_type }
               : null),
@@ -1977,12 +2000,13 @@ test('Meituan today stay accepts server-approved self-only data while sales stay
   assert.equal(requestCounts.get('P_LL'), 1);
   const initialStay = resultWrites.find(Array.isArray)?.find(item => item.rankType === 'P_RZ');
   assert.equal(initialStay?.attemptCount, 0);
-  assert.equal(initialStay?.maxAttempts, 1);
+  assert.equal(initialStay?.maxAttempts, 3);
+  assert.equal(initialStay?.dateRangeName, '今日实时');
   const stayResult = result.results.find(item => item.rankType === 'P_RZ');
   assert.equal(stayResult.rankDataComplete, true);
-  assert.equal(stayResult.rankDataMode, 'self_only');
+  assert.equal(stayResult.rankDataMode, 'derived');
   assert.equal(stayResult.attemptCount, 1);
-  assert.equal(stayResult.maxAttempts, 1);
+  assert.equal(stayResult.maxAttempts, 3);
   assert.equal(stayResult.savedCount, 22);
   const salesResult = result.results.find(item => item.rankType === 'P_XS');
   assert.equal(salesResult.rankDataComplete, false);
@@ -1994,13 +2018,14 @@ test('Meituan today stay accepts server-approved self-only data while sales stay
     .filter(item => item.rankType === 'P_XS' && item.status === 'fetching' && item.attemptCount > 0);
   assert.equal(salesProgress.at(-1)?.attemptCount, 3);
   assert.equal(salesProgress.at(-1)?.maxAttempts, 3);
-  assert.equal(committed.some(item => item.value_mode === 'self_only'), true);
+  assert.equal(committed.some(item => item.value_mode === 'derived'), true);
   assert.match(html, /isMeituanPendingResult\(result\).*result\.attemptCount.*result\.maxAttempts/s);
   assert.match(html, /result\.maxAttempts.*等待第 1 轮返回/s);
-  assert.match(html, /实时榜按美团本次返回展示：同行有具体数值时直接显示/);
+  assert.match(html, /每日9点更新前日数据。数据仅作经营参考，不作结算依据。/);
+  assert.doesNotMatch(html, /“今日实时”是美团页面筛选名称，不代表秒级实时/);
   assert.doesNotMatch(html, /其后台对这两列也只显名次、不显具体数字/);
-  assert.match(html, /rankDataMode === 'self_only'.*本次同行数值未返回/s);
-  assert.match(meituanStatic, /本店真实值 \+ 同行名次；本次同行数值未返回/);
+  assert.match(html, /rankDataMode === 'derived'.*平台原值缺失.*本店真实值和平台百分比计算/s);
+  assert.match(meituanStatic, /平台仅返回百分比，已按本店真实值和平台百分比计算/);
   assert.doesNotMatch(meituanStatic, /同行数值未开放/);
   assert.equal(normalRetryDelays.length, 0);
   assert.equal(result.status, 'partial');
@@ -2057,7 +2082,7 @@ test('Meituan fetch presentation exposes live rounds and truthful partial health
     JSON.parse(JSON.stringify(healthRows.map(row => [row.key, row.status, row.statusText]))),
     [
       ['P_RZ', 'ok', '本店实时值可用'],
-      ['P_XS', 'incomplete', '未完整'],
+      ['P_XS', 'missing', '未抓到'],
       ['P_LL', 'ok', '原始完整'],
       ['P_ZH', 'ok', '原始完整'],
     ]
@@ -2186,7 +2211,7 @@ test('Meituan today ranking retries transient platform errors with spacing', asy
   assert.ok(retryDelays[0] >= 500);
 });
 
-test('Meituan today sales ranking stops after 3 incomplete attempts and reports partial', async () => {
+test('Meituan today sales ranking stops after 3 incomplete attempts and reports not captured', async () => {
   const requestCounts = new Map();
   const makeResponse = (rankType, positive) => ({
     code: 200,
@@ -2249,11 +2274,11 @@ test('Meituan today sales ranking stops after 3 incomplete attempts and reports 
   assert.equal(salesResult.attemptCount, 3);
   assert.equal(salesResult.rankDataComplete, false);
   assert.equal(salesResult.retryExhausted, true);
-  assert.match(salesResult.error, /3.*仍未完整/);
+  assert.match(salesResult.error, /3.*未抓到/);
   assert.equal(result.status, 'partial');
 });
 
-test('Meituan historical ranking stops when complete and retries incomplete data up to 3 times', async () => {
+test('Meituan historical ranking stops each task when complete within three attempts', async () => {
   const requestCounts = new Map();
   const result = await meituanStaticApi.runMeituanBatchFetchFlow({
     getForm: () => ({ hotelId: 58, poiId: 'self', dateRanges: ['1'] }),
@@ -2269,10 +2294,10 @@ test('Meituan historical ranking stops when complete and retries incomplete data
       const count = (requestCounts.get(body.rank_type) || 0) + 1;
       requestCounts.set(body.rank_type, count);
       const completeAt = {
-        P_RZ: 3,
+        P_RZ: 2,
         P_XS: 2,
         P_ZH: 1,
-        P_LL: 4,
+        P_LL: 3,
       };
       const positive = count >= completeAt[body.rank_type];
       return {
@@ -2296,23 +2321,22 @@ test('Meituan historical ranking stops when complete and retries incomplete data
     useDisplayModel: data => data.display_hotels || [],
   });
 
-  assert.equal(result.status, 'partial');
-  assert.equal(requestCounts.get('P_RZ'), 3);
+  assert.equal(result.status, 'success');
+  assert.equal(requestCounts.get('P_RZ'), 2);
   assert.equal(requestCounts.get('P_XS'), 2);
   assert.equal(requestCounts.get('P_ZH'), 1);
   assert.equal(requestCounts.get('P_LL'), 3);
   const stayResult = result.results.find(item => item.rankType === 'P_RZ');
   assert.equal(stayResult.maxAttempts, 3);
-  assert.equal(stayResult.attemptCount, 3);
+  assert.equal(stayResult.attemptCount, 2);
   assert.equal(stayResult.rankDataComplete, true);
   const trafficResult = result.results.find(item => item.rankType === 'P_LL');
   assert.equal(trafficResult.maxAttempts, 3);
   assert.equal(trafficResult.attemptCount, 3);
-  assert.equal(trafficResult.rankDataComplete, false);
-  assert.equal(trafficResult.retryExhausted, true);
-  assert.match(trafficResult.error, /昨日.*3.*仍未完整/);
+  assert.equal(trafficResult.rankDataComplete, true);
+  assert.equal(trafficResult.retryExhausted, false);
   assert.match(html, /result\.rankDataMode === 'derived'.*原始字段完整/s);
-  assert.match(html, /result\.dateRangeName.*榜单仍未完整/);
+  assert.match(html, /result\.retryExhausted.*未抓到/s);
 });
 
 test('Meituan historical percent-only stay and sales save as derived when the server approves self anchors', async () => {
@@ -2436,16 +2460,18 @@ test('Meituan historical percent-only stay and sales remain partial without appr
     useDisplayModel: data => data.display_hotels || [],
   });
 
-  assert.equal(requestCounts.get('P_RZ'), 1);
-  assert.equal(requestCounts.get('P_XS'), 1);
+  assert.equal(requestCounts.get('P_RZ'), 3);
+  assert.equal(requestCounts.get('P_XS'), 3);
   assert.equal(result.status, 'partial');
   for (const rankType of ['P_RZ', 'P_XS']) {
     const item = result.results.find(row => row.rankType === rankType);
     assert.equal(item.rankDataComplete, false);
-    assert.equal(item.terminalPartial, true);
-    assert.match(item.message, /仅返回排名百分比.*本店真实值锚点不足.*无法计算并保存/);
+    assert.equal(item.retryExhausted, true);
+    assert.equal(item.attemptCount, 3);
+    assert.equal(item.maxAttempts, 3);
+    assert.match(item.message, /已尝试 3 轮.*本店真实值锚点不足.*未抓到/);
   }
-  assert.match(html, /result\.terminalPartial.*result\.message/s);
+  assert.match(html, /未抓到 · 已尝试/);
 });
 
 test('Ctrip identity conflict still displays queried rows and reports save blocked', async () => {
@@ -2634,6 +2660,17 @@ test('Meituan ranking rejects future custom dates before platform requests', () 
   assert.equal(validation.ok, false);
   assert.equal(validation.level, 'warning');
   assert.match(validation.message, /不支持未来日期/);
+});
+
+test('Meituan ranking accepts only one period per fetch', () => {
+  const validation = meituanStaticApi.validateMeituanBatchFetchInput({
+    form: { hotelId: 58, dateRanges: ['1', '7'] },
+    configId: 'meituan-58',
+  });
+
+  assert.equal(validation.ok, false);
+  assert.equal(validation.level, 'warning');
+  assert.match(validation.message, /每次只获取一个时间周期/);
 });
 
 test('Meituan batch fetch stops display model when every rank request needs login', async () => {
@@ -4480,7 +4517,7 @@ test('Download center defers hotel filter loading after primary data', () => {
   assert.match(downloadCenterScheduler, /scheduleDelayedPageTask\(\(\) => \{\s*if \(seq !== downloadCenterTabLoadSeq \|\| !isCurrentTab\(\)\) return null;\s*return loadOnlineDataHotelList\(\{ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS \}\);\s*\}, 720\);/);
   assert.match(downloadCenterScheduler, /return loadOnlineDataHotelList\(\{ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS \}\);/);
   assert.match(html, /const meituanDownloadData = computed\(\(\) => buildMeituanDownloadData\(onlineDataList\.value\)\);/);
-  assert.match(html, /switchToMeituanDownloadCenter, meituanDownloadData,/);
+  assert.match(html, /switchToMeituanDownloadCenter, openMeituanStoredDataTab, meituanDownloadData,/);
   assert.doesNotMatch(downloadCenterScheduler, /await refreshOnlineHistory\(\);\s*return null;/);
   assert.doesNotMatch(
     downloadCenterScheduler,

@@ -99,6 +99,31 @@ test('Profile login preserves real Profile source ids for both OTA platforms', (
   assert.equal(meituan.loginItem.profile_key, 'mt-121');
 });
 
+test('blocking capture reason overrides non-blocking Profile guidance', () => {
+  const failedHelpers = {
+    ...accountRowHelpers,
+    platformCaptureStatusCode: () => 'failed',
+    platformAccountReason: () => ({ text: '最近采集失败：平台返回接口错误', className: 'text-red-700' }),
+    platformCaptureStatusText: () => '最近采集失败',
+  };
+  const [ctrip] = buildHotelPlatformBindingRows({
+    hotel: { id: 121, name: '西安天诚', status: 1 },
+    ctripProfile: {
+      id: 163,
+      system_hotel_id: 121,
+      platform: 'ctrip',
+      ingestion_method: 'browser_profile',
+      config: { profile_id: 'ctrip-121', ctrip_hotel_id: 'ctrip-hotel-121' },
+    },
+    helpers: failedHelpers,
+  });
+
+  assert.equal(ctrip.captureStatusCode, 'failed');
+  assert.equal(ctrip.verificationReasonText, '未检测当天登录态，但不阻塞采集；以平台实际采集结果为准。');
+  assert.equal(ctrip.blockingReasonText, '最近采集失败：平台返回接口错误');
+  assert.equal(ctrip.reasonText, '最近采集失败：平台返回接口错误');
+});
+
 test('platform account UI names manual and automatic paths and routes them separately', () => {
   assert.match(html, /<option value="auto_ready">自动可采集<\/option>/);
   assert.match(html, /<option value="manual_ready">手动可采集<\/option>/);

@@ -47,6 +47,17 @@ final class MeituanManualIdentityServiceTest extends TestCase
         ], $identity);
     }
 
+    public function testOrderFlowUsesStoredPartnerAndPoiIdentity(): void
+    {
+        $identity = (new MeituanManualIdentityService())->resolve([], [
+            'partner_id' => '5006692',
+            'poi_id' => '1010341153889311',
+        ], 'order_flow');
+
+        self::assertSame('5006692', $identity['partner_id']);
+        self::assertSame('1010341153889311', $identity['poi_id']);
+    }
+
     public function testManualFetchControllerUsesStoredIdentityBeforeTrafficOrdersAndAdsRequests(): void
     {
         $source = (string)file_get_contents(
@@ -55,6 +66,7 @@ final class MeituanManualIdentityServiceTest extends TestCase
 
         self::assertStringContainsString('use app\\service\\MeituanManualIdentityService;', $source);
         self::assertStringContainsString("->resolve(\$requestData, \$storedConfig, 'traffic')", $source);
+        self::assertStringContainsString("->resolve(\$requestData, \$storedConfig, 'order_flow')", $source);
         self::assertStringContainsString('->resolve($requestData, $storedConfig, $section)', $source);
     }
 

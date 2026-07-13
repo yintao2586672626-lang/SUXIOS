@@ -112,6 +112,7 @@ final class BrowserProfileCaptureRequestService
                 'flow_forecast', 'flowforecast', 'search_keyword', 'search_keywords',
                 'searchkeyword', 'searchkeywords', 'room_type', 'room_types', 'roomtype',
                 'roomtypes', 'product', 'products' => 'traffic',
+                'order_flow', 'orderflow', 'order_loss', 'orderloss', 'loss_order', 'lossorder' => 'order_flow',
                 default => '',
             };
             if ($normalized !== '') {

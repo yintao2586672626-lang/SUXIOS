@@ -92,6 +92,7 @@ test('OTA config overview rows expose platform status and latest successful stor
   assert.equal(rows.length, 2);
   assert.equal(rows[0].effectStatus, 'pending', 'needs-attention rows should be listed first');
   assert.equal(rows[0].hotelId, '8', 'quick actions must retain the affected hotel context');
+  assert.equal(rows[1].configId, 'effective', 'rows must retain the editable config identity');
   assert.equal(rows[1].latestSuccessText, '2026-07-12 15:22');
   assert.match(rows[1].platformIdentityText, /待识别/);
 
@@ -101,6 +102,71 @@ test('OTA config overview rows expose platform status and latest successful stor
     { total: 2, effective: 1, needsAttention: 1 },
   );
   assert.equal(summary.latestSuccessText, '2026-07-12 15:22');
+});
+
+test('OTA config overview supports search, status filters, and deterministic sorting', () => {
+  const rows = [
+    {
+      configId: 'ctrip-qingyu',
+      platform: 'ctrip',
+      hotelId: '7',
+      hotelName: '青雨酒店',
+      configName: '青雨携程配置',
+      platformText: '携程',
+      platformIdentityText: 'hotelId 7788',
+      effectStatus: 'effective',
+      effectText: '已生效',
+      latestSuccessAt: '2026-07-14 02:04:00',
+      configUpdatedAt: '2026-07-13 20:00:00',
+    },
+    {
+      configId: 'meituan-tianlang',
+      platform: 'meituan',
+      hotelId: '8',
+      hotelName: '天朗店',
+      configName: '天朗美团配置',
+      platformText: '美团',
+      platformIdentityText: 'partner 100 / poi 200',
+      effectStatus: 'blocked',
+      effectText: '需补配置',
+      latestSuccessAt: '',
+      configUpdatedAt: '2026-07-14 03:00:00',
+    },
+    {
+      configId: 'ctrip-xiamen',
+      platform: 'ctrip',
+      hotelId: '9',
+      hotelName: '厦门店',
+      configName: '厦门携程配置',
+      platformText: '携程',
+      platformIdentityText: 'hotelId 9900',
+      effectStatus: 'pending',
+      effectText: '待首次成功',
+      latestSuccessAt: '2026-07-12 12:00:00',
+      configUpdatedAt: '2026-07-12 08:00:00',
+    },
+  ];
+
+  assert.deepEqual(
+    Array.from(helpers.filterAndSortOtaConfigOverviewRows(rows, { search: '7788' }), row => row.configId),
+    ['ctrip-qingyu'],
+  );
+  assert.deepEqual(
+    Array.from(helpers.filterAndSortOtaConfigOverviewRows(rows, { platform: 'meituan' }), row => row.configId),
+    ['meituan-tianlang'],
+  );
+  assert.deepEqual(
+    Array.from(helpers.filterAndSortOtaConfigOverviewRows(rows, { status: 'attention' }), row => row.configId),
+    ['meituan-tianlang', 'ctrip-xiamen'],
+  );
+  assert.deepEqual(
+    Array.from(helpers.filterAndSortOtaConfigOverviewRows(rows, { sort: 'latest_update' }), row => row.configId),
+    ['meituan-tianlang', 'ctrip-qingyu', 'ctrip-xiamen'],
+  );
+  assert.deepEqual(
+    Array.from(helpers.filterAndSortOtaConfigOverviewRows(rows, { status: 'effective', sort: 'hotel_name' }), row => row.configId),
+    ['ctrip-qingyu'],
+  );
 });
 
 test('one-click acquisition page presents the two OTA config groups without the old issue table', () => {
@@ -115,16 +181,27 @@ test('one-click acquisition page presents the two OTA config groups without the 
 
   assert.match(overview, /平台配置与最近成功/);
   assert.match(overview, /data-testid="ota-config-overview"/);
+  assert.match(overview, /data-testid="ota-config-toolbar"/);
+  assert.match(overview, /data-testid="ota-config-search"/);
+  assert.match(overview, /data-testid="ota-config-platform-filter"/);
+  assert.match(overview, /data-testid="ota-config-status-filter"/);
+  assert.match(overview, /data-testid="ota-config-sort"/);
+  assert.match(overview, /resetOtaConfigOverviewFilters/);
+  assert.match(overview, /canMaintainOtaConfig\(\)/);
   assert.match(overview, /'ota-config-platform-' \+ group\.platform/);
   assert.match(overview, /最近成功：\{\{ row\.latestSuccessText \}\}/);
   assert.match(overview, /editOtaConfigOverviewRow\(row\)/);
   assert.doesNotMatch(overview, /<th[^>]*>问题<\/th>/);
   assert.doesNotMatch(overview, /otaDirectIssueRows/);
   assert.match(editHandler, /const hotelId = String\(row\?\.hotelId \|\| ''\)\.trim\(\)/);
+  assert.match(editHandler, /const configId = String\(row\?\.configId \|\| ''\)\.trim\(\)/);
+  assert.match(editHandler, /String\(item\?\.id \|\| item\?\.config_id \|\| ''\) === configId/);
   assert.match(editHandler, /findMeituanConfigByHotelId\(hotelId\)/);
   assert.match(editHandler, /meituanForm\.value\.hotelId = hotelId/);
   assert.match(editHandler, /findCtripConfigByHotelId\(hotelId\)/);
   assert.match(editHandler, /selectedCtripHotelId\.value = hotelId/);
+  assert.match(appMain, /filterAndSortOtaConfigOverviewRows\(group\.allRows, filters\)/);
+  assert.match(appMain, /const canMaintainOtaConfig = \(\) => canManageOwnHotels\(\) \|\| userHasPermission\('can_fetch_online_data'\)/);
 });
 
 test('config list APIs append hotel-scoped platform persistence evidence', () => {

@@ -5,6 +5,28 @@ const CARD_METRIC_MAP = new Map([
   ['PAY_ORDER_CNT', { fields: ['orderSubmitNum', 'order_submit_num'], label: 'order_submit_num' }],
 ]);
 
+const MEITUAN_ORDER_FLOW_ENDPOINT_PATH = '/api/v1/ebooking/peerRank/order/loss/query';
+
+export function buildMeituanOrderFlowReplayUrls(value) {
+  try {
+    const source = new URL(String(value || '').trim());
+    if (source.protocol !== 'https:'
+      || source.hostname !== 'eb.meituan.com'
+      || source.pathname !== MEITUAN_ORDER_FLOW_ENDPOINT_PATH
+      || !source.searchParams.get('startDate')
+      || !source.searchParams.get('endDate')) {
+      return [];
+    }
+    return ['0', '1'].map(lossType => {
+      const target = new URL(source.toString());
+      target.searchParams.set('lossType', lossType);
+      return target.toString();
+    });
+  } catch {
+    return [];
+  }
+}
+
 const CARD_METRIC_ID_ALIASES = [
   {
     aliases: ['EXPOSE_PV_CNT', 'EXPOSE_UV_CNT', 'EXPOSURE_COUNT', 'EXPOSURE_CNT', 'IMPRESSION_CNT', 'LIST_EXPOSURE', 'LIST_EXPOSURE_CNT'],
@@ -290,6 +312,63 @@ export function normalizeMeituanFlowAnalysisRows(value, options = {}) {
     analysis_type: analysisType,
     dimension: analysisType,
   }, 'traffic_analysis', 'data', options)];
+}
+
+export function normalizeMeituanOrderFlowRows(value, options = {}) {
+  const data = firstObjectAtPath(value, [
+    ['data'],
+    [],
+  ]);
+  const requiredSummaryKeys = ['lossTotalCnt', 'lossTotalPayRoomNight', 'lossTotalPayAmount'];
+  if (!requiredSummaryKeys.every(key => Object.prototype.hasOwnProperty.call(data, key))) {
+    return [];
+  }
+
+  const direction = String(options.orderFlowDirection || options.flowDirection || '').trim().toLowerCase();
+  if (!['loss', 'inflow'].includes(direction)) {
+    return [];
+  }
+  const periodStart = normalizeDateLike(options.periodStart || options.startDate || '');
+  const periodEnd = normalizeDateLike(options.periodEnd || options.endDate || '');
+  if (!periodStart || !periodEnd) {
+    return [];
+  }
+  const period = String(options.orderFlowPeriod || '').trim() || resolveMeituanOrderFlowPeriod(periodStart, periodEnd);
+  const base = {
+    dataDate: periodEnd,
+    date_source: 'request.query.endDate',
+    data_period: 'historical_daily',
+    order_flow_direction: direction,
+    order_flow_period: period,
+    period_start: periodStart,
+    period_end: periodEnd,
+  };
+  const summary = decorateSupplementalRow({
+    ...base,
+    order_flow_row_type: 'summary',
+    dimension: `order_flow:${period}:${direction}:summary`,
+    order_count: numberish(data.lossTotalCnt),
+    room_nights: numberish(data.lossTotalPayRoomNight),
+    amount: numberish(data.lossTotalPayAmount),
+    poi_star: data.poiStar ?? '',
+  }, 'order_flow', 'data', options);
+
+  const details = asRowList(data.orderLossPeerDetails).map((item, index) => {
+    const poiId = String(item.poiId ?? item.poi_id ?? '').trim();
+    const row = decorateSupplementalRow({
+      ...item,
+      ...base,
+      order_flow_row_type: 'hotel_detail',
+      dimension: `order_flow:${period}:${direction}:hotel:${poiId || index + 1}`,
+      order_count: numberish(item.lossOrderCount),
+      order_ratio: numberish(item.lossOrderRatio),
+      amount: numberish(item.lossSinglePayAmount),
+      compare_type: 'competitor',
+    }, 'order_flow', `data.orderLossPeerDetails.${index}`, options);
+    return { ...row, _capture_source: 'xhr:order_flow:hotel_detail' };
+  });
+
+  return [{ ...summary, _capture_source: 'xhr:order_flow:summary' }, ...details];
 }
 
 function buildCardMetricRow(cards, options = {}) {
@@ -607,6 +686,19 @@ function normalizeDateLike(value) {
     return `${match[1]}-${String(match[2]).padStart(2, '0')}-${String(match[3]).padStart(2, '0')}`;
   }
   return '';
+}
+
+function resolveMeituanOrderFlowPeriod(startDate, endDate) {
+  const start = Date.parse(`${startDate}T00:00:00Z`);
+  const end = Date.parse(`${endDate}T00:00:00Z`);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+    return 'custom';
+  }
+  const inclusiveDays = Math.round((end - start) / 86400000) + 1;
+  if (inclusiveDays === 1) return 'yesterday';
+  if (inclusiveDays === 7) return 'last_7_days';
+  if (inclusiveDays === 30) return 'last_30_days';
+  return 'custom';
 }
 
 function readPath(value, parts) {

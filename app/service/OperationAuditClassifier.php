@@ -48,6 +48,7 @@ class OperationAuditClassifier
         'api/online-data/fetch-ctrip-traffic',
         'api/online-data/ctrip/traffic',
         'api/online-data/fetch-meituan-traffic',
+        'api/online-data/fetch-meituan-order-flow',
         'api/online-data/fetch-meituan-comments',
         'api/online-data/fetch-ctrip-comments',
         'api/online-data/fetch-custom',

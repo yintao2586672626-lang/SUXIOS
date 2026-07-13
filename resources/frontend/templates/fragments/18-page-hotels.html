@@ -46,7 +46,10 @@
                                     <span class="text-lg font-semibold text-gray-900">{{ hotelBindingOverview.total }}</span>
                                 </button>
                                 <button type="button" @click="applyHotelQuickFilter('error', '1')" :class="filterHotelAccountHealth === 'error' ? 'border-red-200 bg-red-50/80 ring-1 ring-red-100' : 'border-red-100 bg-red-50/50 hover:bg-red-50'" class="rounded-lg border px-3 py-2 flex items-center justify-between text-left transition-colors">
-                                    <span class="text-xs text-red-700">账号异常</span>
+                                    <span>
+                                        <span class="block text-xs text-red-700">采集阻塞</span>
+                                        <span class="block text-[11px] text-red-400">登录/门店/采集</span>
+                                    </span>
                                     <span class="text-lg font-semibold text-red-700">{{ hotelBindingOverview.error }}</span>
                                 </button>
                                 <button type="button" @click="applyHotelQuickFilter('todo', '1')" :class="filterHotelAccountHealth === 'todo' ? 'border-amber-200 bg-amber-50/80 ring-1 ring-amber-100' : 'border-amber-100 bg-amber-50/50 hover:bg-amber-50'" class="rounded-lg border px-3 py-2 flex items-center justify-between text-left transition-colors">
@@ -63,7 +66,7 @@
                                 </button>
                             </div>
                             <div class="text-xs text-gray-500 leading-relaxed">
-                                说明：账号待补只统计已勾选的适用渠道；未勾选的平台不展示、不计入异常。这里只代表 OTA 渠道状态，不代表全酒店经营口径。
+                                说明：采集阻塞统计登录失效、门店不匹配或最近采集失败；点击后每家门店会直接标出具体平台、原因和下一步。账号待补只统计已勾选的适用渠道；未勾选的平台不展示、不计入。这里只代表 OTA 渠道状态，不代表全酒店经营口径。
                             </div>
                             <div class="flex flex-wrap gap-3 items-center">
                                 <div class="flex-1 min-w-[220px]">
@@ -94,8 +97,8 @@
                         <div v-if="filteredHotels.length &gt; 0" data-testid="hotel-account-summary-table" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                             <div class="px-4 py-3 border-b border-gray-100 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
                                 <div>
-                                    <div class="text-sm font-semibold text-gray-900">OTA采集接入状态 · {{ filteredHotels.length }}</div>
-                                    <div class="text-xs text-gray-500 mt-0.5">先看门店信息，再看携程/美团是否绑定、是否登录；下游收益和 AI 判断只接收已标明来源的新鲜 OTA 证据。</div>
+                                    <div class="text-sm font-semibold text-gray-900">{{ filterHotelAccountHealth === 'error' ? '采集阻塞门店' : 'OTA采集接入状态' }} · {{ filteredHotels.length }}</div>
+                                    <div class="text-xs text-gray-500 mt-0.5">{{ filterHotelAccountHealth === 'error' ? '红色阻塞原因会直接标出具体平台；无需展开详情。' : '先看门店信息，再看携程/美团是否绑定、是否登录；下游收益和 AI 判断只接收已标明来源的新鲜 OTA 证据。' }}</div>
                                 </div>
                                 <div class="text-xs text-gray-500">门店不匹配会阻止 OTA 数据入库。</div>
                             </div>
@@ -132,6 +135,16 @@
                                                         <div class="rounded-md border border-gray-100 bg-gray-50 px-2 py-1 min-w-0">
                                                             <span class="text-gray-400">负责人</span>
                                                             <span class="ml-1 font-semibold text-gray-800 truncate" :title="hotelOwnerText(hotel)">{{ hotelOwnerText(hotel) }}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div v-if="hotelBlockingIssueRows(hotel).length" data-testid="hotel-blocking-summary" class="mt-2 space-y-1 rounded-lg border border-red-100 bg-red-50/70 p-2 text-xs text-red-700">
+                                                        <div class="flex items-center justify-between gap-2 font-semibold">
+                                                            <span>阻塞原因</span>
+                                                            <span>{{ hotelBlockingIssueRows(hotel).length }} 项</span>
+                                                        </div>
+                                                        <div v-for="issue in hotelBlockingIssueRows(hotel)" :key="`${hotel.id}-${issue.key}-blocking`" class="rounded-md bg-white/80 px-2 py-1.5 leading-5">
+                                                            <span class="font-semibold">{{ issue.label }}</span>：{{ issue.text }}
+                                                            <span class="mt-0.5 block text-[11px] text-red-500">下一步：{{ issue.nextActionText }}</span>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -260,6 +273,16 @@
                                                 <button type="button" @click="toggleHotelStatus(hotel)" class="shrink-0 whitespace-nowrap px-2 py-1 rounded-lg border border-gray-200 bg-white text-xs text-gray-600">{{ String(hotel.status) === '1' ? '停用' : '启用' }}</button>
                                                 <button v-if="user?.is_super_admin" type="button" @click="openHotelDeleteModal(hotel)" class="shrink-0 whitespace-nowrap px-2 py-1 rounded-lg border border-red-100 bg-white text-xs text-red-600">删除</button>
                                             </div>
+                                        </div>
+                                    </div>
+                                    <div v-if="hotelBlockingIssueRows(hotel).length" data-testid="hotel-blocking-summary" class="mt-3 space-y-1 rounded-lg border border-red-100 bg-red-50/70 p-2 text-xs text-red-700">
+                                        <div class="flex items-center justify-between gap-2 font-semibold">
+                                            <span>阻塞原因</span>
+                                            <span>{{ hotelBlockingIssueRows(hotel).length }} 项</span>
+                                        </div>
+                                        <div v-for="issue in hotelBlockingIssueRows(hotel)" :key="`mobile-${hotel.id}-${issue.key}-blocking`" class="rounded-md bg-white/80 px-2 py-1.5 leading-5">
+                                            <span class="font-semibold">{{ issue.label }}</span>：{{ issue.text }}
+                                            <span class="mt-0.5 block text-[11px] text-red-500">下一步：{{ issue.nextActionText }}</span>
                                         </div>
                                     </div>
                                     <button type="button" @click="toggleHotelDetails(hotel)" class="mt-3 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-medium text-gray-600">{{ isHotelDetailsExpanded(hotel) ? '收起携程/美团详情' : '展开携程/美团详情' }}</button>

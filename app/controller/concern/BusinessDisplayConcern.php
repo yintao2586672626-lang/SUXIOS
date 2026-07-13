@@ -1545,11 +1545,6 @@ trait BusinessDisplayConcern
 
         $fields = ['roomNights', 'roomRevenue', 'salesRoomNights', 'sales', 'orderCount', 'viewConversion', 'payConversion', 'exposure', 'views'];
         foreach ($fields as $field) {
-            if ((string)($context['date_range'] ?? '') === '0'
-                && in_array($field, ['roomNights', 'roomRevenue'], true)
-            ) {
-                continue;
-            }
             $selfValue = $this->meituanSelfMetricValue($field, $hotelMap[$selfKey], $context);
             $selfPercent = $this->meituanMetricRankPercent($hotelMap[$selfKey], $field);
             if ($selfValue === null || $selfValue <= 0 || $selfPercent === null || $selfPercent <= 0) {
@@ -1605,9 +1600,6 @@ trait BusinessDisplayConcern
         }
 
         foreach (['roomRevenue', 'sales'] as $field) {
-            if ((string)($context['date_range'] ?? '') === '0' && $field === 'roomRevenue') {
-                continue;
-            }
             $selfValue = $this->meituanSelfMetricValue($field, $hotelMap[$selfKey], $context);
             $selfRankValue = $this->meituanMetricRankValue($hotelMap[$selfKey], $field);
             if ($selfValue === null || $selfValue <= 0 || $selfRankValue === null || $selfRankValue <= 0) {
@@ -2238,12 +2230,22 @@ trait BusinessDisplayConcern
     private function meituanDateRangeLabel(string $dateRange): string
     {
         return [
-            '0' => '实时',
+            '0' => '今日实时',
             '1' => '昨日',
             '7' => '近7天',
             '30' => '近30天',
             'custom' => '自定义',
         ][$dateRange] ?? ($dateRange !== '' ? $dateRange : '未标明时间');
+    }
+
+    private function meituanDataFreshnessMeta(): array
+    {
+        return [
+            'update_policy' => 'daily_09_previous_day',
+            'update_time' => '09:00',
+            'settlement_basis' => false,
+            'notice' => '*每日9点更新前日数据。数据仅作经营参考，不作结算依据。',
+        ];
     }
 
     private function sortBusinessDisplayHotels(array $hotelMap, string $sortField): array
@@ -2915,11 +2917,12 @@ trait BusinessDisplayConcern
         $platformTagSummary = $this->buildMeituanPlatformTagSummary($rows);
         $derivedMetricCount = $this->countMeituanDerivedMetrics($rows);
         $rankOnlyCount = count(array_filter($rankHealthRows, static fn($row): bool => ($row['status'] ?? '') === 'rank_only'));
-        $sourceNotice = $derivedMetricCount > 0
+        $dataFreshness = $this->meituanDataFreshnessMeta();
+        $sourceNotice = $dataFreshness['notice'] . ' ' . ($derivedMetricCount > 0
             ? '美团榜单部分指标仅返回百分比；只有存在本店真实值锚点时才按本店值 × 对方 percent ÷ 本店 percent 推导，并在 metricDerived 中保留依据。缺少真实值锚点时保持缺失，不再按比例尺估算。'
             : ($rankOnlyCount > 0
                 ? '美团榜单返回了排名/percent，但未返回可展示数值；数值列保留缺失状态，不用 0 代替。'
-                : '仅展示美团榜单已返回字段；不通过订单、客人、房态或房源映射推断。');
+                : '仅展示美团榜单已返回字段；不通过订单、客人、房态或房源映射推断。'));
         $selfPositionText = $selfRow ? (string)($selfRow['circlePositionText'] ?? '已返回') : '本店未返回';
 
         return [
@@ -2986,6 +2989,7 @@ trait BusinessDisplayConcern
             'top_summary_rows' => $topSummaryRows,
             'funnel_diagnosis' => $funnelDiagnosis,
             'platform_tag_summary' => $platformTagSummary,
+            'data_freshness' => $dataFreshness,
             'source_notice' => $sourceNotice,
         ];
     }
@@ -3703,6 +3707,7 @@ trait BusinessDisplayConcern
             'rank_health_rows' => [],
             'top_summary_rows' => [],
             'platform_tag_summary' => $this->buildMeituanPlatformTagSummary([]),
+            'data_freshness' => $this->meituanDataFreshnessMeta(),
             'funnel_diagnosis' => [
                 'key' => 'funnel-diagnosis',
                 'label' => '四榜卡点',
@@ -3712,7 +3717,7 @@ trait BusinessDisplayConcern
                 'details' => [],
                 'missing' => ['美团榜单数据未返回'],
             ],
-            'source_notice' => '未返回字段保持缺失。',
+            'source_notice' => $this->meituanDataFreshnessMeta()['notice'] . ' 未返回字段保持缺失。',
         ];
     }
 

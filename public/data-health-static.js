@@ -158,6 +158,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             .filter(config => config && typeof config === 'object')
             .map((config, index) => {
                 const hotelId = String(config?.system_hotel_id || config?.hotel_id || '').trim();
+                const configId = String(config?.config_id || config?.id || '').trim();
                 const hotelName = typeof hotelNameResolver === 'function'
                     ? String(hotelNameResolver(config, hotelId) || '').trim()
                     : String(config?.hotel_name || config?.hotelName || '').trim();
@@ -167,9 +168,10 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
                 const effect = otaConfigEffectState({ config, platform: normalizedPlatform, missingFields });
                 const latestSuccessAt = String(config?.latest_platform_success_at || '').trim();
                 return {
-                    key: `${normalizedPlatform}:${String(config?.config_id || config?.id || hotelId || index)}`,
+                    key: `${normalizedPlatform}:${configId || hotelId || index}`,
                     platform: normalizedPlatform,
                     platformText: normalizedPlatform === 'meituan' ? '美团' : '携程',
+                    configId,
                     hotelId,
                     hotelName: hotelName || (hotelId ? `门店 ${hotelId}` : '未关联门店'),
                     configName: String(config?.name || '').trim() || '未命名配置',
@@ -182,6 +184,10 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
                     latestSuccessText: otaConfigTimestampText(latestSuccessAt),
                     latestDataDate: String(config?.latest_platform_data_date || '').trim(),
                     configUpdatedAt: String(config?.update_time || config?.updated_at || config?.created_at || '').trim(),
+                    configUpdatedText: otaConfigTimestampText(
+                        config?.update_time || config?.updated_at || config?.created_at || '',
+                        '暂无更新时间',
+                    ),
                     storedRowCount: Math.max(0, Number(config?.stored_platform_row_count || 0)),
                     historyCount: Math.max(0, Number(config?.history_count || 0)),
                     config,
@@ -217,6 +223,66 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             latestSuccessAt,
             latestSuccessText: otaConfigTimestampText(latestSuccessAt),
         };
+    };
+
+    const filterAndSortOtaConfigOverviewRows = (rows = [], filters = {}) => {
+        const keyword = String(filters?.search || '').trim().toLocaleLowerCase('zh-CN');
+        const requestedPlatform = String(filters?.platform || 'all').trim().toLowerCase();
+        const platform = ['ctrip', 'meituan'].includes(requestedPlatform)
+            ? requestedPlatform
+            : 'all';
+        const requestedStatus = String(filters?.status || 'all').trim().toLowerCase();
+        const status = ['effective', 'attention', 'blocked', 'pending', 'unknown'].includes(requestedStatus)
+            ? requestedStatus
+            : 'all';
+        const requestedSort = String(filters?.sort || 'attention').trim().toLowerCase();
+        const sort = ['latest_success', 'latest_update', 'hotel_name'].includes(requestedSort)
+            ? requestedSort
+            : 'attention';
+        const statusRank = { blocked: 0, pending: 1, unknown: 2, effective: 3 };
+        const sourceRows = Array.isArray(rows) ? rows : [];
+
+        const filtered = sourceRows.filter((row) => {
+            const rowPlatform = String(row?.platform || '').trim().toLowerCase();
+            if (platform !== 'all' && rowPlatform !== platform) return false;
+            const effectStatus = String(row?.effectStatus || '').trim().toLowerCase();
+            if (status === 'attention' && effectStatus === 'effective') return false;
+            if (status !== 'all' && status !== 'attention' && effectStatus !== status) return false;
+            if (!keyword) return true;
+            const searchable = [
+                row?.hotelName,
+                row?.hotelId,
+                row?.configName,
+                row?.configId,
+                row?.platformText,
+                row?.platformIdentityText,
+                row?.effectText,
+                row?.latestSuccessAt,
+                row?.latestDataDate,
+            ].filter(Boolean).join(' ').toLocaleLowerCase('zh-CN');
+            return searchable.includes(keyword);
+        });
+
+        return [...filtered].sort((left, right) => {
+            if (sort === 'latest_success') {
+                const successDiff = otaConfigTimestampValue(right?.latestSuccessAt) - otaConfigTimestampValue(left?.latestSuccessAt);
+                if (successDiff !== 0) return successDiff;
+            } else if (sort === 'latest_update') {
+                const updateDiff = otaConfigTimestampValue(right?.configUpdatedAt) - otaConfigTimestampValue(left?.configUpdatedAt);
+                if (updateDiff !== 0) return updateDiff;
+            } else if (sort === 'hotel_name') {
+                const nameDiff = String(left?.hotelName || '').localeCompare(String(right?.hotelName || ''), 'zh-CN');
+                if (nameDiff !== 0) return nameDiff;
+            } else {
+                const statusDiff = (statusRank[String(left?.effectStatus || '')] ?? 9)
+                    - (statusRank[String(right?.effectStatus || '')] ?? 9);
+                if (statusDiff !== 0) return statusDiff;
+            }
+
+            const successDiff = otaConfigTimestampValue(right?.latestSuccessAt) - otaConfigTimestampValue(left?.latestSuccessAt);
+            if (successDiff !== 0) return successDiff;
+            return String(left?.hotelName || '').localeCompare(String(right?.hotelName || ''), 'zh-CN');
+        });
     };
 
     const manualOneClickFetchRankIssueCount = (message = '', pattern = /./) => {
@@ -308,6 +374,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             if (row.status === 'no_saved') summary.noSaved += 1;
             if (row.status === 'failed') summary.failed += 1;
             if (row.status === 'skipped') summary.skipped += 1;
+            if (row.status === 'not_run') summary.notRun += 1;
             if (row.status === 'running' || row.status === 'queued') summary.pending += 1;
             if (row.status === 'success' || row.status === 'partial') summary.savedCount += Number(row.savedCount || 0);
             return summary;
@@ -317,6 +384,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             noSaved: 0,
             failed: 0,
             skipped: 0,
+            notRun: 0,
             pending: 0,
             savedCount: 0,
         });
@@ -334,6 +402,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             failed: Number(summary.failed || 0),
             pending: Number(summary.pending || 0),
             skipped: Number(summary.skipped || 0),
+            notRun: Number(summary.notRun || 0),
             savedCount: Number(summary.savedCount || 0),
         };
         const ctripCount = Number(ctripReadyCount || 0);
@@ -362,7 +431,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
                 rawValue: String(safeSummary.noSaved + safeSummary.failed + safeSummary.partial),
                 detail: safeSummary.pending
                     ? `${safeSummary.pending} 个执行中`
-                    : `${safeSummary.noSaved} 个未入库 / ${safeSummary.failed} 个失败 / ${safeSummary.partial} 个部分入库`,
+                    : `${safeSummary.noSaved} 个未入库 / ${safeSummary.failed} 个失败 / ${safeSummary.partial} 个部分入库 / ${safeSummary.notRun} 个待补采`,
                 className: safeSummary.noSaved || safeSummary.failed || safeSummary.partial ? 'text-amber-700' : 'text-gray-900',
             },
             {
@@ -395,6 +464,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
     const manualOneClickFetchStatusClass = (status) => ({
         running: 'border-blue-100 bg-blue-50 text-blue-700',
         queued: 'border-amber-100 bg-amber-50 text-amber-700',
+        not_run: 'border-gray-200 bg-gray-50 text-gray-600',
         success: 'border-emerald-100 bg-emerald-50 text-emerald-700',
         partial: 'border-amber-100 bg-amber-50 text-amber-700',
         no_saved: 'border-amber-100 bg-amber-50 text-amber-700',
@@ -427,8 +497,9 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             partial: 2,
             running: 3,
             queued: 4,
-            skipped: 5,
-            success: 6,
+            not_run: 5,
+            skipped: 6,
+            success: 7,
         };
         return [...(Array.isArray(rows) ? rows : [])].sort((left, right) => {
             const rankDiff = (statusRank[String(left?.status || '')] ?? 9) - (statusRank[String(right?.status || '')] ?? 9);
@@ -441,11 +512,12 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         const normalized = String(status || '').trim().toLowerCase();
         if (['success', 'skipped'].includes(normalized)) return 'success';
         if (['failed', 'no_saved', 'partial'].includes(normalized)) return 'failed';
+        if (normalized === 'not_run') return 'not_run';
         return 'other';
     };
 
     const filterManualOneClickFetchDisplayRows = (rows = [], { status = 'all' } = {}) => {
-        const normalizedStatus = ['success', 'failed'].includes(String(status || '').trim().toLowerCase())
+        const normalizedStatus = ['success', 'failed', 'not_run'].includes(String(status || '').trim().toLowerCase())
             ? String(status || '').trim().toLowerCase()
             : 'all';
         const sourceRows = Array.isArray(rows) ? rows : [];
@@ -582,6 +654,100 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             fetchedBy: String(operatorName || '未记录').trim() || '未记录',
             handledBy: String(operatorName || '未记录').trim() || '未记录',
         };
+    };
+
+    const buildManualOneClickFetchCoverageRows = ({
+        ctripHotels = [],
+        meituanHotels = [],
+        resultRows = [],
+        storedRows = [],
+        targetDate = '',
+        activeRun = false,
+        getHotelNameById = () => '',
+    } = {}) => {
+        const resultByPlatformHotel = new Map();
+        (Array.isArray(resultRows) ? resultRows : []).forEach(row => {
+            const hotelId = String(row?.hotelId || '').trim();
+            if (!hotelId) return;
+            const platform = row?.platform === 'meituan' ? 'meituan' : 'ctrip';
+            resultByPlatformHotel.set(`${platform}:${hotelId}`, row);
+        });
+
+        const configuredRows = [
+            ...(Array.isArray(ctripHotels) ? ctripHotels : []).map(hotel => ({ platform: 'ctrip', hotel })),
+            ...(Array.isArray(meituanHotels) ? meituanHotels : []).map(hotel => ({ platform: 'meituan', hotel })),
+        ];
+
+        return configuredRows.map(({ platform, hotel }) => {
+            const hotelId = String(hotel?.id || '').trim();
+            if (!hotelId) return null;
+            const hotelName = String(hotel?.name || hotel?.hotel_name || getHotelNameById(hotelId) || hotelId || '未命名门店');
+            const resultRow = resultByPlatformHotel.get(`${platform}:${hotelId}`) || null;
+            if (activeRun && resultRow) return resultRow;
+
+            const evidenceRow = findManualOneClickFetchExistingStoredRow({
+                rows: storedRows,
+                hotelId,
+                platform,
+            });
+            const resolvedTargetDate = String(evidenceRow?.targetDate || targetDate || '').trim();
+            if (evidenceRow) {
+                const competitionSummary = platform === 'ctrip'
+                    ? manualOneClickFetchStoredCompetitionSummary(evidenceRow, platform)
+                    : null;
+                const platformEvidence = (Array.isArray(evidenceRow?.platformRows) ? evidenceRow.platformRows : [])
+                    .find(item => String(item?.platform || '').trim().toLowerCase() === platform);
+                const existingCount = platform === 'ctrip'
+                    ? Number(competitionSummary?.total || 0)
+                    : Number(platformEvidence?.target_date_rows || 0);
+                return {
+                    key: `coverage:${platform}:${hotelId}`,
+                    platform,
+                    platformText: manualOneClickFetchPlatformText(platform),
+                    hotelId,
+                    hotelName,
+                    status: 'skipped',
+                    statusText: '目标日已入库',
+                    message: platform === 'ctrip'
+                        ? `目标日 ${resolvedTargetDate || '-'} 已有携程竞争圈 ${manualOneClickFetchCompetitionCountText(competitionSummary)}。`
+                        : `目标日 ${resolvedTargetDate || '-'} 已有美团数据 ${existingCount} 条。`,
+                    savedCount: 0,
+                    existingCount,
+                    timeText: resolvedTargetDate,
+                    fetchedBy: '入库记录',
+                    handledBy: '无需处理',
+                };
+            }
+
+            if (resultRow && manualOneClickFetchActionableStatus(resultRow.status)) {
+                const previousMessage = String(resultRow.message || '').trim();
+                return {
+                    ...resultRow,
+                    message: `${previousMessage || '最近一次手动补采未完成'}；目标日 ${resolvedTargetDate || targetDate || '-'} 仍无入库证据。`,
+                    detailMessage: String(resultRow.detailMessage || previousMessage || '').trim(),
+                };
+            }
+
+            const previousResultText = resultRow
+                ? `最近一次结果：${String(resultRow.statusText || '已执行').trim()}${resultRow.timeText ? ` · ${resultRow.timeText}` : ''}${resultRow.message ? ` · ${resultRow.message}` : ''}`
+                : '';
+            return {
+                key: `coverage:${platform}:${hotelId}`,
+                platform,
+                platformText: manualOneClickFetchPlatformText(platform),
+                hotelId,
+                hotelName,
+                status: 'not_run',
+                statusText: '待补采',
+                message: `目标日 ${resolvedTargetDate || targetDate || '-'} 暂无入库证据，待手动补采。`,
+                detailMessage: previousResultText,
+                savedCount: 0,
+                existingCount: 0,
+                timeText: resolvedTargetDate || String(targetDate || '').trim(),
+                fetchedBy: '未记录',
+                handledBy: '未记录',
+            };
+        }).filter(Boolean);
     };
 
     const buildManualOneClickFetchRunningRow = ({
@@ -6322,6 +6488,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         otaConfigPlatformIdentityText,
         buildOtaConfigOverviewRows,
         summarizeOtaConfigOverviewRows,
+        filterAndSortOtaConfigOverviewRows,
         normalizeManualOneClickFetchStoredMessage,
         normalizeManualOneClickFetchStoredRows,
         summarizeManualOneClickFetchRows,
@@ -6344,6 +6511,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         findManualOneClickFetchExistingStoredRow,
         buildManualOneClickFetchTasks,
         buildManualOneClickFetchBaseRow,
+        buildManualOneClickFetchCoverageRows,
         buildManualOneClickFetchRunningRow,
         buildManualOneClickFetchResultRow,
         buildManualOneClickFetchFailureRow,

@@ -197,6 +197,7 @@ test('manual one-click fetch task builders stay static and skip only proven stor
   assert.equal(typeof helpers.findManualOneClickFetchExistingStoredRow, 'function');
   assert.equal(typeof helpers.buildManualOneClickFetchTasks, 'function');
   assert.equal(typeof helpers.buildManualOneClickFetchBaseRow, 'function');
+  assert.equal(typeof helpers.buildManualOneClickFetchCoverageRows, 'function');
 
   const storedRows = [
     {
@@ -276,6 +277,44 @@ test('manual one-click fetch task builders stay static and skip only proven stor
   });
   assert.equal(fallbackRow.key, 'run-2:ctrip:88');
   assert.equal(fallbackRow.hotelName, 'Fallback Hotel');
+
+  const coverageRows = helpers.buildManualOneClickFetchCoverageRows({
+    ctripHotels: [{ id: 58, name: '携程已入库' }, { id: 64, name: '携程待处理' }],
+    meituanHotels: [{ id: 58, name: '美团待补采' }],
+    resultRows: [
+      { key: 'ctrip:58', platform: 'ctrip', hotelId: '58', hotelName: '携程已入库', status: 'success', statusText: '已入库', message: '旧批次成功', timeText: '2026/7/12 10:00:00' },
+      { key: 'ctrip:64', platform: 'ctrip', hotelId: '64', hotelName: '携程待处理', status: 'failed', statusText: '失败', message: 'Cookie 已失效', timeText: '2026/7/12 10:01:00' },
+    ],
+    storedRows: [{
+      hotelId: '58',
+      targetDate: '2026-07-13',
+      acquisitionStatusKind: 'ready',
+      fieldHasGap: false,
+      platformRows: [
+        { platform: 'ctrip', target_date_competition_hotel_count: 26, target_date_competition_self_count: 1, target_date_competition_competitor_count: 25 },
+        { platform: 'meituan', target_date_rows: 0 },
+      ],
+    }],
+    targetDate: '2026-07-13',
+  });
+  assert.equal(coverageRows.length, 3);
+  assert.equal(coverageRows[0].status, 'skipped');
+  assert.equal(coverageRows[0].statusText, '目标日已入库');
+  assert.equal(coverageRows[0].existingCount, 26);
+  assert.equal(coverageRows[1].status, 'failed');
+  assert.match(coverageRows[1].message, /仍无入库证据/);
+  assert.equal(coverageRows[2].status, 'not_run');
+  assert.equal(coverageRows[2].statusText, '待补采');
+  assert.equal(helpers.summarizeManualOneClickFetchRows(coverageRows).notRun, 1);
+
+  const activeCoverageRows = helpers.buildManualOneClickFetchCoverageRows({
+    ctripHotels: [{ id: 58, name: '携程执行中' }],
+    resultRows: [{ key: 'running:58', platform: 'ctrip', hotelId: '58', status: 'running', statusText: '获取中' }],
+    storedRows,
+    targetDate: '2026-07-13',
+    activeRun: true,
+  });
+  assert.equal(activeCoverageRows[0].status, 'running');
 
   assert.equal(typeof helpers.buildManualOneClickFetchRunningRow, 'function');
   const runningRow = helpers.buildManualOneClickFetchRunningRow({
@@ -783,6 +822,7 @@ test('manual one-click fetch display helpers stay pure and status aware', () => 
   assert.equal(summary.noSaved, 1);
   assert.equal(summary.failed, 1);
   assert.equal(summary.skipped, 0);
+  assert.equal(summary.notRun, 0);
   assert.equal(summary.pending, 1);
   assert.equal(summary.savedCount, 89);
 
@@ -799,6 +839,7 @@ test('manual one-click fetch display helpers stay pure and status aware', () => 
   assert.equal(cards[2].value, '3');
   const settledCards = helpers.buildManualOneClickFetchCards({ summary: { ...summary, pending: 0 } });
   assert.match(settledCards[2].detail, /1 个部分入库/);
+  assert.match(settledCards[2].detail, /0 个待补采/);
   assert.doesNotMatch(cards[2].detail, /已入库跳过/);
   assert.equal(cards[3].detail, '2026/7/8 09:00:00');
 
@@ -897,6 +938,11 @@ test('manual one-click fetch display helpers stay pure and status aware', () => 
   assert.equal(successfulVisible.map(row => row.key).join(','), 'ok,stored');
   const failedVisible = helpers.filterManualOneClickFetchDisplayRows(visible, { status: 'failed' });
   assert.equal(failedVisible.map(row => row.key).join(','), 'bad,empty,partial');
+  const pendingVisible = helpers.filterManualOneClickFetchDisplayRows([
+    ...visible,
+    { status: 'not_run', key: 'pending' },
+  ], { status: 'not_run' });
+  assert.equal(pendingVisible.map(row => row.key).join(','), 'pending');
   assert.match(publicEntry, /manualOneClickFetchStatusFilter/);
   assert.match(publicEntry, /完整\/已入库/);
   assert.match(publicEntry, /需处理/);
@@ -912,7 +958,7 @@ test('manual one-click fetch display helpers stay pure and status aware', () => 
   assert.match(resultTable, /row\.detailMessage/);
   assert.match(resultTable, /查看详情/);
   assert.doesNotMatch(resultTable, /min-w-\[\d+rem\]/);
-  assert.match(publicEntry, /data-health-static\.js\?v=20260714-ota-config-overview-h76c81ec35b/);
+  assert.match(publicEntry, /data-health-static\.js\?v=20260714-manual-fetch-coverage-h7811c378f8/);
 
   const directIssueStart = publicEntry.indexOf('const otaDirectManualFailureBuckets = computed');
   const directIssueEnd = publicEntry.indexOf('const otaDirectViewCards = computed', directIssueStart);

@@ -7708,6 +7708,132 @@ aside.sidebar:not(.collapsed) {
     accent-color: var(--sx-page-accent);
 }
 
+.suxi-app-shell main[data-current-page="meituan-ebooking"] .meituan-ranking-period-button {
+    border: 1px solid transparent;
+    background: #ffffff;
+    color: #475569;
+}
+
+.suxi-app-shell main[data-current-page="meituan-ebooking"] .meituan-ranking-period-button:hover {
+    border-color: color-mix(in srgb, var(--sx-page-accent) 30%, #ffffff);
+    background: var(--sx-page-accent-soft);
+    color: var(--sx-page-accent-dark);
+}
+
+.suxi-app-shell main[data-current-page="meituan-ebooking"] .meituan-ranking-period-button.is-active,
+.suxi-app-shell main[data-current-page="meituan-ebooking"] .meituan-ranking-period-button.is-active:hover {
+    border-color: var(--sx-page-accent);
+    background: var(--sx-page-accent);
+    color: #ffffff;
+    box-shadow: 0 7px 16px rgba(var(--sx-page-glow-rgb), .18);
+}
+
+.suxi-app-shell main[data-current-page="meituan-ebooking"] .meituan-hotel-picker {
+    display: grid;
+    grid-template-columns: minmax(180px, .7fr) minmax(280px, 420px);
+    align-items: start;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 14px;
+    border: 1px solid var(--sx-manual-border);
+    border-radius: 12px;
+    background: linear-gradient(135deg, rgba(255, 255, 255, .94), rgba(var(--sx-page-glow-rgb), .045));
+}
+
+.suxi-app-shell main[data-current-page="meituan-ebooking"] .meituan-hotel-picker-copy {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 42px;
+}
+
+.suxi-app-shell main[data-current-page="meituan-ebooking"] .meituan-hotel-picker-icon {
+    display: inline-flex;
+    width: 36px;
+    height: 36px;
+    flex: 0 0 36px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(var(--sx-page-glow-rgb), .16);
+    border-radius: 10px;
+    background: var(--sx-page-accent-soft);
+    color: var(--sx-page-accent-dark);
+}
+
+.suxi-app-shell main[data-current-page="meituan-ebooking"] .meituan-hotel-picker-control {
+    width: 100%;
+    max-width: 420px;
+    justify-self: end;
+}
+
+.suxi-app-shell main[data-current-page="meituan-ebooking"] .meituan-hotel-picker-select {
+    width: 100%;
+    min-height: 42px;
+    appearance: none;
+    border: 1px solid var(--sx-manual-border);
+    border-radius: 10px;
+    background: #ffffff;
+    padding: 9px 36px 9px 38px;
+    color: #1e293b;
+    font-size: 14px;
+    font-weight: 600;
+    box-shadow: 0 6px 16px rgba(15, 23, 42, .045);
+    transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.suxi-app-shell main[data-current-page="meituan-ebooking"] .meituan-hotel-picker-select:focus {
+    border-color: var(--sx-page-accent);
+    box-shadow: 0 0 0 3px rgba(var(--sx-page-glow-rgb), .12), 0 8px 18px rgba(15, 23, 42, .055);
+    outline: none;
+}
+
+.suxi-app-shell main[data-current-page="meituan-ebooking"] .meituan-hotel-picker-status {
+    display: inline-flex;
+    max-width: 100%;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    border: 1px solid;
+    border-radius: 999px;
+    padding: 5px 10px;
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.suxi-app-shell main[data-current-page="meituan-ebooking"] .meituan-hotel-picker-status.is-ready {
+    border-color: #bbdfd0;
+    background: #edf8f3;
+    color: #247158;
+}
+
+.suxi-app-shell main[data-current-page="meituan-ebooking"] .meituan-hotel-picker-status.is-warning {
+    border-color: #f2d49d;
+    background: #fff8e8;
+    color: #8a5a19;
+}
+
+.suxi-app-shell main[data-current-page="meituan-ebooking"] .meituan-hotel-picker-updated {
+    color: inherit;
+    font-weight: 400;
+    opacity: .76;
+}
+
+@media (max-width: 767px) {
+    .suxi-app-shell main[data-current-page="meituan-ebooking"] .meituan-hotel-picker {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 10px;
+    }
+
+    .suxi-app-shell main[data-current-page="meituan-ebooking"] .meituan-hotel-picker-control {
+        max-width: none;
+        justify-self: stretch;
+    }
+
+    .suxi-app-shell main[data-current-page="meituan-ebooking"] .meituan-hotel-picker-status {
+        border-radius: 9px;
+    }
+}
+
 .suxi-app-shell main[data-current-page="hotels"] :where(.bg-white.rounded-xl, .bg-white.rounded-lg, .card),
 .suxi-app-shell main[data-current-page="users"] :where(.bg-white.rounded-xl, .bg-white.rounded-lg, .card),
 .suxi-app-shell main[data-current-page="roles"] :where(.bg-white.rounded-xl, .bg-white.rounded-lg, .card),
@@ -10045,6 +10171,388 @@ main[data-current-page="online-data"] [data-testid="online-data-health-panel"] :
 ):where([class*="border"], [class*="shadow"]) {
     border-radius: 8px !important;
     box-shadow: none !important;
+}
+
+/* 高端视觉主页：严格限定 compass，不影响携程/美团 ai-workbench 数据页。 */
+main[data-current-page="compass"] .compass-dashboard {
+    --compass-ink: #101410;
+    --compass-ink-soft: #1a211b;
+    --compass-champagne: #d6b06b;
+    --compass-champagne-bright: #f2d596;
+    --compass-cream: #f8f3e9;
+    --compass-paper: #fffdf8;
+    --compass-line: rgba(130, 101, 49, .16);
+    font-family: "Plus Jakarta Sans", "Microsoft YaHei", sans-serif;
+}
+
+main[data-current-page="compass"] .compass-dashboard .compass-shell-card {
+    overflow: visible !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+main[data-current-page="compass"] .compass-dashboard .compass-content-stage {
+    position: relative;
+    gap: 18px;
+    padding: 24px !important;
+    overflow: hidden;
+    background:
+        radial-gradient(circle at 12% 8%, rgba(214, 176, 107, .17), transparent 28%),
+        radial-gradient(circle at 88% 28%, rgba(58, 86, 65, .11), transparent 30%),
+        linear-gradient(145deg, #f7f0e4 0%, #f2eadc 52%, #eee4d2 100%) !important;
+}
+
+main[data-current-page="compass"] .compass-dashboard .compass-content-stage::before {
+    position: absolute;
+    inset: 0;
+    content: "";
+    pointer-events: none;
+    opacity: .22;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.08'/%3E%3C/svg%3E");
+}
+
+main[data-current-page="compass"] .compass-dashboard .compass-content-stage > * {
+    position: relative;
+}
+
+main[data-current-page="compass"] .compass-hero-bezel {
+    padding: 7px;
+    border: 1px solid rgba(255, 255, 255, .5);
+    border-radius: 34px;
+    background: rgba(16, 20, 16, .08);
+    box-shadow: 0 28px 80px rgba(70, 52, 27, .13), inset 0 1px 0 rgba(255, 255, 255, .62);
+    animation: compass-heavy-rise 900ms cubic-bezier(.32, .72, 0, 1) both;
+}
+
+main[data-current-page="compass"] .compass-hero-core {
+    position: relative;
+    padding: 44px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, .09);
+    border-radius: 27px;
+    color: #fffdf6;
+    background:
+        radial-gradient(circle at 78% 5%, rgba(214, 176, 107, .18), transparent 33%),
+        linear-gradient(135deg, #111612 0%, #171d18 48%, #0d110e 100%);
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, .12);
+}
+
+main[data-current-page="compass"] .compass-hero-grid {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 40px;
+    align-items: end;
+}
+
+main[data-current-page="compass"] .compass-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 11px;
+    border: 1px solid rgba(242, 213, 150, .18);
+    border-radius: 999px;
+    color: #e7c883;
+    background: rgba(255, 255, 255, .04);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .2em;
+}
+
+main[data-current-page="compass"] .compass-eyebrow span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--compass-champagne-bright);
+    box-shadow: 0 0 0 5px rgba(242, 213, 150, .08);
+}
+
+main[data-current-page="compass"] .compass-hero-copy h1 {
+    max-width: 850px;
+    margin-top: 20px;
+    color: #fffdf7;
+    font-size: clamp(30px, 4vw, 56px);
+    font-weight: 600;
+    line-height: 1.08;
+    letter-spacing: -.045em;
+}
+
+main[data-current-page="compass"] .compass-hero-copy p {
+    max-width: 720px;
+    margin-top: 16px;
+    color: rgba(248, 243, 233, .66);
+    font-size: 14px;
+    line-height: 1.85;
+}
+
+main[data-current-page="compass"] .compass-hero-action {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 12px;
+}
+
+main[data-current-page="compass"] .compass-status-pill {
+    width: fit-content;
+    padding: 7px 12px !important;
+    border-color: rgba(255, 255, 255, .12) !important;
+    border-radius: 999px !important;
+    background: rgba(255, 255, 255, .06) !important;
+    color: rgba(255, 253, 247, .78) !important;
+    font-size: 11px;
+}
+
+main[data-current-page="compass"] .compass-primary-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+    min-height: 54px;
+    padding: 7px 8px 7px 22px;
+    border: 0;
+    border-radius: 999px;
+    color: #17140e;
+    background: linear-gradient(135deg, #f4dca8, #d6b06b);
+    font-size: 13px;
+    font-weight: 800;
+    box-shadow: 0 14px 34px rgba(0, 0, 0, .24), inset 0 1px 0 rgba(255, 255, 255, .6);
+    transition: transform 700ms cubic-bezier(.32, .72, 0, 1), box-shadow 700ms cubic-bezier(.32, .72, 0, 1);
+}
+
+main[data-current-page="compass"] .compass-primary-cta:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 19px 44px rgba(0, 0, 0, .3), inset 0 1px 0 rgba(255, 255, 255, .72);
+}
+
+main[data-current-page="compass"] .compass-primary-cta:active {
+    transform: scale(.98);
+}
+
+main[data-current-page="compass"] .compass-cta-icon {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    color: #f5dfb1;
+    background: #171b17;
+    transition: transform 700ms cubic-bezier(.32, .72, 0, 1);
+}
+
+main[data-current-page="compass"] .compass-primary-cta:hover .compass-cta-icon {
+    transform: translate(3px, -2px) scale(1.05);
+}
+
+main[data-current-page="compass"] .compass-signal-grid {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 9px;
+    margin-top: 38px;
+}
+
+main[data-current-page="compass"] .compass-signal-card {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 5px 10px;
+    min-width: 0;
+    padding: 16px 17px;
+    border: 1px solid rgba(255, 255, 255, .08);
+    border-radius: 18px;
+    color: #fff;
+    text-align: left;
+    background: rgba(255, 255, 255, .045);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05);
+    transition: transform 700ms cubic-bezier(.32, .72, 0, 1), background-color 700ms cubic-bezier(.32, .72, 0, 1), border-color 700ms cubic-bezier(.32, .72, 0, 1);
+}
+
+main[data-current-page="compass"] .compass-signal-card:hover {
+    z-index: 2;
+    transform: translateY(-5px);
+    border-color: rgba(242, 213, 150, .24);
+    background: rgba(255, 255, 255, .075);
+}
+
+main[data-current-page="compass"] .compass-signal-label {
+    color: rgba(248, 243, 233, .53);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .08em;
+}
+
+main[data-current-page="compass"] .compass-signal-card strong {
+    grid-column: 1 / -1;
+    overflow: hidden;
+    color: #fffdf7;
+    font-size: 15px;
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+main[data-current-page="compass"] .compass-signal-badge {
+    max-width: 112px;
+    overflow: hidden;
+    padding: 2px 7px !important;
+    border-color: transparent !important;
+    border-radius: 999px !important;
+    background: rgba(214, 176, 107, .12) !important;
+    color: #e3c27f !important;
+    font-size: 9px;
+    text-overflow: ellipsis;
+}
+
+main[data-current-page="compass"] .compass-blocker-strip {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: auto minmax(180px, .8fr) minmax(0, 1.2fr);
+    gap: 14px;
+    align-items: center;
+    margin-top: 10px;
+    padding: 14px 16px;
+    border: 1px solid rgba(214, 176, 107, .14);
+    border-radius: 16px;
+    background: rgba(214, 176, 107, .07);
+}
+
+main[data-current-page="compass"] .compass-blocker-mark {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #d7aa5b;
+    box-shadow: 0 0 0 6px rgba(215, 170, 91, .09);
+}
+
+main[data-current-page="compass"] .compass-blocker-strip div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+main[data-current-page="compass"] .compass-blocker-strip strong {
+    color: #d6b06b;
+    font-size: 9px;
+    letter-spacing: .14em;
+}
+
+main[data-current-page="compass"] .compass-blocker-strip span,
+main[data-current-page="compass"] .compass-blocker-strip p {
+    overflow: hidden;
+    color: rgba(248, 243, 233, .68);
+    font-size: 11px;
+    line-height: 1.55;
+    text-overflow: ellipsis;
+}
+
+main[data-current-page="compass"] .compass-hero-orbit {
+    position: absolute;
+    border: 1px solid rgba(214, 176, 107, .08);
+    border-radius: 50%;
+    pointer-events: none;
+}
+
+main[data-current-page="compass"] .compass-hero-orbit-one {
+    top: -210px;
+    right: -80px;
+    width: 480px;
+    height: 480px;
+}
+
+main[data-current-page="compass"] .compass-hero-orbit-two {
+    top: -102px;
+    right: 28px;
+    width: 270px;
+    height: 270px;
+}
+
+main[data-current-page="compass"] .suxi-evidence-fold {
+    border-color: rgba(130, 101, 49, .13) !important;
+    background: rgba(255, 253, 248, .82) !important;
+    box-shadow: 0 18px 54px rgba(70, 52, 27, .07) !important;
+    transition: transform 700ms cubic-bezier(.32, .72, 0, 1), box-shadow 700ms cubic-bezier(.32, .72, 0, 1);
+}
+
+main[data-current-page="compass"] .suxi-evidence-fold:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 24px 64px rgba(70, 52, 27, .1) !important;
+}
+
+@keyframes compass-heavy-rise {
+    from { opacity: 0; transform: translateY(28px) scale(.985); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (max-width: 1024px) {
+    main[data-current-page="compass"] .compass-hero-grid {
+        grid-template-columns: 1fr;
+        gap: 24px;
+    }
+
+    main[data-current-page="compass"] .compass-hero-action {
+        align-items: flex-start;
+    }
+
+    main[data-current-page="compass"] .compass-signal-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 767px) {
+    main[data-current-page="compass"] .compass-dashboard .compass-content-stage {
+        width: 100%;
+        padding: 16px !important;
+    }
+
+    main[data-current-page="compass"] .compass-hero-bezel {
+        padding: 5px;
+        border-radius: 26px;
+    }
+
+    main[data-current-page="compass"] .compass-hero-core {
+        padding: 28px 20px 20px;
+        border-radius: 21px;
+    }
+
+    main[data-current-page="compass"] .compass-hero-copy h1 {
+        font-size: clamp(28px, 10vw, 40px);
+    }
+
+    main[data-current-page="compass"] .compass-primary-cta {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    main[data-current-page="compass"] .compass-hero-action {
+        width: 100%;
+    }
+
+    main[data-current-page="compass"] .compass-signal-grid {
+        grid-template-columns: 1fr;
+        margin-top: 28px;
+    }
+
+    main[data-current-page="compass"] .compass-blocker-strip {
+        grid-template-columns: auto 1fr;
+    }
+
+    main[data-current-page="compass"] .compass-blocker-strip p {
+        grid-column: 2;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    main[data-current-page="compass"] .compass-hero-bezel {
+        animation: none;
+    }
+
+    main[data-current-page="compass"] :where(.compass-primary-cta, .compass-cta-icon, .compass-signal-card, .suxi-evidence-fold) {
+        transition: none !important;
+    }
 }
 
 main[data-current-page="compass"] .compass-dashboard .compass-shell-card :where(
@@ -12673,5 +13181,662 @@ main[data-current-page="ai-workbench"] .dual-ota-deprioritized .dual-ota-card-he
     main[data-current-page="ai-workbench"] .dual-ota-module-grid-top > :nth-child(2) {
         grid-column: auto !important;
         grid-row: auto !important;
+    }
+}
+
+/* AI 工作台交互可发现性：仅增强按钮反馈，不改变 OTA 数据与筛选逻辑。 */
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] :is(
+    .dual-ota-range-button,
+    .dual-ota-compare-toggle,
+    .dual-ota-store-option,
+    .dual-ota-loss-node,
+    .dual-ota-toggle,
+    .dual-ota-primary-button,
+    .dual-ota-deprioritized-link,
+    [data-testid="dual-ota-hotel-order-open"]
+) {
+    cursor: pointer !important;
+    transition:
+        transform 180ms cubic-bezier(.2, .75, .25, 1),
+        background-color 180ms cubic-bezier(.2, .75, .25, 1),
+        border-color 180ms cubic-bezier(.2, .75, .25, 1),
+        box-shadow 180ms cubic-bezier(.2, .75, .25, 1),
+        color 180ms cubic-bezier(.2, .75, .25, 1) !important;
+    -webkit-tap-highlight-color: transparent;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] :is(
+    .dual-ota-range-button,
+    .dual-ota-compare-toggle,
+    .dual-ota-store-option,
+    .dual-ota-toggle,
+    .dual-ota-primary-button,
+    .dual-ota-deprioritized-link,
+    [data-testid="dual-ota-hotel-order-open"]
+):focus-visible,
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-loss-node:focus-visible {
+    outline: 3px solid rgba(15, 107, 95, .24) !important;
+    outline-offset: 3px !important;
+    box-shadow: 0 0 0 1px rgba(15, 107, 95, .62), 0 8px 20px rgba(20, 33, 61, .12) !important;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] :is(
+    .dual-ota-range-button,
+    .dual-ota-compare-toggle,
+    .dual-ota-store-option,
+    .dual-ota-loss-node,
+    .dual-ota-toggle,
+    .dual-ota-primary-button,
+    .dual-ota-deprioritized-link,
+    [data-testid="dual-ota-hotel-order-open"]
+):active {
+    transform: translateY(1px) scale(.98) !important;
+    box-shadow: inset 0 2px 5px rgba(20, 33, 61, .12) !important;
+    transition-duration: 80ms !important;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] button:disabled {
+    cursor: not-allowed !important;
+    transform: none !important;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-deprioritized-link em::after {
+    display: inline-block;
+    margin-left: 5px;
+    content: "→";
+    transition: transform 180ms cubic-bezier(.2, .75, .25, 1);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] :is(
+        .dual-ota-range-button,
+        .dual-ota-compare-toggle,
+        .dual-ota-store-option,
+        .dual-ota-toggle
+    ):hover {
+        border-color: rgba(15, 107, 95, .56) !important;
+        background: #eef8f4 !important;
+        color: #0f6b5f !important;
+        box-shadow: 0 8px 18px rgba(15, 107, 95, .14), inset 0 1px 0 rgba(255, 255, 255, .92) !important;
+        transform: translateY(-2px) !important;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] :is(
+        .dual-ota-range-button.is-active,
+        .dual-ota-compare-toggle.is-active,
+        .dual-ota-toggle.is-active,
+        .dual-ota-store-option.is-selected
+    ):hover {
+        border-color: #075e54 !important;
+        background: #087a6b !important;
+        color: #ffffff !important;
+        box-shadow: 0 9px 20px rgba(8, 122, 107, .24), inset 0 1px 0 rgba(255, 255, 255, .2) !important;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-loss-node:hover {
+        z-index: 1;
+        border-color: rgba(15, 107, 95, .52) !important;
+        background: #fffefb !important;
+        box-shadow: 0 11px 24px rgba(20, 33, 61, .13), inset 0 3px 0 rgba(15, 107, 95, .38) !important;
+        transform: translateY(-3px) !important;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-loss-node.is-selected:hover {
+        outline-color: rgba(15, 107, 95, .5) !important;
+        box-shadow: 0 13px 28px rgba(15, 107, 95, .17), inset 0 3px 0 rgba(15, 107, 95, .72) !important;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] :is(
+        .dual-ota-primary-button,
+        [data-testid="dual-ota-hotel-order-open"]
+    ):hover {
+        border-color: #075e54 !important;
+        background: #075e54 !important;
+        color: #ffffff !important;
+        box-shadow: 0 10px 22px rgba(15, 107, 95, .22) !important;
+        transform: translateY(-2px) !important;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-deprioritized-link:hover {
+        border-color: rgba(168, 138, 82, .82) !important;
+        background: #fffdf8 !important;
+        color: #6f572f !important;
+        box-shadow: 0 10px 22px rgba(111, 87, 47, .15), inset 0 1px 0 #ffffff !important;
+        transform: translateY(-2px) !important;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-deprioritized-link:hover em::after {
+        transform: translateX(4px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] :is(
+        button,
+        .dual-ota-deprioritized-link em::after
+    ) {
+        transition-duration: 1ms !important;
+    }
+}
+
+/* AI 工作台指标卡动态：信息可读优先，不伪装成可点击按钮。 */
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric {
+    --dual-metric-accent: #a88a52;
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    cursor: default;
+    box-shadow: 0 1px 2px rgba(33, 28, 20, .025);
+    transition:
+        transform 200ms cubic-bezier(.2, .75, .25, 1),
+        background-color 200ms cubic-bezier(.2, .75, .25, 1),
+        border-color 200ms cubic-bezier(.2, .75, .25, 1),
+        box-shadow 200ms cubic-bezier(.2, .75, .25, 1);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric.is-good {
+    --dual-metric-accent: #0f6b5f;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric.is-warning {
+    --dual-metric-accent: #b47a2a;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric::before {
+    position: absolute;
+    top: 0;
+    right: 10px;
+    left: 10px;
+    z-index: 0;
+    height: 2px;
+    border-radius: 999px;
+    content: "";
+    opacity: 0;
+    background: linear-gradient(90deg, transparent, var(--dual-metric-accent), transparent);
+    transform: scaleX(.25);
+    transition: opacity 180ms ease, transform 200ms cubic-bezier(.2, .75, .25, 1);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric::after {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    content: "";
+    pointer-events: none;
+    opacity: 0;
+    background: linear-gradient(112deg, transparent 25%, rgba(255, 255, 255, .78) 50%, transparent 75%);
+    transform: translateX(-115%);
+    transition: opacity 160ms ease, transform 220ms cubic-bezier(.2, .75, .25, 1);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric > * {
+    position: relative;
+    z-index: 1;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric em,
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric strong,
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric small {
+    transition: color 180ms ease, transform 200ms cubic-bezier(.2, .75, .25, 1);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric:hover {
+        border-color: rgba(168, 138, 82, .58);
+        background: #fffefb;
+        box-shadow: 0 10px 24px rgba(61, 45, 24, .11), inset 0 1px 0 rgba(255, 255, 255, .92);
+        transform: translateY(-3px);
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric:hover::before {
+        opacity: 1;
+        transform: scaleX(1);
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric:hover::after {
+        opacity: .72;
+        transform: translateX(115%);
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric:hover strong {
+        transform: translateX(2px) scale(1.035);
+        transform-origin: left center;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric:hover em {
+        color: #5f4a2b;
+        transform: translateX(1px);
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric.is-good:hover {
+        border-color: rgba(15, 107, 95, .5);
+        box-shadow: 0 10px 24px rgba(15, 107, 95, .12), inset 0 1px 0 rgba(255, 255, 255, .92);
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric.is-warning:hover {
+        border-color: rgba(180, 122, 42, .55);
+        box-shadow: 0 10px 24px rgba(180, 122, 42, .12), inset 0 1px 0 rgba(255, 255, 255, .92);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric,
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric::before,
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric::after,
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric > * {
+        transition-duration: 1ms !important;
+    }
+}
+
+/* AI 工作台门店排序：传送到 body 后使用统一模态层，避免被工作台卡片堆叠上下文遮挡。 */
+.dual-ota-hotel-order-overlay {
+    z-index: 80;
+    overflow-y: auto;
+    background: rgba(2, 7, 6, .58);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    animation: dualOtaOrderOverlayIn 180ms cubic-bezier(.2, .75, .25, 1) both;
+}
+
+.dual-ota-hotel-order-panel {
+    border-color: rgba(220, 197, 145, .46) !important;
+    box-shadow: 0 28px 70px rgba(2, 7, 6, .28), inset 0 1px 0 rgba(255, 255, 255, .92) !important;
+    animation: dualOtaOrderPanelIn 210ms cubic-bezier(.2, .75, .25, 1) both;
+}
+
+.dual-ota-hotel-order-panel button:not(:disabled) {
+    cursor: pointer;
+    transition: transform 180ms cubic-bezier(.2, .75, .25, 1), box-shadow 180ms cubic-bezier(.2, .75, .25, 1), background-color 180ms cubic-bezier(.2, .75, .25, 1), border-color 180ms cubic-bezier(.2, .75, .25, 1);
+}
+
+.dual-ota-hotel-order-panel button[class*="bg-amber-700"] {
+    border: 1px solid rgba(111, 87, 47, .72) !important;
+    background: linear-gradient(135deg, #a88a52 0%, #6f572f 100%) !important;
+    color: #ffffff !important;
+    box-shadow: 0 8px 18px rgba(111, 87, 47, .22), inset 0 1px 0 rgba(255, 255, 255, .18) !important;
+}
+
+.dual-ota-hotel-order-panel button:focus-visible {
+    outline: 3px solid rgba(168, 138, 82, .24);
+    outline-offset: 2px;
+}
+
+.dual-ota-hotel-order-panel button:active:not(:disabled) {
+    transform: translateY(1px) scale(.98);
+}
+
+.dual-ota-hotel-order-panel button:disabled {
+    cursor: not-allowed;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .dual-ota-hotel-order-panel button:not(:disabled):hover {
+        border-color: rgba(168, 138, 82, .58) !important;
+        box-shadow: 0 7px 16px rgba(61, 45, 24, .12);
+        transform: translateY(-1px);
+    }
+
+    .dual-ota-hotel-order-panel button[class*="bg-amber-700"]:not(:disabled):hover {
+        background: linear-gradient(135deg, #967842 0%, #5e4827 100%) !important;
+        box-shadow: 0 10px 22px rgba(111, 87, 47, .28), inset 0 1px 0 rgba(255, 255, 255, .2) !important;
+    }
+}
+
+@keyframes dualOtaOrderOverlayIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes dualOtaOrderPanelIn {
+    from { opacity: 0; transform: translateY(12px) scale(.985); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* HOLIDAY OPS：以最近假期为视觉焦点，次近窗口与行动清单形成不对称运营版式。 */
+main[data-current-page="ai-workbench"] .holiday-ops-panel {
+    position: relative;
+    overflow: hidden;
+    padding: 24px;
+    border: 1px solid rgba(168, 138, 82, .28);
+    border-radius: 24px;
+    background:
+        radial-gradient(circle at 92% 4%, rgba(220, 197, 145, .2), transparent 30%),
+        linear-gradient(145deg, #fffefb 0%, #f7f3ea 100%);
+    box-shadow: 0 16px 42px rgba(61, 45, 24, .08), inset 0 1px 0 rgba(255, 255, 255, .96);
+}
+
+main[data-current-page="ai-workbench"] .holiday-ops-panel::before {
+    position: absolute;
+    top: 0;
+    right: 28px;
+    left: 28px;
+    height: 2px;
+    border-radius: 999px;
+    content: "";
+    background: linear-gradient(90deg, transparent, rgba(168, 138, 82, .78), transparent);
+}
+
+main[data-current-page="ai-workbench"] .holiday-ops-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 22px;
+}
+
+main[data-current-page="ai-workbench"] .holiday-ops-heading {
+    min-width: 0;
+}
+
+main[data-current-page="ai-workbench"] .holiday-ops-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #7b6540;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .2em;
+}
+
+main[data-current-page="ai-workbench"] .holiday-ops-eyebrow > span {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #a88a52;
+    box-shadow: 0 0 0 4px rgba(168, 138, 82, .12);
+}
+
+main[data-current-page="ai-workbench"] .holiday-ops-heading h3 {
+    margin: 7px 0 0;
+    color: #10251f;
+    font-size: 22px;
+    font-weight: 750;
+    letter-spacing: -.025em;
+}
+
+main[data-current-page="ai-workbench"] .holiday-ops-heading p {
+    margin: 7px 0 0;
+    color: #69746f;
+    font-size: 13px;
+    line-height: 1.65;
+}
+
+main[data-current-page="ai-workbench"] .holiday-ops-stage {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border: 1px solid rgba(168, 138, 82, .36);
+    border-radius: 999px;
+    background: rgba(255, 253, 248, .86);
+    color: #6f572f;
+    font-size: 12px;
+    font-weight: 700;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .95);
+}
+
+main[data-current-page="ai-workbench"] .holiday-ops-stage > span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #0f6b5f;
+    box-shadow: 0 0 0 3px rgba(15, 107, 95, .1);
+}
+
+main[data-current-page="ai-workbench"] .holiday-ops-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.08fr) minmax(0, .86fr) minmax(320px, 1.16fr);
+    gap: 14px;
+    align-items: stretch;
+}
+
+main[data-current-page="ai-workbench"] .holiday-countdown-card,
+main[data-current-page="ai-workbench"] .holiday-advice-card {
+    position: relative;
+    min-width: 0;
+    border-radius: 18px;
+    transition: transform 190ms cubic-bezier(.2, .75, .25, 1), box-shadow 190ms cubic-bezier(.2, .75, .25, 1), border-color 190ms cubic-bezier(.2, .75, .25, 1);
+}
+
+main[data-current-page="ai-workbench"] .holiday-countdown-card {
+    display: flex;
+    min-height: 218px;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 20px;
+}
+
+main[data-current-page="ai-workbench"] .holiday-countdown-card-primary {
+    overflow: hidden;
+    border: 1px solid rgba(220, 197, 145, .24);
+    background: linear-gradient(145deg, #06110d 0%, #12392f 100%);
+    color: #f8fafc;
+    box-shadow: 0 16px 34px rgba(2, 7, 6, .19), inset 0 1px 0 rgba(255, 255, 255, .08);
+}
+
+main[data-current-page="ai-workbench"] .holiday-countdown-card-primary::after {
+    position: absolute;
+    right: -48px;
+    bottom: -68px;
+    width: 168px;
+    height: 168px;
+    border: 1px solid rgba(220, 197, 145, .12);
+    border-radius: 50%;
+    content: "";
+    box-shadow: 0 0 0 26px rgba(220, 197, 145, .035), 0 0 0 54px rgba(220, 197, 145, .02);
+}
+
+main[data-current-page="ai-workbench"] .holiday-countdown-card-secondary {
+    border: 1px solid rgba(168, 138, 82, .3);
+    background: rgba(255, 253, 248, .88);
+    color: #10251f;
+    box-shadow: 0 9px 24px rgba(61, 45, 24, .07), inset 0 1px 0 #fff;
+}
+
+main[data-current-page="ai-workbench"] .holiday-countdown-card-head {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    color: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .12em;
+}
+
+main[data-current-page="ai-workbench"] .holiday-countdown-card-primary .holiday-countdown-card-head {
+    color: rgba(248, 250, 252, .68);
+}
+
+main[data-current-page="ai-workbench"] .holiday-countdown-card-secondary .holiday-countdown-card-head {
+    color: #85704b;
+}
+
+main[data-current-page="ai-workbench"] .holiday-countdown-index {
+    display: inline-flex;
+    width: 30px;
+    height: 30px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    font-size: 10px;
+    opacity: .68;
+}
+
+main[data-current-page="ai-workbench"] .holiday-countdown-value {
+    position: relative;
+    z-index: 1;
+    margin-top: 20px;
+    font-size: clamp(46px, 4.1vw, 70px);
+    font-weight: 780;
+    line-height: .95;
+    letter-spacing: -.065em;
+}
+
+main[data-current-page="ai-workbench"] .holiday-countdown-card-primary .holiday-countdown-value {
+    color: #f1dca8;
+}
+
+main[data-current-page="ai-workbench"] .holiday-countdown-card-secondary .holiday-countdown-value {
+    color: #0f6b5f;
+    font-size: clamp(42px, 3.5vw, 60px);
+}
+
+main[data-current-page="ai-workbench"] .holiday-countdown-body {
+    position: relative;
+    z-index: 1;
+    margin-top: 18px;
+}
+
+main[data-current-page="ai-workbench"] .holiday-countdown-body strong {
+    display: block;
+    font-size: 16px;
+    font-weight: 750;
+}
+
+main[data-current-page="ai-workbench"] .holiday-countdown-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px 12px;
+    margin-top: 7px;
+    font-size: 11px;
+    line-height: 1.55;
+}
+
+main[data-current-page="ai-workbench"] .holiday-countdown-card-primary .holiday-countdown-meta {
+    color: rgba(248, 250, 252, .62);
+}
+
+main[data-current-page="ai-workbench"] .holiday-countdown-card-secondary .holiday-countdown-meta {
+    color: #77827d;
+}
+
+main[data-current-page="ai-workbench"] .holiday-countdown-empty {
+    position: relative;
+    z-index: 1;
+    margin: auto 0;
+    color: inherit;
+    font-size: 13px;
+    opacity: .68;
+}
+
+main[data-current-page="ai-workbench"] .holiday-advice-card {
+    padding: 20px;
+    border: 1px solid rgba(15, 107, 95, .18);
+    background: rgba(242, 247, 243, .9);
+    box-shadow: 0 9px 24px rgba(15, 60, 49, .06), inset 0 1px 0 rgba(255, 255, 255, .9);
+}
+
+main[data-current-page="ai-workbench"] .holiday-advice-heading > span {
+    color: #0f6b5f;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .18em;
+}
+
+main[data-current-page="ai-workbench"] .holiday-advice-heading h4 {
+    margin: 5px 0 0;
+    color: #10251f;
+    font-size: 16px;
+    font-weight: 750;
+}
+
+main[data-current-page="ai-workbench"] .holiday-advice-list {
+    display: grid;
+    gap: 9px;
+    margin-top: 15px;
+}
+
+main[data-current-page="ai-workbench"] .holiday-advice-item {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr);
+    gap: 9px;
+    align-items: start;
+    color: #58635f;
+    font-size: 12px;
+    line-height: 1.55;
+}
+
+main[data-current-page="ai-workbench"] .holiday-advice-number {
+    display: inline-flex;
+    width: 22px;
+    height: 22px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(15, 107, 95, .2);
+    border-radius: 7px;
+    background: rgba(255, 255, 255, .82);
+    color: #0f6b5f;
+    font-size: 10px;
+    font-weight: 800;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    main[data-current-page="ai-workbench"] .holiday-countdown-card:hover,
+    main[data-current-page="ai-workbench"] .holiday-advice-card:hover {
+        transform: translateY(-3px);
+    }
+
+    main[data-current-page="ai-workbench"] .holiday-countdown-card-primary:hover {
+        box-shadow: 0 20px 42px rgba(2, 7, 6, .24), inset 0 1px 0 rgba(255, 255, 255, .1);
+    }
+
+    main[data-current-page="ai-workbench"] .holiday-countdown-card-secondary:hover,
+    main[data-current-page="ai-workbench"] .holiday-advice-card:hover {
+        border-color: rgba(168, 138, 82, .48);
+        box-shadow: 0 14px 30px rgba(61, 45, 24, .1), inset 0 1px 0 #fff;
+    }
+}
+
+@media (max-width: 1180px) {
+    main[data-current-page="ai-workbench"] .holiday-ops-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    main[data-current-page="ai-workbench"] .holiday-advice-card {
+        grid-column: 1 / -1;
+    }
+}
+
+@media (max-width: 767px) {
+    main[data-current-page="ai-workbench"] .holiday-ops-panel {
+        padding: 18px;
+        border-radius: 20px;
+    }
+
+    main[data-current-page="ai-workbench"] .holiday-ops-header {
+        flex-direction: column;
+        gap: 14px;
+        margin-bottom: 18px;
+    }
+
+    main[data-current-page="ai-workbench"] .holiday-ops-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    main[data-current-page="ai-workbench"] .holiday-advice-card {
+        grid-column: auto;
+    }
+
+    main[data-current-page="ai-workbench"] .holiday-countdown-card {
+        min-height: 200px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dual-ota-hotel-order-overlay,
+    .dual-ota-hotel-order-panel,
+    .dual-ota-hotel-order-panel button {
+        animation-duration: 1ms !important;
+        transition-duration: 1ms !important;
+    }
+
+    main[data-current-page="ai-workbench"] .holiday-countdown-card,
+    main[data-current-page="ai-workbench"] .holiday-advice-card {
+        transition-duration: 1ms !important;
     }
 }

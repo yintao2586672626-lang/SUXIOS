@@ -1,4 +1,4 @@
-const SECTION_NAMES = ['traffic', 'orders', 'ads', 'reviews'];
+const SECTION_NAMES = ['traffic', 'order_flow', 'orders', 'ads', 'reviews'];
 const CUMULATIVE_PAYLOAD_KEYS = [
   'traffic',
   'ads',
@@ -8,6 +8,7 @@ const CUMULATIVE_PAYLOAD_KEYS = [
   'peer_rank',
   'flowAnalysis',
   'flow_analysis',
+  'order_flow',
   'searchKeywords',
   'search_keywords',
   'roomTypes',

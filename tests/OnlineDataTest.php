@@ -1641,7 +1641,7 @@ final class OnlineDataTest extends TestCase
         }
     }
 
-    public function testBackendKeepsRealtimePeerStayValuesMissingWhileShowingSelfActuals(): void
+    public function testBackendDerivesRealtimePeerStayValuesFromSelfActualsAndPercents(): void
     {
         $controller = $this->controller();
 
@@ -1652,7 +1652,7 @@ final class OnlineDataTest extends TestCase
                         'dimName' => '入住间夜榜',
                         'aiMetricName' => 'P_RZ_NIGHT_COUNT',
                         'roundRanks' => [
-                            ['poiId' => 'SELF', 'poiName' => 'Self Hotel', 'dataValue' => null, 'percent' => 50, 'rank' => 3],
+                            ['poiId' => 'SELF', 'poiName' => 'Self Hotel', 'dataValue' => null, 'percent' => 13.64, 'rank' => 8],
                             ['poiId' => 'RIVAL', 'poiName' => 'Rival Hotel', 'dataValue' => null, 'percent' => 100, 'rank' => 1],
                         ],
                     ],
@@ -1660,7 +1660,7 @@ final class OnlineDataTest extends TestCase
                         'dimName' => '房费收入榜',
                         'aiMetricName' => 'P_RZ_ROOM_PAY',
                         'roundRanks' => [
-                            ['poiId' => 'SELF', 'poiName' => 'Self Hotel', 'dataValue' => null, 'percent' => 50, 'rank' => 3],
+                            ['poiId' => 'SELF', 'poiName' => 'Self Hotel', 'dataValue' => null, 'percent' => 20.08, 'rank' => 9],
                             ['poiId' => 'RIVAL', 'poiName' => 'Rival Hotel', 'dataValue' => null, 'percent' => 100, 'rank' => 1],
                         ],
                     ],
@@ -1671,8 +1671,8 @@ final class OnlineDataTest extends TestCase
             'rank_type' => 'P_RZ',
             'target_poi_id' => 'SELF',
             'self_metric_values' => [
-                'roomNights' => 21,
-                'roomRevenue' => 3409,
+                'roomNights' => 6,
+                'roomRevenue' => 1303,
             ],
         ]]);
 
@@ -1681,12 +1681,23 @@ final class OnlineDataTest extends TestCase
             $rowsByPoi[$row['poiId']] = $row;
         }
 
-        self::assertSame('21', $rowsByPoi['SELF']['roomNightsText']);
-        self::assertSame('3,409', $rowsByPoi['SELF']['roomRevenueText']);
-        self::assertSame('-', $rowsByPoi['RIVAL']['roomNightsText']);
-        self::assertSame('-', $rowsByPoi['RIVAL']['roomRevenueText']);
-        self::assertArrayNotHasKey('roomNights', $rowsByPoi['RIVAL']['metricDerived']);
-        self::assertArrayNotHasKey('roomRevenue', $rowsByPoi['RIVAL']['metricDerived']);
+        self::assertSame('6', $rowsByPoi['SELF']['roomNightsText']);
+        self::assertSame('1,303', $rowsByPoi['SELF']['roomRevenueText']);
+        self::assertSame(44.0, $rowsByPoi['RIVAL']['roomNights']);
+        self::assertSame('44', $rowsByPoi['RIVAL']['roomNightsText']);
+        self::assertSame(6489.0, $rowsByPoi['RIVAL']['roomRevenue']);
+        self::assertSame('6,489', $rowsByPoi['RIVAL']['roomRevenueText']);
+        self::assertSame('按本店值和美团百分比推导', $rowsByPoi['RIVAL']['metricSourceStatus']['roomNights']);
+        self::assertSame('按本店值和美团百分比推导', $rowsByPoi['RIVAL']['metricSourceStatus']['roomRevenue']);
+        self::assertSame('self_value_times_row_percent_div_self_percent', $rowsByPoi['RIVAL']['metricDerived']['roomNights']['method']);
+        self::assertSame('self_value_times_row_percent_div_self_percent', $rowsByPoi['RIVAL']['metricDerived']['roomRevenue']['method']);
+
+        $summary = $this->invokeNonPublic($controller, 'buildMeituanBusinessDisplaySummary', [$rows, ['date_range' => '0']]);
+        self::assertSame('daily_09_previous_day', $summary['data_freshness']['update_policy']);
+        self::assertSame('09:00', $summary['data_freshness']['update_time']);
+        self::assertFalse($summary['data_freshness']['settlement_basis']);
+        self::assertStringContainsString('每日9点更新前日数据', $summary['source_notice']);
+        self::assertStringContainsString('不作结算依据', $summary['source_notice']);
     }
 
     public function testBackendDerivesMeituanRoomRevenueFromSelfMetricsBeforeRankAmount(): void
@@ -2397,6 +2408,7 @@ final class OnlineDataTest extends TestCase
         self::assertSame('rank_only', $healthByKey['P_RZ']['status']);
         self::assertSame('仅排名', $healthByKey['P_RZ']['statusText']);
         self::assertSame(0, $summary['metrics']['rankHealthReadyCount']);
+        self::assertStringContainsString('每日9点更新前日数据', $summary['source_notice']);
         self::assertStringContainsString('不用 0', $summary['source_notice']);
     }
 
@@ -2487,6 +2499,19 @@ final class OnlineDataTest extends TestCase
         self::assertSame('CUSTOM', $this->invokeNonPublic($controller, 'meituanSelfTradeDateType', ['30', '2026-06-12', '2026-07-11']));
         self::assertSame('CUSTOM', $this->invokeNonPublic($controller, 'meituanSelfTradeDateType', ['1', '2026-06-12', '2026-07-11']));
         self::assertSame('DAY', $this->invokeNonPublic($controller, 'meituanSelfTradeDateType', ['1', '2026-07-11', '2026-07-11']));
+    }
+
+    public function testMeituanDailyRoomRevenueFallbackOnlyRunsForHistoricalStayRanking(): void
+    {
+        $controller = $this->controller();
+
+        self::assertTrue($this->invokeNonPublic($controller, 'shouldFetchMeituanDailyRoomRevenueFallback', ['7', 'P_RZ', []]));
+        self::assertTrue($this->invokeNonPublic($controller, 'shouldFetchMeituanDailyRoomRevenueFallback', ['30', 'P_RZ', ['roomRevenue' => 0]]));
+        self::assertFalse($this->invokeNonPublic($controller, 'shouldFetchMeituanDailyRoomRevenueFallback', ['7', 'P_XS', []]));
+        self::assertFalse($this->invokeNonPublic($controller, 'shouldFetchMeituanDailyRoomRevenueFallback', ['7', 'P_ZH', []]));
+        self::assertFalse($this->invokeNonPublic($controller, 'shouldFetchMeituanDailyRoomRevenueFallback', ['7', 'P_LL', []]));
+        self::assertFalse($this->invokeNonPublic($controller, 'shouldFetchMeituanDailyRoomRevenueFallback', ['1', 'P_RZ', []]));
+        self::assertFalse($this->invokeNonPublic($controller, 'shouldFetchMeituanDailyRoomRevenueFallback', ['30', 'P_RZ', ['roomRevenue' => 100]]));
     }
 
     public function testMeituanSevenDayMissingTradeAnchorFallsBackToDailyTotals(): void

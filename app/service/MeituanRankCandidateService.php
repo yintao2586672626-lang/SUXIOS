@@ -185,7 +185,6 @@ final class MeituanRankCandidateService
         }
 
         $isStayOrSales = in_array($binding['rank_type'], ['P_RZ', 'P_XS'], true);
-        $isTodayRealtimeStay = $binding['date_range'] === '0' && $binding['rank_type'] === 'P_RZ';
         $requiresAbsoluteRows = $binding['date_range'] === '0' && $binding['rank_type'] === 'P_XS';
         $selfMetricValues = is_array($payload['self_metric_values'] ?? null) ? $payload['self_metric_values'] : [];
         $derivedDimensionCount = 0;
@@ -206,26 +205,19 @@ final class MeituanRankCandidateService
             if ($isStayOrSales) {
                 $missingAbsoluteRows = [];
                 $targetPercent = null;
-                $targetRowPresent = false;
-                $dimensionHasRankOrPercentSignal = false;
                 foreach ($dimensionRows as $row) {
                     $value = $row['dataValue'] ?? $row['data_value'] ?? null;
                     $percent = $this->candidateNumber($row['percent'] ?? null);
-                    $rank = $this->candidateNumber($row['rank'] ?? $row['ranking'] ?? null);
                     $poiId = trim((string)($row['poiId'] ?? $row['poi_id'] ?? $row['shopId'] ?? $row['shop_id'] ?? $row['hotelId'] ?? ''));
                     if ($poiId !== '' && hash_equals($binding['poi_id'], $poiId)) {
-                        $targetRowPresent = true;
                         if ($percent !== null && $percent > 0) {
                             $targetPercent = $percent;
                         }
                     }
-                    if (($rank !== null && $rank > 0) || ($percent !== null && $percent >= 0)) {
-                        $dimensionHasRankOrPercentSignal = true;
-                    }
                     if ($value !== null && $value !== '') {
                         continue;
                     }
-                    if (!$isTodayRealtimeStay && ($percent === null || $percent < 0)) {
+                    if ($percent === null || $percent < 0) {
                         throw new InvalidArgumentException('Meituan rank candidate is incomplete: a percent-only row has no usable percent.');
                     }
                     $missingAbsoluteRows[] = $row;
@@ -239,13 +231,6 @@ final class MeituanRankCandidateService
                     $anchorValue = $anchorField !== ''
                         ? $this->candidateNumber($selfMetricValues[$anchorField] ?? null)
                         : null;
-                    if ($isTodayRealtimeStay) {
-                        if ($anchorField === '' || !$targetRowPresent || !$dimensionHasRankOrPercentSignal || $anchorValue === null || $anchorValue <= 0) {
-                            throw new InvalidArgumentException('Meituan rank candidate is incomplete: realtime self-only values require a positive self metric anchor and target rank signal.');
-                        }
-                        $selfOnlyDimensionCount++;
-                        continue;
-                    }
                     if ($anchorField === '' || $targetPercent === null || $targetPercent <= 0 || $anchorValue === null || $anchorValue <= 0) {
                         throw new InvalidArgumentException('Meituan rank candidate is incomplete: percent-only values require a positive self metric anchor and self percent.');
                     }

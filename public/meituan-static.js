@@ -304,6 +304,136 @@ window.SUXI_MEITUAN_STATIC = (() => {
         payloadJson: '',
     });
 
+    const getMeituanOrderFlowPeriods = () => ([
+        { key: 'yesterday', label: '昨天', days: 1 },
+        { key: 'last_7_days', label: '近7天', days: 7 },
+        { key: 'last_30_days', label: '近30天', days: 30 },
+    ]);
+
+    const formatMeituanOrderFlowDate = (date) => {
+        const value = date instanceof Date ? date : new Date(date);
+        if (Number.isNaN(value.getTime())) return '';
+        return [
+            value.getFullYear(),
+            String(value.getMonth() + 1).padStart(2, '0'),
+            String(value.getDate()).padStart(2, '0'),
+        ].join('-');
+    };
+
+    const resolveMeituanOrderFlowDateRange = (period = 'last_7_days', now = new Date()) => {
+        const config = getMeituanOrderFlowPeriods().find(item => item.key === period)
+            || getMeituanOrderFlowPeriods()[1];
+        const end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        end.setDate(end.getDate() - 1);
+        const start = new Date(end.getTime());
+        start.setDate(start.getDate() - Math.max(0, config.days - 1));
+        return {
+            period: config.key,
+            label: config.label,
+            startDate: formatMeituanOrderFlowDate(start),
+            endDate: formatMeituanOrderFlowDate(end),
+        };
+    };
+
+    const parseMeituanOrderFlowRaw = (value) => {
+        if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+        if (typeof value !== 'string' || !value.trim()) return {};
+        try {
+            const parsed = JSON.parse(value);
+            return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+        } catch (error) {
+            return {};
+        }
+    };
+
+    const firstMeituanOrderFlowValue = (...values) => values.find(value => (
+        value !== undefined && value !== null && String(value).trim() !== ''
+    ));
+
+    const meituanOrderFlowNumber = (value) => {
+        if (value === undefined || value === null || String(value).trim() === '') return null;
+        const text = String(value).trim();
+        if (text === '-' || text === '--' || /暂无|无数据|更新中/i.test(text)) return null;
+        const multiplier = text.includes('亿') ? 100000000 : (text.includes('万') ? 10000 : 1);
+        const match = text.replace(/,/g, '').replace(/[%￥¥元万亿\s]/g, '').match(/-?\d+(?:\.\d+)?/);
+        if (!match) return null;
+        const number = Number(match[0]) * multiplier;
+        return Number.isFinite(number) ? number : null;
+    };
+
+    const meituanOrderFlowRatioPercent = (value) => {
+        const number = meituanOrderFlowNumber(value);
+        if (number === null) return null;
+        const percent = Math.abs(number) <= 1 ? number * 100 : number;
+        return Number(percent.toFixed(2));
+    };
+
+    const buildMeituanOrderFlowView = (rows = [], period = 'last_7_days') => {
+        const source = Array.isArray(rows) ? rows : [];
+        const normalized = source.map(row => {
+            const raw = parseMeituanOrderFlowRaw(row?.raw_data);
+            return { row: row || {}, raw };
+        }).filter(item => (
+            String(item.row.data_type || '').toLowerCase() === 'order_flow'
+            && String(item.raw.order_flow_period || '').toLowerCase() === period
+        ));
+        const findSummary = direction => normalized.find(item => (
+            String(item.raw.order_flow_direction || '').toLowerCase() === direction
+            && String(item.raw.order_flow_row_type || '').toLowerCase() === 'summary'
+        ));
+        const normalizeSummary = (entry) => {
+            if (!entry) return null;
+            const { row, raw } = entry;
+            return {
+                orderCount: meituanOrderFlowNumber(firstMeituanOrderFlowValue(raw.order_count, row.book_order_num)),
+                roomNights: meituanOrderFlowNumber(firstMeituanOrderFlowValue(raw.room_nights, row.quantity)),
+                amount: meituanOrderFlowNumber(firstMeituanOrderFlowValue(raw.amount, row.amount)),
+                periodStart: String(raw.period_start || ''),
+                periodEnd: String(raw.period_end || row.data_date || ''),
+            };
+        };
+        const normalizeDetails = direction => normalized.filter(item => (
+            String(item.raw.order_flow_direction || '').toLowerCase() === direction
+            && String(item.raw.order_flow_row_type || '').toLowerCase() === 'hotel_detail'
+        )).map(({ row, raw }, index) => {
+            const rooms = Array.isArray(raw.lossRoomList) ? raw.lossRoomList : [];
+            return {
+                key: String(raw.poiId || raw.poi_id || row.hotel_id || `${direction}-${index}`),
+                hotelId: String(raw.poiId || raw.poi_id || row.hotel_id || ''),
+                hotelName: String(raw.poiName || raw.poi_name || row.hotel_name || '未返回酒店名称'),
+                image: String(raw.frontImg || raw.front_img || ''),
+                star: String(raw.lossPoiStar || raw.loss_poi_star || ''),
+                circleName: String(raw.circleName || raw.circle_name || ''),
+                distance: meituanOrderFlowNumber(raw.distance),
+                score: meituanOrderFlowNumber(raw.score),
+                lowestPrice: meituanOrderFlowNumber(raw.lowestPrice ?? raw.lowest_price),
+                vip: raw.vipTag === true || raw.vip_tag === true || raw.vipTag === 1,
+                followStatus: meituanOrderFlowNumber(raw.followStatus ?? raw.follow_status),
+                orderCount: meituanOrderFlowNumber(firstMeituanOrderFlowValue(raw.order_count, raw.lossOrderCount, row.book_order_num)),
+                orderRatio: meituanOrderFlowRatioPercent(firstMeituanOrderFlowValue(raw.order_ratio, raw.lossOrderRatio)),
+                amount: meituanOrderFlowNumber(firstMeituanOrderFlowValue(raw.amount, raw.lossSinglePayAmount, row.amount)),
+                rooms: rooms.map(room => ({
+                    name: String(room?.lossRoomName || room?.roomName || '').trim(),
+                    count: meituanOrderFlowNumber(room?.lossRoomCnt ?? room?.roomCount),
+                })).filter(room => room.name),
+            };
+        }).sort((left, right) => (right.orderCount ?? -1) - (left.orderCount ?? -1));
+
+        const loss = { summary: normalizeSummary(findSummary('loss')), rows: normalizeDetails('loss') };
+        const inflow = { summary: normalizeSummary(findSummary('inflow')), rows: normalizeDetails('inflow') };
+        const firstSummary = loss.summary || inflow.summary;
+        const capturedAt = normalized.map(item => String(item.row.update_time || item.row.create_time || '')).filter(Boolean).sort().at(-1) || '';
+        return {
+            status: loss.summary && inflow.summary ? 'complete' : (loss.summary || inflow.summary ? 'partial' : 'empty'),
+            period,
+            periodStart: firstSummary?.periodStart || '',
+            periodEnd: firstSummary?.periodEnd || '',
+            capturedAt,
+            loss,
+            inflow,
+        };
+    };
+
     const getMeituanBrowserCapturePresets = () => ([
         {
             key: 'realtime',
@@ -345,7 +475,27 @@ window.SUXI_MEITUAN_STATIC = (() => {
         },
     ]);
 
-    const createEmptyMeituanBusinessSummary = () => ({ status: 'empty', metrics: {}, cards: [] });
+    const meituanDataFreshnessNotice = '每日9点更新前日数据。数据仅作经营参考，不作结算依据。';
+    const shouldShowMeituanPreviousDayUpdateNotice = (dateRanges = [], hour = new Date().getHours()) => {
+        const normalizedHour = Number(hour);
+        return Array.isArray(dateRanges)
+            && dateRanges.map(item => String(item)).includes('1')
+            && Number.isFinite(normalizedHour)
+            && normalizedHour >= 0
+            && normalizedHour < 9;
+    };
+    const createEmptyMeituanBusinessSummary = () => ({
+        status: 'empty',
+        metrics: {},
+        cards: [],
+        data_freshness: {
+            update_policy: 'daily_09_previous_day',
+            update_time: '09:00',
+            settlement_basis: false,
+            notice: meituanDataFreshnessNotice,
+        },
+        source_notice: meituanDataFreshnessNotice,
+    });
 
     const buildMeituanRankingFetchResetState = () => ({
         formPatch: {
@@ -514,6 +664,15 @@ window.SUXI_MEITUAN_STATIC = (() => {
                     className: 'bg-emerald-50 text-emerald-700 border-emerald-100',
                 };
             }
+            if (result?.retryExhausted) {
+                return {
+                    ...row,
+                    status: 'missing',
+                    statusText: '未抓到',
+                    sourceLabel: `已尝试 ${Number(result?.attemptCount || 0)} 轮，平台仍未返回完整榜单`,
+                    className: 'bg-red-50 text-red-700 border-red-100',
+                };
+            }
             return {
                 ...row,
                 status: 'incomplete',
@@ -638,6 +797,10 @@ window.SUXI_MEITUAN_STATIC = (() => {
             flow_forecast: 'traffic',
             trafficforecast: 'traffic',
             traffic_forecast: 'traffic',
+            orderflow: 'order_flow',
+            order_flow: 'order_flow',
+            orderloss: 'order_flow',
+            order_loss: 'order_flow',
             searchkeyword: 'traffic',
             searchkeywords: 'traffic',
             search_keyword: 'traffic',
@@ -907,6 +1070,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
             traffic_analysis: '流量分析',
             search_keywords: '搜索词',
             traffic_forecast: '未来30天预测',
+            order_flow: '订单流向',
         };
         const normalizedSections = normalizeMeituanCaptureSections(sections);
         if (!normalizedSections.length) {
@@ -1219,6 +1383,9 @@ window.SUXI_MEITUAN_STATIC = (() => {
         if (dateRanges.length === 0) {
             return { ok: false, level: 'error', message: '请至少选择一个时间维度' };
         }
+        if (dateRanges.length > 1) {
+            return { ok: false, level: 'warning', message: '每次只获取一个时间周期，请重新选择' };
+        }
         if (dateRanges.includes('custom') && (!form.startDate || !form.endDate)) {
             return { ok: false, level: 'error', message: '请填写历史自定义时间的开始和结束日期' };
         }
@@ -1423,12 +1590,8 @@ window.SUXI_MEITUAN_STATIC = (() => {
         return Array.isArray(dimensions) ? dimensions : [];
     };
     const meituanTodayExtendedRetryRankTypes = new Set(['P_RZ', 'P_XS']);
-    const meituanRealtimeSelfOnlyRankTypes = new Set(['P_RZ']);
-    const meituanRankMaxAttempts = (task = {}) => (
-        String(task?.dateRange ?? task?.date_range ?? '') === '0'
-            ? (meituanRealtimeSelfOnlyRankTypes.has(String(task?.rankType ?? task?.rank_type ?? '')) ? 1 : 3)
-            : 3
-    );
+    const meituanRealtimeDerivableRankTypes = new Set(['P_RZ']);
+    const meituanRankMaxAttempts = () => 3;
     const meituanRetryDelayMs = (attempt = 1) => Math.min(2500, Math.max(600, Number(attempt || 1) * 600));
     const isMeituanNonRetryableFetchError = (error) => (
         /登录态|登录失效|重新登录|login|required|unauthorized|forbidden|credential|配置.*不一致|跨门店|权限/i
@@ -1499,8 +1662,8 @@ window.SUXI_MEITUAN_STATIC = (() => {
                     return true;
                 }
                 if (String(task?.dateRange ?? task?.date_range ?? '') === '0') {
-                    return meituanRealtimeSelfOnlyRankTypes.has(rankType)
-                        && meituanRankCandidateValueMode(response) === 'self_only';
+                    return meituanRealtimeDerivableRankTypes.has(rankType)
+                        && ['derived', 'self_only'].includes(meituanRankCandidateValueMode(response));
                 }
                 return meituanRankCandidateValueMode(response) === 'derived';
             }
@@ -2410,6 +2573,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         syncTrafficConfig = async () => {},
         syncOrderConfig = async () => {},
         syncAdsConfig = async () => {},
+        loadOrderFlow = async () => {},
         applyRankingConfig = async () => {},
     } = {}) => {
         const isActive = () => getCurrentPage() === 'meituan-ebooking' && getCurrentTab() === tab;
@@ -2429,6 +2593,10 @@ window.SUXI_MEITUAN_STATIC = (() => {
         if (tab === 'meituan-ads') {
             await syncAdsConfig();
             return { status: 'synced', tab, target: 'ads' };
+        }
+        if (tab === 'meituan-order-flow') {
+            await loadOrderFlow();
+            return { status: 'synced', tab, target: 'order_flow' };
         }
         await applyRankingConfig();
         return { status: 'synced', tab, target: 'ranking' };
@@ -3267,7 +3435,6 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 try {
                     const attemptEntries = [];
                     let bestResponse = null;
-                    let terminalPartialMessage = '';
                     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
                         const attemptRequestBody = attempt === 1
                             ? requestBody
@@ -3314,22 +3481,6 @@ window.SUXI_MEITUAN_STATIC = (() => {
                         }
                         const attemptComplete = isMeituanRankResponseComplete(attemptResponse, task);
                         if (attemptComplete) {
-                            break;
-                        }
-                        if (isMeituanHistoricalPercentOnlyStayOrSales(attemptResponse, task)) {
-                            terminalPartialMessage = `${task.dateRangeName || '历史区间'}平台仅返回排名百分比，但本店真实值锚点不足，无法计算并保存；已停止无效重复等待`;
-                            results[index] = {
-                                ...attemptEntry,
-                                status: 'partial',
-                                message: terminalPartialMessage,
-                                attemptCount: attempt,
-                                retryCount: Math.max(0, attempt - 1),
-                                maxAttempts,
-                                rankDataComplete: false,
-                                retryExhausted: false,
-                                terminalPartial: true,
-                            };
-                            setOnlineDataResult([...results]);
                             break;
                         }
                         results[index] = {
@@ -3394,8 +3545,11 @@ window.SUXI_MEITUAN_STATIC = (() => {
                         && !accepted
                         && res?.code === 200
                         && attemptCount >= maxAttempts;
+                    const percentOnlyWithoutAnchor = isMeituanHistoricalPercentOnlyStayOrSales(res, task);
                     const incompleteMessage = retryExhausted
-                        ? `${task.dateRangeName || '所选区间'}已抓 ${attemptCount} 轮，榜单仍未完整`
+                        ? (percentOnlyWithoutAnchor
+                            ? `${task.dateRangeName || '所选区间'}已尝试 ${attemptCount} 轮，仍只有排名百分比且本店真实值锚点不足，未抓到可保存的完整榜单`
+                            : `${task.dateRangeName || '所选区间'}已尝试 ${attemptCount} 轮，未抓到完整榜单`)
                         : '';
                     if (accepted) {
                         acceptedCount += 1;
@@ -3421,11 +3575,6 @@ window.SUXI_MEITUAN_STATIC = (() => {
                             status: 'incomplete',
                             message: incompleteMessage,
                             error: incompleteMessage,
-                        } : {}),
-                        ...(terminalPartialMessage ? {
-                            status: 'partial',
-                            message: terminalPartialMessage,
-                            terminalPartial: true,
                         } : {}),
                     };
                     if (res.code === 200 && !accepted) {
@@ -3712,6 +3861,9 @@ window.SUXI_MEITUAN_STATIC = (() => {
         createMeituanOrderForm,
         createMeituanAdsForm,
         createMeituanBrowserCaptureForm,
+        getMeituanOrderFlowPeriods,
+        resolveMeituanOrderFlowDateRange,
+        buildMeituanOrderFlowView,
         createEmptyMeituanBusinessSummary,
         buildMeituanRankingFetchResetState,
         resolveMeituanTopSummaryRows,
@@ -3722,6 +3874,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         buildMeituanFetchPresentation,
         applyMeituanFetchHealthToCards,
         applyMeituanFetchHealthToRows,
+        shouldShowMeituanPreviousDayUpdateNotice,
         getMeituanBrowserCapturePresets,
         getMeituanBrowserCaptureSupplementModules,
         buildMeituanBrowserCaptureSupplementCounts,

@@ -43,6 +43,13 @@ trait MeituanCapturedDataConcern
             }
         }
 
+        foreach ($this->extractMeituanCapturedSection($payload, 'order_flow') as $item) {
+            $row = $this->normalizeMeituanCapturedOrderFlowRow($item, $context);
+            if ($row !== null) {
+                $rows[] = $row;
+            }
+        }
+
         foreach ($this->extractMeituanCapturedSection($payload, 'search_keyword') as $item) {
             $row = $this->normalizeMeituanCapturedSearchKeywordRow($item, $context);
             if ($row !== null) {
@@ -126,6 +133,7 @@ trait MeituanCapturedDataConcern
             'traffic' => ['traffic', 'businessData', 'business_data', 'weightTraffic', 'weight_traffic', 'peerTrends', 'peer_trends'],
             'peer_rank' => ['peerRank', 'peer_rank', 'competitorRank', 'competitor_rank', 'rankings', 'ranking'],
             'traffic_analysis' => ['flowAnalysis', 'flow_analysis', 'trafficAnalysis', 'traffic_analysis', 'flowConversion', 'flowTrend', 'flowTrendDetail'],
+            'order_flow' => ['order_flow', 'orderFlow', 'orderFlowRows', 'order_flow_rows'],
             'search_keyword' => ['searchKeywords', 'searchKeyWords', 'search_keywords', 'keywords', 'search_keyword'],
             'traffic_forecast' => ['trafficForecast', 'traffic_forecast', 'flowForecast', 'flow_forecast'],
             'ads' => ['ads', 'advertising', 'adData', 'cureShops', 'cure_shops'],
@@ -151,6 +159,7 @@ trait MeituanCapturedDataConcern
             'traffic' => ['businessdata', 'weighttraffic', 'traffic', 'peertrends'],
             'peer_rank' => ['peer/rank', 'peerrank', 'competitorrank'],
             'traffic_analysis' => ['flowconversion', 'flowtrend', 'flowtrenddetail'],
+            'order_flow' => ['/peerrank/order/loss/query'],
             'search_keyword' => ['searchkeyword', 'search-keyword', 'searchkeywords'],
             'traffic_forecast' => ['flowforecast', 'trafficforecast'],
             'ads' => ['cureshops'],
@@ -238,6 +247,15 @@ trait MeituanCapturedDataConcern
                 ['detail'],
                 ['data'],
             ],
+            'order_flow' => [
+                ['data', 'order_flow'],
+                ['data', 'orderFlow'],
+                ['data', 'rows'],
+                ['order_flow'],
+                ['orderFlow'],
+                ['rows'],
+                ['data'],
+            ],
             'search_keyword' => [
                 ['data', 'searchKeywords'],
                 ['data', 'searchKeyWords'],
@@ -288,6 +306,7 @@ trait MeituanCapturedDataConcern
             'traffic' => ['exposure_count', 'exposureCount', 'page_views', 'pageViews', 'unique_visitors', 'businessData', 'weightTraffic'],
             'peer_rank' => ['rank', 'rankType', 'rank_type', 'peerRankData', 'roundRanks'],
             'traffic_analysis' => ['analysis_type', 'analysisType', 'listExposure', 'detailExposure', 'flowRate', 'exposeCount', 'visitCount'],
+            'order_flow' => ['order_flow_row_type', 'orderFlowRowType', 'order_flow_direction', 'orderFlowDirection', 'lossTotalCnt', 'lossOrderCount'],
             'search_keyword' => ['keyword', 'searchKeyword', 'searchWord', 'itemList', 'keywords'],
             'traffic_forecast' => ['forecast_type', 'forecastType', 'current', 'peerAvg', 'dateTime'],
             'ads' => ['cureShops', 'exposure_count', 'click_count', 'adId', 'campaignId'],
@@ -439,6 +458,70 @@ trait MeituanCapturedDataConcern
             'flow_rate' => $flowRate ?? 0.0,
             'order_filling_num' => $orderFilling,
             'order_submit_num' => $orderSubmit,
+        ]);
+    }
+
+    private function normalizeMeituanCapturedOrderFlowRow(array $item, array $context): ?array
+    {
+        $direction = strtolower(trim((string)$this->firstMeituanValue($item, ['order_flow_direction', 'orderFlowDirection', 'direction'], '')));
+        $rowType = strtolower(trim((string)$this->firstMeituanValue($item, ['order_flow_row_type', 'orderFlowRowType', 'row_type', 'rowType'], '')));
+        $period = strtolower(trim((string)$this->firstMeituanValue($item, ['order_flow_period', 'orderFlowPeriod', 'period'], '')));
+        $periodStart = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['period_start', 'periodStart', 'start_date', 'startDate'], ''));
+        $periodEnd = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['period_end', 'periodEnd', 'end_date', 'endDate', 'data_date', 'dataDate'], ''));
+        if (!in_array($direction, ['loss', 'inflow'], true)
+            || !in_array($rowType, ['summary', 'hotel_detail'], true)
+            || !in_array($period, ['yesterday', 'last_7_days', 'last_30_days', 'custom'], true)
+            || $periodStart === ''
+            || $periodEnd === '') {
+            return null;
+        }
+
+        $orderCount = $this->nullableNumberFromKeys($item, ['order_count', 'orderCount', 'lossTotalCnt', 'lossOrderCount']);
+        $roomNights = $this->nullableNumberFromKeys($item, ['room_nights', 'roomNights', 'lossTotalPayRoomNight']);
+        $amount = $this->nullableNumberFromKeys($item, ['amount', 'lossTotalPayAmount', 'lossSinglePayAmount']);
+        $ratio = $this->nullableNumberFromKeys($item, ['order_ratio', 'orderRatio', 'lossOrderRatio']);
+        if ($rowType === 'summary' && ($orderCount === null || $roomNights === null || $amount === null)) {
+            return null;
+        }
+        if ($rowType === 'hotel_detail') {
+            $competitorId = trim((string)$this->firstMeituanValue($item, ['poi_id', 'poiId'], ''));
+            $competitorName = trim((string)$this->firstMeituanValue($item, ['poi_name', 'poiName', 'hotel_name', 'hotelName'], ''));
+            if ($competitorId === '' && $competitorName === '') {
+                return null;
+            }
+        }
+
+        $dimension = trim((string)$this->firstMeituanValue($item, ['dimension'], ''));
+        if ($dimension === '') {
+            $identity = $rowType === 'summary'
+                ? 'summary'
+                : trim((string)$this->firstMeituanValue($item, ['poi_id', 'poiId', 'poi_name', 'poiName'], 'hotel'));
+            $dimension = 'order_flow:' . $period . ':' . $direction . ':' . $identity;
+        }
+
+        $factSource = array_merge($item, [
+            'order_flow_direction' => $direction,
+            'order_flow_row_type' => $rowType,
+            'order_flow_period' => $period,
+            'period_start' => $periodStart,
+            'period_end' => $periodEnd,
+            'order_count' => $orderCount,
+            'room_nights' => $roomNights,
+            'amount' => $amount,
+            'order_ratio' => $ratio,
+        ]);
+
+        return $this->baseMeituanCapturedRow($factSource, $context, [
+            'data_date' => $periodEnd,
+            'amount' => $amount !== null ? round($amount, 2) : null,
+            'quantity' => $rowType === 'summary' && $roomNights !== null ? max(0, (int)$roomNights) : null,
+            'book_order_num' => $orderCount !== null ? max(0, (int)$orderCount) : null,
+            'comment_score' => 0,
+            'data_value' => $ratio,
+            'data_type' => 'order_flow',
+            'dimension' => $dimension,
+            'platform' => 'Meituan',
+            'compare_type' => $rowType === 'summary' ? 'self' : 'competitor',
         ]);
     }
 

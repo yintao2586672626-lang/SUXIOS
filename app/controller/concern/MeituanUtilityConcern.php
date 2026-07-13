@@ -321,6 +321,9 @@ trait MeituanUtilityConcern
         if (in_array($field, ['viewConversion', 'payConversion'], true)) {
             return round($value, 4);
         }
+        if ($this->isMeituanIntegerScaleMetric($field)) {
+            return (float)(int)round($value);
+        }
         if (in_array($field, ['roomRevenue', 'sales'], true)) {
             return (float)(int)round($value);
         }
