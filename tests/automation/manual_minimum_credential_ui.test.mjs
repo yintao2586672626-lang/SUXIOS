@@ -1997,7 +1997,11 @@ test('Meituan today stay accepts server-approved self-only data while sales stay
   assert.equal(committed.some(item => item.value_mode === 'self_only'), true);
   assert.match(html, /isMeituanPendingResult\(result\).*result\.attemptCount.*result\.maxAttempts/s);
   assert.match(html, /result\.maxAttempts.*等待第 1 轮返回/s);
-  assert.match(html, /rankDataMode === 'self_only'.*同行实时数值未开放/s);
+  assert.match(html, /实时榜按美团本次返回展示：同行有具体数值时直接显示/);
+  assert.doesNotMatch(html, /其后台对这两列也只显名次、不显具体数字/);
+  assert.match(html, /rankDataMode === 'self_only'.*本次同行数值未返回/s);
+  assert.match(meituanStatic, /本店真实值 \+ 同行名次；本次同行数值未返回/);
+  assert.doesNotMatch(meituanStatic, /同行数值未开放/);
   assert.equal(normalRetryDelays.length, 0);
   assert.equal(result.status, 'partial');
 });

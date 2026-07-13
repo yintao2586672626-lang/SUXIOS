@@ -100,7 +100,7 @@
                                         </div>
                                         <p class="text-sm text-slate-500 mb-2">美团竞对榜单只支持今日实时和历史区间；远期预测/未来入住不属于此接口。</p>
                                         <p v-if="meituanForm.dateRanges.includes('0')" class="mb-2 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm leading-6 text-cyan-900">
-                                            实时榜：本店数值实时更新；「入住间夜 / 房费收入」的同行实时数值美团未开放（其后台对这两列也只显名次、不显具体数字），故同行此两项显示「-」。完整同行数值请看「昨天 / 近7天 / 近30天」。
+                                            实时榜按美团本次返回展示：同行有具体数值时直接显示；只返回名次或百分比的字段显示「-」，不以 0 补齐。不同账号、字段和更新时间的返回范围可能不同。
                                         </p>
                                         <!-- 自定义时间选择器 -->
                                         <div v-if="meituanForm.dateRanges.includes('custom')" class="grid grid-cols-2 gap-4 mt-2 pl-4 border-l-2 border-cyan-300">
@@ -181,7 +181,7 @@
                                                         ⚠ 后端返回 {{ result.displayCount }} 条展示数据，但未新增保存（可能重复）
                                                     </span>
                                                     <span v-else="" class="text-gray-500">⚠ 平台未返回有效数据，请检查授权是否过期</span>
-                                                    <span v-if="result.rankDataComplete" class="ml-2 text-xs text-blue-600">· {{ result.rankDataMode === 'self_only' ? '同行实时数值未开放，显示 -' : (result.rankDataMode === 'derived' ? '平台原值缺失，已按本店真实值和平台百分比计算' : `${result.dateRangeName}第 ${result.attemptCount} 轮原始字段完整`) }}</span>
+                                                    <span v-if="result.rankDataComplete" class="ml-2 text-xs text-blue-600">· {{ result.rankDataMode === 'self_only' ? '本次同行数值未返回，显示 -' : (result.rankDataMode === 'derived' ? '平台原值缺失，已按本店真实值和平台百分比计算' : `${result.dateRangeName}第 ${result.attemptCount} 轮原始字段完整`) }}</span>
                                                 </div>
                                             </div>
                                         </div>

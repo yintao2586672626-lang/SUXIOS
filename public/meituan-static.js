@@ -507,7 +507,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                     status: 'ok',
                     statusText: isSelfOnly ? '本店实时值可用' : (isDerived ? '比例结果可用' : '原始完整'),
                     sourceLabel: isSelfOnly
-                        ? '本店真实值 + 同行名次；同行数值未开放'
+                        ? '本店真实值 + 同行名次；本次同行数值未返回'
                         : (isDerived
                             ? '平台百分比 + 本店真实值锚点，已保存并可回显'
                             : '本次平台原始字段完整'),
