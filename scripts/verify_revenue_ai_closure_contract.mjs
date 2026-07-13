@@ -4,6 +4,9 @@ import vm from 'node:vm';
 
 const root = process.cwd();
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
+const readContractSource = (file) => file === 'public/index.html'
+  ? `${read(file)}\n${read('public/app-main.js')}`
+  : read(file);
 const checks = [];
 
 function check(file, label, ok, detail = '') {
@@ -11,14 +14,14 @@ function check(file, label, ok, detail = '') {
 }
 
 function includesAll(file, label, needles) {
-  const source = read(file);
+  const source = readContractSource(file);
   for (const needle of needles) {
     check(file, `${label}: ${needle}`, source.includes(needle), needle);
   }
 }
 
 function excludesAll(file, label, needles) {
-  const source = read(file);
+  const source = readContractSource(file);
   for (const needle of needles) {
     check(file, `${label}: excludes ${needle}`, !source.includes(needle), needle);
   }

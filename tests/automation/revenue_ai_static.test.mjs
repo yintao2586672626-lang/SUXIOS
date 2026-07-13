@@ -9,7 +9,8 @@ vm.runInNewContext(readFileSync('public/revenue-ai-static.js', 'utf8'), context,
 });
 
 const helpers = context.window.SUXI_REVENUE_AI_STATIC;
-const html = readFileSync('public/index.html', 'utf8');
+const indexHtml = readFileSync('public/index.html', 'utf8');
+const html = `${indexHtml}\n${readFileSync('public/app-main.js', 'utf8')}`;
 
 test('Revenue AI static helper exposes the required display contract', () => {
   assert.equal(typeof helpers, 'object');
@@ -94,7 +95,7 @@ test('Revenue AI static helper exposes the required display contract', () => {
 });
 
 test('Revenue AI entry cache-busts the business closure helper contract', () => {
-  assert.match(html, /<script src="revenue-ai-static\.js\?v=20260710-ai-daily-fact-gate-investigation"><\/script>/);
+  assert.match(indexHtml, /<script defer src="revenue-ai-static\.js\?v=20260710-ai-daily-fact-gate-investigation"><\/script>/);
   assert.match(html, /requireRevenueAiStatic\('buildRevenueAiBusinessClosure'\)/);
   assert.match(html, /data-testid="revenue-ai-pricing-generation-preflight"/);
   assert.match(html, /data-testid="agent-pricing-generation-preflight-summary"/);
