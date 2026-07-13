@@ -117,9 +117,19 @@ final class OtaCredentialMigrationServiceTest extends TestCase
 
         self::assertSame('execute', $summary['mode']);
         self::assertSame('completed', $summary['status']);
-        self::assertSame(5, $summary['migrated_count']);
-        self::assertCount(5, $summary['migrated']);
-        self::assertSame(5, (int)Db::name('ota_credentials')->count());
+        self::assertSame(3, $summary['migrated_count']);
+        self::assertCount(3, $summary['migrated']);
+        self::assertSame(2, $summary['sanitized_count']);
+        self::assertSame(3, (int)Db::name('ota_credentials')->count());
+        $readyScopes = array_map(
+            static fn(array $row): string => implode('|', [
+                (string)$row['tenant_id'],
+                (string)$row['system_hotel_id'],
+                (string)$row['platform'],
+            ]),
+            Db::name('ota_credentials')->where('credential_status', 'ready')->select()->toArray()
+        );
+        self::assertSame(count($readyScopes), count(array_unique($readyScopes)));
         self::assertLegacyStoresContainNoSecretSentinels($this->secretSentinels());
 
         $vault = $this->vault();
@@ -127,8 +137,6 @@ final class OtaCredentialMigrationServiceTest extends TestCase
         self::assertSame('nested-meituan-secret', $vault->withPayloadForExecution(2, 20, 'meituan', 'meituan-data-ok', static fn(array $payload): string => (string)$payload['auth_data']['token']));
         self::assertSame('{"token":"payload-json-secret"}', $vault->withPayloadForExecution(2, 20, 'meituan', 'meituan-data-ok', static fn(array $payload): string => (string)$payload['payload_json']));
         self::assertSame('payload-array-secret', $vault->withPayloadForExecution(2, 20, 'meituan', 'meituan-data-ok', static fn(array $payload): string => (string)$payload['payload']['token']));
-        self::assertSame('platform-source-secret', $vault->withPayloadForExecution(1, 10, 'ctrip', 'platform-source-ok', static fn(array $payload): string => (string)$payload['token']));
-        self::assertSame('cookie-hotel-secret', $vault->withPayloadForExecution(1, 10, 'ctrip', 'cookie-hotel-ok', static fn(array $payload): string => (string)$payload['cookies']));
         self::assertSame('cookie-short-secret', $vault->withPayloadForExecution(2, 20, 'ctrip', 'cookie-short-ok', static fn(array $payload): string => (string)$payload['cookies']));
 
         $afterFirstRun = $this->databaseSnapshot();
@@ -136,7 +144,7 @@ final class OtaCredentialMigrationServiceTest extends TestCase
         self::assertSame('completed', $second['status']);
         self::assertSame(0, $second['migrated_count']);
         self::assertSame($afterFirstRun, $this->databaseSnapshot());
-        self::assertSame(5, (int)Db::name('ota_credentials')->count());
+        self::assertSame(3, (int)Db::name('ota_credentials')->count());
         self::assertNotContains('bound_verified', array_column($second['items'], 'classification'));
         $platformConfig = json_decode(
             (string)Db::name('platform_data_sources')->order('id', 'desc')->value('config_json'),
@@ -145,6 +153,9 @@ final class OtaCredentialMigrationServiceTest extends TestCase
             JSON_THROW_ON_ERROR
         );
         self::assertSame('6866634', $platformConfig['hotel_id']);
+        self::assertSame('superseded', $platformConfig['credential_status']);
+        self::assertSame('ctrip-list-ok', $platformConfig['superseded_by_config_id']);
+        self::assertFalse($platformConfig['migration_required']);
         $dataConfig = json_decode(
             (string)Db::name('system_config')->where('config_key', 'data_config_meituan_business')->value('config_value'),
             true,
@@ -154,6 +165,16 @@ final class OtaCredentialMigrationServiceTest extends TestCase
         self::assertSame('rank', $dataConfig['payload']['metric']);
         self::assertArrayNotHasKey('token', $dataConfig['payload']);
         self::assertArrayNotHasKey('payload_json', $dataConfig);
+        self::assertSame('ready', $dataConfig['credential_status']);
+
+        $cookieConfig = json_decode(
+            (string)Db::name('system_config')->where('config_key', 'online_data_cookies_hotel_10')->value('config_value'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        self::assertSame('superseded', $cookieConfig['cookie-hotel-ok']['credential_status']);
+        self::assertSame('ctrip-list-ok', $cookieConfig['cookie-hotel-ok']['superseded_by_config_id']);
     }
 
     public function testBrowserProfileSecretIsSanitizedAndNeverMigratedToVault(): void
