@@ -16737,13 +16737,21 @@
                 mismatch: '门店不匹配',
             }[String(account.statusCode || '')] || account.statusText || '-');
 
-            const hotelPlatformBlockingIssueText = (account = {}) => {
+            const hotelPlatformBlockingIssueKey = (account = {}) => {
                 const statusCode = String(account.statusCode || account.readinessCode || '');
                 const captureFailed = account.captureStatusCode === 'failed' || account.captureStatusText === '最近采集失败';
-                if (!['mismatch', 'login_expired', 'permission_denied'].includes(statusCode) && !captureFailed) return '';
+                if (['mismatch', 'hotel_mismatch', 'store_mismatch', 'poi_mismatch'].includes(statusCode)) return 'hotel-mismatch';
+                if (['login_expired', 'permission_denied'].includes(statusCode)) return 'login-expired';
+                if (captureFailed) return 'capture-failed';
+                return '';
+            };
+
+            const hotelPlatformBlockingIssueText = (account = {}) => {
+                const issueKey = hotelPlatformBlockingIssueKey(account);
+                if (!issueKey) return '';
                 if (account.blockingReasonText) return account.blockingReasonText;
-                if (statusCode === 'mismatch') return '平台门店与系统门店不一致，已阻止数据入库。';
-                if (['login_expired', 'permission_denied'].includes(statusCode)) return '平台登录或授权已失效，请重新授权后再采集。';
+                if (issueKey === 'hotel-mismatch') return '平台门店与系统门店不一致，已阻止数据入库。';
+                if (issueKey === 'login-expired') return '平台登录或授权已失效，请重新授权后再采集。';
                 if (/最近采集失败|采集失败/.test(String(account.reasonText || ''))) return account.reasonText;
                 return '最近采集失败，请查看采集日志确认平台返回后重试。';
             };
@@ -16767,6 +16775,7 @@
             const hotelBlockingIssueRows = (hotel = {}) => hotelApplicablePlatformBindingRows(hotel)
                 .map(account => ({
                     key: account.platform || account.label,
+                    type: hotelPlatformBlockingIssueKey(account),
                     label: account.label || 'OTA渠道',
                     text: hotelPlatformBlockingIssueText(account),
                     nextActionText: account.nextActionText || '查看详情',
@@ -16879,7 +16888,13 @@
                     return rows.some(row => ['missing_config', 'unbound', 'waiting_login'].includes(String(row?.statusCode || row?.readinessCode || '')));
                 }
                 if (key === 'login-expired') {
-                    return rows.some(row => ['login_expired', 'permission_denied'].includes(String(row?.statusCode || row?.readinessCode || '')));
+                    return rows.some(row => hotelPlatformBlockingIssueKey(row) === 'login-expired');
+                }
+                if (key === 'capture-failed') {
+                    return rows.some(row => hotelPlatformBlockingIssueKey(row) === 'capture-failed');
+                }
+                if (key === 'hotel-mismatch') {
+                    return rows.some(row => hotelPlatformBlockingIssueKey(row) === 'hotel-mismatch');
                 }
                 if (key === 'uncollected') {
                     return rows.some(row => !String(row?.lastCaptureText || '').trim() || String(row?.captureStatusText || '').includes('未采集'));
@@ -17286,6 +17301,80 @@
                     return rows.length > 0 && rows.every(row => row.level === 'ready');
                 }).length;
                 return { total, active, error, todo, ctripBound, meituanBound, ctripApplicable, meituanApplicable, fullBound };
+            });
+            const hotelProblemQueueOverview = computed(() => {
+                const count = (filter, status = '1') => hotels.value.filter(hotel => {
+                    const statusMatched = status === '' || String(hotel?.status) === status;
+                    return statusMatched && hotelMatchesAccountHealth(hotel, filter);
+                }).length;
+                return {
+                    captureFailed: count('capture-failed'),
+                    loginExpired: count('login-expired'),
+                    hotelMismatch: count('hotel-mismatch'),
+                    unbound: count('unbound'),
+                    uncollected: count('uncollected'),
+                    ownerMissing: count('owner-missing'),
+                };
+            });
+            const hotelAccountFilterPresentation = computed(() => {
+                const fallback = {
+                    title: 'OTA采集接入状态',
+                    detail: '先看门店信息，再看携程/美团是否绑定、是否登录；下游收益和 AI 判断只接收已标明来源的新鲜 OTA 证据。',
+                    note: '门店不匹配会阻止 OTA 数据入库。',
+                };
+                const presentations = {
+                    error: {
+                        title: '采集阻塞门店',
+                        detail: '红色阻塞原因会直接标出具体平台；无需展开详情。',
+                        note: '包含登录/授权失效、门店不匹配和最近采集失败。',
+                    },
+                    'capture-failed': {
+                        title: '最近采集失败门店',
+                        detail: '最近一次 OTA 采集明确失败；先核对平台原因，再按行内下一步查看日志或重采。',
+                        note: '采集失败不等于酒店经营异常。',
+                    },
+                    'login-expired': {
+                        title: '登录/授权失效门店',
+                        detail: '平台登录态或采集授权已失效，需要账号使用者重新授权。',
+                        note: '重新授权后仍需以实际采集和入库结果为准。',
+                    },
+                    'hotel-mismatch': {
+                        title: '门店不匹配',
+                        detail: '平台门店身份与系统门店不一致，相关 OTA 数据已阻止入库。',
+                        note: '先复核平台门店标识，再重新授权或采集。',
+                    },
+                    unbound: {
+                        title: '未绑定/待登录门店',
+                        detail: '适用渠道尚未绑定、缺少门店配置或等待首次授权验证。',
+                        note: '完成绑定后再验证登录态和采集结果。',
+                    },
+                    uncollected: {
+                        title: '尚未采集门店',
+                        detail: '适用渠道还没有可确认的最近采集时间。',
+                        note: '该分类可与未绑定、待登录等问题重叠。',
+                    },
+                    'owner-missing': {
+                        title: '未设负责人门店',
+                        detail: '营业中的门店尚未设置负责人。',
+                        note: '先补负责人，便于后续账号授权和问题跟进。',
+                    },
+                    todo: {
+                        title: '账号待补门店',
+                        detail: '适用 OTA 渠道尚未达到可采集状态。',
+                        note: '未勾选的平台不展示、不计入。',
+                    },
+                    ctrip: {
+                        title: '携程可采门店',
+                        detail: '携程账号与门店身份已达到当前可采集条件。',
+                        note: '最终以携程实际响应和入库结果为准。',
+                    },
+                    meituan: {
+                        title: '美团可采门店',
+                        detail: '美团账号与门店身份已达到当前可采集条件。',
+                        note: '最终以美团实际响应和入库结果为准。',
+                    },
+                };
+                return presentations[String(filterHotelAccountHealth.value || '')] || fallback;
             });
             const hotelCompetitorSummaryMeta = (hotel) => {
                 const summary = hotelCompetitorSummary(hotel);
@@ -28565,7 +28654,7 @@
                 expandedMenus, toggleSubmenu, handleParentMenuClick,
                 showHotelUserAuthorizationModal, hotelUserAuthorizationTarget, hotelUserAuthorizationUserIds, hotelUserAuthorizationSearch, hotelUserAuthorizationSaving, filteredHotelAuthorizationUsers,
                 hotelPlatformBlockingIssueText, hotelBlockingIssueRows,
-                hotels, permittedHotels, hotelColumns, userColumns, users, roles, userSummary, applyUserSummaryFilter, userSummaryCardClass, pendingUserAuthorizationHotel, roleIssueGuideCards, roleIssueProfile, rolePermissionTags, rolePermissionList, roleIssueActionText, userRoleBadgeClass, userRoleBoundaryText, userIssueStatus, selectedUserRoleGuide, canEditUserUsername, allUserHotelIds, userAssignedHotelCount, areAllUserHotelsSelected, userIssueChecklistRows, userIssueBlockingReasons, copyUserIssueGuide, isExternalIssueUser, existingUserIssueGuideBlocker, copyUserIssueGuideForUser, copyUserBasicLoginInfo, lastUserIssueGuideText, showLastUserIssueGuideText, copyLastUserIssueGuide, clearLastUserIssueGuide, toggleAllUserHotels, filteredUserAssignmentHotels, userHotelAssignmentSearch, userHotelAssignmentSelectedOnly, selectedUserIds, userBatchStatusLoading, toggleAllFilteredUsers, batchUpdateUserStatus, getHotelNameById, hotelConfigTargetText, hotelSelectOptionText, normalizeHotelOtaStrategy, hotelOtaStrategyText, hotelOtaStrategyClass, hotelOtaStrategyButtonClass, hotelFormChannelSelected, toggleHotelFormChannel, hotelPlatformApplicable, hotelInactivePlatformText, hotelApplicablePlatformBindingRows, hotelVerifiedOtaState, hotelOtaStatusBadges, userHotelScopeText, userHotelScopeSummary, userDisplaySequence, userLastLoginText, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelOwnerText, hotelCreatedDateText, hotelPlatformRow, hotelPlatformBindingText, hotelPlatformLoginText, hotelPlatformIssueText, hotelIssueRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelPlatformReadyPillClass, hotelPlatformManualCookieReady, hotelPlatformManualCookieText, hotelPlatformFetchConfigReady, hotelPlatformFetchConfigText, hotelPlatformAutomationReady, hotelPlatformAutomationText, hotelPlatformCollectionReadyText, hotelPlatformCollectionReadyClass, hotelBindingOverview, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanelLight, refreshHotelBindingPanel, applyHotelQuickFilter, selectedHotelIds, hotelBatchStatusLoading, expandedHotelIds, isHotelDetailsExpanded, toggleHotelDetails, toggleAllFilteredHotels, batchUpdateHotelStatus, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformCardLogin, openHotelPlatformAccountAction, openHotelSyncLogs, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatHotelCode, formatConfigDate, secretPreview,
+                hotels, permittedHotels, hotelColumns, userColumns, users, roles, userSummary, applyUserSummaryFilter, userSummaryCardClass, pendingUserAuthorizationHotel, roleIssueGuideCards, roleIssueProfile, rolePermissionTags, rolePermissionList, roleIssueActionText, userRoleBadgeClass, userRoleBoundaryText, userIssueStatus, selectedUserRoleGuide, canEditUserUsername, allUserHotelIds, userAssignedHotelCount, areAllUserHotelsSelected, userIssueChecklistRows, userIssueBlockingReasons, copyUserIssueGuide, isExternalIssueUser, existingUserIssueGuideBlocker, copyUserIssueGuideForUser, copyUserBasicLoginInfo, lastUserIssueGuideText, showLastUserIssueGuideText, copyLastUserIssueGuide, clearLastUserIssueGuide, toggleAllUserHotels, filteredUserAssignmentHotels, userHotelAssignmentSearch, userHotelAssignmentSelectedOnly, selectedUserIds, userBatchStatusLoading, toggleAllFilteredUsers, batchUpdateUserStatus, getHotelNameById, hotelConfigTargetText, hotelSelectOptionText, normalizeHotelOtaStrategy, hotelOtaStrategyText, hotelOtaStrategyClass, hotelOtaStrategyButtonClass, hotelFormChannelSelected, toggleHotelFormChannel, hotelPlatformApplicable, hotelInactivePlatformText, hotelApplicablePlatformBindingRows, hotelVerifiedOtaState, hotelOtaStatusBadges, userHotelScopeText, userHotelScopeSummary, userDisplaySequence, userLastLoginText, getCtripConfigNameByHotelId, getMeituanConfigNameByHotelId, getBrowserProfileDataSourceByHotelAndPlatform, hotelPlatformConfigured, hotelPlatformIdentityText, hotelPlatformBindingRows, hotelOwnerText, hotelCreatedDateText, hotelPlatformRow, hotelPlatformBindingText, hotelPlatformLoginText, hotelPlatformIssueText, hotelIssueRows, hotelPlatformCardClass, hotelAccountSummary, hotelAccountHealthText, hotelAccountHealthClass, hotelNextAction, openHotelNextAction, hotelPlatformModuleText, hotelPlatformModuleClass, hotelPlatformReadyPillClass, hotelPlatformManualCookieReady, hotelPlatformManualCookieText, hotelPlatformFetchConfigReady, hotelPlatformFetchConfigText, hotelPlatformAutomationReady, hotelPlatformAutomationText, hotelPlatformCollectionReadyText, hotelPlatformCollectionReadyClass, hotelBindingOverview, hotelProblemQueueOverview, hotelAccountFilterPresentation, hotelCompetitorSummaryMeta, hotelCompetitorSummaryCards, hotelCompetitorReadiness, hotelCompetitorPlatformTagText, hotelCompetitorPlatformTagClass, refreshHotelBindingPanelLight, refreshHotelBindingPanel, applyHotelQuickFilter, selectedHotelIds, hotelBatchStatusLoading, expandedHotelIds, isHotelDetailsExpanded, toggleHotelDetails, toggleAllFilteredHotels, batchUpdateHotelStatus, openHotelPlatformConsole, openHotelManualFetchConfig, openHotelPlatformCardLogin, openHotelPlatformAccountAction, openHotelSyncLogs, unbindHotelPlatformAccount, hasCtripFetchConfigByHotelId, hasMeituanFetchConfigByHotelId, hasAnyPlatformFetchConfigByHotelId, canTriggerAutoFetchByHotelId, meituanConfigMissingTextByHotelId, formatHotelCode, formatConfigDate, secretPreview,
                 searchHotel, filterHotelStatus, filterHotelAccountHealth, searchUser, filterUserRoleId, filterUserStatus, filterUserHotelId,
                 filterReportHotel,
                 knowledgeCenterUnits, knowledgeCenterLoading, knowledgeCenterViewMode, knowledgeCenterFilter, knowledgeCenterPagination, knowledgeCenterStats,

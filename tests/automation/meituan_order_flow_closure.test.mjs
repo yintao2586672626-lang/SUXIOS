@@ -27,6 +27,17 @@ test('Meituan owner navigation exposes one simple order flow page with truthful 
   assert.doesNotMatch(appMain, /const refreshMeituanOrderFlowData[\s\S]*?runMeituanBrowserCaptureForSections\(\['order_flow'\]/);
 });
 
+test('order flow workspace prioritizes amount comparison and readable hotel detail', () => {
+  assert.match(fragment, /data-testid="meituan-order-flow-hero"/);
+  assert.match(fragment, /data-testid="meituan-order-flow-toolbar"/);
+  assert.match(fragment, /data-testid="meituan-order-flow-summary"/);
+  assert.match(fragment, /data-testid="meituan-order-flow-detail"/);
+  assert.match(fragment, /流失金额/);
+  assert.match(fragment, /流入金额/);
+  assert.match(fragment, /Math\.max\(0, Math\.min\(row\.orderRatio, 100\)\)/);
+  assert.match(fragment, /主要房型/);
+});
+
 test('Meituan capture recognizes the verified order loss endpoint as its own section', () => {
   assert.match(standardSource, /section:\s*'order_flow'.*\/peerrank\/order\/loss\/query/);
   assert.match(captureSource, /runMeituanOrderFlowInteractionPlan/);

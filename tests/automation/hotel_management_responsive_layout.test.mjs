@@ -45,10 +45,16 @@ assert.match(
 );
 
 assert.match(indexHtml, /问题队列/);
+assert.match(indexHtml, /门店数可重叠/);
+assert.match(indexHtml, /采集失败[\s\S]*hotelProblemQueueOverview\.captureFailed/);
+assert.match(indexHtml, /登录\/授权失效[\s\S]*hotelProblemQueueOverview\.loginExpired/);
+assert.match(indexHtml, /门店不匹配[\s\S]*hotelProblemQueueOverview\.hotelMismatch/);
 assert.match(indexHtml, /未绑定\/待登录/);
-assert.match(indexHtml, /登录失效/);
 assert.match(indexHtml, /尚未采集/);
 assert.match(indexHtml, /未设负责人/);
+assert.match(indexHtml, /class="xl:sticky xl:top-2 z-20/, 'large filter panel must stay in normal flow on narrow screens');
+assert.doesNotMatch(indexHtml, /class="sticky top-2 z-20 bg-white rounded-xl p-3 shadow-sm border border-gray-100 space-y-3"/, 'narrow screens must not pin the full KPI and filter panel over hotel cards');
+assert.match(indexHtml, /data-testid="hotel-problem-queue"[\s\S]*data-testid="hotel-batch-actions"/, 'problem filters and batch actions must keep separate wrapping groups');
 assert.match(indexHtml, /const batchUpdateHotelStatus = async \(status\) =>/);
 assert.match(indexHtml, /\/hotels\/batch-status/);
 assert.match(indexHtml, /confirm: false/);

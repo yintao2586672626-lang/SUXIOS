@@ -3612,7 +3612,7 @@
                             </div>
                         </div>
 
-                        <div class="sticky top-2 z-20 bg-white rounded-xl p-3 shadow-sm border border-gray-100 space-y-3">
+                        <div class="xl:sticky xl:top-2 z-20 bg-white rounded-xl p-3 shadow-sm border border-gray-100 space-y-3">
                             <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
                                 <button type="button" @click="applyHotelQuickFilter('', '')" :class="filterHotelAccountHealth === '' &amp;&amp; filterHotelStatus === '' ? 'border-blue-200 bg-blue-50/70 ring-1 ring-blue-100' : 'border-gray-100 bg-gray-50 hover:bg-gray-100'" class="rounded-lg border px-3 py-2 flex items-center justify-between text-left transition-colors">
                                     <span>
@@ -3655,28 +3655,45 @@
                                 </div>
                                 <button v-if="searchHotel || filterHotelStatus !== '' || filterHotelAccountHealth !== ''" @click="searchHotel = ''; filterHotelStatus = ''; filterHotelAccountHealth = ''" class="text-sm text-blue-500 hover:text-blue-700 px-3 py-2">重置筛选</button>
                             </div>
-                            <div class="flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3 text-xs">
-                                <span class="font-medium text-gray-500">问题队列</span>
-                                <button type="button" @click="applyHotelQuickFilter('unbound', '1')" :class="filterHotelAccountHealth === 'unbound' ? 'bg-amber-100 text-amber-800' : 'bg-gray-50 text-gray-600'" class="rounded-full border border-gray-200 px-3 py-1">未绑定/待登录</button>
-                                <button type="button" @click="applyHotelQuickFilter('login-expired', '1')" :class="filterHotelAccountHealth === 'login-expired' ? 'bg-red-100 text-red-800' : 'bg-gray-50 text-gray-600'" class="rounded-full border border-gray-200 px-3 py-1">登录失效</button>
-                                <button type="button" @click="applyHotelQuickFilter('uncollected', '1')" :class="filterHotelAccountHealth === 'uncollected' ? 'bg-blue-100 text-blue-800' : 'bg-gray-50 text-gray-600'" class="rounded-full border border-gray-200 px-3 py-1">尚未采集</button>
-                                <button type="button" @click="applyHotelQuickFilter('owner-missing', '')" :class="filterHotelAccountHealth === 'owner-missing' ? 'bg-purple-100 text-purple-800' : 'bg-gray-50 text-gray-600'" class="rounded-full border border-gray-200 px-3 py-1">未设负责人</button>
-                                <template v-if="canManageOwnHotels()">
-                                    <span class="ml-auto text-gray-500">已选 {{ selectedHotelIds.length }}</span>
+                            <div class="flex flex-col gap-2 border-t border-gray-100 pt-3 text-xs xl:flex-row xl:items-center xl:justify-between">
+                                <div class="flex flex-wrap items-center gap-2" data-testid="hotel-problem-queue">
+                                    <span class="font-medium text-gray-500">问题队列</span>
+                                    <span class="text-[11px] text-gray-400">门店数可重叠</span>
+                                    <button type="button" @click="applyHotelQuickFilter('capture-failed', '1')" :class="filterHotelAccountHealth === 'capture-failed' ? 'border-red-200 bg-red-100 text-red-800' : 'border-red-100 bg-red-50/60 text-red-700'" class="inline-flex items-center gap-1 rounded-full border px-3 py-1">
+                                        采集失败 <span class="font-semibold tabular-nums">{{ hotelProblemQueueOverview.captureFailed }}</span>
+                                    </button>
+                                    <button type="button" @click="applyHotelQuickFilter('login-expired', '1')" :class="filterHotelAccountHealth === 'login-expired' ? 'border-red-200 bg-red-100 text-red-800' : 'border-red-100 bg-red-50/60 text-red-700'" class="inline-flex items-center gap-1 rounded-full border px-3 py-1">
+                                        登录/授权失效 <span class="font-semibold tabular-nums">{{ hotelProblemQueueOverview.loginExpired }}</span>
+                                    </button>
+                                    <button type="button" @click="applyHotelQuickFilter('hotel-mismatch', '1')" :class="filterHotelAccountHealth === 'hotel-mismatch' ? 'border-red-200 bg-red-100 text-red-800' : 'border-red-100 bg-red-50/60 text-red-700'" class="inline-flex items-center gap-1 rounded-full border px-3 py-1">
+                                        门店不匹配 <span class="font-semibold tabular-nums">{{ hotelProblemQueueOverview.hotelMismatch }}</span>
+                                    </button>
+                                    <button type="button" @click="applyHotelQuickFilter('unbound', '1')" :class="filterHotelAccountHealth === 'unbound' ? 'border-amber-200 bg-amber-100 text-amber-800' : 'border-gray-200 bg-gray-50 text-gray-600'" class="inline-flex items-center gap-1 rounded-full border px-3 py-1">
+                                        未绑定/待登录 <span class="font-semibold tabular-nums">{{ hotelProblemQueueOverview.unbound }}</span>
+                                    </button>
+                                    <button type="button" @click="applyHotelQuickFilter('uncollected', '1')" :class="filterHotelAccountHealth === 'uncollected' ? 'border-blue-200 bg-blue-100 text-blue-800' : 'border-gray-200 bg-gray-50 text-gray-600'" class="inline-flex items-center gap-1 rounded-full border px-3 py-1">
+                                        尚未采集 <span class="font-semibold tabular-nums">{{ hotelProblemQueueOverview.uncollected }}</span>
+                                    </button>
+                                    <button type="button" @click="applyHotelQuickFilter('owner-missing', '1')" :class="filterHotelAccountHealth === 'owner-missing' ? 'border-purple-200 bg-purple-100 text-purple-800' : 'border-gray-200 bg-gray-50 text-gray-600'" class="inline-flex items-center gap-1 rounded-full border px-3 py-1">
+                                        未设负责人 <span class="font-semibold tabular-nums">{{ hotelProblemQueueOverview.ownerMissing }}</span>
+                                    </button>
+                                </div>
+                                <div v-if="canManageOwnHotels()" class="flex flex-wrap items-center gap-2 xl:justify-end" data-testid="hotel-batch-actions">
+                                    <span class="text-gray-500">已选 {{ selectedHotelIds.length }}</span>
                                     <button type="button" @click="toggleAllFilteredHotels" class="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-gray-600">全选当前结果</button>
                                     <button type="button" @click="batchUpdateHotelStatus(1)" :disabled="!selectedHotelIds.length || hotelBatchStatusLoading" class="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-emerald-700 disabled:opacity-40">批量启用</button>
                                     <button type="button" @click="batchUpdateHotelStatus(0)" :disabled="!selectedHotelIds.length || hotelBatchStatusLoading" class="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-amber-700 disabled:opacity-40">批量停用</button>
-                                </template>
+                                </div>
                             </div>
                         </div>
 
                         <div v-if="filteredHotels.length &gt; 0" data-testid="hotel-account-summary-table" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                             <div class="px-4 py-3 border-b border-gray-100 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
                                 <div>
-                                    <div class="text-sm font-semibold text-gray-900">{{ filterHotelAccountHealth === 'error' ? '采集阻塞门店' : 'OTA采集接入状态' }} · {{ filteredHotels.length }}</div>
-                                    <div class="text-xs text-gray-500 mt-0.5">{{ filterHotelAccountHealth === 'error' ? '红色阻塞原因会直接标出具体平台；无需展开详情。' : '先看门店信息，再看携程/美团是否绑定、是否登录；下游收益和 AI 判断只接收已标明来源的新鲜 OTA 证据。' }}</div>
+                                    <div class="text-sm font-semibold text-gray-900">{{ hotelAccountFilterPresentation.title }} · {{ filteredHotels.length }}</div>
+                                    <div class="text-xs text-gray-500 mt-0.5">{{ hotelAccountFilterPresentation.detail }}</div>
                                 </div>
-                                <div class="text-xs text-gray-500">门店不匹配会阻止 OTA 数据入库。</div>
+                                <div class="text-xs text-gray-500">{{ hotelAccountFilterPresentation.note }}</div>
                             </div>
 
                             <div class="hidden xl:block overflow-x-auto">
@@ -9545,36 +9562,48 @@
                                     </div>
                                 </div>
 
-                                <div v-if="onlineDataTab === 'meituan-order-flow'" data-testid="meituan-order-flow-page" class="space-y-5">
-                                    <div class="rounded-xl border border-yellow-200 bg-yellow-50 px-4 py-3">
-                                        <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                                            <div>
-                                                <h4 class="font-semibold text-gray-900"><i class="fas fa-exchange-alt mr-2 text-yellow-600"></i>订单流向分析</h4>
-                                                <p class="mt-1 text-sm text-gray-600">流失订单和流入订单放在同一页，对照看清客人去了哪里、又从哪些同行流入。</p>
+                                <div v-if="onlineDataTab === 'meituan-order-flow'" data-testid="meituan-order-flow-page" class="space-y-4">
+                                    <div data-testid="meituan-order-flow-hero" class="rounded-2xl border px-5 py-5 text-white shadow-sm" style="background:#0b1814;border-color:rgba(220,197,145,.34)">
+                                        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                                            <div class="flex items-start gap-3">
+                                                <span class="inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl border text-lg" style="border-color:rgba(220,197,145,.36);background:rgba(220,197,145,.12);color:#dcc591"><i class="fas fa-exchange-alt"></i></span>
+                                                <div>
+                                                    <h4 class="text-lg font-semibold tracking-tight">订单流向分析</h4>
+                                                    <p class="mt-1 text-sm leading-6 text-gray-300">流失订单和流入订单放在同一页，对照看清客人去了哪里、又从哪些同行流入。</p>
+                                                </div>
                                             </div>
-                                            <div class="text-xs text-yellow-800">美团此功能不提供今日实时，因此这里只展示昨天、近7天、近30天。</div>
+                                            <div class="inline-flex items-center gap-2 self-start rounded-full border px-3 py-2 text-xs text-gray-300 lg:self-auto" style="border-color:rgba(255,255,255,.12);background:rgba(255,255,255,.05)">
+                                                <i class="fas fa-clock" style="color:#dcc591"></i>
+                                                美团此功能不提供今日实时，仅展示昨天、近7天、近30天
+                                            </div>
                                         </div>
                                     </div>
 
-                                    <div class="rounded-xl border border-gray-200 bg-white p-4">
-                                        <div class="grid grid-cols-1 gap-4 lg:grid-cols-4 lg:items-end">
-                                            <div class="lg:col-span-3">
-                                                <label class="mb-1 block text-sm font-medium text-gray-700">目标酒店 <span class="text-xs text-gray-400">仅显示已配置酒店</span></label>
-                                                <select v-model="meituanForm.hotelId" class="w-full rounded-lg border border-gray-200 px-3 py-2.5">
+                                    <div data-testid="meituan-order-flow-toolbar" class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+                                        <div class="flex flex-col gap-4 lg:flex-row lg:items-end">
+                                            <div class="min-w-0 flex-1">
+                                                <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                                    <label class="text-sm font-semibold text-gray-800">目标酒店</label>
+                                                    <span class="text-xs text-gray-400">仅显示已配置美团账号的酒店</span>
+                                                </div>
+                                                <select v-model="meituanForm.hotelId" class="h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-800 outline-none transition focus:border-green-700 focus:ring-2 focus:ring-green-100">
                                                     <option value="">请选择目标酒店</option>
                                                     <option v-for="hotel in meituanTargetHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
                                                 </select>
                                             </div>
-                                            <button type="button" @click="refreshMeituanOrderFlowData" :disabled="meituanOrderFlowFetching || meituanOrderFlowLoading || !meituanForm.hotelId" class="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300">
+                                            <button type="button" @click="refreshMeituanOrderFlowData" :disabled="meituanOrderFlowFetching || meituanOrderFlowLoading || !meituanForm.hotelId" class="inline-flex h-11 flex-shrink-0 items-center justify-center rounded-xl px-6 text-sm font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:bg-gray-300 disabled:shadow-none" style="background:#143a31">
                                                 <i :class="meituanOrderFlowFetching ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-sync-alt mr-2'"></i>{{ meituanOrderFlowFetching ? '正在获取并保存' : '获取并保存' }}
                                             </button>
                                         </div>
-                                        <div class="mt-4 flex flex-wrap items-center gap-2">
-                                            <button v-for="period in meituanOrderFlowPeriods" :key="period.key" type="button" @click="selectMeituanOrderFlowPeriod(period.key)" :class="['rounded-lg border px-4 py-2 text-sm font-medium transition', meituanOrderFlowPeriod === period.key ? 'border-blue-600 bg-blue-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:border-blue-300 hover:text-blue-800']">{{ period.label }}</button>
-                                            <span class="ml-auto text-xs text-gray-500">{{ meituanOrderFlowDateRange.startDate }} 至 {{ meituanOrderFlowDateRange.endDate }}</span>
+                                        <div class="mt-4 flex flex-col gap-3 border-t border-gray-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                                            <div class="inline-flex self-start rounded-xl bg-gray-100 p-1">
+                                                <button v-for="period in meituanOrderFlowPeriods" :key="period.key" type="button" @click="selectMeituanOrderFlowPeriod(period.key)" :class="['rounded-lg px-4 py-2 text-sm font-medium transition', meituanOrderFlowPeriod === period.key ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-200' : 'text-gray-500 hover:text-gray-800']">{{ period.label }}</button>
+                                            </div>
+                                            <div class="inline-flex items-center gap-2 text-sm text-gray-500"><i class="fas fa-calendar-alt text-gray-400"></i><span class="font-medium tabular-nums text-gray-700">{{ meituanOrderFlowDateRange.startDate }} 至 {{ meituanOrderFlowDateRange.endDate }}</span></div>
                                         </div>
-                                        <div v-if="meituanForm.hotelId &amp;&amp; selectedMeituanHotelConfig" :class="['mt-3 rounded-lg border px-3 py-2 text-sm', selectedMeituanManualCredentialState.canFetch ? 'border-green-200 bg-green-50 text-green-700' : 'border-yellow-200 bg-yellow-50 text-yellow-800']">
-                                            {{ selectedMeituanManualCredentialState.canFetch ? '美团授权配置已就绪，可获取真实订单流向。' : selectedMeituanManualCredentialState.detail }}
+                                        <div v-if="meituanForm.hotelId &amp;&amp; selectedMeituanHotelConfig" :class="['mt-4 flex items-start gap-2 rounded-xl border px-3 py-2.5 text-sm', selectedMeituanManualCredentialState.canFetch ? 'border-green-200 bg-green-50 text-green-800' : 'border-yellow-200 bg-yellow-50 text-yellow-800']">
+                                            <i :class="selectedMeituanManualCredentialState.canFetch ? 'fas fa-check-circle mt-0.5 text-green-600' : 'fas fa-exclamation-circle mt-0.5 text-yellow-600'"></i>
+                                            <span>{{ selectedMeituanManualCredentialState.canFetch ? '美团授权配置已就绪，可获取真实订单流向。' : selectedMeituanManualCredentialState.detail }}</span>
                                         </div>
                                     </div>
 
@@ -9587,36 +9616,45 @@
 
                                     <template v-else-if="meituanOrderFlowView.status !== 'empty'">
                                         <div v-if="meituanOrderFlowView.status === 'partial'" class="rounded-xl border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">美团本次只返回了部分方向，已按真实结果展示；未返回的一侧显示「-」。</div>
-                                        <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                                            <button type="button" @click="meituanOrderFlowDirection = 'loss'" :class="['rounded-2xl border bg-white p-5 text-left shadow-sm transition', meituanOrderFlowDirection === 'loss' ? 'border-red-400 ring-2 ring-red-100' : 'border-gray-200 hover:border-red-200']">
-                                                <div class="flex items-center justify-between"><span class="text-sm font-semibold text-red-700">流失订单</span><span class="text-xs text-gray-400">点击查看明细</span></div>
-                                                <div class="mt-3 flex items-end gap-2"><span class="text-3xl font-bold text-gray-900">{{ meituanOrderFlowView.loss.summary?.orderCount !== null &amp;&amp; meituanOrderFlowView.loss.summary ? formatNumber(meituanOrderFlowView.loss.summary.orderCount) : '-' }}</span><span class="pb-1 text-sm text-gray-500">单</span></div>
-                                                <div class="mt-2 grid grid-cols-2 gap-3 text-sm"><div><span class="text-gray-400">间夜</span><span class="ml-2 font-semibold text-gray-700">{{ meituanOrderFlowView.loss.summary?.roomNights !== null &amp;&amp; meituanOrderFlowView.loss.summary ? formatNumber(meituanOrderFlowView.loss.summary.roomNights) : '-' }}</span></div><div><span class="text-gray-400">金额</span><span class="ml-2 font-semibold text-gray-700">{{ meituanOrderFlowView.loss.summary?.amount !== null &amp;&amp; meituanOrderFlowView.loss.summary ? '¥' + formatNumber(meituanOrderFlowView.loss.summary.amount) : '-' }}</span></div></div>
-                                            </button>
-                                            <button type="button" @click="meituanOrderFlowDirection = 'inflow'" :class="['rounded-2xl border bg-white p-5 text-left shadow-sm transition', meituanOrderFlowDirection === 'inflow' ? 'border-green-400 ring-2 ring-green-100' : 'border-gray-200 hover:border-green-200']">
-                                                <div class="flex items-center justify-between"><span class="text-sm font-semibold text-green-700">流入订单</span><span class="text-xs text-gray-400">点击查看明细</span></div>
-                                                <div class="mt-3 flex items-end gap-2"><span class="text-3xl font-bold text-gray-900">{{ meituanOrderFlowView.inflow.summary?.orderCount !== null &amp;&amp; meituanOrderFlowView.inflow.summary ? formatNumber(meituanOrderFlowView.inflow.summary.orderCount) : '-' }}</span><span class="pb-1 text-sm text-gray-500">单</span></div>
-                                                <div class="mt-2 grid grid-cols-2 gap-3 text-sm"><div><span class="text-gray-400">间夜</span><span class="ml-2 font-semibold text-gray-700">{{ meituanOrderFlowView.inflow.summary?.roomNights !== null &amp;&amp; meituanOrderFlowView.inflow.summary ? formatNumber(meituanOrderFlowView.inflow.summary.roomNights) : '-' }}</span></div><div><span class="text-gray-400">金额</span><span class="ml-2 font-semibold text-gray-700">{{ meituanOrderFlowView.inflow.summary?.amount !== null &amp;&amp; meituanOrderFlowView.inflow.summary ? '¥' + formatNumber(meituanOrderFlowView.inflow.summary.amount) : '-' }}</span></div></div>
-                                            </button>
+                                        <div data-testid="meituan-order-flow-summary" class="space-y-3">
+                                            <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between"><div><h5 class="font-semibold text-gray-900">期间概览</h5><p class="mt-1 text-xs text-gray-500">金额为主指标，订单与间夜为辅助口径</p></div><span class="text-xs text-gray-400"><i class="fas fa-hand-pointer mr-1"></i>点击卡片切换下方明细</span></div>
+                                            <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                                                <button type="button" @click="meituanOrderFlowDirection = 'loss'" :class="['overflow-hidden rounded-2xl border bg-white text-left shadow-sm transition', meituanOrderFlowDirection === 'loss' ? 'border-red-300 ring-2 ring-red-100' : 'border-gray-200 hover:border-red-200 hover:shadow-md']">
+                                                    <div class="h-1 bg-red-500"></div>
+                                                    <div class="p-5">
+                                                        <div class="flex items-center justify-between gap-3"><span class="inline-flex items-center gap-2 text-sm font-semibold text-red-700"><span class="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-red-50"><i class="fas fa-arrow-up"></i></span>流失</span><span v-if="meituanOrderFlowDirection === 'loss'" class="rounded-full bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700">正在查看</span><span v-else="" class="text-xs text-gray-400">查看明细</span></div>
+                                                        <div class="mt-5"><div class="text-xs font-medium uppercase tracking-wider text-gray-400">流失金额</div><div class="mt-1 text-3xl font-bold tracking-tight text-gray-900 tabular-nums">{{ meituanOrderFlowView.loss.summary?.amount !== null &amp;&amp; meituanOrderFlowView.loss.summary ? '¥' + formatNumber(meituanOrderFlowView.loss.summary.amount) : '-' }}</div></div>
+                                                        <div class="mt-5 grid grid-cols-2 border-t border-gray-100 pt-4"><div><div class="text-xs text-gray-400">流失订单</div><div class="mt-1 text-lg font-semibold text-gray-800 tabular-nums">{{ meituanOrderFlowView.loss.summary?.orderCount !== null &amp;&amp; meituanOrderFlowView.loss.summary ? formatNumber(meituanOrderFlowView.loss.summary.orderCount) : '-' }} <span class="text-xs font-normal text-gray-400">单</span></div></div><div class="border-l border-gray-100 pl-5"><div class="text-xs text-gray-400">流失间夜</div><div class="mt-1 text-lg font-semibold text-gray-800 tabular-nums">{{ meituanOrderFlowView.loss.summary?.roomNights !== null &amp;&amp; meituanOrderFlowView.loss.summary ? formatNumber(meituanOrderFlowView.loss.summary.roomNights) : '-' }} <span class="text-xs font-normal text-gray-400">间夜</span></div></div></div>
+                                                    </div>
+                                                </button>
+                                                <button type="button" @click="meituanOrderFlowDirection = 'inflow'" :class="['overflow-hidden rounded-2xl border bg-white text-left shadow-sm transition', meituanOrderFlowDirection === 'inflow' ? 'border-green-300 ring-2 ring-green-100' : 'border-gray-200 hover:border-green-200 hover:shadow-md']">
+                                                    <div class="h-1 bg-green-500"></div>
+                                                    <div class="p-5">
+                                                        <div class="flex items-center justify-between gap-3"><span class="inline-flex items-center gap-2 text-sm font-semibold text-green-700"><span class="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-green-50"><i class="fas fa-arrow-down"></i></span>流入</span><span v-if="meituanOrderFlowDirection === 'inflow'" class="rounded-full bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700">正在查看</span><span v-else="" class="text-xs text-gray-400">查看明细</span></div>
+                                                        <div class="mt-5"><div class="text-xs font-medium uppercase tracking-wider text-gray-400">流入金额</div><div class="mt-1 text-3xl font-bold tracking-tight text-gray-900 tabular-nums">{{ meituanOrderFlowView.inflow.summary?.amount !== null &amp;&amp; meituanOrderFlowView.inflow.summary ? '¥' + formatNumber(meituanOrderFlowView.inflow.summary.amount) : '-' }}</div></div>
+                                                        <div class="mt-5 grid grid-cols-2 border-t border-gray-100 pt-4"><div><div class="text-xs text-gray-400">流入订单</div><div class="mt-1 text-lg font-semibold text-gray-800 tabular-nums">{{ meituanOrderFlowView.inflow.summary?.orderCount !== null &amp;&amp; meituanOrderFlowView.inflow.summary ? formatNumber(meituanOrderFlowView.inflow.summary.orderCount) : '-' }} <span class="text-xs font-normal text-gray-400">单</span></div></div><div class="border-l border-gray-100 pl-5"><div class="text-xs text-gray-400">流入间夜</div><div class="mt-1 text-lg font-semibold text-gray-800 tabular-nums">{{ meituanOrderFlowView.inflow.summary?.roomNights !== null &amp;&amp; meituanOrderFlowView.inflow.summary ? formatNumber(meituanOrderFlowView.inflow.summary.roomNights) : '-' }} <span class="text-xs font-normal text-gray-400">间夜</span></div></div></div>
+                                                    </div>
+                                                </button>
+                                            </div>
                                         </div>
 
-                                        <div class="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-                                            <div class="flex flex-col gap-2 border-b border-gray-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                                                <div><h5 class="font-semibold text-gray-900">{{ meituanOrderFlowDirection === 'loss' ? '流失酒店明细' : '流入来源酒店明细' }}</h5><p class="mt-1 text-xs text-gray-500">{{ meituanOrderFlowActive.rows.length }} 家｜同步 {{ meituanOrderFlowView.capturedAt || '-' }}</p></div>
-                                                <div class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1 text-sm"><button type="button" @click="meituanOrderFlowDirection = 'loss'" :class="['rounded-md px-3 py-1.5', meituanOrderFlowDirection === 'loss' ? 'bg-white font-semibold text-red-700 shadow-sm' : 'text-gray-500']">流失</button><button type="button" @click="meituanOrderFlowDirection = 'inflow'" :class="['rounded-md px-3 py-1.5', meituanOrderFlowDirection === 'inflow' ? 'bg-white font-semibold text-green-700 shadow-sm' : 'text-gray-500']">流入</button></div>
+                                        <div data-testid="meituan-order-flow-detail" class="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+                                            <div class="flex flex-col gap-3 border-b border-gray-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                                                <div><div class="flex flex-wrap items-center gap-2"><h5 class="font-semibold text-gray-900">{{ meituanOrderFlowDirection === 'loss' ? '流失酒店明细' : '流入来源酒店明细' }}</h5><span :class="['rounded-full px-2.5 py-1 text-xs font-medium', meituanOrderFlowDirection === 'loss' ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700']">{{ meituanOrderFlowActive.rows.length }} 家酒店</span></div><p class="mt-1.5 text-xs text-gray-500"><i class="fas fa-clock mr-1 text-gray-400"></i>同步时间 {{ meituanOrderFlowView.capturedAt || '-' }}</p></div>
+                                                <div class="inline-flex self-start rounded-xl border border-gray-200 bg-gray-100 p-1 text-sm sm:self-auto"><button type="button" @click="meituanOrderFlowDirection = 'loss'" :class="['rounded-lg px-4 py-2 transition', meituanOrderFlowDirection === 'loss' ? 'bg-white font-semibold text-red-700 shadow-sm' : 'text-gray-500 hover:text-gray-800']">流失</button><button type="button" @click="meituanOrderFlowDirection = 'inflow'" :class="['rounded-lg px-4 py-2 transition', meituanOrderFlowDirection === 'inflow' ? 'bg-white font-semibold text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-800']">流入</button></div>
                                             </div>
-                                            <div v-if="!meituanOrderFlowActive.rows.length" class="px-5 py-12 text-center text-sm text-gray-500">美团本次未返回该方向的酒店明细。</div>
+                                            <div v-if="!meituanOrderFlowActive.rows.length" class="px-5 py-14 text-center text-sm text-gray-500"><span class="mx-auto mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-gray-400"><i class="fas fa-hotel"></i></span><div>美团本次未返回该方向的酒店明细。</div></div>
                                             <div v-else="" class="overflow-x-auto">
-                                                <table class="min-w-full text-sm">
-                                                    <thead class="bg-gray-50 text-gray-500"><tr><th class="px-4 py-3 text-left font-medium">#</th><th class="px-4 py-3 text-left font-medium" style="min-width:300px">酒店</th><th class="px-4 py-3 text-right font-medium">订单数</th><th class="px-4 py-3 text-right font-medium">占比</th><th class="px-4 py-3 text-right font-medium">金额</th><th class="px-4 py-3 text-left font-medium" style="min-width:260px">房型</th></tr></thead>
+                                                <table class="min-w-full text-sm" style="min-width:1040px">
+                                                    <thead class="bg-gray-50 text-gray-500"><tr><th class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider">排名</th><th class="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider" style="min-width:320px">酒店</th><th class="px-4 py-3.5 text-right text-xs font-semibold uppercase tracking-wider">订单数</th><th class="px-4 py-3.5 text-right text-xs font-semibold uppercase tracking-wider" style="min-width:120px">占比</th><th class="px-4 py-3.5 text-right text-xs font-semibold uppercase tracking-wider">金额</th><th class="px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-wider" style="min-width:280px">主要房型</th></tr></thead>
                                                     <tbody>
-                                                        <tr v-for="(row, index) in meituanOrderFlowActive.rows" :key="row.key" class="border-t border-gray-100 align-top hover:bg-gray-50">
-                                                            <td class="px-4 py-4 text-gray-400">{{ index + 1 }}</td>
-                                                            <td class="px-4 py-4"><div class="flex gap-3"><img v-if="row.image" :src="row.image" alt="" class="h-12 w-16 flex-shrink-0 rounded-lg object-cover" @error="$event.target.style.display = 'none'"><div><div class="font-semibold text-gray-900">{{ row.hotelName }} <span v-if="row.vip" class="ml-1 rounded border border-yellow-300 px-1 py-0.5 text-xs text-yellow-700">VIP</span></div><div class="mt-1 text-xs text-gray-500"><span v-if="row.star">{{ row.star }}</span><span v-if="row.score !== null"> · {{ row.score }}分</span><span v-if="row.lowestPrice !== null"> · ¥{{ formatNumber(row.lowestPrice) }}起</span></div><div v-if="row.circleName || row.distance !== null" class="mt-1 text-xs text-gray-400">{{ row.circleName || '' }}<span v-if="row.distance !== null"> · 距离{{ row.distance &gt;= 50 ? toFixedSafe(row.distance / 1000, 2) + 'km' : toFixedSafe(row.distance, 2) + 'km' }}</span></div></div></div></td>
-                                                            <td class="px-4 py-4 text-right font-semibold text-gray-900">{{ row.orderCount !== null ? formatNumber(row.orderCount) : '-' }}</td>
-                                                            <td class="px-4 py-4 text-right text-gray-700">{{ row.orderRatio !== null ? toFixedSafe(row.orderRatio, 2) + '%' : '-' }}</td>
-                                                            <td class="px-4 py-4 text-right font-semibold text-gray-900">{{ row.amount !== null ? '¥' + formatNumber(row.amount) : '-' }}</td>
-                                                            <td class="px-4 py-4"><div v-if="row.rooms.length" class="flex flex-wrap gap-1.5"><span v-for="room in row.rooms" :key="room.name" class="rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-600">{{ room.name }}<span v-if="room.count !== null"> ×{{ formatNumber(room.count) }}</span></span></div><span v-else="" class="text-gray-400">-</span></td>
+                                                        <tr v-for="(row, index) in meituanOrderFlowActive.rows" :key="row.key" class="group border-t border-gray-100 align-top transition hover:bg-gray-50">
+                                                            <td class="px-5 py-4"><span :class="['inline-flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold', index === 0 ? 'bg-yellow-100 text-yellow-800' : index === 1 ? 'bg-gray-200 text-gray-700' : index === 2 ? 'bg-yellow-50 text-yellow-700' : 'bg-gray-50 text-gray-500']">{{ index + 1 }}</span></td>
+                                                            <td class="px-4 py-4"><div class="flex gap-3"><img v-if="row.image" :src="row.image" alt="" class="h-14 w-20 flex-shrink-0 rounded-xl border border-gray-100 object-cover shadow-sm" @error="$event.target.style.display = 'none'"><div class="min-w-0"><div class="font-semibold leading-5 text-gray-900">{{ row.hotelName }} <span v-if="row.vip" class="ml-1 inline-flex rounded-md border border-yellow-300 bg-yellow-50 px-1.5 py-0.5 text-xs font-medium text-yellow-700">VIP</span></div><div class="mt-1.5 text-xs text-gray-500"><span v-if="row.star">{{ row.star }}</span><span v-if="row.score !== null"> · {{ row.score }}分</span><span v-if="row.lowestPrice !== null"> · ¥{{ formatNumber(row.lowestPrice) }}起</span></div><div v-if="row.circleName || row.distance !== null" class="mt-1 text-xs text-gray-400"><i class="fas fa-map-marker-alt mr-1"></i>{{ row.circleName || '' }}<span v-if="row.distance !== null"> · 距离{{ row.distance &gt;= 50 ? toFixedSafe(row.distance / 1000, 2) + 'km' : toFixedSafe(row.distance, 2) + 'km' }}</span></div></div></div></td>
+                                                            <td class="px-4 py-4 text-right"><span class="text-base font-semibold text-gray-900 tabular-nums">{{ row.orderCount !== null ? formatNumber(row.orderCount) : '-' }}</span><span v-if="row.orderCount !== null" class="ml-1 text-xs text-gray-400">单</span></td>
+                                                            <td class="px-4 py-4 text-right"><div class="font-medium text-gray-700 tabular-nums">{{ row.orderRatio !== null ? toFixedSafe(row.orderRatio, 2) + '%' : '-' }}</div><div v-if="row.orderRatio !== null" class="ml-auto mt-2 h-1.5 w-20 overflow-hidden rounded-full bg-gray-100"><div :class="['h-full rounded-full', meituanOrderFlowDirection === 'loss' ? 'bg-red-400' : 'bg-green-400']" :style="{ width: Math.max(0, Math.min(row.orderRatio, 100)) + '%' }"></div></div></td>
+                                                            <td class="px-4 py-4 text-right text-base font-bold text-gray-900 tabular-nums">{{ row.amount !== null ? '¥' + formatNumber(row.amount) : '-' }}</td>
+                                                            <td class="px-5 py-4"><div v-if="row.rooms.length" class="flex flex-wrap gap-1.5"><span v-for="room in row.rooms" :key="room.name" :class="['rounded-lg border px-2 py-1.5 text-xs', meituanOrderFlowDirection === 'loss' ? 'border-red-100 bg-red-50 text-red-800' : 'border-green-100 bg-green-50 text-green-800']">{{ room.name }}<span v-if="room.count !== null" class="ml-1 font-semibold">×{{ formatNumber(room.count) }}</span></span></div><span v-else="" class="text-gray-400">-</span></td>
                                                         </tr>
                                                     </tbody>
                                                 </table>
@@ -9624,10 +9662,10 @@
                                         </div>
                                     </template>
 
-                                    <div v-else="" class="rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-6 py-14 text-center">
-                                        <i class="fas fa-route mb-3 text-3xl text-gray-300"></i>
-                                        <div class="font-medium text-gray-700">当前期间暂无已保存的订单流向</div>
-                                        <p class="mt-2 text-sm text-gray-500">选择酒店后点击“获取并保存”，系统会读取美团真实的流失与流入结果。</p>
+                                    <div v-else="" class="rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-16 text-center shadow-sm">
+                                        <span class="mx-auto mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-gray-100 text-xl text-gray-400"><i class="fas fa-route"></i></span>
+                                        <div class="font-semibold text-gray-800">当前期间暂无已保存的订单流向</div>
+                                        <p class="mx-auto mt-2 max-w-lg text-sm leading-6 text-gray-500">选择酒店和时间范围后点击“获取并保存”，系统会读取并展示美团真实的流失与流入结果。</p>
                                     </div>
                                 </div>
 
