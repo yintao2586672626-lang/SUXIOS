@@ -29,6 +29,9 @@
     "build:frontend-entry": "node scripts/build_frontend_entry.mjs",
     "verify:frontend-entry-build": "node scripts/verify_frontend_entry_build.mjs",
     "test:frontend-entry-build": "node --test tests/automation/frontend_entry_build.test.mjs",
+    "build:tailwind-runtime": "node scripts/build_tailwind_runtime.mjs",
+    "verify:tailwind-runtime": "node scripts/verify_tailwind_runtime_build.mjs",
+    "test:tailwind-runtime": "node --test tests/automation/frontend_tailwind_build.test.mjs",
     "verify:public-entry": "node scripts/verify_frontend_entry_build.mjs && node scripts/verify_public_entry_guard.mjs && node scripts/verify_frontend_performance_budget.mjs",
     "verify:core-scope": "node scripts/verify_core_scope_contract.mjs",
     "verify:revenue-ai-static": "node --test tests/automation/revenue_ai_static.test.mjs",
@@ -192,6 +195,7 @@
   "devDependencies": {
     "@json2csv/plainjs": "^7.0.6",
     "@playwright/test": "^1.60.0",
+    "purgecss": "8.0.0",
     "terser": "5.49.0"
   },
   "dependencies": {

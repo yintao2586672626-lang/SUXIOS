@@ -4,7 +4,7 @@ import { gzipSync } from 'node:zlib';
 
 export const DEFAULT_FRONTEND_BUDGET = Object.freeze({
   max_index_bytes: 2_000_000,
-  max_startup_gzip_bytes: 1_200_000,
+  max_startup_gzip_bytes: 850_000,
   max_inline_script_bytes: 20_000,
   max_blocking_script_count: 0,
 });

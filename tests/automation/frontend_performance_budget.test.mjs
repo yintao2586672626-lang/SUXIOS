@@ -25,7 +25,7 @@ test('evaluateFrontendBudget reports each exceeded entry limit', () => {
 test('evaluateFrontendBudget passes metrics within every limit', () => {
   assert.deepEqual(evaluateFrontendBudget({
     index_bytes: 1_900_000,
-    startup_gzip_bytes: 1_150_000,
+    startup_gzip_bytes: 800_000,
     inline_script_bytes: 10_000,
     blocking_script_count: 0,
   }), []);

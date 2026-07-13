@@ -4,6 +4,7 @@ import vm from 'node:vm';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { inspectFrontendEntryBuild } from './lib/frontend_entry_build.mjs';
+import { inspectTailwindRuntimeBuild } from './lib/frontend_tailwind_build.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const indexPath = path.join(repoRoot, 'public/index.html');
@@ -140,6 +141,8 @@ if (!fs.existsSync(indexPath)) {
     });
     failures.push(...buildInspection.failures);
   }
+  const tailwindBuildInspection = await inspectTailwindRuntimeBuild(repoRoot);
+  failures.push(...tailwindBuildInspection.failures);
   const appMainReference = htmlContent.match(/<script\s+defer\s+src="app-main\.min\.js\?v=[^"]*-h([a-f0-9]{10})"[^>]*><\/script>/);
   const appMainHash = appMainRuntimeContent
     ? crypto.createHash('sha256').update(appMainRuntimeContent).digest('hex').slice(0, 10)
@@ -330,7 +333,8 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
     failures.push('public/index.html references Vite hashed assets; do not build Vite into HOTEL/public.');
   }
 
-  const tailwindOffset = content.indexOf('href="tailwind.min.css?v=20260628-static-router-fix"');
+  const tailwindMatch = htmlContent.match(/<link\s+href=["']tailwind\.min\.css\?v=[^"']+["']\s+rel=["']stylesheet["']>/);
+  const tailwindOffset = tailwindMatch ? tailwindMatch.index : -1;
   const vueScriptMatch = htmlContent.match(/<script\s+(?:defer\s+)?src=["']vue\.global\.prod\.js(?:\?v=[^"']+)?["']/);
   const vueScriptOffset = vueScriptMatch ? vueScriptMatch.index : -1;
   if (tailwindOffset < 0 || vueScriptOffset < 0 || tailwindOffset > vueScriptOffset) {
