@@ -3,7 +3,16 @@ import path from 'node:path';
 import vm from 'node:vm';
 
 const root = process.cwd();
-const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
+const sourceCache = new Map();
+const readRaw = (file) => {
+  if (!sourceCache.has(file)) {
+    sourceCache.set(file, fs.readFileSync(path.join(root, file), 'utf8'));
+  }
+  return sourceCache.get(file);
+};
+const read = (file) => file === 'public/index.html'
+  ? `${readRaw(file)}\n${readRaw('public/app-main.js')}`
+  : readRaw(file);
 const checks = [];
 const onlineDataConcernDir = path.join(root, 'app/controller/concern');
 const onlineDataConcernFiles = fs.existsSync(onlineDataConcernDir)
