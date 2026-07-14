@@ -853,8 +853,13 @@ final class OtaCredentialResponseTest extends TestCase
         self::assertCount(2, $collapsed);
         self::assertSame('newer-ready', $collapsed[0]['id'] ?? null);
         self::assertSame(2, $collapsed[0]['history_count'] ?? null);
+        self::assertSame(3, $collapsed[0]['active_config_count'] ?? null);
+        self::assertSame(2, $collapsed[0]['duplicate_current_count'] ?? null);
+        self::assertSame('warning', $collapsed[0]['duplicate_status'] ?? null);
         self::assertSame('hotel-59', $collapsed[1]['id'] ?? null);
         self::assertSame(0, $collapsed[1]['history_count'] ?? null);
+        self::assertSame(1, $collapsed[1]['active_config_count'] ?? null);
+        self::assertSame(0, $collapsed[1]['duplicate_current_count'] ?? null);
     }
 
     public function testCtripListKeepsDeletedVersionsAsHistoryButNeverAsCurrent(): void
@@ -898,6 +903,8 @@ final class OtaCredentialResponseTest extends TestCase
         self::assertCount(1, $collapsed);
         self::assertSame('active-58', $collapsed[0]['id'] ?? null);
         self::assertSame(1, $collapsed[0]['history_count'] ?? null);
+        self::assertSame(1, $collapsed[0]['active_config_count'] ?? null);
+        self::assertSame(0, $collapsed[0]['duplicate_current_count'] ?? null);
     }
 
     public function testCtripPersistenceRejectsActiveHotelIdAlreadyBoundToAnotherHotel(): void
@@ -1158,8 +1165,13 @@ final class OtaCredentialResponseTest extends TestCase
         self::assertCount(2, $collapsed);
         self::assertSame('newer-ready', $collapsed[0]['id'] ?? null);
         self::assertSame(2, $collapsed[0]['history_count'] ?? null);
+        self::assertSame(3, $collapsed[0]['active_config_count'] ?? null);
+        self::assertSame(2, $collapsed[0]['duplicate_current_count'] ?? null);
+        self::assertSame('warning', $collapsed[0]['duplicate_status'] ?? null);
         self::assertSame('hotel-59', $collapsed[1]['id'] ?? null);
         self::assertSame(0, $collapsed[1]['history_count'] ?? null);
+        self::assertSame(1, $collapsed[1]['active_config_count'] ?? null);
+        self::assertSame(0, $collapsed[1]['duplicate_current_count'] ?? null);
     }
 
     public function testCtripPersistenceJsonFailureRollsBackVaultAndMetadataTogether(): void

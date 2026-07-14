@@ -18298,7 +18298,7 @@
                     });
                 }
             };
-            const runManualOneClickFetch = async (platform = 'all') => {
+            const runManualOneClickFetch = async (platform = 'all', options = {}) => {
                 if (manualOneClickFetchRunning.value || fetchingData.value) return;
                 await ensureHotelOtaConfigLists({ force: false });
                 if (!await loadManualOneClickFetchEvidence()) {
@@ -18306,9 +18306,23 @@
                     return;
                 }
                 const normalizedPlatform = ['ctrip', 'meituan'].includes(platform) ? platform : 'all';
-                const tasks = buildManualOneClickFetchTasks(normalizedPlatform);
+                const selectedPlatformHotelKeys = new Set(
+                    (Array.isArray(options?.selectedPlatformHotelKeys) ? options.selectedPlatformHotelKeys : [])
+                        .map(value => String(value || '').trim().toLowerCase())
+                        .filter(Boolean)
+                );
+                const selectionRequested = selectedPlatformHotelKeys.size > 0;
+                const tasks = buildManualOneClickFetchTasks(normalizedPlatform).filter(task => (
+                    !selectionRequested
+                    || selectedPlatformHotelKeys.has(`${task?.platform === 'meituan' ? 'meituan' : 'ctrip'}:${String(task?.hotel?.id || '').trim()}`.toLowerCase())
+                ));
                 if (!tasks.length) {
-                    showToast('目标日已完整成功的门店已隐藏；当前没有需要补采的门店', 'info');
+                    showToast(
+                        selectionRequested
+                            ? '所选门店已入库或当前没有可执行的补采配置'
+                            : '目标日已完整成功的门店已隐藏；当前没有需要补采的门店',
+                        'info'
+                    );
                     return;
                 }
                 const snapshot = {
@@ -20476,24 +20490,96 @@
                     .map(key => String(config?.[key] || '').trim())
                     .find(value => value && value !== internalId) || '';
             };
-            const otaConfigOverviewExpanded = ref({ ctrip: false, meituan: false });
-            const otaConfigOverviewFilters = ref({
+            const OTA_CONFIG_OVERVIEW_DEFAULT_FILTERS = Object.freeze({
                 search: '',
                 platform: 'all',
                 status: 'all',
                 sort: 'attention',
             });
+            const OTA_CONFIG_OVERVIEW_PAGE_SIZES = Object.freeze([10, 20, 50]);
+            const otaConfigOverviewStorageKey = () => `suxios_ota_config_overview_${user.value?.id || 'guest'}_v1`;
+            const normalizeOtaConfigOverviewPreferences = (value = {}) => {
+                const source = value && typeof value === 'object' ? value : {};
+                const filters = source.filters && typeof source.filters === 'object' ? source.filters : source;
+                const platform = ['ctrip', 'meituan'].includes(String(filters?.platform || '').trim().toLowerCase())
+                    ? String(filters.platform).trim().toLowerCase()
+                    : 'all';
+                const status = ['effective', 'attention', 'blocked', 'pending', 'unknown'].includes(String(filters?.status || '').trim().toLowerCase())
+                    ? String(filters.status).trim().toLowerCase()
+                    : 'all';
+                const sort = ['latest_success', 'latest_update', 'hotel_name'].includes(String(filters?.sort || '').trim().toLowerCase())
+                    ? String(filters.sort).trim().toLowerCase()
+                    : 'attention';
+                const requestedPageSize = Number(source?.pageSize || source?.page_size || 10);
+                return {
+                    filters: {
+                        search: String(filters?.search || '').trim().slice(0, 80),
+                        platform,
+                        status,
+                        sort,
+                    },
+                    pageSize: OTA_CONFIG_OVERVIEW_PAGE_SIZES.includes(requestedPageSize) ? requestedPageSize : 10,
+                    expanded: {
+                        ctrip: source?.expanded?.ctrip === true,
+                        meituan: source?.expanded?.meituan === true,
+                    },
+                };
+            };
+            const readOtaConfigOverviewPreferences = () => {
+                try {
+                    const raw = localStorage.getItem(otaConfigOverviewStorageKey());
+                    return raw ? normalizeOtaConfigOverviewPreferences(JSON.parse(raw)) : normalizeOtaConfigOverviewPreferences();
+                } catch (error) {
+                    return normalizeOtaConfigOverviewPreferences();
+                }
+            };
+            const storedOtaConfigOverviewPreferences = readOtaConfigOverviewPreferences();
+            const otaConfigOverviewExpanded = ref({ ...storedOtaConfigOverviewPreferences.expanded });
+            const otaConfigOverviewFilters = ref({ ...storedOtaConfigOverviewPreferences.filters });
+            const otaConfigOverviewPageSize = ref(storedOtaConfigOverviewPreferences.pageSize);
+            const otaConfigOverviewPages = ref({ ctrip: 1, meituan: 1 });
+            const otaConfigOverviewSelectedKeys = ref([]);
+            const otaConfigOverviewRefreshing = ref(false);
+            const otaConfigOverviewProbeState = ref({ running: false, key: '', done: 0, total: 0 });
+            let otaConfigOverviewReturnContext = null;
+            const persistOtaConfigOverviewPreferences = () => {
+                try {
+                    const normalized = normalizeOtaConfigOverviewPreferences({
+                        filters: otaConfigOverviewFilters.value,
+                        pageSize: otaConfigOverviewPageSize.value,
+                        expanded: otaConfigOverviewExpanded.value,
+                    });
+                    localStorage.setItem(otaConfigOverviewStorageKey(), JSON.stringify({
+                        ...normalized,
+                        saved_at: new Date().toISOString(),
+                    }));
+                } catch (error) {
+                    console.warn('平台配置总览筛选条件保存失败:', error);
+                }
+            };
+            const otaConfigOverviewAccountResolver = (config = {}, platform = 'ctrip', hotelId = '') => {
+                const hotel = platformTargetHotelPool.value.find(item => String(item?.id || '') === String(hotelId || ''))
+                    || hotels.value.find(item => String(item?.id || '') === String(hotelId || ''))
+                    || { id: hotelId, name: platformConfigHotelName(config, hotelId) };
+                return hotelPlatformBindingRows(hotel).find(row => row?.platform === platform) || {};
+            };
             const otaDirectCtripConfigRows = computed(() => buildOtaConfigOverviewRows({
                 platform: 'ctrip',
                 configs: ctripConfigList.value,
                 hotelNameResolver: platformConfigHotelName,
+                accountResolver: otaConfigOverviewAccountResolver,
             }));
             const otaDirectMeituanConfigRows = computed(() => buildOtaConfigOverviewRows({
                 platform: 'meituan',
                 configs: meituanConfigList.value,
                 hotelNameResolver: platformConfigHotelName,
                 missingFieldsResolver: meituanConfigMissingFields,
+                accountResolver: otaConfigOverviewAccountResolver,
             }));
+            const otaConfigOverviewAllRows = computed(() => [
+                ...otaDirectCtripConfigRows.value,
+                ...otaDirectMeituanConfigRows.value,
+            ]);
             const otaConfigOverviewTotalCount = computed(() => (
                 otaDirectCtripConfigRows.value.length + otaDirectMeituanConfigRows.value.length
             ));
@@ -20530,20 +20616,69 @@
                 return Boolean(String(filters.search || '').trim())
                     || String(filters.platform || 'all') !== 'all'
                     || String(filters.status || 'all') !== 'all'
-                    || String(filters.sort || 'attention') !== 'attention';
+                    || String(filters.sort || 'attention') !== 'attention'
+                    || Number(otaConfigOverviewPageSize.value || 10) !== 10;
+            });
+            const otaConfigOverviewSelectedRows = computed(() => {
+                const selected = new Set(otaConfigOverviewSelectedKeys.value.map(key => String(key)));
+                return otaConfigOverviewAllRows.value.filter(row => selected.has(String(row?.key || '')));
+            });
+            const otaConfigOverviewSelectedCount = computed(() => otaConfigOverviewSelectedRows.value.length);
+            const otaConfigOverviewHiddenSelectedCount = computed(() => {
+                const filteredKeys = new Set(otaConfigOverviewGroups.value.flatMap(group => (
+                    Array.isArray(group?.rows) ? group.rows.map(row => String(row?.key || '')) : []
+                )));
+                return otaConfigOverviewSelectedRows.value.filter(row => !filteredKeys.has(String(row?.key || ''))).length;
             });
             const resetOtaConfigOverviewFilters = () => {
-                otaConfigOverviewFilters.value = {
-                    search: '',
-                    platform: 'all',
-                    status: 'all',
-                    sort: 'attention',
-                };
+                otaConfigOverviewFilters.value = { ...OTA_CONFIG_OVERVIEW_DEFAULT_FILTERS };
                 otaConfigOverviewExpanded.value = { ctrip: false, meituan: false };
+                otaConfigOverviewPageSize.value = 10;
+                otaConfigOverviewPages.value = { ctrip: 1, meituan: 1 };
+                otaConfigOverviewSelectedKeys.value = [];
+                try {
+                    localStorage.removeItem(otaConfigOverviewStorageKey());
+                } catch (error) {
+                    console.warn('平台配置总览筛选条件清除失败:', error);
+                }
+            };
+            const otaConfigOverviewPageCount = (group = {}) => {
+                const rows = Array.isArray(group?.rows) ? group.rows : [];
+                return Math.max(1, Math.ceil(rows.length / Math.max(1, Number(otaConfigOverviewPageSize.value || 10))));
+            };
+            const otaConfigOverviewPageNumber = (group = {}) => {
+                const platform = group?.platform === 'meituan' ? 'meituan' : 'ctrip';
+                return Math.min(
+                    otaConfigOverviewPageCount(group),
+                    Math.max(1, Number(otaConfigOverviewPages.value[platform] || 1))
+                );
             };
             const otaConfigOverviewVisibleRows = (group = {}) => {
                 const rows = Array.isArray(group?.rows) ? group.rows : [];
-                return otaConfigOverviewExpanded.value[group?.platform] ? rows : rows.slice(0, 4);
+                if (!otaConfigOverviewExpanded.value[group?.platform]) return rows.slice(0, 4);
+                const pageSize = Math.max(1, Number(otaConfigOverviewPageSize.value || 10));
+                const page = otaConfigOverviewPageNumber(group);
+                return rows.slice((page - 1) * pageSize, page * pageSize);
+            };
+            const otaConfigOverviewPageSummary = (group = {}) => {
+                const total = Array.isArray(group?.rows) ? group.rows.length : 0;
+                if (!total) return '0 条';
+                const pageSize = Math.max(1, Number(otaConfigOverviewPageSize.value || 10));
+                const page = otaConfigOverviewPageNumber(group);
+                const start = (page - 1) * pageSize + 1;
+                const end = Math.min(total, page * pageSize);
+                return `${start}-${end} / ${total} 条`;
+            };
+            const changeOtaConfigOverviewPage = (group = {}, offset = 0) => {
+                const platform = group?.platform === 'meituan' ? 'meituan' : 'ctrip';
+                const nextPage = Math.min(
+                    otaConfigOverviewPageCount(group),
+                    Math.max(1, otaConfigOverviewPageNumber(group) + Number(offset || 0))
+                );
+                otaConfigOverviewPages.value = {
+                    ...otaConfigOverviewPages.value,
+                    [platform]: nextPage,
+                };
             };
             const toggleOtaConfigOverview = (platform = 'ctrip') => {
                 const key = platform === 'meituan' ? 'meituan' : 'ctrip';
@@ -20552,7 +20687,264 @@
                     [key]: !otaConfigOverviewExpanded.value[key],
                 };
             };
+            const isOtaConfigOverviewRowSelected = (row = {}) => (
+                otaConfigOverviewSelectedKeys.value.includes(String(row?.key || ''))
+            );
+            const toggleOtaConfigOverviewRow = (row = {}, event = {}) => {
+                const key = String(row?.key || '').trim();
+                if (!key) return;
+                const selected = new Set(otaConfigOverviewSelectedKeys.value.map(value => String(value)));
+                if (event?.target?.checked) selected.add(key);
+                else selected.delete(key);
+                otaConfigOverviewSelectedKeys.value = Array.from(selected);
+            };
+            const isOtaConfigOverviewPageSelected = (group = {}) => {
+                const rows = otaConfigOverviewVisibleRows(group);
+                return rows.length > 0 && rows.every(row => isOtaConfigOverviewRowSelected(row));
+            };
+            const toggleSelectOtaConfigOverviewPage = (group = {}, event = {}) => {
+                const selected = new Set(otaConfigOverviewSelectedKeys.value.map(value => String(value)));
+                otaConfigOverviewVisibleRows(group).forEach((row) => {
+                    const key = String(row?.key || '').trim();
+                    if (!key) return;
+                    if (event?.target?.checked) selected.add(key);
+                    else selected.delete(key);
+                });
+                otaConfigOverviewSelectedKeys.value = Array.from(selected);
+            };
+            const clearOtaConfigOverviewSelection = () => {
+                otaConfigOverviewSelectedKeys.value = [];
+            };
+            watch([
+                otaConfigOverviewFilters,
+                otaConfigOverviewPageSize,
+            ], () => {
+                otaConfigOverviewPages.value = { ctrip: 1, meituan: 1 };
+                persistOtaConfigOverviewPreferences();
+            }, { deep: true });
+            watch(otaConfigOverviewExpanded, persistOtaConfigOverviewPreferences, { deep: true });
+            watch(
+                () => otaConfigOverviewAllRows.value.map(row => String(row?.key || '')).join('|'),
+                () => {
+                    const available = new Set(otaConfigOverviewAllRows.value.map(row => String(row?.key || '')));
+                    otaConfigOverviewSelectedKeys.value = otaConfigOverviewSelectedKeys.value.filter(key => available.has(String(key)));
+                }
+            );
+            const refreshOtaConfigOverviewStatus = async ({ showMessage = true } = {}) => {
+                if (otaConfigOverviewRefreshing.value) return false;
+                otaConfigOverviewRefreshing.value = true;
+                try {
+                    await ensureHotelOtaConfigLists({ force: true });
+                    if (showMessage) {
+                        showToast('配置、授权状态与最近入库证据已刷新', 'success');
+                    }
+                    return true;
+                } catch (error) {
+                    if (showMessage) {
+                        showToast(`状态刷新失败：${error?.message || '请稍后重试'}`, 'error');
+                    }
+                    return false;
+                } finally {
+                    otaConfigOverviewRefreshing.value = false;
+                }
+            };
+            const probeOtaConfigOverviewProfile = async (row = {}) => {
+                const platform = row?.platform === 'meituan' ? 'meituan' : 'ctrip';
+                const hotelId = String(row?.hotelId || '').trim();
+                if (!hotelId) {
+                    return { ok: false, statusCode: 'missing_hotel', message: '配置未关联系统门店，无法检测授权' };
+                }
+                const params = new URLSearchParams({
+                    system_hotel_id: hotelId,
+                    probe_login: '1',
+                });
+                const res = await request(`/online-data/${platform}-profile-status?${params.toString()}`);
+                const statusCode = String(res?.data?.status_code || '').trim().toLowerCase();
+                const currentStatus = String(res?.data?.current_status || '').trim();
+                const nextAction = String(res?.data?.next_action || '').trim();
+                return {
+                    ok: res?.code === 200 && statusCode === 'logged_in',
+                    requestOk: res?.code === 200,
+                    statusCode: statusCode || (res?.code === 200 ? 'unverified' : 'failed'),
+                    message: currentStatus || nextAction || res?.message || '授权检测已完成',
+                };
+            };
+            const probeOtaConfigOverviewRow = async (row = {}) => {
+                if (otaConfigOverviewProbeState.value.running) return;
+                if (!canMaintainOtaConfig()) {
+                    showToast('当前账号没有平台授权检测权限', 'warning');
+                    return;
+                }
+                otaConfigOverviewProbeState.value = { running: true, key: String(row?.key || ''), done: 0, total: 1 };
+                try {
+                    const result = await probeOtaConfigOverviewProfile(row);
+                    await refreshOtaConfigOverviewStatus({ showMessage: false });
+                    showToast(
+                        result.ok
+                            ? `${row?.hotelName || '该门店'}授权检测通过；配置生效仍以真实入库为准`
+                            : `${row?.hotelName || '该门店'}：${result.message}`,
+                        result.ok ? 'success' : 'warning'
+                    );
+                } catch (error) {
+                    showToast(`授权检测失败：${error?.message || '请稍后重试'}`, 'error');
+                } finally {
+                    otaConfigOverviewProbeState.value = { running: false, key: '', done: 0, total: 0 };
+                }
+            };
+            const probeSelectedOtaConfigOverviewRows = async () => {
+                if (otaConfigOverviewProbeState.value.running || !otaConfigOverviewSelectedRows.value.length) return;
+                if (!canMaintainOtaConfig()) {
+                    showToast('当前账号没有平台授权检测权限', 'warning');
+                    return;
+                }
+                const deduplicatedRows = [];
+                const seen = new Set();
+                otaConfigOverviewSelectedRows.value.forEach((row) => {
+                    const key = `${row?.platform === 'meituan' ? 'meituan' : 'ctrip'}:${String(row?.hotelId || '').trim()}`;
+                    if (!String(row?.hotelId || '').trim() || seen.has(key)) return;
+                    seen.add(key);
+                    deduplicatedRows.push(row);
+                });
+                if (!deduplicatedRows.length) {
+                    showToast('所选配置没有可检测的门店', 'warning');
+                    return;
+                }
+                otaConfigOverviewProbeState.value = { running: true, key: 'batch', done: 0, total: deduplicatedRows.length };
+                let verified = 0;
+                let checked = 0;
+                try {
+                    for (const row of deduplicatedRows) {
+                        otaConfigOverviewProbeState.value = {
+                            ...otaConfigOverviewProbeState.value,
+                            key: String(row?.key || 'batch'),
+                        };
+                        try {
+                            const result = await probeOtaConfigOverviewProfile(row);
+                            checked += 1;
+                            if (result.ok) verified += 1;
+                        } catch (error) {
+                            console.error('[OtaConfigOverview] 授权检测失败:', row?.key, error);
+                        }
+                        otaConfigOverviewProbeState.value = {
+                            ...otaConfigOverviewProbeState.value,
+                            done: checked,
+                        };
+                    }
+                    await refreshOtaConfigOverviewStatus({ showMessage: false });
+                    showToast(
+                        `授权检测完成：已检测 ${checked} 家，当前登录验证通过 ${verified} 家；其余配置仍可按原流程补采`,
+                        verified === checked ? 'success' : 'warning'
+                    );
+                } finally {
+                    otaConfigOverviewProbeState.value = { running: false, key: '', done: 0, total: 0 };
+                }
+            };
+            const runOtaConfigOverviewCollectionRows = async (rows = []) => {
+                if (manualOneClickFetchRunning.value || fetchingData.value) return;
+                const selectedPlatformHotelKeys = Array.from(new Set(
+                    (Array.isArray(rows) ? rows : [])
+                        .map(row => `${row?.platform === 'meituan' ? 'meituan' : 'ctrip'}:${String(row?.hotelId || '').trim()}`)
+                        .filter(key => !key.endsWith(':'))
+                ));
+                if (!selectedPlatformHotelKeys.length) {
+                    showToast('所选配置没有可补采的门店', 'warning');
+                    return;
+                }
+                await runManualOneClickFetch('all', { selectedPlatformHotelKeys });
+                await refreshOtaConfigOverviewStatus({ showMessage: false });
+            };
+            const runOtaConfigOverviewRowCollection = async (row = {}) => {
+                await runOtaConfigOverviewCollectionRows([row]);
+            };
+            const runSelectedOtaConfigOverviewCollection = async () => {
+                await runOtaConfigOverviewCollectionRows(otaConfigOverviewSelectedRows.value);
+            };
+            const deleteOtaConfigOverviewRow = async (row = {}) => {
+                if (!canMaintainOtaConfig()) {
+                    showToast('当前账号没有平台配置维护权限', 'warning');
+                    return;
+                }
+                const configId = String(row?.configId || '').trim();
+                if (!configId) {
+                    showToast('未找到配置编号，无法删除', 'error');
+                    return;
+                }
+                const deleted = row?.platform === 'meituan'
+                    ? await deleteMeituanConfigItem(configId)
+                    : await deleteCtripConfig(configId);
+                if (deleted) {
+                    otaConfigOverviewSelectedKeys.value = otaConfigOverviewSelectedKeys.value.filter(key => key !== row?.key);
+                }
+            };
+            const rememberOtaConfigOverviewReturnContext = (row = {}) => {
+                otaConfigOverviewReturnContext = {
+                    platform: row?.platform === 'meituan' ? 'meituan' : 'ctrip',
+                    hotelId: String(row?.hotelId || '').trim(),
+                    configId: String(row?.configId || '').trim(),
+                    rowKey: String(row?.key || '').trim(),
+                    filters: { ...otaConfigOverviewFilters.value },
+                    expanded: { ...otaConfigOverviewExpanded.value },
+                    pages: { ...otaConfigOverviewPages.value },
+                    pageSize: Number(otaConfigOverviewPageSize.value || 10),
+                    scrollY: typeof window !== 'undefined' ? Math.max(0, Number(window.scrollY || 0)) : 0,
+                    createdAt: Date.now(),
+                };
+            };
+            const returnToOtaConfigOverviewAfterSave = async (platform = 'ctrip', hotelId = '', configId = '') => {
+                const context = otaConfigOverviewReturnContext;
+                if (!context) return false;
+                const normalizedPlatform = platform === 'meituan' ? 'meituan' : 'ctrip';
+                const normalizedHotelId = String(hotelId || '').trim();
+                const normalizedConfigId = String(configId || '').trim();
+                const expired = Date.now() - Number(context.createdAt || 0) > 30 * 60 * 1000;
+                const mismatched = context.platform !== normalizedPlatform
+                    || (context.hotelId && normalizedHotelId && context.hotelId !== normalizedHotelId)
+                    || (context.configId && normalizedConfigId && context.configId !== normalizedConfigId);
+                if (expired || mismatched) {
+                    otaConfigOverviewReturnContext = null;
+                    return false;
+                }
+                otaConfigOverviewFilters.value = normalizeOtaConfigOverviewPreferences({ filters: context.filters }).filters;
+                otaConfigOverviewExpanded.value = { ...context.expanded };
+                otaConfigOverviewPages.value = { ...context.pages };
+                otaConfigOverviewPageSize.value = OTA_CONFIG_OVERVIEW_PAGE_SIZES.includes(Number(context.pageSize))
+                    ? Number(context.pageSize)
+                    : 10;
+                currentPage.value = 'online-data';
+                onlineDataTab.value = 'data-health';
+                await nextTick();
+                await ensureHotelOtaConfigLists({ force: true });
+                const targetGroup = otaConfigOverviewGroups.value.find(group => group?.platform === normalizedPlatform);
+                const targetIndex = targetGroup?.rows?.findIndex(row => (
+                    String(row?.configId || '') === String(context.configId || '')
+                    || (String(row?.hotelId || '') === normalizedHotelId && String(row?.platform || '') === normalizedPlatform)
+                ));
+                if (otaConfigOverviewExpanded.value[normalizedPlatform] && Number(targetIndex) >= 0) {
+                    otaConfigOverviewPages.value = {
+                        ...otaConfigOverviewPages.value,
+                        [normalizedPlatform]: Math.floor(targetIndex / Number(otaConfigOverviewPageSize.value || 10)) + 1,
+                    };
+                }
+                await nextTick();
+                const rowElements = typeof document !== 'undefined'
+                    ? Array.from(document.querySelectorAll('[data-config-key]'))
+                    : [];
+                const target = rowElements.find(element => String(element?.dataset?.configKey || '') === String(context.rowKey || ''));
+                const overview = typeof document !== 'undefined'
+                    ? document.querySelector('[data-testid="ota-direct-view-overview"]')
+                    : null;
+                if (target?.scrollIntoView) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                } else if (overview?.scrollIntoView) {
+                    overview.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                } else if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
+                    window.scrollTo({ top: context.scrollY, behavior: 'smooth' });
+                }
+                otaConfigOverviewReturnContext = null;
+                return true;
+            };
             const manageOtaConfigOverview = async (platform = 'ctrip') => {
+                otaConfigOverviewReturnContext = null;
                 if (!canMaintainOtaConfig()) {
                     showToast('当前账号没有平台配置维护权限', 'warning');
                     return;
@@ -20582,6 +20974,7 @@
                         && String(item?.hotel_id || item?.system_hotel_id || '') === hotelId
                     )) || findMeituanConfigByHotelId(hotelId);
                     if (config) {
+                        rememberOtaConfigOverviewReturnContext(row);
                         await editMeituanConfig(config);
                         currentPage.value = 'meituan-ebooking';
                         meituanForm.value.hotelId = hotelId;
@@ -20598,6 +20991,7 @@
                     && String(item?.hotel_id || item?.system_hotel_id || '') === hotelId
                 )) || findCtripConfigByHotelId(hotelId);
                 if (config) {
+                    rememberOtaConfigOverviewReturnContext(row);
                     await editCtripConfig(config);
                     selectedCtripHotelId.value = hotelId;
                     ctripTargetHotelManuallySelected.value = true;
@@ -24847,7 +25241,14 @@
                                 || ''
                             ).trim();
                             if (savedHotelId) {
-                                await returnToCtripRankingAfterConfigSave(savedHotelId);
+                                const returnedToOverview = await returnToOtaConfigOverviewAfterSave(
+                                    'ctrip',
+                                    savedHotelId,
+                                    requestBody?.id || response?.data?.config_id || response?.data?.id || ''
+                                );
+                                if (!returnedToOverview) {
+                                    await returnToCtripRankingAfterConfigSave(savedHotelId);
+                                }
                             } else {
                                 await loadCtripConfigList({ force: true, applySelectedConfig: false });
                             }
@@ -24926,7 +25327,7 @@
             });
 
             const deleteCtripConfig = async (id) => {
-                if (!confirm('确定要删除此配置吗？')) return;
+                if (!confirm('确定要删除此配置吗？删除会撤销该配置凭据，但不会删除历史 OTA 数据。')) return false;
                 try {
                     const data = await request(`/online-data/delete-ctrip-config?id=${encodeURIComponent(id)}`, {
                         method: 'DELETE'
@@ -24935,12 +25336,15 @@
                         showToast('删除成功');
                         clearCtripConfigDetailCache(id);
                         selectedCtripConfigIds.value = selectedCtripConfigIds.value.filter(item => String(item) !== String(id));
-                        loadCtripConfigList();
+                        await loadCtripConfigList({ force: true, applySelectedConfig: false });
+                        return true;
                     } else {
                         showToast(data.message || data.msg || '删除失败', 'error');
+                        return false;
                     }
                 } catch (e) {
                     showToast('删除失败: ' + e.message, 'error');
+                    return false;
                 }
             };
 
@@ -25328,7 +25732,14 @@
                         clearMeituanConfigDetailCache(saveSuccessState.clearConfigDetailId);
                         meituanConfigForm.value = saveSuccessState.resetForm;
                         if (saveSuccessState.shouldReturnToRanking) {
-                            await returnToMeituanRankingAfterConfigSave(saveSuccessState.savedHotelId);
+                            const returnedToOverview = await returnToOtaConfigOverviewAfterSave(
+                                'meituan',
+                                saveSuccessState.savedHotelId,
+                                requestBody?.id || res?.data?.config_id || res?.data?.id || ''
+                            );
+                            if (!returnedToOverview) {
+                                await returnToMeituanRankingAfterConfigSave(saveSuccessState.savedHotelId);
+                            }
                         } else if (saveSuccessState.shouldReloadConfigList) {
                             await loadMeituanConfigList({ force: true, applySelectedConfig: false });
                         }
@@ -25364,7 +25775,7 @@
             };
 
             const deleteMeituanConfigItem = async (id) => {
-                if (!confirm('确定要删除此配置吗？')) return;
+                if (!confirm('确定要删除此配置吗？删除会撤销该配置凭据，但不会删除历史 OTA 数据。')) return false;
                 try {
                     const res = await request(buildMeituanConfigDeleteUrl(id), {
                         method: 'DELETE'
@@ -25374,15 +25785,20 @@
                         showToast(deleteSuccessState.toastMessage, deleteSuccessState.toastLevel);
                         clearMeituanConfigDetailCache(deleteSuccessState.clearConfigDetailId);
                         if (deleteSuccessState.shouldReloadConfigList) {
-                            loadMeituanConfigList(deleteSuccessState.reloadOptions);
+                            deleteSuccessState.reloadOptions.force = true;
+                            deleteSuccessState.reloadOptions.applySelectedConfig = false;
+                            await loadMeituanConfigList(deleteSuccessState.reloadOptions);
                         }
+                        return true;
                     } else {
                         const deleteFailureState = buildMeituanConfigDeleteFailureState({ response: res });
                         showToast(deleteFailureState.toastMessage, deleteFailureState.toastLevel);
+                        return false;
                     }
                 } catch (e) {
                     const deleteFailureState = buildMeituanConfigDeleteFailureState({ error: e });
                     showToast(deleteFailureState.toastMessage, deleteFailureState.toastLevel);
+                    return false;
                 }
             };
 
@@ -28719,6 +29135,7 @@
                 onlineDataFilter, onlineDataList, onlineDataPagination, onlineDataPage, onlineDataHotelList, onlineDataSummary,
                 onlineDataQualitySummary, onlineDataQualityStatusText, onlineDataQualityStatusClass, onlineDataQualityPromptList, onlineDataQualityScopeText, autoFetchRecordStatusClass,
                 collectionReliability, collectionReliabilityLoading, collectionReliabilityError,
+                otaConfigOverviewPageSize, otaConfigOverviewPages, otaConfigOverviewRefreshing, otaConfigOverviewProbeState, otaConfigOverviewSelectedCount, otaConfigOverviewHiddenSelectedCount, otaConfigOverviewPageCount, otaConfigOverviewPageNumber, otaConfigOverviewPageSummary, changeOtaConfigOverviewPage, isOtaConfigOverviewRowSelected, toggleOtaConfigOverviewRow, isOtaConfigOverviewPageSelected, toggleSelectOtaConfigOverviewPage, clearOtaConfigOverviewSelection, refreshOtaConfigOverviewStatus, probeOtaConfigOverviewRow, probeSelectedOtaConfigOverviewRows, runOtaConfigOverviewRowCollection, runSelectedOtaConfigOverviewCollection, deleteOtaConfigOverviewRow,
                 dailyWorkbench, dailyWorkbenchLoading, dailyWorkbenchError, dailyWorkbenchPatrol, dailyWorkbenchPatrolLoading, dailyWorkbenchPatrolRunning, dailyWorkbenchPatrolActionUpdating, dailyWorkbenchPatrolError, phase3OperationEffectLoop, phase3OperationEffectLoopLedger, phase3OperationEffectLoopLoading, phase3OperationEffectLoopError, phase3OperationEffectLoopActionUpdating, phase3OperationEffectLoopSummary, phase3OperationEffectLoopCards, phase3OperationEffectLoopRows, phase3OperationEffectLoopBoundaryText, phase3OperationEffectLoopLedgerText, phase3OperationEffectLoopEmptyText, phase3OperationEffectLoopStatusText, phase3OperationEffectLoopStatusClass, phase3OperationEffectLoopActionKey, dailyWorkbenchWriteBoundary, dailyWorkbenchSummary, dailyWorkbenchScopeText, dailyWorkbenchSummaryCards, dailyWorkbenchRows, employeeOtaChecklistScopeText, employeeOtaChecklistCards, employeeOtaChecklistHeadline, employeeOtaChecklistRows, employeeOtaChecklistEmptyText, employeeOtaChecklistActionRunning, runEmployeeOtaChecklistAction, dataAcquisitionWorkbenchRows, dataAcquisitionIssueGroups, dataAcquisitionWorkbenchCards, dataAcquisitionWorkbenchScopeText, dataAcquisitionWorkbenchHeadline, dataAcquisitionWorkbenchEmptyText, dataAcquisitionPrimaryFetchHotelId, dataAcquisitionFetchableHotelIds, otaConfigOverviewGroups, otaConfigOverviewExpanded, otaConfigOverviewFilters, otaConfigOverviewTotalCount, otaConfigOverviewFilteredCount, otaConfigOverviewHasFilters, resetOtaConfigOverviewFilters, otaConfigOverviewVisibleRows, toggleOtaConfigOverview, manageOtaConfigOverview, editOtaConfigOverviewRow, otaDirectViewCards, otaDirectIssueRows, handleOtaDirectIssueAction, manualOneClickFetchRunning, manualOneClickFetchRows, manualOneClickFetchDisplayRows, manualOneClickFetchCards, manualOneClickFetchScopeText, manualOneClickFetchEvidenceError, manualOneClickFetchStatusFilter, manualOneClickFetchFilterOptions, manualOneClickFetchFilteredEmptyText, manualOneClickFetchEmptyText, manualOneClickFetchStatusClass, canEditManualOneClickFetchRow, canRetryManualOneClickFetchRow, canDeleteManualOneClickFetchRow, canSupplementManualOneClickFetchRow, editManualOneClickFetchFailure, retryManualOneClickFetchFailure, deleteManualOneClickFetchConfig, supplementManualOneClickFetchConfig, runManualOneClickFetch, refreshManualOneClickFetchConfig, dailyWorkbenchNextActions, dailyWorkbenchPatrolVisibleActions, dailyWorkbenchEmptyText, dailyWorkbenchStatusText, dailyWorkbenchStatusClass, dailyWorkbenchPatrolLatest, dailyWorkbenchPatrolHealth, dailyWorkbenchPatrolHealthText, dailyWorkbenchPatrolHealthClass, dailyWorkbenchPatrolAutomationText, dailyWorkbenchPatrolAutomationClass, dailyWorkbenchPatrolNextActionText, dailyWorkbenchPatrolLatestText, dailyWorkbenchPatrolLatestRawText, dailyWorkbenchPatrolActionText, dailyWorkbenchPatrolBoundaryText, dailyWorkbenchPatrolTrackedStatusText, dailyWorkbenchPatrolTrackedStatusClass, dailyWorkbenchPatrolExecutionText, dailyWorkbenchPatrolTaskId, dailyWorkbenchPatrolReviewText, dailyWorkbenchPatrolReviewClass, dailyWorkbenchPatrolActionUpdatingKey, dailyWorkbenchPatrolReviewUpdatingKey,
                 dashboardAccountOverview, dashboardHotelPortrait, dashboardDataSources, hotelDashboardLoading, hotelDashboardError, dataHealthFullDiagnosticsLoaded, dataHealthSecondaryPanelsReady, dataHealthDetailPanelsReady, dataHealthEmployeePanelsReady, ctripEbookingModuleCardsReady, ctripEbookingSecondaryPanelsReady, ctripEbookingDeepPanelsReady, ctripEbookingBusinessDetailsReady, ctripEbookingDiagnosticsPanelsReady, handleCtripEbookingDiagnosticsToggle, dashboardHotelId,
                 dashboardStateText, dashboardStateClass, dashboardMetricText, dashboardEvidenceText, dashboardHotelOptions,

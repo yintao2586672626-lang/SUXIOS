@@ -2386,6 +2386,9 @@ trait OtaConfigConcern
                 $primary = $currentConfigs[0];
             }
             $primary['history_count'] = max(0, count($configs) - 1);
+            $primary['active_config_count'] = count($currentConfigs);
+            $primary['duplicate_current_count'] = max(0, count($currentConfigs) - 1);
+            $primary['duplicate_status'] = $primary['duplicate_current_count'] > 0 ? 'warning' : 'ok';
             $collapsed[] = $primary;
         }
 
@@ -2423,6 +2426,9 @@ trait OtaConfigConcern
                 $primary = $currentConfigs[0];
             }
             $primary['history_count'] = max(0, count($configs) - 1);
+            $primary['active_config_count'] = count($currentConfigs);
+            $primary['duplicate_current_count'] = max(0, count($currentConfigs) - 1);
+            $primary['duplicate_status'] = $primary['duplicate_current_count'] > 0 ? 'warning' : 'ok';
             $collapsed[] = $primary;
         }
 

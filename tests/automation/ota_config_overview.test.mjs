@@ -104,6 +104,45 @@ test('OTA config overview rows expose platform status and latest successful stor
   assert.equal(summary.latestSuccessText, '2026-07-12 15:22');
 });
 
+test('authorization health stays separate from persisted effectiveness and flags current duplicates', () => {
+  const verified = helpers.otaConfigAuthorizationState({
+    config: readyConfig({
+      verification_status: 'verified_current',
+      configuration_verified: true,
+      verified_at: '2026-07-14 00:40:00',
+    }),
+    account: { statusCode: 'logged_in' },
+  });
+  assert.equal(verified.status, 'verified');
+  assert.equal(verified.text, '授权已验证');
+  assert.equal(verified.checkedText, '2026-07-14 00:40');
+
+  const expired = helpers.otaConfigAuthorizationState({
+    config: readyConfig(),
+    account: {
+      statusCode: 'login_expired',
+      reasonText: '平台授权已失效，请重新登录。',
+    },
+  });
+  assert.equal(expired.status, 'blocked');
+  assert.equal(expired.text, '授权已失效');
+  assert.match(expired.lastFailureText, /重新登录/);
+
+  const rows = helpers.buildOtaConfigOverviewRows({
+    platform: 'ctrip',
+    configs: [readyConfig({
+      collection_evidence_status: 'success_after_current_config',
+      active_config_count: 2,
+      duplicate_current_count: 1,
+    })],
+    accountResolver: () => ({ statusCode: 'login_expired', reasonText: '需重新登录' }),
+  });
+  assert.equal(rows[0].effectStatus, 'effective', 'authorization health must not overwrite persisted effectiveness');
+  assert.equal(rows[0].authorizationStatus, 'blocked');
+  assert.equal(rows[0].duplicateCurrentCount, 1);
+  assert.match(rows[0].duplicateText, /2 条同时生效配置/);
+});
+
 test('OTA config overview supports search, status filters, and deterministic sorting', () => {
   const rows = [
     {
@@ -186,11 +225,22 @@ test('one-click acquisition page presents the two OTA config groups without the 
   assert.match(overview, /data-testid="ota-config-platform-filter"/);
   assert.match(overview, /data-testid="ota-config-status-filter"/);
   assert.match(overview, /data-testid="ota-config-sort"/);
+  assert.match(overview, /data-testid="ota-config-page-size"/);
+  assert.match(overview, /data-testid="ota-config-batch-toolbar"/);
+  assert.match(overview, /data-testid="ota-config-batch-probe"/);
+  assert.match(overview, /data-testid="ota-config-batch-fetch"/);
+  assert.match(overview, /data-testid="ota-config-auth-status"/);
+  assert.match(overview, /data-testid="ota-config-duplicate-warning"/);
+  assert.match(overview, /data-testid="ota-config-pagination"/);
+  assert.match(overview, /:data-config-key="row\.key"/);
   assert.match(overview, /resetOtaConfigOverviewFilters/);
   assert.match(overview, /canMaintainOtaConfig\(\)/);
   assert.match(overview, /'ota-config-platform-' \+ group\.platform/);
   assert.match(overview, /最近成功：\{\{ row\.latestSuccessText \}\}/);
   assert.match(overview, /editOtaConfigOverviewRow\(row\)/);
+  assert.match(overview, /probeOtaConfigOverviewRow\(row\)/);
+  assert.match(overview, /runOtaConfigOverviewRowCollection\(row\)/);
+  assert.match(overview, /deleteOtaConfigOverviewRow\(row\)/);
   assert.doesNotMatch(overview, /<th[^>]*>问题<\/th>/);
   assert.doesNotMatch(overview, /otaDirectIssueRows/);
   assert.match(editHandler, /const hotelId = String\(row\?\.hotelId \|\| ''\)\.trim\(\)/);
@@ -200,7 +250,13 @@ test('one-click acquisition page presents the two OTA config groups without the 
   assert.match(editHandler, /meituanForm\.value\.hotelId = hotelId/);
   assert.match(editHandler, /findCtripConfigByHotelId\(hotelId\)/);
   assert.match(editHandler, /selectedCtripHotelId\.value = hotelId/);
+  assert.match(editHandler, /rememberOtaConfigOverviewReturnContext\(row\)/);
   assert.match(appMain, /filterAndSortOtaConfigOverviewRows\(group\.allRows, filters\)/);
+  assert.match(appMain, /suxios_ota_config_overview_\$\{user\.value\?\.id \|\| 'guest'\}_v1/);
+  assert.match(appMain, /selectedPlatformHotelKeys/);
+  assert.match(appMain, /returnToOtaConfigOverviewAfterSave/);
+  assert.match(appMain, /if \(!returnedToOverview\) \{\s+await returnToCtripRankingAfterConfigSave/);
+  assert.match(appMain, /if \(!returnedToOverview\) \{\s+await returnToMeituanRankingAfterConfigSave/);
   assert.match(appMain, /const canMaintainOtaConfig = \(\) => canManageOwnHotels\(\) \|\| userHasPermission\('can_fetch_online_data'\)/);
 });
 
@@ -214,6 +270,8 @@ test('config list APIs append hotel-scoped platform persistence evidence', () =>
   assert.match(otaConcern, /latest_platform_success_at/);
   assert.match(otaConcern, /success_after_current_config/);
   assert.match(otaConcern, /hotel_platform_persisted_rows_only/);
+  assert.match(otaConcern, /active_config_count/);
+  assert.match(otaConcern, /duplicate_current_count/);
   assert.match(ctripConcern, /appendOtaConfigCollectionEvidence\(array_values\(\$list\), 'ctrip'\)/);
   assert.match(meituanConcern, /appendOtaConfigCollectionEvidence\(array_values\(\$list\), 'meituan'\)/);
 });

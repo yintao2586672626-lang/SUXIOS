@@ -146,11 +146,98 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         return platformId ? `hotelId ${platformId}` : '平台 hotelId 待识别';
     };
 
+    const otaConfigAuthorizationState = ({ config = {}, account = {} } = {}) => {
+        const statusCode = String(account?.statusCode || '').trim().toLowerCase();
+        const captureStatusCode = String(account?.captureStatusCode || '').trim().toLowerCase();
+        const verificationStatus = String(config?.verification_status || '').trim().toLowerCase();
+        const verifiedAt = String(config?.verified_at || '').trim();
+        const configurationSaved = config?.configuration_saved === true
+            || String(config?.credential_status || '').trim().toLowerCase() === 'ready'
+            || config?.has_cookies === true;
+        const configurationVerified = config?.configuration_verified === true
+            || verificationStatus === 'verified_current';
+        const reasonText = String(account?.reasonText || account?.verificationReasonText || '').trim();
+        const lastFailureText = (
+            captureStatusCode === 'failed'
+            || ['login_expired', 'mismatch'].includes(statusCode)
+        ) ? reasonText : '';
+        const checkedText = verifiedAt
+            ? otaConfigTimestampText(verifiedAt, '')
+            : (String(account?.lastLoginText || '').trim() && String(account?.lastLoginText || '').trim() !== '-'
+                ? String(account.lastLoginText).trim()
+                : '暂无检测时间');
+
+        let state = {
+            status: 'unconfigured',
+            text: '未发现授权证明',
+            detail: reasonText || '当前没有可核验的平台登录证明；可继续维护配置或按现有方式尝试补采。',
+            className: 'border-slate-200 bg-slate-50 text-slate-600',
+        };
+        if (statusCode === 'mismatch') {
+            state = {
+                status: 'blocked',
+                text: '门店身份冲突',
+                detail: reasonText || '平台门店与系统门店不一致，请复核绑定。',
+                className: 'border-red-200 bg-red-50 text-red-700',
+            };
+        } else if (statusCode === 'login_expired') {
+            state = {
+                status: 'blocked',
+                text: '授权已失效',
+                detail: reasonText || '平台登录已失效，需要重新登录后再检测。',
+                className: 'border-red-200 bg-red-50 text-red-700',
+            };
+        } else if (captureStatusCode === 'failed') {
+            state = {
+                status: 'failed',
+                text: '最近检测失败',
+                detail: reasonText || '最近一次平台采集或登录检测失败，请查看原因。',
+                className: 'border-red-200 bg-red-50 text-red-700',
+            };
+        } else if (statusCode === 'renewal_warning' || account?.renewalWarning === true) {
+            state = {
+                status: 'warning',
+                text: '授权建议更新',
+                detail: reasonText || '当前授权仍可尝试使用，建议按提示更新登录。',
+                className: 'border-amber-200 bg-amber-50 text-amber-700',
+            };
+        } else if (statusCode === 'logged_in' || configurationVerified) {
+            state = {
+                status: 'verified',
+                text: '授权已验证',
+                detail: reasonText || '已有当前配置对应的平台授权验证证明；业务数据仍以真实采集入库为准。',
+                className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+            };
+        } else if (statusCode === 'profile_reusable' || account?.profileReusable === true) {
+            state = {
+                status: 'reusable',
+                text: '授权可尝试',
+                detail: reasonText || '已绑定可复用账号会话，是否有效仍以平台实际返回为准。',
+                className: 'border-blue-200 bg-blue-50 text-blue-700',
+            };
+        } else if (configurationSaved) {
+            state = {
+                status: 'pending',
+                text: '凭据已保存，待检测',
+                detail: reasonText || String(config?.verification_status_label || '').trim() || '配置已保存，但尚无当前授权检测证明。',
+                className: 'border-amber-200 bg-amber-50 text-amber-700',
+            };
+        }
+
+        return {
+            ...state,
+            checkedText,
+            verifiedAt,
+            lastFailureText,
+        };
+    };
+
     const buildOtaConfigOverviewRows = ({
         platform = 'ctrip',
         configs = [],
         hotelNameResolver = null,
         missingFieldsResolver = null,
+        accountResolver = null,
     } = {}) => {
         const normalizedPlatform = platform === 'meituan' ? 'meituan' : 'ctrip';
         const statusRank = { blocked: 0, pending: 1, unknown: 2, effective: 3 };
@@ -166,7 +253,13 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
                     ? missingFieldsResolver(config)
                     : [];
                 const effect = otaConfigEffectState({ config, platform: normalizedPlatform, missingFields });
+                const account = typeof accountResolver === 'function'
+                    ? (accountResolver(config, normalizedPlatform, hotelId) || {})
+                    : {};
+                const authorization = otaConfigAuthorizationState({ config, account });
                 const latestSuccessAt = String(config?.latest_platform_success_at || '').trim();
+                const activeConfigCount = Math.max(0, Number(config?.active_config_count || config?.current_config_count || 0));
+                const duplicateCurrentCount = Math.max(0, Number(config?.duplicate_current_count || 0));
                 return {
                     key: `${normalizedPlatform}:${configId || hotelId || index}`,
                     platform: normalizedPlatform,
@@ -190,6 +283,17 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
                     ),
                     storedRowCount: Math.max(0, Number(config?.stored_platform_row_count || 0)),
                     historyCount: Math.max(0, Number(config?.history_count || 0)),
+                    activeConfigCount,
+                    duplicateCurrentCount,
+                    duplicateText: duplicateCurrentCount > 0
+                        ? `存在 ${duplicateCurrentCount + 1} 条同时生效配置，请复核`
+                        : '',
+                    authorizationStatus: authorization.status,
+                    authorizationText: authorization.text,
+                    authorizationDetail: authorization.detail,
+                    authorizationClass: authorization.className,
+                    authorizationCheckedText: authorization.checkedText,
+                    authorizationLastFailureText: authorization.lastFailureText,
                     config,
                 };
             })
@@ -257,6 +361,10 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
                 row?.platformText,
                 row?.platformIdentityText,
                 row?.effectText,
+                row?.authorizationText,
+                row?.authorizationDetail,
+                row?.authorizationLastFailureText,
+                row?.duplicateText,
                 row?.latestSuccessAt,
                 row?.latestDataDate,
             ].filter(Boolean).join(' ').toLocaleLowerCase('zh-CN');
@@ -6486,6 +6594,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         otaConfigCredentialReady,
         otaConfigEffectState,
         otaConfigPlatformIdentityText,
+        otaConfigAuthorizationState,
         buildOtaConfigOverviewRows,
         summarizeOtaConfigOverviewRows,
         filterAndSortOtaConfigOverviewRows,
