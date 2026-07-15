@@ -559,6 +559,28 @@ final class OnlineDataTest extends TestCase
         self::assertNotContains('book_order_num', array_column($quality['missing_metrics'], 'key'));
     }
 
+    public function testDailyDataTypeFiltersSupportStrictMultiTypeTabs(): void
+    {
+        $controller = $this->controller();
+
+        self::assertSame(
+            ['traffic', 'traffic_analysis'],
+            $this->invokeNonPublic($controller, 'normalizeOnlineDataTypeFilters', ['', 'traffic, traffic_analysis'])
+        );
+        self::assertSame(
+            ['order'],
+            $this->invokeNonPublic($controller, 'normalizeOnlineDataTypeFilters', ['ORDER', 'traffic,advertising'])
+        );
+        self::assertSame(
+            ['peer_rank', 'advertising'],
+            $this->invokeNonPublic($controller, 'normalizeOnlineDataTypeFilters', ['', ['peer_rank', 'advertising', 'peer_rank']])
+        );
+        self::assertSame(
+            [],
+            $this->invokeNonPublic($controller, 'normalizeOnlineDataTypeFilters', ['', 'traffic;drop'])
+        );
+    }
+
     /**
      * 覆盖 normalizeAppTrafficRow/readTrafficNumber/normalizeTrafficPercent/trafficRate：
      * 验证正常流量行、零分母边界值、非法日期异常输入兜底。

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\command;
 
 use app\service\BrowserProfileCaptureRequestService;
+use app\service\OtaFailureNotificationService;
 use app\service\OtaProfileBindingService;
 use app\service\OtaProfileSessionProofService;
 use app\service\PlatformDataSyncService;
@@ -13,6 +14,7 @@ use think\console\Output;
 use think\console\input\Option;
 use think\facade\Cache;
 use think\facade\Db;
+use think\facade\Log;
 
 class PlatformProfileLogin extends Command
 {
@@ -198,6 +200,25 @@ class PlatformProfileLogin extends Command
             'status_code' => 'logged_in',
             'output' => $outputPath,
         ]);
+
+        try {
+            (new OtaFailureNotificationService())->recordCollectionOutcome([
+                'hotel_id' => $hotelId,
+                'platform' => $platform,
+                'data_date' => $this->profileLoginSyncTargetDate($request),
+                'success' => true,
+                'saved_count' => 0,
+                'auth_verified' => true,
+                'actor_user_id' => (int)($request['user_id'] ?? 0),
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('Resolve OTA auth strong reminder after verified Profile login failed', [
+                'hotel_id' => $hotelId,
+                'platform' => $platform,
+                'exception_type' => get_debug_type($e),
+            ]);
+        }
+
         Cache::set($this->profileStatusKey($platform, $hotelId, $profileKey), $profileStatus, 86400 * 30);
 
         $this->writeTask($taskId, [

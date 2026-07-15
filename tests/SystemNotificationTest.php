@@ -192,6 +192,7 @@ final class SystemNotificationTest extends TestCase
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 hotel_id INTEGER DEFAULT NULL,
                 user_id INTEGER DEFAULT NULL,
+                recipient_user_id INTEGER DEFAULT NULL,
                 platform TEXT NOT NULL DEFAULT 'ota',
                 category TEXT NOT NULL DEFAULT 'general',
                 severity TEXT NOT NULL DEFAULT 'info',

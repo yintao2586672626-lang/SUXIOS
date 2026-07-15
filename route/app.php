@@ -132,6 +132,7 @@ Route::group('api/users', function () {
     Route::get('/', 'User/index');
     Route::get('/roles', 'User/roles');
     Route::post('/batch-status', 'User/batchStatus');
+    Route::post('/hotel-assignments', 'User/batchHotelAssignments');
     Route::get('/:id', 'User/read');
     Route::post('/', 'User/create');
     Route::put('/:id', 'User/update');

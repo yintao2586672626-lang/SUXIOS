@@ -16,6 +16,8 @@ class SystemNotificationController extends Base
         if (!SystemNotification::tableReady()) {
             return $this->success([
                 'list' => [],
+                'strong_reminders' => [],
+                'strong_reminder_count' => 0,
                 'total' => 0,
                 'unread_count' => 0,
                 'poll_interval_ms' => 120000,
@@ -29,6 +31,8 @@ class SystemNotificationController extends Base
         if (!SystemNotificationUserState::tableReady()) {
             return $this->success([
                 'list' => [],
+                'strong_reminders' => [],
+                'strong_reminder_count' => 0,
                 'total' => 0,
                 'unread_count' => 0,
                 'poll_interval_ms' => 120000,
@@ -67,21 +71,67 @@ class SystemNotificationController extends Base
         $unreadCount = (int)(clone $query)
             ->whereRaw('(notification_state.is_read IS NULL OR notification_state.is_read <> 1)')
             ->count('DISTINCT notification.id');
+        if (SystemNotification::recipientTargetingReady()) {
+            $query->orderRaw(
+                "CASE WHEN notification.category = 'ota_auth_required'"
+                . " AND notification.recipient_user_id = {$userId} THEN 0"
+                . " WHEN notification.category = 'ota_auth_required' THEN 1 ELSE 2 END"
+            );
+        } else {
+            $query->orderRaw("CASE WHEN notification.category = 'ota_auth_required' THEN 0 ELSE 1 END");
+        }
         $pageRows = $query
             ->order('notification.update_time', 'desc')
             ->order('notification.create_time', 'desc')
             ->page($page, $pageSize)
             ->select()
             ->toArray();
-        $ids = array_map(static fn(array $row): int => (int)($row['id'] ?? 0), $pageRows);
+        $strongRows = $this->directStrongReminderRows($userId);
+        $ids = array_values(array_unique(array_merge(
+            array_map(static fn(array $row): int => (int)($row['id'] ?? 0), $pageRows),
+            array_map(static fn(array $row): int => (int)($row['id'] ?? 0), $strongRows)
+        )));
         $states = SystemNotificationUserState::statesByNotificationId($ids, $userId);
 
         return $this->success([
             'list' => array_map(fn(array $row): array => $this->serializeNotification($row, $states), $pageRows),
+            'strong_reminders' => array_map(
+                fn(array $row): array => $this->serializeNotification($row, $states),
+                $strongRows
+            ),
+            'strong_reminder_count' => count($strongRows),
             'total' => $total,
             'unread_count' => $unreadCount,
             'poll_interval_ms' => 120000,
         ]);
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function directStrongReminderRows(int $userId): array
+    {
+        if ($userId <= 0 || !SystemNotification::recipientTargetingReady()) {
+            return [];
+        }
+
+        $query = SystemNotification::with(['hotel', 'actor'])
+            ->alias('notification')
+            ->field('notification.*')
+            ->leftJoin(
+                'system_notification_user_states notification_state',
+                'notification_state.notification_id = notification.id AND notification_state.user_id = ' . $userId
+            )
+            ->where('notification.is_cleared', 0)
+            ->where('notification.recipient_user_id', $userId)
+            ->where('notification.category', 'ota_auth_required')
+            ->where('notification.source_module', 'ota_failure_notifier')
+            ->whereRaw('(notification_state.is_cleared IS NULL OR notification_state.is_cleared <> 1)');
+        $this->applyVisibleScope($query, 'notification.');
+
+        return $query
+            ->order('notification.update_time', 'desc')
+            ->order('notification.create_time', 'desc')
+            ->select()
+            ->toArray();
     }
 
     public function markRead(): Response
@@ -174,9 +224,27 @@ class SystemNotificationController extends Base
 
         $ids = $this->inputIds();
         $visibleIds = $this->visibleNotificationIdsForCurrentUser([], $ids);
-        $count = SystemNotificationUserState::markClearedForUser($visibleIds, (int)$this->currentUser->id);
+        $clearableIds = [];
+        $blockedCount = 0;
+        if (!empty($visibleIds)) {
+            $rows = SystemNotification::whereIn('id', $visibleIds)
+                ->field('id,category,source_module')
+                ->select()
+                ->toArray();
+            foreach ($rows as $row) {
+                if ($this->requiresResolution($row)) {
+                    $blockedCount++;
+                    continue;
+                }
+                $clearableIds[] = (int)($row['id'] ?? 0);
+            }
+        }
+        $count = SystemNotificationUserState::markClearedForUser($clearableIds, (int)$this->currentUser->id);
 
-        return $this->success(['updated_count' => (int)$count], '通知已清空');
+        return $this->success([
+            'updated_count' => (int)$count,
+            'blocked_count' => $blockedCount,
+        ], $blockedCount > 0 ? '登录失效强提醒将在重新登录验证成功后自动解除' : '通知已清空');
     }
 
     /**
@@ -221,6 +289,12 @@ class SystemNotificationController extends Base
         }
 
         $userId = (int)$this->currentUser->id;
+        if (SystemNotification::recipientTargetingReady()) {
+            $query->whereRaw(
+                '(' . $this->qualifiedNotificationField('recipient_user_id', $tablePrefix) . ' IS NULL'
+                . ' OR ' . $this->qualifiedNotificationField('recipient_user_id', $tablePrefix) . ' = ' . $userId . ')'
+            );
+        }
         $permittedHotelIds = array_values(array_filter(
             array_map('intval', $this->currentUser->getPermittedHotelIds()),
             static fn(int $id): bool => $id > 0
@@ -297,6 +371,9 @@ class SystemNotificationController extends Base
 
         $updatedAt = (string)($row['update_time'] ?? '');
         $createdAt = (string)($row['create_time'] ?? '');
+        $requiresResolution = $this->requiresResolution($row);
+        $recipientUserId = (int)($row['recipient_user_id'] ?? 0);
+        $currentUserId = (int)($this->currentUser->id ?? 0);
 
         return [
             'id' => (int)($row['id'] ?? 0),
@@ -320,7 +397,19 @@ class SystemNotificationController extends Base
             'target_tab' => $payload['target_tab'] ?? 'data-health',
             'action_payload' => $payload,
             'source_module' => $row['source_module'] ?? '',
+            'reason_code' => $payload['reason_code'] ?? '',
+            'requires_resolution' => $requiresResolution,
+            'reminder_level' => $requiresResolution ? 'strong' : ($payload['reminder_level'] ?? 'normal'),
+            'is_direct_recipient' => $recipientUserId > 0 && $recipientUserId === $currentUserId,
+            'resolution_rule' => $requiresResolution ? 'verified_same_platform_session_or_capture' : '',
         ];
+    }
+
+    /** @param array<string, mixed> $row */
+    private function requiresResolution(array $row): bool
+    {
+        return (string)($row['category'] ?? '') === 'ota_auth_required'
+            && (string)($row['source_module'] ?? '') === 'ota_failure_notifier';
     }
 
     private function categoryLabel(string $category): string
@@ -328,6 +417,7 @@ class SystemNotificationController extends Base
         return [
             'capture_success' => '采集完成',
             'capture_failed' => '采集失败',
+            'ota_auth_required' => '登录失效强提醒',
             'cookie_alert' => 'Cookie 告警',
             'data_quality' => '数据健康',
             'risk_action' => '风险动作',
@@ -339,6 +429,7 @@ class SystemNotificationController extends Base
         return [
             'capture_success' => '查看数据',
             'capture_failed' => '查看原因',
+            'ota_auth_required' => '立即重新登录',
             'cookie_alert' => '更新授权',
         ][$category] ?? '查看处理';
     }

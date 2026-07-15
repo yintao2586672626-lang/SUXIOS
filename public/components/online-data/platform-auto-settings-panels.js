@@ -30,7 +30,7 @@
                                     class="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                             </div>
                         </div>
-                        <div class="text-xs text-gray-500">默认每 2 小时，在指定分钟触发实时快照；历史固定数据按每日时间保底抓取。</div>
+                        <div class="text-xs text-gray-500">默认每 2 小时，在指定分钟触发实时快照；历史固定数据按每日时间保底抓取。美团定时任务固定使用已绑定 Profile。</div>
                         <button type="button" @click="ctx.saveFetchSchedule"
                             :disabled="!ctx.autoFetchHotelId || !ctx.hasAnyPlatformFetchConfigByHotelId(ctx.autoFetchHotelId)"
                             class="px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-500 text-sm">
@@ -88,7 +88,7 @@
                     <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
                         <div>
                             <div class="text-sm font-semibold text-slate-900">采集闭环</div>
-                            <div class="mt-1 text-xs text-slate-500">账号使用者本机 Profile -> 业务响应 -> 标准字段 -> 标准入库</div>
+                            <div class="mt-1 text-xs text-slate-500">立即采集走已保存 Cookie/API；定时任务走账号使用者本机 Profile；两条路径都需完成业务响应、标准字段和入库回读。</div>
                         </div>
                         <span class="inline-flex w-fit items-center rounded-md border border-blue-100 bg-white px-2 py-1 text-xs text-blue-700">OTA 渠道口径</span>
                     </div>

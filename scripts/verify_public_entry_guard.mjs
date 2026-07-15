@@ -265,7 +265,7 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
       failures.push(`${file} must keep OTA authorization copy on account-owner local-computer authorization and must not contain legacy server/login-task wording: ${text}`);
     }
   }
-  if (!content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260712-meituan-ads-not-applicable';")
+  if (!content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260714-manual-direct-scheduled-profile';")
     || !content.includes("const PlatformAutoSettingsPanels = {")
     || !content.includes("const PlatformAutoSecondaryPanels = {")
     || !content.includes('const ensurePlatformAutoPanelsReady = async () => {')
@@ -1814,7 +1814,7 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
     || !content.includes('const switchToMeituanDownloadCenter = () => {')
     || !meituanStaticContent.includes('const buildMeituanDownloadData = (rows = []) => {')
     || !content.includes('const meituanDownloadData = computed(() => buildMeituanDownloadData(onlineDataList.value));')
-    || !content.includes('switchToMeituanDownloadCenter, openMeituanStoredDataTab, meituanDownloadData,')
+    || !content.includes('switchToMeituanDownloadCenter, openMeituanStoredDataTab, queryMeituanStoredData, meituanDownloadData,')
     || !downloadCenterTabSource.includes("await refreshOnlineHistory({ refreshHotels: false });")
     || !downloadCenterTabSource.includes('scheduleDelayedPageTask(() => {')
     || !downloadCenterTabSource.includes('return loadOnlineHistoryHotelList();')
@@ -1880,7 +1880,7 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
   }
   if (!platformAutoTemplateSource.includes('<platform-auto-settings-panels')
     || !platformAutoTemplateSource.includes(':ctx="$root"')
-    || !content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260712-meituan-ads-not-applicable';")
+    || !content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260714-manual-direct-scheduled-profile';")
     || !content.includes('const ensurePlatformAutoPanelsReady = async () => {')
     || !content.includes("requireOnlineDataComponent('PlatformAutoSettingsPanelsBody')")
     || !content.includes("requireOnlineDataComponent('PlatformAutoSecondaryPanelsBody')")
@@ -2812,7 +2812,9 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
     || !content.includes('loadOnlineDataHotelList({ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS })')
     || !content.includes('const scheduleOnlineDataRefresh = () => schedulePostFetchRefresh(\'online-data-list\', () => refreshOnlineData({ force: true }), 260);')
     || !content.includes('@click="refreshOnlineData({ force: true })"')
-    || !content.includes('@click="loadOnlineDataList({ force: true })"')) {
+    || (!content.includes('@click="loadOnlineDataList({ force: true })"')
+      && (!content.includes('@click="queryMeituanStoredData"')
+        || !/const queryMeituanStoredData = async \(\) => \{[\s\S]*?loadOnlineDataList\(\{ force: true \}\);[\s\S]*?\};/.test(content)))) {
     failures.push('public/index.html must deduplicate online-data list/summary/hotel reads for tab switching while keeping manual query and post-fetch refreshes forced.');
   }
   if (!content.includes('const ONLINE_ANALYSIS_PANEL_CACHE_TTL_MS = 8000;')

@@ -91,6 +91,28 @@
                                                 <div class="mt-1">{{ revenueResearchMissingText(revenueResearchRunFor(product.key).result.readiness) }}</div>
                                                 <div class="mt-1 text-blue-700">下一步：{{ revenueResearchRunFor(product.key).result.readiness.next_action }}</div>
                                             </div>
+                                            <div class="rounded-lg border border-emerald-100 bg-emerald-50/70 p-3" :data-testid="'revenue-research-execution-bridge-' + product.key">
+                                                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                                    <div>
+                                                        <div class="text-xs font-semibold text-emerald-900">转运营执行</div>
+                                                        <div class="mt-1 text-xs leading-5 text-emerald-800">仅单店、研究阶段为 research_ready_for_execution 且 execution_ready=true 时创建待人工审批的执行意图。</div>
+                                                        <div class="mt-1 text-[11px] text-emerald-700">边界：不自动审批、不自动执行、不写 OTA 房价、库存或活动。</div>
+                                                    </div>
+                                                    <span v-if="revenueResearchRunFor(product.key).executionIntent" class="shrink-0 rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-xs font-medium text-emerald-800">
+                                                        执行意图 #{{ revenueResearchRunFor(product.key).executionIntent.id }} · {{ operationExecutionStatusLabel(revenueResearchRunFor(product.key).executionIntent.status) }}
+                                                    </span>
+                                                </div>
+                                                <div v-if="revenueResearchRunFor(product.key).executionError" class="mt-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">{{ revenueResearchRunFor(product.key).executionError }}</div>
+                                                <div class="mt-3 flex flex-wrap items-center gap-2">
+                                                    <button v-if="revenueResearchRunFor(product.key).executionIntent" type="button" @click="openRevenueResearchExecutionIntent(product)" :data-testid="'button-revenue-research-open-execution-' + product.key" class="rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-700">
+                                                        <i class="fas fa-tasks mr-1.5"></i>查看执行跟踪
+                                                    </button>
+                                                    <button v-else-if="revenueResearchCanCreateExecutionIntent(revenueResearchRunFor(product.key).result)" type="button" @click="createRevenueResearchExecutionIntent(product)" :disabled="revenueResearchRunFor(product.key).executionLoading" :data-testid="'button-revenue-research-execution-' + product.key" class="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-wait disabled:opacity-60">
+                                                        <i :class="[revenueResearchRunFor(product.key).executionLoading ? 'fas fa-spinner fa-spin' : 'fas fa-share-square', 'mr-1.5']"></i>{{ revenueResearchRunFor(product.key).executionLoading ? '创建中...' : '转运营执行' }}
+                                                    </button>
+                                                    <span v-else="" class="text-xs leading-5 text-amber-800">{{ revenueResearchExecutionBlockedText(revenueResearchRunFor(product.key).result) }}</span>
+                                                </div>
+                                            </div>
                                             <p class="line-clamp-4 text-sm leading-relaxed text-gray-700" :title="revenueResearchRunFor(product.key).result.result?.summary || '已生成经营预测。'">{{ revenueResearchRunFor(product.key).result.result?.summary || '已生成经营预测。' }}</p>
                                             <div v-if="revenueResearchForecastCards(revenueResearchRunFor(product.key).result).length" class="grid grid-cols-1 md:grid-cols-3 gap-3">
                                                 <div v-for="card in revenueResearchForecastCards(revenueResearchRunFor(product.key).result)" :key="card.label" class="rounded-lg bg-blue-50 border border-blue-100 p-3">

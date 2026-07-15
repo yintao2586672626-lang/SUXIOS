@@ -1,10 +1,10 @@
         <!-- 门店用户分配模态框 -->
         <div v-if="showHotelUserAuthorizationModal" data-testid="hotel-user-authorization-modal" class="fixed inset-0 z-[60] flex items-center justify-center modal-overlay px-4" @click.self="closeHotelUserAuthorization">
-            <div class="flex w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl" style="max-height: 86vh;">
+            <div class="flex w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl" style="max-height: 86vh;" role="dialog" aria-modal="true" aria-labelledby="hotel-user-authorization-title">
                 <div class="shrink-0 border-b border-blue-100 bg-blue-50 px-5 py-4">
                     <div class="flex items-start justify-between gap-4">
                         <div>
-                            <h3 class="text-base font-semibold text-gray-900">分配用户</h3>
+                            <h3 id="hotel-user-authorization-title" class="text-base font-semibold text-gray-900">分配用户</h3>
                             <p class="mt-1 text-sm text-gray-600">门店：{{ hotelUserAuthorizationTarget?.name || '-' }}</p>
                         </div>
                         <button type="button" @click="closeHotelUserAuthorization" :disabled="hotelUserAuthorizationSaving" class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-white hover:text-gray-600 disabled:opacity-50">
@@ -13,23 +13,25 @@
                     </div>
                 </div>
                 <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-                    <input v-model="hotelUserAuthorizationSearch" type="search" name="hotel_user_assignment_filter" autocomplete="one-time-code" readonly="" @focus="$event.currentTarget.removeAttribute('readonly')" @pointerdown="$event.currentTarget.removeAttribute('readonly')" placeholder="搜索用户名或姓名" class="mb-3 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100">
-                    <div class="mb-2 text-xs text-gray-500">已选 {{ hotelUserAuthorizationUserIds.length }} 人；仅显示内测用户</div>
+                    <label for="hotel-user-authorization-search" class="sr-only">搜索内测用户名或姓名</label>
+                    <input id="hotel-user-authorization-search" v-model="hotelUserAuthorizationSearch" type="search" name="hotel_user_assignment_filter" autocomplete="one-time-code" readonly="" @focus="$event.currentTarget.removeAttribute('readonly')" @pointerdown="$event.currentTarget.removeAttribute('readonly')" placeholder="搜索用户名或姓名" class="mb-3 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100">
+                    <div class="mb-2 text-xs text-gray-500">已选 {{ hotelUserAuthorizationUserIds.length }} 人；仅显示内测用户。停用账号不能新增授权，但可以保留或移除已有授权。</div>
+                    <div v-if="hotelUserAuthorizationError" class="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{{ hotelUserAuthorizationError }}</div>
                     <div class="space-y-2 rounded-xl border border-gray-200 bg-white p-2">
-                        <label v-for="candidate in filteredHotelAuthorizationUsers" :key="candidate.id" class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 hover:bg-blue-50">
-                            <input v-model="hotelUserAuthorizationUserIds" type="checkbox" :value="String(candidate.id)" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <label v-for="candidate in filteredHotelAuthorizationUsers" :key="candidate.id" class="flex items-center gap-3 rounded-lg px-3 py-2" :class="hotelAuthorizationCandidateDisabled(candidate) ? 'cursor-not-allowed bg-gray-50 opacity-60' : 'cursor-pointer hover:bg-blue-50'">
+                            <input v-model="hotelUserAuthorizationUserIds" type="checkbox" :value="String(candidate.id)" :disabled="hotelAuthorizationCandidateDisabled(candidate)" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed">
                             <span class="min-w-0 flex-1">
                                 <span class="block truncate text-sm font-medium text-gray-800">{{ candidate.realname || candidate.username }}</span>
                                 <span class="block truncate text-xs text-gray-500" :title="userHotelScopeSummary(candidate).full">{{ candidate.username }} · {{ userHotelScopeSummary(candidate).summary }}</span>
                             </span>
-                            <span :class="String(candidate.status) === '1' ? 'text-emerald-700 bg-emerald-50' : 'text-gray-500 bg-gray-100'" class="rounded-full px-2 py-0.5 text-[11px]">{{ String(candidate.status) === '1' ? '正常' : '停用' }}</span>
+                            <span :class="String(candidate.status) === '1' ? 'text-emerald-700 bg-emerald-50' : 'text-gray-500 bg-gray-100'" class="rounded-full px-2 py-0.5 text-[11px]">{{ String(candidate.status) === '1' ? '正常' : (hotelAuthorizationCandidateDisabled(candidate) ? '停用·不可新增' : '停用·可移除') }}</span>
                         </label>
                         <div v-if="!filteredHotelAuthorizationUsers.length" class="px-3 py-5 text-center text-sm text-gray-400">没有可分配的内测用户</div>
                     </div>
                 </div>
                 <div class="flex shrink-0 justify-end gap-3 border-t border-gray-100 bg-white px-5 py-3">
                     <button type="button" @click="closeHotelUserAuthorization" :disabled="hotelUserAuthorizationSaving" class="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50">取消</button>
-                    <button type="button" @click="saveHotelUserAuthorization" :disabled="hotelUserAuthorizationSaving" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60">{{ hotelUserAuthorizationSaving ? '保存中...' : '保存分配' }}</button>
+                    <button type="button" @click="saveHotelUserAuthorization" :disabled="hotelUserAuthorizationSaving || hotelUserAuthorizationLoading" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60">{{ hotelUserAuthorizationSaving ? '原子保存并回读中...' : '保存分配' }}</button>
                 </div>
             </div>
         </div>
@@ -106,7 +108,7 @@
                             </label>
                             <div v-if="!filteredUserAssignmentHotels.length" class="text-xs text-gray-400 py-2">当前条件下没有门店</div>
                         </div>
-                        <p class="text-xs text-gray-500 mt-1">未分配时仅看自己创建的门店。</p>
+                        <p class="text-xs text-gray-500 mt-1">这里搜索门店名称、编码或 ID；要从门店反查并分配用户，请在门店管理点击“授权用户”。</p>
                     </div>
                     <div v-if="user?.is_super_admin &amp;&amp; selectedUserRoleGuide" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2" :title="userIssueBlockingReasons.length ? userIssueBlockingReasons.join('；') : '检查通过'">
                         <div class="flex items-center justify-between gap-3">

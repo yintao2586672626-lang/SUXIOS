@@ -1,0 +1,397 @@
+{
+  "title": "宿析OS 4,000 条软件与酒店运营诊断矩阵",
+  "audit_date": "2026-07-15",
+  "generated_at": "2026-07-15T00:39:46.539Z",
+  "methodology": "500 个互联网标准/行业基线核心场景 × NIST L8 四因子两两组合 = 4,000 条；项目结果采用现有自动化、运行、静态合同或外部证据分级，不把未实操项判为动态通过。",
+  "totals": {
+    "cases": 4000,
+    "base_cases": 500,
+    "variants_per_base": 8,
+    "unique_ids": 4000,
+    "definition_validation_passed": 4000,
+    "definition_validation_failed": 0,
+    "pairwise_coverage_gaps": 0,
+    "evidence_results": {
+      "pass": 2800,
+      "partial": 592,
+      "fail": 248,
+      "blocked": 152,
+      "not_applicable": 208
+    },
+    "evidence_execution_classes": {
+      "automated_or_runtime_evidence": 2720,
+      "static_or_contract_evidence": 904,
+      "manual_or_external_evidence": 376
+    }
+  },
+  "factor_model": {
+    "factors": [
+      "actor_scope",
+      "data_completeness",
+      "freshness",
+      "upstream_state"
+    ],
+    "rows": [
+      {
+        "variant": 1,
+        "actor_scope": "authorized",
+        "data_completeness": "complete",
+        "freshness": "fresh",
+        "upstream_state": "success"
+      },
+      {
+        "variant": 2,
+        "actor_scope": "authorized",
+        "data_completeness": "complete",
+        "freshness": "stale",
+        "upstream_state": "failure"
+      },
+      {
+        "variant": 3,
+        "actor_scope": "authorized",
+        "data_completeness": "missing_required",
+        "freshness": "fresh",
+        "upstream_state": "failure"
+      },
+      {
+        "variant": 4,
+        "actor_scope": "authorized",
+        "data_completeness": "missing_required",
+        "freshness": "stale",
+        "upstream_state": "success"
+      },
+      {
+        "variant": 5,
+        "actor_scope": "restricted",
+        "data_completeness": "complete",
+        "freshness": "fresh",
+        "upstream_state": "failure"
+      },
+      {
+        "variant": 6,
+        "actor_scope": "restricted",
+        "data_completeness": "complete",
+        "freshness": "stale",
+        "upstream_state": "success"
+      },
+      {
+        "variant": 7,
+        "actor_scope": "restricted",
+        "data_completeness": "missing_required",
+        "freshness": "fresh",
+        "upstream_state": "success"
+      },
+      {
+        "variant": 8,
+        "actor_scope": "restricted",
+        "data_completeness": "missing_required",
+        "freshness": "stale",
+        "upstream_state": "failure"
+      }
+    ],
+    "pairwise_coverage": "complete"
+  },
+  "category_summary": [
+    {
+      "code": "AUTH",
+      "name": "身份认证、密码与会话",
+      "total": 200,
+      "pass": 144,
+      "partial": 24,
+      "fail": 32,
+      "blocked": 0,
+      "not_applicable": 0
+    },
+    {
+      "code": "TENANT",
+      "name": "角色权限、租户与酒店隔离",
+      "total": 200,
+      "pass": 184,
+      "partial": 8,
+      "fail": 8,
+      "blocked": 0,
+      "not_applicable": 0
+    },
+    {
+      "code": "HOTEL",
+      "name": "酒店主数据与门店生命周期",
+      "total": 200,
+      "pass": 192,
+      "partial": 8,
+      "fail": 0,
+      "blocked": 0,
+      "not_applicable": 0
+    },
+    {
+      "code": "ADMIN",
+      "name": "用户、角色、系统配置与审计",
+      "total": 200,
+      "pass": 176,
+      "partial": 24,
+      "fail": 0,
+      "blocked": 0,
+      "not_applicable": 0
+    },
+    {
+      "code": "CRED",
+      "name": "OTA 账号、凭据与授权绑定",
+      "total": 200,
+      "pass": 176,
+      "partial": 16,
+      "fail": 8,
+      "blocked": 0,
+      "not_applicable": 0
+    },
+    {
+      "code": "OTA",
+      "name": "OTA 数据采集与任务控制",
+      "total": 200,
+      "pass": 176,
+      "partial": 16,
+      "fail": 0,
+      "blocked": 8,
+      "not_applicable": 0
+    },
+    {
+      "code": "DQ",
+      "name": "数据质量、血缘与快照",
+      "total": 200,
+      "pass": 200,
+      "partial": 0,
+      "fail": 0,
+      "blocked": 0,
+      "not_applicable": 0
+    },
+    {
+      "code": "REPORT",
+      "name": "经营日报、导入、导出与月度任务",
+      "total": 200,
+      "pass": 184,
+      "partial": 16,
+      "fail": 0,
+      "blocked": 0,
+      "not_applicable": 0
+    },
+    {
+      "code": "METRIC",
+      "name": "收益指标、公式与口径",
+      "total": 200,
+      "pass": 128,
+      "partial": 72,
+      "fail": 0,
+      "blocked": 0,
+      "not_applicable": 0
+    },
+    {
+      "code": "COMP",
+      "name": "竞品、渠道、流量与点评数据",
+      "total": 200,
+      "pass": 160,
+      "partial": 32,
+      "fail": 0,
+      "blocked": 8,
+      "not_applicable": 0
+    },
+    {
+      "code": "AI",
+      "name": "AI 决策、证据与治理",
+      "total": 200,
+      "pass": 168,
+      "partial": 32,
+      "fail": 0,
+      "blocked": 0,
+      "not_applicable": 0
+    },
+    {
+      "code": "OPS",
+      "name": "运营任务、审批与执行闭环",
+      "total": 200,
+      "pass": 176,
+      "partial": 24,
+      "fail": 0,
+      "blocked": 0,
+      "not_applicable": 0
+    },
+    {
+      "code": "INVEST",
+      "name": "投资、开业、扩张与转让决策",
+      "total": 200,
+      "pass": 168,
+      "partial": 32,
+      "fail": 0,
+      "blocked": 0,
+      "not_applicable": 0
+    },
+    {
+      "code": "DASH",
+      "name": "驾驶舱、报告、通知与工作台",
+      "total": 200,
+      "pass": 184,
+      "partial": 0,
+      "fail": 8,
+      "blocked": 8,
+      "not_applicable": 0
+    },
+    {
+      "code": "API",
+      "name": "API、集成与互操作",
+      "total": 200,
+      "pass": 144,
+      "partial": 40,
+      "fail": 16,
+      "blocked": 0,
+      "not_applicable": 0
+    },
+    {
+      "code": "SEC",
+      "name": "应用安全、隐私与合规边界",
+      "total": 200,
+      "pass": 72,
+      "partial": 48,
+      "fail": 72,
+      "blocked": 0,
+      "not_applicable": 8
+    },
+    {
+      "code": "REL",
+      "name": "可靠性、性能、备份与可观测性",
+      "total": 200,
+      "pass": 48,
+      "partial": 88,
+      "fail": 8,
+      "blocked": 56,
+      "not_applicable": 0
+    },
+    {
+      "code": "UI",
+      "name": "界面、可访问性、国际化与浏览器兼容",
+      "total": 200,
+      "pass": 32,
+      "partial": 80,
+      "fail": 56,
+      "blocked": 32,
+      "not_applicable": 0
+    },
+    {
+      "code": "E2E",
+      "name": "跨模块闭环、自动化与发布验收",
+      "total": 200,
+      "pass": 88,
+      "partial": 32,
+      "fail": 40,
+      "blocked": 40,
+      "not_applicable": 0
+    },
+    {
+      "code": "PMS",
+      "name": "完整 PMS 扩展能力（当前产品范围外）",
+      "total": 200,
+      "pass": 0,
+      "partial": 0,
+      "fail": 0,
+      "blocked": 0,
+      "not_applicable": 200
+    }
+  ],
+  "sources": [
+    {
+      "name": "ISO/IEC 25010:2023",
+      "use": "软件产品质量九特性与验收模型",
+      "url": "https://www.iso.org/standard/78176.html"
+    },
+    {
+      "name": "ISO/IEC 27001:2022",
+      "use": "信息安全管理、机密性、完整性、可用性",
+      "url": "https://www.iso.org/contents/news/2022/10/new-iso-iec-27001.html"
+    },
+    {
+      "name": "OWASP ASVS 5.0.0",
+      "use": "Web 应用安全验证基线",
+      "url": "https://owasp.org/www-project-application-security-verification-standard/"
+    },
+    {
+      "name": "WCAG 2.2",
+      "use": "Web 可访问性可测试要求",
+      "url": "https://www.w3.org/TR/WCAG22/"
+    },
+    {
+      "name": "PCI DSS v4.0.1",
+      "use": "支付账户数据保护基线（仅在进入支付范围时适用）",
+      "url": "https://www.pcisecuritystandards.org/standards/pci-dss/"
+    },
+    {
+      "name": "个人信息保护法",
+      "use": "最小必要、告知同意、个人权利、敏感信息与自动化决策",
+      "url": "https://www.miit.gov.cn/jgsj/zfs/fl/art/2022/art_515a4b20c12f430eab54bb4f56d89f56.html"
+    },
+    {
+      "name": "数据安全法",
+      "use": "数据处理、分类分级与安全保护义务",
+      "url": "https://flk.npc.gov.cn/detail?fileId=&id=ff80818179f5e0800179f885c7e70392&title=%E4%B8%AD%E5%8D%8E%E4%BA%BA%E6%B0%91%E5%85%B1%E5%92%8C%E5%9B%BD%E6%95%B0%E6%8D%AE%E5%AE%89%E5%85%A8%E6%B3%95&type="
+    },
+    {
+      "name": "网络数据安全管理条例",
+      "use": "网络数据分类分级与处理活动要求（2025-01-01 起施行）",
+      "url": "https://www.cac.gov.cn/2024-09/30/c_1729384452307680.htm"
+    },
+    {
+      "name": "GB/T 22239-2019",
+      "use": "网络安全等级保护基本要求",
+      "url": "https://openstd.samr.gov.cn/bzgk/std/newGbInfo?hcno=BAFB47E8874764186BDB7865E8344DAF"
+    },
+    {
+      "name": "OpenTravel",
+      "use": "酒店/旅行系统消息、代码表与互操作模型",
+      "url": "https://opentravel.org/"
+    },
+    {
+      "name": "HTNG / AHLA",
+      "use": "酒店技术互操作与基础设施实践",
+      "url": "https://www.ahla.com/sites/default/files/HTNG_NGI_Tech_Guide_10.23.pdf"
+    },
+    {
+      "name": "Oracle OPERA Cloud PMS",
+      "use": "主流酒店系统功能基线：预订、房态、支付、报表、移动与多门店",
+      "url": "https://www.oracle.com/hospitality/hotel-property-management/hotel-pms-software/"
+    },
+    {
+      "name": "Cloudbeds PMS",
+      "use": "现代 PMS/酒店管理系统功能基线",
+      "url": "https://www.cloudbeds.com/property-management-system/"
+    },
+    {
+      "name": "HSMAI Revenue Metrics",
+      "use": "OCC、ADR、RevPAR 等酒店收益指标公式",
+      "url": "https://academy.hsmai.org/wp-content/uploads/sites/11/2019/02/2019-hsmai-and-sit-revenue-management-metrics-study-final.pdf"
+    },
+    {
+      "name": "NIST AI RMF",
+      "use": "AI 治理、映射、度量、管理与可信性",
+      "url": "https://www.nist.gov/itl/ai-risk-management-framework"
+    },
+    {
+      "name": "NIST SP 800-142 Practical Combinatorial Testing",
+      "use": "L8/两两交互覆盖的测试设计依据",
+      "url": "https://csrc.nist.gov/pubs/sp/800/142/final"
+    },
+    {
+      "name": "W3C ACT Rules for WCAG 2.2",
+      "use": "可访问性规则及通过/失败/不适用样例结构",
+      "url": "https://www.w3.org/WAI/standards-guidelines/act/rules/"
+    },
+    {
+      "name": "Hotel booking demand datasets",
+      "use": "真实脱敏酒店 PMS 预订数据的字段、日期、取消和 ADR 语义参照",
+      "url": "https://doi.org/10.1016/j.dib.2018.11.126"
+    },
+    {
+      "name": "JSON Schema Test Suite",
+      "use": "结构化测试用例的 schema + tests + valid 组织方式参照",
+      "url": "https://github.com/json-schema-org/JSON-Schema-Test-Suite"
+    }
+  ],
+  "execution_boundary": {
+    "matrix_validation": "4,000 条用例定义均已执行结构校验；ID、来源、步骤、预期、证据结果和每个核心场景 8 个变体完整。",
+    "project_behavior": "项目行为结论来自单独重跑的 PHPUnit、Node、P0 守卫、健康检查和浏览器 E2E；静态或外部证据不冒充动态执行。"
+  }
+}

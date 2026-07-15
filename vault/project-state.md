@@ -2145,6 +2145,13 @@ Updated: 2026-06-28 Asia/Shanghai
 - Stable verification passed: PHPUnit `1135/11077`, registration/P0 focused tests `43/285`, P0 guards, E2E `2404`, Vault `148`, importer `562`, non-PMS `234+190`, Phase1 console `94+20`, high-risk security, local `/api/health` HTTP `200`, and a clean unauthenticated browser smoke with no console/page errors. The live Phase1/P0 runtime gate intentionally remains red until authorized same-day evidence exists.
 - No Git commit or push was performed. The authenticated ready-button observation and real OTA login/capture remain outside this local-only closure.
 
+## 2026-07-14 Progress: Revenue Operations Knowledge Support
+
+- Added the structured `revenue_operations_decision_support` knowledge unit for revenue-change bridging, channel net-yield diagnosis, room-role methods, target feasibility, 7/14/30-day OTB/Pickup rule templates, advice-card contracts, evidence gaps, and decision guardrails. No recommendation UI or OTA write path was added.
+- The Moke Yuexiang planning figures are stored only as `scope=case_reference` with `case_key=moke_yuexiang_2026_h2`, `evidence_level=user_provided_unverified_case`, and explicit blocked uses. Default service reads exclude this case; an explicit matching case key is required.
+- The local `hotelx` database was seeded and read back as one knowledge unit, ten structured chunks, one case chunk, one source manifest, and one enabled employee knowledge-base mirror. A second seed run kept the same counts.
+- `RevenueOperationsKnowledgeService` runtime verification returned nine default generic entries with one case excluded, and ten entries when the explicit case key was supplied. Focused verification passed with 12 tests and 78 assertions.
+
 ## Maintenance Rule
 
 Update this vault after important context changes, save-project runs, new release evidence, or completed field/table closure work. Record only verified facts and avoid secrets, raw cookies, raw tokens, account data, phone numbers, screenshots with sensitive OTA data, or large raw capture JSON.

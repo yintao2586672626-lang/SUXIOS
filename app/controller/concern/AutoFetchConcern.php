@@ -8,6 +8,7 @@ use app\model\SystemNotification;
 use app\service\BrowserProfileCaptureRequestService;
 use app\service\OtaProfileBindingService;
 use app\service\OtaProfileSessionProofService;
+use app\service\OtaFailureNotificationService;
 use app\service\PlatformProfileBindingReadinessService;
 use app\service\PlatformDataSyncService;
 use think\Response;
@@ -498,6 +499,30 @@ trait AutoFetchConcern
 
         $dataDate = $dataDate ?: date('Y-m-d');
         $savedCount = (int)($details['saved_count'] ?? 0);
+        try {
+            (new OtaFailureNotificationService())->recordCollectionOutcome([
+                'hotel_id' => $hotelId,
+                'platform' => $this->notificationPlatformFromResults($details['platform_results'] ?? []),
+                'platform_results' => $details['platform_results'] ?? [],
+                'success' => $success,
+                'saved_count' => $savedCount,
+                'message' => $message,
+                'data_date' => $dataDate,
+                'actor_user_id' => (int)($this->currentUser->id ?? 0),
+            ]);
+        } catch (\Throwable $e) {
+            \think\facade\Log::warning('OTA failure notifier execution failed', [
+                'hotel_id' => $hotelId,
+                'action' => $action,
+                'exception_type' => get_debug_type($e),
+            ]);
+        }
+
+        // Failed outcomes are delivered only to the resolved submitter by the service above.
+        if (!$success) {
+            return;
+        }
+
         $isRetry = $action === 'retry_auto_fetch';
         $isManualFetch = $action === 'manual_fetch';
         $title = $success
@@ -3550,6 +3575,9 @@ trait AutoFetchConcern
         $platformModes = $this->platformAutoFetchModeOptionsFromRequest($requestData);
         $status['ctrip_auto_fetch_mode'] = $platformModes['ctrip_auto_fetch_mode'] ?? ($status['ctrip_auto_fetch_mode'] ?? $status['auto_fetch_mode']);
         $status['meituan_auto_fetch_mode'] = $platformModes['meituan_auto_fetch_mode'] ?? ($status['meituan_auto_fetch_mode'] ?? $status['auto_fetch_mode']);
+        if ($enabled && $this->hasMeituanFetchConfigForHotel((int)$hotelId)) {
+            $status['meituan_auto_fetch_mode'] = 'profile_browser';
+        }
         if (!isset($status['schedule_time'])) {
             $status['schedule_time'] = '10:00';
         }
@@ -3662,6 +3690,10 @@ trait AutoFetchConcern
         $platformModes = $this->platformAutoFetchModeOptionsFromRequest($requestData);
         $status['ctrip_auto_fetch_mode'] = $platformModes['ctrip_auto_fetch_mode'] ?? ($status['ctrip_auto_fetch_mode'] ?? $status['auto_fetch_mode']);
         $status['meituan_auto_fetch_mode'] = $platformModes['meituan_auto_fetch_mode'] ?? ($status['meituan_auto_fetch_mode'] ?? $status['auto_fetch_mode']);
+        if ($this->hasMeituanFetchConfigForHotel((int)$hotelId)) {
+            // 手动“立即采集”仍由请求显式选择凭据库直连；只有保存到定时状态的美团任务固定复用 Profile。
+            $status['meituan_auto_fetch_mode'] = 'profile_browser';
+        }
         $status['ctrip_section_concurrency'] = $this->ctripSectionConcurrencyFromRequest(
             $requestData,
             (int)($status['ctrip_section_concurrency'] ?? 3)
@@ -3956,6 +3988,12 @@ trait AutoFetchConcern
                         'timing' => $result['timing'] ?? [],
                         'ctrip_section_concurrency' => $result['ctrip_section_concurrency'] ?? $baseOptions['ctrip_section_concurrency'] ?? 3,
                     ]);
+                    $this->recordAutoFetchNotification($hotelId, (bool)$result['success'], (string)$result['message'], $run['data_date'], [
+                        'saved_count' => (int)($result['saved_count'] ?? 0),
+                        'auto_fetch_mode' => $result['auto_fetch_mode'] ?? null,
+                        'platform_results' => $result['platform_results'] ?? [],
+                        'data_period' => $run['period'],
+                    ], 'scheduled_auto_fetch');
                     cache($run['executed_key'], true, 86400);
                 } finally {
                     \think\facade\Cache::delete($lockKey);

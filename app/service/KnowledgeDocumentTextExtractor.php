@@ -74,6 +74,7 @@ class KnowledgeDocumentTextExtractor
 
     private function extractHtmlText(string $html): string
     {
+        $html = preg_replace('/<(script|style|noscript|template)\b[^>]*>.*?<\/\1\s*>/isu', '', $html) ?? $html;
         $html = preg_replace('/<(br|\/p|\/div|\/li|\/tr|\/h[1-6])\b[^>]*>/iu', "\n", $html) ?? $html;
         $html = preg_replace('/<li\b[^>]*>/iu', "\n- ", $html) ?? $html;
 

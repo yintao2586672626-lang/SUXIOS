@@ -299,32 +299,46 @@
                 <header class="header px-6 py-4 sticky top-0 z-10">
                     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <h1 class="text-xl font-semibold text-gray-800">{{ pageTitle }}</h1>
-                        <div class="flex flex-wrap items-center justify-end gap-3">
-                            <div data-locale-switch="" class="locale-switch header-locale-switch">
-                                <label>{{ aiModelConfigText('global.languageLabel') }}</label>
-                                <select :value="currentLocale" @change="switchLocale($event.target.value)">
-                                    <option v-for="option in languageOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                                </select>
+                        <div class="header-utility-cluster flex flex-wrap items-center justify-end gap-3" role="group" aria-label="顶栏工具">
+                            <div data-locale-switch="" data-testid="header-locale-switch" class="locale-switch header-locale-switch header-language-control" role="group" :aria-label="aiModelConfigText('global.languageLabel')">
+                                <span class="header-utility-label">
+                                    <i class="fas fa-globe-asia" aria-hidden="true"></i>
+                                    <span>{{ aiModelConfigText('global.languageLabel') }}</span>
+                                </span>
+                                <span class="header-language-options">
+                                    <button v-for="option in languageOptions" :key="option.value" type="button" @click="switchLocale(option.value)" :aria-pressed="currentLocale === option.value" :title="option.label" :data-testid="'header-locale-' + option.value" :class="['header-language-option', currentLocale === option.value ? 'is-active' : '']">
+                                        {{ option.value === 'en-US' ? 'EN' : option.label }}
+                                    </button>
+                                </span>
                             </div>
-                            <div class="relative">
-                                <button type="button" @click="toggleGlobalNotifications" class="relative flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 shadow-sm hover:border-blue-200 hover:text-blue-600" :title="globalNotificationUnreadCount ? `采集通知：${globalNotificationUnreadCount} 条未读` : '采集通知中心'">
-                                    <i class="fas fa-bell"></i>
-                                    <span v-if="globalNotificationUnreadCount" class="absolute -right-1 -top-1 min-w-[1.25rem] rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+                            <div class="relative header-notification-control">
+                                <button type="button" data-testid="header-notification-trigger" @click="toggleGlobalNotifications" @keydown.esc.stop="globalNotificationOpen = false" class="header-notification-button" :class="globalNotificationOpen ? 'is-open' : ''" :aria-expanded="globalNotificationOpen ? 'true' : 'false'" aria-controls="global-notification-panel" :aria-label="globalNotificationUnreadCount ? `通知中心，${globalNotificationUnreadCount} 条未读` : '通知中心，无未读提醒'">
+                                    <span class="header-utility-icon"><i class="fas fa-bell" aria-hidden="true"></i></span>
+                                    <span class="header-notification-copy">
+                                        <span class="header-notification-title">通知</span>
+                                        <span class="header-notification-status">{{ globalNotificationUnreadCount ? `${globalNotificationUnreadCount} 条未读` : '暂无未读' }}</span>
+                                    </span>
+                                    <span v-if="globalNotificationUnreadCount" class="header-notification-count" aria-live="polite">
                                         {{ globalNotificationUnreadCount &gt; 99 ? '99+' : globalNotificationUnreadCount }}
                                     </span>
                                 </button>
-                                <div v-if="globalNotificationOpen" class="absolute right-0 top-full z-30 mt-2 w-[calc(100vw-2rem)] max-w-[24rem] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+                                <div v-if="globalNotificationOpen" id="global-notification-panel" data-testid="header-notification-panel" role="dialog" aria-label="通知中心" @keydown.esc.stop="globalNotificationOpen = false" class="header-notification-panel absolute right-0 top-full z-30 mt-2 w-[calc(100vw-2rem)] max-w-[25rem] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
                                     <div class="flex items-start justify-between gap-3 border-b border-gray-100 px-4 py-3">
                                         <div>
                                             <div class="text-sm font-semibold text-gray-900">采集 / 登录-Cookie告警</div>
                                             <div class="mt-1 text-xs text-gray-500">{{ globalNotificationSummaryText }}</div>
                                         </div>
-                                        <button type="button" @click="refreshGlobalNotifications" :disabled="globalNotificationLoading" class="rounded-md border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 disabled:opacity-60">
-                                            <i :class="['fas fa-sync-alt mr-1', globalNotificationLoading ? 'fa-spin' : '']"></i>刷新
-                                        </button>
+                                        <div class="flex shrink-0 items-center gap-1.5">
+                                            <button type="button" @click="refreshGlobalNotifications" :disabled="globalNotificationLoading" class="header-notification-panel-action rounded-md border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 disabled:opacity-60">
+                                                <i :class="['fas fa-sync-alt mr-1', globalNotificationLoading ? 'fa-spin' : '']"></i>刷新
+                                            </button>
+                                            <button type="button" @click="globalNotificationOpen = false" class="header-notification-panel-close" aria-label="关闭通知中心" title="关闭">
+                                                <i class="fas fa-times" aria-hidden="true"></i>
+                                            </button>
+                                        </div>
                                     </div>
                                     <div v-if="globalNotificationVisibleItems.length" class="max-h-96 overflow-y-auto">
-                                        <button v-for="item in globalNotificationVisibleItems" :key="item.id" type="button" @click="openGlobalNotification(item)" :class="['block w-full border-b border-gray-100 px-4 py-3 text-left last:border-b-0 hover:bg-gray-50', item.is_read ? 'bg-white' : 'bg-blue-50/60']">
+                                        <button v-for="item in globalNotificationVisibleItems" :key="item.id" type="button" @click="openGlobalNotification(item)" :class="['header-notification-item block w-full border-b border-gray-100 px-4 py-3 text-left last:border-b-0 hover:bg-gray-50', item.is_read ? 'is-read bg-white' : 'is-unread bg-blue-50/60']">
                                             <div class="flex items-start gap-3">
                                                 <span :class="['mt-1 h-2.5 w-2.5 shrink-0 rounded-full', globalNotificationSeverityDotClass(item.severity)]"></span>
                                                 <div class="min-w-0 flex-1">
@@ -348,18 +362,85 @@
                                         <div class="mt-3 text-sm font-medium text-gray-800">暂无需要处理的采集通知</div>
                                         <div class="mt-1 text-xs text-gray-500">只代表 OTA 授权采集状态，不代表全酒店经营口径。</div>
                                     </div>
-                                    <div class="flex items-center justify-between border-t border-gray-100 bg-gray-50 px-4 py-2">
-                                        <button type="button" @click="markAllGlobalNotificationsRead" class="text-xs text-gray-600 hover:text-blue-600">全部已读</button>
-                                        <button type="button" @click="clearGlobalNotifications" class="text-xs text-gray-600 hover:text-red-600">全部清空</button>
+                                    <div class="flex items-center justify-between gap-3 border-t border-gray-100 bg-gray-50 px-4 py-2">
+                                        <span class="text-[11px] text-gray-400">显示最近 {{ globalNotificationVisibleItems.length }} 条 · 共 {{ globalNotificationTotalCount }} 条</span>
+                                        <div class="flex items-center gap-3">
+                                            <button type="button" @click="markAllGlobalNotificationsRead" class="header-notification-footer-action text-xs text-gray-600 hover:text-blue-600">当前列表已读</button>
+                                            <button type="button" @click="clearGlobalNotifications" class="header-notification-footer-action text-xs text-gray-600 hover:text-red-600">清空普通提醒</button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                            <div class="text-gray-400 text-sm flex items-center bg-gray-100 px-4 py-2 rounded-full">
-                                <i class="fas fa-clock mr-2 text-blue-500"></i>{{ currentTime }}
+                            <div data-testid="header-time-panel" class="header-time-panel" :title="currentTimeZoneLabel">
+                                <span class="header-utility-icon"><i class="fas fa-clock" aria-hidden="true"></i></span>
+                                <span class="header-time-copy">
+                                    <span class="header-clock-row"><strong>{{ currentClockText }}</strong><small>{{ currentTimeZoneLabel }}</small></span>
+                                    <span class="header-date-row">{{ currentDateText }}</span>
+                                </span>
                             </div>
                         </div>
                     </div>
                 </header>
+
+                <div v-if="strongOtaReminderCount" class="px-6 pt-4" data-testid="ota-auth-strong-reminder-banner">
+                    <section class="flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between" role="alert">
+                        <div class="flex min-w-0 items-start gap-3">
+                            <span class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-600 text-white">
+                                <i class="fas fa-exclamation-triangle"></i>
+                            </span>
+                            <div class="min-w-0">
+                                <div class="text-sm font-semibold text-red-900">{{ strongOtaReminderCount }} 个门店账号登录已失效或待重新验证</div>
+                                <div class="mt-1 text-xs leading-5 text-red-700">已定向提醒门店提交人；已读或清空不能解除，重新登录并验证成功后自动消失。</div>
+                            </div>
+                        </div>
+                        <button type="button" @click="showStrongOtaReminder" class="shrink-0 rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-800">
+                            立即处理
+                        </button>
+                    </section>
+                </div>
+
+                <div v-if="strongOtaReminderOpen &amp;&amp; strongOtaReminderCount" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4" data-testid="ota-auth-strong-reminder-modal" role="dialog" aria-modal="true" aria-labelledby="ota-auth-strong-reminder-title">
+                    <section class="w-full max-w-2xl overflow-hidden rounded-2xl border border-red-200 bg-white shadow-2xl">
+                        <div class="border-b border-red-100 bg-red-50 px-6 py-5">
+                            <div class="flex items-start gap-4">
+                                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-700 text-lg text-white">
+                                    <i class="fas fa-user-lock"></i>
+                                </span>
+                                <div>
+                                    <div class="text-xs font-semibold uppercase tracking-wider text-red-600">必须处理的 OTA 登录提醒</div>
+                                    <h2 id="ota-auth-strong-reminder-title" class="mt-1 text-xl font-bold text-slate-900">你提交的门店账号已无法稳定采集数据</h2>
+                                    <p class="mt-2 text-sm leading-6 text-slate-600">请由账号使用者本人完成平台重新登录或授权验证。系统不会绕过验证码，也不会用旧数据代替本次采集。</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="max-h-[55vh] space-y-3 overflow-y-auto px-6 py-5">
+                            <article v-for="item in strongOtaReminderItems" :key="item.reminder_key" class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
+                                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                    <div class="min-w-0">
+                                        <div class="flex flex-wrap items-center gap-2">
+                                            <span class="text-sm font-semibold text-slate-900">{{ item.hotel_name || ('门店 ' + item.hotel_id) }}</span>
+                                            <span class="rounded-full border border-red-200 bg-white px-2 py-0.5 text-[11px] font-medium text-red-700">{{ item.platform === 'ctrip' ? '携程' : (item.platform === 'meituan' ? '美团' : 'OTA') }}</span>
+                                        </div>
+                                        <div class="mt-2 text-sm font-medium text-red-800">{{ item.title }}</div>
+                                        <div class="mt-1 text-xs leading-5 text-slate-600">{{ item.detail }}</div>
+                                    </div>
+                                    <button type="button" @click="openStrongOtaReminderItem(item)" class="shrink-0 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800">
+                                        重新登录并验证
+                                    </button>
+                                </div>
+                            </article>
+                        </div>
+                        <div class="flex flex-col gap-2 border-t border-slate-100 bg-slate-50 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+                            <span class="text-xs leading-5 text-slate-500">
+                                <template v-if="strongOtaReminderCanDefer">已完成 {{ strongOtaReminderMinimumVisibleSeconds }} 秒必要提示；暂缓后顶部红条仍保留，下次登录仍会弹出。</template>
+                                <template v-else>请先查看提醒，还需 {{ strongOtaReminderDeferSecondsRemaining }} 秒；“重新登录并验证”可立即操作。</template>
+                            </span>
+                            <button type="button" @click="deferStrongOtaReminder" :disabled="!strongOtaReminderCanDefer" data-testid="ota-auth-strong-reminder-defer" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 disabled:hover:bg-slate-100">
+                                {{ strongOtaReminderCanDefer ? '本次登录稍后处理' : ('请先查看 ' + strongOtaReminderDeferSecondsRemaining + ' 秒') }}
+                            </button>
+                        </div>
+                    </section>
+                </div>
 
                 <!-- 内容区 -->
                 <div class="suxi-page-body p-6 page-enter" :data-testid="pageTestId(currentPage)">
@@ -2957,6 +3038,305 @@
                     </div>
 
                     <!-- 运营管理：策源·全维数据 -->
+                    <div v-if="currentPage === 'ops-source'" class="max-w-7xl mx-auto space-y-6">
+                        <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                                <div>
+                                    <div class="mb-1 text-sm font-medium text-emerald-700">运营管理</div>
+                                    <h2 class="text-2xl font-bold text-gray-900">策源·全维数据</h2>
+                                    <p class="mt-1 max-w-3xl text-sm leading-6 text-gray-500">按门店与经营日期核对经营结果、OTA 渠道漏斗、竞对和服务质量。缺失来源会直接显示，不以 0 值代替真实数据。</p>
+                                </div>
+                                <div class="flex flex-wrap items-end gap-2">
+                                    <label class="block">
+                                        <span class="mb-1 block text-xs text-gray-500">目标门店</span>
+                                        <select v-model="operationFilters.hotel_id" data-testid="ops-source-hotel" class="min-w-[180px] rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
+                                            <option value="">全部可见门店</option>
+                                            <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
+                                        </select>
+                                    </label>
+                                    <label class="block">
+                                        <span class="mb-1 block text-xs text-gray-500">经营日期</span>
+                                        <input v-model="operationFilters.date" data-testid="ops-source-date" type="date" class="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                    </label>
+                                    <button type="button" data-testid="ops-source-refresh" @click="loadOperationFullData" :disabled="operationLoading.fullData" class="rounded-lg bg-emerald-800 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-900 disabled:cursor-wait disabled:opacity-60">
+                                        <i :class="[operationLoading.fullData ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt', 'mr-1.5']"></i>{{ operationLoading.fullData ? '读取中...' : '读取数据' }}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="operationLoading.fullData" data-testid="ops-source-loading" class="rounded-xl border border-blue-100 bg-blue-50 p-8 text-center text-sm text-blue-700">
+                            <i class="fas fa-spinner fa-spin mr-2"></i>正在读取当前范围的经营与 OTA 渠道数据...
+                        </div>
+                        <div v-else-if="operationError.fullData" data-testid="ops-source-error" class="rounded-xl border border-red-100 bg-red-50 p-5 text-sm text-red-700">
+                            <div class="font-semibold">全维数据读取失败</div>
+                            <div class="mt-1">{{ operationError.fullData }}</div>
+                            <button type="button" @click="loadOperationFullData" class="mt-3 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100">重新读取</button>
+                        </div>
+                        <template v-else-if="operationFullData">
+                            <div :class="['rounded-xl border p-4 text-sm', operationSourceBrief.className]" data-testid="ops-source-brief">
+                                <div class="font-semibold">数据判断：{{ operationSourceBrief.status }}</div>
+                                <div class="mt-1 leading-6">{{ operationSourceBrief.summary }}</div>
+                            </div>
+
+                            <div class="grid grid-cols-1 gap-5 xl:grid-cols-2">
+                                <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                                    <div class="mb-4 flex items-center justify-between gap-3">
+                                        <div>
+                                            <h3 class="font-bold text-gray-900">经营结果</h3>
+                                            <p class="mt-1 text-xs text-gray-500">收入、订单、间夜、ADR、OCC 与 RevPAR</p>
+                                        </div>
+                                        <span class="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs text-gray-600">{{ operationDataStatusText(operationFullData.summary?.data_status) }}</span>
+                                    </div>
+                                    <div v-if="operationFullData.summary?.data_status === 'ok'" class="grid grid-cols-2 gap-3 md:grid-cols-3">
+                                        <div v-for="card in operationSummaryCards" :key="card.label" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                            <div class="text-xs text-gray-500">{{ card.label }}</div>
+                                            <div class="mt-1 text-xl font-bold text-gray-900">{{ card.value }}</div>
+                                        </div>
+                                    </div>
+                                    <div v-else="" class="rounded-lg border border-dashed border-gray-200 p-6 text-center text-sm text-gray-500">该日期没有可验证的经营日报或经营记录。</div>
+                                </section>
+
+                                <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                                    <div class="mb-4 flex items-center justify-between gap-3">
+                                        <div>
+                                            <h3 class="font-bold text-gray-900">OTA 渠道漏斗</h3>
+                                            <p class="mt-1 text-xs text-gray-500">仅代表 OTA 渠道曝光、访客、浏览与订单</p>
+                                        </div>
+                                        <span class="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs text-gray-600">{{ operationDataStatusText(operationFullData.ota?.data_status) }}</span>
+                                    </div>
+                                    <div v-if="operationFullData.ota?.data_status === 'ok'" class="grid grid-cols-2 gap-3 md:grid-cols-3">
+                                        <div v-for="card in operationOtaCards" :key="card.label" class="rounded-lg border border-blue-100 bg-blue-50 p-3">
+                                            <div class="text-xs text-blue-700">{{ card.label }}</div>
+                                            <div class="mt-1 text-xl font-bold text-blue-950">{{ card.value }}</div>
+                                        </div>
+                                    </div>
+                                    <div v-else="" class="rounded-lg border border-dashed border-gray-200 p-6 text-center text-sm text-gray-500">该日期没有可验证的 OTA 渠道漏斗数据，不能据此判断渠道表现。</div>
+                                </section>
+
+                                <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                                    <div class="mb-4 flex items-center justify-between gap-3">
+                                        <div>
+                                            <h3 class="font-bold text-gray-900">竞对与价格位置</h3>
+                                            <p class="mt-1 text-xs text-gray-500">本店与同圈层竞对价格、评分和排名对比</p>
+                                        </div>
+                                        <span class="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs text-gray-600">{{ operationDataStatusText(operationFullData.competitors?.data_status) }}</span>
+                                    </div>
+                                    <div v-if="operationFullData.competitors?.data_status === 'ok'" class="grid grid-cols-2 gap-3 md:grid-cols-3">
+                                        <div v-for="card in operationCompetitorCards" :key="card.label" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                            <div class="text-xs text-gray-500">{{ card.label }}</div>
+                                            <div class="mt-1 text-lg font-bold text-gray-900">{{ card.value }}</div>
+                                        </div>
+                                    </div>
+                                    <div v-else="" class="rounded-lg border border-dashed border-gray-200 p-6 text-center text-sm text-gray-500">竞对样本未接入或不足，暂不判断价格与排名压力。</div>
+                                </section>
+
+                                <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                                    <h3 class="font-bold text-gray-900">服务质量与收益窗口</h3>
+                                    <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                        <div class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                            <div class="flex items-center justify-between text-xs text-gray-500"><span>服务质量</span><span>{{ operationDataStatusText(operationFullData.service_quality?.data_status) }}</span></div>
+                                            <template v-if="operationFullData.service_quality?.data_status === 'ok'">
+                                                <div class="mt-2 text-lg font-bold text-gray-900">PSI {{ operationValue(operationFullData.service_quality?.avg_psi_score) }}</div>
+                                                <div class="mt-1 text-xs text-gray-500">服务评分 {{ operationValue(operationFullData.service_quality?.avg_service_score) }} · 样本 {{ operationValue(operationFullData.service_quality?.sample_count) }}</div>
+                                            </template>
+                                            <div v-else="" class="mt-2 text-sm text-gray-500">暂无可验证的服务质量样本。</div>
+                                        </div>
+                                        <div class="rounded-lg border border-amber-100 bg-amber-50 p-3">
+                                            <div class="flex items-center justify-between text-xs text-amber-700"><span>节假日窗口</span><span>{{ operationDataStatusText(operationFullData.holiday?.data_status) }}</span></div>
+                                            <template v-if="operationFullData.holiday?.data_status === 'ok'">
+                                                <div class="mt-2 text-lg font-bold text-amber-950">{{ operationFullData.holiday?.next_holiday || '暂无窗口' }}</div>
+                                                <div class="mt-1 text-xs text-amber-800">距窗口 {{ operationValue(operationFullData.holiday?.days_left, '天') }} · {{ operationFullData.holiday?.suggestion }}</div>
+                                            </template>
+                                            <div v-else="" class="mt-2 text-sm text-amber-800">当前日期没有可用节假日窗口。</div>
+                                        </div>
+                                    </div>
+                                </section>
+                            </div>
+
+                            <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                                <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                    <div>
+                                        <h3 class="font-bold text-gray-900">数据异常与下一步</h3>
+                                        <p class="mt-1 text-sm text-gray-500">先处理数据异常，再进入根因分析；异常为空不代表全酒店经营没有问题。</p>
+                                    </div>
+                                    <button type="button" @click="currentPage = 'ops-analysis'; analyzeOperationRootCause()" class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700">进入根因分析 <i class="fas fa-arrow-right ml-1.5"></i></button>
+                                </div>
+                                <div v-if="(operationFullData.abnormal_flags || []).length" class="mt-4 space-y-2">
+                                    <div v-for="flag in operationFullData.abnormal_flags" :key="flag" class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-800"><i class="fas fa-exclamation-triangle mr-2"></i>{{ flag }}</div>
+                                </div>
+                                <div v-else="" class="mt-4 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">当前读取结果未返回显式数据异常；仍需结合根因分析和人工复核。</div>
+                            </section>
+                        </template>
+                        <div v-else="" data-testid="ops-source-empty" class="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center text-sm text-gray-500">选择门店和日期后读取数据；系统不会用旧数据或默认值代替本次结果。</div>
+                    </div>
+                    <div v-if="currentPage === 'ops-analysis'" class="max-w-7xl mx-auto space-y-6">
+                        <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                                <div>
+                                    <div class="mb-1 text-sm font-medium text-amber-700">运营管理</div>
+                                    <h2 class="text-2xl font-bold text-gray-900">策析·根因定位</h2>
+                                    <p class="mt-1 max-w-3xl text-sm leading-6 text-gray-500">基于已读取的经营与 OTA 渠道事实按规则定位可能根因。结论是排查优先级，不是自动经营决策。</p>
+                                </div>
+                                <div class="flex flex-wrap items-end gap-2">
+                                    <label class="block">
+                                        <span class="mb-1 block text-xs text-gray-500">目标门店</span>
+                                        <select v-model="operationFilters.hotel_id" data-testid="ops-analysis-hotel" class="min-w-[180px] rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
+                                            <option value="">全部可见门店</option>
+                                            <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
+                                        </select>
+                                    </label>
+                                    <label class="block">
+                                        <span class="mb-1 block text-xs text-gray-500">经营日期</span>
+                                        <input v-model="operationFilters.date" data-testid="ops-analysis-date" type="date" class="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                    </label>
+                                    <button type="button" data-testid="ops-analysis-run" @click="analyzeOperationRootCause" :disabled="operationLoading.rootCause" class="rounded-lg bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-800 disabled:cursor-wait disabled:opacity-60">
+                                        <i :class="[operationLoading.rootCause ? 'fas fa-spinner fa-spin' : 'fas fa-search', 'mr-1.5']"></i>{{ operationLoading.rootCause ? '分析中...' : '重新分析' }}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="operationLoading.rootCause" data-testid="ops-analysis-loading" class="rounded-xl border border-blue-100 bg-blue-50 p-8 text-center text-sm text-blue-700"><i class="fas fa-spinner fa-spin mr-2"></i>正在核对历史均值、渠道漏斗、竞对与服务质量...</div>
+                        <div v-else-if="operationError.rootCause" data-testid="ops-analysis-error" class="rounded-xl border border-red-100 bg-red-50 p-5 text-sm text-red-700">
+                            <div class="font-semibold">根因分析失败</div>
+                            <div class="mt-1">{{ operationError.rootCause }}</div>
+                            <button type="button" @click="analyzeOperationRootCause" class="mt-3 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100">重新分析</button>
+                        </div>
+                        <template v-else-if="operationRootCause">
+                            <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                                <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                                    <div>
+                                        <div class="text-xs font-semibold uppercase tracking-wide text-gray-400">当前判断</div>
+                                        <h3 class="mt-1 text-xl font-bold text-gray-900">{{ operationRootCause.main_problem || '数据不足' }}</h3>
+                                        <p class="mt-2 text-sm leading-6 text-gray-600">{{ operationRootCause.conclusion || '没有返回可验证的根因结论。' }}</p>
+                                    </div>
+                                    <span class="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">{{ operationProblemLevelLabel(operationRootCause.problem_level) }}</span>
+                                </div>
+                            </section>
+
+                            <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                                <div class="flex items-center justify-between gap-3">
+                                    <div>
+                                        <h3 class="font-bold text-gray-900">根因优先级</h3>
+                                        <p class="mt-1 text-sm text-gray-500">证据、影响和检查点都必须人工复核后才能形成执行动作。</p>
+                                    </div>
+                                    <span class="text-sm text-gray-500">{{ (operationRootCause.root_causes || []).length }} 项</span>
+                                </div>
+                                <div v-if="(operationRootCause.root_causes || []).length" class="mt-4 space-y-4">
+                                    <article v-for="cause in operationRootCause.root_causes" :key="cause.type + cause.priority" class="rounded-xl border border-gray-100 p-4">
+                                        <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                            <div>
+                                                <div class="flex flex-wrap items-center gap-2">
+                                                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-gray-900 text-xs font-bold text-white">{{ cause.priority }}</span>
+                                                    <h4 class="font-semibold text-gray-900">{{ cause.title }}</h4>
+                                                    <span class="rounded-full bg-blue-50 px-2 py-1 text-xs text-blue-700">置信度 {{ operationPercent((cause.confidence || 0) * 100) }}</span>
+                                                </div>
+                                                <div class="mt-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">证据：{{ cause.evidence || '未返回证据' }}</div>
+                                            </div>
+                                            <div class="text-sm font-medium text-emerald-700">{{ cause.suggestion || '待人工复核' }}</div>
+                                        </div>
+                                        <div class="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
+                                            <div class="rounded-lg bg-rose-50 p-3 text-sm text-rose-800">
+                                                <div class="mb-1 text-xs font-semibold text-rose-900">可能影响</div>
+                                                {{ cause.impact || '未返回影响说明' }}
+                                            </div>
+                                            <div class="rounded-lg bg-gray-50 p-3">
+                                                <div class="mb-2 text-xs font-semibold text-gray-700">检查点</div>
+                                                <div v-if="(cause.check_points || []).length" class="space-y-1 text-xs text-gray-600"><div v-for="item in cause.check_points" :key="item">• {{ item }}</div></div>
+                                                <div v-else="" class="text-xs text-gray-500">未返回检查点</div>
+                                            </div>
+                                            <div class="rounded-lg bg-emerald-50 p-3">
+                                                <div class="mb-2 text-xs font-semibold text-emerald-900">建议步骤</div>
+                                                <div v-if="(cause.action_steps || []).length" class="space-y-1 text-xs text-emerald-800"><div v-for="item in cause.action_steps" :key="item">• {{ item }}</div></div>
+                                                <div v-else="" class="text-xs text-emerald-800">未返回建议步骤</div>
+                                            </div>
+                                        </div>
+                                    </article>
+                                </div>
+                                <div v-else="" data-testid="ops-analysis-insufficient" class="mt-4 rounded-xl border border-dashed border-amber-200 bg-amber-50 p-8 text-center text-sm text-amber-800">现有数据不足以定位根因。请先回到全维数据页补齐 OTA 渠道、竞对或服务质量证据。</div>
+                            </section>
+
+                            <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                                <h3 class="font-bold text-gray-900">建议排查顺序</h3>
+                                <div v-if="(operationRootCause.next_actions || []).length" class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+                                    <div v-for="(action, index) in operationRootCause.next_actions" :key="action" class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-700"><span class="mr-2 font-bold text-amber-700">{{ index + 1 }}.</span>{{ action }}</div>
+                                </div>
+                                <div v-else="" class="mt-3 text-sm text-gray-500">暂无可验证的排查动作。</div>
+                                <div class="mt-4 flex flex-wrap gap-2">
+                                    <button type="button" @click="currentPage = 'ops-source'; loadOperationFullData()" class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">返回数据核对</button>
+                                    <button v-if="(operationRootCause.root_causes || []).length" type="button" @click="currentPage = 'ops-plan'" class="rounded-lg bg-gray-900 px-3 py-2 text-sm text-white hover:bg-gray-700">进入策略模拟</button>
+                                </div>
+                            </section>
+                        </template>
+                        <div v-else="" data-testid="ops-analysis-empty" class="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center text-sm text-gray-500">选择门店和日期后运行根因分析；未分析时不展示推测结论。</div>
+                    </div>
+                    <div v-if="currentPage === 'ops-insight'" class="max-w-7xl mx-auto space-y-6">
+                        <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                                <div>
+                                    <div class="mb-1 text-sm font-medium text-rose-700">运营管理</div>
+                                    <h2 class="text-2xl font-bold text-gray-900">策见·预警推送</h2>
+                                    <p class="mt-1 max-w-3xl text-sm leading-6 text-gray-500">集中查看规则预警、证据日期和建议动作。标记已读只更新处理状态，不代表问题已经解决。</p>
+                                </div>
+                                <div class="flex flex-wrap items-end gap-2">
+                                    <label class="block">
+                                        <span class="mb-1 block text-xs text-gray-500">目标门店</span>
+                                        <select v-model="operationFilters.hotel_id" data-testid="ops-insight-hotel" class="min-w-[180px] rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
+                                            <option value="">全部可见门店</option>
+                                            <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
+                                        </select>
+                                    </label>
+                                    <button type="button" data-testid="ops-insight-refresh" @click="loadOperationAlerts" :disabled="operationLoading.alerts" class="rounded-lg bg-rose-700 px-4 py-2 text-sm font-medium text-white hover:bg-rose-800 disabled:cursor-wait disabled:opacity-60">
+                                        <i :class="[operationLoading.alerts ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt', 'mr-1.5']"></i>{{ operationLoading.alerts ? '读取中...' : '刷新预警' }}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="operationLoading.alerts" data-testid="ops-insight-loading" class="rounded-xl border border-blue-100 bg-blue-50 p-8 text-center text-sm text-blue-700"><i class="fas fa-spinner fa-spin mr-2"></i>正在读取当前门店范围的运营预警...</div>
+                        <div v-else-if="operationError.alerts" data-testid="ops-insight-error" class="rounded-xl border border-red-100 bg-red-50 p-5 text-sm text-red-700">
+                            <div class="font-semibold">运营预警读取失败</div>
+                            <div class="mt-1">{{ operationError.alerts }}</div>
+                            <button type="button" @click="loadOperationAlerts" class="mt-3 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100">重新读取</button>
+                        </div>
+                        <template v-else>
+                            <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                                <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <span class="rounded-full border border-rose-100 bg-rose-50 px-3 py-1 text-sm font-semibold text-rose-800">未读 {{ operationUnreadCount }}</span>
+                                        <span class="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs text-gray-600">数据状态：{{ operationDataStatusText(operationAlerts.data_status) }}</span>
+                                    </div>
+                                    <button type="button" @click="markOperationAlertsRead((operationAlerts.list || []).filter(item =&gt; item.status !== 'read').map(item =&gt; item.id))" :disabled="operationUnreadCount === 0" class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50">全部标记已读</button>
+                                </div>
+                                <div class="mt-4 flex flex-wrap gap-2">
+                                    <button v-for="filter in operationAlertFilters" :key="filter.key" type="button" @click="operationAlertFilter = filter.key" :class="['rounded-full border px-3 py-1.5 text-xs font-medium transition', operationAlertFilter === filter.key ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50']">{{ filter.label }}</button>
+                                </div>
+                            </section>
+
+                            <section v-if="filteredOperationAlerts.length" class="space-y-3" data-testid="ops-insight-list">
+                                <article v-for="alert in filteredOperationAlerts" :key="alert.id" class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                                    <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                                        <div class="min-w-0 flex-1">
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <span :class="['rounded-full px-2.5 py-1 text-xs font-semibold', operationAlertLevelClass(alert.level)]">{{ operationAlertLevelLabel(alert.level) }}</span>
+                                                <span class="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs text-gray-600">{{ operationAlertStatusLabel(alert.status) }}</span>
+                                                <span class="text-xs text-gray-400">门店 #{{ alert.hotel_id || '-' }} · {{ alert.related_date || '日期未返回' }}</span>
+                                            </div>
+                                            <h3 class="mt-3 text-lg font-bold text-gray-900">{{ alert.title || '未命名预警' }}</h3>
+                                            <p class="mt-2 text-sm leading-6 text-gray-600">{{ alert.message || '未返回预警说明' }}</p>
+                                            <div class="mt-3 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-900"><span class="font-semibold">建议动作：</span>{{ operationAlertSuggestion(alert) || '先确认影响范围和责任模块，再安排处理。' }}</div>
+                                            <div class="mt-2 text-xs text-gray-400">来源：{{ alert.source || 'rule' }} · 类型：{{ alert.alert_type || 'unknown' }}</div>
+                                        </div>
+                                        <button v-if="alert.status !== 'read'" type="button" @click="markOperationAlertsRead([alert.id])" class="shrink-0 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">标记已读</button>
+                                    </div>
+                                </article>
+                            </section>
+                            <div v-else="" data-testid="ops-insight-empty" class="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center text-sm text-gray-500">
+                                {{ (operationAlerts.list || []).length ? '当前筛选条件下没有预警。' : '当前接口未返回运营预警；这不代表全酒店经营没有风险。' }}
+                            </div>
+                        </template>
+                    </div>
                     <div v-if="currentPage === 'ops-plan'" class="max-w-7xl mx-auto space-y-6">
                         <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                             <h2 class="text-2xl font-bold text-gray-900">策案·策略模拟</h2>
@@ -3585,9 +3965,9 @@
                                     </p>
                                 </div>
                                 <div class="flex flex-wrap gap-2">
-                                    <button type="button" @click="refreshHotelBindingPanelLight" class="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">
-                                        <i class="fas fa-sync-alt"></i>
-                                        <span>刷新状态</span>
+                                    <button type="button" @click="refreshHotelBindingPanelLight()" :disabled="hotelManagementLoading" class="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60">
+                                        <i class="fas fa-sync-alt" :class="hotelManagementLoading ? 'fa-spin' : ''"></i>
+                                        <span>{{ hotelManagementLoading ? '刷新中...' : '刷新状态' }}</span>
                                     </button>
                                     <button v-if="canManageOwnHotels()" @click="openHotelModal()" class="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
                                         <i class="fas fa-plus"></i>
@@ -3595,63 +3975,75 @@
                                     </button>
                                     <div v-if="user?.is_super_admin" class="inline-flex flex-wrap items-center gap-1.5 rounded-lg border border-amber-100 bg-amber-50/70 px-2 py-1">
                                         <span class="px-1 text-xs font-semibold text-amber-700">受控操作</span>
-                                        <button type="button" @click="refreshHotelBindingPanel" class="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-white px-2.5 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-50">
-                                            <i class="fas fa-sync-alt"></i>
-                                            <span>深度刷新</span>
+                                        <button type="button" @click="refreshHotelBindingPanel()" :disabled="hotelManagementLoading" class="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-white px-2.5 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60">
+                                            <i class="fas fa-sync-alt" :class="hotelManagementLoading ? 'fa-spin' : ''"></i>
+                                            <span>{{ hotelManagementLoading ? '刷新中' : '深度刷新' }}</span>
                                         </button>
                                         <button type="button" @click="openHotelMergeModal()" class="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-white px-2.5 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-50">
                                             <i class="fas fa-exchange-alt"></i>
                                             <span>数据迁移</span>
                                         </button>
-                                        <button type="button" @click="openUserAuthorization()" class="inline-flex items-center gap-1.5 rounded-md border border-blue-100 bg-white px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50">
+                                        <button type="button" @click="openUserAuthorization()" :disabled="hotelUserAuthorizationLoading" class="inline-flex items-center gap-1.5 rounded-md border border-blue-100 bg-white px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50 disabled:cursor-wait disabled:opacity-60">
                                             <i class="fas fa-user-shield"></i>
-                                            <span>用户授权</span>
+                                            <span>{{ hotelUserAuthorizationLoading ? '读取用户...' : '用户授权' }}</span>
                                         </button>
                                     </div>
                                 </div>
                             </div>
+                            <div class="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs" :class="hotelManagementLoadError ? 'border-red-200 bg-red-50 text-red-700' : (hotelManagementSnapshotReady ? 'border-emerald-100 bg-emerald-50/70 text-emerald-700' : 'border-blue-100 bg-blue-50 text-blue-700')" role="status" aria-live="polite">
+                                <span v-if="hotelManagementLoading"><i class="fas fa-circle-notch fa-spin mr-1.5"></i>{{ hotelManagementSnapshotReady ? '正在刷新门店、账号配置与平台数据源；当前继续显示上次成功数据。' : '正在读取完整门店与 OTA 账号状态，统计结果暂不展示。' }}</span>
+                                <span v-else-if="hotelManagementLoadError"><i class="fas fa-exclamation-triangle mr-1.5"></i>{{ hotelManagementLoadError }}</span>
+                                <span v-else-if="hotelManagementSnapshotReady"><i class="fas fa-check-circle mr-1.5"></i>当前统计已完成数据校验<span v-if="hotelManagementLastRefreshedAt"> · {{ hotelManagementLastRefreshedAt }}</span></span>
+                                <span v-else><i class="fas fa-circle-notch fa-spin mr-1.5"></i>正在准备门店状态...</span>
+                                <button v-if="hotelManagementLoadError" type="button" @click="refreshHotelBindingPanelLight()" :disabled="hotelManagementLoading" class="rounded-md border border-red-200 bg-white px-2.5 py-1 font-medium text-red-700 hover:bg-red-100 disabled:opacity-50">重试</button>
+                            </div>
                         </div>
 
+                        <template v-if="hotelManagementSnapshotReady">
                         <div class="xl:sticky xl:top-2 z-20 bg-white rounded-xl p-3 shadow-sm border border-gray-100 space-y-3">
                             <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
-                                <button type="button" @click="applyHotelQuickFilter('', '')" :class="filterHotelAccountHealth === '' &amp;&amp; filterHotelStatus === '' ? 'border-blue-200 bg-blue-50/70 ring-1 ring-blue-100' : 'border-gray-100 bg-gray-50 hover:bg-gray-100'" class="rounded-lg border px-3 py-2 flex items-center justify-between text-left transition-colors">
+                                <button type="button" @click="applyHotelQuickFilter('', '')" :aria-pressed="filterHotelAccountHealth === '' &amp;&amp; filterHotelStatus === ''" :class="filterHotelAccountHealth === '' &amp;&amp; filterHotelStatus === '' ? 'border-blue-200 bg-blue-50/70 ring-1 ring-blue-100' : 'border-gray-100 bg-gray-50 hover:bg-gray-100'" class="rounded-lg border px-3 py-2 flex items-center justify-between text-left transition-colors">
                                     <span>
                                         <span class="block text-xs text-gray-500">全部门店</span>
                                         <span class="block text-[11px] text-gray-400">营业中 {{ hotelBindingOverview.active }}</span>
                                     </span>
                                     <span class="text-lg font-semibold text-gray-900">{{ hotelBindingOverview.total }}</span>
                                 </button>
-                                <button type="button" @click="applyHotelQuickFilter('error', '1')" :class="filterHotelAccountHealth === 'error' ? 'border-red-200 bg-red-50/80 ring-1 ring-red-100' : 'border-red-100 bg-red-50/50 hover:bg-red-50'" class="rounded-lg border px-3 py-2 flex items-center justify-between text-left transition-colors">
+                                <button type="button" @click="applyHotelQuickFilter('error', '1')" :aria-pressed="filterHotelAccountHealth === 'error'" :class="filterHotelAccountHealth === 'error' ? 'border-red-200 bg-red-50/80 ring-1 ring-red-100' : 'border-red-100 bg-red-50/50 hover:bg-red-50'" class="rounded-lg border px-3 py-2 flex items-center justify-between text-left transition-colors">
                                     <span>
                                         <span class="block text-xs text-red-700">采集阻塞</span>
                                         <span class="block text-[11px] text-red-400">登录/门店/采集</span>
                                     </span>
                                     <span class="text-lg font-semibold text-red-700">{{ hotelBindingOverview.error }}</span>
                                 </button>
-                                <button type="button" @click="applyHotelQuickFilter('todo', '1')" :class="filterHotelAccountHealth === 'todo' ? 'border-amber-200 bg-amber-50/80 ring-1 ring-amber-100' : 'border-amber-100 bg-amber-50/50 hover:bg-amber-50'" class="rounded-lg border px-3 py-2 flex items-center justify-between text-left transition-colors">
-                                    <span class="text-xs text-amber-700">账号待补</span>
+                                <button type="button" @click="applyHotelQuickFilter('todo', '1')" :aria-pressed="filterHotelAccountHealth === 'todo'" :class="filterHotelAccountHealth === 'todo' ? 'border-amber-200 bg-amber-50/80 ring-1 ring-amber-100' : 'border-amber-100 bg-amber-50/50 hover:bg-amber-50'" class="rounded-lg border px-3 py-2 flex items-center justify-between text-left transition-colors">
+                                    <span>
+                                        <span class="block text-xs text-amber-700">账号待补</span>
+                                        <span class="block text-[11px] text-amber-500">已排除采集阻塞</span>
+                                    </span>
                                     <span class="text-lg font-semibold text-amber-700">{{ hotelBindingOverview.todo }}</span>
                                 </button>
-                                <button type="button" @click="applyHotelQuickFilter('ctrip', '1')" :class="filterHotelAccountHealth === 'ctrip' ? 'border-blue-200 bg-blue-50/80 ring-1 ring-blue-100' : 'border-blue-100 bg-blue-50/50 hover:bg-blue-50'" class="rounded-lg border px-3 py-2 flex items-center justify-between text-left transition-colors">
+                                <button type="button" @click="applyHotelQuickFilter('ctrip', '1')" :aria-pressed="filterHotelAccountHealth === 'ctrip'" :class="filterHotelAccountHealth === 'ctrip' ? 'border-blue-200 bg-blue-50/80 ring-1 ring-blue-100' : 'border-blue-100 bg-blue-50/50 hover:bg-blue-50'" class="rounded-lg border px-3 py-2 flex items-center justify-between text-left transition-colors">
                                     <span class="text-xs text-blue-700">携程可采</span>
                                     <span class="text-lg font-semibold text-blue-700">{{ hotelBindingOverview.ctripBound }}/{{ hotelBindingOverview.ctripApplicable }}</span>
                                 </button>
-                                <button type="button" @click="applyHotelQuickFilter('meituan', '1')" :class="filterHotelAccountHealth === 'meituan' ? 'border-orange-200 bg-orange-50/80 ring-1 ring-orange-100' : 'border-orange-100 bg-orange-50/50 hover:bg-orange-50'" class="rounded-lg border px-3 py-2 flex items-center justify-between text-left transition-colors">
+                                <button type="button" @click="applyHotelQuickFilter('meituan', '1')" :aria-pressed="filterHotelAccountHealth === 'meituan'" :class="filterHotelAccountHealth === 'meituan' ? 'border-orange-200 bg-orange-50/80 ring-1 ring-orange-100' : 'border-orange-100 bg-orange-50/50 hover:bg-orange-50'" class="rounded-lg border px-3 py-2 flex items-center justify-between text-left transition-colors">
                                     <span class="text-xs text-orange-700">美团可采</span>
                                     <span class="text-lg font-semibold text-orange-700">{{ hotelBindingOverview.meituanBound }}/{{ hotelBindingOverview.meituanApplicable }}</span>
                                 </button>
                             </div>
                             <div class="text-xs text-gray-500 leading-relaxed">
-                                说明：采集阻塞统计登录失效、门店不匹配或最近采集失败；点击后每家门店会直接标出具体平台、原因和下一步。账号待补只统计已勾选的适用渠道；未勾选的平台不展示、不计入。这里只代表 OTA 渠道状态，不代表全酒店经营口径。
+                                说明：顶部“采集阻塞”和“账号待补”是互斥主状态，账号待补已排除阻塞门店；下方问题队列按具体原因统计，门店数可以重叠。账号待补只统计已勾选的适用渠道；未勾选的平台不展示、不计入。这里只代表 OTA 渠道状态，不代表全酒店经营口径。
                             </div>
                             <div class="flex flex-wrap gap-3 items-center">
                                 <div class="flex-1 min-w-[220px]">
-                                    <input v-model="searchHotel" type="text" placeholder="搜门店/编码..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <label for="hotel-management-search" class="sr-only">搜索门店名称或编码</label>
+                                    <input id="hotel-management-search" v-model="searchHotel" type="text" aria-label="搜索门店名称或编码" placeholder="搜门店/编码..." class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                                 </div>
-                                <div class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1">
-                                    <button type="button" @click="filterHotelStatus = ''" :class="filterHotelStatus === '' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'" class="px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap">全部</button>
-                                    <button type="button" @click="filterHotelStatus = '1'" :class="filterHotelStatus === '1' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'" class="px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap">营业中</button>
-                                    <button type="button" @click="filterHotelStatus = '0'" :class="filterHotelStatus === '0' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'" class="px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap">停用</button>
+                                <div class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1" role="group" aria-label="门店营业状态">
+                                    <button type="button" @click="filterHotelStatus = ''" :aria-pressed="filterHotelStatus === ''" :class="filterHotelStatus === '' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'" class="px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap">全部</button>
+                                    <button type="button" @click="filterHotelStatus = '1'" :aria-pressed="filterHotelStatus === '1'" :class="filterHotelStatus === '1' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'" class="px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap">营业中</button>
+                                    <button type="button" @click="filterHotelStatus = '0'" :aria-pressed="filterHotelStatus === '0'" :class="filterHotelStatus === '0' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'" class="px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap">停用</button>
                                 </div>
                                 <button v-if="searchHotel || filterHotelStatus !== '' || filterHotelAccountHealth !== ''" @click="searchHotel = ''; filterHotelStatus = ''; filterHotelAccountHealth = ''" class="text-sm text-blue-500 hover:text-blue-700 px-3 py-2">重置筛选</button>
                             </div>
@@ -3659,22 +4051,22 @@
                                 <div class="flex flex-wrap items-center gap-2" data-testid="hotel-problem-queue">
                                     <span class="font-medium text-gray-500">问题队列</span>
                                     <span class="text-[11px] text-gray-400">门店数可重叠</span>
-                                    <button type="button" @click="applyHotelQuickFilter('capture-failed', '1')" :class="filterHotelAccountHealth === 'capture-failed' ? 'border-red-200 bg-red-100 text-red-800' : 'border-red-100 bg-red-50/60 text-red-700'" class="inline-flex items-center gap-1 rounded-full border px-3 py-1">
+                                    <button type="button" @click="applyHotelQuickFilter('capture-failed', '1')" :disabled="hotelProblemQueueOverview.captureFailed === 0" :aria-pressed="filterHotelAccountHealth === 'capture-failed'" :class="filterHotelAccountHealth === 'capture-failed' ? 'border-red-200 bg-red-100 text-red-800' : 'border-red-100 bg-red-50/60 text-red-700'" class="inline-flex items-center gap-1 rounded-full border px-3 py-1 disabled:cursor-not-allowed disabled:opacity-50">
                                         采集失败 <span class="font-semibold tabular-nums">{{ hotelProblemQueueOverview.captureFailed }}</span>
                                     </button>
-                                    <button type="button" @click="applyHotelQuickFilter('login-expired', '1')" :class="filterHotelAccountHealth === 'login-expired' ? 'border-red-200 bg-red-100 text-red-800' : 'border-red-100 bg-red-50/60 text-red-700'" class="inline-flex items-center gap-1 rounded-full border px-3 py-1">
+                                    <button type="button" @click="applyHotelQuickFilter('login-expired', '1')" :disabled="hotelProblemQueueOverview.loginExpired === 0" :aria-pressed="filterHotelAccountHealth === 'login-expired'" :class="filterHotelAccountHealth === 'login-expired' ? 'border-red-200 bg-red-100 text-red-800' : 'border-red-100 bg-red-50/60 text-red-700'" class="inline-flex items-center gap-1 rounded-full border px-3 py-1 disabled:cursor-not-allowed disabled:opacity-50">
                                         登录/授权失效 <span class="font-semibold tabular-nums">{{ hotelProblemQueueOverview.loginExpired }}</span>
                                     </button>
-                                    <button type="button" @click="applyHotelQuickFilter('hotel-mismatch', '1')" :class="filterHotelAccountHealth === 'hotel-mismatch' ? 'border-red-200 bg-red-100 text-red-800' : 'border-red-100 bg-red-50/60 text-red-700'" class="inline-flex items-center gap-1 rounded-full border px-3 py-1">
+                                    <button type="button" @click="applyHotelQuickFilter('hotel-mismatch', '1')" :disabled="hotelProblemQueueOverview.hotelMismatch === 0" :aria-pressed="filterHotelAccountHealth === 'hotel-mismatch'" :class="filterHotelAccountHealth === 'hotel-mismatch' ? 'border-red-200 bg-red-100 text-red-800' : 'border-red-100 bg-red-50/60 text-red-700'" class="inline-flex items-center gap-1 rounded-full border px-3 py-1 disabled:cursor-not-allowed disabled:opacity-50">
                                         门店不匹配 <span class="font-semibold tabular-nums">{{ hotelProblemQueueOverview.hotelMismatch }}</span>
                                     </button>
-                                    <button type="button" @click="applyHotelQuickFilter('unbound', '1')" :class="filterHotelAccountHealth === 'unbound' ? 'border-amber-200 bg-amber-100 text-amber-800' : 'border-gray-200 bg-gray-50 text-gray-600'" class="inline-flex items-center gap-1 rounded-full border px-3 py-1">
+                                    <button type="button" @click="applyHotelQuickFilter('unbound', '1')" :disabled="hotelProblemQueueOverview.unbound === 0" :aria-pressed="filterHotelAccountHealth === 'unbound'" :class="filterHotelAccountHealth === 'unbound' ? 'border-amber-200 bg-amber-100 text-amber-800' : 'border-gray-200 bg-gray-50 text-gray-600'" class="inline-flex items-center gap-1 rounded-full border px-3 py-1 disabled:cursor-not-allowed disabled:opacity-50">
                                         未绑定/待登录 <span class="font-semibold tabular-nums">{{ hotelProblemQueueOverview.unbound }}</span>
                                     </button>
-                                    <button type="button" @click="applyHotelQuickFilter('uncollected', '1')" :class="filterHotelAccountHealth === 'uncollected' ? 'border-blue-200 bg-blue-100 text-blue-800' : 'border-gray-200 bg-gray-50 text-gray-600'" class="inline-flex items-center gap-1 rounded-full border px-3 py-1">
+                                    <button type="button" @click="applyHotelQuickFilter('uncollected', '1')" :disabled="hotelProblemQueueOverview.uncollected === 0" :aria-pressed="filterHotelAccountHealth === 'uncollected'" :class="filterHotelAccountHealth === 'uncollected' ? 'border-blue-200 bg-blue-100 text-blue-800' : 'border-gray-200 bg-gray-50 text-gray-600'" class="inline-flex items-center gap-1 rounded-full border px-3 py-1 disabled:cursor-not-allowed disabled:opacity-50">
                                         尚未采集 <span class="font-semibold tabular-nums">{{ hotelProblemQueueOverview.uncollected }}</span>
                                     </button>
-                                    <button type="button" @click="applyHotelQuickFilter('owner-missing', '1')" :class="filterHotelAccountHealth === 'owner-missing' ? 'border-purple-200 bg-purple-100 text-purple-800' : 'border-gray-200 bg-gray-50 text-gray-600'" class="inline-flex items-center gap-1 rounded-full border px-3 py-1">
+                                    <button type="button" @click="applyHotelQuickFilter('owner-missing', '1')" :disabled="hotelProblemQueueOverview.ownerMissing === 0" :aria-pressed="filterHotelAccountHealth === 'owner-missing'" :class="filterHotelAccountHealth === 'owner-missing' ? 'border-purple-200 bg-purple-100 text-purple-800' : 'border-gray-200 bg-gray-50 text-gray-600'" class="inline-flex items-center gap-1 rounded-full border px-3 py-1 disabled:cursor-not-allowed disabled:opacity-50">
                                         未设负责人 <span class="font-semibold tabular-nums">{{ hotelProblemQueueOverview.ownerMissing }}</span>
                                     </button>
                                 </div>
@@ -3820,7 +4212,7 @@
                                                 <div class="space-y-2">
                                                     <div v-if="canManageOwnHotels()" class="flex flex-wrap justify-end gap-1.5">
                                                         <button type="button" @click="toggleHotelDetails(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50">{{ isHotelDetailsExpanded(hotel) ? '收起详情' : '展开详情' }}</button>
-                                                        <button v-if="user?.is_super_admin" type="button" @click="openUserAuthorization(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-blue-100 bg-blue-50 text-xs text-blue-700 hover:bg-blue-100">授权用户</button>
+                                                        <button v-if="user?.is_super_admin" type="button" @click="openUserAuthorization(hotel)" :disabled="hotelUserAuthorizationLoading" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-blue-100 bg-blue-50 text-xs text-blue-700 hover:bg-blue-100 disabled:cursor-wait disabled:opacity-60">{{ hotelUserAuthorizationLoading ? '读取中...' : '授权用户' }}</button>
                                                         <button type="button" @click="openHotelModal(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50">编辑</button>
                                                         <button type="button" @click="toggleHotelStatus(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-xs text-gray-600 hover:bg-gray-50">{{ String(hotel.status) === '1' ? '停用' : '启用' }}</button>
                                                         <button v-if="user?.is_super_admin" type="button" @click="openHotelDeleteModal(hotel)" class="shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-red-100 bg-white text-xs text-red-600 hover:bg-red-50">删除</button>
@@ -3858,8 +4250,8 @@
                                             </div>
                                         </div>
                                         <div class="hotel-preview-card__actions">
-                                            <button v-if="canManageOwnHotels() &amp;&amp; user?.is_super_admin" type="button" @click="openUserAuthorization(hotel)" class="whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-blue-100 bg-white text-xs font-medium text-blue-700">
-                                                授权用户
+                                            <button v-if="canManageOwnHotels() &amp;&amp; user?.is_super_admin" type="button" @click="openUserAuthorization(hotel)" :disabled="hotelUserAuthorizationLoading" class="whitespace-nowrap px-2.5 py-1.5 rounded-lg border border-blue-100 bg-white text-xs font-medium text-blue-700 disabled:cursor-wait disabled:opacity-60">
+                                                {{ hotelUserAuthorizationLoading ? '读取中...' : '授权用户' }}
                                             </button>
                                             <div v-if="canManageOwnHotels()" class="flex flex-wrap gap-1">
                                                 <button type="button" @click="openHotelModal(hotel)" class="shrink-0 whitespace-nowrap px-2 py-1 rounded-lg border border-gray-200 bg-white text-xs text-gray-600">编辑</button>
@@ -3928,8 +4320,9 @@
                             <div class="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
                                 <i class="fas fa-building text-gray-300 text-3xl"></i>
                             </div>
-                            <h3 class="text-lg font-medium text-gray-800 mb-2">{{ searchHotel || filterHotelStatus || filterHotelAccountHealth ? '无匹配门店' : '暂无门店数据' }}</h3>
-                            <p class="text-gray-500 text-sm mb-4">{{ searchHotel || filterHotelStatus || filterHotelAccountHealth ? '当前筛选没有结果，可重置后查看全部门店。' : '还没有添加任何门店，点击上方按钮添加。' }}</p>
+                            <h3 class="text-lg font-medium text-gray-800 mb-2">{{ filterHotelAccountHealth ? hotelAccountFilterPresentation.title : (searchHotel || filterHotelStatus ? '无匹配门店' : '暂无门店数据') }}</h3>
+                            <p class="text-gray-500 text-sm" :class="filterHotelAccountHealth ? 'mb-1' : 'mb-4'">{{ filterHotelAccountHealth ? hotelAccountFilterPresentation.detail : (searchHotel || filterHotelStatus ? '当前筛选没有结果，可重置后查看全部门店。' : '还没有添加任何门店，点击上方按钮添加。') }}</p>
+                            <p v-if="filterHotelAccountHealth" class="text-gray-400 text-xs mb-4">{{ hotelAccountFilterPresentation.note }}</p>
                             <button v-if="searchHotel || filterHotelStatus || filterHotelAccountHealth" type="button" @click="searchHotel = ''; filterHotelStatus = ''; filterHotelAccountHealth = ''" class="border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-sm transition-colors">
                                 重置筛选
                             </button>
@@ -3937,6 +4330,7 @@
                                 添加门店
                             </button>
                         </div>
+                        </template>
 
                         <div v-if="showHotelDeleteModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay" @click.self="closeHotelDeleteModal()">
                             <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
@@ -4251,6 +4645,28 @@
                                                 <div class="mt-1">{{ revenueResearchMissingText(revenueResearchRunFor(product.key).result.readiness) }}</div>
                                                 <div class="mt-1 text-blue-700">下一步：{{ revenueResearchRunFor(product.key).result.readiness.next_action }}</div>
                                             </div>
+                                            <div class="rounded-lg border border-emerald-100 bg-emerald-50/70 p-3" :data-testid="'revenue-research-execution-bridge-' + product.key">
+                                                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                                    <div>
+                                                        <div class="text-xs font-semibold text-emerald-900">转运营执行</div>
+                                                        <div class="mt-1 text-xs leading-5 text-emerald-800">仅单店、研究阶段为 research_ready_for_execution 且 execution_ready=true 时创建待人工审批的执行意图。</div>
+                                                        <div class="mt-1 text-[11px] text-emerald-700">边界：不自动审批、不自动执行、不写 OTA 房价、库存或活动。</div>
+                                                    </div>
+                                                    <span v-if="revenueResearchRunFor(product.key).executionIntent" class="shrink-0 rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-xs font-medium text-emerald-800">
+                                                        执行意图 #{{ revenueResearchRunFor(product.key).executionIntent.id }} · {{ operationExecutionStatusLabel(revenueResearchRunFor(product.key).executionIntent.status) }}
+                                                    </span>
+                                                </div>
+                                                <div v-if="revenueResearchRunFor(product.key).executionError" class="mt-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">{{ revenueResearchRunFor(product.key).executionError }}</div>
+                                                <div class="mt-3 flex flex-wrap items-center gap-2">
+                                                    <button v-if="revenueResearchRunFor(product.key).executionIntent" type="button" @click="openRevenueResearchExecutionIntent(product)" :data-testid="'button-revenue-research-open-execution-' + product.key" class="rounded-lg bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-700">
+                                                        <i class="fas fa-tasks mr-1.5"></i>查看执行跟踪
+                                                    </button>
+                                                    <button v-else-if="revenueResearchCanCreateExecutionIntent(revenueResearchRunFor(product.key).result)" type="button" @click="createRevenueResearchExecutionIntent(product)" :disabled="revenueResearchRunFor(product.key).executionLoading" :data-testid="'button-revenue-research-execution-' + product.key" class="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-wait disabled:opacity-60">
+                                                        <i :class="[revenueResearchRunFor(product.key).executionLoading ? 'fas fa-spinner fa-spin' : 'fas fa-share-square', 'mr-1.5']"></i>{{ revenueResearchRunFor(product.key).executionLoading ? '创建中...' : '转运营执行' }}
+                                                    </button>
+                                                    <span v-else="" class="text-xs leading-5 text-amber-800">{{ revenueResearchExecutionBlockedText(revenueResearchRunFor(product.key).result) }}</span>
+                                                </div>
+                                            </div>
                                             <p class="line-clamp-4 text-sm leading-relaxed text-gray-700" :title="revenueResearchRunFor(product.key).result.result?.summary || '已生成经营预测。'">{{ revenueResearchRunFor(product.key).result.result?.summary || '已生成经营预测。' }}</p>
                                             <div v-if="revenueResearchForecastCards(revenueResearchRunFor(product.key).result).length" class="grid grid-cols-1 md:grid-cols-3 gap-3">
                                                 <div v-for="card in revenueResearchForecastCards(revenueResearchRunFor(product.key).result)" :key="card.label" class="rounded-lg bg-blue-50 border border-blue-100 p-3">
@@ -4500,20 +4916,6 @@
                                     </div>
                                 </div>
                             </button>
-                        </div>
-
-                        <div v-if="pendingUserAuthorizationHotel" class="mb-4 rounded-xl border border-blue-100 bg-blue-50 p-4 shadow-sm">
-                            <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                                <div class="min-w-0">
-                                    <div class="text-sm font-semibold text-blue-900">正在分配门店：{{ pendingUserAuthorizationHotel.name }}</div>
-                                    <div class="mt-1 text-xs leading-5 text-blue-700">
-                                        请选择已有内测用户点“编辑”，门店范围会预填该门店；确认后保存。新增账户只用于没有可用内测账号的情况。
-                                    </div>
-                                </div>
-                                <button type="button" @click="resetUserFilters" class="shrink-0 rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50">
-                                    退出分配
-                                </button>
-                            </div>
                         </div>
 
                         <div v-if="lastUserIssueGuideText" class="mb-4 rounded-xl border border-blue-100 bg-blue-50/70 p-3 shadow-sm">
@@ -6270,7 +6672,7 @@
                                         竞争圈数据
                                     </button>
                                     <button @click="openCtripManualTab('ctrip-flow-overview')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-flow-overview' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
-                                        经营日报/周报
+                                        流量概览
                                     </button>
                                     <button @click="openCtripManualTab('ctrip-traffic')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-traffic' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         流量数据
@@ -6282,7 +6684,7 @@
                                         评价匹配（隐私保护停用）
                                     </button>
                                     <button @click="switchToDownloadCenter" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-download' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
-                                        查询结果存储
+                                        入库记录
                                     </button>
                                     <button @click="openHotelManagementForOta" class="px-6 py-3 font-medium text-gray-500 hover:text-blue-600">
                                         酒店管理
@@ -6388,15 +6790,15 @@
                                             <div class="grid grid-cols-1 divide-y divide-gray-100 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
                                                 <div class="flex items-center justify-between gap-3 px-3 py-2.5">
                                                     <span class="text-xs font-medium text-gray-600">登录授权</span>
-                                                    <span :class="['rounded-md border px-2 py-0.5 text-xs', dataHealthCookieAlertSummary.high ? dataHealthPriorityClass('high') : (dataHealthCookieAlertSummary.total ? dataHealthPriorityClass('medium') : dataHealthPriorityClass('ok'))]">{{ dataHealthCookieAlertSummary.total ? dataHealthCookieAlertSummary.total + ' 项' : '正常' }}</span>
+                                                    <span :class="['rounded-md border px-2 py-0.5 text-xs', ctripDataHealthCookieAlertSummary.high ? dataHealthPriorityClass('high') : (ctripDataHealthCookieAlertSummary.total ? dataHealthPriorityClass('medium') : dataHealthPriorityClass('ok'))]">{{ ctripDataHealthCookieAlertSummary.total ? ctripDataHealthCookieAlertSummary.total + ' 项' : '正常' }}</span>
                                                 </div>
                                                 <div class="flex items-center justify-between gap-3 px-3 py-2.5">
                                                     <span class="text-xs font-medium text-gray-600">数据任务</span>
-                                                    <span :class="['rounded-md border px-2 py-0.5 text-xs', dataHealthQualityTaskRows.some(row =&gt; row.priority === 'high') ? dataHealthPriorityClass('high') : (dataHealthQualityTaskRows.length ? dataHealthPriorityClass('medium') : dataHealthPriorityClass('ok'))]">{{ dataHealthQualityTaskRows.length }} 项</span>
+                                                    <span :class="['rounded-md border px-2 py-0.5 text-xs', ctripDataHealthQualityTaskRows.some(row =&gt; row.priority === 'high') ? dataHealthPriorityClass('high') : (ctripDataHealthQualityTaskRows.length ? dataHealthPriorityClass('medium') : dataHealthPriorityClass('ok'))]">{{ ctripDataHealthQualityTaskRows.length ? ctripDataHealthQualityTaskRows.length + ' 项' : '正常' }}</span>
                                                 </div>
                                                 <div class="flex items-center justify-between gap-3 px-3 py-2.5">
-                                                    <span class="text-xs font-medium text-gray-600">高风险动作</span>
-                                                    <span :class="['rounded-md border px-2 py-0.5 text-xs', dataHealthPriorityClass(dataHealthHighRiskSummary.status)]">{{ dataHealthHighRiskSummary.text }}</span>
+                                                    <span class="text-xs font-medium text-gray-600">最近入库</span>
+                                                    <span :class="['rounded-md border px-2 py-0.5 text-xs', dataHealthPriorityClass(ctripLatestMeta?.fetched_at ? 'ok' : 'medium')]">{{ ctripLatestMeta?.fetched_at || '暂无入库' }}</span>
                                                 </div>
                                             </div>
                                         </div>
@@ -6405,15 +6807,15 @@
                                             <summary class="cursor-pointer px-4 py-3 hover:bg-gray-50">
                                                 <span class="ml-1 inline-flex items-center gap-2 text-sm font-semibold text-gray-900">
                                                     今日处置
-                                                    <span :class="['rounded-full border px-2 py-0.5 text-xs font-normal', dataHealthTodayWorkOrders.some(row =&gt; row.priority === 'high') ? dataHealthPriorityClass('high') : (dataHealthTodayWorkOrders.length ? dataHealthPriorityClass('medium') : dataHealthPriorityClass('ok'))]">
-                                                        {{ dataHealthTodayWorkOrders.length ? dataHealthTodayWorkOrders.length + ' 项' : '无待处理' }}
+                                                    <span :class="['rounded-full border px-2 py-0.5 text-xs font-normal', ctripDataHealthTodayWorkOrders.some(row =&gt; row.priority === 'high') ? dataHealthPriorityClass('high') : (ctripDataHealthTodayWorkOrders.length ? dataHealthPriorityClass('medium') : dataHealthPriorityClass('ok'))]">
+                                                        {{ ctripDataHealthTodayWorkOrders.length ? ctripDataHealthTodayWorkOrders.length + ' 项' : '无待处理' }}
                                                     </span>
                                                 </span>
                                                 <span class="float-right text-xs font-normal text-gray-400">点击展开</span>
                                             </summary>
                                             <div class="border-t border-gray-100">
-                                                <div v-if="dataHealthTodayWorkOrders.length" class="divide-y divide-gray-100">
-                                                    <div v-for="row in dataHealthTodayWorkOrders" :key="row.key" class="flex flex-col gap-2 px-4 py-2.5 xl:flex-row xl:items-center xl:justify-between">
+                                                <div v-if="ctripDataHealthTodayWorkOrders.length" class="divide-y divide-gray-100">
+                                                    <div v-for="row in ctripDataHealthTodayWorkOrders" :key="row.key" class="flex flex-col gap-2 px-4 py-2.5 xl:flex-row xl:items-center xl:justify-between">
                                                         <div class="min-w-0 flex-1">
                                                             <div class="flex min-w-0 flex-wrap items-center gap-2">
                                                                 <span :class="['rounded-md border px-2 py-0.5 text-[11px] whitespace-nowrap', dataHealthPriorityClass(row.priority)]">{{ dataHealthPriorityText(row.priority) }}</span>
@@ -6438,8 +6840,8 @@
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div v-else="" class="px-4 py-4 text-sm text-gray-500">暂无需要立即处理的 OTA 数据任务。</div>
-                                                <div class="border-t border-gray-100 bg-gray-50 px-4 py-2 text-[11px] text-gray-400">仅表示 OTA 渠道数据质量，不代表全酒店经营口径。</div>
+                                                <div v-else="" class="px-4 py-4 text-sm text-gray-500">暂无需要立即处理的携程数据任务。</div>
+                                                <div class="border-t border-gray-100 bg-gray-50 px-4 py-2 text-[11px] text-gray-400">仅表示携程 OTA 渠道数据质量，不代表全酒店经营口径。</div>
                                             </div>
                                         </details>
 
@@ -6851,13 +7253,13 @@
                                                         <td class="px-3 py-2 border text-center font-medium text-blue-600">{{ hotel.adrText !== '-' ? '¥' + hotel.adrText : '-' }}</td>
                                                         <td class="px-3 py-2 border text-center font-medium text-purple-600">{{ hotel.ariText || '-' }}</td>
                                                         <td class="px-3 py-2 border text-center font-medium text-cyan-600">{{ hotel.sciText || '-' }}</td>
-                                                        <td class="px-3 py-2 border text-center">{{ hotel.bookOrderNum || '-' }}</td>
+                                                        <td class="px-3 py-2 border text-center">{{ formatOptionalNumber(hotel.bookOrderNum) }}</td>
                                                         <td class="px-3 py-2 border text-center">
                                                             <span :class="hotel.commentScore &gt;= 4.5 ? 'text-green-600 font-medium' : 'text-gray-600'">
-                                                                {{ hotel.commentScore || '-' }}
+                                                                {{ formatOptionalNumber(hotel.commentScore) }}
                                                             </span>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center">{{ hotel.qunarCommentScore || '-' }}</td>
+                                                        <td class="px-3 py-2 border text-center">{{ formatOptionalNumber(hotel.qunarCommentScore) }}</td>
                                                     </tr>
                                                 </tbody>
                                             </table>
@@ -6887,16 +7289,16 @@
                                                         <td class="px-3 py-2 border text-left font-medium">
                                                             <div>{{ hotel.hotelName }}</div>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center font-medium text-purple-600">{{ formatNumber(hotel.totalDetailNum) }}</td>
+                                                        <td class="px-3 py-2 border text-center font-medium text-purple-600">{{ formatOptionalNumber(hotel.totalDetailNum) }}</td>
                                                         <td class="px-3 py-2 border text-center">
                                                             <span :class="(hotel.convertionRate || 0) &gt;= 5 ? 'text-green-600 font-medium' : 'text-gray-600'">
-                                                                {{ hotel.convertionRate ? hotel.convertionRate + '%' : '-' }}
+                                                                {{ formatOptionalPercent(hotel.convertionRate) }}
                                                             </span>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center">{{ formatNumber(hotel.qunarDetailVisitors) || '-' }}</td>
+                                                        <td class="px-3 py-2 border text-center">{{ formatOptionalNumber(hotel.qunarDetailVisitors) }}</td>
                                                         <td class="px-3 py-2 border text-center">
                                                             <span :class="(hotel.qunarDetailCR || 0) &gt;= 5 ? 'text-green-600 font-medium' : 'text-gray-600'">
-                                                                {{ hotel.qunarDetailCR ? hotel.qunarDetailCR + '%' : '-' }}
+                                                                {{ formatOptionalPercent(hotel.qunarDetailCR) }}
                                                             </span>
                                                         </td>
                                                         <td class="px-3 py-2 border text-center text-gray-500">
@@ -6978,10 +7380,7 @@
                                         <h4 class="font-medium text-cyan-900 mb-2">
                                             <i class="fas fa-chart-pie mr-2"></i>携程流量概要
                                         </h4>
-                                        <p class="text-sm text-cyan-800">采集携程概况页中的经营概况、竞品流量、访客标题、服务质量和流量漏斗接口。</p>
-                                        <p class="text-xs text-cyan-700 mt-2">
-                                            目标页面：https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true
-                                        </p>
+                                        <p class="text-sm text-cyan-800">按日期查看本店经营、访客、转化、竞争圈和服务质量；未返回的数据会明确标记。</p>
                                     </div>
 
                                     <div class="bg-white border border-cyan-200 rounded-lg p-4 mb-4">
@@ -7025,23 +7424,28 @@
                                         <div v-if="ctripFlowOverviewFetching" class="mt-3 text-sm text-cyan-700 bg-cyan-50 border border-cyan-100 rounded px-3 py-2">
                                             正在使用已保存的 Cookie/API 辅助内容同步流量概要数据。
                                         </div>
-                                        <div v-if="ctripFlowOverviewResult" class="mt-4 bg-green-50 border border-green-200 rounded-lg p-4">
-                                            <div v-if="ctripFlowOverviewResult.error" class="text-sm text-red-700 mb-2">
-                                                {{ ctripFlowOverviewResult.error }}
+                                        <div v-if="ctripFlowOverviewResult" :class="['mt-4 rounded-lg border p-4', ctripFlowOverviewResult.error ? 'border-red-200 bg-red-50' : 'border-green-200 bg-green-50']">
+                                            <div v-if="ctripFlowOverviewResult.error" class="flex items-start gap-3 text-red-800">
+                                                <i class="fas fa-times-circle mt-0.5 text-xl text-red-500"></i>
+                                                <div>
+                                                    <div class="font-medium">获取失败</div>
+                                                    <div class="mt-1 text-sm">{{ ctripFlowOverviewResult.error }}</div>
+                                                </div>
                                             </div>
+                                            <template v-else="">
                                             <div class="flex items-center justify-between gap-3">
                                                 <div class="flex items-center">
                                                     <i class="fas fa-check-circle text-green-500 text-xl mr-3"></i>
                                                     <div>
                                                         <span class="font-medium text-green-800">获取成功</span>
                                                         <span class="text-green-600 ml-2">
-                                                            已保存 {{ ctripFlowOverviewResult.saved_count || 0 }} 条，命中 {{ ctripFlowOverviewResult.total || ctripFlowOverviewResult.row_count || 0 }} 条概要数据
+                                                            已保存 {{ ctripFlowOverviewResult.saved_count ?? 0 }} 条，命中 {{ ctripFlowOverviewResult.total ?? ctripFlowOverviewResult.row_count ?? 0 }} 条概要数据
                                                         </span>
                                                     </div>
                                                 </div>
                                                 <div v-if="user?.is_super_admin" class="flex gap-2">
                                                     <button @click="showRawData = !showRawData" class="px-3 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 text-sm">
-                                                        <i :class="showRawData ? 'fas fa-chevron-up' : 'fas fa-chevron-down'" class="mr-1"></i>展开高级排障数据
+                                                        <i :class="showRawData ? 'fas fa-chevron-up' : 'fas fa-chevron-down'" class="mr-1"></i>{{ showRawData ? '收起排障数据' : '展开排障数据' }}
                                                     </button>
                                                     <button @click="copyOnlineDataResult" class="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm">
                                                         <i class="fas fa-copy mr-2"></i>复制排障数据
@@ -7059,13 +7463,13 @@
                                                     </div>
                                                 </div>
                                             </div>
-                                            <div v-if="user?.is_super_admin &amp;&amp; ctripFlowOverviewResult.payload_counts" class="text-xs text-green-700 mt-3">
+                                            <div v-if="user?.is_super_admin &amp;&amp; showRawData &amp;&amp; ctripFlowOverviewResult.payload_counts" class="text-xs text-green-700 mt-3">
                                                 高级排障响应：请求记录 {{ ctripFlowOverviewResult.payload_counts.xhr_urls || 0 }} 条，业务响应 {{ ctripFlowOverviewResult.payload_counts.responses || 0 }} 条。
                                             </div>
-                                            <div v-if="ctripFlowOverviewResult.captured_counts" class="flex flex-wrap gap-2 mt-3 text-xs">
+                                            <div v-if="user?.is_super_admin &amp;&amp; showRawData &amp;&amp; ctripFlowOverviewResult.captured_counts" class="flex flex-wrap gap-2 mt-3 text-xs">
                                                 <span v-for="(count, type) in ctripFlowOverviewResult.captured_counts" :key="type" class="px-2 py-1 rounded bg-white border text-green-700">{{ type }} 命中 {{ count }}</span>
                                             </div>
-                                            <div v-if="ctripFlowOverviewInterfaceRows.length" class="mt-4">
+                                            <div v-if="user?.is_super_admin &amp;&amp; showRawData &amp;&amp; ctripFlowOverviewInterfaceRows.length" class="mt-4">
                                                 <div class="text-sm font-medium text-green-900 mb-2">接口命中明细</div>
                                                 <div class="overflow-x-auto table-container">
                                                     <table class="min-w-full bg-white border text-sm table-striped">
@@ -7094,12 +7498,14 @@
                                                     </table>
                                                 </div>
                                             </div>
-                                            <div v-if="ctripFlowOverviewResult.errors &amp;&amp; ctripFlowOverviewResult.errors.length" class="text-xs text-red-700 mt-2 bg-white border rounded p-2 max-h-28 overflow-auto">
+                                            <div v-if="ctripFlowOverviewResult.errors &amp;&amp; ctripFlowOverviewResult.errors.length" class="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">部分板块未返回（{{ ctripFlowOverviewResult.errors.length }} 项），已保留成功入库的数据。</div>
+                                            <div v-if="user?.is_super_admin &amp;&amp; showRawData &amp;&amp; ctripFlowOverviewResult.errors &amp;&amp; ctripFlowOverviewResult.errors.length" class="text-xs text-red-700 mt-2 bg-white border rounded p-2 max-h-28 overflow-auto">
                                                 <div v-for="item in ctripFlowOverviewResult.errors.slice(0, 6)" :key="item" class="truncate">
                                                     {{ item }}
                                                 </div>
                                             </div>
                                             <pre v-if="user?.is_super_admin &amp;&amp; showRawData" class="text-xs text-green-900 bg-white border rounded p-3 mt-3 whitespace-pre-wrap max-h-80 overflow-auto">{{ JSON.stringify(ctripFlowOverviewResult, null, 2) }}</pre>
+                                            </template>
                                         </div>
                                     </div>
                                 </div>
@@ -7229,7 +7635,7 @@
                                                         <div class="mt-1">采集时间：{{ formatCtripSearchOpportunityCapturedAt(ctripSearchOpportunityView?.captured_at) || '-' }}</div>
                                                     </div>
                                                     <button data-testid="ctrip-search-opportunity-save" type="button" @click="downloadCtripSearchOpportunityImage" :disabled="ctripSearchOpportunitySaving || ctripSearchOpportunityLoading || !ctripSearchOpportunityRows.length" class="inline-flex items-center rounded-lg bg-green-500 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-green-600 disabled:cursor-not-allowed disabled:bg-gray-400">
-                                                        <i :class="ctripSearchOpportunitySaving ? 'fas fa-spinner fa-spin' : 'fas fa-download'" class="mr-2"></i>{{ ctripSearchOpportunitySaving ? '保存中...' : '保存数据' }}
+                                                        <i :class="ctripSearchOpportunitySaving ? 'fas fa-spinner fa-spin' : 'fas fa-download'" class="mr-2"></i>{{ ctripSearchOpportunitySaving ? '生成中...' : '下载图片' }}
                                                     </button>
                                                 </div>
                                             </div>
@@ -7482,13 +7888,13 @@
                                                 <tbody>
                                                     <tr v-for="row in ctripTrafficCompareRows" :key="row.date" class="even:bg-slate-50/70 hover:bg-blue-50/50">
                                                         <td class="px-4 py-2 border text-center min-w-[7.5rem] whitespace-nowrap">{{ row.date }}</td>
-                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatNumber(row.self.listExposure) }}</span><span class="font-semibold text-emerald-700">{{ formatNumber(row.avg.listExposure) }}</span></div></td>
-                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatNumber(row.self.detailExposure) }}</span><span class="font-semibold text-emerald-700">{{ formatNumber(row.avg.detailExposure) }}</span></div></td>
-                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ toFixedSafe(row.self.flowRate, 2) }}%</span><span class="font-semibold text-emerald-700">{{ toFixedSafe(row.avg.flowRate, 2) }}%</span></div></td>
-                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatNumber(row.self.orderFillingNum) }}</span><span class="font-semibold text-emerald-700">{{ formatNumber(row.avg.orderFillingNum) }}</span></div></td>
-                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ toFixedSafe(row.self.orderFillRate, 2) }}%</span><span class="font-semibold text-emerald-700">{{ toFixedSafe(row.avg.orderFillRate, 2) }}%</span></div></td>
-                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatNumber(row.self.orderSubmitNum) }}</span><span class="font-semibold text-emerald-700">{{ formatNumber(row.avg.orderSubmitNum) }}</span></div></td>
-                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ toFixedSafe(row.self.submitRate, 2) }}%</span><span class="font-semibold text-emerald-700">{{ toFixedSafe(row.avg.submitRate, 2) }}%</span></div></td>
+                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatOptionalNumber(row.self.listExposure) }}</span><span class="font-semibold text-emerald-700">{{ formatOptionalNumber(row.avg.listExposure) }}</span></div></td>
+                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatOptionalNumber(row.self.detailExposure) }}</span><span class="font-semibold text-emerald-700">{{ formatOptionalNumber(row.avg.detailExposure) }}</span></div></td>
+                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatOptionalPercent(row.self.flowRate) }}</span><span class="font-semibold text-emerald-700">{{ formatOptionalPercent(row.avg.flowRate) }}</span></div></td>
+                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatOptionalNumber(row.self.orderFillingNum) }}</span><span class="font-semibold text-emerald-700">{{ formatOptionalNumber(row.avg.orderFillingNum) }}</span></div></td>
+                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatOptionalPercent(row.self.orderFillRate) }}</span><span class="font-semibold text-emerald-700">{{ formatOptionalPercent(row.avg.orderFillRate) }}</span></div></td>
+                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatOptionalNumber(row.self.orderSubmitNum) }}</span><span class="font-semibold text-emerald-700">{{ formatOptionalNumber(row.avg.orderSubmitNum) }}</span></div></td>
+                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatOptionalPercent(row.self.submitRate) }}</span><span class="font-semibold text-emerald-700">{{ formatOptionalPercent(row.avg.submitRate) }}</span></div></td>
                                                     </tr>
                                                 </tbody>
                                             </table>
@@ -7722,7 +8128,7 @@
                                         </div>
                                     </div>
 
-                                    <div class="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+                                    <div v-if="onlineDataTab === 'ctrip-fetch-settings'" class="bg-white border border-slate-200 rounded-lg p-4 mb-4">
                                         <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4">
                                             <div>
                                                 <h4 class="font-medium text-gray-800 mb-1">
@@ -8272,13 +8678,13 @@
                                                         <td class="px-3 py-2 border text-center font-medium text-blue-600">{{ hotel.adrText !== '-' ? '¥' + hotel.adrText : '-' }}</td>
                                                         <td class="px-3 py-2 border text-center font-medium text-purple-600">{{ hotel.ariText || '-' }}</td>
                                                         <td class="px-3 py-2 border text-center font-medium text-cyan-600">{{ hotel.sciText || '-' }}</td>
-                                                        <td class="px-3 py-2 border text-center">{{ hotel.bookOrderNum || '-' }}</td>
+                                                        <td class="px-3 py-2 border text-center">{{ formatOptionalNumber(hotel.bookOrderNum) }}</td>
                                                         <td class="px-3 py-2 border text-center">
                                                             <span :class="hotel.commentScore &gt;= 4.5 ? 'text-green-600 font-medium' : 'text-gray-600'">
-                                                                {{ hotel.commentScore || '-' }}
+                                                                {{ formatOptionalNumber(hotel.commentScore) }}
                                                             </span>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center">{{ hotel.qunarCommentScore || '-' }}</td>
+                                                        <td class="px-3 py-2 border text-center">{{ formatOptionalNumber(hotel.qunarCommentScore) }}</td>
                                                     </tr>
                                                 </tbody>
                                             </table>
@@ -8308,16 +8714,16 @@
                                                         <td class="px-3 py-2 border text-left font-medium">
                                                             <div>{{ hotel.hotelName }}</div>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center font-medium text-purple-600">{{ formatNumber(hotel.totalDetailNum) }}</td>
+                                                        <td class="px-3 py-2 border text-center font-medium text-purple-600">{{ formatOptionalNumber(hotel.totalDetailNum) }}</td>
                                                         <td class="px-3 py-2 border text-center">
                                                             <span :class="(hotel.convertionRate || 0) &gt;= 5 ? 'text-green-600 font-medium' : 'text-gray-600'">
-                                                                {{ hotel.convertionRate ? hotel.convertionRate + '%' : '-' }}
+                                                                {{ formatOptionalPercent(hotel.convertionRate) }}
                                                             </span>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center">{{ formatNumber(hotel.qunarDetailVisitors) || '-' }}</td>
+                                                        <td class="px-3 py-2 border text-center">{{ formatOptionalNumber(hotel.qunarDetailVisitors) }}</td>
                                                         <td class="px-3 py-2 border text-center">
                                                             <span :class="(hotel.qunarDetailCR || 0) &gt;= 5 ? 'text-green-600 font-medium' : 'text-gray-600'">
-                                                                {{ hotel.qunarDetailCR ? hotel.qunarDetailCR + '%' : '-' }}
+                                                                {{ formatOptionalPercent(hotel.qunarDetailCR) }}
                                                             </span>
                                                         </td>
                                                         <td class="px-3 py-2 border text-center text-gray-500">
@@ -8454,7 +8860,7 @@
                                             </div>
                                             <div class="mt-3 flex flex-col md:flex-row gap-3">
                                                 <input v-model.trim="onlineHistoryFilter.keyword" type="text" class="flex-1 px-3 py-2 border rounded-lg bg-white" placeholder="搜索酒店名称 / OTA酒店ID / 批次号">
-                                                <div v-if="user?.is_super_admin" class="flex gap-2">
+                                                <div class="flex flex-wrap gap-2">
                                                     <button @click="onlineHistoryPage = 1; loadOnlineHistory()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
                                                         <i class="fas fa-search mr-2"></i>查询已存数据
                                                     </button>
@@ -9302,7 +9708,7 @@
                                             <i class="fas fa-download mr-2"></i>{{ meituanFetchButtonText }}
                                         </button>
                                         <button type="button" @click="switchToMeituanDownloadCenter" class="inline-flex items-center rounded-lg border border-gray-200 bg-white px-4 py-3 text-base font-medium text-gray-700 transition-colors hover:bg-gray-50">
-                                            <i class="fas fa-table mr-2"></i>查看经营数据
+                                            <i class="fas fa-table mr-2"></i>查看已入库数据
                                         </button>
                                     </div>
 
@@ -9968,12 +10374,12 @@
                                 <!-- 下载中心 -->
                                 <div v-if="onlineDataTab === 'meituan-download'">
                                     <div class="mb-4 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-                                        这里汇总已经入库的美团 OTA 数据。没有数据时会明确显示为空，不会用旧数据或默认值代替。
+                                        这里按美团数据类型读取已入库记录；卡片统计仅对应当前筛选的当前页。没有数据或字段未返回时显示“-”，权威 0 会原样保留。
                                     </div>
                                     <!-- 子Tab导航 -->
                                     <div class="flex border-b mb-4">
                                         <button @click="switchDownloadTab('overview')" :class="['px-6 py-3 font-medium', downloadCenterTab === 'overview' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
-                                            <i class="fas fa-chart-line mr-2"></i>竞争圈明细
+                                            <i class="fas fa-chart-line mr-2"></i>同行榜单明细
                                         </button>
                                         <button @click="switchDownloadTab('traffic')" :class="['px-6 py-3 font-medium', downloadCenterTab === 'traffic' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                             <i class="fas fa-chart-bar mr-2"></i>流量分析
@@ -9994,29 +10400,29 @@
                                         </select>
                                         <input v-model="onlineDataFilter.start_date" type="date" class="px-3 py-2 border rounded-lg" placeholder="开始日期">
                                         <input v-model="onlineDataFilter.end_date" type="date" class="px-3 py-2 border rounded-lg" placeholder="结束日期">
-                                        <button @click="loadOnlineDataList({ force: true })" class="px-4 py-2 bg-blue-500 text-white rounded-lg">
+                                        <button @click="queryMeituanStoredData" class="px-4 py-2 bg-blue-500 text-white rounded-lg">
                                             <i class="fas fa-search mr-2"></i>查询
                                         </button>
                                     </div>
 
-                                    <!-- 经营概况模块 -->
+                                    <!-- 同行榜单入库明细 -->
                                     <div v-if="downloadCenterTab === 'overview'">
                                         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                                             <div class="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white p-4 rounded-lg">
-                                                <div class="text-sm opacity-80">总订单数</div>
-                                                <div class="text-2xl font-bold">{{ meituanDownloadData.overviewBookOrder }}</div>
+                                                <div class="text-sm opacity-80">当前页同行记录</div>
+                                                <div class="text-2xl font-bold">{{ meituanDownloadData.overviewRowsCount }}</div>
                                             </div>
                                             <div class="bg-gradient-to-r from-teal-500 to-teal-600 text-white p-4 rounded-lg">
-                                                <div class="text-sm opacity-80">总销售额</div>
-                                                <div class="text-2xl font-bold">¥{{ formatNumber(meituanDownloadData.overviewAmount) }}</div>
+                                                <div class="text-sm opacity-80">当前页酒店数</div>
+                                                <div class="text-2xl font-bold">{{ meituanDownloadData.overviewHotelCount }}</div>
                                             </div>
                                             <div class="bg-gradient-to-r from-pink-500 to-pink-600 text-white p-4 rounded-lg">
-                                                <div class="text-sm opacity-80">平均房价</div>
-                                                <div class="text-2xl font-bold">¥{{ toFixedSafe(meituanDownloadData.overviewAmount / Math.max(1, meituanDownloadData.overviewQuantity), 2) }}</div>
+                                                <div class="text-sm opacity-80">当前页日期数</div>
+                                                <div class="text-2xl font-bold">{{ meituanDownloadData.overviewDateCount }}</div>
                                             </div>
                                             <div class="bg-gradient-to-r from-indigo-500 to-indigo-600 text-white p-4 rounded-lg">
-                                                <div class="text-sm opacity-80">数据记录数</div>
-                                                <div class="text-2xl font-bold">{{ meituanDownloadData.overviewRowsCount }}</div>
+                                                <div class="text-sm opacity-80">返回平台数值</div>
+                                                <div class="text-2xl font-bold">{{ meituanDownloadData.overviewMetricValueCount }}</div>
                                             </div>
                                         </div>
                                         <div class="overflow-x-auto table-container">
@@ -10025,11 +10431,12 @@
                                                     <tr class="bg-gray-50">
                                                         <th class="px-4 py-2 text-left border">酒店</th>
                                                         <th class="px-4 py-2 text-left border">日期</th>
-                                                        <th class="px-4 py-2 text-left border">订单数</th>
-                                                        <th class="px-4 py-2 text-left border">销售额</th>
-                                                        <th class="px-4 py-2 text-left border">平均房价</th>
-                                                        <th class="px-4 py-2 text-left border">数据类型</th>
-                                                        <th class="px-4 py-2 text-left border">创建时间</th>
+                                                        <th class="px-4 py-2 text-left border">榜单名次</th>
+                                                        <th class="px-4 py-2 text-left border">指标值</th>
+                                                        <th class="px-4 py-2 text-left border">平台百分比</th>
+                                                        <th class="px-4 py-2 text-left border">指标</th>
+                                                        <th class="px-4 py-2 text-left border">返回状态</th>
+                                                        <th class="px-4 py-2 text-left border">更新时间</th>
                                                         <th class="px-4 py-2 text-left border">操作</th>
                                                     </tr>
                                                 </thead>
@@ -10037,18 +10444,14 @@
                                                     <tr v-for="item in meituanDownloadData.overviewRows" :key="item.id" class="border-b hover:bg-gray-50">
                                                         <td class="px-4 py-2 border">{{ item.hotel_name }}</td>
                                                         <td class="px-4 py-2 border">{{ item.data_date }}</td>
-                                                        <td class="px-4 py-2 border">{{ item.book_order_num || '-' }}</td>
-                                                        <td class="px-4 py-2 border">¥{{ item.amount || 0 }}</td>
-                                                        <td class="px-4 py-2 border">¥{{ toFixedSafe(safeDivide(item.amount, item.quantity), 2) || '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.rank === null || item.rank === undefined || item.rank === '' ? '-' : item.rank }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.data_value === null || item.data_value === undefined || item.data_value === '' ? '-' : formatNumber(item.data_value) }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.rank_percent === null || item.rank_percent === undefined || item.rank_percent === '' ? '-' : (toFixedSafe(item.rank_percent, 2) + '%') }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.rank_metric || item.dimension || '-' }}</td>
                                                         <td class="px-4 py-2 border">
-                                                            <span v-if="item.data_type === 'ranking'" class="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-xs">榜单</span>
-                                                            <span v-else-if="item.data_type === 'traffic'" class="px-2 py-1 bg-teal-100 text-teal-800 rounded text-xs">流量</span>
-                                                            <span v-else-if="item.data_type === 'order'" class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">订单</span>
-                                                            <span v-else-if="item.data_type === 'advertising'" class="px-2 py-1 bg-red-100 text-red-800 rounded text-xs">广告</span>
-                                                            <span v-else-if="item.data_type === 'review'" class="px-2 py-1 bg-pink-100 text-pink-800 rounded text-xs">点评</span>
-                                                            <span v-else="" class="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs">{{ item.data_type }}</span>
+                                                            <span class="rounded bg-slate-100 px-2 py-1 text-xs text-slate-700">{{ item.metric_status === 'platform_value_returned' ? '平台原值' : (item.metric_status === 'platform_percent_only' ? '仅百分比' : (item.metric_status === 'platform_rank_only' ? '仅名次' : (item.metric_status === 'platform_value_missing' ? '数值未返回' : '字段待核验'))) }}</span>
                                                         </td>
-                                                        <td class="px-4 py-2 border">{{ item.create_time }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.update_time || item.create_time || '-' }}</td>
                                                         <td class="px-4 py-2 border">
                                                             <button @click="viewOnlineDataDetail(item)" class="text-blue-500 hover:text-blue-700 mr-2">
                                                                 <i class="fas fa-eye"></i>
@@ -10057,6 +10460,9 @@
                                                                 <i class="fas fa-trash"></i>
                                                             </button>
                                                         </td>
+                                                    </tr>
+                                                    <tr v-if="meituanDownloadData.overviewRowsCount === 0">
+                                                        <td colspan="9" class="px-4 py-8 text-center text-gray-400">当前筛选暂无美团同行榜单入库数据</td>
                                                     </tr>
                                                 </tbody>
                                             </table>
@@ -10068,22 +10474,20 @@
                                     <div v-if="downloadCenterTab === 'traffic'">
                                         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                                             <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                                                <div class="text-sm text-gray-500 mb-1">总曝光量</div>
-                                                <div class="text-2xl font-bold text-blue-600">{{ formatNumber(meituanDownloadData.trafficExposure) }}</div>
+                                                <div class="text-sm text-gray-500 mb-1">当前页曝光量</div>
+                                                <div class="text-2xl font-bold text-blue-600">{{ meituanDownloadData.trafficExposure === null ? '-' : formatNumber(meituanDownloadData.trafficExposure) }}</div>
                                             </div>
                                             <div class="bg-purple-50 border border-purple-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">平均浏览转化率</div>
-                                                <div class="text-2xl font-bold text-purple-600">{{
-                                                    toFixedSafe(meituanDownloadData.trafficAvgFlowRate || 0, 2) + '%'
-                                                }}</div>
+                                                <div class="text-2xl font-bold text-purple-600">{{ meituanDownloadData.trafficAvgFlowRate === null ? '-' : (toFixedSafe(meituanDownloadData.trafficAvgFlowRate, 2) + '%') }}</div>
                                             </div>
                                             <div class="bg-green-50 border border-green-200 rounded-lg p-4">
-                                                <div class="text-sm text-gray-500 mb-1">总点击量</div>
-                                                <div class="text-2xl font-bold text-green-600">{{ formatNumber(meituanDownloadData.trafficClick) }}</div>
+                                                <div class="text-sm text-gray-500 mb-1">当前页点击量</div>
+                                                <div class="text-2xl font-bold text-green-600">{{ meituanDownloadData.trafficClick === null ? '-' : formatNumber(meituanDownloadData.trafficClick) }}</div>
                                             </div>
                                             <div class="bg-orange-50 border border-orange-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">点击转化率</div>
-                                                <div class="text-2xl font-bold text-orange-600">{{ toFixedSafe(meituanDownloadData.trafficClickRate || 0, 2) }}%</div>
+                                                <div class="text-2xl font-bold text-orange-600">{{ meituanDownloadData.trafficClickRate === null ? '-' : (toFixedSafe(meituanDownloadData.trafficClickRate, 2) + '%') }}</div>
                                             </div>
                                         </div>
                                         <div class="overflow-x-auto table-container">
@@ -10104,10 +10508,10 @@
                                                     <tr v-for="item in meituanDownloadData.trafficRows" :key="item.id" class="border-b hover:bg-gray-50">
                                                         <td class="px-4 py-2 border">{{ item.hotel_name }}</td>
                                                         <td class="px-4 py-2 border">{{ item.data_date }}</td>
-                                                        <td class="px-4 py-2 border">{{ getMeituanExposureMetric(item) || '-' }}</td>
-                                                        <td class="px-4 py-2 border">{{ getMeituanClickMetric(item) || '-' }}</td>
-                                                        <td class="px-4 py-2 border">{{ toFixedSafe(getMeituanFlowRateMetric(item), 2) }}%</td>
-                                                        <td class="px-4 py-2 border">{{ getMeituanVisitorMetric(item) || '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ hasMeituanExposureMetric(item) ? formatNumber(getMeituanExposureMetric(item)) : '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ hasMeituanClickMetric(item) ? formatNumber(getMeituanClickMetric(item)) : '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ hasMeituanFlowRateMetric(item) ? (toFixedSafe(getMeituanFlowRateMetric(item), 2) + '%') : '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ hasMeituanVisitorMetric(item) ? formatNumber(getMeituanVisitorMetric(item)) : '-' }}</td>
                                                         <td class="px-4 py-2 border">{{ item.create_time }}</td>
                                                         <td class="px-4 py-2 border">
                                                             <button @click="viewOnlineDataDetail(item)" class="text-blue-500 hover:text-blue-700 mr-2">
@@ -10117,6 +10521,9 @@
                                                                 <i class="fas fa-trash"></i>
                                                             </button>
                                                         </td>
+                                                    </tr>
+                                                    <tr v-if="meituanDownloadData.trafficRows.length === 0">
+                                                        <td colspan="8" class="px-4 py-8 text-center text-gray-400">当前筛选暂无美团流量数据</td>
                                                     </tr>
                                                 </tbody>
                                             </table>
@@ -10133,15 +10540,15 @@
                                             </div>
                                             <div class="bg-green-50 border border-green-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">订单量</div>
-                                                <div class="text-2xl font-bold text-green-600">{{ formatNumber(meituanDownloadData.orderBookOrder) }}</div>
+                                                <div class="text-2xl font-bold text-green-600">{{ meituanDownloadData.orderBookOrder === null ? '-' : formatNumber(meituanDownloadData.orderBookOrder) }}</div>
                                             </div>
                                             <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">间夜量</div>
-                                                <div class="text-2xl font-bold text-indigo-600">{{ formatNumber(meituanDownloadData.orderQuantity) }}</div>
+                                                <div class="text-2xl font-bold text-indigo-600">{{ meituanDownloadData.orderQuantity === null ? '-' : formatNumber(meituanDownloadData.orderQuantity) }}</div>
                                             </div>
                                             <div class="bg-orange-50 border border-orange-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">订单金额</div>
-                                                <div class="text-2xl font-bold text-orange-600">¥{{ formatNumber(meituanDownloadData.orderAmount) }}</div>
+                                                <div class="text-2xl font-bold text-orange-600">{{ meituanDownloadData.orderAmount === null ? '-' : ('¥' + formatNumber(meituanDownloadData.orderAmount)) }}</div>
                                             </div>
                                         </div>
                                         <div class="overflow-x-auto table-container">
@@ -10162,10 +10569,10 @@
                                                     <tr v-for="item in meituanDownloadData.orderRows" :key="item.id" class="border-b hover:bg-gray-50">
                                                         <td class="px-4 py-2 border">{{ item.hotel_name }}</td>
                                                         <td class="px-4 py-2 border">{{ item.data_date }}</td>
-                                                        <td class="px-4 py-2 border">{{ item.book_order_num || '-' }}</td>
-                                                        <td class="px-4 py-2 border">{{ item.quantity || '-' }}</td>
-                                                        <td class="px-4 py-2 border">¥{{ item.amount || 0 }}</td>
-                                                        <td class="px-4 py-2 border">¥{{ item.data_value || toFixedSafe(safeDivide(item.amount, item.quantity), 2) || '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.book_order_num === null || item.book_order_num === undefined || item.book_order_num === '' ? '-' : item.book_order_num }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.quantity === null || item.quantity === undefined || item.quantity === '' ? '-' : item.quantity }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.amount === null || item.amount === undefined || item.amount === '' ? '-' : ('¥' + formatNumber(item.amount)) }}</td>
+                                                        <td class="px-4 py-2 border">{{ Number(item.quantity) &gt; 0 &amp;&amp; item.amount !== null &amp;&amp; item.amount !== undefined &amp;&amp; item.amount !== '' ? ('¥' + toFixedSafe(safeDivide(item.amount, item.quantity), 2)) : '-' }}</td>
                                                         <td class="px-4 py-2 border">{{ item.dimension || '-' }}</td>
                                                         <td class="px-4 py-2 border">
                                                             <button @click="viewOnlineDataDetail(item)" class="text-blue-500 hover:text-blue-700 mr-2">
@@ -10193,15 +10600,15 @@
                                             </div>
                                             <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">曝光量</div>
-                                                <div class="text-2xl font-bold text-blue-600">{{ formatNumber(meituanDownloadData.adsExposure) }}</div>
+                                                <div class="text-2xl font-bold text-blue-600">{{ meituanDownloadData.adsExposure === null ? '-' : formatNumber(meituanDownloadData.adsExposure) }}</div>
                                             </div>
                                             <div class="bg-green-50 border border-green-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">点击量</div>
-                                                <div class="text-2xl font-bold text-green-600">{{ formatNumber(meituanDownloadData.adsClick) }}</div>
+                                                <div class="text-2xl font-bold text-green-600">{{ meituanDownloadData.adsClick === null ? '-' : formatNumber(meituanDownloadData.adsClick) }}</div>
                                             </div>
                                             <div class="bg-orange-50 border border-orange-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">点击率</div>
-                                                <div class="text-2xl font-bold text-orange-600">{{ toFixedSafe(meituanDownloadData.adsClickRate || 0, 2) }}%</div>
+                                                <div class="text-2xl font-bold text-orange-600">{{ meituanDownloadData.adsClickRate === null ? '-' : (toFixedSafe(meituanDownloadData.adsClickRate, 2) + '%') }}</div>
                                             </div>
                                         </div>
                                         <div class="overflow-x-auto table-container">
@@ -10222,9 +10629,9 @@
                                                     <tr v-for="item in meituanDownloadData.adsRows" :key="item.id" class="border-b hover:bg-gray-50">
                                                         <td class="px-4 py-2 border">{{ item.hotel_name }}</td>
                                                         <td class="px-4 py-2 border">{{ item.data_date }}</td>
-                                                        <td class="px-4 py-2 border">{{ getMeituanExposureMetric(item) || '-' }}</td>
-                                                        <td class="px-4 py-2 border">{{ getMeituanClickMetric(item) || '-' }}</td>
-                                                        <td class="px-4 py-2 border">{{ toFixedSafe(getMeituanFlowRateMetric(item), 2) }}%</td>
+                                                        <td class="px-4 py-2 border">{{ hasMeituanExposureMetric(item) ? formatNumber(getMeituanExposureMetric(item)) : '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ hasMeituanClickMetric(item) ? formatNumber(getMeituanClickMetric(item)) : '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ hasMeituanFlowRateMetric(item) ? (toFixedSafe(getMeituanFlowRateMetric(item), 2) + '%') : '-' }}</td>
                                                         <td class="px-4 py-2 border">{{ item.dimension || '-' }}</td>
                                                         <td class="px-4 py-2 border">{{ item.create_time }}</td>
                                                         <td class="px-4 py-2 border">
@@ -10241,6 +10648,14 @@
                                                     </tr>
                                                 </tbody>
                                             </table>
+                                        </div>
+                                    </div>
+
+                                    <div v-if="onlineDataPagination.total &gt; 0" class="mt-5 flex flex-col gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                                        <div class="text-sm text-gray-600">共 {{ onlineDataPagination.total }} 条 · 当前第 {{ onlineDataPage }} 页 · 本页 {{ onlineDataList.length }} 条</div>
+                                        <div class="flex items-center gap-2">
+                                            <button type="button" @click="changeOnlineDataPage(onlineDataPage - 1)" :disabled="onlineDataPage &lt;= 1" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 disabled:bg-gray-100 disabled:text-gray-400">上一页</button>
+                                            <button type="button" @click="changeOnlineDataPage(onlineDataPage + 1)" :disabled="onlineDataPage * onlineDataPagination.page_size &gt;= onlineDataPagination.total" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 disabled:bg-gray-100 disabled:text-gray-400">下一页</button>
                                         </div>
                                     </div>
 
@@ -15674,7 +16089,7 @@ Authorization: Bearer xxx"></textarea>
                                         <div class="p-5">
                                             <div class="space-y-4">
                                                 <p class="text-sm text-gray-600">
-                                                    首次使用需要账号使用者在自己的电脑登录各平台，系统只保存门店授权证据和登录态确认信息，后续自动采集复用该会话；登录失效时会提示重新授权，不写空数据。
+                                                    美团“立即采集”直接使用当前门店已保存的 Cookie/API 配置，不要求先绑定 Profile；定时自动采集才复用账号使用者本机 Profile。任一路径失败都会保留真实原因，不写空数据。
                                                 </p>
                                                 <div class="rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
                                                     <i class="fas fa-info-circle mr-2"></i>
@@ -15703,6 +16118,10 @@ Authorization: Bearer xxx"></textarea>
                                                           <i :class="fetchingData ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-download mr-2'"></i>{{ fetchingData ? ('采集中 ' + formatAutoFetchElapsed(autoFetchRunElapsedSeconds)) : '立即采集' }}
                                                       </button>
                                                   </div>
+
+                                                <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs leading-5 text-emerald-900">
+                                                    <span class="font-semibold">采集方式：</span>立即采集＝已保存 Cookie/API 直连；定时计划＝已绑定 Profile。定时任务未绑定或登录失效时会明确阻塞，不回退到旧数据。
+                                                </div>
 
                                                 <platform-auto-settings-panels v-if="platformAutoSettingsPanelsReady" :ctx="$root">
                                                 </platform-auto-settings-panels>
@@ -16227,11 +16646,11 @@ Authorization: Bearer xxx"></textarea>
 
         <!-- 门店用户分配模态框 -->
         <div v-if="showHotelUserAuthorizationModal" data-testid="hotel-user-authorization-modal" class="fixed inset-0 z-[60] flex items-center justify-center modal-overlay px-4" @click.self="closeHotelUserAuthorization">
-            <div class="flex w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl" style="max-height: 86vh;">
+            <div class="flex w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl" style="max-height: 86vh;" role="dialog" aria-modal="true" aria-labelledby="hotel-user-authorization-title">
                 <div class="shrink-0 border-b border-blue-100 bg-blue-50 px-5 py-4">
                     <div class="flex items-start justify-between gap-4">
                         <div>
-                            <h3 class="text-base font-semibold text-gray-900">分配用户</h3>
+                            <h3 id="hotel-user-authorization-title" class="text-base font-semibold text-gray-900">分配用户</h3>
                             <p class="mt-1 text-sm text-gray-600">门店：{{ hotelUserAuthorizationTarget?.name || '-' }}</p>
                         </div>
                         <button type="button" @click="closeHotelUserAuthorization" :disabled="hotelUserAuthorizationSaving" class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-white hover:text-gray-600 disabled:opacity-50">
@@ -16240,23 +16659,25 @@ Authorization: Bearer xxx"></textarea>
                     </div>
                 </div>
                 <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-                    <input v-model="hotelUserAuthorizationSearch" type="search" name="hotel_user_assignment_filter" autocomplete="one-time-code" readonly="" @focus="$event.currentTarget.removeAttribute('readonly')" @pointerdown="$event.currentTarget.removeAttribute('readonly')" placeholder="搜索用户名或姓名" class="mb-3 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100">
-                    <div class="mb-2 text-xs text-gray-500">已选 {{ hotelUserAuthorizationUserIds.length }} 人；仅显示内测用户</div>
+                    <label for="hotel-user-authorization-search" class="sr-only">搜索内测用户名或姓名</label>
+                    <input id="hotel-user-authorization-search" v-model="hotelUserAuthorizationSearch" type="search" name="hotel_user_assignment_filter" autocomplete="one-time-code" readonly="" @focus="$event.currentTarget.removeAttribute('readonly')" @pointerdown="$event.currentTarget.removeAttribute('readonly')" placeholder="搜索用户名或姓名" class="mb-3 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100">
+                    <div class="mb-2 text-xs text-gray-500">已选 {{ hotelUserAuthorizationUserIds.length }} 人；仅显示内测用户。停用账号不能新增授权，但可以保留或移除已有授权。</div>
+                    <div v-if="hotelUserAuthorizationError" class="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{{ hotelUserAuthorizationError }}</div>
                     <div class="space-y-2 rounded-xl border border-gray-200 bg-white p-2">
-                        <label v-for="candidate in filteredHotelAuthorizationUsers" :key="candidate.id" class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 hover:bg-blue-50">
-                            <input v-model="hotelUserAuthorizationUserIds" type="checkbox" :value="String(candidate.id)" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <label v-for="candidate in filteredHotelAuthorizationUsers" :key="candidate.id" class="flex items-center gap-3 rounded-lg px-3 py-2" :class="hotelAuthorizationCandidateDisabled(candidate) ? 'cursor-not-allowed bg-gray-50 opacity-60' : 'cursor-pointer hover:bg-blue-50'">
+                            <input v-model="hotelUserAuthorizationUserIds" type="checkbox" :value="String(candidate.id)" :disabled="hotelAuthorizationCandidateDisabled(candidate)" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed">
                             <span class="min-w-0 flex-1">
                                 <span class="block truncate text-sm font-medium text-gray-800">{{ candidate.realname || candidate.username }}</span>
                                 <span class="block truncate text-xs text-gray-500" :title="userHotelScopeSummary(candidate).full">{{ candidate.username }} · {{ userHotelScopeSummary(candidate).summary }}</span>
                             </span>
-                            <span :class="String(candidate.status) === '1' ? 'text-emerald-700 bg-emerald-50' : 'text-gray-500 bg-gray-100'" class="rounded-full px-2 py-0.5 text-[11px]">{{ String(candidate.status) === '1' ? '正常' : '停用' }}</span>
+                            <span :class="String(candidate.status) === '1' ? 'text-emerald-700 bg-emerald-50' : 'text-gray-500 bg-gray-100'" class="rounded-full px-2 py-0.5 text-[11px]">{{ String(candidate.status) === '1' ? '正常' : (hotelAuthorizationCandidateDisabled(candidate) ? '停用·不可新增' : '停用·可移除') }}</span>
                         </label>
                         <div v-if="!filteredHotelAuthorizationUsers.length" class="px-3 py-5 text-center text-sm text-gray-400">没有可分配的内测用户</div>
                     </div>
                 </div>
                 <div class="flex shrink-0 justify-end gap-3 border-t border-gray-100 bg-white px-5 py-3">
                     <button type="button" @click="closeHotelUserAuthorization" :disabled="hotelUserAuthorizationSaving" class="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50">取消</button>
-                    <button type="button" @click="saveHotelUserAuthorization" :disabled="hotelUserAuthorizationSaving" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60">{{ hotelUserAuthorizationSaving ? '保存中...' : '保存分配' }}</button>
+                    <button type="button" @click="saveHotelUserAuthorization" :disabled="hotelUserAuthorizationSaving || hotelUserAuthorizationLoading" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60">{{ hotelUserAuthorizationSaving ? '原子保存并回读中...' : '保存分配' }}</button>
                 </div>
             </div>
         </div>
@@ -16333,7 +16754,7 @@ Authorization: Bearer xxx"></textarea>
                             </label>
                             <div v-if="!filteredUserAssignmentHotels.length" class="text-xs text-gray-400 py-2">当前条件下没有门店</div>
                         </div>
-                        <p class="text-xs text-gray-500 mt-1">未分配时仅看自己创建的门店。</p>
+                        <p class="text-xs text-gray-500 mt-1">这里搜索门店名称、编码或 ID；要从门店反查并分配用户，请在门店管理点击“授权用户”。</p>
                     </div>
                     <div v-if="user?.is_super_admin &amp;&amp; selectedUserRoleGuide" class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2" :title="userIssueBlockingReasons.length ? userIssueBlockingReasons.join('；') : '检查通过'">
                         <div class="flex items-center justify-between gap-3">

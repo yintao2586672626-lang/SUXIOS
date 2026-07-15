@@ -120,7 +120,7 @@
                                             <i class="fas fa-download mr-2"></i>{{ meituanFetchButtonText }}
                                         </button>
                                         <button type="button" @click="switchToMeituanDownloadCenter" class="inline-flex items-center rounded-lg border border-gray-200 bg-white px-4 py-3 text-base font-medium text-gray-700 transition-colors hover:bg-gray-50">
-                                            <i class="fas fa-table mr-2"></i>查看经营数据
+                                            <i class="fas fa-table mr-2"></i>查看已入库数据
                                         </button>
                                     </div>
 
@@ -786,12 +786,12 @@
                                 <!-- 下载中心 -->
                                 <div v-if="onlineDataTab === 'meituan-download'">
                                     <div class="mb-4 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-                                        这里汇总已经入库的美团 OTA 数据。没有数据时会明确显示为空，不会用旧数据或默认值代替。
+                                        这里按美团数据类型读取已入库记录；卡片统计仅对应当前筛选的当前页。没有数据或字段未返回时显示“-”，权威 0 会原样保留。
                                     </div>
                                     <!-- 子Tab导航 -->
                                     <div class="flex border-b mb-4">
                                         <button @click="switchDownloadTab('overview')" :class="['px-6 py-3 font-medium', downloadCenterTab === 'overview' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
-                                            <i class="fas fa-chart-line mr-2"></i>竞争圈明细
+                                            <i class="fas fa-chart-line mr-2"></i>同行榜单明细
                                         </button>
                                         <button @click="switchDownloadTab('traffic')" :class="['px-6 py-3 font-medium', downloadCenterTab === 'traffic' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                             <i class="fas fa-chart-bar mr-2"></i>流量分析
@@ -812,29 +812,29 @@
                                         </select>
                                         <input v-model="onlineDataFilter.start_date" type="date" class="px-3 py-2 border rounded-lg" placeholder="开始日期">
                                         <input v-model="onlineDataFilter.end_date" type="date" class="px-3 py-2 border rounded-lg" placeholder="结束日期">
-                                        <button @click="loadOnlineDataList({ force: true })" class="px-4 py-2 bg-blue-500 text-white rounded-lg">
+                                        <button @click="queryMeituanStoredData" class="px-4 py-2 bg-blue-500 text-white rounded-lg">
                                             <i class="fas fa-search mr-2"></i>查询
                                         </button>
                                     </div>
 
-                                    <!-- 经营概况模块 -->
+                                    <!-- 同行榜单入库明细 -->
                                     <div v-if="downloadCenterTab === 'overview'">
                                         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                                             <div class="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white p-4 rounded-lg">
-                                                <div class="text-sm opacity-80">总订单数</div>
-                                                <div class="text-2xl font-bold">{{ meituanDownloadData.overviewBookOrder }}</div>
+                                                <div class="text-sm opacity-80">当前页同行记录</div>
+                                                <div class="text-2xl font-bold">{{ meituanDownloadData.overviewRowsCount }}</div>
                                             </div>
                                             <div class="bg-gradient-to-r from-teal-500 to-teal-600 text-white p-4 rounded-lg">
-                                                <div class="text-sm opacity-80">总销售额</div>
-                                                <div class="text-2xl font-bold">¥{{ formatNumber(meituanDownloadData.overviewAmount) }}</div>
+                                                <div class="text-sm opacity-80">当前页酒店数</div>
+                                                <div class="text-2xl font-bold">{{ meituanDownloadData.overviewHotelCount }}</div>
                                             </div>
                                             <div class="bg-gradient-to-r from-pink-500 to-pink-600 text-white p-4 rounded-lg">
-                                                <div class="text-sm opacity-80">平均房价</div>
-                                                <div class="text-2xl font-bold">¥{{ toFixedSafe(meituanDownloadData.overviewAmount / Math.max(1, meituanDownloadData.overviewQuantity), 2) }}</div>
+                                                <div class="text-sm opacity-80">当前页日期数</div>
+                                                <div class="text-2xl font-bold">{{ meituanDownloadData.overviewDateCount }}</div>
                                             </div>
                                             <div class="bg-gradient-to-r from-indigo-500 to-indigo-600 text-white p-4 rounded-lg">
-                                                <div class="text-sm opacity-80">数据记录数</div>
-                                                <div class="text-2xl font-bold">{{ meituanDownloadData.overviewRowsCount }}</div>
+                                                <div class="text-sm opacity-80">返回平台数值</div>
+                                                <div class="text-2xl font-bold">{{ meituanDownloadData.overviewMetricValueCount }}</div>
                                             </div>
                                         </div>
                                         <div class="overflow-x-auto table-container">
@@ -843,11 +843,12 @@
                                                     <tr class="bg-gray-50">
                                                         <th class="px-4 py-2 text-left border">酒店</th>
                                                         <th class="px-4 py-2 text-left border">日期</th>
-                                                        <th class="px-4 py-2 text-left border">订单数</th>
-                                                        <th class="px-4 py-2 text-left border">销售额</th>
-                                                        <th class="px-4 py-2 text-left border">平均房价</th>
-                                                        <th class="px-4 py-2 text-left border">数据类型</th>
-                                                        <th class="px-4 py-2 text-left border">创建时间</th>
+                                                        <th class="px-4 py-2 text-left border">榜单名次</th>
+                                                        <th class="px-4 py-2 text-left border">指标值</th>
+                                                        <th class="px-4 py-2 text-left border">平台百分比</th>
+                                                        <th class="px-4 py-2 text-left border">指标</th>
+                                                        <th class="px-4 py-2 text-left border">返回状态</th>
+                                                        <th class="px-4 py-2 text-left border">更新时间</th>
                                                         <th class="px-4 py-2 text-left border">操作</th>
                                                     </tr>
                                                 </thead>
@@ -855,18 +856,14 @@
                                                     <tr v-for="item in meituanDownloadData.overviewRows" :key="item.id" class="border-b hover:bg-gray-50">
                                                         <td class="px-4 py-2 border">{{ item.hotel_name }}</td>
                                                         <td class="px-4 py-2 border">{{ item.data_date }}</td>
-                                                        <td class="px-4 py-2 border">{{ item.book_order_num || '-' }}</td>
-                                                        <td class="px-4 py-2 border">¥{{ item.amount || 0 }}</td>
-                                                        <td class="px-4 py-2 border">¥{{ toFixedSafe(safeDivide(item.amount, item.quantity), 2) || '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.rank === null || item.rank === undefined || item.rank === '' ? '-' : item.rank }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.data_value === null || item.data_value === undefined || item.data_value === '' ? '-' : formatNumber(item.data_value) }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.rank_percent === null || item.rank_percent === undefined || item.rank_percent === '' ? '-' : (toFixedSafe(item.rank_percent, 2) + '%') }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.rank_metric || item.dimension || '-' }}</td>
                                                         <td class="px-4 py-2 border">
-                                                            <span v-if="item.data_type === 'ranking'" class="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-xs">榜单</span>
-                                                            <span v-else-if="item.data_type === 'traffic'" class="px-2 py-1 bg-teal-100 text-teal-800 rounded text-xs">流量</span>
-                                                            <span v-else-if="item.data_type === 'order'" class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">订单</span>
-                                                            <span v-else-if="item.data_type === 'advertising'" class="px-2 py-1 bg-red-100 text-red-800 rounded text-xs">广告</span>
-                                                            <span v-else-if="item.data_type === 'review'" class="px-2 py-1 bg-pink-100 text-pink-800 rounded text-xs">点评</span>
-                                                            <span v-else="" class="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs">{{ item.data_type }}</span>
+                                                            <span class="rounded bg-slate-100 px-2 py-1 text-xs text-slate-700">{{ item.metric_status === 'platform_value_returned' ? '平台原值' : (item.metric_status === 'platform_percent_only' ? '仅百分比' : (item.metric_status === 'platform_rank_only' ? '仅名次' : (item.metric_status === 'platform_value_missing' ? '数值未返回' : '字段待核验'))) }}</span>
                                                         </td>
-                                                        <td class="px-4 py-2 border">{{ item.create_time }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.update_time || item.create_time || '-' }}</td>
                                                         <td class="px-4 py-2 border">
                                                             <button @click="viewOnlineDataDetail(item)" class="text-blue-500 hover:text-blue-700 mr-2">
                                                                 <i class="fas fa-eye"></i>
@@ -875,6 +872,9 @@
                                                                 <i class="fas fa-trash"></i>
                                                             </button>
                                                         </td>
+                                                    </tr>
+                                                    <tr v-if="meituanDownloadData.overviewRowsCount === 0">
+                                                        <td colspan="9" class="px-4 py-8 text-center text-gray-400">当前筛选暂无美团同行榜单入库数据</td>
                                                     </tr>
                                                 </tbody>
                                             </table>
@@ -886,22 +886,20 @@
                                     <div v-if="downloadCenterTab === 'traffic'">
                                         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                                             <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                                                <div class="text-sm text-gray-500 mb-1">总曝光量</div>
-                                                <div class="text-2xl font-bold text-blue-600">{{ formatNumber(meituanDownloadData.trafficExposure) }}</div>
+                                                <div class="text-sm text-gray-500 mb-1">当前页曝光量</div>
+                                                <div class="text-2xl font-bold text-blue-600">{{ meituanDownloadData.trafficExposure === null ? '-' : formatNumber(meituanDownloadData.trafficExposure) }}</div>
                                             </div>
                                             <div class="bg-purple-50 border border-purple-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">平均浏览转化率</div>
-                                                <div class="text-2xl font-bold text-purple-600">{{
-                                                    toFixedSafe(meituanDownloadData.trafficAvgFlowRate || 0, 2) + '%'
-                                                }}</div>
+                                                <div class="text-2xl font-bold text-purple-600">{{ meituanDownloadData.trafficAvgFlowRate === null ? '-' : (toFixedSafe(meituanDownloadData.trafficAvgFlowRate, 2) + '%') }}</div>
                                             </div>
                                             <div class="bg-green-50 border border-green-200 rounded-lg p-4">
-                                                <div class="text-sm text-gray-500 mb-1">总点击量</div>
-                                                <div class="text-2xl font-bold text-green-600">{{ formatNumber(meituanDownloadData.trafficClick) }}</div>
+                                                <div class="text-sm text-gray-500 mb-1">当前页点击量</div>
+                                                <div class="text-2xl font-bold text-green-600">{{ meituanDownloadData.trafficClick === null ? '-' : formatNumber(meituanDownloadData.trafficClick) }}</div>
                                             </div>
                                             <div class="bg-orange-50 border border-orange-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">点击转化率</div>
-                                                <div class="text-2xl font-bold text-orange-600">{{ toFixedSafe(meituanDownloadData.trafficClickRate || 0, 2) }}%</div>
+                                                <div class="text-2xl font-bold text-orange-600">{{ meituanDownloadData.trafficClickRate === null ? '-' : (toFixedSafe(meituanDownloadData.trafficClickRate, 2) + '%') }}</div>
                                             </div>
                                         </div>
                                         <div class="overflow-x-auto table-container">
@@ -922,10 +920,10 @@
                                                     <tr v-for="item in meituanDownloadData.trafficRows" :key="item.id" class="border-b hover:bg-gray-50">
                                                         <td class="px-4 py-2 border">{{ item.hotel_name }}</td>
                                                         <td class="px-4 py-2 border">{{ item.data_date }}</td>
-                                                        <td class="px-4 py-2 border">{{ getMeituanExposureMetric(item) || '-' }}</td>
-                                                        <td class="px-4 py-2 border">{{ getMeituanClickMetric(item) || '-' }}</td>
-                                                        <td class="px-4 py-2 border">{{ toFixedSafe(getMeituanFlowRateMetric(item), 2) }}%</td>
-                                                        <td class="px-4 py-2 border">{{ getMeituanVisitorMetric(item) || '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ hasMeituanExposureMetric(item) ? formatNumber(getMeituanExposureMetric(item)) : '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ hasMeituanClickMetric(item) ? formatNumber(getMeituanClickMetric(item)) : '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ hasMeituanFlowRateMetric(item) ? (toFixedSafe(getMeituanFlowRateMetric(item), 2) + '%') : '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ hasMeituanVisitorMetric(item) ? formatNumber(getMeituanVisitorMetric(item)) : '-' }}</td>
                                                         <td class="px-4 py-2 border">{{ item.create_time }}</td>
                                                         <td class="px-4 py-2 border">
                                                             <button @click="viewOnlineDataDetail(item)" class="text-blue-500 hover:text-blue-700 mr-2">
@@ -935,6 +933,9 @@
                                                                 <i class="fas fa-trash"></i>
                                                             </button>
                                                         </td>
+                                                    </tr>
+                                                    <tr v-if="meituanDownloadData.trafficRows.length === 0">
+                                                        <td colspan="8" class="px-4 py-8 text-center text-gray-400">当前筛选暂无美团流量数据</td>
                                                     </tr>
                                                 </tbody>
                                             </table>
@@ -951,15 +952,15 @@
                                             </div>
                                             <div class="bg-green-50 border border-green-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">订单量</div>
-                                                <div class="text-2xl font-bold text-green-600">{{ formatNumber(meituanDownloadData.orderBookOrder) }}</div>
+                                                <div class="text-2xl font-bold text-green-600">{{ meituanDownloadData.orderBookOrder === null ? '-' : formatNumber(meituanDownloadData.orderBookOrder) }}</div>
                                             </div>
                                             <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">间夜量</div>
-                                                <div class="text-2xl font-bold text-indigo-600">{{ formatNumber(meituanDownloadData.orderQuantity) }}</div>
+                                                <div class="text-2xl font-bold text-indigo-600">{{ meituanDownloadData.orderQuantity === null ? '-' : formatNumber(meituanDownloadData.orderQuantity) }}</div>
                                             </div>
                                             <div class="bg-orange-50 border border-orange-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">订单金额</div>
-                                                <div class="text-2xl font-bold text-orange-600">¥{{ formatNumber(meituanDownloadData.orderAmount) }}</div>
+                                                <div class="text-2xl font-bold text-orange-600">{{ meituanDownloadData.orderAmount === null ? '-' : ('¥' + formatNumber(meituanDownloadData.orderAmount)) }}</div>
                                             </div>
                                         </div>
                                         <div class="overflow-x-auto table-container">
@@ -980,10 +981,10 @@
                                                     <tr v-for="item in meituanDownloadData.orderRows" :key="item.id" class="border-b hover:bg-gray-50">
                                                         <td class="px-4 py-2 border">{{ item.hotel_name }}</td>
                                                         <td class="px-4 py-2 border">{{ item.data_date }}</td>
-                                                        <td class="px-4 py-2 border">{{ item.book_order_num || '-' }}</td>
-                                                        <td class="px-4 py-2 border">{{ item.quantity || '-' }}</td>
-                                                        <td class="px-4 py-2 border">¥{{ item.amount || 0 }}</td>
-                                                        <td class="px-4 py-2 border">¥{{ item.data_value || toFixedSafe(safeDivide(item.amount, item.quantity), 2) || '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.book_order_num === null || item.book_order_num === undefined || item.book_order_num === '' ? '-' : item.book_order_num }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.quantity === null || item.quantity === undefined || item.quantity === '' ? '-' : item.quantity }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.amount === null || item.amount === undefined || item.amount === '' ? '-' : ('¥' + formatNumber(item.amount)) }}</td>
+                                                        <td class="px-4 py-2 border">{{ Number(item.quantity) &gt; 0 &amp;&amp; item.amount !== null &amp;&amp; item.amount !== undefined &amp;&amp; item.amount !== '' ? ('¥' + toFixedSafe(safeDivide(item.amount, item.quantity), 2)) : '-' }}</td>
                                                         <td class="px-4 py-2 border">{{ item.dimension || '-' }}</td>
                                                         <td class="px-4 py-2 border">
                                                             <button @click="viewOnlineDataDetail(item)" class="text-blue-500 hover:text-blue-700 mr-2">
@@ -1011,15 +1012,15 @@
                                             </div>
                                             <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">曝光量</div>
-                                                <div class="text-2xl font-bold text-blue-600">{{ formatNumber(meituanDownloadData.adsExposure) }}</div>
+                                                <div class="text-2xl font-bold text-blue-600">{{ meituanDownloadData.adsExposure === null ? '-' : formatNumber(meituanDownloadData.adsExposure) }}</div>
                                             </div>
                                             <div class="bg-green-50 border border-green-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">点击量</div>
-                                                <div class="text-2xl font-bold text-green-600">{{ formatNumber(meituanDownloadData.adsClick) }}</div>
+                                                <div class="text-2xl font-bold text-green-600">{{ meituanDownloadData.adsClick === null ? '-' : formatNumber(meituanDownloadData.adsClick) }}</div>
                                             </div>
                                             <div class="bg-orange-50 border border-orange-200 rounded-lg p-4">
                                                 <div class="text-sm text-gray-500 mb-1">点击率</div>
-                                                <div class="text-2xl font-bold text-orange-600">{{ toFixedSafe(meituanDownloadData.adsClickRate || 0, 2) }}%</div>
+                                                <div class="text-2xl font-bold text-orange-600">{{ meituanDownloadData.adsClickRate === null ? '-' : (toFixedSafe(meituanDownloadData.adsClickRate, 2) + '%') }}</div>
                                             </div>
                                         </div>
                                         <div class="overflow-x-auto table-container">
@@ -1040,9 +1041,9 @@
                                                     <tr v-for="item in meituanDownloadData.adsRows" :key="item.id" class="border-b hover:bg-gray-50">
                                                         <td class="px-4 py-2 border">{{ item.hotel_name }}</td>
                                                         <td class="px-4 py-2 border">{{ item.data_date }}</td>
-                                                        <td class="px-4 py-2 border">{{ getMeituanExposureMetric(item) || '-' }}</td>
-                                                        <td class="px-4 py-2 border">{{ getMeituanClickMetric(item) || '-' }}</td>
-                                                        <td class="px-4 py-2 border">{{ toFixedSafe(getMeituanFlowRateMetric(item), 2) }}%</td>
+                                                        <td class="px-4 py-2 border">{{ hasMeituanExposureMetric(item) ? formatNumber(getMeituanExposureMetric(item)) : '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ hasMeituanClickMetric(item) ? formatNumber(getMeituanClickMetric(item)) : '-' }}</td>
+                                                        <td class="px-4 py-2 border">{{ hasMeituanFlowRateMetric(item) ? (toFixedSafe(getMeituanFlowRateMetric(item), 2) + '%') : '-' }}</td>
                                                         <td class="px-4 py-2 border">{{ item.dimension || '-' }}</td>
                                                         <td class="px-4 py-2 border">{{ item.create_time }}</td>
                                                         <td class="px-4 py-2 border">
@@ -1059,6 +1060,14 @@
                                                     </tr>
                                                 </tbody>
                                             </table>
+                                        </div>
+                                    </div>
+
+                                    <div v-if="onlineDataPagination.total &gt; 0" class="mt-5 flex flex-col gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                                        <div class="text-sm text-gray-600">共 {{ onlineDataPagination.total }} 条 · 当前第 {{ onlineDataPage }} 页 · 本页 {{ onlineDataList.length }} 条</div>
+                                        <div class="flex items-center gap-2">
+                                            <button type="button" @click="changeOnlineDataPage(onlineDataPage - 1)" :disabled="onlineDataPage &lt;= 1" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 disabled:bg-gray-100 disabled:text-gray-400">上一页</button>
+                                            <button type="button" @click="changeOnlineDataPage(onlineDataPage + 1)" :disabled="onlineDataPage * onlineDataPagination.page_size &gt;= onlineDataPagination.total" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 disabled:bg-gray-100 disabled:text-gray-400">下一页</button>
                                         </div>
                                     </div>
 

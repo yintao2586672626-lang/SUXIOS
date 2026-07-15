@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { loadFrontendTemplateSource } from '../../scripts/lib/frontend_template_source.mjs';
 
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const appMain = fs.readFileSync('public/app-main.js', 'utf8');
-const template = fs.readFileSync(
-  'resources/frontend/templates/fragments/23-page-compass-ai-workbench.html',
-  'utf8',
-);
+const template = loadFrontendTemplateSource(repoRoot).template;
 
 test('current user can save and restore an explicit hotel picker order', () => {
   assert.match(appMain, /suxios_dual_ota_hotel_order_\$\{user\.value\?\.id \|\| 'guest'\}_v1/);

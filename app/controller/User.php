@@ -160,6 +160,151 @@ class User extends Base
     }
 
     /**
+     * 原子更新一组内测用户的门店授权。
+     *
+     * 前端只提交本次发生变化的用户；所有用户先完成角色、状态、门店与租户校验，
+     * 再在同一事务中写入，避免逐用户请求产生部分成功。
+     */
+    public function batchHotelAssignments(): Response
+    {
+        if (!$this->currentUser->isSuperAdmin()) {
+            return $this->error('只有超级管理员可以分配门店授权', 403);
+        }
+
+        $data = $this->requestData();
+        $changes = $data['changes'] ?? null;
+        if (!is_array($changes) || empty($changes) || count($changes) > 100) {
+            return $this->error('请选择 1-100 个需要变更的内测用户', 422);
+        }
+
+        $nextHotelIdsByUser = [];
+        foreach ($changes as $change) {
+            if (!is_array($change) || !array_key_exists('hotel_ids', $change)) {
+                return $this->error('门店授权变更格式不正确', 422);
+            }
+            $userId = (int)($change['user_id'] ?? 0);
+            if ($userId <= 0 || array_key_exists($userId, $nextHotelIdsByUser)) {
+                return $this->error('门店授权包含无效或重复用户', 422);
+            }
+            if (!is_array($change['hotel_ids'])) {
+                return $this->error('用户门店范围必须是数组', 422, ['user_id' => $userId]);
+            }
+            $hotelIds = $this->normalizeHotelIdList($change['hotel_ids']);
+            if (count($hotelIds) > 100) {
+                return $this->error('单个用户最多分配 100 个门店', 422, ['user_id' => $userId]);
+            }
+            $nextHotelIdsByUser[$userId] = $hotelIds;
+        }
+
+        $userIds = array_keys($nextHotelIdsByUser);
+        $targetUsers = UserModel::with(['role'])->whereIn('id', $userIds)->select();
+        $userMap = [];
+        foreach ($targetUsers as $targetUser) {
+            $userMap[(int)$targetUser->id] = $targetUser;
+        }
+        $missingUserIds = array_values(array_diff($userIds, array_keys($userMap)));
+        if (!empty($missingUserIds)) {
+            return $this->error('包含不存在的用户，请刷新后重试', 422, ['missing_user_ids' => $missingUserIds]);
+        }
+
+        $plans = [];
+        foreach ($nextHotelIdsByUser as $userId => $nextHotelIds) {
+            /** @var UserModel $targetUser */
+            $targetUser = $userMap[$userId];
+            if (!$targetUser->isBetaUser()) {
+                return $this->error('只能通过此入口分配内测用户', 422, ['user_id' => $userId]);
+            }
+
+            $targetRole = $targetUser->role;
+            if (!$targetRole instanceof Role) {
+                return $this->error('用户角色不存在或已停用', 422, ['user_id' => $userId]);
+            }
+
+            $currentHotelIds = $this->existingAssignedHotelIds($userId, (int)($targetUser->hotel_id ?? 0));
+            $addedHotelIds = array_values(array_diff($nextHotelIds, $currentHotelIds));
+            if ((int)$targetUser->status !== UserModel::STATUS_ENABLED && !empty($addedHotelIds)) {
+                return $this->error('停用账号不能新增门店授权，请先启用账号', 422, [
+                    'user_id' => $userId,
+                    'username' => (string)$targetUser->username,
+                ]);
+            }
+
+            $invalidHotelResponse = $this->validateAssignableHotelIds($nextHotelIds);
+            if ($invalidHotelResponse) {
+                return $invalidHotelResponse;
+            }
+            $issueBoundaryResponse = $this->validateExternalUserIssueBoundary($targetRole, $nextHotelIds);
+            if ($issueBoundaryResponse) {
+                return $issueBoundaryResponse;
+            }
+
+            $tenantContext = $this->resolveHotelTenantContext($nextHotelIds);
+            if (!empty($tenantContext['invalid_hotel_ids'])) {
+                return $this->error('酒店租户归属无效: ' . implode(',', $tenantContext['invalid_hotel_ids']), 422, [
+                    'user_id' => $userId,
+                ]);
+            }
+            if (
+                empty($nextHotelIds)
+                && $this->strictTenantColumnExists('users')
+                && !$this->strictTenantColumnNullable('users')
+            ) {
+                return $this->error('用户租户字段不允许为空，无法移除主酒店', 422, ['user_id' => $userId]);
+            }
+
+            $plans[] = [
+                'user' => $targetUser,
+                'role' => $targetRole,
+                'hotel_ids' => $nextHotelIds,
+                'tenant_ids' => $tenantContext['tenant_ids'],
+            ];
+        }
+
+        try {
+            Db::transaction(function () use ($plans): void {
+                $usernames = [];
+                foreach ($plans as $plan) {
+                    /** @var UserModel $targetUser */
+                    $targetUser = $plan['user'];
+                    /** @var Role $targetRole */
+                    $targetRole = $plan['role'];
+                    $hotelIds = $plan['hotel_ids'];
+                    $tenantIds = $plan['tenant_ids'];
+                    $primaryHotelId = (int)($hotelIds[0] ?? 0);
+
+                    $targetUser->hotel_id = $primaryHotelId > 0 ? $primaryHotelId : null;
+                    if ($this->strictTenantColumnExists('users')) {
+                        $targetUser->tenant_id = $primaryHotelId > 0 ? ($tenantIds[$primaryHotelId] ?? null) : null;
+                    }
+                    $targetUser->save();
+                    $this->syncUserHotelPermissions($targetUser, $hotelIds, $targetRole, $tenantIds);
+                    $usernames[] = (string)$targetUser->username;
+                }
+
+                OperationLog::record(
+                    'user',
+                    'batch_hotel_assignment',
+                    '批量更新门店授权: ' . implode(',', $usernames),
+                    $this->currentUser->id
+                );
+            });
+        } catch (\Throwable $error) {
+            return $this->error('门店用户分配保存失败，已回滚且未修改任何用户', 500);
+        }
+
+        $savedUsers = UserModel::with(['role', 'hotel'])->whereIn('id', $userIds)->select();
+        $rows = [];
+        foreach ($savedUsers as $savedUser) {
+            $rows[] = $this->appendUserHotelScope($savedUser);
+        }
+
+        return $this->success([
+            'affected_count' => count($plans),
+            'users' => $rows,
+        ], '门店用户分配已原子保存');
+    }
+
+    /**
      * 用户详情
      */
     public function read(int $id): Response

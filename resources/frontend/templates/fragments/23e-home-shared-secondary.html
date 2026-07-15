@@ -1,0 +1,480 @@
+                        <details class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="home-secondary-detail-fold">
+                            <summary class="flex cursor-pointer items-center justify-between gap-3 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
+                                <span>辅助信息面板</span>
+                                <span class="text-xs font-normal text-slate-400">趋势、天气、竞对、节假期和数据来源默认折叠</span>
+                            </summary>
+                            <div class="space-y-4 p-4">
+                        <div v-if="homeSecondaryPanelsReady" class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm mb-6" data-testid="daily-ops-monitor-card">
+                            <div class="border-b border-slate-100 bg-slate-50 px-4 py-3 sm:px-5">
+                                <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                                    <div class="min-w-0">
+                                        <h3 class="text-lg font-bold text-gray-900">每日运营关注数据</h3>
+                                    </div>
+                                    <div class="flex flex-wrap gap-2">
+                                        <button v-for="action in dailyOpsPrimaryActions" :key="action.label" @click="openHomeQuickEntry(action)" class="inline-flex items-center rounded-xl border border-blue-100 bg-white px-3 py-2 text-sm font-medium text-blue-700 shadow-sm hover:border-blue-200 hover:bg-blue-50">
+                                            <i :class="[action.icon, 'mr-1.5']"></i>{{ action.label }}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="space-y-3 p-4 sm:p-5">
+                                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                                    <div v-for="card in dailyOpsStatusCards" :key="card.label" class="rounded-xl border px-4 py-3 shadow-sm" :class="card.className">
+                                        <div class="text-xs opacity-80">{{ card.label }}</div>
+                                        <div class="mt-1 text-2xl font-bold leading-tight">{{ card.value }}</div>
+                                        <div class="mt-1 hidden sm:block text-xs leading-5">{{ card.note }}</div>
+                                    </div>
+                                </div>
+
+                                <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                    <div class="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                                        <div class="text-sm font-semibold text-slate-900">复盘后执行顺序</div>
+                                        <div class="rounded-xl border border-blue-100 bg-white px-3 py-2 text-xs leading-5 text-blue-700">{{ dailyOpsMonitorConclusion }}</div>
+                                    </div>
+                                    <div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
+                                        <div v-for="step in dailyOpsReviewSteps" :key="step.title" class="min-h-[96px] rounded-xl border border-slate-200 bg-white px-3 py-3">
+                                            <div class="mb-2 flex items-center gap-2">
+                                                <span class="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border border-blue-100 bg-blue-50 text-xs font-semibold text-blue-700">{{ step.index }}</span>
+                                                <div class="text-sm font-semibold text-slate-900">{{ step.title }}</div>
+                                            </div>
+                                            <div class="text-xs leading-5 text-slate-500">{{ step.detail }}</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+                                    <div class="flex flex-col gap-2 border-b border-slate-100 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                                        <div class="text-sm font-semibold text-slate-900">数据简报</div>
+                                        <div class="text-xs text-slate-400">{{ dailyOpsMetricRows.length }}组 · {{ dailyOpsFieldCount }}项指标</div>
+                                    </div>
+                                    <div class="grid grid-cols-1 gap-3 bg-white p-4 md:grid-cols-2 xl:grid-cols-3">
+                                        <div v-for="row in dailyOpsMetricRows" :key="row.metric" class="min-h-[128px] rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                                            <div class="mb-2 flex items-center justify-between gap-2">
+                                                <div class="text-xs text-slate-400">{{ row.category }}</div>
+                                                <span :class="['rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap', autoFetchScopeStatusClass(row.status)]">{{ row.statusText }}</span>
+                                            </div>
+                                            <div class="font-semibold leading-snug text-slate-900">{{ row.metric }}</div>
+                                            <div class="mt-2 text-xs leading-5 text-slate-500">{{ row.source }}</div>
+                                            <div class="mt-3 flex flex-wrap gap-1.5">
+                                                <span v-for="field in row.fields.slice(0, 6)" :key="row.metric + '-' + field" class="rounded border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-600">{{ field }}</span>
+                                                <span v-if="row.fields.length &gt; 6" class="rounded border border-blue-100 bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">+{{ row.fields.length - 6 }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="homeSecondaryPanelsReady" class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm mb-6" data-testid="home-weather-demand-card">
+                            <div class="flex flex-col gap-3 border-b border-slate-100 bg-slate-50 px-4 py-4 sm:px-5 lg:flex-row lg:items-start lg:justify-between">
+                                    <div>
+                                        <h3 class="text-lg font-bold text-gray-900">天气与需求影响</h3>
+                                    </div>
+                                <div class="relative self-start">
+                                    <button @click="weatherCityPickerOpen = !weatherCityPickerOpen" class="min-w-[150px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm text-slate-700 flex items-center justify-between gap-3 hover:bg-slate-50 shadow-sm">
+                                        <span class="flex items-center gap-2">
+                                            <i class="fas fa-map-marker-alt text-blue-500"></i>
+                                            {{ weatherLocationName }}
+                                        </span>
+                                        <i class="fas fa-chevron-down text-xs text-gray-400"></i>
+                                    </button>
+                                    <div v-if="weatherCityPickerOpen" class="absolute right-0 z-30 mt-2 w-72 rounded-xl border border-gray-100 bg-white shadow-lg p-3">
+                                        <div class="flex items-center justify-between mb-3">
+                                            <div class="text-xs font-semibold text-gray-500">常用城市</div>
+                                            <button @click="weatherCityPickerOpen = false" class="text-xs text-gray-400 hover:text-gray-600">收起</button>
+                                        </div>
+                                        <div class="grid grid-cols-3 gap-2">
+                                            <button v-for="city in weatherCityChoices" :key="city" @click="selectWeatherCity(city)" :class="weatherLocationName === city ? 'px-2 py-2 rounded-lg text-xs border border-blue-200 bg-blue-50 text-blue-700 font-medium' : 'px-2 py-2 rounded-lg text-xs border border-gray-100 bg-gray-50 text-gray-600 hover:bg-white'">{{ city }}</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="p-4 sm:p-5">
+                            <div v-if="weatherLoading" class="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-700 mb-3">
+                                <i class="fas fa-spinner fa-spin mr-2"></i>正在同步 {{ weatherLocationName }} 天气
+                            </div>
+                            <div v-else-if="weatherError" class="rounded-xl border border-yellow-100 bg-yellow-50 p-4 text-sm text-yellow-800 mb-3">
+                                {{ weatherError }}
+                            </div>
+                            <div v-if="displayWeather.length" class="grid grid-cols-1 xl:grid-cols-12 gap-4">
+                                <div class="compass-weather-current rounded-2xl border border-slate-200 bg-slate-50 xl:col-span-4 p-5">
+                                    <div class="flex items-center justify-between gap-3">
+                                        <div>
+                                            <div class="text-xs text-blue-600">当前城市</div>
+                                            <div class="mt-1 text-lg font-bold text-gray-900">{{ weatherLocationName }}</div>
+                                            <div class="mt-1 text-xs text-gray-500">{{ weatherDataSourceLabel }}</div>
+                                        </div>
+                                        <span :class="['px-2 py-1 rounded text-xs border', weatherImpactTone.badgeClass]">{{ weatherImpactTone.label }}</span>
+                                    </div>
+                                    <div class="mt-5 flex items-end justify-between gap-4">
+                                        <div>
+                                            <div class="text-4xl font-bold text-blue-900">{{ weatherToday?.temp_low ?? '--' }}°~{{ weatherToday?.temp_high ?? '--' }}°</div>
+                                            <div class="mt-2 text-sm text-gray-600">{{ weatherToday?.date || '--' }} 周{{ weatherToday?.week || '-' }}</div>
+                                        </div>
+                                        <div class="text-right">
+                                            <i :class="[weatherImpactTone.icon, 'text-3xl text-blue-400']"></i>
+                                            <div class="mt-2 font-semibold text-gray-800">{{ weatherToday?.condition || '--' }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="mt-5 rounded-xl bg-white border border-slate-200 px-4 py-3 text-sm text-slate-600">
+                                        {{ weatherToday?.wind || '暂无风力数据' }}
+                                    </div>
+                                </div>
+                                <div class="xl:col-span-8">
+                                    <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
+                                        <div v-for="item in weatherForecastDays" :key="weatherLocationName + item.date" class="compass-weather-day rounded-xl border border-slate-200 bg-white px-4 py-4 min-h-[108px]">
+                                            <div class="flex items-center justify-between gap-2">
+                                                <span class="text-xs font-medium text-gray-500">{{ item.date }}</span>
+                                                <span class="text-xs text-gray-400">周{{ item.week }}</span>
+                                            </div>
+                                            <div class="mt-3 font-semibold text-gray-800">{{ item.condition }}</div>
+                                            <div class="mt-2 text-sm text-gray-600">{{ item.temp_low }}°~{{ item.temp_high }}°</div>
+                                        </div>
+                                    </div>
+                                    <div :class="['compass-weather-strategy mt-4 rounded-lg border p-5 text-sm leading-relaxed', weatherImpactTone.panelClass]">
+                                        <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+                                            <div>
+                                                <div class="font-semibold mb-1">{{ weatherImpactTone.title }}</div>
+                                                <div>{{ weatherDemandHint }}</div>
+                                            </div>
+                                            <div class="flex flex-wrap gap-1.5 lg:justify-end">
+                                                <span v-for="tag in weatherDecisionTags" :key="tag.label" class="px-2 py-1 rounded-md bg-white/70 border border-current/10 text-xs whitespace-nowrap">
+                                                    {{ tag.label }} {{ tag.value }}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2">
+                                            <div v-for="item in weatherDecisionInsights" :key="item.title" class="compass-weather-insight suxi-metric-card bg-white p-4">
+                                                <div class="flex items-center gap-2 font-semibold mb-1">
+                                                    <i :class="[item.icon, 'text-xs']"></i>
+                                                    <span>{{ item.title }}</span>
+                                                </div>
+                                                <div class="text-xs leading-relaxed opacity-90">{{ item.content }}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div v-else="" class="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-8 text-center text-gray-500">
+                                待校验数据源，暂不生成经营判断。
+                            </div>
+                            </div>
+                        </div>
+
+                        <div v-if="homeSecondaryPanelsReady" class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm mb-6" data-testid="home-market-signal-card">
+                            <div class="grid grid-cols-1 gap-5 p-4 sm:p-5 xl:grid-cols-12">
+                                <div class="xl:col-span-7">
+                                    <div class="mb-3 inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                                        <i class="fas fa-chart-area"></i>
+                                        <span>经营信号简报</span>
+                                    </div>
+                                    <h3 class="text-lg font-bold tracking-tight text-gray-900">酒店经营信号简报</h3>
+                                    <div class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                        <div class="mb-3 flex items-center justify-between gap-3 text-sm">
+                                            <span class="font-semibold text-slate-900"><i class="fas fa-layer-group mr-1.5 text-blue-500"></i>经营信号维度</span>
+                                            <strong class="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-600">{{ homeMarketForecastStatus }}</strong>
+                                        </div>
+                                        <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-5">
+                                            <button type="button" v-for="item in homeMarketForecastItems" :key="item.name" @click="openHomeQuickEntry(item.entry)" class="rounded-xl border border-slate-200 bg-white px-3 py-3 text-left transition hover:border-blue-200 hover:shadow-sm">
+                                                <span class="block text-xs font-semibold text-slate-400">{{ item.name }}</span>
+                                                <strong class="mt-1 block truncate text-sm font-bold text-slate-900">{{ item.value }}</strong>
+                                                <em class="mt-1 block text-xs not-italic text-blue-600">{{ item.actionLabel }}</em>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="xl:col-span-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2 gap-3">
+                                    <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                        <div class="flex items-start justify-between gap-3">
+                                            <div>
+                                                <div class="text-sm font-semibold text-slate-900"><i class="fas fa-database mr-1.5 text-blue-500"></i>数据准备情况</div>
+                                            </div>
+                                            <span class="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-600">{{ homeObservation.dataStatus }}</span>
+                                        </div>
+                                        <div class="mt-3 grid grid-cols-1 gap-2 text-xs">
+                                            <div class="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"><span class="text-slate-400">分析范围</span><span class="font-semibold text-slate-700">{{ homeObservation.hotelName }}</span></div>
+                                            <div class="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"><span class="text-slate-400">最近同步</span><span class="font-semibold text-slate-700">{{ homeObservation.updatedAt }}</span></div>
+                                            <div class="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"><span class="text-slate-400">可用样本</span><span class="font-semibold text-slate-700">{{ homeObservation.sampleDaysText }}</span></div>
+                                        </div>
+                                        <div class="mt-3">
+                                            <div class="mb-1 flex items-center justify-between gap-3 text-[11px] text-slate-500"><span>{{ compassDataReadiness.progressText }}</span><span>{{ compassDataReadiness.missingText }}</span></div>
+                                            <div class="h-1.5 overflow-hidden rounded-full bg-slate-200"><span class="block h-full rounded-full bg-blue-600" :style="{ width: compassDataReadiness.percent + '%' }"></span></div>
+                                        </div>
+                                    </div>
+                                    <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4 min-h-[150px]">
+                                        <div class="flex items-start justify-between gap-3">
+                                            <div>
+                                                <div class="text-sm font-semibold text-slate-900"><i class="fas fa-clipboard-check mr-1.5 text-blue-500"></i>经营简报摘要</div>
+                                            </div>
+                                            <span class="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-600">{{ homeMarketForecastStatus }}</span>
+                                        </div>
+                                        <div class="mt-3 space-y-2">
+                                            <div v-for="row in homeMarketForecastSummaryRows" :key="row.name" class="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                                                <div>
+                                                    <span class="text-xs font-semibold text-slate-400">{{ row.name }}</span>
+                                                    <strong class="ml-2 text-sm font-bold text-slate-900">{{ row.value }}</strong>
+                                                </div>
+                                                <p class="mt-1 text-xs leading-5 text-slate-500">{{ row.note }}</p>
+                                                <button type="button" class="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-800" @click="openHomeQuickEntry(row.entry)">
+                                                    <i class="fas fa-arrow-right"></i>{{ row.actionLabel }}
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div class="mt-3 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2">
+                                            <span class="text-xs text-blue-500">建议动作</span>
+                                            <strong class="mt-1 block text-sm leading-5 text-blue-900">{{ homeMarketForecastAction }}</strong>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="homeSecondaryPanelsReady &amp;&amp; homeTrendCards.length" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-6">
+                            <div v-for="card in homeTrendCards" :key="card.name" class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                                <div class="flex items-start justify-between gap-3">
+                                    <div>
+                                        <div class="text-xs font-semibold text-slate-400">{{ card.name }}</div>
+                                        <div class="mt-2 text-xl font-bold text-gray-900">{{ card.value }}</div>
+                                    </div>
+                                    <span :class="['px-2 py-1 rounded-full text-xs border', card.badgeClass]">{{ card.direction }}</span>
+                                </div>
+                                <div class="mt-3 h-7 flex items-end gap-1">
+                                    <span v-for="n in 9" :key="n" class="suxi-spark-bar" :style="{ height: card.spark[n - 1] + '%' }"></span>
+                                </div>
+                                <p class="mt-3 text-sm text-slate-500 leading-6">{{ card.note }}</p>
+                                <div class="mt-3 flex flex-wrap items-center gap-1.5 text-[11px]">
+                                    <span v-if="card.sourceTypeLabel" class="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-600">{{ card.sourceTypeLabel }}</span>
+                                    <span v-if="card.dataQualityLabel" class="rounded-full border border-amber-100 bg-amber-50 px-2 py-0.5 text-amber-700">{{ card.dataQualityLabel }}</span>
+                                    <span :class="['rounded-full border px-2 py-0.5', card.decisionAllowed ? 'border-emerald-100 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500']">
+                                        {{ card.decisionAllowed ? '可进入决策' : '需复核后决策' }}
+                                    </span>
+                                </div>
+                                <div v-if="card.source" class="mt-3 flex items-start gap-1.5 text-xs text-gray-400 leading-relaxed">
+                                    <i class="fas fa-database mt-0.5 text-gray-300"></i>
+                                    <span>{{ card.source }}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="homeSecondaryPanelsReady" class="grid grid-cols-1 xl:grid-cols-12 gap-6 mb-6">
+                            <div :class="['rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5', homeTrendHasSamples ? 'xl:col-span-8' : 'xl:col-span-12']">
+                                <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-5">
+                                        <div>
+                                            <h3 class="font-bold text-gray-900 text-lg">经营趋势主线</h3>
+                                        </div>
+                                    <div class="flex flex-wrap items-center gap-2 text-xs">
+                                        <button v-for="range in homeTrendRanges" :key="range.key" @click="selectHomeTrendRange(range.key)" :disabled="homeTrendLoading" :class="homeTrendRange === range.key ? 'px-3 py-1.5 rounded-lg border border-blue-200 text-blue-700 bg-blue-50 disabled:opacity-60' : 'px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 bg-gray-50 hover:bg-white disabled:opacity-60'">{{ range.label }}</button>
+                                        <button @click="loadHomeTrends" :disabled="homeTrendLoading" class="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 bg-white hover:bg-gray-50 disabled:opacity-60">
+                                            <i :class="homeTrendLoading ? 'fas fa-spinner fa-spin mr-1' : 'fas fa-sync-alt mr-1'"></i>刷新
+                                        </button>
+                                    </div>
+                                </div>
+                                <div v-if="homeTrendRange === 'custom'" class="flex flex-wrap items-center gap-2 mb-4 text-sm">
+                                    <input type="date" v-model="homeTrendCustomRange.start_date" @change="loadHomeTrends" class="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-700">
+                                    <span class="text-gray-400">至</span>
+                                    <input type="date" v-model="homeTrendCustomRange.end_date" @change="loadHomeTrends" class="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-700">
+                                    <span v-if="homeTrendLoading" class="text-xs text-gray-400">趋势同步中</span>
+                                </div>
+                                <div class="home-trend-tabs flex flex-wrap gap-5 mb-5">
+                                    <button v-for="metric in homeTrendMetrics" :key="metric.key" @click="selectHomeTrendMetric(metric.key)" :class="['home-trend-tab', homeTrendMetric === metric.key ? 'is-active' : '']">{{ metric.label }}</button>
+                                </div>
+                                <div class="suxi-chart-shell h-72">
+                                    <div class="suxi-chart-grid"></div>
+                                    <canvas v-if="homeTrendHasSamples" id="homeTrendChart" class="relative z-10 w-full h-full p-4"></canvas>
+                                    <div v-else="" class="absolute inset-0 flex items-center justify-center text-center px-6">
+                                        <div class="max-w-md">
+                                            <i class="fas fa-chart-line text-4xl text-blue-300 mb-4"></i>
+                                            <div class="font-semibold text-gray-700">{{ homeTrendEmptyState.title }}</div>
+                                            <p class="text-sm text-gray-500 mt-2">{{ homeTrendEmptyState.message }}</p>
+                                            <div class="mt-4 flex flex-wrap justify-center gap-2">
+                                                <button v-if="homeTrendRange !== '30'" @click="selectHomeTrendRange('30')" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700">查看近30日</button>
+                                                <button v-if="filterReportHotel" @click="filterReportHotel = ''" class="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-600 text-sm hover:bg-gray-50">查看全部门店</button>
+                                                <button @click="openHomeQuickEntry({ page: 'online-data', tab: 'data-health' })" class="px-3 py-1.5 rounded-lg border border-blue-100 bg-blue-50 text-blue-700 text-sm hover:bg-blue-100">同步OTA数据</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div v-if="homeTrendHasSamples" class="xl:col-span-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                                <h3 class="font-bold text-gray-900 text-lg mb-5">趋势解读</h3>
+                                <div class="space-y-4">
+                                    <div class="home-trend-insight-card suxi-issue-card p-4">
+                                        <div class="text-sm font-semibold text-blue-900">当前判断</div>
+                                        <p class="text-sm text-blue-700 mt-2">{{ homeTrendInterpretation.judgement }}</p>
+                                    </div>
+                                    <div class="home-trend-insight-card suxi-issue-card p-4">
+                                        <div class="text-sm font-semibold text-gray-800">关键变化</div>
+                                        <p class="text-sm text-gray-500 mt-2">{{ homeTrendInterpretation.change }}</p>
+                                    </div>
+                                    <div class="home-trend-insight-card suxi-issue-card p-4">
+                                        <div class="text-sm font-semibold text-indigo-900">建议动作</div>
+                                        <p class="text-sm text-indigo-700 mt-2">{{ homeTrendInterpretation.action }}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="homeSecondaryPanelsReady" class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 mb-6">
+                            <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-5">
+                                <div>
+                                    <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-400 uppercase">OPERATING SIGNALS</div>
+                                    <h3 class="mt-1 font-bold text-gray-900 text-lg">宏观经营信号</h3>
+                                    <p class="text-sm text-slate-500 mt-1">把周期、天气、渠道、价格、需求信号转成可执行运营判断。</p>
+                                </div>
+                                <span v-if="macroSignalLoading" class="text-xs text-gray-400">同步中</span>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+                                <div v-for="signal in macroSignalViewCards" :key="signal.key" class="macro-signal-card rounded-xl border border-slate-200 bg-white p-4 flex flex-col min-h-[250px]">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <div class="macro-signal-icon w-9 h-9 rounded-lg text-blue-600 flex items-center justify-center">
+                                            <i :class="signal.icon"></i>
+                                        </div>
+                                        <span :class="['px-2 py-1 rounded text-xs border', macroSignalLevelClass(signal)]">{{ signal.status_text || signal.status }}</span>
+                                    </div>
+                                    <div class="mt-3">
+                                        <div class="font-semibold text-gray-900">{{ signal.title }}</div>
+                                        <p class="text-xs text-gray-500 mt-1 leading-relaxed">{{ signal.meaning }}</p>
+                                    </div>
+                                    <div class="macro-signal-section mt-4">
+                                        <div class="text-xs text-gray-400">经营影响</div>
+                                        <div class="text-sm font-semibold text-gray-800 mt-1 leading-relaxed">{{ signal.impact }}</div>
+                                    </div>
+                                    <div class="macro-signal-metrics mt-4 grid grid-cols-2 gap-x-5 gap-y-3">
+                                        <div v-for="metric in signal.primaryMetrics" :key="metric.label" class="macro-signal-metric min-h-[52px]">
+                                            <div class="text-xs text-gray-400">{{ metric.label }}</div>
+                                            <div class="text-sm font-semibold text-gray-800 mt-1">{{ metric.value }}{{ metric.unit || '' }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="macro-signal-action mt-4 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
+                                        <div class="text-xs text-blue-500">建议动作</div>
+                                        <div class="text-sm text-blue-800 mt-1 leading-relaxed">{{ signal.primaryAction }}</div>
+                                    </div>
+                                    <button @click="loadMacroSignalDetail(signal)" :disabled="macroSignalDetailLoading &amp;&amp; activeMacroSignal === signal.key" class="mt-auto pt-4 text-sm text-blue-600 hover:text-blue-700 font-medium disabled:opacity-60 text-left">
+                                        <i v-if="macroSignalDetailLoading &amp;&amp; activeMacroSignal === signal.key" class="fas fa-spinner fa-spin mr-1"></i>{{ signal.action_text || '查看依据' }}
+                                    </button>
+                                </div>
+                            </div>
+                            <div v-if="activeMacroSignal" class="mt-4 suxi-panel-muted p-4">
+                                <template v-if="macroSignalDetail">
+                                    <div class="flex items-center justify-between gap-3">
+                                        <div class="font-semibold text-gray-900">{{ macroSignalDetail.title }}</div>
+                                        <div class="flex items-center gap-2">
+                                            <span :class="['px-2 py-1 rounded text-xs border', macroSignalLevelClass(macroSignalDetail)]">{{ macroSignalDetail.status_text || macroSignalDetail.status }}</span>
+                                            <button @click="closeMacroSignalDetail" class="w-7 h-7 rounded-lg border border-gray-200 bg-white text-gray-400 hover:text-gray-700" title="收起详情">
+                                                <i class="fas fa-times text-xs"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <p class="text-sm text-gray-500 mt-2">{{ macroSignalDetail.summary }}</p>
+                                    <div v-if="macroSignalDetail.forecast &amp;&amp; macroSignalDetail.forecast.length" class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2 mt-4">
+                                        <div v-for="item in macroSignalDetail.forecast" :key="item.date" class="suxi-metric-card bg-white px-3 py-2">
+                                            <div class="text-xs text-gray-400">{{ item.date }} 周{{ item.week }}</div>
+                                            <div class="text-sm font-semibold text-gray-800 mt-1">{{ item.condition }}</div>
+                                            <div class="text-xs text-gray-500 mt-1">{{ item.temp_low }}°~{{ item.temp_high }}° · {{ item.wind }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mt-4">
+                                        <div v-for="metric in (macroSignalDetail.metrics || [])" :key="metric.label" class="suxi-metric-card bg-white px-3 py-2">
+                                            <div class="text-xs text-gray-400">{{ metric.label }}</div>
+                                            <div class="text-sm font-semibold text-gray-800 mt-1">{{ metric.value }}{{ metric.unit || '' }}</div>
+                                        </div>
+                                    </div>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                                        <div>
+                                            <div class="text-sm font-semibold text-gray-800 mb-2">原因</div>
+                                            <div v-for="item in (macroSignalDetail.reasons || [])" :key="item" class="text-sm text-gray-600 leading-relaxed mb-1">{{ item }}</div>
+                                        </div>
+                                        <div>
+                                            <div class="text-sm font-semibold text-gray-800 mb-2">建议动作</div>
+                                            <div v-for="item in (macroSignalDetail.suggestions || [])" :key="item" class="text-sm text-gray-600 leading-relaxed mb-1">{{ item }}</div>
+                                        </div>
+                                    </div>
+                                </template>
+                                <div v-else="" class="text-sm text-gray-500">
+                                    <i v-if="macroSignalDetailLoading" class="fas fa-spinner fa-spin mr-2"></i>{{ macroSignalDetailLoading ? '正在加载详情' : '数据暂不可用' }}
+                                </div>
+                            </div>
+                        </div>
+
+                        <section class="holiday-ops-panel mb-6" data-testid="holiday-ops-panel" aria-labelledby="holiday-ops-title">
+                            <header class="holiday-ops-header">
+                                <div class="holiday-ops-heading">
+                                    <div class="holiday-ops-eyebrow"><span aria-hidden="true"></span>HOLIDAY OPS</div>
+                                    <h3 id="holiday-ops-title">节假期运营倒计时</h3>
+                                    <p>聚焦最近两个节假日，把备战窗口与运营动作放在同一视线内。</p>
+                                </div>
+                                <span class="holiday-ops-stage"><span aria-hidden="true"></span>{{ holidayOperationStageText }}</span>
+                            </header>
+                            <div class="holiday-ops-grid">
+                                <article class="holiday-countdown-card holiday-countdown-card-primary">
+                                    <div class="holiday-countdown-card-head">
+                                        <span>最近假期</span>
+                                        <span class="holiday-countdown-index">01</span>
+                                    </div>
+                                    <template v-if="holidayOperationCountdown.nearest">
+                                        <div class="holiday-countdown-value">{{ holidayOperationCountdown.nearest.distance_text }}</div>
+                                        <div class="holiday-countdown-body">
+                                            <strong>{{ holidayOperationCountdown.nearest.name }}</strong>
+                                            <div class="holiday-countdown-meta">
+                                                <span>{{ holidayOperationCountdown.nearest.start_date }} — {{ holidayOperationCountdown.nearest.end_date }}</span>
+                                                <span>{{ holidayOperationCountdown.nearest.holiday_days }}天假期</span>
+                                            </div>
+                                        </div>
+                                    </template>
+                                    <div v-else="" class="holiday-countdown-empty">暂无节假日计划</div>
+                                </article>
+                                <article class="holiday-countdown-card holiday-countdown-card-secondary">
+                                    <div class="holiday-countdown-card-head">
+                                        <span>下一窗口</span>
+                                        <span class="holiday-countdown-index">02</span>
+                                    </div>
+                                    <template v-if="holidayOperationCountdown.next">
+                                        <div class="holiday-countdown-value">{{ holidayOperationCountdown.next.distance_text }}</div>
+                                        <div class="holiday-countdown-body">
+                                            <strong>{{ holidayOperationCountdown.next.name }}</strong>
+                                            <div class="holiday-countdown-meta">
+                                                <span>{{ holidayOperationCountdown.next.start_date }} — {{ holidayOperationCountdown.next.end_date }}</span>
+                                                <span>{{ holidayOperationCountdown.next.holiday_days }}天假期</span>
+                                            </div>
+                                        </div>
+                                    </template>
+                                    <div v-else="" class="holiday-countdown-empty">暂无次近节假日</div>
+                                </article>
+                                <aside class="holiday-advice-card">
+                                    <div class="holiday-advice-heading">
+                                        <span>行动清单</span>
+                                        <h4>运营建议</h4>
+                                    </div>
+                                    <div class="holiday-advice-list">
+                                        <div v-for="(item, index) in holidayOperationSuggestions" :key="item" class="holiday-advice-item">
+                                            <span class="holiday-advice-number">{{ index + 1 }}</span>
+                                            <span>{{ item }}</span>
+                                        </div>
+                                    </div>
+                                </aside>
+                            </div>
+                        </section>
+
+                        <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 mb-6">
+                            <div class="text-[11px] font-semibold tracking-[0.16em] text-slate-400 uppercase">DATA READINESS</div>
+                            <h3 class="font-bold text-gray-900 text-lg mt-1 mb-4">数据依据就绪情况</h3>
+                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                                <template v-for="source in homeDataSources" :key="source.name">
+                                    <div v-if="source.name !== '竞对价格'" data-testid="home-data-source-card" :data-source-name="source.name" class="rounded-xl border border-slate-200 bg-white p-4">
+                                        <div class="flex items-center justify-between gap-3">
+                                            <div class="font-semibold text-gray-800">{{ source.name }}</div>
+                                            <span :class="['px-2 py-1 rounded text-xs border', source.className]">{{ source.status }}</span>
+                                        </div>
+                                        <div class="text-xs text-gray-400 mt-2">最近更新时间：{{ source.updatedAt }}</div>
+                                        <p class="text-sm text-gray-500 mt-3">{{ source.impact }}</p>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                            </div>
+                        </details>
+
+                    </div>
+
+                    <!-- 携程ebooking -->

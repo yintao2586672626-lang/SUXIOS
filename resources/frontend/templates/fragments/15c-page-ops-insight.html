@@ -1,0 +1,66 @@
+                    <div v-if="currentPage === 'ops-insight'" class="max-w-7xl mx-auto space-y-6">
+                        <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                                <div>
+                                    <div class="mb-1 text-sm font-medium text-rose-700">运营管理</div>
+                                    <h2 class="text-2xl font-bold text-gray-900">策见·预警推送</h2>
+                                    <p class="mt-1 max-w-3xl text-sm leading-6 text-gray-500">集中查看规则预警、证据日期和建议动作。标记已读只更新处理状态，不代表问题已经解决。</p>
+                                </div>
+                                <div class="flex flex-wrap items-end gap-2">
+                                    <label class="block">
+                                        <span class="mb-1 block text-xs text-gray-500">目标门店</span>
+                                        <select v-model="operationFilters.hotel_id" data-testid="ops-insight-hotel" class="min-w-[180px] rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
+                                            <option value="">全部可见门店</option>
+                                            <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
+                                        </select>
+                                    </label>
+                                    <button type="button" data-testid="ops-insight-refresh" @click="loadOperationAlerts" :disabled="operationLoading.alerts" class="rounded-lg bg-rose-700 px-4 py-2 text-sm font-medium text-white hover:bg-rose-800 disabled:cursor-wait disabled:opacity-60">
+                                        <i :class="[operationLoading.alerts ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt', 'mr-1.5']"></i>{{ operationLoading.alerts ? '读取中...' : '刷新预警' }}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="operationLoading.alerts" data-testid="ops-insight-loading" class="rounded-xl border border-blue-100 bg-blue-50 p-8 text-center text-sm text-blue-700"><i class="fas fa-spinner fa-spin mr-2"></i>正在读取当前门店范围的运营预警...</div>
+                        <div v-else-if="operationError.alerts" data-testid="ops-insight-error" class="rounded-xl border border-red-100 bg-red-50 p-5 text-sm text-red-700">
+                            <div class="font-semibold">运营预警读取失败</div>
+                            <div class="mt-1">{{ operationError.alerts }}</div>
+                            <button type="button" @click="loadOperationAlerts" class="mt-3 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100">重新读取</button>
+                        </div>
+                        <template v-else>
+                            <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                                <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <span class="rounded-full border border-rose-100 bg-rose-50 px-3 py-1 text-sm font-semibold text-rose-800">未读 {{ operationUnreadCount }}</span>
+                                        <span class="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs text-gray-600">数据状态：{{ operationDataStatusText(operationAlerts.data_status) }}</span>
+                                    </div>
+                                    <button type="button" @click="markOperationAlertsRead((operationAlerts.list || []).filter(item =&gt; item.status !== 'read').map(item =&gt; item.id))" :disabled="operationUnreadCount === 0" class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50">全部标记已读</button>
+                                </div>
+                                <div class="mt-4 flex flex-wrap gap-2">
+                                    <button v-for="filter in operationAlertFilters" :key="filter.key" type="button" @click="operationAlertFilter = filter.key" :class="['rounded-full border px-3 py-1.5 text-xs font-medium transition', operationAlertFilter === filter.key ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50']">{{ filter.label }}</button>
+                                </div>
+                            </section>
+
+                            <section v-if="filteredOperationAlerts.length" class="space-y-3" data-testid="ops-insight-list">
+                                <article v-for="alert in filteredOperationAlerts" :key="alert.id" class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                                    <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                                        <div class="min-w-0 flex-1">
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <span :class="['rounded-full px-2.5 py-1 text-xs font-semibold', operationAlertLevelClass(alert.level)]">{{ operationAlertLevelLabel(alert.level) }}</span>
+                                                <span class="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs text-gray-600">{{ operationAlertStatusLabel(alert.status) }}</span>
+                                                <span class="text-xs text-gray-400">门店 #{{ alert.hotel_id || '-' }} · {{ alert.related_date || '日期未返回' }}</span>
+                                            </div>
+                                            <h3 class="mt-3 text-lg font-bold text-gray-900">{{ alert.title || '未命名预警' }}</h3>
+                                            <p class="mt-2 text-sm leading-6 text-gray-600">{{ alert.message || '未返回预警说明' }}</p>
+                                            <div class="mt-3 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-900"><span class="font-semibold">建议动作：</span>{{ operationAlertSuggestion(alert) || '先确认影响范围和责任模块，再安排处理。' }}</div>
+                                            <div class="mt-2 text-xs text-gray-400">来源：{{ alert.source || 'rule' }} · 类型：{{ alert.alert_type || 'unknown' }}</div>
+                                        </div>
+                                        <button v-if="alert.status !== 'read'" type="button" @click="markOperationAlertsRead([alert.id])" class="shrink-0 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">标记已读</button>
+                                    </div>
+                                </article>
+                            </section>
+                            <div v-else="" data-testid="ops-insight-empty" class="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center text-sm text-gray-500">
+                                {{ (operationAlerts.list || []).length ? '当前筛选条件下没有预警。' : '当前接口未返回运营预警；这不代表全酒店经营没有风险。' }}
+                            </div>
+                        </template>
+                    </div>

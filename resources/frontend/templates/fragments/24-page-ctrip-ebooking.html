@@ -13,7 +13,7 @@
                                         竞争圈数据
                                     </button>
                                     <button @click="openCtripManualTab('ctrip-flow-overview')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-flow-overview' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
-                                        经营日报/周报
+                                        流量概览
                                     </button>
                                     <button @click="openCtripManualTab('ctrip-traffic')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-traffic' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         流量数据
@@ -25,7 +25,7 @@
                                         评价匹配（隐私保护停用）
                                     </button>
                                     <button @click="switchToDownloadCenter" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-download' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
-                                        查询结果存储
+                                        入库记录
                                     </button>
                                     <button @click="openHotelManagementForOta" class="px-6 py-3 font-medium text-gray-500 hover:text-blue-600">
                                         酒店管理
@@ -131,15 +131,15 @@
                                             <div class="grid grid-cols-1 divide-y divide-gray-100 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
                                                 <div class="flex items-center justify-between gap-3 px-3 py-2.5">
                                                     <span class="text-xs font-medium text-gray-600">登录授权</span>
-                                                    <span :class="['rounded-md border px-2 py-0.5 text-xs', dataHealthCookieAlertSummary.high ? dataHealthPriorityClass('high') : (dataHealthCookieAlertSummary.total ? dataHealthPriorityClass('medium') : dataHealthPriorityClass('ok'))]">{{ dataHealthCookieAlertSummary.total ? dataHealthCookieAlertSummary.total + ' 项' : '正常' }}</span>
+                                                    <span :class="['rounded-md border px-2 py-0.5 text-xs', ctripDataHealthCookieAlertSummary.high ? dataHealthPriorityClass('high') : (ctripDataHealthCookieAlertSummary.total ? dataHealthPriorityClass('medium') : dataHealthPriorityClass('ok'))]">{{ ctripDataHealthCookieAlertSummary.total ? ctripDataHealthCookieAlertSummary.total + ' 项' : '正常' }}</span>
                                                 </div>
                                                 <div class="flex items-center justify-between gap-3 px-3 py-2.5">
                                                     <span class="text-xs font-medium text-gray-600">数据任务</span>
-                                                    <span :class="['rounded-md border px-2 py-0.5 text-xs', dataHealthQualityTaskRows.some(row =&gt; row.priority === 'high') ? dataHealthPriorityClass('high') : (dataHealthQualityTaskRows.length ? dataHealthPriorityClass('medium') : dataHealthPriorityClass('ok'))]">{{ dataHealthQualityTaskRows.length }} 项</span>
+                                                    <span :class="['rounded-md border px-2 py-0.5 text-xs', ctripDataHealthQualityTaskRows.some(row =&gt; row.priority === 'high') ? dataHealthPriorityClass('high') : (ctripDataHealthQualityTaskRows.length ? dataHealthPriorityClass('medium') : dataHealthPriorityClass('ok'))]">{{ ctripDataHealthQualityTaskRows.length ? ctripDataHealthQualityTaskRows.length + ' 项' : '正常' }}</span>
                                                 </div>
                                                 <div class="flex items-center justify-between gap-3 px-3 py-2.5">
-                                                    <span class="text-xs font-medium text-gray-600">高风险动作</span>
-                                                    <span :class="['rounded-md border px-2 py-0.5 text-xs', dataHealthPriorityClass(dataHealthHighRiskSummary.status)]">{{ dataHealthHighRiskSummary.text }}</span>
+                                                    <span class="text-xs font-medium text-gray-600">最近入库</span>
+                                                    <span :class="['rounded-md border px-2 py-0.5 text-xs', dataHealthPriorityClass(ctripLatestMeta?.fetched_at ? 'ok' : 'medium')]">{{ ctripLatestMeta?.fetched_at || '暂无入库' }}</span>
                                                 </div>
                                             </div>
                                         </div>
@@ -148,15 +148,15 @@
                                             <summary class="cursor-pointer px-4 py-3 hover:bg-gray-50">
                                                 <span class="ml-1 inline-flex items-center gap-2 text-sm font-semibold text-gray-900">
                                                     今日处置
-                                                    <span :class="['rounded-full border px-2 py-0.5 text-xs font-normal', dataHealthTodayWorkOrders.some(row =&gt; row.priority === 'high') ? dataHealthPriorityClass('high') : (dataHealthTodayWorkOrders.length ? dataHealthPriorityClass('medium') : dataHealthPriorityClass('ok'))]">
-                                                        {{ dataHealthTodayWorkOrders.length ? dataHealthTodayWorkOrders.length + ' 项' : '无待处理' }}
+                                                    <span :class="['rounded-full border px-2 py-0.5 text-xs font-normal', ctripDataHealthTodayWorkOrders.some(row =&gt; row.priority === 'high') ? dataHealthPriorityClass('high') : (ctripDataHealthTodayWorkOrders.length ? dataHealthPriorityClass('medium') : dataHealthPriorityClass('ok'))]">
+                                                        {{ ctripDataHealthTodayWorkOrders.length ? ctripDataHealthTodayWorkOrders.length + ' 项' : '无待处理' }}
                                                     </span>
                                                 </span>
                                                 <span class="float-right text-xs font-normal text-gray-400">点击展开</span>
                                             </summary>
                                             <div class="border-t border-gray-100">
-                                                <div v-if="dataHealthTodayWorkOrders.length" class="divide-y divide-gray-100">
-                                                    <div v-for="row in dataHealthTodayWorkOrders" :key="row.key" class="flex flex-col gap-2 px-4 py-2.5 xl:flex-row xl:items-center xl:justify-between">
+                                                <div v-if="ctripDataHealthTodayWorkOrders.length" class="divide-y divide-gray-100">
+                                                    <div v-for="row in ctripDataHealthTodayWorkOrders" :key="row.key" class="flex flex-col gap-2 px-4 py-2.5 xl:flex-row xl:items-center xl:justify-between">
                                                         <div class="min-w-0 flex-1">
                                                             <div class="flex min-w-0 flex-wrap items-center gap-2">
                                                                 <span :class="['rounded-md border px-2 py-0.5 text-[11px] whitespace-nowrap', dataHealthPriorityClass(row.priority)]">{{ dataHealthPriorityText(row.priority) }}</span>
@@ -181,8 +181,8 @@
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div v-else="" class="px-4 py-4 text-sm text-gray-500">暂无需要立即处理的 OTA 数据任务。</div>
-                                                <div class="border-t border-gray-100 bg-gray-50 px-4 py-2 text-[11px] text-gray-400">仅表示 OTA 渠道数据质量，不代表全酒店经营口径。</div>
+                                                <div v-else="" class="px-4 py-4 text-sm text-gray-500">暂无需要立即处理的携程数据任务。</div>
+                                                <div class="border-t border-gray-100 bg-gray-50 px-4 py-2 text-[11px] text-gray-400">仅表示携程 OTA 渠道数据质量，不代表全酒店经营口径。</div>
                                             </div>
                                         </details>
 
@@ -594,13 +594,13 @@
                                                         <td class="px-3 py-2 border text-center font-medium text-blue-600">{{ hotel.adrText !== '-' ? '¥' + hotel.adrText : '-' }}</td>
                                                         <td class="px-3 py-2 border text-center font-medium text-purple-600">{{ hotel.ariText || '-' }}</td>
                                                         <td class="px-3 py-2 border text-center font-medium text-cyan-600">{{ hotel.sciText || '-' }}</td>
-                                                        <td class="px-3 py-2 border text-center">{{ hotel.bookOrderNum || '-' }}</td>
+                                                        <td class="px-3 py-2 border text-center">{{ formatOptionalNumber(hotel.bookOrderNum) }}</td>
                                                         <td class="px-3 py-2 border text-center">
                                                             <span :class="hotel.commentScore &gt;= 4.5 ? 'text-green-600 font-medium' : 'text-gray-600'">
-                                                                {{ hotel.commentScore || '-' }}
+                                                                {{ formatOptionalNumber(hotel.commentScore) }}
                                                             </span>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center">{{ hotel.qunarCommentScore || '-' }}</td>
+                                                        <td class="px-3 py-2 border text-center">{{ formatOptionalNumber(hotel.qunarCommentScore) }}</td>
                                                     </tr>
                                                 </tbody>
                                             </table>
@@ -630,16 +630,16 @@
                                                         <td class="px-3 py-2 border text-left font-medium">
                                                             <div>{{ hotel.hotelName }}</div>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center font-medium text-purple-600">{{ formatNumber(hotel.totalDetailNum) }}</td>
+                                                        <td class="px-3 py-2 border text-center font-medium text-purple-600">{{ formatOptionalNumber(hotel.totalDetailNum) }}</td>
                                                         <td class="px-3 py-2 border text-center">
                                                             <span :class="(hotel.convertionRate || 0) &gt;= 5 ? 'text-green-600 font-medium' : 'text-gray-600'">
-                                                                {{ hotel.convertionRate ? hotel.convertionRate + '%' : '-' }}
+                                                                {{ formatOptionalPercent(hotel.convertionRate) }}
                                                             </span>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center">{{ formatNumber(hotel.qunarDetailVisitors) || '-' }}</td>
+                                                        <td class="px-3 py-2 border text-center">{{ formatOptionalNumber(hotel.qunarDetailVisitors) }}</td>
                                                         <td class="px-3 py-2 border text-center">
                                                             <span :class="(hotel.qunarDetailCR || 0) &gt;= 5 ? 'text-green-600 font-medium' : 'text-gray-600'">
-                                                                {{ hotel.qunarDetailCR ? hotel.qunarDetailCR + '%' : '-' }}
+                                                                {{ formatOptionalPercent(hotel.qunarDetailCR) }}
                                                             </span>
                                                         </td>
                                                         <td class="px-3 py-2 border text-center text-gray-500">
@@ -721,10 +721,7 @@
                                         <h4 class="font-medium text-cyan-900 mb-2">
                                             <i class="fas fa-chart-pie mr-2"></i>携程流量概要
                                         </h4>
-                                        <p class="text-sm text-cyan-800">采集携程概况页中的经营概况、竞品流量、访客标题、服务质量和流量漏斗接口。</p>
-                                        <p class="text-xs text-cyan-700 mt-2">
-                                            目标页面：https://ebooking.ctrip.com/datacenter/inland/businessreport/outline?microJump=true
-                                        </p>
+                                        <p class="text-sm text-cyan-800">按日期查看本店经营、访客、转化、竞争圈和服务质量；未返回的数据会明确标记。</p>
                                     </div>
 
                                     <div class="bg-white border border-cyan-200 rounded-lg p-4 mb-4">
@@ -768,23 +765,28 @@
                                         <div v-if="ctripFlowOverviewFetching" class="mt-3 text-sm text-cyan-700 bg-cyan-50 border border-cyan-100 rounded px-3 py-2">
                                             正在使用已保存的 Cookie/API 辅助内容同步流量概要数据。
                                         </div>
-                                        <div v-if="ctripFlowOverviewResult" class="mt-4 bg-green-50 border border-green-200 rounded-lg p-4">
-                                            <div v-if="ctripFlowOverviewResult.error" class="text-sm text-red-700 mb-2">
-                                                {{ ctripFlowOverviewResult.error }}
+                                        <div v-if="ctripFlowOverviewResult" :class="['mt-4 rounded-lg border p-4', ctripFlowOverviewResult.error ? 'border-red-200 bg-red-50' : 'border-green-200 bg-green-50']">
+                                            <div v-if="ctripFlowOverviewResult.error" class="flex items-start gap-3 text-red-800">
+                                                <i class="fas fa-times-circle mt-0.5 text-xl text-red-500"></i>
+                                                <div>
+                                                    <div class="font-medium">获取失败</div>
+                                                    <div class="mt-1 text-sm">{{ ctripFlowOverviewResult.error }}</div>
+                                                </div>
                                             </div>
+                                            <template v-else="">
                                             <div class="flex items-center justify-between gap-3">
                                                 <div class="flex items-center">
                                                     <i class="fas fa-check-circle text-green-500 text-xl mr-3"></i>
                                                     <div>
                                                         <span class="font-medium text-green-800">获取成功</span>
                                                         <span class="text-green-600 ml-2">
-                                                            已保存 {{ ctripFlowOverviewResult.saved_count || 0 }} 条，命中 {{ ctripFlowOverviewResult.total || ctripFlowOverviewResult.row_count || 0 }} 条概要数据
+                                                            已保存 {{ ctripFlowOverviewResult.saved_count ?? 0 }} 条，命中 {{ ctripFlowOverviewResult.total ?? ctripFlowOverviewResult.row_count ?? 0 }} 条概要数据
                                                         </span>
                                                     </div>
                                                 </div>
                                                 <div v-if="user?.is_super_admin" class="flex gap-2">
                                                     <button @click="showRawData = !showRawData" class="px-3 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 text-sm">
-                                                        <i :class="showRawData ? 'fas fa-chevron-up' : 'fas fa-chevron-down'" class="mr-1"></i>展开高级排障数据
+                                                        <i :class="showRawData ? 'fas fa-chevron-up' : 'fas fa-chevron-down'" class="mr-1"></i>{{ showRawData ? '收起排障数据' : '展开排障数据' }}
                                                     </button>
                                                     <button @click="copyOnlineDataResult" class="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm">
                                                         <i class="fas fa-copy mr-2"></i>复制排障数据
@@ -802,13 +804,13 @@
                                                     </div>
                                                 </div>
                                             </div>
-                                            <div v-if="user?.is_super_admin &amp;&amp; ctripFlowOverviewResult.payload_counts" class="text-xs text-green-700 mt-3">
+                                            <div v-if="user?.is_super_admin &amp;&amp; showRawData &amp;&amp; ctripFlowOverviewResult.payload_counts" class="text-xs text-green-700 mt-3">
                                                 高级排障响应：请求记录 {{ ctripFlowOverviewResult.payload_counts.xhr_urls || 0 }} 条，业务响应 {{ ctripFlowOverviewResult.payload_counts.responses || 0 }} 条。
                                             </div>
-                                            <div v-if="ctripFlowOverviewResult.captured_counts" class="flex flex-wrap gap-2 mt-3 text-xs">
+                                            <div v-if="user?.is_super_admin &amp;&amp; showRawData &amp;&amp; ctripFlowOverviewResult.captured_counts" class="flex flex-wrap gap-2 mt-3 text-xs">
                                                 <span v-for="(count, type) in ctripFlowOverviewResult.captured_counts" :key="type" class="px-2 py-1 rounded bg-white border text-green-700">{{ type }} 命中 {{ count }}</span>
                                             </div>
-                                            <div v-if="ctripFlowOverviewInterfaceRows.length" class="mt-4">
+                                            <div v-if="user?.is_super_admin &amp;&amp; showRawData &amp;&amp; ctripFlowOverviewInterfaceRows.length" class="mt-4">
                                                 <div class="text-sm font-medium text-green-900 mb-2">接口命中明细</div>
                                                 <div class="overflow-x-auto table-container">
                                                     <table class="min-w-full bg-white border text-sm table-striped">
@@ -837,12 +839,14 @@
                                                     </table>
                                                 </div>
                                             </div>
-                                            <div v-if="ctripFlowOverviewResult.errors &amp;&amp; ctripFlowOverviewResult.errors.length" class="text-xs text-red-700 mt-2 bg-white border rounded p-2 max-h-28 overflow-auto">
+                                            <div v-if="ctripFlowOverviewResult.errors &amp;&amp; ctripFlowOverviewResult.errors.length" class="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">部分板块未返回（{{ ctripFlowOverviewResult.errors.length }} 项），已保留成功入库的数据。</div>
+                                            <div v-if="user?.is_super_admin &amp;&amp; showRawData &amp;&amp; ctripFlowOverviewResult.errors &amp;&amp; ctripFlowOverviewResult.errors.length" class="text-xs text-red-700 mt-2 bg-white border rounded p-2 max-h-28 overflow-auto">
                                                 <div v-for="item in ctripFlowOverviewResult.errors.slice(0, 6)" :key="item" class="truncate">
                                                     {{ item }}
                                                 </div>
                                             </div>
                                             <pre v-if="user?.is_super_admin &amp;&amp; showRawData" class="text-xs text-green-900 bg-white border rounded p-3 mt-3 whitespace-pre-wrap max-h-80 overflow-auto">{{ JSON.stringify(ctripFlowOverviewResult, null, 2) }}</pre>
+                                            </template>
                                         </div>
                                     </div>
                                 </div>
@@ -972,7 +976,7 @@
                                                         <div class="mt-1">采集时间：{{ formatCtripSearchOpportunityCapturedAt(ctripSearchOpportunityView?.captured_at) || '-' }}</div>
                                                     </div>
                                                     <button data-testid="ctrip-search-opportunity-save" type="button" @click="downloadCtripSearchOpportunityImage" :disabled="ctripSearchOpportunitySaving || ctripSearchOpportunityLoading || !ctripSearchOpportunityRows.length" class="inline-flex items-center rounded-lg bg-green-500 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-green-600 disabled:cursor-not-allowed disabled:bg-gray-400">
-                                                        <i :class="ctripSearchOpportunitySaving ? 'fas fa-spinner fa-spin' : 'fas fa-download'" class="mr-2"></i>{{ ctripSearchOpportunitySaving ? '保存中...' : '保存数据' }}
+                                                        <i :class="ctripSearchOpportunitySaving ? 'fas fa-spinner fa-spin' : 'fas fa-download'" class="mr-2"></i>{{ ctripSearchOpportunitySaving ? '生成中...' : '下载图片' }}
                                                     </button>
                                                 </div>
                                             </div>
@@ -1225,13 +1229,13 @@
                                                 <tbody>
                                                     <tr v-for="row in ctripTrafficCompareRows" :key="row.date" class="even:bg-slate-50/70 hover:bg-blue-50/50">
                                                         <td class="px-4 py-2 border text-center min-w-[7.5rem] whitespace-nowrap">{{ row.date }}</td>
-                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatNumber(row.self.listExposure) }}</span><span class="font-semibold text-emerald-700">{{ formatNumber(row.avg.listExposure) }}</span></div></td>
-                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatNumber(row.self.detailExposure) }}</span><span class="font-semibold text-emerald-700">{{ formatNumber(row.avg.detailExposure) }}</span></div></td>
-                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ toFixedSafe(row.self.flowRate, 2) }}%</span><span class="font-semibold text-emerald-700">{{ toFixedSafe(row.avg.flowRate, 2) }}%</span></div></td>
-                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatNumber(row.self.orderFillingNum) }}</span><span class="font-semibold text-emerald-700">{{ formatNumber(row.avg.orderFillingNum) }}</span></div></td>
-                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ toFixedSafe(row.self.orderFillRate, 2) }}%</span><span class="font-semibold text-emerald-700">{{ toFixedSafe(row.avg.orderFillRate, 2) }}%</span></div></td>
-                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatNumber(row.self.orderSubmitNum) }}</span><span class="font-semibold text-emerald-700">{{ formatNumber(row.avg.orderSubmitNum) }}</span></div></td>
-                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ toFixedSafe(row.self.submitRate, 2) }}%</span><span class="font-semibold text-emerald-700">{{ toFixedSafe(row.avg.submitRate, 2) }}%</span></div></td>
+                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatOptionalNumber(row.self.listExposure) }}</span><span class="font-semibold text-emerald-700">{{ formatOptionalNumber(row.avg.listExposure) }}</span></div></td>
+                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatOptionalNumber(row.self.detailExposure) }}</span><span class="font-semibold text-emerald-700">{{ formatOptionalNumber(row.avg.detailExposure) }}</span></div></td>
+                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatOptionalPercent(row.self.flowRate) }}</span><span class="font-semibold text-emerald-700">{{ formatOptionalPercent(row.avg.flowRate) }}</span></div></td>
+                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatOptionalNumber(row.self.orderFillingNum) }}</span><span class="font-semibold text-emerald-700">{{ formatOptionalNumber(row.avg.orderFillingNum) }}</span></div></td>
+                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatOptionalPercent(row.self.orderFillRate) }}</span><span class="font-semibold text-emerald-700">{{ formatOptionalPercent(row.avg.orderFillRate) }}</span></div></td>
+                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatOptionalNumber(row.self.orderSubmitNum) }}</span><span class="font-semibold text-emerald-700">{{ formatOptionalNumber(row.avg.orderSubmitNum) }}</span></div></td>
+                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatOptionalPercent(row.self.submitRate) }}</span><span class="font-semibold text-emerald-700">{{ formatOptionalPercent(row.avg.submitRate) }}</span></div></td>
                                                     </tr>
                                                 </tbody>
                                             </table>
@@ -1465,7 +1469,7 @@
                                         </div>
                                     </div>
 
-                                    <div class="bg-white border border-slate-200 rounded-lg p-4 mb-4">
+                                    <div v-if="onlineDataTab === 'ctrip-fetch-settings'" class="bg-white border border-slate-200 rounded-lg p-4 mb-4">
                                         <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4">
                                             <div>
                                                 <h4 class="font-medium text-gray-800 mb-1">
@@ -2015,13 +2019,13 @@
                                                         <td class="px-3 py-2 border text-center font-medium text-blue-600">{{ hotel.adrText !== '-' ? '¥' + hotel.adrText : '-' }}</td>
                                                         <td class="px-3 py-2 border text-center font-medium text-purple-600">{{ hotel.ariText || '-' }}</td>
                                                         <td class="px-3 py-2 border text-center font-medium text-cyan-600">{{ hotel.sciText || '-' }}</td>
-                                                        <td class="px-3 py-2 border text-center">{{ hotel.bookOrderNum || '-' }}</td>
+                                                        <td class="px-3 py-2 border text-center">{{ formatOptionalNumber(hotel.bookOrderNum) }}</td>
                                                         <td class="px-3 py-2 border text-center">
                                                             <span :class="hotel.commentScore &gt;= 4.5 ? 'text-green-600 font-medium' : 'text-gray-600'">
-                                                                {{ hotel.commentScore || '-' }}
+                                                                {{ formatOptionalNumber(hotel.commentScore) }}
                                                             </span>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center">{{ hotel.qunarCommentScore || '-' }}</td>
+                                                        <td class="px-3 py-2 border text-center">{{ formatOptionalNumber(hotel.qunarCommentScore) }}</td>
                                                     </tr>
                                                 </tbody>
                                             </table>
@@ -2051,16 +2055,16 @@
                                                         <td class="px-3 py-2 border text-left font-medium">
                                                             <div>{{ hotel.hotelName }}</div>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center font-medium text-purple-600">{{ formatNumber(hotel.totalDetailNum) }}</td>
+                                                        <td class="px-3 py-2 border text-center font-medium text-purple-600">{{ formatOptionalNumber(hotel.totalDetailNum) }}</td>
                                                         <td class="px-3 py-2 border text-center">
                                                             <span :class="(hotel.convertionRate || 0) &gt;= 5 ? 'text-green-600 font-medium' : 'text-gray-600'">
-                                                                {{ hotel.convertionRate ? hotel.convertionRate + '%' : '-' }}
+                                                                {{ formatOptionalPercent(hotel.convertionRate) }}
                                                             </span>
                                                         </td>
-                                                        <td class="px-3 py-2 border text-center">{{ formatNumber(hotel.qunarDetailVisitors) || '-' }}</td>
+                                                        <td class="px-3 py-2 border text-center">{{ formatOptionalNumber(hotel.qunarDetailVisitors) }}</td>
                                                         <td class="px-3 py-2 border text-center">
                                                             <span :class="(hotel.qunarDetailCR || 0) &gt;= 5 ? 'text-green-600 font-medium' : 'text-gray-600'">
-                                                                {{ hotel.qunarDetailCR ? hotel.qunarDetailCR + '%' : '-' }}
+                                                                {{ formatOptionalPercent(hotel.qunarDetailCR) }}
                                                             </span>
                                                         </td>
                                                         <td class="px-3 py-2 border text-center text-gray-500">
@@ -2197,7 +2201,7 @@
                                             </div>
                                             <div class="mt-3 flex flex-col md:flex-row gap-3">
                                                 <input v-model.trim="onlineHistoryFilter.keyword" type="text" class="flex-1 px-3 py-2 border rounded-lg bg-white" placeholder="搜索酒店名称 / OTA酒店ID / 批次号">
-                                                <div v-if="user?.is_super_admin" class="flex gap-2">
+                                                <div class="flex flex-wrap gap-2">
                                                     <button @click="onlineHistoryPage = 1; loadOnlineHistory()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
                                                         <i class="fas fa-search mr-2"></i>查询已存数据
                                                     </button>

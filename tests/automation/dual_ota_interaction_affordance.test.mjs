@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { loadFrontendTemplateSource } from '../../scripts/lib/frontend_template_source.mjs';
 
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const css = readFileSync('public/style.css', 'utf8');
 const entry = readFileSync('public/index.html', 'utf8');
-const template = readFileSync('resources/frontend/templates/fragments/23-page-compass-ai-workbench.html', 'utf8');
+const template = loadFrontendTemplateSource(repoRoot).template;
 
 test('AI workbench buttons expose visible hover, press and keyboard feedback', () => {
   assert.match(css, /AI 工作台交互可发现性/);

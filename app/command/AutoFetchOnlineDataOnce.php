@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\command;
 
+use app\service\OtaFailureNotificationService;
 use think\console\Command;
 use think\console\Input;
 use think\console\Output;
@@ -151,5 +152,22 @@ class AutoFetchOnlineDataOnce extends Command
         array_unshift($recentRuns, $runRecord);
         $status['recent_runs'] = array_slice($recentRuns, 0, 10);
         Cache::set($statusKey, $status, 86400 * 30);
+
+        try {
+            (new OtaFailureNotificationService())->recordCollectionOutcome([
+                'hotel_id' => $hotelId,
+                'platform' => (string)($body['platform'] ?? 'ota'),
+                'message' => $message,
+                'data_date' => $dataDate,
+                'success' => false,
+                'saved_count' => 0,
+                'actor_user_id' => (int)($body['user_id'] ?? 0),
+            ]);
+        } catch (\Throwable $e) {
+            \think\facade\Log::warning('Background OTA failure notifier execution failed', [
+                'hotel_id' => $hotelId,
+                'exception_type' => get_debug_type($e),
+            ]);
+        }
     }
 }

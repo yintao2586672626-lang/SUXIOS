@@ -556,7 +556,7 @@ requireText('public/index.html', 'const openPlatformAutoTab = (options = {}) =>'
 requireText('public/index.html', 'const openOnlinePlatformAutoTab = (options = {}) =>', 'cross-page platform auto navigation uses the deduplicated entrypoint');
 requireText('public/index.html', 'const PLATFORM_AUTO_SETTINGS_PANEL_DELAY_MS = 800;', 'platform auto-fetch delays schedule/browser settings behind immediate collect controls');
 requireText('public/index.html', 'const platformAutoSettingsPanelsReady = ref(false);', 'platform auto-fetch tracks settings readiness separately from core controls');
-requireText('public/index.html', "const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260712-meituan-ads-not-applicable';", 'platform auto-fetch extension panels use a versioned lazy component script');
+requireText('public/index.html', "const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260714-manual-direct-scheduled-profile';", 'platform auto-fetch extension panels use a versioned lazy component script');
 requireText('public/index.html', 'const ensurePlatformAutoPanelsReady = async () => {', 'platform auto-fetch extension panels load only after the delayed panel timers fire');
 requireText('public/index.html', "requireOnlineDataComponent('PlatformAutoSettingsPanelsBody')", 'platform auto-fetch settings panel resolves the lazy body component after script load');
 requireText('public/index.html', "requireOnlineDataComponent('PlatformAutoSecondaryPanelsBody')", 'platform auto-fetch secondary panel resolves the lazy body component after script load');
@@ -762,7 +762,11 @@ requireText('public/index.html', "const switchToDownloadCenter = () => {", 'Ctri
 requireText('public/index.html', "const switchToMeituanDownloadCenter = () => {", 'Meituan download center entry is non-blocking');
 requireText('public/meituan-static.js', 'const buildMeituanDownloadData = (rows = []) => {', 'Meituan download center computes empty data into explicit zero-valued dashboard rows');
 requireText('public/index.html', 'const meituanDownloadData = computed(() => buildMeituanDownloadData(onlineDataList.value));', 'Meituan download center uses the static dashboard data builder');
-requireText('public/index.html', 'switchToMeituanDownloadCenter, meituanDownloadData,', 'Meituan download center dashboard data is exposed to the Vue template');
+requirePattern(
+  'public/index.html',
+  /switchToDownloadCenter,\s*switchToMeituanDownloadCenter,\s*(?:[A-Za-z0-9_$]+,\s*)*meituanDownloadData,/,
+  'Meituan download center dashboard data is exposed to the Vue template',
+);
 requireNoText('public/index.html', 'const switchDownloadTab = async (tab) => {', 'download center tab switch must not serially await tab data loads');
 requireNoText('public/index.html', 'const switchToDownloadCenter = async () => {', 'Ctrip download center entry must not wait on history refresh before returning');
 requireNoText('public/index.html', 'const switchToMeituanDownloadCenter = async () => {', 'Meituan download center entry must not wait on list refresh before returning');
@@ -858,7 +862,8 @@ requireText('public/index.html', '<div v-if="homeSecondaryPanelsReady" class="ov
 requireText('public/index.html', '<div v-if="homeSecondaryPanelsReady" class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm mb-6" data-testid="home-market-signal-card">', 'home market signal panel is not mounted during the immediate OTA navigation window');
 requireText('public/index.html', '<div v-if="homeSecondaryPanelsReady && homeTrendCards.length"', 'home trend cards are not mounted during the immediate OTA navigation window');
 requireText('public/index.html', 'homeSecondaryPanelsReady, homeClosedLoopStages', 'home lower-panel readiness flag is returned for template gating');
-requireText('public/index.html', 'const scheduleInitialBackendNotificationRefresh = (delayMs = 8000) => {', 'startup backend notification refresh is delayed behind core OTA navigation');
+requireText('public/index.html', 'const scheduleInitialBackendNotificationRefresh = (delayMs = 800) => {', 'startup backend notification refresh loads promptly so direct OTA auth failures can strongly remind the submitter');
+requireText('public/index.html', 'if (!token.value) return;\n                    refreshGlobalNotifications({ silent: true, backendOnly: true });', 'startup strong-reminder refresh runs on every authenticated page');
 requireText('public/index.html', 'if (isLoggedIn.value && token.value && !isCoreOtaPageVisible()) {', 'notification polling is paused while core OTA pages are visible');
 requireText('public/index.html', 'const loadHotelsRequestPromises = new Map();', 'hotel-list requests are deduplicated while a matching request is in flight');
 requireText('public/index.html', 'if (loadHotelsRequestPromises.has(requestKey))', 'hotel-list loader reuses in-flight requests');
@@ -1589,7 +1594,7 @@ requireNoText('public/index.html', 'const openDataConfigModal = async (type) => 
 requireNoText('public/index.html', 'await loadDataConfig(type);\n                } catch (e) {\n                    console.error', 'data-source config modal must not await saved system-config before opening');
 requireText('public/auto-fetch-static.js', 'async: true', 'auto-fetch trigger submits quickly and lets backend continue collection');
 requireText('public/auto-fetch-static.js', "return { status: 'accepted'", 'auto-fetch trigger keeps backend queued state non-blocking');
-requireText('public/index.html', 'async: true, ...buildAutoFetchModePayload()', 'retry auto-fetch submits quickly and lets backend continue collection');
+requireText('public/index.html', 'async: true, ...buildManualAutoFetchModePayload()', 'retry auto-fetch submits quickly and keeps Meituan on the stored Cookie/API direct path');
 requireText('public/index.html', "['running', 'queued', 'accepted'].includes(retryStatus)", 'retry auto-fetch treats backend queued state as non-blocking');
 requireText('public/ctrip-static.js', 'const isCtripBackgroundAcceptedResponse', 'Ctrip static shares accepted/running/queued background response detection');
 requireText('public/ctrip-static.js', 'const requestBody = requestContext.temporaryCookieQuery', 'Ctrip ranking manual fetch separates saved and one-shot request modes');
@@ -7795,7 +7800,8 @@ try {
         && ctripRow?.canUnbind === true
         && meituanRow?.level === 'partial'
         && meituanRow?.statusCode === 'missing_config'
-        && String(meituanRow?.reasonText || '').includes('Browser Profile'),
+        && meituanRow?.reasonText === 'missing_config'
+        && String(meituanRow?.verificationReasonText || '').includes('Browser Profile'),
       detail: 'buildHotelPlatformBindingRows samples',
     });
   }

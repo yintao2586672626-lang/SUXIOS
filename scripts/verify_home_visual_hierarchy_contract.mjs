@@ -1,7 +1,11 @@
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import { loadFrontendTemplateSource } from './lib/frontend_template_source.mjs';
 
-const publicSource = readFileSync('public/index.html', 'utf8');
+const entrySource = readFileSync('public/index.html', 'utf8');
+const appMainSource = readFileSync('public/app-main.js', 'utf8');
+const templateSource = loadFrontendTemplateSource(process.cwd()).template;
+const publicSource = [entrySource, appMainSource, templateSource].join('\n');
 const homeStaticSource = readFileSync('public/home-static.js', 'utf8');
 const packageSource = readFileSync('package.json', 'utf8');
 

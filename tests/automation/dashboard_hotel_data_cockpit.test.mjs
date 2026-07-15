@@ -63,7 +63,8 @@ test('manual online-data surface stays focused on readiness collection results a
   assert.doesNotMatch(dataHealthPage, /data-testid="phase3-operation-effect-loop"/);
   assert.doesNotMatch(dataHealthPage, /employeeOtaChecklistRows/);
   assert.doesNotMatch(dataHealthPage, /source: '手动完整诊断'/);
-  assert.equal((dataHealthPage.match(/@click="refreshManualOneClickFetchConfig"/g) || []).length, 1);
+  assert.equal((dataHealthPage.match(/data-testid="ota-config-refresh"/g) || []).length, 1);
+  assert.equal((dataHealthPage.match(/@click="refreshOtaConfigOverviewStatus\(\)"/g) || []).length, 1);
 });
 
 test('dashboard frontend calls dedicated dashboard APIs while old collection reliability remains available', () => {

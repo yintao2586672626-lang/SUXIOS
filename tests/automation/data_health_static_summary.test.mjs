@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
@@ -11,7 +12,8 @@ const ctripOverviewRequestConcern = readFileSync('app/controller/concern/CtripOv
 const businessDisplayConcern = readFileSync('app/controller/concern/BusinessDisplayConcern.php', 'utf8');
 const routeApp = readFileSync('route/app.php', 'utf8');
 const publicEntry = readFrontendContractSource();
-vm.runInNewContext(readFileSync('public/data-health-static.js', 'utf8'), context, {
+const dataHealthStaticSource = readFileSync('public/data-health-static.js', 'utf8');
+vm.runInNewContext(dataHealthStaticSource, context, {
   filename: 'public/data-health-static.js',
 });
 
@@ -958,7 +960,13 @@ test('manual one-click fetch display helpers stay pure and status aware', () => 
   assert.match(resultTable, /row\.detailMessage/);
   assert.match(resultTable, /查看详情/);
   assert.doesNotMatch(resultTable, /min-w-\[\d+rem\]/);
-  assert.match(publicEntry, /data-health-static\.js\?v=20260714-ota-config-workbench-h1de779a301/);
+  const dataHealthAssetMatch = publicEntry.match(/data-health-static\.js\?v=[^"'\s>]*h([0-9a-f]{10})/);
+  assert.ok(dataHealthAssetMatch, 'runtime entry must load data-health-static.js with a content hash');
+  assert.equal(
+    dataHealthAssetMatch[1],
+    createHash('sha256').update(dataHealthStaticSource).digest('hex').slice(0, 10),
+    'runtime entry data-health-static.js hash must match the current helper source',
+  );
 
   const directIssueStart = publicEntry.indexOf('const otaDirectManualFailureBuckets = computed');
   const directIssueEnd = publicEntry.indexOf('const otaDirectViewCards = computed', directIssueStart);

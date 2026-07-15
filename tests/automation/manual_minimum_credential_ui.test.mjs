@@ -3166,6 +3166,10 @@ test('Meituan config saves cookie-only and no longer treats room counts as crede
 test('Hotel management saves force-refresh the current management context', () => {
   const refreshHotelBindingPanelLight = functionSlice('refreshHotelBindingPanelLight');
   const refreshHotelBindingPanel = functionSlice('refreshHotelBindingPanel');
+  const loadHotelManagementSnapshot = constSlice(
+    'const loadHotelManagementSnapshot = async (options = {}) => {',
+    '\n\n            const refreshHotelBindingPanelLight'
+  );
   const ensureHotelOtaConfigLists = constSlice(
     'const ensureHotelOtaConfigLists = async (options = {}) => {',
     '\n\n            const openHotelManagementForOta'
@@ -3176,16 +3180,15 @@ test('Hotel management saves force-refresh the current management context', () =
   );
   const saveHotel = functionSlice('saveHotel');
 
-  assert.match(refreshHotelBindingPanelLight, /loadHotels\(\{ force: true, includeInactive: true \}\)/);
-  assert.match(refreshHotelBindingPanelLight, /ensureHotelOtaConfigLists\(\{ force: true \}\)/);
-  assert.match(refreshHotelBindingPanelLight, /loadCompetitorSummary\(\{[\s\S]*includeByHotel: true,[\s\S]*force: true/);
-  assert.doesNotMatch(refreshHotelBindingPanelLight, /loadPlatformDataSources\(\{ force: true \}\)/);
-  assert.doesNotMatch(refreshHotelBindingPanelLight, /loadPlatformSyncLogs\(\{ force: true \}\)/);
-  assert.match(refreshHotelBindingPanel, /loadHotels\(\{ force: true, includeInactive: true \}\)/);
-  assert.match(refreshHotelBindingPanel, /ensureHotelOtaConfigLists\(\{ force: true \}\)/);
-  assert.match(refreshHotelBindingPanel, /loadPlatformDataSources\(\{ force: true \}\)/);
-  assert.match(refreshHotelBindingPanel, /loadCompetitorSummary\(\{[\s\S]*force: true/);
+  assert.match(refreshHotelBindingPanelLight, /loadHotelManagementSnapshot\(\{[\s\S]*force: true,[\s\S]*deep: false,[\s\S]*showSuccess: true/);
+  assert.match(refreshHotelBindingPanel, /loadHotelManagementSnapshot\(\{[\s\S]*force: true,[\s\S]*deep: true,[\s\S]*showSuccess: true/);
+  assert.match(loadHotelManagementSnapshot, /loadHotels\(\{ force, includeInactive: true \}\)/);
+  assert.match(loadHotelManagementSnapshot, /ensureHotelOtaConfigLists\(\{[\s\S]*force,[\s\S]*includeHotels: false,[\s\S]*includeDataSources: true/);
+  assert.match(loadHotelManagementSnapshot, /if \(deep\) \{[\s\S]*loadPlatformSyncTasks\(\{ force: true \}\)[\s\S]*loadPlatformSyncLogs\(\{ force: true \}\)[\s\S]*loadCompetitorSummary\(\{ includeByHotel: true, force: true \}\)/);
+  assert.match(loadHotelManagementSnapshot, /hotelManagementFailureLabels\(deep\)/);
   assert.match(ensureHotelOtaConfigLists, /const force = options\.force === true;/);
+  assert.match(ensureHotelOtaConfigLists, /const includeHotels = options\.includeHotels !== false;/);
+  assert.match(ensureHotelOtaConfigLists, /const includeDataSources = options\.includeDataSources !== false;/);
   assert.match(ensureHotelOtaConfigLists, /loadCtripConfigList\(\{[\s\S]*force,[\s\S]*cacheMs: force \? 0 : MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS/);
   assert.match(ensureHotelOtaConfigLists, /loadMeituanConfigList\(\{[\s\S]*force,[\s\S]*cacheMs: force \? 0 : MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS/);
   assert.match(saveHotelOtaConfig, /loadCtripConfigList\(\{ force: true, applySelectedConfig: false \}\)/);
@@ -4267,7 +4270,7 @@ test('Platform auto-fetch panel prewarms static helper without blocking first pa
   assert.match(html, /const PLATFORM_AUTO_SETTINGS_PANEL_DELAY_MS = 800;/);
   assert.match(html, /const platformAutoSettingsPanelsReady = ref\(false\);/);
   assert.match(html, /const platformAutoSettingsPanelsBody = shallowRef\(null\);/);
-  assert.match(html, /const platformAutoPanelsScript = 'components\/online-data\/platform-auto-settings-panels\.js\?v=20260712-meituan-ads-not-applicable';/);
+  assert.match(html, /const platformAutoPanelsScript = 'components\/online-data\/platform-auto-settings-panels\.js\?v=20260714-manual-direct-scheduled-profile';/);
   assert.match(html, /const ensurePlatformAutoPanelsReady = async \(\) => \{/);
   assert.match(html, /requireOnlineDataComponent\('PlatformAutoSettingsPanelsBody'\)/);
   assert.match(html, /requireOnlineDataComponent\('PlatformAutoSecondaryPanelsBody'\)/);
@@ -4517,7 +4520,7 @@ test('Download center defers hotel filter loading after primary data', () => {
   assert.match(downloadCenterScheduler, /scheduleDelayedPageTask\(\(\) => \{\s*if \(seq !== downloadCenterTabLoadSeq \|\| !isCurrentTab\(\)\) return null;\s*return loadOnlineDataHotelList\(\{ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS \}\);\s*\}, 720\);/);
   assert.match(downloadCenterScheduler, /return loadOnlineDataHotelList\(\{ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS \}\);/);
   assert.match(html, /const meituanDownloadData = computed\(\(\) => buildMeituanDownloadData\(onlineDataList\.value\)\);/);
-  assert.match(html, /switchToMeituanDownloadCenter, openMeituanStoredDataTab, meituanDownloadData,/);
+  assert.match(html, /switchToMeituanDownloadCenter, openMeituanStoredDataTab, queryMeituanStoredData, meituanDownloadData,/);
   assert.doesNotMatch(downloadCenterScheduler, /await refreshOnlineHistory\(\);\s*return null;/);
   assert.doesNotMatch(
     downloadCenterScheduler,

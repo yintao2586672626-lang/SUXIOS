@@ -1,0 +1,32 @@
+                                <section v-if="currentPage === 'compass'" class="compass-hero-bezel" data-testid="home-executive-answer">
+                                    <div class="compass-hero-core">
+                                        <div class="compass-hero-orbit compass-hero-orbit-one" aria-hidden="true"></div>
+                                        <div class="compass-hero-orbit compass-hero-orbit-two" aria-hidden="true"></div>
+                                        <div class="compass-hero-grid">
+                                            <div class="compass-hero-copy min-w-0">
+                                                <div class="compass-eyebrow"><span></span> 今日经营工作台</div>
+                                                <h1>{{ homeExecutiveAnswer.primaryFocus }}</h1>
+                                                <p>{{ homeMinimalWorkbench.nextStepText }}</p>
+                                            </div>
+                                            <div class="compass-hero-action">
+                                                <span :class="['compass-status-pill whitespace-nowrap', homeMinimalWorkbench.statusClass]">{{ homeMinimalWorkbench.statusLabel }}</span>
+                                                <button type="button" @click="openHomeQuickEntry(homeMinimalWorkbench.primaryEntry)" class="compass-primary-cta group">
+                                                    <span>{{ homeMinimalWorkbench.primaryActionLabel }}</span>
+                                                    <span class="compass-cta-icon" aria-hidden="true">↗</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div class="compass-signal-grid">
+                                            <button v-for="card in homeExecutiveAnswer.cards" :key="card.key" type="button" @click="openHomeQuickEntry(card.entry)" class="compass-signal-card" :title="`${card.label}：${card.value}；${card.note}`">
+                                                <span class="compass-signal-label">{{ card.label }}</span>
+                                                <strong>{{ card.value }}</strong>
+                                                <span :class="['compass-signal-badge whitespace-nowrap', card.badgeClass]">{{ card.badge }}</span>
+                                            </button>
+                                        </div>
+                                        <div class="compass-blocker-strip">
+                                            <span class="compass-blocker-mark" aria-hidden="true"></span>
+                                            <div><strong>当前阻断</strong><span>{{ homeMinimalWorkbench.blockerText }}</span></div>
+                                            <p>{{ homeMinimalWorkbench.blockerNote }}</p>
+                                        </div>
+                                    </div>
+                                </section>

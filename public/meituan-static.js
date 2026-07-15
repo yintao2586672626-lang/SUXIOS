@@ -109,7 +109,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         return Array.isArray(rows) ? rows : [];
     };
 
-    const getOnlineDataMetricNumber = (item, keys) => {
+    const getOnlineDataMetricMaybeNumber = (item, keys) => {
         for (const key of keys) {
             const value = item?.[key];
             if (value !== undefined && value !== null && value !== '') {
@@ -119,8 +119,10 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 }
             }
         }
-        return 0;
+        return null;
     };
+
+    const getOnlineDataMetricNumber = (item, keys) => getOnlineDataMetricMaybeNumber(item, keys) ?? 0;
 
     const safeDivideMetric = (numerator, denominator) => {
         const top = Number(numerator);
@@ -131,18 +133,33 @@ window.SUXI_MEITUAN_STATIC = (() => {
         return top / bottom;
     };
 
-    const getMeituanExposureMetric = (item) => getOnlineDataMetricNumber(item, ['list_exposure', 'exposure_count', 'exposure', 'data_value']);
-    const getMeituanClickMetric = (item) => getOnlineDataMetricNumber(item, ['detail_exposure', 'click_count', 'clicks', 'order_filling_num']);
-    const getMeituanVisitorMetric = (item) => getOnlineDataMetricNumber(item, ['order_filling_num', 'visitor_count', 'unique_visitors', 'detail_exposure']);
-    const getMeituanSubmitMetric = (item) => getOnlineDataMetricNumber(item, ['order_submit_num', 'submit_users', 'book_order_num']);
-    const getMeituanFlowRateMetric = (item) => {
-        const explicit = getOnlineDataMetricNumber(item, ['flow_rate', 'conversion_rate', 'conversionRate']);
-        if (explicit > 0) {
+    const getMeituanExposureMetricValue = (item) => getOnlineDataMetricMaybeNumber(item, ['list_exposure', 'exposure_count', 'exposure']);
+    const getMeituanClickMetricValue = (item) => getOnlineDataMetricMaybeNumber(item, ['detail_exposure', 'click_count', 'clicks', 'order_filling_num']);
+    const getMeituanVisitorMetricValue = (item) => getOnlineDataMetricMaybeNumber(item, ['order_filling_num', 'visitor_count', 'unique_visitors', 'detail_exposure']);
+    const getMeituanSubmitMetricValue = (item) => getOnlineDataMetricMaybeNumber(item, ['order_submit_num', 'submit_users', 'book_order_num']);
+    const getMeituanFlowRateMetricValue = (item) => {
+        const explicit = getOnlineDataMetricMaybeNumber(item, ['flow_rate', 'conversion_rate', 'conversionRate']);
+        if (explicit !== null) {
             return explicit;
         }
-        return safeDivideMetric(getMeituanClickMetric(item), getMeituanExposureMetric(item)) * 100;
+        const exposure = getMeituanExposureMetricValue(item);
+        const click = getMeituanClickMetricValue(item);
+        if (exposure === null || click === null || exposure === 0) {
+            return null;
+        }
+        return safeDivideMetric(click, exposure) * 100;
     };
-    const isMeituanTrafficDataRow = (item) => item?.source === 'meituan' && (item?.data_type === 'traffic' || getMeituanExposureMetric(item) > 0);
+    const getMeituanExposureMetric = (item) => getMeituanExposureMetricValue(item) ?? 0;
+    const getMeituanClickMetric = (item) => getMeituanClickMetricValue(item) ?? 0;
+    const getMeituanVisitorMetric = (item) => getMeituanVisitorMetricValue(item) ?? 0;
+    const getMeituanSubmitMetric = (item) => getMeituanSubmitMetricValue(item) ?? 0;
+    const getMeituanFlowRateMetric = (item) => getMeituanFlowRateMetricValue(item) ?? 0;
+    const hasMeituanExposureMetric = (item) => getMeituanExposureMetricValue(item) !== null;
+    const hasMeituanClickMetric = (item) => getMeituanClickMetricValue(item) !== null;
+    const hasMeituanVisitorMetric = (item) => getMeituanVisitorMetricValue(item) !== null;
+    const hasMeituanFlowRateMetric = (item) => getMeituanFlowRateMetricValue(item) !== null;
+    const isMeituanOverviewDataRow = (item) => item?.source === 'meituan' && item?.data_type === 'peer_rank';
+    const isMeituanTrafficDataRow = (item) => item?.source === 'meituan' && ['traffic', 'traffic_analysis'].includes(item?.data_type);
     const isMeituanOrderDataRow = (item) => item?.source === 'meituan' && item?.data_type === 'order';
     const isMeituanAdsDataRow = (item) => item?.source === 'meituan' && item?.data_type === 'advertising';
 
@@ -152,36 +169,58 @@ window.SUXI_MEITUAN_STATIC = (() => {
         const orderRows = [];
         const adsRows = [];
 
-        let overviewBookOrder = 0;
-        let overviewAmount = 0;
-        let overviewQuantity = 0;
+        const overviewHotels = new Set();
+        const overviewDates = new Set();
+        let overviewMetricValueCount = 0;
+        let overviewRankCount = 0;
+        let overviewPercentCount = 0;
         let trafficExposure = 0;
         let trafficClick = 0;
+        let trafficExposureAvailable = false;
+        let trafficClickAvailable = false;
         let trafficFlowRateSum = 0;
         let trafficFlowRateCount = 0;
         let orderBookOrder = 0;
         let orderQuantity = 0;
         let orderAmount = 0;
+        let orderBookOrderAvailable = false;
+        let orderQuantityAvailable = false;
+        let orderAmountAvailable = false;
         let adsExposure = 0;
         let adsClick = 0;
+        let adsExposureAvailable = false;
+        let adsClickAvailable = false;
 
         for (const item of Array.isArray(rows) ? rows : []) {
             if (item?.source !== 'meituan') {
                 continue;
             }
-            overviewRows.push(item);
-            overviewBookOrder += Number(item?.book_order_num || 0);
-            overviewAmount += Number(item?.amount || 0);
-            overviewQuantity += Number(item?.quantity || 0);
+            if (isMeituanOverviewDataRow(item)) {
+                overviewRows.push(item);
+                const hotelKey = item?.system_hotel_id ?? item?.hotel_id ?? item?.hotel_name;
+                if (hotelKey !== undefined && hotelKey !== null && String(hotelKey).trim() !== '') {
+                    overviewHotels.add(String(hotelKey));
+                }
+                if (item?.data_date) overviewDates.add(String(item.data_date));
+                if (getOnlineDataMetricMaybeNumber(item, ['data_value']) !== null) overviewMetricValueCount++;
+                if (getOnlineDataMetricMaybeNumber(item, ['rank', 'ranking']) !== null) overviewRankCount++;
+                if (getOnlineDataMetricMaybeNumber(item, ['rank_percent', 'percent']) !== null) overviewPercentCount++;
+            }
 
             if (isMeituanTrafficDataRow(item)) {
                 trafficRows.push(item);
-                const exposure = getMeituanExposureMetric(item);
-                const click = getMeituanClickMetric(item);
-                trafficExposure += exposure;
-                trafficClick += click;
-                const flowRate = getMeituanFlowRateMetric(item);
-                if (flowRate > 0) {
+                const exposure = getMeituanExposureMetricValue(item);
+                const click = getMeituanClickMetricValue(item);
+                if (exposure !== null) {
+                    trafficExposure += exposure;
+                    trafficExposureAvailable = true;
+                }
+                if (click !== null) {
+                    trafficClick += click;
+                    trafficClickAvailable = true;
+                }
+                const flowRate = getMeituanFlowRateMetricValue(item);
+                if (flowRate !== null) {
                     trafficFlowRateSum += flowRate;
                     trafficFlowRateCount++;
                 }
@@ -189,19 +228,43 @@ window.SUXI_MEITUAN_STATIC = (() => {
 
             if (isMeituanOrderDataRow(item)) {
                 orderRows.push(item);
-                orderBookOrder += Number(item?.book_order_num || 0);
-                orderQuantity += Number(item?.quantity || 0);
-                orderAmount += Number(item?.amount || 0);
+                const bookOrder = getOnlineDataMetricMaybeNumber(item, ['book_order_num']);
+                const quantity = getOnlineDataMetricMaybeNumber(item, ['quantity']);
+                const amount = getOnlineDataMetricMaybeNumber(item, ['amount']);
+                if (bookOrder !== null) {
+                    orderBookOrder += bookOrder;
+                    orderBookOrderAvailable = true;
+                }
+                if (quantity !== null) {
+                    orderQuantity += quantity;
+                    orderQuantityAvailable = true;
+                }
+                if (amount !== null) {
+                    orderAmount += amount;
+                    orderAmountAvailable = true;
+                }
             }
 
             if (isMeituanAdsDataRow(item)) {
                 adsRows.push(item);
-                adsExposure += getMeituanExposureMetric(item);
-                adsClick += getMeituanClickMetric(item);
+                const exposure = getMeituanExposureMetricValue(item);
+                const click = getMeituanClickMetricValue(item);
+                if (exposure !== null) {
+                    adsExposure += exposure;
+                    adsExposureAvailable = true;
+                }
+                if (click !== null) {
+                    adsClick += click;
+                    adsClickAvailable = true;
+                }
             }
         }
 
-        const trafficAvgFlowRate = trafficFlowRateCount > 0 ? trafficFlowRateSum / trafficFlowRateCount : 0;
+        const trafficAvgFlowRate = trafficFlowRateCount > 0 ? trafficFlowRateSum / trafficFlowRateCount : null;
+        const trafficExposureValue = trafficExposureAvailable ? trafficExposure : null;
+        const trafficClickValue = trafficClickAvailable ? trafficClick : null;
+        const adsExposureValue = adsExposureAvailable ? adsExposure : null;
+        const adsClickValue = adsClickAvailable ? adsClick : null;
 
         return {
             overviewRows,
@@ -209,21 +272,27 @@ window.SUXI_MEITUAN_STATIC = (() => {
             orderRows,
             adsRows,
             overviewRowsCount: overviewRows.length,
-            overviewBookOrder,
-            overviewAmount,
-            overviewQuantity,
-            trafficExposure,
-            trafficClick,
+            overviewHotelCount: overviewHotels.size,
+            overviewDateCount: overviewDates.size,
+            overviewMetricValueCount,
+            overviewRankCount,
+            overviewPercentCount,
+            trafficExposure: trafficExposureValue,
+            trafficClick: trafficClickValue,
             trafficAvgFlowRate,
-            trafficClickRate: safeDivideMetric(trafficClick, trafficExposure) * 100,
+            trafficClickRate: trafficExposureAvailable && trafficClickAvailable && trafficExposure !== 0
+                ? safeDivideMetric(trafficClick, trafficExposure) * 100
+                : null,
             orderRowsCount: orderRows.length,
-            orderBookOrder,
-            orderQuantity,
-            orderAmount,
+            orderBookOrder: orderBookOrderAvailable ? orderBookOrder : null,
+            orderQuantity: orderQuantityAvailable ? orderQuantity : null,
+            orderAmount: orderAmountAvailable ? orderAmount : null,
             adsRowsCount: adsRows.length,
-            adsExposure,
-            adsClick,
-            adsClickRate: safeDivideMetric(adsClick, adsExposure) * 100,
+            adsExposure: adsExposureValue,
+            adsClick: adsClickValue,
+            adsClickRate: adsExposureAvailable && adsClickAvailable && adsExposure !== 0
+                ? safeDivideMetric(adsClick, adsExposure) * 100
+                : null,
         };
     };
 
@@ -3845,12 +3914,23 @@ window.SUXI_MEITUAN_STATIC = (() => {
         buildMeituanRankInsightCards,
         buildMeituanVisibleRankInsightCards,
         buildMeituanRankHealthRows,
+        getOnlineDataMetricMaybeNumber,
         getOnlineDataMetricNumber,
+        getMeituanExposureMetricValue,
+        getMeituanClickMetricValue,
+        getMeituanVisitorMetricValue,
+        getMeituanSubmitMetricValue,
+        getMeituanFlowRateMetricValue,
         getMeituanExposureMetric,
         getMeituanClickMetric,
         getMeituanVisitorMetric,
         getMeituanSubmitMetric,
         getMeituanFlowRateMetric,
+        hasMeituanExposureMetric,
+        hasMeituanClickMetric,
+        hasMeituanVisitorMetric,
+        hasMeituanFlowRateMetric,
+        isMeituanOverviewDataRow,
         isMeituanTrafficDataRow,
         isMeituanOrderDataRow,
         isMeituanAdsDataRow,

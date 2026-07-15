@@ -57,6 +57,33 @@ final class KnowledgeDocumentTextExtractorTest extends TestCase
         }
     }
 
+    public function testExtractsHtmlWithoutExecutableOrStyleContent(): void
+    {
+        $path = $this->tempFile('html');
+        file_put_contents($path, implode('', [
+            '<!doctype html><html><head><title>房型经营分析</title>',
+            '<style>:root{--navy:#123}.panel{display:grid}</style>',
+            '<script>window.secretMetric = 97.7;</script></head>',
+            '<body><h1>房型经营分析</h1><p>先校验口径，再解释经营。</p>',
+            '<noscript>浏览器脚本提示</noscript>',
+            '<template>页面模板占位</template></body></html>',
+        ]));
+
+        try {
+            $result = (new KnowledgeDocumentTextExtractor())->extractFromPath($path, 'room-analysis.html');
+
+            self::assertSame('html', $result['extension']);
+            self::assertStringContainsString('房型经营分析', $result['text']);
+            self::assertStringContainsString('先校验口径，再解释经营。', $result['text']);
+            self::assertStringNotContainsString('--navy', $result['text']);
+            self::assertStringNotContainsString('secretMetric', $result['text']);
+            self::assertStringNotContainsString('浏览器脚本提示', $result['text']);
+            self::assertStringNotContainsString('页面模板占位', $result['text']);
+        } finally {
+            @unlink($path);
+        }
+    }
+
     public function testRejectsUnsupportedDocumentType(): void
     {
         $path = $this->tempFile('pdf');

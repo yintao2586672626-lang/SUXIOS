@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "source_snapshot": "resources/frontend/app-template.html",
-  "source_snapshot_sha256": "576c2c592499d4bb24e5d771681db1bead6d46ad0567e3172728f3839a6dfe63",
-  "source_snapshot_bytes": 1857623,
+  "source_snapshot_sha256": "25cb9cfc6dd43e4211335debab6806ae778d234d12cb2458f36babdaecac3dec",
+  "source_snapshot_bytes": 1911402,
   "fragments": [
     {
       "id": "app-shell",
@@ -95,6 +95,24 @@
       "anchor": "<div v-if=\"currentPage === 'opening-checklist'\" class=\"max-w-7xl mx-auto space-y-6\">"
     },
     {
+      "id": "page-ops-source",
+      "domain": "operations",
+      "path": "fragments/15a-page-ops-source.html",
+      "anchor": "<div v-if=\"currentPage === 'ops-source'\" class=\"max-w-7xl mx-auto space-y-6\">"
+    },
+    {
+      "id": "page-ops-analysis",
+      "domain": "operations",
+      "path": "fragments/15b-page-ops-analysis.html",
+      "anchor": "<div v-if=\"currentPage === 'ops-analysis'\" class=\"max-w-7xl mx-auto space-y-6\">"
+    },
+    {
+      "id": "page-ops-insight",
+      "domain": "operations",
+      "path": "fragments/15c-page-ops-insight.html",
+      "anchor": "<div v-if=\"currentPage === 'ops-insight'\" class=\"max-w-7xl mx-auto space-y-6\">"
+    },
+    {
       "id": "page-ops-plan",
       "domain": "operations",
       "path": "fragments/15-page-ops-plan.html",
@@ -143,10 +161,40 @@
       "anchor": "<div v-if=\"currentPage === 'roles'\">"
     },
     {
-      "id": "page-compass-ai-workbench",
+      "id": "home-shell-open",
       "domain": "decision-workbench",
-      "path": "fragments/23-page-compass-ai-workbench.html",
+      "path": "fragments/23-page-home-shell-open.html",
       "anchor": "<div v-if=\"currentPage === 'ai-workbench' || currentPage === 'compass'\" class=\"compass-dashboard suxi-dashboard-scope\">"
+    },
+    {
+      "id": "page-compass-summary",
+      "domain": "decision-workbench",
+      "path": "fragments/23a-page-compass-summary.html",
+      "anchor": "<section v-if=\"currentPage === 'compass'\" class=\"compass-hero-bezel\" data-testid=\"home-executive-answer\">"
+    },
+    {
+      "id": "page-ai-workbench",
+      "domain": "decision-workbench",
+      "path": "fragments/23b-page-ai-workbench.html",
+      "anchor": "<div v-if=\"currentPage === 'ai-workbench'\" class=\"dual-ota-home order-first\" data-testid=\"home-ai-workbench\">"
+    },
+    {
+      "id": "page-compass-detail",
+      "domain": "decision-workbench",
+      "path": "fragments/23c-page-compass-detail.html",
+      "anchor": "<details v-if=\"currentPage === 'compass'\" class=\"suxi-evidence-fold\" data-testid=\"home-full-detail-fold\">"
+    },
+    {
+      "id": "home-shell-card-close",
+      "domain": "decision-workbench",
+      "path": "fragments/23d-home-shell-card-close.html",
+      "anchor": "                            </div>\n                        </div>\n\n                        <details class=\"mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm\" data-testid=\"home-secondary-detail-fold\">"
+    },
+    {
+      "id": "home-shared-secondary",
+      "domain": "decision-workbench",
+      "path": "fragments/23e-home-shared-secondary.html",
+      "anchor": "<details class=\"mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm\" data-testid=\"home-secondary-detail-fold\">"
     },
     {
       "id": "page-ctrip-ebooking",

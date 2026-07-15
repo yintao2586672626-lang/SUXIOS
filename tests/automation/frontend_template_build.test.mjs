@@ -135,11 +135,33 @@ test('business template fragments assemble byte-for-byte to the canonical templa
   assert.ok(source.manifest.fragments.length >= 30);
   assert.equal(new Set(ids).size, ids.length);
   assert.deepEqual(ids.slice(0, 3), ['app-shell', 'page-ai-strategy', 'page-ai-simulation']);
+  const homeFragmentIds = [
+    'home-shell-open',
+    'page-compass-summary',
+    'page-ai-workbench',
+    'page-compass-detail',
+    'home-shell-card-close',
+    'home-shared-secondary',
+  ];
+  const homeFragmentStart = ids.indexOf(homeFragmentIds[0]);
+  assert.notEqual(homeFragmentStart, -1, 'missing split home shell fragment');
+  assert.deepEqual(
+    ids.slice(homeFragmentStart, homeFragmentStart + homeFragmentIds.length),
+    homeFragmentIds,
+    'home fragments must stay adjacent and preserve their original DOM order',
+  );
+  const homeFragments = new Map(source.fragments.map((fragment) => [fragment.id, fragment.source]));
+  assert.match(homeFragments.get('page-compass-summary'), /data-testid="home-executive-answer"/);
+  assert.doesNotMatch(homeFragments.get('page-compass-summary'), /data-testid="home-ai-workbench"/);
+  assert.match(homeFragments.get('page-ai-workbench'), /data-testid="home-ai-workbench"/);
+  assert.doesNotMatch(homeFragments.get('page-ai-workbench'), /data-testid="home-full-detail-fold"/);
+  assert.match(homeFragments.get('page-compass-detail'), /data-testid="home-full-detail-fold"/);
+  assert.match(homeFragments.get('home-shared-secondary'), /data-testid="home-secondary-detail-fold"/);
   for (const requiredId of [
     'shared-expansion-history',
     'shared-transfer-context',
     'shared-transfer-history',
-    'page-compass-ai-workbench',
+    ...homeFragmentIds,
     'page-ctrip-ebooking',
     'page-meituan-ebooking',
     'page-agent-center',

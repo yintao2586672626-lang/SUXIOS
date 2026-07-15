@@ -5,6 +5,7 @@ namespace app\command;
 
 use app\service\PlatformDataSyncService;
 use app\service\OtaCredentialVault;
+use app\service\OtaFailureNotificationService;
 use think\console\Command;
 use think\console\Input;
 use think\console\Output;
@@ -119,6 +120,8 @@ class AutoFetchOnlineData extends Command
                         'timing' => is_array($result['timing'] ?? null) ? $result['timing'] : [],
                         'ctrip_section_concurrency' => $result['ctrip_section_concurrency'] ?? $ctripSectionConcurrency,
                         'realtime_schedule_interval_hours' => $realtimeIntervalHours,
+                        'failed_platforms' => $result['failed_platforms'] ?? [],
+                        'successful_platforms' => $result['successful_platforms'] ?? [],
                     ]);
                     $output->writeln("Hotel {$hotelName} {$run['label']} " . (!empty($result['success']) ? 'success' : 'failed') . ': ' . (string)($result['message'] ?? '-'));
                     Cache::set($run['executed_key'], true, 86400);
@@ -157,13 +160,15 @@ class AutoFetchOnlineData extends Command
                 'data_period' => $dataPeriod,
                 'timing' => $this->ensureTotalTiming(is_array($profileResult['timing'] ?? null) ? $profileResult['timing'] : [], $startedAt),
                 'ctrip_section_concurrency' => $ctripSectionConcurrency,
+                'failed_platforms' => $profileResult['failed_platforms'] ?? [],
+                'successful_platforms' => $profileResult['successful_platforms'] ?? [],
             ];
         }
 
         $ctripRequestUrl = $this->normalizeScheduledCtripRequestUrl($ctripRequestUrl);
         $ctripNodeId = $this->normalizeScheduledCtripNodeId($ctripNodeId);
         if ($ctripRequestUrl === '' || $ctripNodeId === '') {
-            return ['success' => false, 'message' => 'ctrip_execution_metadata_invalid', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt)];
+            return ['success' => false, 'message' => 'ctrip_execution_metadata_invalid', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt), 'failed_platforms' => ['ctrip']];
         }
 
         $locator = $this->resolveCtripCredentialLocatorForHotel($hotelId, $ctripConfigId);
@@ -174,6 +179,7 @@ class AutoFetchOnlineData extends Command
                 'saved_count' => 0,
                 'data_period' => $dataPeriod,
                 'timing' => $this->ensureTotalTiming([], $startedAt),
+                'failed_platforms' => ['ctrip'],
             ];
         }
 
@@ -187,7 +193,7 @@ class AutoFetchOnlineData extends Command
                     $cookieValue = $credentialPayload['cookies'] ?? $credentialPayload['cookie'] ?? null;
                     $cookies = is_scalar($cookieValue) ? trim((string)$cookieValue) : '';
                     if ($cookies === '') {
-                        return ['success' => false, 'message' => 'credential_payload_missing_cookie', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt)];
+                        return ['success' => false, 'message' => 'credential_payload_missing_cookie', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt), 'failed_platforms' => ['ctrip']];
                     }
 
                     $result = $this->sendHttpRequest(
@@ -197,19 +203,19 @@ class AutoFetchOnlineData extends Command
                     );
 
                     if (!$result['success']) {
-                        return ['success' => false, 'message' => 'ctrip_request_failed', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt)];
+                        return ['success' => false, 'message' => 'ctrip_request_failed', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt), 'failed_platforms' => ['ctrip']];
                     }
 
                     $savedCount = $this->parseAndSaveData($result['data'], $dataDate, $dataDate, $hotelId, $dataPeriod, $snapshotTime);
 
                     if ($savedCount === 0) {
-                        return ['success' => false, 'message' => 'no_valid_data', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt)];
+                        return ['success' => false, 'message' => 'no_valid_data', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt), 'failed_platforms' => ['ctrip']];
                     }
 
                     Log::info('Auto fetch online data succeeded', ['hotel_id' => $hotelId, 'count' => $savedCount]);
                     $this->updateCtripLatestFetchStatus($hotelId, date('Y-m-d H:i:s'), $dataDate, $savedCount);
 
-                    return ['success' => true, 'message' => "saved_{$savedCount}_rows", 'saved_count' => $savedCount, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt)];
+                    return ['success' => true, 'message' => "saved_{$savedCount}_rows", 'saved_count' => $savedCount, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt), 'successful_platforms' => ['ctrip']];
                 }
             );
         } catch (\Throwable $e) {
@@ -217,7 +223,7 @@ class AutoFetchOnlineData extends Command
                 'hotel_id' => $hotelId,
                 'exception_type' => get_debug_type($e),
             ]);
-            return ['success' => false, 'message' => 'credential_execution_failed', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt)];
+            return ['success' => false, 'message' => 'credential_execution_failed', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt), 'failed_platforms' => ['ctrip']];
         }
     }
 
@@ -261,6 +267,7 @@ class AutoFetchOnlineData extends Command
         $savedCount = 0;
         $savedByPlatform = [];
         $failedCount = 0;
+        $failedPlatforms = [];
         $timing = [];
         foreach ($sources as $source) {
             $platform = strtolower((string)($source['platform'] ?? 'source'));
@@ -276,6 +283,7 @@ class AutoFetchOnlineData extends Command
                 ]);
             } catch (\Throwable $e) {
                 $failedCount++;
+                $failedPlatforms[$platform] = true;
                 $messages[] = strtoupper($platform) . ' 数据源#' . (int)$source['id'] . ': ' . $e->getMessage();
                 continue;
             }
@@ -288,6 +296,7 @@ class AutoFetchOnlineData extends Command
             $savedByPlatform[$platform] = ($savedByPlatform[$platform] ?? 0) + $sourceSavedCount;
             if (!in_array((string)($result['status'] ?? ''), ['success', 'partial_success'], true) || $sourceSavedCount <= 0) {
                 $failedCount++;
+                $failedPlatforms[$platform] = true;
             }
             $messages[] = strtoupper($platform) . ' 数据源#' . (int)$source['id'] . ': ' . (string)($result['message'] ?? $result['status'] ?? '-');
         }
@@ -304,6 +313,8 @@ class AutoFetchOnlineData extends Command
                 'saved_count' => $savedCount,
                 'data_period' => $dataPeriod,
                 'timing' => $timing,
+                'failed_platforms' => array_keys($failedPlatforms),
+                'successful_platforms' => array_keys(array_filter($savedByPlatform, static fn(int $count): bool => $count > 0)),
             ];
         }
 
@@ -314,6 +325,8 @@ class AutoFetchOnlineData extends Command
             'saved_count' => 0,
             'data_period' => $dataPeriod,
             'timing' => $timing,
+            'failed_platforms' => array_keys($failedPlatforms),
+            'successful_platforms' => [],
         ];
     }
 
@@ -773,5 +786,44 @@ class AutoFetchOnlineData extends Command
         $status['failed_records'] = array_slice($failedRecords, 0, 30);
 
         Cache::set($statusKey, $status, 86400 * 30);
+
+        $failedPlatforms = $this->normalizeFailedPlatforms($details['failed_platforms'] ?? []);
+        $successfulPlatforms = $this->normalizeFailedPlatforms($details['successful_platforms'] ?? []);
+        if ((!$success || $failedPlatforms !== [] || $successfulPlatforms !== []) && $statusCode !== 'skipped_locked') {
+            try {
+                (new OtaFailureNotificationService())->recordCollectionOutcome([
+                    'hotel_id' => $hotelId,
+                    'platform' => 'ota',
+                    'failed_platforms' => $failedPlatforms,
+                    'successful_platforms' => $successfulPlatforms,
+                    'message' => $message,
+                    'data_date' => $dataDate,
+                    'success' => $success,
+                    'saved_count' => (int)($details['saved_count'] ?? 0),
+                    'actor_user_id' => 0,
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning('Scheduled OTA failure notifier execution failed', [
+                    'hotel_id' => $hotelId,
+                    'exception_type' => get_debug_type($e),
+                ]);
+            }
+        }
+    }
+
+    /** @return array<int, string> */
+    private function normalizeFailedPlatforms(mixed $platforms): array
+    {
+        if (!is_array($platforms)) {
+            return [];
+        }
+        $normalized = [];
+        foreach ($platforms as $platform) {
+            $platform = strtolower(trim((string)$platform));
+            if (in_array($platform, ['ctrip', 'meituan'], true)) {
+                $normalized[$platform] = true;
+            }
+        }
+        return array_keys($normalized);
     }
 }

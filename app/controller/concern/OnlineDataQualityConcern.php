@@ -52,7 +52,11 @@ trait OnlineDataQualityConcern
             $source = $this->request->get('source', '');
             $hotelId = trim((string)$this->request->get('system_hotel_id', $this->request->get('hotel_id', '')));  // 系统酒店筛选
             $otaHotelId = trim((string)$this->request->get('ota_hotel_id', '')); // OTA平台酒店ID筛选
-            $dataType = $this->request->get('data_type', ''); // 数据类型筛选
+            $dataType = $this->request->get('data_type', ''); // 单一数据类型筛选（兼容旧调用）
+            $dataTypes = $this->normalizeOnlineDataTypeFilters(
+                $dataType,
+                $this->request->get('data_types', '')
+            );
             $createStart = $this->request->get('create_start', ''); // 获取开始时间
             $createEnd = $this->request->get('create_end', ''); // 获取结束时间
             $page = max(1, intval($this->request->get('page', 1)));
@@ -85,8 +89,8 @@ trait OnlineDataQualityConcern
             }
 
             // 按数据类型筛选
-            if (!empty($dataType)) {
-                $query->where('data_type', $dataType);
+            if ($dataTypes !== []) {
+                $query->whereIn('data_type', $dataTypes);
             }
 
             // 按获取时间筛选（支持单日筛选）
@@ -133,9 +137,11 @@ trait OnlineDataQualityConcern
             foreach ($list as &$item) {
                 $bookOrderNum = intval($item['book_order_num'] ?? 0);
                 $rawTotalOrderNum = 0;
+                $rawData = [];
 
                 if (!empty($item['raw_data'])) {
-                    $rawData = json_decode($item['raw_data'], true);
+                    $decodedRawData = json_decode($item['raw_data'], true);
+                    $rawData = is_array($decodedRawData) ? $decodedRawData : [];
                     if ($rawData) {
                         $rawTotalOrderNum = intval($rawData['totalOrderNum'] ?? $rawData['total_order_num'] ?? 0);
                         // 添加排名字段
@@ -148,10 +154,15 @@ trait OnlineDataQualityConcern
                         $item['qunar_comment_score'] = $rawData['qunarCommentScore'] ?? $item['qunar_comment_score'] ?? null;
                         $item['qunar_detail_visitors'] = $rawData['qunarDetailVisitors'] ?? $item['qunar_detail_visitors'] ?? null;
                         $item['qunar_detail_cr'] = $rawData['qunarDetailCR'] ?? $item['qunar_detail_cr'] ?? null;
+                        $item['rank'] = $rawData['rank'] ?? $rawData['ranking'] ?? $item['rank'] ?? null;
+                        $item['rank_percent'] = $rawData['percent'] ?? $rawData['rankPercent'] ?? $rawData['rank_percent'] ?? $item['rank_percent'] ?? null;
+                        $item['rank_type'] = $rawData['rankType'] ?? $rawData['rank_type'] ?? $item['rank_type'] ?? null;
+                        $item['rank_metric'] = $rawData['dimension'] ?? $rawData['dimName'] ?? $item['rank_metric'] ?? null;
+                        $item['metric_status'] = $rawData['metricStatus'] ?? $rawData['metric_status'] ?? $item['metric_status'] ?? null;
                     }
                 }
                 $item['total_order_num'] = $rawTotalOrderNum > 0 ? $rawTotalOrderNum : $bookOrderNum;
-                $item['field_fact_status'] = $this->buildOnlineDataFieldFactStatus($item, is_array($rawData ?? null) ? $rawData : []);
+                $item['field_fact_status'] = $this->buildOnlineDataFieldFactStatus($item, $rawData);
                 $item['data_quality'] = $this->buildOnlineDataQuality($item);
             }
 
@@ -179,6 +190,26 @@ trait OnlineDataQualityConcern
             \think\facade\Log::error('获取线上数据列表失败: ' . $e->getMessage(), ['exception' => $e]);
             return $this->error('获取数据列表失败', 500);
         }
+    }
+
+    private function normalizeOnlineDataTypeFilters($dataType, $dataTypes): array
+    {
+        $single = trim((string)$dataType);
+        $values = $single !== ''
+            ? [$single]
+            : (is_array($dataTypes) ? $dataTypes : preg_split('/[,\s]+/', trim((string)$dataTypes)));
+        $normalized = [];
+        foreach (is_array($values) ? $values : [] as $value) {
+            $value = strtolower(trim((string)$value));
+            if ($value === '' || preg_match('/^[a-z0-9_-]{1,50}$/D', $value) !== 1) {
+                continue;
+            }
+            $normalized[$value] = true;
+            if (count($normalized) >= 12) {
+                break;
+            }
+        }
+        return array_keys($normalized);
     }
 
     private function buildOnlineDataQualitySummary(array $rows, array $scope = []): array

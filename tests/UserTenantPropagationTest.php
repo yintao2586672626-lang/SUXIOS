@@ -246,6 +246,86 @@ final class UserTenantPropagationTest extends TestCase
         self::assertSame(0, Db::name('user_hotel_permissions')->where('user_id', $userId)->count());
     }
 
+    public function testBatchHotelAssignmentsSavesAllUsersInOneTransaction(): void
+    {
+        $this->createSchema(true);
+        $this->seedRoleAndHotels();
+        $firstUserId = $this->seedUser(10, 101, 4, 'batch_beta_one');
+        $secondUserId = $this->seedUser(10, 101, 4, 'batch_beta_two');
+
+        $payload = $this->json($this->userController([
+            'changes' => [
+                ['user_id' => $firstUserId, 'hotel_ids' => [10, 20]],
+                ['user_id' => $secondUserId, 'hotel_ids' => [20]],
+            ],
+        ])->batchHotelAssignments());
+
+        self::assertSame(200, $payload['code']);
+        self::assertSame(2, (int)$payload['data']['affected_count']);
+        self::assertSame(10, (int)Db::name('users')->where('id', $firstUserId)->value('hotel_id'));
+        self::assertSame(20, (int)Db::name('users')->where('id', $secondUserId)->value('hotel_id'));
+        self::assertSame(101, (int)Db::name('users')->where('id', $firstUserId)->value('tenant_id'));
+        self::assertSame(202, (int)Db::name('users')->where('id', $secondUserId)->value('tenant_id'));
+
+        $firstTenants = Db::name('user_hotel_permissions')
+            ->where('user_id', $firstUserId)
+            ->order('hotel_id', 'asc')
+            ->column('tenant_id', 'hotel_id');
+        self::assertSame([10 => 101, 20 => 202], array_map('intval', $firstTenants));
+        self::assertSame(
+            202,
+            (int)Db::name('user_hotel_permissions')->where('user_id', $secondUserId)->where('hotel_id', 20)->value('tenant_id')
+        );
+    }
+
+    public function testBatchHotelAssignmentsRollsBackEveryUserWhenOnePermissionWriteFails(): void
+    {
+        $this->createSchema(true);
+        $this->seedRoleAndHotels();
+        $firstUserId = $this->seedUser(10, 101, 4, 'rollback_beta_one');
+        $secondUserId = $this->seedUser(10, 101, 4, 'rollback_beta_two');
+        Db::execute("CREATE TRIGGER reject_second_batch_permission
+            BEFORE INSERT ON user_hotel_permissions
+            WHEN NEW.user_id = {$secondUserId} AND NEW.hotel_id = 20
+            BEGIN
+                SELECT RAISE(ABORT, 'synthetic permission failure');
+            END");
+
+        $payload = $this->json($this->userController([
+            'changes' => [
+                ['user_id' => $firstUserId, 'hotel_ids' => [10, 20]],
+                ['user_id' => $secondUserId, 'hotel_ids' => [10, 20]],
+            ],
+        ])->batchHotelAssignments());
+
+        self::assertSame(500, $payload['code']);
+        self::assertStringContainsString('已回滚', (string)$payload['message']);
+        self::assertSame(10, (int)Db::name('users')->where('id', $firstUserId)->value('hotel_id'));
+        self::assertSame(10, (int)Db::name('users')->where('id', $secondUserId)->value('hotel_id'));
+        self::assertSame(0, Db::name('user_hotel_permissions')->count());
+        self::assertSame(0, Db::name('operation_logs')->count());
+    }
+
+    public function testBatchHotelAssignmentsRejectsNewGrantForDisabledUserWithoutWrites(): void
+    {
+        $this->createSchema(true);
+        $this->seedRoleAndHotels();
+        $userId = $this->seedUser(10, 101, 4, 'disabled_batch_beta');
+        Db::name('users')->where('id', $userId)->update(['status' => 0]);
+
+        $payload = $this->json($this->userController([
+            'changes' => [
+                ['user_id' => $userId, 'hotel_ids' => [10, 20]],
+            ],
+        ])->batchHotelAssignments());
+
+        self::assertSame(422, $payload['code']);
+        self::assertStringContainsString('停用账号不能新增', (string)$payload['message']);
+        self::assertSame(10, (int)Db::name('users')->where('id', $userId)->value('hotel_id'));
+        self::assertSame(0, Db::name('user_hotel_permissions')->count());
+        self::assertSame(0, Db::name('operation_logs')->count());
+    }
+
     public function testLegacySchemaWithoutTenantColumnsKeepsUserCreateCompatible(): void
     {
         $this->createSchema(false);
@@ -396,11 +476,11 @@ final class UserTenantPropagationTest extends TestCase
         Db::name('hotels')->insertAll($hotels);
     }
 
-    private function seedUser(int $hotelId, int $tenantId, int $roleId = 3): int
+    private function seedUser(int $hotelId, int $tenantId, int $roleId = 3, string $username = 'existing_tenant_user'): int
     {
         return (int)Db::name('users')->insertGetId([
             'tenant_id' => $tenantId,
-            'username' => 'existing_tenant_user',
+            'username' => $username,
             'password' => password_hash('Strong123!', PASSWORD_DEFAULT),
             'realname' => 'Existing user',
             'role_id' => $roleId,

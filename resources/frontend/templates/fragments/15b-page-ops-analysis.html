@@ -1,0 +1,101 @@
+                    <div v-if="currentPage === 'ops-analysis'" class="max-w-7xl mx-auto space-y-6">
+                        <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                            <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                                <div>
+                                    <div class="mb-1 text-sm font-medium text-amber-700">运营管理</div>
+                                    <h2 class="text-2xl font-bold text-gray-900">策析·根因定位</h2>
+                                    <p class="mt-1 max-w-3xl text-sm leading-6 text-gray-500">基于已读取的经营与 OTA 渠道事实按规则定位可能根因。结论是排查优先级，不是自动经营决策。</p>
+                                </div>
+                                <div class="flex flex-wrap items-end gap-2">
+                                    <label class="block">
+                                        <span class="mb-1 block text-xs text-gray-500">目标门店</span>
+                                        <select v-model="operationFilters.hotel_id" data-testid="ops-analysis-hotel" class="min-w-[180px] rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
+                                            <option value="">全部可见门店</option>
+                                            <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
+                                        </select>
+                                    </label>
+                                    <label class="block">
+                                        <span class="mb-1 block text-xs text-gray-500">经营日期</span>
+                                        <input v-model="operationFilters.date" data-testid="ops-analysis-date" type="date" class="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                    </label>
+                                    <button type="button" data-testid="ops-analysis-run" @click="analyzeOperationRootCause" :disabled="operationLoading.rootCause" class="rounded-lg bg-amber-700 px-4 py-2 text-sm font-medium text-white hover:bg-amber-800 disabled:cursor-wait disabled:opacity-60">
+                                        <i :class="[operationLoading.rootCause ? 'fas fa-spinner fa-spin' : 'fas fa-search', 'mr-1.5']"></i>{{ operationLoading.rootCause ? '分析中...' : '重新分析' }}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="operationLoading.rootCause" data-testid="ops-analysis-loading" class="rounded-xl border border-blue-100 bg-blue-50 p-8 text-center text-sm text-blue-700"><i class="fas fa-spinner fa-spin mr-2"></i>正在核对历史均值、渠道漏斗、竞对与服务质量...</div>
+                        <div v-else-if="operationError.rootCause" data-testid="ops-analysis-error" class="rounded-xl border border-red-100 bg-red-50 p-5 text-sm text-red-700">
+                            <div class="font-semibold">根因分析失败</div>
+                            <div class="mt-1">{{ operationError.rootCause }}</div>
+                            <button type="button" @click="analyzeOperationRootCause" class="mt-3 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100">重新分析</button>
+                        </div>
+                        <template v-else-if="operationRootCause">
+                            <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                                <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                                    <div>
+                                        <div class="text-xs font-semibold uppercase tracking-wide text-gray-400">当前判断</div>
+                                        <h3 class="mt-1 text-xl font-bold text-gray-900">{{ operationRootCause.main_problem || '数据不足' }}</h3>
+                                        <p class="mt-2 text-sm leading-6 text-gray-600">{{ operationRootCause.conclusion || '没有返回可验证的根因结论。' }}</p>
+                                    </div>
+                                    <span class="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">{{ operationProblemLevelLabel(operationRootCause.problem_level) }}</span>
+                                </div>
+                            </section>
+
+                            <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                                <div class="flex items-center justify-between gap-3">
+                                    <div>
+                                        <h3 class="font-bold text-gray-900">根因优先级</h3>
+                                        <p class="mt-1 text-sm text-gray-500">证据、影响和检查点都必须人工复核后才能形成执行动作。</p>
+                                    </div>
+                                    <span class="text-sm text-gray-500">{{ (operationRootCause.root_causes || []).length }} 项</span>
+                                </div>
+                                <div v-if="(operationRootCause.root_causes || []).length" class="mt-4 space-y-4">
+                                    <article v-for="cause in operationRootCause.root_causes" :key="cause.type + cause.priority" class="rounded-xl border border-gray-100 p-4">
+                                        <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                            <div>
+                                                <div class="flex flex-wrap items-center gap-2">
+                                                    <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-gray-900 text-xs font-bold text-white">{{ cause.priority }}</span>
+                                                    <h4 class="font-semibold text-gray-900">{{ cause.title }}</h4>
+                                                    <span class="rounded-full bg-blue-50 px-2 py-1 text-xs text-blue-700">置信度 {{ operationPercent((cause.confidence || 0) * 100) }}</span>
+                                                </div>
+                                                <div class="mt-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">证据：{{ cause.evidence || '未返回证据' }}</div>
+                                            </div>
+                                            <div class="text-sm font-medium text-emerald-700">{{ cause.suggestion || '待人工复核' }}</div>
+                                        </div>
+                                        <div class="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
+                                            <div class="rounded-lg bg-rose-50 p-3 text-sm text-rose-800">
+                                                <div class="mb-1 text-xs font-semibold text-rose-900">可能影响</div>
+                                                {{ cause.impact || '未返回影响说明' }}
+                                            </div>
+                                            <div class="rounded-lg bg-gray-50 p-3">
+                                                <div class="mb-2 text-xs font-semibold text-gray-700">检查点</div>
+                                                <div v-if="(cause.check_points || []).length" class="space-y-1 text-xs text-gray-600"><div v-for="item in cause.check_points" :key="item">• {{ item }}</div></div>
+                                                <div v-else="" class="text-xs text-gray-500">未返回检查点</div>
+                                            </div>
+                                            <div class="rounded-lg bg-emerald-50 p-3">
+                                                <div class="mb-2 text-xs font-semibold text-emerald-900">建议步骤</div>
+                                                <div v-if="(cause.action_steps || []).length" class="space-y-1 text-xs text-emerald-800"><div v-for="item in cause.action_steps" :key="item">• {{ item }}</div></div>
+                                                <div v-else="" class="text-xs text-emerald-800">未返回建议步骤</div>
+                                            </div>
+                                        </div>
+                                    </article>
+                                </div>
+                                <div v-else="" data-testid="ops-analysis-insufficient" class="mt-4 rounded-xl border border-dashed border-amber-200 bg-amber-50 p-8 text-center text-sm text-amber-800">现有数据不足以定位根因。请先回到全维数据页补齐 OTA 渠道、竞对或服务质量证据。</div>
+                            </section>
+
+                            <section class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                                <h3 class="font-bold text-gray-900">建议排查顺序</h3>
+                                <div v-if="(operationRootCause.next_actions || []).length" class="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+                                    <div v-for="(action, index) in operationRootCause.next_actions" :key="action" class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm text-gray-700"><span class="mr-2 font-bold text-amber-700">{{ index + 1 }}.</span>{{ action }}</div>
+                                </div>
+                                <div v-else="" class="mt-3 text-sm text-gray-500">暂无可验证的排查动作。</div>
+                                <div class="mt-4 flex flex-wrap gap-2">
+                                    <button type="button" @click="currentPage = 'ops-source'; loadOperationFullData()" class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">返回数据核对</button>
+                                    <button v-if="(operationRootCause.root_causes || []).length" type="button" @click="currentPage = 'ops-plan'" class="rounded-lg bg-gray-900 px-3 py-2 text-sm text-white hover:bg-gray-700">进入策略模拟</button>
+                                </div>
+                            </section>
+                        </template>
+                        <div v-else="" data-testid="ops-analysis-empty" class="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center text-sm text-gray-500">选择门店和日期后运行根因分析；未分析时不展示推测结论。</div>
+                    </div>

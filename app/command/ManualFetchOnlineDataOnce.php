@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace app\command;
 
-use app\model\SystemNotification;
+use app\service\OtaFailureNotificationService;
 use think\console\Command;
 use think\console\Input;
 use think\console\Output;
@@ -121,30 +121,14 @@ class ManualFetchOnlineDataOnce extends Command
         $dataDate = $startDate === $endDate ? $startDate : $startDate . ' 至 ' . $endDate;
 
         try {
-            SystemNotification::recordEvent([
+            (new OtaFailureNotificationService())->recordCollectionOutcome([
                 'hotel_id' => $hotelId,
-                'user_id' => (int)($task['user_id'] ?? 0),
+                'actor_user_id' => (int)($task['user_id'] ?? 0),
                 'platform' => (string)($task['platform'] ?? 'ctrip'),
-                'category' => 'capture_failed',
-                'severity' => 'error',
-                'title' => 'OTA 手动获取失败',
                 'message' => "数据日期 {$dataDate}，{$message}",
-                'action_type' => 'fetch',
-                'action_payload' => [
-                    'target_page' => 'online-data',
-                    'target_tab' => 'data',
-                    'action_label' => '重新获取',
-                    'data_date' => $dataDate,
-                ],
-                'source_module' => 'online_data',
-                'source_key' => implode(':', [
-                    'online_data',
-                    'manual_fetch',
-                    $hotelId,
-                    $dataDate,
-                    'fail',
-                    substr(sha1($message . '|' . ($task['task_id'] ?? '')), 0, 16),
-                ]),
+                'data_date' => $dataDate,
+                'success' => false,
+                'saved_count' => 0,
             ]);
         } catch (\Throwable $e) {
             // Notification failure must not hide the original background fetch failure.

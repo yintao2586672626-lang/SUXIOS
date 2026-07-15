@@ -66,7 +66,12 @@ test('competition-circle action and stored-data actions are truthful for hotel o
   assert.match(ranking, /aria-label="更新竞争圈"/);
   assert.match(ranking, /data-testid="meituan-ranking-advanced-tools"/);
   assert.match(ranking, /v-if="user\?\.is_super_admin"/);
-  assert.match(storedData, /竞争圈明细/);
+  assert.match(storedData, /同行榜单明细/);
+  assert.match(storedData, /卡片统计仅对应当前筛选的当前页/);
+  assert.match(storedData, /@click="queryMeituanStoredData"/);
+  assert.match(storedData, /当前第 \{\{ onlineDataPage \}\} 页/);
+  assert.match(storedData, /当前筛选暂无美团流量数据/);
+  assert.doesNotMatch(storedData, /总订单量|总营收|平均房价/);
   assert.match(storedData, /v-if="user\?\.is_super_admin"[^>]*@click="deleteOnlineDataItem\(item\.id\)"/);
   assert.match(template, /更新美团竞争圈/);
   assert.doesNotMatch(template, />一键获取美团</);

@@ -36,6 +36,17 @@ test('batch status endpoints require preview and explicit confirmation', () => {
   assert.match(hotelController, /包含无权管理的门店/);
 });
 
+test('direct hotel authorization uses one validated database transaction', () => {
+  assert.match(routes, /Route::post\('\/hotel-assignments', 'User\/batchHotelAssignments'\)/);
+  assert.match(userController, /public function batchHotelAssignments\(\): Response/);
+  assert.match(userController, /只能通过此入口分配内测用户/);
+  assert.match(userController, /停用账号不能新增门店授权/);
+  assert.match(userController, /Db::transaction\(function \(\) use \(\$plans\): void \{[\s\S]*syncUserHotelPermissions/);
+  assert.match(userController, /门店用户分配保存失败，已回滚且未修改任何用户/);
+  assert.match(publicEntry, /request\('\/users\/hotel-assignments'/);
+  assert.doesNotMatch(publicEntry, /for \(const \{ candidate, nextHotelIds \} of changedUsers\) \{[\s\S]{0,500}request\(`\/users\/\$\{candidate\.id\}`/);
+});
+
 test('hotel batch preview deduplicates users across stores without per-store queries', () => {
   assert.match(hotelController, /User::whereIn\('hotel_id', \$hotelIds\)/);
   assert.match(hotelController, /Db::name\('user_hotel_permissions'\)->whereIn\('hotel_id', \$hotelIds\)/);

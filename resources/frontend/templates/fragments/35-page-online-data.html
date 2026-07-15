@@ -2318,7 +2318,7 @@ Authorization: Bearer xxx"></textarea>
                                         <div class="p-5">
                                             <div class="space-y-4">
                                                 <p class="text-sm text-gray-600">
-                                                    首次使用需要账号使用者在自己的电脑登录各平台，系统只保存门店授权证据和登录态确认信息，后续自动采集复用该会话；登录失效时会提示重新授权，不写空数据。
+                                                    美团“立即采集”直接使用当前门店已保存的 Cookie/API 配置，不要求先绑定 Profile；定时自动采集才复用账号使用者本机 Profile。任一路径失败都会保留真实原因，不写空数据。
                                                 </p>
                                                 <div class="rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-900">
                                                     <i class="fas fa-info-circle mr-2"></i>
@@ -2347,6 +2347,10 @@ Authorization: Bearer xxx"></textarea>
                                                           <i :class="fetchingData ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-download mr-2'"></i>{{ fetchingData ? ('采集中 ' + formatAutoFetchElapsed(autoFetchRunElapsedSeconds)) : '立即采集' }}
                                                       </button>
                                                   </div>
+
+                                                <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs leading-5 text-emerald-900">
+                                                    <span class="font-semibold">采集方式：</span>立即采集＝已保存 Cookie/API 直连；定时计划＝已绑定 Profile。定时任务未绑定或登录失效时会明确阻塞，不回退到旧数据。
+                                                </div>
 
                                                 <platform-auto-settings-panels v-if="platformAutoSettingsPanelsReady" :ctx="$root">
                                                 </platform-auto-settings-panels>

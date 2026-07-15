@@ -231,8 +231,11 @@ assert.match(indexHtml, /\['ok', 'success', 'not_applicable'\]\.includes\(status
 assert.doesNotMatch(indexHtml, /applyHotelQuickFilter\('competitor', '1'\)/, 'competitor ranking should not be a top-level hotel-management filter card');
 assert.doesNotMatch(indexHtml, /美团竞对 \{\{ hotelCompetitorReadiness\(hotel\)\.label \}\}/, 'competitor readiness should not appear in the store identity cell');
 assert.match(indexHtml, /const hotelCompetitorActionMeta = \(hotel = \{\}\) => \{[\s\S]*openHomeQuickEntry\(\{ page: 'meituan-ebooking', tab: 'meituan-ranking' \}\)/, 'competitor readiness should remain reachable through the next-action flow');
-assert.match(indexHtml, /@click="refreshHotelBindingPanelLight"/, 'top-level status refresh should use the light refresh path');
-assert.match(indexHtml, />受控操作<\/span>[\s\S]*>深度刷新<\/span>[\s\S]*>数据迁移<\/span>[\s\S]*>用户授权<\/span>/, 'migration and authorization actions should be grouped as controlled admin operations');
+assert.match(indexHtml, /@click="refreshHotelBindingPanelLight\(\)"/, 'top-level status refresh should use the guarded light refresh path');
+assert.match(indexHtml, /当前统计已完成数据校验/, 'hotel management should identify the last complete verified snapshot');
+assert.match(indexHtml, /<template v-if="hotelManagementSnapshotReady">[\s\S]*全部门店/, 'hotel KPIs must remain hidden until a complete verified snapshot is ready');
+assert.match(indexHtml, /const loadHotelManagementSnapshot = async \(options = \{\}\) => \{[\s\S]*hotelManagementFailureLabels[\s\S]*当前指标尚未验证，不展示统计结果/, 'hotel refresh must surface partial failures instead of presenting unverified metrics as success');
+assert.match(indexHtml, /受控操作[\s\S]*深度刷新[\s\S]*数据迁移[\s\S]*用户授权/, 'migration and authorization actions should be grouped as controlled admin operations');
 assert.doesNotMatch(indexHtml, /hotelAccountHealthText\(hotel\)/, 'store identity cell should not repeat account-health summary already shown by platform cards');
 assert.doesNotMatch(indexHtml, /hotelAccountHealthClass\(hotel\)/, 'store identity cell should not keep a duplicate account-health badge');
 assert.doesNotMatch(indexHtml, /待办：\$\{action\}/, 'hotel account health tag should not repeat the concrete next action in the store info cell');
@@ -342,7 +345,8 @@ assert.match(indexHtml, /const canEditUserUsername = computed\(\(\) => \{[\s\S]*
 assert.match(indexHtml, /data-testid="new-user-username"[\s\S]*autocomplete="username"[\s\S]*:readonly="!canEditUserUsername"/, 'user modal username input must remain visible to password managers without becoming an editable decoy');
 assert.match(indexHtml, /data-testid="edit-user-new-password"[\s\S]*autocomplete="new-password"/, 'editing a user must keep the optional password field out of saved-login autofill');
 assert.match(indexHtml, /name="user_hotel_assignment_filter"[\s\S]*autocomplete="one-time-code"[\s\S]*readonly=""[\s\S]*removeAttribute\('readonly'\)/, 'hotel assignment search must block initial credential autofill and unlock on deliberate interaction');
-assert.match(indexHtml, /pendingUserAuthorizationHotel\.value = null;[\s\S]*showUserModal\.value = false;[\s\S]*await loadUsers\(\)/, 'successful user save must clear any legacy store-assignment guidance state');
+assert.doesNotMatch(indexHtml, /pendingUserAuthorizationHotel|正在分配门店：/, 'legacy user-page assignment guidance must not coexist with direct store authorization');
+assert.match(indexHtml, /这里搜索门店名称、编码或 ID；要从门店反查并分配用户，请在门店管理点击“授权用户”/, 'the user editor must distinguish hotel search from store-side user authorization');
 assert.match(initDatabaseCommand, /login_count INT UNSIGNED DEFAULT 0/, 'MySQL init command must create users.login_count used by login');
 assert.match(initDatabaseCommand, /login_count INTEGER DEFAULT 0/, 'SQLite init command must create users.login_count used by login');
 assert.match(indexHtml, /v-model="userForm\.hotel_ids"/, 'user modal must edit multiple hotel assignments');
@@ -471,8 +475,12 @@ assert.match(systemStatic, /const createHotelMergeForm = \(\) => \(\{[\s\S]*deac
 assert.match(indexHtml, /const showHotelUserAuthorizationModal = ref\(false\);/, 'per-store user authorization must use a direct assignment modal');
 assert.match(indexHtml, /const issueRoleIdForFilter = \(key = ''\) => \{[\s\S]*card\?\.key === normalizedKey[\s\S]*roleIssueProfile\(role\)\.key === normalizedKey[\s\S]*const betaUserRoleIdForFilter = \(\) => issueRoleIdForFilter\('beta_user'\)/, 'hotel authorization must locate beta users by role profile');
 assert.match(indexHtml, /const openUserAuthorization = async \(hotel = null\) => \{[\s\S]*if \(!hotel\?\.id\)[\s\S]*currentPage\.value = 'users'[\s\S]*hotelUserAuthorizationTarget\.value = \{[\s\S]*hotelUserAuthorizationUserIds\.value = hotelAuthorizationEligibleUsers\.value[\s\S]*showHotelUserAuthorizationModal\.value = true/, 'a hotel row must open direct user assignment while the header entry still opens user management');
-assert.match(indexHtml, /const saveHotelUserAuthorization = async \(\) => \{[\s\S]*request\(`\/users\/\$\{candidate\.id\}`[\s\S]*hotel_ids: nextHotelIds[\s\S]*await loadUsers\(\)[\s\S]*showHotelUserAuthorizationModal\.value = false/, 'direct hotel assignment must persist each changed beta user and refresh readback');
+assert.match(indexHtml, /const openUserAuthorization = async \(hotel = null\) => \{[\s\S]*Promise\.all\(\[[\s\S]*loadUsers\(\{ throwOnError: true \}\)[\s\S]*loadRoles\(\{ throwOnError: true \}\)[\s\S]*catch \(error\)[\s\S]*授权用户列表加载失败/, 'user assignment must stop on list-loading failure instead of opening stale or empty data');
+assert.match(indexHtml, /const saveHotelUserAuthorization = async \(\) => \{[\s\S]*request\('\/users\/hotel-assignments'[\s\S]*changes: changedUsers\.map[\s\S]*saveCommitted = true[\s\S]*await loadUsers\(\{ throwOnError: true \}\)[\s\S]*readbackMismatch[\s\S]*showHotelUserAuthorizationModal\.value = false/, 'direct hotel assignment must use one atomic request and verify post-save readback');
 assert.match(indexHtml, /data-testid="hotel-user-authorization-modal"[\s\S]*v-model="hotelUserAuthorizationUserIds"[\s\S]*saveHotelUserAuthorization/, 'direct hotel assignment modal must expose selectable users and an explicit save action');
+assert.match(indexHtml, /hotelAuthorizationCandidateDisabled\(candidate\)[\s\S]*停用·不可新增[\s\S]*停用·可移除/, 'disabled beta users must not receive new grants while existing grants remain removable');
+assert.match(indexHtml, /hotelProblemQueueOverview\.loginExpired === 0[\s\S]*:aria-pressed="filterHotelAccountHealth === 'login-expired'"/, 'zero-count issue filters must be disabled and expose their pressed state');
+assert.match(indexHtml, /filterHotelAccountHealth \? hotelAccountFilterPresentation\.title[\s\S]*hotelAccountFilterPresentation\.detail[\s\S]*hotelAccountFilterPresentation\.note/, 'empty filtered results must preserve the selected issue explanation');
 assert.match(indexHtml, /openUserModal, openUserAuthorization, closeHotelUserAuthorization, saveHotelUserAuthorization, openUserModalWithRole/, 'hotel authorization actions must be returned to the Vue template');
 assert.match(indexHtml, /const existingUserIssueGuideBlocker = \(u = \{\}\) =>/, 'row-level issuance copy must have explicit blocker checks');
 assert.match(indexHtml, /openUserLoginInfoModal\(u\)/, 'existing beta and normal users must expose a login-info reset and copy action');

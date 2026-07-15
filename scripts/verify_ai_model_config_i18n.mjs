@@ -179,7 +179,8 @@ const requiredSnippets = [
   "localStorage.setItem('suxios_locale', normalized)",
   'document.documentElement.lang = normalized',
   'updateCurrentTime',
-  'new Date().toLocaleString(currentLocale.value)',
+  "const appTimeZone = 'Asia/Shanghai'",
+  'new Intl.DateTimeFormat(locale',
   '@change="switchLocale($event.target.value)"',
 ];
 

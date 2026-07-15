@@ -5,7 +5,7 @@ namespace app\controller\concern;
 
 use app\model\OperationLog;
 use app\model\SystemConfig;
-use app\model\SystemNotification;
+use app\service\OtaFailureNotificationService;
 use app\service\OtaOperatingScope;
 use think\Response;
 use think\exception\HttpException;
@@ -862,22 +862,14 @@ trait CollectionReliabilityConcern
                 null,
                 ['reason_code' => 'ota_credential_reauthorization_required']
             );
-            SystemNotification::recordEvent([
+            (new OtaFailureNotificationService())->recordCollectionOutcome([
                 'hotel_id' => $hotelId,
-                'user_id' => (int)($this->currentUser->id ?? 0),
+                'actor_user_id' => (int)($this->currentUser->id ?? 0),
                 'platform' => $alertPlatform,
-                'category' => 'cookie_alert',
-                'severity' => 'warning',
-                'title' => $this->otaPlatformLabel($alertPlatform) . '授权需要更新',
-                'message' => '平台登录/Cookie 状态异常，需要重新登录或更新 Cookie 后再采集。',
-                'action_type' => 'cookie',
-                'action_payload' => [
-                    'target_page' => 'online-data',
-                    'target_tab' => 'data-health',
-                    'action_label' => '更新授权',
-                ],
-                'source_module' => 'online_data',
-                'source_key' => 'cookie_alert:' . $alertPlatform . ':' . (int)($hotelId ?? 0) . ':' . substr(sha1($alertName), 0, 16),
+                'reason_code' => 'login_expired',
+                'data_date' => date('Y-m-d'),
+                'success' => false,
+                'saved_count' => 0,
             ]);
         } catch (\Throwable $e) {
             // Alert storage must not block OTA fetching.

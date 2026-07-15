@@ -2128,7 +2128,13 @@ window.SUXI_CTRIP_STATIC = (() => {
         } catch (error) {
             const detail = error?.data?.data?.stderr || error?.data?.data?.stdout || '';
             notify(`${messages.exceptionPrefix || '携程概览获取失败'}: ${error.message}${detail ? '，请查看结果详情' : ''}`, 'error');
-            setResult(error?.data?.data || { error: error.message });
+            const errorResult = error?.data?.data && typeof error.data.data === 'object'
+                ? error.data.data
+                : {};
+            setResult({
+                ...errorResult,
+                error: errorResult.error || error.message || messages.failure || '携程概览抓取失败',
+            });
             return { status: 'exception', error };
         } finally {
             setFetching(false);

@@ -4225,6 +4225,333 @@ aside.sidebar.collapsed > .p-3:last-child button {
     }
 }
 
+/* Header utility cluster: language, notification and China Standard Time */
+.suxi-app-shell .header-utility-cluster {
+    gap: 8px !important;
+    align-items: stretch !important;
+}
+
+.suxi-app-shell .header-language-control,
+.suxi-app-shell .header-notification-button,
+.suxi-app-shell .header-time-panel {
+    height: 42px;
+    min-height: 42px;
+    border: 1px solid rgba(226, 213, 195, .58) !important;
+    border-radius: 10px !important;
+    background: rgba(251, 247, 239, .96) !important;
+    color: #101b18 !important;
+    box-shadow: 0 5px 16px rgba(0, 0, 0, .12) !important;
+}
+
+.suxi-app-shell .header-language-control {
+    gap: 8px;
+    padding: 4px 5px 4px 10px;
+}
+
+.suxi-app-shell .header-utility-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: #786b58 !important;
+    font-size: 11px;
+    font-weight: 650;
+    line-height: 1;
+}
+
+.suxi-app-shell .header-utility-label i {
+    color: #8b6f3c;
+}
+
+.suxi-app-shell .header-language-options {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 8px;
+    background: rgba(16, 27, 24, .07);
+}
+
+.suxi-app-shell .header .header-language-option {
+    width: auto !important;
+    min-width: 38px !important;
+    height: 28px !important;
+    min-height: 28px !important;
+    padding: 0 9px !important;
+    border: 0 !important;
+    border-radius: 6px !important;
+    background: transparent !important;
+    color: #59635f !important;
+    box-shadow: none !important;
+    font-size: 11px;
+    font-weight: 700;
+    transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.suxi-app-shell .header .header-language-option:hover {
+    color: #0d2a22 !important;
+}
+
+.suxi-app-shell .header .header-language-option.is-active {
+    background: #12372d !important;
+    color: #fffaf0 !important;
+    box-shadow: inset 0 0 0 1px rgba(220, 197, 145, .32) !important;
+}
+
+.suxi-app-shell .header-notification-control > .header-notification-button {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    width: auto !important;
+    min-width: 112px !important;
+    padding: 0 9px !important;
+    border-radius: 10px !important;
+    transition: border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+
+.suxi-app-shell .header-notification-control > .header-notification-button:hover,
+.suxi-app-shell .header-notification-control > .header-notification-button.is-open {
+    border-color: rgba(168, 138, 82, .72) !important;
+    box-shadow: 0 7px 18px rgba(0, 0, 0, .16), inset 0 0 0 1px rgba(168, 138, 82, .14) !important;
+}
+
+.suxi-app-shell .header-utility-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 28px;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: #101b18;
+    color: #dcc591;
+}
+
+.suxi-app-shell .header-notification-copy,
+.suxi-app-shell .header-time-copy {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+}
+
+.suxi-app-shell .header-notification-copy {
+    gap: 2px;
+    text-align: left;
+}
+
+.suxi-app-shell .header-notification-title {
+    color: #111b18;
+    font-size: 12px;
+    font-weight: 750;
+    line-height: 1;
+}
+
+.suxi-app-shell .header-notification-status {
+    color: #7d7569;
+    font-size: 10px;
+    line-height: 1;
+}
+
+.suxi-app-shell .header-notification-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 22px;
+    margin-left: auto;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: #b4232c;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+}
+
+.suxi-app-shell .header-notification-panel {
+    border-color: rgba(168, 138, 82, .28) !important;
+    border-radius: 14px !important;
+    background: #fffdf8 !important;
+    box-shadow: 0 24px 60px rgba(2, 7, 6, .24) !important;
+    color: #111b18 !important;
+}
+
+.suxi-app-shell .header .header-notification-panel-action,
+.suxi-app-shell .header .header-notification-panel-close,
+.suxi-app-shell .header .header-notification-footer-action {
+    width: auto !important;
+    min-width: 0 !important;
+    height: 30px !important;
+    min-height: 30px !important;
+    border-radius: 7px !important;
+    box-shadow: none !important;
+}
+
+.suxi-app-shell .header .header-notification-panel-action {
+    padding: 0 9px !important;
+    background: #f6f1e7 !important;
+    color: #4c554f !important;
+}
+
+.suxi-app-shell .header .header-notification-panel-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px !important;
+    padding: 0 !important;
+    border: 1px solid #e7dfd2 !important;
+    background: #fffdf8 !important;
+    color: #716b61 !important;
+}
+
+.suxi-app-shell .header .header-notification-item {
+    width: 100% !important;
+    min-width: 0 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    border-width: 0 0 1px !important;
+    border-radius: 0 !important;
+    border-color: #eee8de !important;
+    box-shadow: none !important;
+    color: #111827 !important;
+}
+
+.suxi-app-shell .header .header-notification-item.is-read {
+    background: #fffdf8 !important;
+}
+
+.suxi-app-shell .header .header-notification-item.is-unread {
+    background: #f3f7f4 !important;
+    box-shadow: inset 3px 0 0 #8b6f3c !important;
+}
+
+.suxi-app-shell .header .header-notification-item:hover {
+    background: #f8f3e9 !important;
+}
+
+.suxi-app-shell .header .header-notification-footer-action {
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+}
+
+.suxi-app-shell .header-time-panel {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 190px;
+    padding: 5px 10px;
+}
+
+.suxi-app-shell .header-clock-row {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    white-space: nowrap;
+}
+
+.suxi-app-shell .header-clock-row strong {
+    color: #111b18;
+    font-size: 13px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: .02em;
+    line-height: 1;
+}
+
+.suxi-app-shell .header-clock-row small {
+    color: #8b6f3c;
+    font-size: 9px;
+    font-weight: 750;
+    line-height: 1;
+}
+
+.suxi-app-shell .header-date-row {
+    margin-top: 3px;
+    color: #746d62;
+    font-size: 10px;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+    .suxi-app-shell .header-utility-cluster {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) 46px minmax(150px, 1fr);
+        width: 100%;
+        gap: 8px !important;
+    }
+
+    .suxi-app-shell .header-language-control,
+    .suxi-app-shell .header-time-panel {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .suxi-app-shell .header-utility-label > span {
+        display: none;
+    }
+
+    .suxi-app-shell .header-notification-control > .header-notification-button {
+        justify-content: center;
+        width: 46px !important;
+        min-width: 46px !important;
+        padding: 0 !important;
+    }
+
+    .suxi-app-shell .header-notification-copy {
+        display: none;
+    }
+
+    .suxi-app-shell .header-notification-count {
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        min-width: 20px;
+        height: 20px;
+        padding: 0 5px;
+        border: 0;
+    }
+
+    .suxi-app-shell .header-notification-panel {
+        position: fixed !important;
+        top: 72px !important;
+        right: 16px !important;
+        left: 16px !important;
+        width: auto !important;
+        max-width: none !important;
+        max-height: calc(100vh - 88px);
+    }
+}
+
+@media (max-width: 479px) {
+    .suxi-app-shell .header-utility-cluster {
+        grid-template-columns: minmax(0, 1fr) 46px;
+    }
+
+    .suxi-app-shell .header-language-control {
+        max-width: none !important;
+        justify-content: space-between;
+    }
+
+    .suxi-app-shell .header-language-options {
+        margin-left: auto;
+    }
+
+    .suxi-app-shell .header-time-panel {
+        grid-column: 1 / -1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .suxi-app-shell .header .header-language-option,
+    .suxi-app-shell .header-notification-control > .header-notification-button {
+        transition-duration: 1ms !important;
+    }
+}
+
 /* Login visual refresh: display-only overrides */
 .login-bg,
 .login-bg input,
