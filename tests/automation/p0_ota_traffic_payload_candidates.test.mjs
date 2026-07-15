@@ -9,6 +9,7 @@ const root = process.cwd();
 const scanner = path.join(root, 'scripts', 'scan_p0_ota_traffic_payload_candidates.mjs');
 const phpBinary = process.env.PHP_BINARY || 'C:\\xampp\\php\\php.exe';
 const p0Verifier = path.join(root, 'scripts', 'verify_p0_ota_field_loop_closure.php');
+const childProcessMaxBuffer = 16 * 1024 * 1024;
 const targetDate = '2026-06-15';
 const systemHotelId = '7';
 
@@ -249,8 +250,10 @@ function p0VerifierExpectedPayloadPaths(date) {
   ], {
     cwd: root,
     encoding: 'utf8',
+    maxBuffer: childProcessMaxBuffer,
   });
-  assert.ok([0, 1, 2].includes(Number(result.status ?? 0)), result.stderr);
+  assert.equal(result.error, undefined, result.error?.message);
+  assert.ok([0, 1, 2].includes(Number(result.status)), result.stderr);
   const json = JSON.parse(String(result.stdout || '').replace(/^\uFEFF/, '').trim());
   return Array.from(new Set(
     (json.platforms || [])

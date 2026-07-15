@@ -1,4 +1,5 @@
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -36,7 +37,7 @@ const coverageRows = [
 }));
 
 const factorNames = ['actor_scope', 'data_completeness', 'freshness', 'upstream_state'];
-const resultMap = {
+const baseResultMap = {
   满足: 'pass',
   部分满足: 'partial',
   不满足: 'fail',
@@ -44,11 +45,19 @@ const resultMap = {
   不适用: 'not_applicable',
 };
 
-function classifyEvidence(testCase) {
+function classifyBaseEvidence(testCase) {
   const basis = testCase.assessment_basis ?? '';
   if (/(自动化|最新执行|本机证据|运行检查)/u.test(basis)) return 'automated_or_runtime_evidence';
   if (/(代码|静态|范围|产品|公式|法规|WCAG|接口一致性)/u.test(basis)) return 'static_or_contract_evidence';
   return 'manual_or_external_evidence';
+}
+
+function classifyExecutionType(testCase) {
+  if (testCase.assessment_status === '不适用') return 'scope_review';
+  const baseEvidenceClass = classifyBaseEvidence(testCase);
+  if (baseEvidenceClass === 'automated_or_runtime_evidence') return 'automated_integration';
+  if (baseEvidenceClass === 'static_or_contract_evidence') return 'contract_plus_runtime';
+  return 'manual_or_external_integration';
 }
 
 function buildVariantSteps(testCase, factors) {
@@ -76,10 +85,34 @@ function buildVariantExpected(testCase, factors) {
   return `${testCase.expected}；组合守卫：${guards.join('；')}。`;
 }
 
+function buildPendingExecutionNote(factors) {
+  const context = factorNames.map((factorName) => `${factorName}=${factors[factorName]}`).join('；');
+  return `尚无该四因子组合的直接执行证据；需在隔离环境按“${context}”执行完整步骤，保存请求/响应、数据库回读、页面回显和日志证据后再更新状态。500 条基线评估仅作参考，不能替代本变体验证。`;
+}
+
+function createScenarioSignature(baseCase, factors, steps, expected) {
+  // Exclude generated IDs, ordinal numbers, dates and the L8 title suffix so
+  // title-only/date-only variants cannot pass the semantic uniqueness check.
+  const semanticDefinition = {
+    category_code: baseCase.category_code,
+    category_name: baseCase.category_name,
+    scope: baseCase.scope,
+    test_type: baseCase.type,
+    benchmark_basis: baseCase.benchmark_basis,
+    precondition: baseCase.precondition,
+    steps,
+    expected,
+    factors: factorNames.map((factorName) => [factorName, factors[factorName]]),
+  };
+  return `sha256:${createHash('sha256').update(JSON.stringify(semanticDefinition), 'utf8').digest('hex')}`;
+}
+
 const cases = [];
 for (const baseCase of baseCases) {
   for (const factors of coverageRows) {
     const ordinal = cases.length + 1;
+    const steps = buildVariantSteps(baseCase, factors);
+    const expected = buildVariantExpected(baseCase, factors);
     cases.push({
       id: `DX-${String(ordinal).padStart(4, '0')}`,
       base_case_id: baseCase.id,
@@ -89,6 +122,7 @@ for (const baseCase of baseCases) {
       priority: baseCase.priority,
       scope: baseCase.scope,
       type: baseCase.type,
+      execution_type: classifyExecutionType(baseCase),
       title: `${baseCase.title}｜L8-${factors.variant}`,
       factors: {
         actor_scope: factors.actor_scope,
@@ -98,14 +132,18 @@ for (const baseCase of baseCases) {
       },
       benchmark_basis: baseCase.benchmark_basis,
       precondition: baseCase.precondition,
-      steps: buildVariantSteps(baseCase, factors),
-      expected: buildVariantExpected(baseCase, factors),
-      evidence_execution_class: classifyEvidence(baseCase),
-      evidence_result: resultMap[baseCase.assessment_status],
+      steps,
+      expected,
+      scenario_signature: createScenarioSignature(baseCase, factors, steps, expected),
+      base_evidence_execution_class: classifyBaseEvidence(baseCase),
+      base_assessment_result: baseResultMap[baseCase.assessment_status],
       base_assessment_status: baseCase.assessment_status,
-      assessment_basis: baseCase.assessment_basis,
-      project_evidence: baseCase.project_evidence,
-      next_action: baseCase.next_action,
+      base_assessment_basis: baseCase.assessment_basis,
+      base_project_evidence: baseCase.project_evidence,
+      base_next_action: baseCase.next_action,
+      variant_execution_status: 'not_executed',
+      variant_execution_evidence: null,
+      pending_execution_note: buildPendingExecutionNote(factors),
       case_definition_valid: true,
     });
   }
@@ -132,19 +170,80 @@ function verifyPairwiseCoverage(rows) {
 }
 
 const pairwiseGaps = verifyPairwiseCoverage(coverageRows);
-const requiredFields = ['id', 'base_case_id', 'category_code', 'priority', 'title', 'benchmark_basis', 'expected', 'evidence_result'];
-const invalidCases = cases.filter((testCase) => requiredFields.some((field) => testCase[field] === undefined || testCase[field] === ''));
+const requiredFields = [
+  'id',
+  'base_case_id',
+  'category_code',
+  'priority',
+  'type',
+  'execution_type',
+  'title',
+  'benchmark_basis',
+  'precondition',
+  'steps',
+  'expected',
+  'scenario_signature',
+  'base_assessment_result',
+  'base_assessment_status',
+  'variant_execution_status',
+  'pending_execution_note',
+];
+const hasRequiredValue = (value) => {
+  if (Array.isArray(value)) return value.length > 0 && value.every((item) => typeof item === 'string' && item.trim() !== '');
+  return value !== undefined && value !== null && (typeof value !== 'string' || value.trim() !== '');
+};
+const invalidCases = cases.filter((testCase) => requiredFields.some((field) => !hasRequiredValue(testCase[field])));
 const uniqueIds = new Set(cases.map((testCase) => testCase.id));
+const invalidContinuousIds = cases.filter((testCase, index) => testCase.id !== `DX-${String(index + 1).padStart(4, '0')}`);
+const uniqueScenarioSignatures = new Set(cases.map((testCase) => testCase.scenario_signature));
+const duplicateScenarioSignatures = cases.length - uniqueScenarioSignatures.size;
 const baseCoverage = new Map();
 for (const testCase of cases) baseCoverage.set(testCase.base_case_id, (baseCoverage.get(testCase.base_case_id) ?? 0) + 1);
 const invalidBaseCoverage = [...baseCoverage.entries()].filter(([, count]) => count !== coverageRows.length);
+const categoryCoverage = new Map();
+for (const testCase of cases) categoryCoverage.set(testCase.category_code, (categoryCoverage.get(testCase.category_code) ?? 0) + 1);
+const expectedCategoryCoverage = new Map(sourceAudit.category_summary.map((category) => [category.code, category.total * coverageRows.length]));
+const invalidCategoryCoverage = [...expectedCategoryCoverage.entries()]
+  .filter(([code, expected]) => categoryCoverage.get(code) !== expected)
+  .map(([code, expected]) => ({ code, expected, actual: categoryCoverage.get(code) ?? 0 }));
+const unexpectedCategories = [...categoryCoverage.keys()].filter((code) => !expectedCategoryCoverage.has(code));
+const allowedVariantStatuses = new Set(['not_executed', 'pass', 'partial', 'fail', 'blocked', 'not_applicable']);
+const invalidVariantEvidence = cases.filter((testCase) => {
+  if (!allowedVariantStatuses.has(testCase.variant_execution_status)) return true;
+  if (testCase.variant_execution_status === 'not_executed') {
+    return testCase.variant_execution_evidence !== null || !hasRequiredValue(testCase.pending_execution_note);
+  }
+  return !hasRequiredValue(testCase.variant_execution_evidence);
+});
+const unexpectedExecutedVariants = cases.filter((testCase) => testCase.variant_execution_status !== 'not_executed');
 
-if (cases.length !== 4000 || uniqueIds.size !== 4000 || invalidCases.length || invalidBaseCoverage.length || pairwiseGaps.length) {
+if (
+  cases.length !== 4000
+  || uniqueIds.size !== 4000
+  || invalidContinuousIds.length
+  || duplicateScenarioSignatures
+  || invalidCases.length
+  || baseCoverage.size !== baseCases.length
+  || invalidBaseCoverage.length
+  || invalidCategoryCoverage.length
+  || unexpectedCategories.length
+  || invalidVariantEvidence.length
+  || unexpectedExecutedVariants.length
+  || pairwiseGaps.length
+) {
   throw new Error(JSON.stringify({
     total: cases.length,
     unique: uniqueIds.size,
+    invalidContinuousIds: invalidContinuousIds.length,
+    uniqueScenarioSignatures: uniqueScenarioSignatures.size,
+    duplicateScenarioSignatures,
     invalidCases: invalidCases.length,
+    baseCoverageSize: baseCoverage.size,
     invalidBaseCoverage,
+    invalidCategoryCoverage,
+    unexpectedCategories,
+    invalidVariantEvidence: invalidVariantEvidence.length,
+    unexpectedExecutedVariants: unexpectedExecutedVariants.length,
     pairwiseGaps,
   }));
 }
@@ -160,11 +259,14 @@ const categorySummary = sourceAudit.category_summary.map((category) => {
     code: category.code,
     name: category.name,
     total: rows.length,
-    pass: rows.filter((testCase) => testCase.evidence_result === 'pass').length,
-    partial: rows.filter((testCase) => testCase.evidence_result === 'partial').length,
-    fail: rows.filter((testCase) => testCase.evidence_result === 'fail').length,
-    blocked: rows.filter((testCase) => testCase.evidence_result === 'blocked').length,
-    not_applicable: rows.filter((testCase) => testCase.evidence_result === 'not_applicable').length,
+    base_assessment_results: Object.fromEntries(
+      ['pass', 'partial', 'fail', 'blocked', 'not_applicable']
+        .map((result) => [result, rows.filter((testCase) => testCase.base_assessment_result === result).length]),
+    ),
+    variant_execution_statuses: Object.fromEntries(
+      ['not_executed', 'pass', 'partial', 'fail', 'blocked', 'not_applicable']
+        .map((status) => [status, rows.filter((testCase) => testCase.variant_execution_status === status).length]),
+    ),
   };
 });
 
@@ -196,17 +298,23 @@ const summary = {
   title: '宿析OS 4,000 条软件与酒店运营诊断矩阵',
   audit_date: auditDate,
   generated_at: new Date().toISOString(),
-  methodology: '500 个互联网标准/行业基线核心场景 × NIST L8 四因子两两组合 = 4,000 条；项目结果采用现有自动化、运行、静态合同或外部证据分级，不把未实操项判为动态通过。',
+  methodology: '500 个互联网标准/行业基线核心场景 × NIST L8 四因子两两组合 = 4,000 条；500 条基线评估只保存在 base_assessment_result，所有没有组合级直接证据的 L8 变体均为 not_executed，不把基线结论传播为变体动态通过。',
   totals: {
     cases: cases.length,
     base_cases: baseCases.length,
     variants_per_base: coverageRows.length,
     unique_ids: uniqueIds.size,
+    continuous_ids: cases.length - invalidContinuousIds.length,
+    unique_scenario_signatures: uniqueScenarioSignatures.size,
+    duplicate_scenario_signatures: duplicateScenarioSignatures,
     definition_validation_passed: cases.length - invalidCases.length,
     definition_validation_failed: invalidCases.length,
+    invalid_variant_evidence_records: invalidVariantEvidence.length,
     pairwise_coverage_gaps: pairwiseGaps.length,
-    evidence_results: countBy('evidence_result'),
-    evidence_execution_classes: countBy('evidence_execution_class'),
+    base_assessment_results: countBy('base_assessment_result'),
+    variant_execution_statuses: countBy('variant_execution_status'),
+    execution_types: countBy('execution_type'),
+    base_evidence_execution_classes: countBy('base_evidence_execution_class'),
   },
   factor_model: {
     factors: factorNames,
@@ -216,8 +324,9 @@ const summary = {
   category_summary: categorySummary,
   sources: internetSources,
   execution_boundary: {
-    matrix_validation: '4,000 条用例定义均已执行结构校验；ID、来源、步骤、预期、证据结果和每个核心场景 8 个变体完整。',
-    project_behavior: '项目行为结论来自单独重跑的 PHPUnit、Node、P0 守卫、健康检查和浏览器 E2E；静态或外部证据不冒充动态执行。',
+    matrix_validation: '4,000 条用例定义均已执行结构校验；ID 连续唯一、语义签名唯一、必填字段完整、领域配额正确、每个核心场景 8 个变体完整且两两覆盖无缺口。',
+    variant_execution: '当前 4,000 条 L8 变体均为 not_executed；只有保存该权限/完整性/新鲜度/上游状态组合的直接证据后，才能更新为 pass、partial、fail、blocked 或 not_applicable。',
+    base_assessment: 'base_assessment_result 来自 500 条基线资产，只用于排期与上下文参考，不是 L8 变体执行结果。',
   },
 };
 
@@ -234,21 +343,29 @@ markdown.push('# 宿析OS 4,000 条软件与酒店运营诊断矩阵', '');
 markdown.push(`- 生成日期：${auditDate}`);
 markdown.push('- 设计：500 个核心场景 × NIST L8 四因子两两组合 = 4,000 条。');
 markdown.push('- 四因子：权限范围、数据完整性、数据新鲜度、上游状态。');
-markdown.push('- 真实性边界：4,000 条均完成用例定义与组合覆盖校验；项目功能是否动态通过，以单独运行的 PHPUnit、Node、P0、健康检查和浏览器 E2E 为准。', '');
+markdown.push('- 真实性边界：4,000 条均完成用例定义与组合覆盖校验，但当前没有组合级直接执行证据，全部保持 `not_executed`；500 条基线评估不能替代变体执行。', '');
 markdown.push('## 矩阵校验', '');
 markdown.push(`- 用例总数：${summary.totals.cases}`);
 markdown.push(`- 唯一 ID：${summary.totals.unique_ids}`);
+markdown.push(`- 连续 ID：${summary.totals.continuous_ids}`);
+markdown.push(`- 唯一语义签名：${summary.totals.unique_scenario_signatures}`);
+markdown.push(`- 重复语义签名：${summary.totals.duplicate_scenario_signatures}`);
 markdown.push(`- 定义校验通过：${summary.totals.definition_validation_passed}`);
+markdown.push(`- 变体证据状态违规：${summary.totals.invalid_variant_evidence_records}`);
 markdown.push(`- 两两组合覆盖缺口：${summary.totals.pairwise_coverage_gaps}`, '');
-markdown.push('## 项目证据映射', '');
-markdown.push('| 结果 | 数量 |', '|---|---:|');
-for (const [result, count] of Object.entries(summary.totals.evidence_results)) markdown.push(`| ${result} | ${count} |`);
-markdown.push('', '| 证据类型 | 数量 |', '|---|---:|');
-for (const [result, count] of Object.entries(summary.totals.evidence_execution_classes)) markdown.push(`| ${result} | ${count} |`);
+markdown.push('## 变体执行状态（动态结果唯一口径）', '');
+markdown.push('| 状态 | 数量 |', '|---|---:|');
+for (const [status, count] of Object.entries(summary.totals.variant_execution_statuses)) markdown.push(`| ${status} | ${count} |`);
+markdown.push('', '## 500 条基线评估映射（仅参考）', '');
+markdown.push('| 基线结果 | 映射变体数 |', '|---|---:|');
+for (const [result, count] of Object.entries(summary.totals.base_assessment_results)) markdown.push(`| ${result} | ${count} |`);
+markdown.push('', '## 计划执行类型', '');
+markdown.push('| 类型 | 数量 |', '|---|---:|');
+for (const [executionType, count] of Object.entries(summary.totals.execution_types)) markdown.push(`| ${executionType} | ${count} |`);
 markdown.push('', '## 分类结果', '');
-markdown.push('| 分类 | 总数 | 通过 | 部分 | 失败 | 阻塞 | 不适用 |', '|---|---:|---:|---:|---:|---:|---:|');
+markdown.push('| 分类 | 总数 | 基线通过映射 | 基线部分映射 | 基线失败映射 | 基线阻塞映射 | 基线不适用映射 | 变体未执行 |', '|---|---:|---:|---:|---:|---:|---:|---:|');
 for (const row of categorySummary) {
-  markdown.push(`| ${row.code} ${row.name} | ${row.total} | ${row.pass} | ${row.partial} | ${row.fail} | ${row.blocked} | ${row.not_applicable} |`);
+  markdown.push(`| ${row.code} ${row.name} | ${row.total} | ${row.base_assessment_results.pass} | ${row.base_assessment_results.partial} | ${row.base_assessment_results.fail} | ${row.base_assessment_results.blocked} | ${row.base_assessment_results.not_applicable} | ${row.variant_execution_statuses.not_executed} |`);
 }
 markdown.push('', '## 生成物', '');
 markdown.push(`- 完整 4,000 条 JSONL：\`docs/qa/${path.basename(jsonlPath)}\``);

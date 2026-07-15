@@ -6,6 +6,7 @@ const root = process.cwd();
 const phpBinary = process.env.PHP_BINARY || 'C:\\xampp\\php\\php.exe';
 const importer = path.join(root, 'scripts', 'import_p0_ota_traffic_payload.php');
 const p0Verifier = path.join(root, 'scripts', 'verify_p0_ota_field_loop_closure.php');
+const childProcessMaxBuffer = 16 * 1024 * 1024;
 const p0RequiredTrafficMetricKeys = [
   'detail_exposure',
   'flow_rate',
@@ -200,7 +201,14 @@ function collectVerifierScopedTargets(scanOptions, scanPlatforms) {
   ], {
     cwd: root,
     encoding: 'utf8',
+    maxBuffer: childProcessMaxBuffer,
   });
+  if (child.error) {
+    throw new Error(`P0 verifier process failed for hotel-scoped payload candidates: ${child.error.message}`);
+  }
+  if (child.status === null) {
+    throw new Error(`P0 verifier process ended without an exit status for hotel-scoped payload candidates (signal=${child.signal || 'unknown'})`);
+  }
   const stdout = String(child.stdout || '').trim();
   let parsed = {};
   try {
@@ -356,6 +364,7 @@ function runImporterDryRun(target, scanOptions) {
   ], {
     cwd: root,
     encoding: 'utf8',
+    maxBuffer: childProcessMaxBuffer,
   });
   const stdout = String(child.stdout || '').trim();
   let parsed = {};
