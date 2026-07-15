@@ -7,6 +7,7 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDir, '..');
 const qaDir = path.join(projectRoot, 'docs', 'qa');
 const auditDate = '2026-07-15';
+const generatedAt = `${auditDate}T00:00:00+08:00`;
 const sourcePath = path.join(qaDir, 'hotel_system_500_test_cases_2026-07-14.json');
 
 const sourceAudit = JSON.parse(readFileSync(sourcePath, 'utf8'));
@@ -297,7 +298,9 @@ const internetSources = [
 const summary = {
   title: '宿析OS 4,000 条软件与酒店运营诊断矩阵',
   audit_date: auditDate,
-  generated_at: new Date().toISOString(),
+  // Use an audit-snapshot timestamp so the checked-in artifact is byte-stable
+  // across deterministic regeneration on different machines.
+  generated_at: generatedAt,
   methodology: '500 个互联网标准/行业基线核心场景 × NIST L8 四因子两两组合 = 4,000 条；500 条基线评估只保存在 base_assessment_result，所有没有组合级直接证据的 L8 变体均为 not_executed，不把基线结论传播为变体动态通过。',
   totals: {
     cases: cases.length,
@@ -370,7 +373,7 @@ for (const row of categorySummary) {
 markdown.push('', '## 生成物', '');
 markdown.push(`- 完整 4,000 条 JSONL：\`docs/qa/${path.basename(jsonlPath)}\``);
 markdown.push(`- 汇总 JSON：\`docs/qa/${path.basename(resultPath)}\``);
-markdown.push(`- 生成脚本：\`scripts/${path.basename(fileURLToPath(import.meta.url))}\``, '');
+markdown.push(`- 生成脚本：\`scripts/${path.basename(fileURLToPath(import.meta.url))}\``);
 
 const summaryPath = path.join(qaDir, `hotel_system_4000_diagnostic_summary_${auditDate}.md`);
 writeFileSync(summaryPath, `${markdown.join('\n')}\n`, 'utf8');

@@ -1,7 +1,7 @@
 {
   "title": "宿析OS 4,000 条软件与酒店运营诊断矩阵",
   "audit_date": "2026-07-15",
-  "generated_at": "2026-07-15T00:45:15.554Z",
+  "generated_at": "2026-07-15T00:00:00+08:00",
   "methodology": "500 个互联网标准/行业基线核心场景 × NIST L8 四因子两两组合 = 4,000 条；500 条基线评估只保存在 base_assessment_result，所有没有组合级直接证据的 L8 变体均为 not_executed，不把基线结论传播为变体动态通过。",
   "totals": {
     "cases": 4000,
