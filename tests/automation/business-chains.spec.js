@@ -329,6 +329,8 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
       const row = (imported.list || []).find((item) => String(item.hotel_id) === otaHotelId);
       expect(row).toBeTruthy();
       expect(Number(row.system_hotel_id)).toBe(hotelContext.hotelId);
+      expect(Number(row.readback_verified)).toBe(1);
+      expect(String(row.readback_verified_at || '')).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
       cleanups.push(() => api.post('/api/online-data/delete-data', { id: row.id }, { label: 'cleanup OTA row' }).catch(() => null));
 
       const revenue = await api.get('/api/online-data/data-analysis', {

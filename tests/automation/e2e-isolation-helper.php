@@ -72,6 +72,42 @@ function e2eHasColumn(string $table, string $column): bool
     return isset(e2eTableColumns($table)[$column]);
 }
 
+/** @return array{schema_ready: true, schema_contract: string} */
+function e2eAssertSchemaReady(): array
+{
+    $requiredColumns = [
+        'roles' => ['id', 'name'],
+        'users' => ['id', 'username', 'role_id', 'hotel_id', 'tenant_id'],
+        'hotels' => ['id', 'name', 'tenant_id'],
+        'user_hotel_permissions' => ['user_id', 'hotel_id'],
+        'online_daily_data' => [
+            'id', 'tenant_id', 'system_hotel_id', 'hotel_id', 'data_date',
+            'source', 'data_type', 'dimension',
+            'readback_verified', 'readback_verified_at',
+        ],
+    ];
+    $missing = [];
+    foreach ($requiredColumns as $table => $columns) {
+        $available = e2eTableColumns($table);
+        foreach ($columns as $column) {
+            if (!isset($available[$column])) {
+                $missing[] = $table . '.' . $column;
+            }
+        }
+    }
+    if ($missing !== []) {
+        throw new RuntimeException(
+            'Isolated E2E database schema is missing or stale: ' . implode(', ', $missing)
+            . '; initialize or migrate this dedicated test database with database/init_full.sql before running E2E'
+        );
+    }
+
+    return [
+        'schema_ready' => true,
+        'schema_contract' => 'e2e-core-v1',
+    ];
+}
+
 function e2ePrefixQuery(string $table, string $column, string $prefix): \think\db\Query
 {
     if (!preg_match('/^[A-Za-z0-9_]+$/D', $column)) {
@@ -422,7 +458,7 @@ try {
     $action = (string)($argv[1] ?? '');
     $databaseSafety = e2eDatabaseSafetyGuard();
     if ($action === 'guard') {
-        $result = $databaseSafety;
+        $result = array_merge($databaseSafety, e2eAssertSchemaReady());
     } else {
         $prefix = e2ePrefix();
         $result = match ($action) {

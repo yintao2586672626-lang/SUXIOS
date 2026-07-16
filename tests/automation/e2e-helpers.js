@@ -392,13 +392,58 @@ function installDiagnostics(page, sinks = {}) {
 
 async function login(page, config = getConfig()) {
   await page.goto(config.baseURL, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  const usernameInput = page.getByTestId('login-username').or(page.locator('input[name="username"]')).first();
+  const publicLoginForm = page.locator('#public-login-form');
+  const hasPublicLoginForm = await publicLoginForm.count() > 0;
+  const usernameInput = hasPublicLoginForm
+    ? publicLoginForm.locator('input[name="username"]').first()
+    : page.getByTestId('login-username').or(page.locator('input[name="username"]')).first();
   if (await usernameInput.count()) {
+    if (hasPublicLoginForm) {
+      await expect(publicLoginForm).toHaveAttribute('data-suxi-login-ready', '1', { timeout: 10000 });
+    }
     await usernameInput.fill(config.username);
-    await page.getByTestId('login-password').or(page.locator('input[name="password"]')).first().fill(config.password);
-    await page.getByTestId('login-submit').or(page.locator('button[type="submit"]')).first().click();
+    const passwordInput = hasPublicLoginForm
+      ? publicLoginForm.locator('input[name="password"]').first()
+      : page.getByTestId('login-password').or(page.locator('input[name="password"]')).first();
+    await passwordInput.fill(config.password);
+    const submitButton = hasPublicLoginForm
+      ? publicLoginForm.locator('button[type="submit"]').first()
+      : page.getByTestId('login-submit').or(page.locator('button[type="submit"]')).first();
+    await expect(submitButton).toBeEnabled({ timeout: 10000 });
+    let loginResponse;
+    try {
+      [loginResponse] = await Promise.all([
+        page.waitForResponse((response) => {
+          const request = response.request();
+          return request.method() === 'POST' && new URL(response.url()).pathname === '/api/auth/login';
+        }, { timeout: 20000 }),
+        submitButton.click(),
+      ]);
+    } catch (error) {
+      const visibleError = await page.locator('#public-login-error span, #login-error').first().textContent().catch(() => '');
+      const browserState = await page.evaluate(() => {
+        const form = document.getElementById('public-login-form');
+        const username = document.getElementById('login-username');
+        const password = document.getElementById('login-password');
+        const submit = form?.querySelector('button[type="submit"]');
+        return {
+          url: location.href,
+          ready: form?.dataset?.suxiLoginReady || '',
+          username_length: String(username?.value || '').length,
+          password_length: String(password?.value || '').length,
+          submit_disabled: Boolean(submit?.disabled),
+        };
+      }).catch(() => ({ url: page.url(), page_unavailable: true }));
+      throw new Error(`Browser login interaction did not complete${visibleError?.trim() ? `: ${visibleError.trim()}` : ''}; state=${JSON.stringify(browserState)}`, { cause: error });
+    }
+    const loginPayload = await loginResponse.json().catch(() => ({}));
+    if (!loginResponse.ok() || Number(loginPayload?.code) !== 200) {
+      throw new Error(`Browser login failed with HTTP ${loginResponse.status()} code ${String(loginPayload?.code ?? 'unknown')}`);
+    }
   }
-  await expect(page.locator('input[name="username"]')).toHaveCount(0, { timeout: 10000 });
+  await expect(page.locator('input[name="username"]')).toHaveCount(0, { timeout: 30000 });
+  await expect(page.locator('#app[data-asset-error-rendered="1"]')).toHaveCount(0);
+  await expect(page.getByTestId('app-main')).toBeVisible({ timeout: 30000 });
 }
 
 async function navRoot(page) {

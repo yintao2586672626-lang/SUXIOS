@@ -319,7 +319,7 @@ let isolatedServer = null;
 try {
   const databaseSafety = runHelper('guard');
   databaseGuardPassed = true;
-  console.log(`[e2e-isolation] database-guard mode=${databaseSafety.mode} host_scope=${databaseSafety.database_host_scope}`);
+  console.log(`[e2e-isolation] database-guard mode=${databaseSafety.mode} host_scope=${databaseSafety.database_host_scope} schema=${databaseSafety.schema_contract}`);
   if (selfHosted) {
     isolatedServer = startIsolatedServer();
     console.log(`[e2e-isolation] server database=${dedicatedDatabaseName} base_url=${baseURL}`);

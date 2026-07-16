@@ -43,6 +43,14 @@ test('isolated E2E refuses unsafe database targets before any cleanup path', () 
   assert.match(databaseGuard, /\*_test\/\*_testing\/\*_e2e database/);
 });
 
+test('isolated E2E fails before seeding when the dedicated database schema is stale', () => {
+  assert.match(helper, /function e2eAssertSchemaReady\(\): array/);
+  assert.match(helper, /online_daily_data'[\s\S]*'readback_verified', 'readback_verified_at'/);
+  assert.match(helper, /initialize or migrate this dedicated test database with database\/init_full\.sql/);
+  assert.match(helper, /array_merge\(\$databaseSafety, e2eAssertSchemaReady\(\)\)/);
+  assert.match(runner, /schema=\$\{databaseSafety\.schema_contract\}/);
+});
+
 test('quick E2E binds helper and self-hosted app to one dedicated database', () => {
   assert.match(exampleEnv, /^SUXI_E2E_DB_NAME\s*=\s*hotelx_e2e$/m);
   assert.match(runner, /process\.env\.SUXI_E2E_DB_NAME/);
