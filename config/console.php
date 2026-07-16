@@ -21,5 +21,6 @@ return [
         'online-data:notify-failure' => 'app\command\NotifyOtaFailure',
         'ai-daily-report:generate-once' => 'app\command\GenerateAiDailyReportOnce',
         'ai-daily-report:cleanup' => 'app\command\CleanupAiReportTasks',
+        'video-factory:director' => 'app\command\VideoFactoryDirector',
     ],
 ];
