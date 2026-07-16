@@ -32,22 +32,38 @@ trait OnlineDataHistoryConcern
             $this->applyOnlineHistoryFilters($query, $currentUser);
             $this->applyOnlineHistoryKeywordFilter($query, $keyword);
 
-            $rows = $this->orderOnlineDataByFetchTime(clone $query, $this->getOnlineDailyDataColumns())
-                ->select()
-                ->toArray();
+            $columns = $this->getOnlineDailyDataColumns();
+            $paginationPlan = $this->buildOnlineHistoryDatabasePagination(
+                clone $query,
+                $columns,
+                $page,
+                $pageSize
+            );
 
-            $hotelMap = $this->getConfiguredHotelNameMap();
-            $historyGroups = $this->mergeOnlineHistoryRows($rows, $hotelMap);
-            $total = count($historyGroups);
-            $summary = $this->buildOnlineHistorySummary($historyGroups);
-            $historyList = array_slice($historyGroups, ($page - 1) * $pageSize, $pageSize);
+            $historyList = [];
+            if ($paginationPlan['group_keys'] !== []) {
+                $pageQuery = $this->applyOnlineHistoryGroupKeyScope(
+                    clone $query,
+                    $paginationPlan['group_key_expression'],
+                    $paginationPlan['group_keys']
+                );
+                $rows = $this->orderOnlineDataByFetchTime(
+                    $pageQuery,
+                    $columns
+                )->select()->toArray();
+                $historyList = $this->mergeOnlineHistoryRows($rows, $this->getConfiguredHotelNameMap());
+                $historyList = $this->orderOnlineHistoryMergedGroups(
+                    $historyList,
+                    $paginationPlan['group_keys']
+                );
+            }
 
             return $this->success([
                 'list' => $historyList,
-                'total' => $total,
+                'total' => $paginationPlan['total'],
                 'page' => $page,
                 'page_size' => $pageSize,
-                'summary' => $summary,
+                'summary' => $paginationPlan['summary'],
             ]);
         } catch (\Throwable $e) {
             return $this->error('获取历史记录失败: ' . $e->getMessage());
@@ -620,6 +636,524 @@ trait OnlineDataHistoryConcern
             $query->order('create_time', $direction);
         }
         return $query->order('id', $direction);
+    }
+
+    /**
+     * Scan only grouping/status metadata first so history pagination never loads
+     * every matching raw_data payload before applying the requested page.
+     */
+    private function selectOnlineHistoryLightweightFields($query, array $columns)
+    {
+        $wantedFields = [
+            'id',
+            'data_date',
+            'source',
+            'platform',
+            'data_type',
+            'system_hotel_id',
+            'dimension',
+            'compare_type',
+            'create_time',
+            'update_time',
+        ];
+        $fields = array_values(array_filter(
+            $wantedFields,
+            static fn (string $field): bool => isset($columns[$field])
+        ));
+        $query->field($fields);
+        $query->fieldRaw($this->onlineHistoryLightweightStatusExpression($columns) . ' AS history_row_status');
+        return $query;
+    }
+
+    private function onlineHistoryLightweightStatusExpression(array $columns): string
+    {
+        if (isset($columns['history_status'])) {
+            return "COALESCE(`history_status`, 'unverified')";
+        }
+
+        $conditions = [];
+        if (isset($columns['status'])) {
+            $conditions[] = "WHEN LOWER(TRIM(COALESCE(`status`, ''))) IN ('failed', 'fail', 'error') THEN 'failed'";
+        }
+        if (isset($columns['validation_status'])) {
+            $conditions[] = "WHEN LOWER(TRIM(COALESCE(`validation_status`, ''))) IN ('abnormal', 'failed', 'error') THEN 'failed'";
+            $conditions[] = "WHEN LOWER(TRIM(COALESCE(`validation_status`, ''))) = 'unverified' THEN 'unverified'";
+            $conditions[] = "WHEN LOWER(TRIM(COALESCE(`validation_status`, ''))) IN ('partial', 'warning') THEN 'partial'";
+        }
+
+        if (isset($columns['readback_verified'])) {
+            $conditions[] = "WHEN COALESCE(`readback_verified`, 0) <> 1 THEN 'unverified'";
+            $conditions[] = "WHEN COALESCE(`readback_verified`, 0) = 1 THEN 'success'";
+        }
+
+        $hasStructuredStatus = isset($columns['status'])
+            || isset($columns['validation_status'])
+            || isset($columns['readback_verified']);
+        if (isset($columns['raw_data']) && !$hasStructuredStatus) {
+            $driver = strtolower((string)Db::connect()->getConfig('type'));
+            if ($driver === 'sqlite') {
+                $rawErrorCondition = "json_valid(`raw_data`) = 1 AND ("
+                    . "(json_type(`raw_data`, '$.error') IS NOT NULL AND json_type(`raw_data`, '$.error') <> 'null') OR "
+                    . "(json_type(`raw_data`, '$.errors') IS NOT NULL AND json_type(`raw_data`, '$.errors') <> 'null'))";
+            } else {
+                $rawErrorCondition = "JSON_VALID(`raw_data`) = 1 AND ("
+                    . "(JSON_CONTAINS_PATH(`raw_data`, 'one', '$.error') = 1 AND JSON_TYPE(JSON_EXTRACT(`raw_data`, '$.error')) <> 'NULL') OR "
+                    . "(JSON_CONTAINS_PATH(`raw_data`, 'one', '$.errors') = 1 AND JSON_TYPE(JSON_EXTRACT(`raw_data`, '$.errors')) <> 'NULL'))";
+            }
+            $conditions[] = "WHEN `raw_data` IS NOT NULL AND `raw_data` <> '' AND {$rawErrorCondition} THEN 'failed'";
+        }
+
+        $metricFields = array_values(array_filter([
+            'amount',
+            'quantity',
+            'book_order_num',
+            'data_value',
+            'list_exposure',
+            'detail_exposure',
+            'order_submit_num',
+        ], static fn (string $field): bool => isset($columns[$field])));
+        if ($metricFields !== []) {
+            $metricCondition = implode(' OR ', array_map(
+                static fn (string $field): string => "COALESCE(`{$field}`, 0) > 0",
+                $metricFields
+            ));
+            $conditions[] = "WHEN {$metricCondition} THEN 'success'";
+        }
+
+        if (isset($columns['raw_data']) && !isset($columns['readback_verified'])) {
+            $conditions[] = "WHEN `raw_data` IS NOT NULL AND `raw_data` <> '' THEN 'success'";
+        }
+
+        return "CASE\n" . implode("\n", $conditions) . "\nELSE 'empty' END";
+    }
+
+    /**
+     * Page merged history groups in SQL before loading any raw_data payloads.
+     * The second query in history() only hydrates records belonging to the
+     * selected group keys, preserving the existing merged-list contract.
+     */
+    private function buildOnlineHistoryDatabasePagination(
+        $query,
+        array $columns,
+        int $page,
+        int $pageSize
+    ): array {
+        $page = max(1, $page);
+        $pageSize = max(1, $pageSize);
+        $groupKeyExpression = $this->onlineHistorySqlGroupKeyExpression($columns);
+        $fetchTimeExpression = $this->onlineHistorySqlFetchTimeExpression($columns);
+        $orderKeyExpression = $this->onlineHistorySqlOrderKeyExpression($columns);
+        $driver = $this->onlineHistoryDatabaseDriver();
+        $usesFoundRows = in_array($driver, ['mysql', 'mariadb'], true);
+        $groupFields = [
+            ($usesFoundRows ? 'SQL_CALC_FOUND_ROWS ' : '') . "{$groupKeyExpression} AS history_group_key",
+            "MAX({$orderKeyExpression}) AS history_order_key",
+            "MAX({$fetchTimeExpression}) AS group_fetch_time",
+        ];
+        if ($driver === 'sqlite') {
+            $groupFields[] = 'COUNT(*) OVER () AS total_records';
+        }
+
+        $groupRows = (clone $query)
+            ->fieldRaw(implode(', ', $groupFields))
+            ->group('history_group_key')
+            ->order('history_order_key', 'desc')
+            ->limit(($page - 1) * $pageSize, $pageSize)
+            ->select()
+            ->toArray();
+
+        if ($usesFoundRows) {
+            $foundRows = Db::query('SELECT FOUND_ROWS() AS total_records');
+            $total = (int)($foundRows[0]['total_records'] ?? 0);
+        } elseif ($groupRows !== []) {
+            $total = (int)($groupRows[0]['total_records'] ?? 0);
+        } elseif ($page > 1) {
+            $firstPage = $this->buildOnlineHistoryDatabasePagination(clone $query, $columns, 1, 1);
+            $firstPage['group_keys'] = [];
+            return $firstPage;
+        } else {
+            $total = 0;
+        }
+
+        $summary = $this->buildOnlineHistoryDatabaseSummary(
+            clone $query,
+            $columns,
+            $groupKeyExpression,
+            $fetchTimeExpression,
+            $total
+        );
+
+        $groupKeys = [];
+        foreach ($groupRows as $row) {
+            $groupKey = (string)($row['history_group_key'] ?? '');
+            if ($groupKey !== '') {
+                $groupKeys[] = $groupKey;
+            }
+        }
+
+        return [
+            'total' => $total,
+            'group_keys' => array_values(array_unique($groupKeys)),
+            'group_key_expression' => $groupKeyExpression,
+            'summary' => $summary,
+        ];
+    }
+
+    private function buildOnlineHistoryDatabaseSummary(
+        $query,
+        array $columns,
+        string $groupKeyExpression,
+        string $fetchTimeExpression,
+        int $total
+    ): array {
+        $latestRows = (clone $query)
+            ->fieldRaw("MAX({$fetchTimeExpression}) AS latest_fetch_time")
+            ->select()
+            ->toArray();
+
+        $todayRecords = 0;
+        if (isset($columns['history_fetch_time'])
+            || isset($columns['update_time'])
+            || isset($columns['create_time'])) {
+            $today = date('Y-m-d');
+            $todayQuery = (clone $query)->whereRaw(
+                "({$fetchTimeExpression}) BETWEEN :history_today_start AND :history_today_end",
+                [
+                    'history_today_start' => $today . ' 00:00:00',
+                    'history_today_end' => $today . ' 23:59:59',
+                ]
+            );
+            $todayRecords = $this->countOnlineHistoryDistinctGroups($todayQuery, $groupKeyExpression);
+        }
+
+        $failedRecords = 0;
+        $failedConditions = [];
+        if (isset($columns['history_status'])) {
+            $failedQuery = (clone $query)->where('history_status', 'failed');
+            $failedRecords = $this->countOnlineHistoryDistinctGroups($failedQuery, $groupKeyExpression);
+        } else {
+            if (isset($columns['status'])) {
+                $failedConditions[] = "LOWER(TRIM(COALESCE(`status`, ''))) IN ('failed', 'fail', 'error')";
+            }
+            if (isset($columns['validation_status'])) {
+                $failedConditions[] = "LOWER(TRIM(COALESCE(`validation_status`, ''))) IN ('abnormal', 'failed', 'error')";
+            }
+            if ($failedConditions !== []) {
+                $failedQuery = (clone $query)->whereRaw('(' . implode(' OR ', $failedConditions) . ')');
+                $failedRecords = $this->countOnlineHistoryDistinctGroups($failedQuery, $groupKeyExpression);
+            }
+        }
+
+        return [
+            'total_records' => $total,
+            'latest_fetch_time' => (string)($latestRows[0]['latest_fetch_time'] ?? ''),
+            'today_records' => $todayRecords,
+            'failed_records' => $failedRecords,
+        ];
+    }
+
+    private function countOnlineHistoryDistinctGroups($query, string $groupKeyExpression): int
+    {
+        $rows = $query
+            ->fieldRaw("COUNT(DISTINCT {$groupKeyExpression}) AS total_records")
+            ->select()
+            ->toArray();
+        return (int)($rows[0]['total_records'] ?? 0);
+    }
+
+    private function applyOnlineHistoryGroupKeyScope($query, string $groupKeyExpression, array $groupKeys)
+    {
+        $groupKeys = array_values(array_filter(array_map('strval', $groupKeys), static fn (string $key): bool => $key !== ''));
+        if ($groupKeys === []) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        $placeholders = [];
+        $bind = [];
+        foreach ($groupKeys as $index => $groupKey) {
+            $name = 'history_group_' . $index;
+            $placeholders[] = ':' . $name;
+            $bind[$name] = $groupKey;
+        }
+
+        return $query->whereRaw(
+            '(' . $groupKeyExpression . ') IN (' . implode(', ', $placeholders) . ')',
+            $bind
+        );
+    }
+
+    private function onlineHistorySqlGroupKeyExpression(array $columns): string
+    {
+        if (isset($columns['history_group_key'])) {
+            // Keep the generated column bare so the page hydration IN query
+            // can use idx_online_daily_history_group_fetch. Wrapping it in a
+            // CAST/COALESCE forces MariaDB to scan the whole filtered scope.
+            return '`history_group_key`';
+        }
+
+        $dataDate = $this->onlineHistorySqlColumnText($columns, 'data_date');
+        $platform = $this->onlineHistorySqlPlatformExpression($columns);
+        $dataType = $this->onlineHistorySqlDataTypeExpression($columns);
+        $systemHotelId = $this->onlineHistorySqlColumnText($columns, 'system_hotel_id');
+        $dimension = $this->onlineHistorySqlColumnText($columns, 'dimension');
+        $compareType = $this->onlineHistorySqlColumnText($columns, 'compare_type');
+        $fetchTime = $this->onlineHistorySqlFetchTimeExpression($columns);
+        $competitionCircle = "({$dataType} = 'competitor' AND {$dimension} = 'competition_circle_hotel')";
+        $compareGroup = "CASE WHEN {$competitionCircle} THEN 'competition_circle' ELSE {$compareType} END";
+        $batchFetchTime = "CASE WHEN {$competitionCircle} THEN {$fetchTime} ELSE '' END";
+        $parts = [
+            $dataDate,
+            $platform,
+            $dataType,
+            $systemHotelId,
+            $dimension,
+            $compareGroup,
+            $batchFetchTime,
+        ];
+
+        if ($this->onlineHistoryDatabaseDriver() === 'sqlite') {
+            return '(' . implode(" || '|' || ", $parts) . ')';
+        }
+
+        return 'CONCAT(' . implode(", '|', ", $parts) . ')';
+    }
+
+    private function onlineHistorySqlPlatformExpression(array $columns): string
+    {
+        if (isset($columns['platform'], $columns['source'])) {
+            $raw = 'LOWER(TRIM(COALESCE(CAST(`platform` AS CHAR), CAST(`source` AS CHAR), \'' . '\')))';
+        } elseif (isset($columns['platform'])) {
+            $raw = 'LOWER(TRIM(COALESCE(CAST(`platform` AS CHAR), \'' . '\')))';
+        } elseif (isset($columns['source'])) {
+            $raw = 'LOWER(TRIM(COALESCE(CAST(`source` AS CHAR), \'' . '\')))';
+        } else {
+            $raw = "''";
+        }
+
+        if ($this->onlineHistoryDatabaseDriver() === 'sqlite') {
+            $raw = str_replace(' AS CHAR)', ' AS TEXT)', $raw);
+        }
+
+        return "CASE "
+            . "WHEN {$raw} IN ('ctrip', '携程') THEN 'ctrip' "
+            . "WHEN {$raw} IN ('meituan', '美团') THEN 'meituan' "
+            . "WHEN {$raw} IN ('qunar', '去哪儿') THEN 'qunar' "
+            . "WHEN {$raw} <> '' THEN {$raw} ELSE 'unknown' END";
+    }
+
+    private function onlineHistorySqlDataTypeExpression(array $columns): string
+    {
+        $dataType = isset($columns['data_type'])
+            ? 'LOWER(TRIM(' . $this->onlineHistorySqlColumnText($columns, 'data_type') . '))'
+            : "''";
+        $compareType = $this->onlineHistorySqlColumnText($columns, 'compare_type');
+
+        return "CASE "
+            . "WHEN {$compareType} = 'competitor_avg' THEN 'competitor' "
+            . "WHEN {$dataType} = '' THEN 'business' "
+            . "WHEN {$dataType} IN ('comment', 'comments') THEN 'review' "
+            . "WHEN {$dataType} IN ('ad', 'ads') THEN 'advertising' "
+            . "ELSE {$dataType} END";
+    }
+
+    private function onlineHistorySqlFetchTimeExpression(array $columns): string
+    {
+        if (isset($columns['history_fetch_time'])) {
+            return '`history_fetch_time`';
+        }
+
+        $updateTime = $this->onlineHistorySqlColumnText($columns, 'update_time');
+        $createTime = $this->onlineHistorySqlColumnText($columns, 'create_time');
+        return "CASE WHEN {$updateTime} > {$createTime} THEN {$updateTime} ELSE {$createTime} END";
+    }
+
+    private function onlineHistorySqlOrderKeyExpression(array $columns): string
+    {
+        $updateTime = $this->onlineHistorySqlColumnText($columns, 'update_time');
+        $createTime = $this->onlineHistorySqlColumnText($columns, 'create_time');
+        if ($this->onlineHistoryDatabaseDriver() === 'sqlite') {
+            $id = isset($columns['id']) ? "printf('%020d', COALESCE(`id`, 0))" : "'00000000000000000000'";
+            return "({$updateTime} || '|' || {$createTime} || '|' || {$id})";
+        }
+
+        $id = isset($columns['id'])
+            ? "LPAD(CAST(COALESCE(`id`, 0) AS CHAR), 20, '0')"
+            : "'00000000000000000000'";
+        return "CONCAT({$updateTime}, '|', {$createTime}, '|', {$id})";
+    }
+
+    private function onlineHistorySqlColumnText(array $columns, string $column): string
+    {
+        if (!isset($columns[$column])) {
+            return "''";
+        }
+
+        $type = $this->onlineHistoryDatabaseDriver() === 'sqlite' ? 'TEXT' : 'CHAR';
+        return "COALESCE(CAST(`{$column}` AS {$type}), '')";
+    }
+
+    private function onlineHistoryDatabaseDriver(): string
+    {
+        return strtolower((string)Db::connect()->getConfig('type'));
+    }
+
+    private function orderOnlineHistoryMergedGroups(array $groups, array $groupKeys): array
+    {
+        $positions = array_flip(array_values($groupKeys));
+        $hashedKeys = isset($groupKeys[0]) && preg_match('/^[a-f0-9]{64}$/i', (string)$groupKeys[0]) === 1;
+        usort($groups, function (array $left, array $right) use ($positions, $hashedKeys): int {
+            $leftKey = $this->buildOnlineHistoryMergeKey($left);
+            $rightKey = $this->buildOnlineHistoryMergeKey($right);
+            if ($hashedKeys) {
+                $leftKey = hash('sha256', $leftKey);
+                $rightKey = hash('sha256', $rightKey);
+            }
+            return ($positions[$leftKey] ?? PHP_INT_MAX) <=> ($positions[$rightKey] ?? PHP_INT_MAX);
+        });
+        return $groups;
+    }
+
+    private function buildOnlineHistoryLightweightPagination(array $rows, int $page, int $pageSize): array
+    {
+        $groups = [];
+        foreach ($rows as $row) {
+            $fetchTime = $this->onlineHistoryLightweightFetchTime($row);
+            $groupKey = $this->buildOnlineHistoryStorageMergeKey($row, $fetchTime);
+            if (!isset($groups[$groupKey])) {
+                $groups[$groupKey] = [
+                    'record_ids' => [],
+                    'fetch_time' => $fetchTime,
+                    'order_update_time' => (string)($row['update_time'] ?? ''),
+                    'order_create_time' => (string)($row['create_time'] ?? ''),
+                    'order_id' => (int)($row['id'] ?? 0),
+                    'failed' => 0,
+                    'empty' => 0,
+                    'unverified' => 0,
+                    'partial' => 0,
+                    'success' => 0,
+                ];
+            }
+
+            $id = (int)($row['id'] ?? 0);
+            if ($id > 0) {
+                $groups[$groupKey]['record_ids'][] = $id;
+            }
+            if ($fetchTime !== '' && strcmp($fetchTime, (string)$groups[$groupKey]['fetch_time']) > 0) {
+                $groups[$groupKey]['fetch_time'] = $fetchTime;
+            }
+            $this->updateOnlineHistoryLightweightGroupOrder($groups[$groupKey], $row);
+            $status = strtolower(trim((string)($row['history_row_status'] ?? 'empty')));
+            $status = isset($groups[$groupKey][$status]) ? $status : 'empty';
+            $groups[$groupKey][$status]++;
+        }
+
+        uasort($groups, static function (array $left, array $right): int {
+            $updateOrder = strcmp((string)$right['order_update_time'], (string)$left['order_update_time']);
+            if ($updateOrder !== 0) {
+                return $updateOrder;
+            }
+            $createOrder = strcmp((string)$right['order_create_time'], (string)$left['order_create_time']);
+            if ($createOrder !== 0) {
+                return $createOrder;
+            }
+            return (int)$right['order_id'] <=> (int)$left['order_id'];
+        });
+
+        $summary = [
+            'total_records' => count($groups),
+            'latest_fetch_time' => '',
+            'today_records' => 0,
+            'failed_records' => 0,
+        ];
+        $today = date('Y-m-d');
+        foreach ($groups as &$group) {
+            $group['status'] = $this->resolveOnlineHistoryLightweightGroupStatus($group);
+            $fetchTime = (string)$group['fetch_time'];
+            if ($fetchTime !== '' && ($summary['latest_fetch_time'] === '' || strcmp($fetchTime, $summary['latest_fetch_time']) > 0)) {
+                $summary['latest_fetch_time'] = $fetchTime;
+            }
+            if ($fetchTime !== '' && substr($fetchTime, 0, 10) === $today) {
+                $summary['today_records']++;
+            }
+            if ($group['status'] === 'failed') {
+                $summary['failed_records']++;
+            }
+        }
+        unset($group);
+
+        $page = max(1, $page);
+        $pageSize = max(1, $pageSize);
+        $pageGroups = array_slice(array_values($groups), ($page - 1) * $pageSize, $pageSize);
+        $recordIds = [];
+        foreach ($pageGroups as $group) {
+            array_push($recordIds, ...$group['record_ids']);
+        }
+
+        return [
+            'total' => count($groups),
+            'record_ids' => array_values(array_unique($recordIds)),
+            'summary' => $summary,
+        ];
+    }
+
+    private function updateOnlineHistoryLightweightGroupOrder(array &$group, array $row): void
+    {
+        $rowUpdateTime = (string)($row['update_time'] ?? '');
+        $rowCreateTime = (string)($row['create_time'] ?? '');
+        $rowId = (int)($row['id'] ?? 0);
+        $updateComparison = strcmp($rowUpdateTime, (string)$group['order_update_time']);
+        $createComparison = strcmp($rowCreateTime, (string)$group['order_create_time']);
+        if ($updateComparison > 0
+            || ($updateComparison === 0 && $createComparison > 0)
+            || ($updateComparison === 0 && $createComparison === 0 && $rowId > (int)$group['order_id'])) {
+            $group['order_update_time'] = $rowUpdateTime;
+            $group['order_create_time'] = $rowCreateTime;
+            $group['order_id'] = $rowId;
+        }
+    }
+
+    private function buildOnlineHistoryStorageMergeKey(array $row, string $fetchTime): string
+    {
+        $source = strtolower((string)($row['source'] ?? ''));
+        $platform = $this->normalizeHistoryPlatformCode($row['platform'] ?? $source);
+        $compareType = (string)($row['compare_type'] ?? '');
+        $dataType = $this->normalizeHistoryDataType((string)($row['data_type'] ?? ''), $compareType);
+        $isCompetitionCircle = $dataType === 'competitor'
+            && (string)($row['dimension'] ?? '') === 'competition_circle_hotel';
+
+        return implode('|', [
+            (string)($row['data_date'] ?? ''),
+            $platform,
+            $dataType,
+            (string)($row['system_hotel_id'] ?? ''),
+            (string)($row['dimension'] ?? ''),
+            $isCompetitionCircle ? 'competition_circle' : $compareType,
+            $isCompetitionCircle ? $fetchTime : '',
+        ]);
+    }
+
+    private function onlineHistoryLightweightFetchTime(array $row): string
+    {
+        $createTime = (string)($row['create_time'] ?? '');
+        $updateTime = (string)($row['update_time'] ?? '');
+        return strcmp($updateTime, $createTime) > 0 ? $updateTime : $createTime;
+    }
+
+    private function resolveOnlineHistoryLightweightGroupStatus(array $group): string
+    {
+        if ((int)($group['failed'] ?? 0) > 0) {
+            return 'failed';
+        }
+        if ((int)($group['unverified'] ?? 0) > 0) {
+            return 'unverified';
+        }
+        if ((int)($group['partial'] ?? 0) > 0) {
+            return 'partial';
+        }
+        if ((int)($group['success'] ?? 0) > 0) {
+            return 'success';
+        }
+        return 'empty';
     }
 
     private function onlineRowFetchedAt(array $row, array $columns): string
@@ -1299,7 +1833,7 @@ trait OnlineDataHistoryConcern
 
     private function normalizeHistoryPlatformCode($platform): string
     {
-        $value = strtolower((string)$platform);
+        $value = strtolower(trim((string)$platform));
         if (in_array($value, ['ctrip', '携程'], true)) {
             return 'ctrip';
         }
@@ -1358,6 +1892,12 @@ trait OnlineDataHistoryConcern
             return 'failed';
         }
         $validationStatus = strtolower(trim((string)($row['validation_status'] ?? '')));
+        if (in_array($validationStatus, ['abnormal', 'failed', 'error'], true)) {
+            return 'failed';
+        }
+        if ($validationStatus === 'warning') {
+            return 'partial';
+        }
         if (in_array($validationStatus, ['unverified', 'partial'], true)) {
             return $validationStatus;
         }
@@ -1366,6 +1906,11 @@ trait OnlineDataHistoryConcern
             if (is_array($decoded) && (isset($decoded['error']) || isset($decoded['errors']))) {
                 return 'failed';
             }
+        }
+        if (array_key_exists('readback_verified', $row) && (int)$row['readback_verified'] !== 1) {
+            return 'unverified';
+        }
+        if ($rawData !== '') {
             return 'success';
         }
 

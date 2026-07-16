@@ -1448,7 +1448,7 @@ trait OtaConfigConcern
             );
             $metadata = array_merge($metadata, $credentialMetadata);
             $metadata['verification_status'] = 'saved_pending_verification';
-            $metadata['verification_status_label'] = '已保存，待授权验证';
+            $metadata['verification_status_label'] = 'Cookie 已保存，待采集验证';
             $metadata['configuration_saved'] = true;
             $metadata['configuration_verified'] = false;
             $metadata['verified_at'] = '';

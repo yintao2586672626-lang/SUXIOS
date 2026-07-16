@@ -144,9 +144,26 @@ trait OnlineDataQualityConcern
                 ->order('id', 'desc');
             $listQuery->page($page, $pageSize);
             $list = $listQuery->select()->toArray();
+            $systemHotelIds = array_values(array_unique(array_filter(array_map(
+                static fn(array $item): int => max(0, (int)($item['system_hotel_id'] ?? 0)),
+                $list
+            ))));
+            $systemHotelNames = $systemHotelIds !== []
+                ? Db::name('hotels')->whereIn('id', $systemHotelIds)->column('name', 'id')
+                : [];
 
             // 解析 raw_data 添加排名等额外字段
             foreach ($list as &$item) {
+                $systemHotelId = max(0, (int)($item['system_hotel_id'] ?? 0));
+                $systemHotelName = trim((string)($systemHotelNames[$systemHotelId] ?? ''));
+                $capturedHotelName = trim((string)($item['hotel_name'] ?? ''));
+                if ($systemHotelName !== '') {
+                    if ($capturedHotelName !== '' && $capturedHotelName !== $systemHotelName) {
+                        $item['captured_hotel_name'] = $capturedHotelName;
+                    }
+                    $item['system_hotel_name'] = $systemHotelName;
+                    $item['hotel_name'] = $systemHotelName;
+                }
                 $bookOrderNum = intval($item['book_order_num'] ?? 0);
                 $rawTotalOrderNum = 0;
                 $rawData = [];

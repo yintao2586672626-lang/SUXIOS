@@ -10,6 +10,7 @@ use app\controller\concern\CtripCaptureDiagnosticsConcern;
 use app\controller\concern\CtripCaptureProcessConcern;
 use app\controller\concern\CtripCapturedPayloadConcern;
 use app\controller\concern\CtripCommentsConcern;
+use app\controller\concern\CtripCompetitiveOperationsConcern;
 use app\controller\concern\CtripCollectorWorkflowConcern;
 use app\controller\concern\CtripDiagnosisSnapshotConcern;
 use app\controller\concern\CtripOverviewRowsConcern;
@@ -49,6 +50,7 @@ class OnlineData extends Base
     use CtripCaptureProcessConcern;
     use CtripCapturedPayloadConcern;
     use CtripCommentsConcern;
+    use CtripCompetitiveOperationsConcern;
     use CtripCollectorWorkflowConcern;
     use CtripDiagnosisSnapshotConcern;
     use CtripOverviewRowsConcern;

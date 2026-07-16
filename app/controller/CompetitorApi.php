@@ -7,6 +7,7 @@ use app\model\CompetitorDevice;
 use app\model\CompetitorHotel;
 use app\model\CompetitorPriceLog;
 use app\model\OperationLog;
+use think\facade\Db;
 use think\Response;
 
 class CompetitorApi extends Base
@@ -264,6 +265,27 @@ class CompetitorApi extends Base
             ]);
             return $this->apiError('未识别到有效竞对价格', 400);
         }
+        $rateContext = $this->normalizeCompetitorRateContext([
+            'ota_hotel_id' => $this->request->post('ota_hotel_id', ''),
+            'collected_at' => $this->request->post('collected_at', ''),
+            'source_method' => $this->request->post('source_method', ''),
+            'source_ref' => $this->request->post('source_ref', ''),
+            'check_in_date' => $this->request->post('check_in_date', ''),
+            'check_out_date' => $this->request->post('check_out_date', ''),
+            'adults' => $this->request->post('adults', null),
+            'children' => $this->request->post('children', null),
+            'room_type_key' => $this->request->post('room_type_key', ''),
+            'ota_product_id' => $this->request->post('ota_product_id', ''),
+            'rate_plan_key' => $this->request->post('rate_plan_key', ''),
+            'package_name' => $this->request->post('package_name', ''),
+            'breakfast' => $this->request->post('breakfast', ''),
+            'cancellation_policy' => $this->request->post('cancellation_policy', ''),
+            'payment_mode' => $this->request->post('payment_mode', ''),
+            'tax_fee_included' => $this->request->post('tax_fee_included', null),
+            'price_basis' => $this->request->post('price_basis', ''),
+            'currency' => $this->request->post('currency', ''),
+            'availability' => $this->request->post('availability', ''),
+        ], $platform, $price);
 
         $reportFingerprint = $this->reportFingerprint($deviceId, $platform, $storeId, $hotelId, $price, $base64);
         if (!$this->hasTaskAssignment($deviceId, $platform, $storeId, $hotelId)) {
@@ -331,7 +353,29 @@ class CompetitorApi extends Base
             $log->screenshot = $screenshotPath;
             $log->device_id = $deviceId;
             $log->fetch_time = date('Y-m-d H:i:s');
+            if ($this->competitorRateComparabilitySchemaReady()) {
+                foreach ($rateContext as $field => $value) {
+                    $log->{$field} = $value;
+                }
+                $log->readback_verified = 0;
+            }
             $log->save();
+
+            if ($this->competitorRateComparabilitySchemaReady()) {
+                $readback = CompetitorPriceLog::where('id', (int)$log->id)
+                    ->where('store_id', $storeId)
+                    ->where('hotel_id', $hotelId)
+                    ->find();
+                $readbackVerified = $readback
+                    && abs((float)$readback->price - $price) < 0.001
+                    && (string)($readback->content_hash ?? '') === (string)$rateContext['content_hash'];
+                $log->readback_verified = $readbackVerified ? 1 : 0;
+                if (!$readbackVerified) {
+                    $log->validation_status = 'failed';
+                    $log->failure_reason = 'saved_row_readback_mismatch';
+                }
+                $log->save();
+            }
         } catch (\Throwable $e) {
             $this->rememberTaskAssignment($deviceId, $platform, $storeId, $hotelId);
             $this->removeSavedScreenshot($screenshotPath);
@@ -353,7 +397,19 @@ class CompetitorApi extends Base
             'price_log_id' => (int)$log->id,
         ]);
 
-        return json(['code' => 200, 'message' => 'ok', 'data' => ['id' => $log->id]]);
+        return json(['code' => 200, 'message' => 'ok', 'data' => [
+            'id' => $log->id,
+            'validation_status' => $this->competitorRateComparabilitySchemaReady()
+                ? (string)($log->validation_status ?? 'unverified')
+                : 'schema_pending',
+            'readback_verified' => $this->competitorRateComparabilitySchemaReady()
+                ? (int)($log->readback_verified ?? 0) === 1
+                : false,
+            'decision_eligible' => $this->competitorRateComparabilitySchemaReady()
+                && (string)($log->validation_status ?? '') === 'valid'
+                && (int)($log->readback_verified ?? 0) === 1
+                && trim((string)($log->comparison_key ?? '')) !== '',
+        ]]);
     }
 
     private function isValidReportToken(string $expectedToken): bool
@@ -654,6 +710,165 @@ class CompetitorApi extends Base
         }
 
         return $value;
+    }
+
+    /** @return array<string,mixed> */
+    private function normalizeCompetitorRateContext(array $input, string $platform, float $price): array
+    {
+        $string = fn(string $key, int $limit): string => $this->limitExternalText((string)($input[$key] ?? ''), $limit);
+        $checkIn = $this->normalizeExternalDate((string)($input['check_in_date'] ?? ''));
+        $checkOut = $this->normalizeExternalDate((string)($input['check_out_date'] ?? ''));
+        $collectedAt = $this->normalizeExternalDateTime((string)($input['collected_at'] ?? ''));
+        $adults = is_numeric($input['adults'] ?? null) ? (int)$input['adults'] : null;
+        $children = is_numeric($input['children'] ?? null) ? (int)$input['children'] : null;
+        $taxIncluded = $this->normalizeExternalBoolean($input['tax_fee_included'] ?? null);
+        $availability = strtolower($string('availability', 32));
+        $currency = strtoupper($string('currency', 3));
+        $sourceRef = $this->sanitizeExternalSourceRef((string)($input['source_ref'] ?? ''));
+        $nights = $checkIn !== null && $checkOut !== null && strtotime($checkOut) > strtotime($checkIn)
+            ? (int)((strtotime($checkOut) - strtotime($checkIn)) / 86400)
+            : null;
+
+        $context = [
+            'ota_hotel_id' => $string('ota_hotel_id', 80),
+            'collected_at' => $collectedAt,
+            'source_method' => $string('source_method', 40),
+            'source_ref' => $sourceRef,
+            'check_in_date' => $checkIn,
+            'check_out_date' => $checkOut,
+            'nights' => $nights,
+            'adults' => $adults,
+            'children' => $children,
+            'room_type_key' => $string('room_type_key', 160),
+            'ota_product_id' => $string('ota_product_id', 120),
+            'rate_plan_key' => $string('rate_plan_key', 160),
+            'package_name' => $string('package_name', 160),
+            'breakfast' => $string('breakfast', 80),
+            'cancellation_policy' => $string('cancellation_policy', 500),
+            'payment_mode' => $string('payment_mode', 80),
+            'tax_fee_included' => $taxIncluded,
+            'price_basis' => $string('price_basis', 80),
+            'currency' => $currency,
+            'availability' => $availability,
+        ];
+
+        $missing = [];
+        foreach ([
+            'collected_at', 'source_method', 'source_ref', 'check_in_date', 'check_out_date',
+            'room_type_key', 'rate_plan_key', 'breakfast', 'cancellation_policy',
+            'payment_mode', 'price_basis', 'currency', 'availability',
+        ] as $field) {
+            if ($context[$field] === null || trim((string)$context[$field]) === '') {
+                $missing[] = $field;
+            }
+        }
+        if ($nights === null || $nights <= 0) {
+            $missing[] = 'valid_stay_window';
+        }
+        if ($adults === null || $adults <= 0) {
+            $missing[] = 'adults';
+        }
+        if ($children === null || $children < 0) {
+            $missing[] = 'children';
+        }
+        if ($taxIncluded === null) {
+            $missing[] = 'tax_fee_included';
+        }
+        if (!in_array($availability, ['available', 'bookable'], true)) {
+            $missing[] = 'ota_channel_bookable_status';
+        }
+
+        $comparisonFields = [
+            strtolower(trim($platform)), $checkIn, $checkOut, $context['room_type_key'],
+            $context['rate_plan_key'], $context['breakfast'], $context['cancellation_policy'],
+            $context['payment_mode'], $taxIncluded, $context['price_basis'], $currency,
+            $adults, $children,
+        ];
+        $context['comparison_key'] = $missing === []
+            ? hash('sha256', implode('|', array_map(static fn(mixed $value): string => strtolower(trim((string)$value)), $comparisonFields)))
+            : '';
+        $context['validation_status'] = $missing === [] ? 'valid' : 'incomplete';
+        $context['failure_reason'] = $missing === []
+            ? ''
+            : 'missing_comparability_fields:' . implode(',', array_values(array_unique($missing)));
+        $context['content_hash'] = hash('sha256', json_encode(
+            ['platform' => strtolower(trim($platform)), 'price' => $price, 'context' => $context],
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+        ));
+
+        return $context;
+    }
+
+    private function competitorRateComparabilitySchemaReady(): bool
+    {
+        static $ready = null;
+        if ($ready !== null) {
+            return $ready;
+        }
+        try {
+            $ready = !empty(Db::query("SHOW COLUMNS FROM `competitor_price_log` LIKE 'comparison_key'"))
+                && !empty(Db::query("SHOW COLUMNS FROM `competitor_price_log` LIKE 'readback_verified'"));
+        } catch (\Throwable) {
+            $ready = false;
+        }
+        return $ready;
+    }
+
+    private function normalizeExternalDate(string $value): ?string
+    {
+        $value = trim($value);
+        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+        $errors = \DateTimeImmutable::getLastErrors();
+        if (!$date || (is_array($errors) && (($errors['warning_count'] ?? 0) > 0 || ($errors['error_count'] ?? 0) > 0))) {
+            return null;
+        }
+        return $date->format('Y-m-d') === $value ? $value : null;
+    }
+
+    private function normalizeExternalDateTime(string $value): ?string
+    {
+        $value = trim($value);
+        if ($value === '' || strtotime($value) === false) {
+            return null;
+        }
+        return date('Y-m-d H:i:s', strtotime($value));
+    }
+
+    private function normalizeExternalBoolean(mixed $value): ?int
+    {
+        if ($value === true || $value === 1 || in_array(strtolower(trim((string)$value)), ['1', 'true', 'yes'], true)) {
+            return 1;
+        }
+        if ($value === false || $value === 0 || in_array(strtolower(trim((string)$value)), ['0', 'false', 'no'], true)) {
+            return 0;
+        }
+        return null;
+    }
+
+    private function sanitizeExternalSourceRef(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+        $parts = parse_url($value);
+        if (is_array($parts) && isset($parts['scheme'], $parts['host'])) {
+            $safe = strtolower((string)$parts['scheme']) . '://' . (string)$parts['host'];
+            if (isset($parts['port'])) {
+                $safe .= ':' . (int)$parts['port'];
+            }
+            $safe .= (string)($parts['path'] ?? '');
+            return $this->limitExternalText($safe, 500);
+        }
+        return $this->limitExternalText($this->sanitizeExternalAuditText($value), 500);
+    }
+
+    private function limitExternalText(string $value, int $length): string
+    {
+        $value = trim(preg_replace('/\s+/u', ' ', $value) ?? $value);
+        return mb_strlen($value, 'UTF-8') > $length
+            ? mb_substr($value, 0, $length, 'UTF-8')
+            : $value;
     }
 
     private function extractPrice(string $text): float

@@ -37,10 +37,13 @@ final class OtaConfigVerificationService
         if (isset($this->cache[$cacheKey])) {
             return $this->cache[$cacheKey];
         }
+        $pendingLabel = $platform === 'meituan'
+            ? 'Cookie 已保存，待采集验证'
+            : '已保存，待授权验证';
 
         $savedTimestamp = $this->timestamp($savedAt);
         if ($savedTimestamp === null) {
-            return $this->cache[$cacheKey] = $this->state('saved_pending_verification', '已保存，待授权验证', true, false);
+            return $this->cache[$cacheKey] = $this->state('saved_pending_verification', $pendingLabel, true, false);
         }
 
         try {
@@ -77,7 +80,7 @@ final class OtaConfigVerificationService
             }
         }
 
-        return $this->cache[$cacheKey] = $this->state('saved_pending_verification', '已保存，待授权验证', true, false);
+        return $this->cache[$cacheKey] = $this->state('saved_pending_verification', $pendingLabel, true, false);
     }
 
     /** @return array<string, mixed> */

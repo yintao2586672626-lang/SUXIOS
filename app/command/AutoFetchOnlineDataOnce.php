@@ -29,10 +29,19 @@ class AutoFetchOnlineDataOnce extends Command
             return 1;
         }
 
-        $task = json_decode((string)file_get_contents($inputPath), true);
-        @unlink($inputPath);
+        try {
+            $task = json_decode((string)file_get_contents($inputPath), true);
+        } finally {
+            @unlink($inputPath);
+        }
         if (!is_array($task)) {
             $output->writeln('Task input is not valid JSON.');
+            return 1;
+        }
+        if ((string)($task['task_id'] ?? '') !== $taskId
+            || preg_match('/^auto_fetch_\d+_\d{14}_[a-f0-9]{8}$/D', $taskId) !== 1
+        ) {
+            $output->writeln('Task input scope is invalid.');
             return 1;
         }
 
@@ -41,7 +50,7 @@ class AutoFetchOnlineDataOnce extends Command
         $dataPeriod = trim((string)($task['data_period'] ?? 'realtime_snapshot'));
         $body = is_array($task['body'] ?? null) ? $task['body'] : [];
         $apiUrl = trim((string)($task['api_url'] ?? ''));
-        $authorization = trim((string)($task['authorization'] ?? ''));
+        $authorization = $this->resolveAuthorization($task);
         if ($hotelId <= 0 || $apiUrl === '' || $authorization === '') {
             $message = 'background auto-fetch task missing hotel, api_url or authorization';
             $this->markFailed($hotelId, $dataDate, $dataPeriod, $message, $body);
@@ -53,7 +62,11 @@ class AutoFetchOnlineDataOnce extends Command
         $body['background_task'] = true;
         $body['task_id'] = $taskId;
 
-        $result = $this->postJson($apiUrl, $authorization, $body, (int)($task['timeout_seconds'] ?? 3600));
+        try {
+            $result = $this->postJson($apiUrl, $authorization, $body, (int)($task['timeout_seconds'] ?? 3600));
+        } finally {
+            $authorization = '';
+        }
         if (!$result['success']) {
             $message = (string)($result['message'] ?? 'background auto-fetch request failed');
             $this->markFailed($hotelId, $dataDate, $dataPeriod, $message, $body);
@@ -63,6 +76,21 @@ class AutoFetchOnlineDataOnce extends Command
 
         $output->writeln('Auto-fetch task finished.');
         return 0;
+    }
+
+    private function resolveAuthorization(array $task): string
+    {
+        $authorizationEnv = trim((string)($task['authorization_env'] ?? ''));
+        if (preg_match('/^SUXI_AUTO_FETCH_AUTH_[A-F0-9]{24}$/D', $authorizationEnv) === 1) {
+            $authorization = getenv($authorizationEnv);
+            putenv($authorizationEnv);
+            if (is_string($authorization) && trim($authorization) !== '') {
+                return trim($authorization);
+            }
+        }
+
+        // Compatibility for already-created legacy tasks. New tasks never persist this field.
+        return trim((string)($task['authorization'] ?? ''));
     }
 
     private function postJson(string $url, string $authorization, array $body, int $timeoutSeconds): array

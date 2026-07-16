@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace app\command;
 
 use app\service\PlatformDataSyncService;
-use app\service\OtaCredentialVault;
 use app\service\OtaFailureNotificationService;
 use app\service\ScheduledAutoFetchPolicy;
 use think\console\Command;
@@ -195,66 +194,16 @@ class AutoFetchOnlineData extends Command
             ];
         }
 
-        $ctripRequestUrl = $this->normalizeScheduledCtripRequestUrl($ctripRequestUrl);
-        $ctripNodeId = $this->normalizeScheduledCtripNodeId($ctripNodeId);
-        if ($ctripRequestUrl === '' || $ctripNodeId === '') {
-            return ['success' => false, 'message' => 'ctrip_execution_metadata_invalid', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt), 'failed_platforms' => ['ctrip']];
-        }
-
-        $locator = $this->resolveCtripCredentialLocatorForHotel($hotelId, $ctripConfigId);
-        if (($locator['status'] ?? '') !== 'ready') {
-            return [
-                'success' => false,
-                'message' => (string)($locator['message'] ?? 'credential_unavailable'),
-                'saved_count' => 0,
-                'data_period' => $dataPeriod,
-                'timing' => $this->ensureTotalTiming([], $startedAt),
-                'failed_platforms' => ['ctrip'],
-            ];
-        }
-
-        try {
-            return (new OtaCredentialVault())->withPayloadForExecution(
-                (int)$locator['tenant_id'],
-                $hotelId,
-                'ctrip',
-                (string)$locator['config_id'],
-                function (array $credentialPayload) use ($hotelId, $dataDate, $dataPeriod, $snapshotTime, $startedAt, $ctripRequestUrl, $ctripNodeId): array {
-                    $cookieValue = $credentialPayload['cookies'] ?? $credentialPayload['cookie'] ?? null;
-                    $cookies = is_scalar($cookieValue) ? trim((string)$cookieValue) : '';
-                    if ($cookies === '') {
-                        return ['success' => false, 'message' => 'credential_payload_missing_cookie', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt), 'failed_platforms' => ['ctrip']];
-                    }
-
-                    $result = $this->sendHttpRequest(
-                        $ctripRequestUrl,
-                        ['nodeId' => $ctripNodeId, 'startDate' => $dataDate, 'endDate' => $dataDate],
-                        $cookies
-                    );
-
-                    if (!$result['success']) {
-                        return ['success' => false, 'message' => 'ctrip_request_failed', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt), 'failed_platforms' => ['ctrip']];
-                    }
-
-                    $savedCount = $this->parseAndSaveData($result['data'], $dataDate, $dataDate, $hotelId, $dataPeriod, $snapshotTime);
-
-                    if ($savedCount === 0) {
-                        return ['success' => false, 'message' => 'no_valid_data', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt), 'failed_platforms' => ['ctrip']];
-                    }
-
-                    Log::info('Auto fetch online data succeeded', ['hotel_id' => $hotelId, 'count' => $savedCount]);
-                    $this->updateCtripLatestFetchStatus($hotelId, date('Y-m-d H:i:s'), $dataDate, $savedCount);
-
-                    return ['success' => true, 'message' => "saved_{$savedCount}_rows", 'saved_count' => $savedCount, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt), 'successful_platforms' => ['ctrip']];
-                }
-            );
-        } catch (\Throwable $e) {
-            Log::error('Auto fetch online data credential execution failed', [
-                'hotel_id' => $hotelId,
-                'exception_type' => get_debug_type($e),
-            ]);
-            return ['success' => false, 'message' => 'credential_execution_failed', 'saved_count' => 0, 'data_period' => $dataPeriod, 'timing' => $this->ensureTotalTiming([], $startedAt), 'failed_platforms' => ['ctrip']];
-        }
+        // Scheduled collection is Profile-only. Reusable Cookie/API credentials
+        // remain an explicit manual recovery path and are never a cron fallback.
+        return [
+            'success' => false,
+            'message' => 'scheduled_browser_profile_source_required',
+            'saved_count' => 0,
+            'data_period' => $dataPeriod,
+            'timing' => $this->ensureTotalTiming([], $startedAt),
+            'failed_platforms' => ['ctrip'],
+        ];
     }
 
     private function syncBrowserProfileSources(int $hotelId, string $dataDate, bool $browserHeadless = true, string $dataPeriod = 'historical_daily', ?string $snapshotTime = null, int $ctripSectionConcurrency = 3): array
@@ -357,63 +306,6 @@ class AutoFetchOnlineData extends Command
             'timing' => $timing,
             'failed_platforms' => array_keys($failedPlatforms),
             'successful_platforms' => [],
-        ];
-    }
-
-    private function resolveCtripCredentialLocatorForHotel(int $hotelId, string $preferredConfigId = ''): array
-    {
-        $tenantId = (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id');
-        if ($tenantId <= 0) {
-            return ['status' => 'missing_tenant', 'message' => 'credential_tenant_unavailable'];
-        }
-
-        $preferredConfigId = trim($preferredConfigId);
-        if ($preferredConfigId !== '' && !preg_match('/^[A-Za-z0-9._-]{1,100}$/D', $preferredConfigId)) {
-            return ['status' => 'invalid_credential', 'message' => 'credential_config_id_invalid'];
-        }
-
-        try {
-            $query = Db::name('ota_credentials')
-                ->where('tenant_id', $tenantId)
-                ->where('system_hotel_id', $hotelId)
-                ->where('platform', 'ctrip')
-                ->where('credential_status', 'ready')
-                ->field('tenant_id,system_hotel_id,platform,config_id,credential_status');
-            if ($preferredConfigId !== '') {
-                $query->where('config_id', $preferredConfigId);
-            }
-            $rows = $query
-                ->limit(2)
-                ->select()
-                ->toArray();
-        } catch (\Throwable $e) {
-            Log::warning('Read Ctrip credential locator failed', [
-                'hotel_id' => $hotelId,
-                'exception_type' => get_debug_type($e),
-            ]);
-            return ['status' => 'metadata_unavailable', 'message' => 'credential_metadata_unavailable'];
-        }
-
-        if (count($rows) === 0) {
-            return ['status' => 'missing_credential', 'message' => 'credential_not_ready'];
-        }
-
-        if (count($rows) !== 1) {
-            return ['status' => 'ambiguous_credential', 'message' => 'credential_selection_ambiguous'];
-        }
-
-        $row = $rows[0];
-        $configId = trim((string)($row['config_id'] ?? ''));
-        if (!preg_match('/^[A-Za-z0-9._-]{1,100}$/', $configId)) {
-            return ['status' => 'invalid_credential', 'message' => 'credential_config_id_invalid'];
-        }
-
-        return [
-            'status' => 'ready',
-            'tenant_id' => $tenantId,
-            'system_hotel_id' => $hotelId,
-            'platform' => 'ctrip',
-            'config_id' => $configId,
         ];
     }
 
@@ -577,65 +469,6 @@ class AutoFetchOnlineData extends Command
         return $timestamp === false ? null : date('Y-m-d H:i:s', $timestamp);
     }
 
-    private function onlineDailyDataColumns(): array
-    {
-        static $columns = null;
-        if (is_array($columns)) {
-            return $columns;
-        }
-
-        $columns = [];
-        try {
-            foreach (Db::query('SHOW COLUMNS FROM `online_daily_data`') as $row) {
-                $field = (string)($row['Field'] ?? $row['field'] ?? '');
-                if ($field !== '') {
-                    $columns[$field] = true;
-                }
-            }
-        } catch (\Throwable $e) {
-            Log::warning('读取 online_daily_data 字段失败', ['error' => $e->getMessage()]);
-        }
-
-        return $columns;
-    }
-
-    private function applyOnlineDailyDataPeriodFields(array $data, array $columns, array $periodOptions = []): array
-    {
-        $period = $this->normalizeOnlineDailyDataPeriod($periodOptions['data_period'] ?? $data['data_period'] ?? '') ?: 'historical_daily';
-        $snapshotTime = $this->normalizeDateTime($periodOptions['snapshot_time'] ?? $data['snapshot_time'] ?? null);
-        if ($period === 'realtime_snapshot' && $snapshotTime === null) {
-            $snapshotTime = date('Y-m-d H:i:s');
-        }
-
-        if (isset($columns['data_period'])) {
-            $data['data_period'] = $period;
-        }
-        if (isset($columns['snapshot_time'])) {
-            $data['snapshot_time'] = $period === 'realtime_snapshot' ? $snapshotTime : null;
-        }
-        if (isset($columns['snapshot_bucket'])) {
-            $data['snapshot_bucket'] = $period === 'realtime_snapshot' && $snapshotTime !== null
-                ? date('YmdH', strtotime($snapshotTime))
-                : '';
-        }
-        if (isset($columns['is_final'])) {
-            $data['is_final'] = $period === 'historical_daily' ? 1 : 0;
-        }
-
-        return $data;
-    }
-
-    private function applyOnlineDailyDataPeriodQuery($query, array $data, array $columns): void
-    {
-        $period = $this->normalizeOnlineDailyDataPeriod($data['data_period'] ?? '') ?: 'historical_daily';
-        if (isset($columns['data_period'])) {
-            $query->where('data_period', $period);
-        }
-        if ($period === 'realtime_snapshot' && isset($columns['snapshot_bucket'])) {
-            $query->where('snapshot_bucket', (string)($data['snapshot_bucket'] ?? ''));
-        }
-    }
-
     private function sumTiming(array $base, array $timing): array
     {
         foreach ($this->normalizeTiming($timing) as $key => $value) {
@@ -683,114 +516,6 @@ class AutoFetchOnlineData extends Command
             'data_date' => $dataDate,
             'saved_count' => $savedCount,
         ], 86400 * 30);
-    }
-
-    private function sendHttpRequest(string $url, array $postData, string $cookies): array
-    {
-        if (!$this->isAllowedCtripRequestUrl($url)) {
-            return ['success' => false, 'error' => '仅允许请求携程官方域名'];
-        }
-
-        $headers = [
-            'Accept: application/json, text/javascript, */*; q=0.01',
-            'Content-Type: application/x-www-form-urlencoded; charset=UTF-8',
-            'X-Requested-With: XMLHttpRequest',
-            'Origin: https://ebooking.ctrip.com',
-            'Referer: https://ebooking.ctrip.com/',
-            'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Cookie: ' . $cookies,
-        ];
-
-        $context = stream_context_create([
-            'http' => [
-                'method' => 'POST',
-                'header' => implode("\r\n", $headers),
-                'content' => http_build_query($postData),
-                'timeout' => 30,
-            ],
-            'ssl' => ['verify_peer' => true, 'verify_peer_name' => true],
-        ]);
-
-        $response = @file_get_contents($url, false, $context);
-
-        if ($response === false) {
-            return ['success' => false, 'error' => error_get_last()['message'] ?? 'Unknown error'];
-        }
-
-        return ['success' => true, 'data' => json_decode($response, true), 'raw' => $response];
-    }
-
-    private function isAllowedCtripRequestUrl(string $url): bool
-    {
-        $parts = parse_url($url);
-        if (!is_array($parts)) {
-            return false;
-        }
-
-        $scheme = strtolower((string)($parts['scheme'] ?? ''));
-        $host = strtolower((string)($parts['host'] ?? ''));
-        return $scheme === 'https' && ($host === 'ctrip.com' || str_ends_with($host, '.ctrip.com'));
-    }
-
-    private function parseAndSaveData($responseData, $startDate, $endDate, int $hotelId, string $dataPeriod = 'historical_daily', ?string $snapshotTime = null): int
-    {
-        $dataList = $responseData['data']['hotelList'] ?? $responseData['data'] ?? $responseData['hotelList'] ?? [];
-
-        if (empty($dataList)) {
-            foreach ($responseData as $value) {
-                if (is_array($value) && isset($value[0]) && isset($value[0]['hotelId'])) {
-                    $dataList = array_merge($dataList, $value);
-                }
-            }
-        }
-
-        if (empty($dataList)) return 0;
-
-        $columns = $this->onlineDailyDataColumns();
-        $dataPeriod = $this->normalizeOnlineDailyDataPeriod($dataPeriod) ?: 'historical_daily';
-        $snapshotTime = $this->normalizeDateTime($snapshotTime) ?? date('Y-m-d H:i:s');
-        $savedCount = 0;
-        foreach ($dataList as $item) {
-            if (!is_array($item)) continue;
-
-            $hotelIdFromData = $item['hotelId'] ?? $item['hotel_id'] ?? null;
-            if (empty($hotelIdFromData)) continue;
-
-            $dataDate = $item['dataDate'] ?? $item['date'] ?? $startDate;
-
-            $data = [
-                'hotel_id' => (string)$hotelIdFromData,
-                'hotel_name' => $item['hotelName'] ?? $item['hotel_name'] ?? '',
-                'system_hotel_id' => $hotelId,
-                'data_date' => $dataDate,
-                'amount' => floatval($item['amount'] ?? $item['totalAmount'] ?? 0),
-                'quantity' => intval($item['quantity'] ?? $item['roomNights'] ?? 0),
-                'book_order_num' => intval($item['bookOrderNum'] ?? 0),
-                'comment_score' => floatval($item['commentScore'] ?? 0),
-                'qunar_comment_score' => floatval($item['qunarCommentScore'] ?? 0),
-                'raw_data' => json_encode($item, JSON_UNESCAPED_UNICODE),
-            ];
-            $data = $this->applyOnlineDailyDataPeriodFields($data, $columns, [
-                'data_period' => $dataPeriod,
-                'snapshot_time' => $snapshotTime,
-            ]);
-
-            $query = Db::name('online_daily_data')
-                ->where('hotel_id', (string)$hotelIdFromData)
-                ->where('data_date', $dataDate)
-                ->where('system_hotel_id', $hotelId);
-            $this->applyOnlineDailyDataPeriodQuery($query, $data, $columns);
-            $exists = $query->find();
-
-            if ($exists) {
-                Db::name('online_daily_data')->where('id', $exists['id'])->update($data);
-            } else {
-                Db::name('online_daily_data')->insert($data);
-            }
-            $savedCount++;
-        }
-
-        return $savedCount;
     }
 
     private function updateStatus(int $hotelId, bool $success, string $message, ?string $dataDate = null, array $details = []): void

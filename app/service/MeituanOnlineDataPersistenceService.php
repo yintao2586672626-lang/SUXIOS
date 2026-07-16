@@ -8,11 +8,15 @@ use think\facade\Db;
 final class MeituanOnlineDataPersistenceService
 {
     private ?\Closure $rankReadbackReader;
+    private ?\Closure $tenantIdResolver;
 
-    public function __construct(?callable $rankReadbackReader = null)
+    public function __construct(?callable $rankReadbackReader = null, ?callable $tenantIdResolver = null)
     {
         $this->rankReadbackReader = $rankReadbackReader !== null
             ? \Closure::fromCallable($rankReadbackReader)
+            : null;
+        $this->tenantIdResolver = $tenantIdResolver !== null
+            ? \Closure::fromCallable($tenantIdResolver)
             : null;
     }
 
@@ -213,16 +217,25 @@ final class MeituanOnlineDataPersistenceService
                     'raw_data' => json_encode($rawData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
                 ];
                 $data = OnlineDataFieldFactService::attachToOnlineDailyRow($data, $item);
-                $data = OnlineDailyDataPersistenceService::applyValidationFields($data);
+                $data = OnlineDailyDataPersistenceService::applyValidationFields($data, $columns);
+                $data = OnlineDailyDataPersistenceService::resetReadbackVerification($data, $columns);
 
                 if ($exists) {
+                    $rowId = (int)$exists['id'];
                     Db::name('online_daily_data')
-                        ->where('id', $exists['id'])
+                        ->where('id', $rowId)
                         ->update($data);
                 } else {
-                    Db::name('online_daily_data')->insert($data);
+                    $rowId = (int)Db::name('online_daily_data')->insertGetId($data);
                 }
-                $savedCount++;
+                $persisted = $rowId > 0
+                    ? Db::name('online_daily_data')->where('id', $rowId)->find()
+                    : null;
+                if (is_array($persisted)
+                    && OnlineDailyDataPersistenceService::matchesBusinessReadback($persisted, $data)
+                    && OnlineDailyDataPersistenceService::markRowsReadbackVerified([$persisted], $columns)) {
+                    $savedCount++;
+                }
             }
 
             return $savedCount;
@@ -287,7 +300,38 @@ final class MeituanOnlineDataPersistenceService
             ];
         }
 
+        try {
+            $tenantId = $this->tenantIdResolver !== null
+                ? (int)($this->tenantIdResolver)($systemHotelId)
+                : OnlineDailyDataPersistenceService::resolveTenantIdForSystemHotel($systemHotelId);
+        } catch (\Throwable $exception) {
+            $tenantId = 0;
+        }
+        if ($tenantId <= 0) {
+            return [
+                'verified' => false,
+                'expected_count' => count($expected),
+                'matched_count' => 0,
+                'row_ids' => [],
+                'reason' => 'database_readback_tenant_scope_invalid',
+            ];
+        }
+
+        $columns = $this->rankReadbackReader === null
+            ? OnlineDailyDataPersistenceService::getColumns()
+            : ['tenant_id' => true, 'readback_verified' => true];
+        if (!isset($columns['tenant_id'], $columns['readback_verified'])) {
+            return [
+                'verified' => false,
+                'expected_count' => count($expected),
+                'matched_count' => 0,
+                'row_ids' => [],
+                'reason' => 'database_readback_proof_schema_missing',
+            ];
+        }
+
         $scope = [
+            'tenant_id' => $tenantId,
             'system_hotel_id' => $systemHotelId,
             'start_date' => $startDate,
             'end_date' => $endDate,
@@ -298,7 +342,8 @@ final class MeituanOnlineDataPersistenceService
             $storedRows = ($this->rankReadbackReader)($scope);
         } else {
             $storedRows = Db::name('online_daily_data')
-                ->field('id, system_hotel_id, hotel_id, data_date, source, data_type, dimension')
+                ->field('id, tenant_id, system_hotel_id, hotel_id, data_date, source, data_type, dimension, readback_verified')
+                ->where('tenant_id', $tenantId)
                 ->where('system_hotel_id', $systemHotelId)
                 ->where('source', 'meituan')
                 ->where('data_type', 'peer_rank')
@@ -312,9 +357,11 @@ final class MeituanOnlineDataPersistenceService
         $rowIds = [];
         foreach (is_array($storedRows) ? $storedRows : [] as $row) {
             if (!is_array($row)
+                || (int)($row['tenant_id'] ?? 0) !== $tenantId
                 || (int)($row['system_hotel_id'] ?? 0) !== $systemHotelId
                 || strtolower(trim((string)($row['source'] ?? ''))) !== 'meituan'
                 || strtolower(trim((string)($row['data_type'] ?? ''))) !== 'peer_rank'
+                || (int)($row['readback_verified'] ?? 0) !== 1
             ) {
                 continue;
             }

@@ -3310,7 +3310,11 @@ final class PlatformDataSyncService
         $stats = $this->sanitizeSyncTaskStats($stats, $status);
         $nextRetryAt = in_array($status, ['failed', 'partial_success'], true) ? date('Y-m-d H:i:s', time() + 900) : null;
 
-        Db::name('platform_data_sync_tasks')->where('id', $taskId)->update([
+        $finalized = (int)Db::name('platform_data_sync_tasks')
+            ->where('id', $taskId)
+            ->where('data_source_id', (int)$source['id'])
+            ->where('status', 'running')
+            ->update([
             'status' => $status,
             'finished_at' => $now,
             'next_retry_at' => $nextRetryAt,
@@ -3318,6 +3322,13 @@ final class PlatformDataSyncService
             'stats_json' => json_encode($stats, JSON_UNESCAPED_UNICODE),
             'update_time' => $now,
         ]);
+        if ($finalized !== 1) {
+            $persistedTask = Db::name('platform_data_sync_tasks')
+                ->where('id', $taskId)
+                ->where('data_source_id', (int)$source['id'])
+                ->find();
+            return $this->persistedSyncTaskResult($taskId, $source, is_array($persistedTask) ? $persistedTask : []);
+        }
         if ($this->shouldPreserveSourceStateForModuleResult($status, $payload)) {
             $this->persistOptionalModuleState((int)$source['id'], $payload, $now);
         } else {
@@ -3334,10 +3345,14 @@ final class PlatformDataSyncService
             $timing['total_elapsed_ms'] = $this->elapsedMilliseconds($syncStartedAt);
         }
         $stats = $this->sanitizeSyncTaskStats(array_merge($stats, $timing, ['timing' => $timing]), $status);
-        Db::name('platform_data_sync_tasks')->where('id', $taskId)->update([
-            'stats_json' => json_encode($stats, JSON_UNESCAPED_UNICODE),
-            'update_time' => date('Y-m-d H:i:s'),
-        ]);
+        Db::name('platform_data_sync_tasks')
+            ->where('id', $taskId)
+            ->where('data_source_id', (int)$source['id'])
+            ->where('status', $status)
+            ->update([
+                'stats_json' => json_encode($stats, JSON_UNESCAPED_UNICODE),
+                'update_time' => date('Y-m-d H:i:s'),
+            ]);
         $this->logSync($taskId, $source, $status === 'success' ? 'info' : 'warning', 'sync_finished', $safeMessage, $stats);
 
         return [
@@ -3360,6 +3375,50 @@ final class PlatformDataSyncService
             'sync_diagnostics' => $safeDiagnostics !== [] ? $safeDiagnostics : null,
             'collection_quality' => $stats['collection_quality'],
             'module_status' => is_array($payload['module_status'] ?? null) ? $payload['module_status'] : null,
+        ];
+    }
+
+    /**
+     * Return the task state already persisted by a newer recovery attempt.
+     * A late worker must not overwrite the terminal task, source state, or logs.
+     *
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $task
+     * @return array<string, mixed>
+     */
+    private function persistedSyncTaskResult(int $taskId, array $source, array $task): array
+    {
+        $status = strtolower(trim((string)($task['status'] ?? '')));
+        if ($status === '') {
+            $status = 'failed';
+        }
+        $stats = $this->sanitizeSyncTaskStats($this->decodeConfig($task['stats_json'] ?? []), $status);
+        $timing = is_array($stats['timing'] ?? null) ? $stats['timing'] : $this->emptySyncTiming();
+        $nextRetryAt = trim((string)($task['next_retry_at'] ?? ''));
+
+        return [
+            'task_id' => $taskId,
+            'data_source_id' => (int)$source['id'],
+            'status' => $status,
+            'message' => $this->safeSyncTaskMessage(
+                $status,
+                (string)($task['message'] ?? 'sync task completion ignored because task is no longer active')
+            ),
+            'normalized_count' => (int)($stats['normalized_count'] ?? 0),
+            'saved_count' => (int)($stats['saved_count'] ?? 0),
+            'inserted_count' => (int)($stats['inserted_count'] ?? 0),
+            'updated_count' => (int)($stats['updated_count'] ?? 0),
+            'readback_count' => (int)($stats['readback_count'] ?? 0),
+            'readback_verified' => ($stats['readback_verified'] ?? false) === true,
+            'rolled_back' => ($stats['rolled_back'] ?? false) === true,
+            'failure_reason' => (string)($stats['failure_reason'] ?? ''),
+            'predecessor_task_id' => (int)($stats['predecessor_task_id'] ?? 0),
+            'recovery_context_status' => (string)($stats['recovery_context_status'] ?? ''),
+            'next_retry_at' => $nextRetryAt !== '' ? $nextRetryAt : null,
+            'timing' => $timing,
+            'sync_diagnostics' => is_array($stats['sync_diagnostics'] ?? null) ? $stats['sync_diagnostics'] : null,
+            'collection_quality' => is_array($stats['collection_quality'] ?? null) ? $stats['collection_quality'] : [],
+            'module_status' => null,
         ];
     }
 
@@ -4014,14 +4073,17 @@ final class PlatformDataSyncService
                 $updated = 0;
                 $readback = 0;
                 $rowIds = [];
+                $readbackRows = [];
                 foreach ($rows as $row) {
                     $data = array_intersect_key($row, $columns);
                     if ($data === []) {
                         $failureReceipt = $this->normalizedRowsRollbackReceipt($attempted, 'normalized_row_has_no_persistable_columns');
                         throw new RuntimeException('normalized_row_has_no_persistable_columns');
                     }
+                    $data = OnlineDailyDataPersistenceService::applyTenantScope($data, $columns);
+                    $data = OnlineDailyDataPersistenceService::resetReadbackVerification($data, $columns);
 
-                    $existing = $this->findNormalizedRowByCompleteIdentity($row, $columns);
+                    $existing = $this->findNormalizedRowByCompleteIdentity($data, $columns);
                     if (is_array($existing)) {
                         $rowId = (int)($existing['id'] ?? 0);
                         if (isset($columns['update_time'])) {
@@ -4042,7 +4104,10 @@ final class PlatformDataSyncService
                         }
                     }
 
-                    if ($rowId <= 0 || !$this->normalizedRowReadbackMatches($rowId, $data, $columns)) {
+                    $readbackRow = $rowId > 0
+                        ? $this->normalizedRowReadback($rowId, $data, $columns)
+                        : null;
+                    if (!is_array($readbackRow)) {
                         $failureReceipt = $this->normalizedRowsRollbackReceipt(
                             $attempted,
                             'normalized_rows_readback_mismatch_rolled_back'
@@ -4051,6 +4116,16 @@ final class PlatformDataSyncService
                     }
                     $readback++;
                     $rowIds[] = $rowId;
+                    $readbackRows[] = $readbackRow;
+                }
+
+                if ($attempted !== $readback
+                    || !OnlineDailyDataPersistenceService::markRowsReadbackVerified($readbackRows, $columns)) {
+                    $failureReceipt = $this->normalizedRowsRollbackReceipt(
+                        $attempted,
+                        'normalized_rows_readback_proof_not_persisted_rolled_back'
+                    );
+                    throw new RuntimeException('normalized_rows_readback_proof_not_persisted_rolled_back');
                 }
 
                 return [
@@ -4134,11 +4209,11 @@ final class PlatformDataSyncService
      * @param array<string, mixed> $expected
      * @param array<string, bool> $columns
      */
-    private function normalizedRowReadbackMatches(int $rowId, array $expected, array $columns): bool
+    private function normalizedRowReadback(int $rowId, array $expected, array $columns): ?array
     {
         $stored = Db::name('online_daily_data')->where('id', $rowId)->find();
         if (!is_array($stored)) {
-            return false;
+            return null;
         }
         foreach ($expected as $field => $expectedValue) {
             if (!isset($columns[$field]) || in_array($field, ['id'], true)) {
@@ -4146,10 +4221,10 @@ final class PlatformDataSyncService
             }
             $storedValue = $stored[$field] ?? null;
             if (!$this->normalizedStoredValueMatches($storedValue, $expectedValue)) {
-                return false;
+                return null;
             }
         }
-        return true;
+        return $stored;
     }
 
     private function normalizedStoredValueMatches(mixed $stored, mixed $expected): bool

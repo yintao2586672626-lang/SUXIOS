@@ -203,7 +203,7 @@ final class CtripCompetitionCirclePersistenceService
         int $userId = 0,
         array $safeConfig = []
     ): int {
-        $tenantId = (int)(Db::name('hotels')->where('id', $systemHotelId)->value('tenant_id') ?? 0);
+        $tenantId = OnlineDailyDataPersistenceService::resolveTenantIdForSystemHotel($systemHotelId);
         $query = Db::name('platform_data_sources')
             ->where('system_hotel_id', $systemHotelId)
             ->where('platform', 'ctrip')
@@ -219,7 +219,7 @@ final class CtripCompetitionCirclePersistenceService
             'credential_storage' => 'ota_credential_vault_reference_only',
         ];
         $payload = [
-            'tenant_id' => $tenantId > 0 ? $tenantId : null,
+            'tenant_id' => $tenantId,
             'system_hotel_id' => $systemHotelId,
             'user_id' => $userId > 0 ? $userId : null,
             'name' => '携程手动竞争圈采集',
@@ -251,9 +251,9 @@ final class CtripCompetitionCirclePersistenceService
         string $triggerType = 'manual'
     ): int {
         $now = date('Y-m-d H:i:s');
-        $tenantId = (int)(Db::name('hotels')->where('id', $systemHotelId)->value('tenant_id') ?? 0);
+        $tenantId = OnlineDailyDataPersistenceService::resolveTenantIdForSystemHotel($systemHotelId);
         return (int)Db::name('platform_data_sync_tasks')->insertGetId([
-            'tenant_id' => $tenantId > 0 ? $tenantId : null,
+            'tenant_id' => $tenantId,
             'data_source_id' => $dataSourceId,
             'system_hotel_id' => $systemHotelId,
             'platform' => 'ctrip',
@@ -317,6 +317,7 @@ final class CtripCompetitionCirclePersistenceService
         array $context
     ): array {
         $columns = OnlineDailyDataPersistenceService::getColumns();
+        $tenantId = OnlineDailyDataPersistenceService::resolveTenantIdForSystemHotel($systemHotelId);
         $now = self::normalizeDateTime($context['fetched_at'] ?? null) ?? date('Y-m-d H:i:s');
         $inserted = 0;
         $updated = 0;
@@ -350,7 +351,7 @@ final class CtripCompetitionCirclePersistenceService
             ) ?: $dataDate;
             $semantics = self::normalizeRowSemantics($row, $context);
             $data = [
-                'tenant_id' => $systemHotelId,
+                'tenant_id' => $tenantId,
                 'hotel_id' => $hotelId,
                 'hotel_name' => $hotelName,
                 'system_hotel_id' => $systemHotelId,
@@ -385,6 +386,7 @@ final class CtripCompetitionCirclePersistenceService
             $semanticStatus = $evidenceFlagCodes === [] ? $semantics['validation_status'] : 'partial';
             self::appendQualityFlags($data, $validationFlagCodes, $columns, $semanticStatus);
             $data = array_intersect_key($data, $columns);
+            $data = OnlineDailyDataPersistenceService::resetReadbackVerification($data, $columns);
 
             $existing = $this->findExistingCompetitionRow($hotelId, $rowDate, $systemHotelId, $columns);
             if ($existing) {
@@ -414,17 +416,32 @@ final class CtripCompetitionCirclePersistenceService
 
         $readback = $this->verifyPersistedRows($expectedRows);
         $processedCount = $inserted + $updated;
+        $matchedIds = array_values(array_map('intval', $readback['row_ids'] ?? []));
+        $matchedRows = array_values(array_filter(
+            is_array($readback['matched_rows'] ?? null) ? $readback['matched_rows'] : [],
+            'is_array'
+        ));
+        $proofPersisted = $matchedRows !== []
+            && OnlineDailyDataPersistenceService::markRowsReadbackVerified($matchedRows, $columns);
+        $trustedCount = $proofPersisted ? count($matchedIds) : 0;
+        $readbackVerified = ($readback['verified'] ?? false) === true && $proofPersisted;
+        $readbackReason = (string)($readback['reason'] ?? '');
+        if (!$proofPersisted && $matchedIds !== []) {
+            $readbackReason = isset($columns['readback_verified'])
+                ? 'database_readback_proof_not_persisted'
+                : 'database_readback_proof_schema_missing';
+        }
 
         return [
-            'saved_count' => $readback['matched_count'],
+            'saved_count' => $trustedCount,
             'processed_count' => $processedCount,
             'inserted_count' => $inserted,
             'updated_count' => $updated,
             'skipped_count' => $skipped,
             'row_ids' => $rowIds,
-            'readback_count' => $readback['matched_count'],
-            'readback_verified' => $readback['verified'],
-            'readback_reason' => $readback['reason'],
+            'readback_count' => (int)($readback['matched_count'] ?? 0),
+            'readback_verified' => $readbackVerified,
+            'readback_reason' => $readbackReason,
         ];
     }
 
@@ -459,13 +476,15 @@ final class CtripCompetitionCirclePersistenceService
 
     /**
      * @param array<int,array<string,mixed>> $expectedRows
-     * @return array{verified:bool,expected_count:int,matched_count:int,row_ids:array<int,int>,reason:string}
+     * @return array{verified:bool,expected_count:int,matched_count:int,row_ids:array<int,int>,matched_rows:array<int,array<string,mixed>>,reason:string}
      */
     public function verifyPersistedRows(array $expectedRows): array
     {
         $expectedRows = array_filter(
             $expectedRows,
-            static fn(array $row, int|string $id): bool => (int)$id > 0 && (int)($row['id'] ?? 0) === (int)$id,
+            static fn(array $row, int|string $id): bool => (int)$id > 0
+                && (int)($row['id'] ?? 0) === (int)$id
+                && (int)($row['tenant_id'] ?? 0) > 0,
             ARRAY_FILTER_USE_BOTH
         );
         if ($expectedRows === []) {
@@ -474,6 +493,7 @@ final class CtripCompetitionCirclePersistenceService
                 'expected_count' => 0,
                 'matched_count' => 0,
                 'row_ids' => [],
+                'matched_rows' => [],
                 'reason' => 'database_readback_expectation_missing',
             ];
         }
@@ -491,11 +511,13 @@ final class CtripCompetitionCirclePersistenceService
         }
 
         $matchedIds = [];
+        $matchedRows = [];
         foreach ($expectedRows as $id => $expected) {
             $id = (int)$id;
             $stored = $storedById[$id] ?? null;
             if (is_array($stored) && $this->persistedRowMatchesExpectation($stored, $expected)) {
                 $matchedIds[] = $id;
+                $matchedRows[] = $stored;
             }
         }
 
@@ -505,6 +527,7 @@ final class CtripCompetitionCirclePersistenceService
             'expected_count' => count($expectedRows),
             'matched_count' => count($matchedIds),
             'row_ids' => $matchedIds,
+            'matched_rows' => $matchedRows,
             'reason' => $verified ? '' : 'database_readback_mismatch',
         ];
     }
@@ -512,25 +535,10 @@ final class CtripCompetitionCirclePersistenceService
     /** @return array<string,mixed> */
     private function buildReadbackExpectation(int $id, array $data): array
     {
-        $fields = [
-            'id',
-            'system_hotel_id',
-            'hotel_id',
-            'data_date',
-            'source',
-            'data_type',
-            'dimension',
-            'source_trace_id',
-            'amount',
-            'quantity',
-            'book_order_num',
-            'comment_score',
-            'qunar_comment_score',
-        ];
         $expectation = ['id' => $id];
-        foreach ($fields as $field) {
-            if ($field !== 'id' && array_key_exists($field, $data)) {
-                $expectation[$field] = $data[$field];
+        foreach ($data as $field => $value) {
+            if ($field !== 'id') {
+                $expectation[$field] = $value;
             }
         }
         return $expectation;
@@ -544,8 +552,14 @@ final class CtripCompetitionCirclePersistenceService
                 return false;
             }
             $storedValue = $stored[$field];
+            if ($expectedValue === null) {
+                if ($storedValue !== null && $storedValue !== '') {
+                    return false;
+                }
+                continue;
+            }
             if (in_array($field, $numericFields, true)) {
-                if ($expectedValue === null || $expectedValue === '') {
+                if ($expectedValue === '') {
                     if ($storedValue !== null && $storedValue !== '') {
                         return false;
                     }
@@ -556,6 +570,17 @@ final class CtripCompetitionCirclePersistenceService
                     return false;
                 }
                 continue;
+            }
+            if (is_string($expectedValue) && $expectedValue !== ''
+                && in_array($expectedValue[0], ['{', '['], true)) {
+                $expectedJson = json_decode($expectedValue, true);
+                $storedJson = is_string($storedValue) ? json_decode($storedValue, true) : null;
+                if (is_array($expectedJson) && is_array($storedJson)) {
+                    if ($storedJson != $expectedJson) {
+                        return false;
+                    }
+                    continue;
+                }
             }
             if ((string)$storedValue !== (string)$expectedValue) {
                 return false;

@@ -3,6 +3,7 @@
 namespace app\controller\concern;
 
 use app\service\CtripTrafficDisplayService;
+use app\service\OnlineDailyDataPersistenceService;
 use app\service\OnlineDataFieldFactService;
 use InvalidArgumentException;
 use think\facade\Db;
@@ -1088,6 +1089,7 @@ trait MeituanCapturedDataConcern
             }
             $row = OnlineDataFieldFactService::attachToOnlineDailyRow($row);
             $row = $this->applyOnlineDailyDataPeriodFields($row, $columns, $row);
+            $row = OnlineDailyDataPersistenceService::applyTenantScope($row, $columns);
 
             if (isset($columns['update_time'])) {
                 $row['update_time'] = $now;
@@ -1118,13 +1120,18 @@ trait MeituanCapturedDataConcern
             }
 
             $data = array_intersect_key($this->applyOnlineDailyDataValidationFields($row, $columns), $columns);
+            $data = OnlineDailyDataPersistenceService::resetReadbackVerification($data, $columns);
             if ($exists) {
                 $rowId = (int)$exists['id'];
                 Db::name('online_daily_data')->where('id', $rowId)->update($data);
             } else {
                 $rowId = (int)Db::name('online_daily_data')->insertGetId($data);
             }
-            if ($rowId > 0 && $this->verifyMeituanCapturedDailyRowReadback($rowId, $row)) {
+            $readbackRow = $rowId > 0
+                ? $this->verifiedMeituanCapturedDailyRowReadback($rowId, $data)
+                : null;
+            if (is_array($readbackRow)
+                && OnlineDailyDataPersistenceService::markRowsReadbackVerified([$readbackRow], $columns)) {
                 $savedCount++;
             }
         }
@@ -1162,18 +1169,18 @@ trait MeituanCapturedDataConcern
         return $unique;
     }
 
-    private function verifyMeituanCapturedDailyRowReadback(int $rowId, array $expected): bool
+    private function verifiedMeituanCapturedDailyRowReadback(int $rowId, array $expected): ?array
     {
         $persisted = Db::name('online_daily_data')->where('id', $rowId)->find();
         if (!is_array($persisted)) {
-            return false;
+            return null;
         }
-        return $this->meituanCapturedRowMatchesReadback($persisted, $expected);
+        return $this->meituanCapturedRowMatchesReadback($persisted, $expected) ? $persisted : null;
     }
 
     private function meituanCapturedRowMatchesReadback(array $persisted, array $expected): bool
     {
-        foreach (['source', 'data_type', 'data_date', 'dimension'] as $field) {
+        foreach (['tenant_id', 'source', 'data_type', 'data_date', 'dimension'] as $field) {
             if ((string)($persisted[$field] ?? '') !== (string)($expected[$field] ?? '')) {
                 return false;
             }
@@ -1186,7 +1193,7 @@ trait MeituanCapturedDataConcern
             return false;
         }
 
-        foreach ([
+        $numericFields = [
             'amount',
             'quantity',
             'book_order_num',
@@ -1198,7 +1205,8 @@ trait MeituanCapturedDataConcern
             'flow_rate',
             'order_filling_num',
             'order_submit_num',
-        ] as $field) {
+        ];
+        foreach ($numericFields as $field) {
             if (!array_key_exists($field, $expected)) {
                 continue;
             }
@@ -1218,9 +1226,20 @@ trait MeituanCapturedDataConcern
 
         $expectedSystemHotelId = $expected['system_hotel_id'] ?? null;
         $persistedSystemHotelId = $persisted['system_hotel_id'] ?? null;
-        return $expectedSystemHotelId === null
+        $systemHotelMatches = $expectedSystemHotelId === null
             ? $persistedSystemHotelId === null
             : (int)$persistedSystemHotelId === (int)$expectedSystemHotelId;
+        if (!$systemHotelMatches) {
+            return false;
+        }
+
+        // Reuse the shared identity/raw-fact contract after applying Meituan's
+        // field-specific DECIMAL rounding rules above. This keeps facts that
+        // live only in raw_data and source trace/period scope in the proof.
+        foreach ($numericFields as $field) {
+            unset($persisted[$field], $expected[$field]);
+        }
+        return OnlineDailyDataPersistenceService::matchesBusinessReadback($persisted, $expected);
     }
 
     private function meituanCapturedNumericReadbackMatches(string $field, float $persistedValue, float $expectedValue): bool

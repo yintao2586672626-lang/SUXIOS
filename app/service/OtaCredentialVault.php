@@ -69,7 +69,8 @@ final class OtaCredentialVault
             'tenant_id' => $tenantId, 'system_hotel_id' => $hotelId, 'platform' => $platform, 'config_id' => $configId,
             'encrypted_payload' => $this->envelope->encrypt($payload, $scope), 'payload_version' => 1,
             'key_id' => $this->keyId, 'secret_mask' => $mask,
-            'credential_status' => 'ready', 'created_by' => $actorId, 'rotated_at' => $now, 'update_time' => $now,
+            'credential_status' => 'ready', 'created_by' => $actorId, 'rotated_at' => $now,
+            'last_used_at' => null, 'revoked_at' => null, 'update_time' => $now,
         ];
         $r = \think\facade\Db::transaction(function () use ($data, $tenantId, $hotelId, $platform, $configId, $now): OtaCredential {
             $record = OtaCredential::where('tenant_id', $tenantId)->where('system_hotel_id', $hotelId)->where('platform', $platform)->where('config_id', $configId)->lock(true)->find();
@@ -92,6 +93,8 @@ final class OtaCredentialVault
             'secret_mask' => (string) $r->secret_mask,
             'credential_status' => (string) $r->credential_status,
             'rotated_at' => $r->rotated_at,
+            'last_used_at' => $r->last_used_at,
+            'revoked_at' => $r->revoked_at,
             'create_time' => $r->create_time,
             'update_time' => $r->update_time,
         ];
@@ -104,15 +107,21 @@ final class OtaCredentialVault
 
     public function withPayloadForExecution(int $t, int $h, string $p, string $c, callable $consumer): mixed
     {
-        $r = $this->locate($t, $h, $p, $c);
-        return $consumer($this->payloadForExecution($r, $this->scope($t, $h, $p, $c)));
+        $payload = \think\facade\Db::transaction(function () use ($t, $h, $p, $c): array {
+            $r = $this->locate($t, $h, $p, $c, false, true);
+            $payload = $this->payloadForExecution($r, $this->scope($t, $h, $p, $c));
+            $r->last_used_at = date('Y-m-d H:i:s');
+            $r->save();
+            return $payload;
+        });
+        return $consumer($payload);
     }
 
     public function verifiedMetadataForExecution(int $t, int $h, string $p, string $c): array
     {
-        $metadata = $this->metadata($t, $h, $p, $c);
-        $this->withPayloadForExecution($t, $h, $p, $c, static fn(array $_payload): null => null);
-        return $metadata;
+        $r = $this->locate($t, $h, $p, $c);
+        $this->payloadForExecution($r, $this->scope($t, $h, $p, $c));
+        return $this->meta($r);
     }
 
     /** @return array<string|int, mixed> */
@@ -130,7 +139,17 @@ final class OtaCredentialVault
     {
         return \think\facade\Db::transaction(function () use ($t, $h, $p, $c): array {
             $r = $this->locate($t, $h, $p, $c, true, true);
-            if ((string) $r->credential_status !== 'revoked') { $r->credential_status = 'revoked'; $r->save(); }
+            if ((string)$r->credential_status !== 'revoked'
+                || (string)$r->encrypted_payload !== ''
+                || (string)$r->secret_mask !== ''
+                || $r->revoked_at === null
+            ) {
+                $r->credential_status = 'revoked';
+                $r->encrypted_payload = '';
+                $r->secret_mask = '';
+                $r->revoked_at = $r->revoked_at ?? date('Y-m-d H:i:s');
+                $r->save();
+            }
             return $this->meta($r);
         });
     }

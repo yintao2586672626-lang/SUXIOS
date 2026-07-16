@@ -46,6 +46,13 @@ check(
 
 check(
   'route/app.php',
+  'public login support route is declared once',
+  (source) => count(source, "Route::get('api/auth/login-support', 'Auth/loginSupport');") === 1,
+  "Route::get('api/auth/login-support', 'Auth/loginSupport');"
+);
+
+check(
+  'route/app.php',
   'disabled self-registration route is declared once',
   (source) => count(source, "Route::post('api/auth/register', 'Auth/register');") === 1,
   "Route::post('api/auth/register', 'Auth/register');"
@@ -56,9 +63,11 @@ check(
   'public auth routes are outside protected auth group',
   (source) => {
     const login = source.indexOf("Route::post('api/auth/login', 'Auth/login');");
+    const loginSupport = source.indexOf("Route::get('api/auth/login-support', 'Auth/loginSupport');");
     const register = source.indexOf("Route::post('api/auth/register', 'Auth/register');");
     const protectedGroup = source.indexOf("Route::group('api/auth'");
-    return login !== -1 && register !== -1 && protectedGroup !== -1 && login < protectedGroup && register < protectedGroup;
+    return login !== -1 && loginSupport !== -1 && register !== -1 && protectedGroup !== -1
+      && login < protectedGroup && loginSupport < protectedGroup && register < protectedGroup;
   },
   'auth route order'
 );
@@ -66,7 +75,8 @@ check(
 check(
   'app/controller/Auth.php',
   'self-registration endpoint is explicitly disabled',
-  (source) => source.includes("return $this->error('系统已关闭自助注册，请联系管理员创建账号', 403);"),
+  (source) => source.includes("return $this->error('系统已关闭自助注册，请联系管理员创建账号', 403);")
+    && !source.includes('registerLegacyDisabled'),
   'disabled register response'
 );
 

@@ -3,14 +3,32 @@ declare(strict_types=1);
 
 namespace app\service;
 
+use app\contract\ManualOnlineFetchTaskStatusStore;
+
 final class ManualOnlineFetchTaskService
 {
     private const COMMAND_NAME = 'online-data:manual-fetch-once';
-    private const STATUS_FILENAME = 'status.json';
     private const STATUS_STALE_SECONDS = 7500;
+    private const DEFAULT_ORPHAN_SECONDS = 86400;
+    private const DEFAULT_RETENTION_SECONDS = 604800;
+    private const MIN_RETENTION_SECONDS = 3600;
+    private const MAX_RETENTION_SECONDS = 7776000;
+
+    private ManualOnlineFetchTaskStatusStore $statusStore;
+    private string $taskRoot;
+
+    public function __construct(?ManualOnlineFetchTaskStatusStore $statusStore = null, ?string $taskRoot = null)
+    {
+        $this->taskRoot = rtrim(
+            $taskRoot ?: $this->projectRoot() . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'manual_fetch_tasks',
+            "\\/"
+        );
+        $this->statusStore = $statusStore ?? $this->defaultStatusStore();
+    }
 
     public function createTask(string $platform, int $hotelId, string $startDate, string $endDate, array $requestData, array $context): array
     {
+        $this->cleanupExpiredTasks();
         $requestedTaskKind = $this->normalizeTaskKind($platform);
         $platform = $this->normalizePlatform($platform);
         $authorization = trim((string)($context['authorization'] ?? ''));
@@ -27,7 +45,7 @@ final class ManualOnlineFetchTaskService
         }
 
         $taskId = 'manual_' . $platform . '_fetch_' . $hotelId . '_' . date('YmdHis') . '_' . bin2hex(random_bytes(4));
-        $dir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'manual_fetch_tasks' . DIRECTORY_SEPARATOR . $taskId;
+        $dir = $this->taskRoot . DIRECTORY_SEPARATOR . $taskId;
         if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
             return [];
         }
@@ -52,9 +70,10 @@ final class ManualOnlineFetchTaskService
             'api_url' => $apiUrl,
             'authorization' => $authorization,
             'authorization_env' => $authorizationEnv,
+            'status_task_id' => $taskId,
             'body' => $body,
             'input' => $inputPath,
-            'status_file' => $dir . DIRECTORY_SEPARATOR . self::STATUS_FILENAME,
+            'status_file' => $this->statusStore->locator($taskId),
             'log' => $dir . DIRECTORY_SEPARATOR . 'launcher.log',
             'created_at' => date('Y-m-d H:i:s'),
         ];
@@ -318,12 +337,8 @@ final class ManualOnlineFetchTaskService
         if (!$this->isValidTaskId($taskId)) {
             return [];
         }
-        $path = $this->taskStatusPath($taskId);
-        if (!is_file($path)) {
-            return [];
-        }
-        $decoded = json_decode((string)file_get_contents($path), true);
-        if (!is_array($decoded) || (string)($decoded['task_id'] ?? '') !== $taskId) {
+        $decoded = $this->statusStore->read($taskId);
+        if ($decoded === []) {
             return [];
         }
 
@@ -331,17 +346,26 @@ final class ManualOnlineFetchTaskService
         if (!in_array($status, ['success', 'partial_success', 'failed', 'no_data', 'unverified'], true)
             && $this->isTaskStatusStale($decoded)
         ) {
-            $finishedAt = date('Y-m-d H:i:s');
-            $decoded['status'] = 'failed';
-            $decoded['stage'] = 'timeout';
-            $decoded['status_text'] = '已超时';
-            $decoded['message'] = '后台任务超过最长执行时间，请查看失败原因后重试';
-            $decoded['progress_percent'] = 100;
-            $decoded['quality_status'] = 'collection_failed';
-            $decoded['finished_at'] = $finishedAt;
-            $decoded['updated_at'] = $finishedAt;
-            $decoded['done'] = true;
-            $this->persistTaskStatus($taskId, $decoded);
+            $decoded = $this->statusStore->update($taskId, function (array $current): array {
+                $currentStatus = strtolower(trim((string)($current['status'] ?? 'queued')));
+                if (in_array($currentStatus, ['success', 'partial_success', 'failed', 'no_data', 'unverified'], true)
+                    || !$this->isTaskStatusStale($current)
+                ) {
+                    return $current;
+                }
+                $finishedAt = date('Y-m-d H:i:s');
+                return array_merge($current, [
+                    'status' => 'failed',
+                    'stage' => 'timeout',
+                    'status_text' => '已超时',
+                    'message' => '后台任务超过最长执行时间，请查看失败原因后重试',
+                    'progress_percent' => 100,
+                    'quality_status' => 'collection_failed',
+                    'finished_at' => $finishedAt,
+                    'updated_at' => $finishedAt,
+                    'done' => true,
+                ]);
+            });
         }
         return $decoded;
     }
@@ -360,8 +384,21 @@ final class ManualOnlineFetchTaskService
     public function clearTaskStatus(string $taskId): void
     {
         if ($this->isValidTaskId($taskId)) {
-            @unlink($this->taskStatusPath($taskId));
+            $this->statusStore->delete($taskId);
         }
+    }
+
+    /** @return array{scanned:int,timed_out:int,orphaned:int,expired:int,removed:int,kept:int,errors:int} */
+    public function cleanupExpiredTasks(?int $retentionSeconds = null, ?int $now = null, bool $dryRun = false): array
+    {
+        $retentionSeconds = $this->resolveRetentionSeconds($retentionSeconds);
+        return $this->statusStore->cleanupExpired(
+            $retentionSeconds,
+            $this->resolveStaleSeconds(),
+            $this->resolvePositiveSeconds('SUXI_MANUAL_FETCH_TASK_ORPHAN_SECONDS', self::DEFAULT_ORPHAN_SECONDS),
+            $now ?? time(),
+            $dryRun
+        );
     }
 
     private function authorizationEnvName(string $taskId): string
@@ -380,7 +417,7 @@ final class ManualOnlineFetchTaskService
             return;
         }
 
-        $taskRoot = realpath($this->projectRoot() . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'manual_fetch_tasks');
+        $taskRoot = realpath($this->taskRoot);
         $dir = realpath(dirname($inputPath));
         if ($taskRoot === false
             || $dir === false
@@ -474,71 +511,39 @@ final class ManualOnlineFetchTaskService
 
     private function updateTaskStatus(string $taskId, array $changes): array
     {
-        $current = $this->readTaskStatus($taskId);
-        if ($current === []) {
+        if (!$this->isValidTaskId($taskId)) {
             return [];
         }
-        $terminalStatuses = ['success', 'partial_success', 'failed', 'no_data', 'unverified'];
-        if (in_array(strtolower(trim((string)($current['status'] ?? ''))), $terminalStatuses, true)) {
-            return $current;
-        }
-        if (isset($changes['progress_percent'])) {
-            $changes['progress_percent'] = max(
-                (int)($current['progress_percent'] ?? 0),
-                (int)$changes['progress_percent']
-            );
-        }
-        $next = array_merge($current, $changes, ['updated_at' => date('Y-m-d H:i:s')]);
-        return $this->persistTaskStatus($taskId, $next) ? $next : [];
+        return $this->statusStore->update($taskId, static function (array $current) use ($changes): array {
+            $terminalStatuses = ['success', 'partial_success', 'failed', 'no_data', 'unverified'];
+            if (in_array(strtolower(trim((string)($current['status'] ?? ''))), $terminalStatuses, true)) {
+                return $current;
+            }
+            $nextChanges = $changes;
+            if (isset($nextChanges['progress_percent'])) {
+                $nextChanges['progress_percent'] = max(
+                    (int)($current['progress_percent'] ?? 0),
+                    (int)$nextChanges['progress_percent']
+                );
+            }
+            return array_merge($current, $nextChanges, ['updated_at' => date('Y-m-d H:i:s')]);
+        });
     }
 
     private function persistTaskStatus(string $taskId, array $status): bool
     {
-        if (!$this->isValidTaskId($taskId)) {
-            return false;
-        }
-        $path = $this->taskStatusPath($taskId);
-        $dir = dirname($path);
-        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
-            return false;
-        }
-        $encoded = json_encode($status, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
-        if (!is_string($encoded)) {
-            return false;
-        }
-        try {
-            $suffix = bin2hex(random_bytes(3));
-        } catch (\Throwable) {
-            $suffix = str_replace('.', '', uniqid('', true));
-        }
-        $temporaryPath = $path . '.tmp.' . getmypid() . '.' . $suffix;
-        if (file_put_contents($temporaryPath, $encoded, LOCK_EX) === false) {
-            return false;
-        }
-        if (!@rename($temporaryPath, $path)) {
-            @unlink($temporaryPath);
-            return false;
-        }
-        return true;
-    }
-
-    private function taskStatusPath(string $taskId): string
-    {
-        return $this->projectRoot()
-            . DIRECTORY_SEPARATOR . 'runtime'
-            . DIRECTORY_SEPARATOR . 'manual_fetch_tasks'
-            . DIRECTORY_SEPARATOR . $taskId
-            . DIRECTORY_SEPARATOR . self::STATUS_FILENAME;
+        return $this->statusStore->write($taskId, $status);
     }
 
     private function markLaunchFailure(array $task, string $message): void
     {
         $taskId = trim((string)($task['task_id'] ?? ''));
         if (!$this->isValidTaskId($taskId)) {
-            $statusPath = trim((string)($task['status_file'] ?? ''));
-            if ($statusPath !== '' && is_file($statusPath)) {
-                $decoded = json_decode((string)file_get_contents($statusPath), true);
-                $taskId = is_array($decoded) ? trim((string)($decoded['task_id'] ?? '')) : '';
+            $taskId = trim((string)($task['status_task_id'] ?? ''));
+            if (!$this->isValidTaskId($taskId)) {
+                $statusPath = trim((string)($task['status_file'] ?? ''));
+                $legacyTaskId = basename(dirname($statusPath));
+                $taskId = $this->isValidTaskId($legacyTaskId) ? $legacyTaskId : '';
             }
         }
         if ($this->isValidTaskId($taskId)) {
@@ -550,7 +555,46 @@ final class ManualOnlineFetchTaskService
     {
         $timeText = trim((string)($task['updated_at'] ?? $task['started_at'] ?? $task['created_at'] ?? ''));
         $timestamp = $timeText !== '' ? strtotime($timeText) : false;
-        return $timestamp !== false && (time() - (int)$timestamp) > self::STATUS_STALE_SECONDS;
+        return $timestamp !== false && (time() - (int)$timestamp) > $this->resolveStaleSeconds();
+    }
+
+    private function defaultStatusStore(): ManualOnlineFetchTaskStatusStore
+    {
+        $driver = strtolower(trim((string)(getenv('SUXI_MANUAL_FETCH_TASK_STATUS_DRIVER') ?: 'database')));
+        return match ($driver) {
+            'database', 'mysql' => new DatabaseManualOnlineFetchTaskStatusStore($this->taskRoot),
+            'file' => new FileManualOnlineFetchTaskStatusStore($this->taskRoot),
+            default => throw new \RuntimeException(
+                'Manual fetch task status driver "' . $driver . '" is unsupported; use database or file'
+            ),
+        };
+    }
+
+    private function resolveRetentionSeconds(?int $retentionSeconds): int
+    {
+        if ($retentionSeconds === null) {
+            $configured = trim((string)(getenv('SUXI_MANUAL_FETCH_TASK_RETENTION_SECONDS') ?: ''));
+            $retentionSeconds = preg_match('/^\d+$/D', $configured) === 1
+                ? (int)$configured
+                : self::DEFAULT_RETENTION_SECONDS;
+        }
+        return max(self::MIN_RETENTION_SECONDS, min(self::MAX_RETENTION_SECONDS, $retentionSeconds));
+    }
+
+    private function resolvePositiveSeconds(string $environmentName, int $default): int
+    {
+        $configured = trim((string)(getenv($environmentName) ?: ''));
+        return preg_match('/^\d+$/D', $configured) === 1 && (int)$configured > 0
+            ? (int)$configured
+            : $default;
+    }
+
+    private function resolveStaleSeconds(): int
+    {
+        return max(
+            self::STATUS_STALE_SECONDS,
+            $this->resolvePositiveSeconds('SUXI_MANUAL_FETCH_TASK_STALE_SECONDS', self::STATUS_STALE_SECONDS)
+        );
     }
 
     private function firstNonNegativeNumber(array $payload, array $keys): int

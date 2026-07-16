@@ -147,7 +147,7 @@ if (requiredArtifacts.every(exists)) {
 
   check(
     'credential schema has a tenant/hotel/platform/config unique scope',
-    /UNIQUE\s+KEY\s+\w+\s*\(\s*tenant_id\s*,\s*system_hotel_id\s*,\s*platform\s*,\s*config_id\s*\)/i.test(schema),
+    /UNIQUE\s+KEY\s+`?\w+`?\s*\(\s*`?tenant_id`?\s*,\s*`?system_hotel_id`?\s*,\s*`?platform`?\s*,\s*`?config_id`?\s*\)/i.test(schema),
     'expected a four-part unique key'
   );
   for (const column of ['encrypted_payload', 'payload_version', 'key_id', 'credential_status', 'created_by']) {
@@ -176,9 +176,12 @@ if (requiredArtifacts.every(exists)) {
   );
   check(
     'credential vault decrypts only inside an execution callback',
-    extractPhpMethod(vault, 'withPayloadForExecution').includes('$consumer($this->payloadForExecution(')
+    extractPhpMethod(vault, 'withPayloadForExecution').includes('$this->payloadForExecution(')
+      && extractPhpMethod(vault, 'withPayloadForExecution').includes('$consumer($payload)')
+      && extractPhpMethod(vault, 'withPayloadForExecution').includes('last_used_at')
       && extractPhpMethod(vault, 'payloadForExecution').includes('$this->envelope->decrypt(')
-      && extractPhpMethod(vault, 'verifiedMetadataForExecution').includes('withPayloadForExecution(')
+      && extractPhpMethod(vault, 'verifiedMetadataForExecution').includes('payloadForExecution(')
+      && !extractPhpMethod(vault, 'verifiedMetadataForExecution').includes('last_used_at')
       && !extractPhpMethod(vault, 'verifiedMetadataForExecution').includes('->decrypt('),
     'withPayloadForExecution callback boundary'
   );
@@ -663,10 +666,14 @@ for (const relativePath of strictRuntimeFiles) {
   );
 }
 if (exists('app/command/AutoFetchOnlineData.php')) {
+  const scheduledAutoFetch = read('app/command/AutoFetchOnlineData.php');
   check(
-    'scheduled auto-fetch decrypts through the vault callback',
-    read('app/command/AutoFetchOnlineData.php').includes('withPayloadForExecution('),
-    'OtaCredentialVault::withPayloadForExecution'
+    'scheduled auto-fetch is Profile-only and has no reusable Cookie fallback',
+    scheduledAutoFetch.includes('scheduled_browser_profile_source_required')
+      && scheduledAutoFetch.includes('Scheduled collection is Profile-only.')
+      && !scheduledAutoFetch.includes('withPayloadForExecution(')
+      && !scheduledAutoFetch.includes('sendHttpRequest('),
+    'Profile-only scheduled collection boundary'
   );
 }
 if (exists('app/controller/concern/AutoFetchConcern.php')) {
@@ -700,7 +707,7 @@ if (exists('app/controller/concern/AutoFetchConcern.php')) {
   );
   check(
     'browser Profile source query selects only safe fields before writing the shared cache',
-    listProfileSources.includes("field('id,tenant_id,name,system_hotel_id,platform,data_type,ingestion_method,config_json,enabled,status')")
+    listProfileSources.includes("field('id,tenant_id,name,system_hotel_id,platform,data_type,ingestion_method,config_json,enabled,status,last_sync_status,last_error')")
       && listProfileSources.includes('sanitizeBrowserProfileSourcesForSharedCache($rows)')
       && listProfileSources.includes('writeAutoFetchLightReadCache($cacheKey, $safeRows)')
       && !listProfileSources.includes("secret_json"),
@@ -881,6 +888,8 @@ if (exists('app/service/PlatformDataSyncService.php')) {
 
 const frontendFiles = [
   'public/index.html',
+  'public/app-main.js',
+  'resources/frontend/app-template.html',
   'public/auto-fetch-static.js',
   'public/ctrip-static.js',
   'public/meituan-static.js',
@@ -904,8 +913,8 @@ check(
   !/(?:cookies?|auth_data|authorization|spidertoken|mtgsig)\s*=\s*(?:config|detail)(?:\?|\.)/i.test(frontendSource),
   'secret field assignment from config/detail'
 );
-if (exists('public/index.html')) {
-  const index = read('public/index.html');
+if (frontendFiles.some(exists)) {
+  const index = frontendSource;
   const parseSaved = sourceSection(
     index,
     'const parseSavedOtaDataConfigResponse =',

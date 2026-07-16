@@ -3,6 +3,7 @@
 namespace app\controller\concern;
 
 use app\service\CtripTrafficDisplayService;
+use app\service\OnlineDailyDataPersistenceService;
 use think\facade\Db;
 
 trait CtripAdsConcern
@@ -329,12 +330,21 @@ trait CtripAdsConcern
                 $row['create_time'] = $now;
             }
             $data = array_intersect_key($this->applyOnlineDailyDataValidationFields($row, $columns), $columns);
+            $data = OnlineDailyDataPersistenceService::resetReadbackVerification($data, $columns);
             if ($exists) {
-                Db::name('online_daily_data')->where('id', $exists['id'])->update($data);
+                $rowId = (int)$exists['id'];
+                Db::name('online_daily_data')->where('id', $rowId)->update($data);
             } else {
-                Db::name('online_daily_data')->insert($data);
+                $rowId = (int)Db::name('online_daily_data')->insertGetId($data);
             }
-            $savedCount++;
+            $persisted = $rowId > 0
+                ? Db::name('online_daily_data')->where('id', $rowId)->find()
+                : null;
+            if (is_array($persisted)
+                && OnlineDailyDataPersistenceService::matchesBusinessReadback($persisted, $data)
+                && OnlineDailyDataPersistenceService::markRowsReadbackVerified([$persisted], $columns)) {
+                $savedCount++;
+            }
         }
         return $savedCount;
     }
@@ -345,6 +355,10 @@ trait CtripAdsConcern
      */
     private function countCtripCapturedAdRowsReadback(array $rows): int
     {
+        $columns = $this->getOnlineDailyDataColumns();
+        if (!isset($columns['readback_verified'])) {
+            return 0;
+        }
         $matched = [];
         foreach ($rows as $row) {
             if (!is_array($row) || empty($row['data_date']) || empty($row['data_type'])) {
@@ -378,8 +392,11 @@ trait CtripAdsConcern
                 $query->whereNull('system_hotel_id');
             }
 
-            $stored = $query->field('id,raw_data')->find();
+            $stored = $query->field('id,raw_data,readback_verified')->find();
             if (!is_array($stored) || empty($stored['id'])) {
+                continue;
+            }
+            if ((int)($stored['readback_verified'] ?? 0) !== 1) {
                 continue;
             }
             $expectedRaw = (string)($row['raw_data'] ?? '');

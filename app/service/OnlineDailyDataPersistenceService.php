@@ -19,13 +19,177 @@ final class OnlineDailyDataPersistenceService
         return $columns;
     }
 
+    /**
+     * Persist readback proof only while every value from the matched database
+     * snapshot is still current. The caller must pass the exact rows it read
+     * and compared; scalar IDs are deliberately rejected so a concurrent
+     * overwrite cannot be trusted by a later naked-ID update.
+     *
+     * @param array<int|string, array<string, mixed>> $readbackRows
+     * @param array<string, bool>|null $columns
+     */
+    public static function markRowsReadbackVerified(array $readbackRows, ?array $columns = null): bool
+    {
+        if ($readbackRows === []) {
+            return false;
+        }
+
+        $columns ??= self::getColumns();
+        if (!isset($columns['readback_verified'], $columns['tenant_id'], $columns['system_hotel_id'])) {
+            return false;
+        }
+
+        $snapshots = [];
+        foreach ($readbackRows as $readbackRow) {
+            if (!is_array($readbackRow) || array_diff_key($columns, $readbackRow) !== []) {
+                return false;
+            }
+            $snapshot = array_intersect_key($readbackRow, $columns);
+            $rowId = filter_var($snapshot['id'] ?? null, FILTER_VALIDATE_INT, [
+                'options' => ['min_range' => 1],
+            ]);
+            $systemHotelId = filter_var($snapshot['system_hotel_id'] ?? null, FILTER_VALIDATE_INT, [
+                'options' => ['min_range' => 1],
+            ]);
+            $tenantId = filter_var($snapshot['tenant_id'] ?? null, FILTER_VALIDATE_INT, [
+                'options' => ['min_range' => 1],
+            ]);
+            if ($rowId === false || $systemHotelId === false || $tenantId === false
+                || (int)($snapshot['readback_verified'] ?? -1) !== 0) {
+                return false;
+            }
+            try {
+                if (self::resolveTenantIdForSystemHotel($systemHotelId) !== $tenantId) {
+                    return false;
+                }
+            } catch (\Throwable) {
+                return false;
+            }
+            $snapshots[(int)$rowId] = $snapshot;
+        }
+        if (count($snapshots) !== count($readbackRows)) {
+            return false;
+        }
+
+        try {
+            Db::transaction(static function () use ($snapshots, $columns): void {
+                $verifiedAt = date('Y-m-d H:i:s');
+                foreach ($snapshots as $rowId => $snapshot) {
+                    $query = Db::name('online_daily_data')
+                        ->where('id', $rowId)
+                        ->where('readback_verified', 0);
+                    foreach ($snapshot as $field => $value) {
+                        if (in_array($field, ['id', 'readback_verified'], true)) {
+                            continue;
+                        }
+                        if ($value === null) {
+                            $query->whereNull($field);
+                        } else {
+                            $query->where($field, $value);
+                        }
+                    }
+
+                    $update = ['readback_verified' => 1];
+                    if (isset($columns['readback_verified_at'])) {
+                        $update['readback_verified_at'] = $verifiedAt;
+                    }
+                    if ((int)$query->update($update) !== 1) {
+                        throw new \RuntimeException('online_daily_data_readback_compare_and_set_failed');
+                    }
+                }
+            });
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Every write invalidates the previous proof before touching business data.
+     * When the migration is absent no synthetic proof fields are added.
+     *
+     * @param array<string, bool>|null $columns
+     */
+    public static function resetReadbackVerification(array $data, ?array $columns = null): array
+    {
+        $columns ??= self::getColumns();
+        if (isset($columns['readback_verified'])) {
+            $data['readback_verified'] = 0;
+        }
+        if (isset($columns['readback_verified_at'])) {
+            $data['readback_verified_at'] = null;
+        }
+        return $data;
+    }
+
+    /**
+     * Compare the stored identity and every business fact actually written.
+     * Missing metrics are not invented; only keys present in the expected row
+     * participate in the value-level readback contract.
+     */
+    public static function matchesBusinessReadback(array $persisted, array $expected): bool
+    {
+        $tenantId = filter_var($expected['tenant_id'] ?? null, FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 1],
+        ]);
+        if ($tenantId === false || (string)($persisted['tenant_id'] ?? '') !== (string)$tenantId) {
+            return false;
+        }
+        $identityFields = [
+            'tenant_id', 'source', 'platform', 'data_type', 'data_date', 'dimension',
+            'hotel_id', 'hotel_name', 'system_hotel_id', 'compare_type',
+            'data_period', 'snapshot_bucket', 'source_trace_id',
+        ];
+        $businessFields = array_values(array_filter([
+            'amount', 'quantity', 'book_order_num', 'comment_score',
+            'qunar_comment_score', 'data_value', 'list_exposure',
+            'detail_exposure', 'flow_rate', 'order_filling_num',
+            'order_submit_num', 'raw_data',
+        ], static fn(string $field): bool => array_key_exists($field, $expected)));
+
+        return self::matchesMetricReadback(
+            $persisted,
+            $expected,
+            $identityFields,
+            $businessFields
+        );
+    }
+
     public static function filterFields(array $data): array
     {
         $columns = self::getColumns();
-        if (isset($columns['tenant_id']) && !isset($data['tenant_id'])) {
-            $data['tenant_id'] = self::tenantIdForSystemHotel($data['system_hotel_id'] ?? null);
-        }
+        $data = self::applyTenantScope($data, $columns);
         return array_intersect_key($data, $columns);
+    }
+
+    /** @param array<string, bool>|null $columns */
+    public static function applyTenantScope(array $data, ?array $columns = null): array
+    {
+        $columns ??= self::getColumns();
+        if (isset($columns['tenant_id'])) {
+            $data['tenant_id'] = self::resolveTenantIdForSystemHotel($data['system_hotel_id'] ?? null);
+        }
+        return $data;
+    }
+
+    public static function resolveTenantIdForSystemHotel(mixed $systemHotelId): int
+    {
+        $systemHotelId = filter_var($systemHotelId, FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 1],
+        ]);
+        if ($systemHotelId === false) {
+            throw new \InvalidArgumentException('system_hotel_id_invalid_for_tenant_scope');
+        }
+
+        $tenantId = Db::name('hotels')->where('id', $systemHotelId)->value('tenant_id');
+        $tenantId = filter_var($tenantId, FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 1],
+        ]);
+        if ($tenantId === false) {
+            throw new \RuntimeException('hotel_tenant_id_missing_or_invalid');
+        }
+        return (int)$tenantId;
     }
 
     /**
@@ -244,9 +408,7 @@ final class OnlineDailyDataPersistenceService
     public static function applyValidationFields(array $data, ?array $columns = null): array
     {
         $columns = $columns ?? self::getColumns();
-        if (isset($columns['tenant_id']) && !isset($data['tenant_id'])) {
-            $data['tenant_id'] = self::tenantIdForSystemHotel($data['system_hotel_id'] ?? null);
-        }
+        $data = self::applyTenantScope($data, $columns);
         $data = self::applyPeriodFields($data, $columns);
         foreach (self::buildValidationFields($data) as $field => $value) {
             if (isset($columns[$field])) {
@@ -477,6 +639,7 @@ final class OnlineDailyDataPersistenceService
             $data = self::applyValidationFields($payload);
             $data = OnlineDataFieldFactService::attachToOnlineDailyRow($data, $item);
             $data = self::filterFields($data);
+            $data = self::resetReadbackVerification($data, $columns);
 
             if ($exists) {
                 $rowId = (int)$exists['id'];
@@ -484,7 +647,11 @@ final class OnlineDailyDataPersistenceService
             } else {
                 $rowId = (int)Db::name('online_daily_data')->insertGetId($data);
             }
-            if ($rowId > 0 && $this->verifyTrafficRowReadback($rowId, $payload, array_keys($trafficMetrics))) {
+            $readbackRow = $rowId > 0
+                ? $this->verifiedTrafficRowReadback($rowId, $data, array_keys($trafficMetrics))
+                : null;
+            if (is_array($readbackRow)
+                && self::markRowsReadbackVerified([$readbackRow], $columns)) {
                 $savedCount++;
             }
         }
@@ -604,6 +771,7 @@ final class OnlineDailyDataPersistenceService
             $data = self::applyValidationFields($payload);
             $data = OnlineDataFieldFactService::attachToOnlineDailyRow($data, $item);
             $data = self::filterFields($data);
+            $data = self::resetReadbackVerification($data, $columns);
 
             if ($exists) {
                 $rowId = (int)$exists['id'];
@@ -613,7 +781,11 @@ final class OnlineDailyDataPersistenceService
             } else {
                 $rowId = (int)Db::name('online_daily_data')->insertGetId($data);
             }
-            if ($rowId > 0 && $this->verifyTrafficRowReadback($rowId, $payload, array_keys($trafficMetrics))) {
+            $readbackRow = $rowId > 0
+                ? $this->verifiedTrafficRowReadback($rowId, $data, array_keys($trafficMetrics))
+                : null;
+            if (is_array($readbackRow)
+                && self::markRowsReadbackVerified([$readbackRow], $columns)) {
                 $savedCount++;
             }
         }
@@ -622,19 +794,19 @@ final class OnlineDailyDataPersistenceService
     }
 
     /** @param array<int, string> $observedMetricFields */
-    private function verifyTrafficRowReadback(int $rowId, array $expected, array $observedMetricFields): bool
+    private function verifiedTrafficRowReadback(int $rowId, array $expected, array $observedMetricFields): ?array
     {
         $persisted = Db::name('online_daily_data')->where('id', $rowId)->find();
         if (!is_array($persisted)) {
-            return false;
+            return null;
         }
 
         return self::matchesMetricReadback(
             $persisted,
             $expected,
-            ['source', 'data_type', 'data_date', 'dimension', 'hotel_id', 'system_hotel_id'],
+            ['tenant_id', 'source', 'data_type', 'data_date', 'dimension', 'hotel_id', 'system_hotel_id'],
             $observedMetricFields
-        );
+        ) ? $persisted : null;
     }
 
     /**
@@ -783,15 +955,6 @@ final class OnlineDailyDataPersistenceService
 
         $timestamp = strtotime($value);
         return $timestamp === false ? '' : date('Y-m-d', $timestamp);
-    }
-
-    private static function tenantIdForSystemHotel($systemHotelId): ?int
-    {
-        if ($systemHotelId === null || $systemHotelId === '' || !is_numeric($systemHotelId) || (int)$systemHotelId <= 0) {
-            return null;
-        }
-
-        return (int)$systemHotelId;
     }
 
     private function resolveCtripPlatformHotelId(array $row, mixed $fallback = ''): string

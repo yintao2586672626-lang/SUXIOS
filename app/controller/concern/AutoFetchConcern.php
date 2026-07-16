@@ -9,6 +9,7 @@ use app\service\BrowserProfileCaptureRequestService;
 use app\service\OtaProfileBindingService;
 use app\service\OtaProfileSessionProofService;
 use app\service\OtaFailureNotificationService;
+use app\service\OnlineDailyDataPersistenceService;
 use app\service\PlatformProfileBindingReadinessService;
 use app\service\PlatformDataSyncService;
 use app\service\ScheduledAutoFetchPolicy;
@@ -225,6 +226,7 @@ trait AutoFetchConcern
         $body = array_merge($body, $bodyOverrides);
         $apiPath = '/' . ltrim($apiPath, '/');
         $inputPath = $dir . DIRECTORY_SEPARATOR . 'input.json';
+        $authorizationEnv = $this->autoFetchAuthorizationEnvName($taskId);
         $task = [
             'task_id' => $taskId,
             'hotel_id' => $hotelId,
@@ -232,12 +234,18 @@ trait AutoFetchConcern
             'data_period' => $dataPeriod,
             'api_url' => rtrim($this->request->domain(), '/') . $apiPath,
             'authorization' => $authorization,
+            'authorization_env' => $authorizationEnv,
             'body' => $body,
             'input' => $inputPath,
             'log' => $dir . DIRECTORY_SEPARATOR . 'launcher.log',
             'created_at' => date('Y-m-d H:i:s'),
         ];
-        if (file_put_contents($inputPath, json_encode($task, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) === false) {
+        $persistedTask = $task;
+        unset($persistedTask['authorization']);
+        $encodedTask = json_encode($persistedTask, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+        if (!is_string($encodedTask) || file_put_contents($inputPath, $encodedTask) === false) {
+            @unlink($inputPath);
+            @rmdir($dir);
             return [];
         }
 
@@ -250,55 +258,91 @@ trait AutoFetchConcern
         $phpBinary = $this->resolvePhpCliBinary();
         $thinkPath = $projectRoot . DIRECTORY_SEPARATOR . 'think';
         $inputPath = (string)($task['input'] ?? '');
-        if ($phpBinary === '' || !is_file($thinkPath) || !is_file($inputPath)) {
+        $taskId = trim((string)($task['task_id'] ?? ''));
+        $authorization = trim((string)($task['authorization'] ?? ''));
+        $authorizationEnv = trim((string)($task['authorization_env'] ?? ''));
+        if ($phpBinary === ''
+            || !is_file($thinkPath)
+            || !is_file($inputPath)
+            || !$this->isValidAutoFetchTaskId($taskId)
+            || $authorization === ''
+            || preg_match('/^SUXI_AUTO_FETCH_AUTH_[A-F0-9]{24}$/D', $authorizationEnv) !== 1
+        ) {
             return false;
         }
 
         $dir = dirname($inputPath);
-        $taskId = (string)$task['task_id'];
+        $previousAuthorization = getenv($authorizationEnv);
+        if (!putenv($authorizationEnv . '=' . $authorization)) {
+            return false;
+        }
 
-        if (DIRECTORY_SEPARATOR === '\\') {
-            $batPath = $dir . DIRECTORY_SEPARATOR . $taskId . '.bat';
-            $inputFile = basename($inputPath);
-            $lines = [
-                '@echo off',
-                'setlocal',
-                'set "TASK_DIR=%~dp0"',
-                'pushd "%TASK_DIR%..\..\.." || exit /b 1',
-                $this->quoteWindowsBatchArg($phpBinary)
-                    . ' "%CD%\think"'
-                    . ' "online-data:auto-fetch-once"'
-                    . ' "--task-id=' . $taskId . '"'
-                    . ' "--input=%TASK_DIR%' . $inputFile . '"'
-                    . ' >> "%TASK_DIR%launcher.log" 2>&1',
-                'set "EXIT_CODE=%ERRORLEVEL%"',
-                'popd',
-                'exit /b %EXIT_CODE%',
-            ];
-            if (file_put_contents($batPath, implode(PHP_EOL, $lines) . PHP_EOL) === false) {
+        try {
+            if (DIRECTORY_SEPARATOR === '\\') {
+                $batPath = $dir . DIRECTORY_SEPARATOR . $taskId . '.bat';
+                $inputFile = basename($inputPath);
+                $lines = [
+                    '@echo off',
+                    'setlocal',
+                    'set "TASK_DIR=%~dp0"',
+                    'pushd "%TASK_DIR%..\..\.." || exit /b 1',
+                    $this->quoteWindowsBatchArg($phpBinary)
+                        . ' "%CD%\think"'
+                        . ' "online-data:auto-fetch-once"'
+                        . ' "--task-id=' . $taskId . '"'
+                        . ' "--input=%TASK_DIR%' . $inputFile . '"'
+                        . ' >> "%TASK_DIR%launcher.log" 2>&1',
+                    'set "EXIT_CODE=%ERRORLEVEL%"',
+                    'if exist "%TASK_DIR%' . $inputFile . '" del /f /q "%TASK_DIR%' . $inputFile . '"',
+                    'popd',
+                    'exit /b %EXIT_CODE%',
+                ];
+                if (file_put_contents($batPath, implode(PHP_EOL, $lines) . PHP_EOL) === false) {
+                    return false;
+                }
+                return $this->launchWindowsBatchFile($batPath);
+            }
+
+            $shellPath = $dir . DIRECTORY_SEPARATOR . $taskId . '.sh';
+            $command = 'cd ' . escapeshellarg($projectRoot)
+                . ' && ' . escapeshellarg($phpBinary)
+                . ' ' . escapeshellarg($thinkPath)
+                . ' online-data:auto-fetch-once'
+                . ' --task-id=' . escapeshellarg($taskId)
+                . ' --input=' . escapeshellarg($inputPath)
+                . ' >> ' . escapeshellarg((string)$task['log']) . ' 2>&1';
+            $shellScript = "#!/bin/sh\n"
+                . $command . "\n"
+                . 'exit_code=$?' . "\n"
+                . 'rm -f -- ' . escapeshellarg($inputPath) . "\n"
+                . 'exit $exit_code' . "\n";
+            if (file_put_contents($shellPath, $shellScript) === false) {
                 return false;
             }
-            return $this->launchWindowsBatchFile($batPath);
+            @chmod($shellPath, 0755);
+            $handle = @popen('sh ' . escapeshellarg($shellPath) . ' >/dev/null 2>&1 &', 'r');
+            if (!is_resource($handle)) {
+                return false;
+            }
+            pclose($handle);
+            return true;
+        } finally {
+            if ($previousAuthorization === false) {
+                putenv($authorizationEnv);
+            } else {
+                putenv($authorizationEnv . '=' . $previousAuthorization);
+            }
         }
+    }
 
-        $shellPath = $dir . DIRECTORY_SEPARATOR . $taskId . '.sh';
-        $command = 'cd ' . escapeshellarg($projectRoot)
-            . ' && ' . escapeshellarg($phpBinary)
-            . ' ' . escapeshellarg($thinkPath)
-            . ' online-data:auto-fetch-once'
-            . ' --task-id=' . escapeshellarg($taskId)
-            . ' --input=' . escapeshellarg($inputPath)
-            . ' >> ' . escapeshellarg((string)$task['log']) . ' 2>&1';
-        if (file_put_contents($shellPath, "#!/bin/sh\n" . $command . "\n") === false) {
-            return false;
-        }
-        @chmod($shellPath, 0755);
-        $handle = @popen('sh ' . escapeshellarg($shellPath) . ' >/dev/null 2>&1 &', 'r');
-        if (!is_resource($handle)) {
-            return false;
-        }
-        pclose($handle);
-        return true;
+    private function autoFetchAuthorizationEnvName(string $taskId): string
+    {
+        return 'SUXI_AUTO_FETCH_AUTH_' . strtoupper(substr(hash('sha256', $taskId), 0, 24));
+    }
+
+    private function isValidAutoFetchTaskId(string $taskId): bool
+    {
+        return preg_match('/^auto_fetch_\d+_\d{14}_[a-f0-9]{8}$/D', $taskId) === 1;
     }
 
     private function markAutoFetchRunningStatus(int $hotelId, string $dataDate, string $dataPeriod, array $task, array $fetchOptions): void
@@ -6116,12 +6160,21 @@ trait AutoFetchConcern
             }
 
             $data = array_intersect_key($this->applyOnlineDailyDataValidationFields($row, $columns), $columns);
+            $data = OnlineDailyDataPersistenceService::resetReadbackVerification($data, $columns);
             if ($exists) {
-                Db::name('online_daily_data')->where('id', $exists['id'])->update($data);
+                $rowId = (int)$exists['id'];
+                Db::name('online_daily_data')->where('id', $rowId)->update($data);
             } else {
-                Db::name('online_daily_data')->insert($data);
+                $rowId = (int)Db::name('online_daily_data')->insertGetId($data);
             }
-            $savedCount++;
+            $persisted = $rowId > 0
+                ? Db::name('online_daily_data')->where('id', $rowId)->find()
+                : null;
+            if (is_array($persisted)
+                && OnlineDailyDataPersistenceService::matchesBusinessReadback($persisted, $data)
+                && OnlineDailyDataPersistenceService::markRowsReadbackVerified([$persisted], $columns)) {
+                $savedCount++;
+            }
         }
 
         return $savedCount;
