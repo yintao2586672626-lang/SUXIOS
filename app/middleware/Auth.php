@@ -57,6 +57,24 @@ class Auth
             return $this->withRequestId($this->authErrorResponse(401, 'user_not_found', $requestId), $requestId);
         }
 
+        $currentAuthVersion = $user->authSessionVersion();
+        $tokenAuthVersion = is_array($tokenData) ? trim((string)($tokenData['auth_version'] ?? '')) : '';
+        if ($tokenAuthVersion === '') {
+            $tokenAuthVersion = $this->upgradeLegacyTokenAuthVersion(
+                $token,
+                $tokenData,
+                (int)$userId,
+                $currentAuthVersion
+            ) ? $currentAuthVersion : '';
+        }
+        if ($tokenAuthVersion === '' || !hash_equals($currentAuthVersion, $tokenAuthVersion)) {
+            cache('token_' . $token, null);
+            if ((string)cache('user_token_' . $userId) === $token) {
+                cache('user_token_' . $userId, null);
+            }
+            return $this->withRequestId($this->authErrorResponse(401, 'token_revoked', $requestId), $requestId);
+        }
+
         if ($user->status != User::STATUS_ENABLED) {
             return $this->withRequestId($this->authErrorResponse(403, 'user_disabled', $requestId), $requestId);
         }
@@ -103,6 +121,61 @@ class Auth
         return $createdAt + self::TOKEN_MAX_AGE_SECONDS < time();
     }
 
+    /**
+     * Preserve valid pre-upgrade sessions without weakening password-change
+     * revocation. A legacy token is upgraded once, only when no password
+     * change happened after it was issued.
+     */
+    private function upgradeLegacyTokenAuthVersion(
+        string $token,
+        mixed $tokenData,
+        int $userId,
+        string $authVersion
+    ): bool {
+        if (!is_array($tokenData)) {
+            return false;
+        }
+
+        $createdAt = (int)($tokenData['created_at'] ?? 0);
+        $remainingTtl = self::TOKEN_MAX_AGE_SECONDS - max(0, time() - $createdAt);
+        if ($createdAt <= 0 || $remainingTtl <= 0) {
+            return false;
+        }
+
+        try {
+            $revokedAt = $this->normalizeTimestamp(cache('auth_revoked_after_' . $userId));
+            $lastPasswordChange = OperationLog::where('user_id', $userId)
+                ->where('action', 'change_password')
+                ->order('id', 'desc')
+                ->value('create_time');
+            $revokedAt = max($revokedAt, $this->normalizeTimestamp($lastPasswordChange));
+            if ($revokedAt > 0 && $createdAt <= $revokedAt) {
+                return false;
+            }
+
+            $tokenData['auth_version'] = $authVersion;
+            cache('token_' . $token, $tokenData, $remainingTtl);
+            $stored = cache('token_' . $token);
+            return is_array($stored)
+                && hash_equals($authVersion, trim((string)($stored['auth_version'] ?? '')));
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    private function normalizeTimestamp(mixed $value): int
+    {
+        if ($value instanceof \DateTimeInterface) {
+            return $value->getTimestamp();
+        }
+        if (is_numeric($value)) {
+            return max(0, (int)$value);
+        }
+
+        $timestamp = strtotime(trim((string)$value));
+        return $timestamp === false ? 0 : $timestamp;
+    }
+
     private function protectedCapabilityService(): ProtectedCapabilityService
     {
         if ($this->protectedCapabilityService === null) {
@@ -117,6 +190,7 @@ class Auth
         $messages = [
             'missing_token' => '未提供认证令牌',
             'token_expired' => '登录已过期，请重新登录',
+            'token_revoked' => '登录凭证已撤销，请重新登录',
             'invalid_token' => '认证信息无效',
             'user_not_found' => '用户不存在',
             'user_disabled' => '账号待审核或已停用，请联系超级管理员启用',

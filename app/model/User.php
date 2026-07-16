@@ -71,6 +71,15 @@ class User extends Model
     }
 
     /**
+     * Bind every login token to the current password hash without exposing it.
+     * A password change produces a new version and invalidates all older tokens.
+     */
+    public function authSessionVersion(): string
+    {
+        return hash('sha256', (string)$this->getAttr('password'));
+    }
+
+    /**
      * 是否是超级管理员
      */
     public function isSuperAdmin(): bool

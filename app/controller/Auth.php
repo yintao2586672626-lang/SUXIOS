@@ -226,6 +226,7 @@ class Auth extends Base
             'created_at' => time(),
             'ip' => $ip,
             'user_agent' => substr($userAgent, 0, 255),
+            'auth_version' => $user->authSessionVersion(),
         ];
         cache('token_' . $token, $tokenData, self::TOKEN_TTL_SECONDS);
         cache('user_token_' . $user->id, $token, self::TOKEN_TTL_SECONDS);
@@ -700,6 +701,12 @@ class Auth extends Base
 
         $user->password = $newPassword;
         $user->save();
+
+        // Tokens are bound to the password hash through auth_version. Clearing
+        // the convenience pointer also prevents clients from treating the last
+        // pre-change token as the active session.
+        cache('auth_revoked_after_' . $user->id, time(), self::TOKEN_TTL_SECONDS);
+        cache('user_token_' . $user->id, null);
 
         OperationLog::record('auth', 'change_password', '修改密码', $user->id);
 
