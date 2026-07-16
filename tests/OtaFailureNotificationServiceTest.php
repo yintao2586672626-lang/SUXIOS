@@ -67,6 +67,7 @@ final class OtaFailureNotificationServiceTest extends TestCase
             'system_notification_user_states',
             'system_notifications',
             'operation_logs',
+            'platform_data_sources',
             'system_configs',
             'user_hotel_permissions',
             'hotels',
@@ -96,6 +97,8 @@ final class OtaFailureNotificationServiceTest extends TestCase
             'hotel_id' => 7,
             'platform' => 'ctrip',
             'reason_code' => 'browser_profile_source_missing',
+            'authorization_source_type' => 'cookie_api',
+            'authorization_source_label' => 'Cookie=session-secret; token=live-token',
             'message' => 'Cookie=session-secret token=live-token Profile C:\\secret\\profile raw response',
             'data_date' => '2026-07-13',
             'success' => false,
@@ -113,6 +116,10 @@ final class OtaFailureNotificationServiceTest extends TestCase
         self::assertStringNotContainsString('live-token', (string)$notification->message);
         self::assertStringNotContainsString('secret\\profile', (string)$notification->message);
         self::assertStringNotContainsString('raw response', (string)$notification->message);
+        $actionPayload = json_decode((string)$notification->action_payload, true);
+        self::assertSame('授权来源（敏感值已隐藏）', $actionPayload['authorization_source_label']);
+        self::assertStringNotContainsString('session-secret', (string)$notification->action_payload);
+        self::assertStringNotContainsString('live-token', (string)$notification->action_payload);
 
         SystemNotificationUserState::markClearedForUser([(int)$notification->id], 101);
         $second = $service->recordCollectionOutcome([
@@ -160,6 +167,9 @@ final class OtaFailureNotificationServiceTest extends TestCase
             'hotel_id' => 7,
             'platform' => 'ctrip',
             'reason_code' => 'login_expired',
+            'authorization_source_label' => '携程运营 Profile',
+            'authorization_source_type' => 'profile',
+            'data_source_id' => 117,
             'data_date' => '2026-07-14',
             'success' => false,
             'saved_count' => 0,
@@ -174,6 +184,10 @@ final class OtaFailureNotificationServiceTest extends TestCase
         self::assertSame('1', $payload['requires_resolution']);
         self::assertSame('strong', $payload['reminder_level']);
         self::assertSame('verified_same_platform_session_or_capture', $payload['resolution_rule']);
+        self::assertSame('携程运营 Profile', $payload['authorization_source_label']);
+        self::assertSame('profile', $payload['authorization_source_type']);
+        self::assertSame('exact', $payload['authorization_source_state']);
+        self::assertSame('117', $payload['data_source_id']);
 
         $success = $service->recordCollectionOutcome([
             'hotel_id' => 7,
@@ -344,6 +358,23 @@ final class OtaFailureNotificationServiceTest extends TestCase
         $this->seedHotelAndUsers();
         $this->grantHotel(101, 7);
         $this->seedConfig(7, 'meituan', 101);
+        Db::name('platform_data_sources')->insert([
+            'id' => 208,
+            'tenant_id' => 1,
+            'system_hotel_id' => 7,
+            'user_id' => 101,
+            'name' => '美团前台 Profile',
+            'platform' => 'meituan',
+            'data_type' => 'operations',
+            'ingestion_method' => 'browser_profile',
+            'status' => 'login_expired',
+            'enabled' => 1,
+            'config_json' => json_encode(['profile_status' => 'login_expired'], JSON_UNESCAPED_UNICODE),
+            'last_sync_status' => 'failed',
+            'last_error' => 'login expired',
+            'created_by' => 101,
+            'update_time' => '2026-07-14 18:00:00',
+        ]);
         $result = (new OtaFailureNotificationService())->recordCollectionOutcome([
             'hotel_id' => 7,
             'platform' => 'meituan',
@@ -381,6 +412,10 @@ final class OtaFailureNotificationServiceTest extends TestCase
         self::assertSame('strong', $serialized['reminder_level']);
         self::assertSame('login_expired', $serialized['reason_code']);
         self::assertSame('登录失效强提醒', $serialized['category_label']);
+        self::assertSame('美团前台 Profile · 数据源 #208', $serialized['authorization_source_label']);
+        self::assertSame('profile', $serialized['authorization_source_type']);
+        self::assertSame('exact', $serialized['authorization_source_state']);
+        self::assertSame(208, $serialized['data_source_id']);
     }
 
     public function testDirectStrongReminderRowsAreNotLimitedToFirstNotificationPage(): void
@@ -527,6 +562,26 @@ final class OtaFailureNotificationServiceTest extends TestCase
         Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER, name TEXT, status INTEGER, created_by INTEGER, owner_user_id INTEGER)');
         Db::execute('CREATE TABLE user_hotel_permissions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, hotel_id INTEGER, can_view_online_data INTEGER DEFAULT 0)');
         Db::execute('CREATE TABLE system_configs (id INTEGER PRIMARY KEY AUTOINCREMENT, config_key TEXT UNIQUE, config_value TEXT)');
+        Db::execute("CREATE TABLE platform_data_sources (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER DEFAULT NULL,
+            system_hotel_id INTEGER NOT NULL,
+            user_id INTEGER DEFAULT NULL,
+            name TEXT DEFAULT NULL,
+            platform TEXT NOT NULL,
+            data_type TEXT DEFAULT NULL,
+            ingestion_method TEXT DEFAULT NULL,
+            status TEXT DEFAULT 'active',
+            enabled INTEGER DEFAULT 1,
+            config_json TEXT DEFAULT NULL,
+            secret_json TEXT DEFAULT NULL,
+            last_sync_time TEXT DEFAULT NULL,
+            last_sync_status TEXT DEFAULT NULL,
+            last_error TEXT DEFAULT NULL,
+            created_by INTEGER DEFAULT NULL,
+            create_time TEXT DEFAULT NULL,
+            update_time TEXT DEFAULT NULL
+        )");
         Db::execute('CREATE TABLE operation_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, hotel_id INTEGER, module TEXT, action TEXT, description TEXT, extra_data TEXT, create_time TEXT)');
         Db::execute("CREATE TABLE system_notifications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -1603,7 +1603,7 @@ final class OtaCredentialReadPathTest extends TestCase
         self::assertSame($configValue, Db::name('system_configs')->where('config_key', 'ctrip_config_list')->value('config_value'));
     }
 
-    public function testStaleConfiguredCtripHotelIdWarnsButKeepsSelectedStoreAsCircleOwner(): void
+    public function testStaleConfiguredCtripHotelIdBlocksPersistence(): void
     {
         Db::name('system_configs')->insert([
             'config_key' => 'ctrip_config_list',
@@ -1631,7 +1631,7 @@ final class OtaCredentialReadPathTest extends TestCase
             ],
         ]], 58);
 
-        self::assertTrue($result['ok']);
+        self::assertFalse($result['ok']);
         self::assertTrue($result['warning']);
         self::assertSame('configured_platform_hotel_id_mismatch', $result['status']);
         self::assertSame(58, $result['target_system_hotel_id']);
@@ -1641,14 +1641,7 @@ final class OtaCredentialReadPathTest extends TestCase
             'https://hotels.ctrip.com/hotels/120819980.html',
             $result['verification_links'][0]['url'] ?? null
         );
-        self::assertSame(['120819980'], $this->identityHarness()->competitionSelfIds($result));
-
-        $tagged = $this->identityHarness()->tagCompetitionRoles([[
-            'hotelId' => '120819980',
-            'hotelName' => '我的酒店',
-        ]], ['120820008'], 58);
-        self::assertTrue($tagged[0]['isSelf']);
-        self::assertSame('self', $tagged[0]['compareType']);
+        self::assertStringContainsString('本次未入库', $result['message']);
     }
 
     public function testCtripCompetitorNameContainingTargetHotelNameIsNotTreatedAsSelf(): void
@@ -1696,9 +1689,40 @@ final class OtaCredentialReadPathTest extends TestCase
         );
 
         self::assertStringContainsString("'save_status' => 'blocked'", $execute);
-        self::assertStringContainsString('$responseCode = 200;', $execute);
+        self::assertStringContainsString('$responseCode = 422;', $execute);
         self::assertStringContainsString('buildCtripPersistenceState(true, 0, true)', $execute);
-        self::assertStringNotContainsString('$responseCode = $systemHotelId ? 409 : 200;', $execute);
+        self::assertStringContainsString('], $responseCode);', $execute);
+    }
+
+    public function testCtripIdentityMissingFromResponseBlocksPersistence(): void
+    {
+        Db::name('system_configs')->insert([
+            'config_key' => 'ctrip_config_list',
+            'config_value' => json_encode([
+                'cfg-58' => [
+                    'id' => 'cfg-58',
+                    'config_id' => 'cfg-58',
+                    'system_hotel_id' => 58,
+                    'ctrip_hotel_id' => '120820008',
+                ],
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+        ]);
+
+        $result = $this->identityHarness()->validateManualIdentity([['data' => []]], 58);
+
+        self::assertFalse($result['ok']);
+        self::assertSame('returned_current_hotel_id_missing', $result['status']);
+        self::assertSame(58, $result['target_system_hotel_id']);
+        self::assertStringContainsString('本次未入库', $result['message']);
+    }
+
+    public function testCtripIdentityMissingFromConfigAndResponseBlocksPersistence(): void
+    {
+        $result = $this->identityHarness()->resolveMissingIdentity([], 58);
+
+        self::assertFalse($result['ok']);
+        self::assertSame('platform_hotel_id_incomplete', $result['status']);
+        self::assertStringContainsString('本次未入库', $result['message']);
     }
 
     public function testCtripIdentitySourceUsesSafeReaderAndHasNoBlobUpdatePath(): void

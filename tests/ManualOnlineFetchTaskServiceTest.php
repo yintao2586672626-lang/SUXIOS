@@ -3,8 +3,10 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use app\command\ManualFetchOnlineDataOnce;
 use app\service\ManualOnlineFetchTaskService;
 use PHPUnit\Framework\TestCase;
+use ReflectionMethod;
 
 final class ManualOnlineFetchTaskServiceTest extends TestCase
 {
@@ -82,7 +84,15 @@ final class ManualOnlineFetchTaskServiceTest extends TestCase
         self::assertIsArray($stored);
         self::assertSame($task['task_id'], $stored['task_id']);
         self::assertSame($task['body'], $stored['body']);
-        self::assertSame('Bearer test-only-token', $stored['authorization']);
+        self::assertArrayNotHasKey('authorization', $stored);
+        self::assertMatchesRegularExpression('/^SUXI_MANUAL_FETCH_AUTH_[A-F0-9]{24}$/', $stored['authorization_env']);
+        self::assertStringNotContainsString('Bearer test-only-token', (string)file_get_contents($task['input']));
+
+        putenv($task['authorization_env'] . '=' . $task['authorization']);
+        $resolveAuthorization = new ReflectionMethod(new ManualFetchOnlineDataOnce(), 'resolveAuthorization');
+        $resolveAuthorization->setAccessible(true);
+        self::assertSame('Bearer test-only-token', $resolveAuthorization->invoke(new ManualFetchOnlineDataOnce(), $stored));
+        self::assertFalse(getenv($task['authorization_env']));
     }
 
     public function testInvalidTaskScopeAndMissingLaunchInputAreRejected(): void
@@ -98,5 +108,30 @@ final class ManualOnlineFetchTaskServiceTest extends TestCase
             'task_id' => 'missing-task',
             'input' => runtime_path() . 'manual_fetch_tasks' . DIRECTORY_SEPARATOR . 'missing.json',
         ]));
+    }
+
+    public function testLaunchFailureRemovesPersistedTaskEnvelope(): void
+    {
+        $service = new ManualOnlineFetchTaskService();
+        $task = $service->createTask(
+            'ctrip',
+            7,
+            '2026-07-15',
+            '2026-07-15',
+            [],
+            [
+                'user_id' => 5,
+                'api_url' => 'http://127.0.0.1:8080/api/online-data/manual-fetch',
+                'authorization' => 'Bearer launch-failure-token',
+            ]
+        );
+        self::assertNotSame([], $task);
+        $taskDir = dirname($task['input']);
+        $this->createdTaskDirs[] = $taskDir;
+
+        $task['task_id'] = 'invalid-task-id';
+        self::assertFalse($service->launchTask($task));
+        self::assertFileDoesNotExist($task['input']);
+        self::assertDirectoryDoesNotExist($taskDir);
     }
 }

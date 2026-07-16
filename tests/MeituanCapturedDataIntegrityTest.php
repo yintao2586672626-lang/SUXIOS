@@ -226,6 +226,82 @@ final class MeituanCapturedDataIntegrityTest extends TestCase
         self::assertNull($byType['order']['data_value']);
     }
 
+    public function testCapturedOrderHashAliasesRemainStableForDeduplication(): void
+    {
+        $reflection = new ReflectionClass(OnlineData::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+        $hash = str_repeat('a', 64);
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanCapturedDailyRows', [[
+            'storeId' => 'store-80',
+            'poiId' => 'poi-80',
+            'defaultDataDate' => '2026-07-11',
+            'orders' => [
+                ['order_id_hash' => $hash, 'orderStatus' => 'paid', 'dataDate' => '2026-07-11'],
+                ['order_no_hash' => $hash, 'orderStatus' => 'paid', 'dataDate' => '2026-07-11'],
+                ['booking_id_hash' => $hash, 'orderStatus' => 'paid', 'dataDate' => '2026-07-11'],
+            ],
+        ], 80]);
+
+        self::assertCount(3, $rows);
+        foreach ($rows as $row) {
+            self::assertSame('order:paid:' . $hash, $row['dimension']);
+            self::assertNull($row['amount']);
+            self::assertNull($row['quantity']);
+            self::assertNull($row['book_order_num']);
+        }
+
+        $uniqueRows = $this->invokeNonPublic($controller, 'uniqueMeituanCapturedRowsForPersistence', [$rows]);
+        self::assertCount(1, $uniqueRows);
+        $raw = json_decode((string)$uniqueRows[0]['raw_data'], true);
+        self::assertIsArray($raw);
+        self::assertSame($hash, $raw['order_id_hash']);
+        self::assertArrayNotHasKey('order_id', $raw);
+        self::assertArrayNotHasKey('orderNo', $raw);
+    }
+
+    public function testAggregateOrderCountsWithoutAmountArePersistableAndDoNotFabricateRevenue(): void
+    {
+        $reflection = new ReflectionClass(OnlineData::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+        $payload = [
+            'storeId' => 'store-80',
+            'poiId' => 'poi-80',
+            'defaultDataDate' => '2026-07-12',
+            'orders' => [
+                'orderCount' => 3,
+                'roomNights' => 4,
+                'dataDate' => '2026-07-11',
+                'date_source' => 'request.query.dataDate',
+                '_source_path' => '$.data.summary',
+                'order_id_hash' => 'not-a-valid-hash',
+            ],
+        ];
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanCapturedDailyRows', [$payload, 80]);
+
+        self::assertCount(1, $rows);
+        self::assertSame('2026-07-11', $rows[0]['data_date']);
+        self::assertSame(3, $rows[0]['book_order_num']);
+        self::assertSame(4, $rows[0]['quantity']);
+        self::assertNull($rows[0]['amount']);
+        self::assertNull($rows[0]['data_value']);
+        self::assertStringStartsWith('order:aggregate:', $rows[0]['dimension']);
+
+        $changedPayload = $payload;
+        $changedPayload['orders']['orderCount'] = 5;
+        $changedPayload['orders']['roomNights'] = 7;
+        $changedRows = $this->invokeNonPublic($controller, 'buildMeituanCapturedDailyRows', [$changedPayload, 80]);
+        self::assertSame($rows[0]['dimension'], $changedRows[0]['dimension']);
+
+        $raw = json_decode((string)$rows[0]['raw_data'], true);
+        self::assertIsArray($raw);
+        self::assertSame(3, $raw['orderCount']);
+        self::assertSame(4, $raw['roomNights']);
+        self::assertArrayNotHasKey('amount', $raw);
+        self::assertArrayNotHasKey('order_id_hash', $raw);
+    }
+
     public function testOrderFlowRowsKeepDirectionPeriodAndZeroValuesTruthful(): void
     {
         $reflection = new ReflectionClass(OnlineData::class);
@@ -270,19 +346,21 @@ final class MeituanCapturedDataIntegrityTest extends TestCase
         self::assertCount(2, $rows);
         self::assertSame('order_flow', $rows[0]['data_type']);
         self::assertSame('2026-07-13', $rows[0]['data_date']);
-        self::assertSame(0, $rows[0]['book_order_num']);
-        self::assertSame(0, $rows[0]['quantity']);
-        self::assertSame(0.0, $rows[0]['amount']);
+        self::assertNull($rows[0]['book_order_num']);
+        self::assertNull($rows[0]['quantity']);
+        self::assertNull($rows[0]['amount']);
         self::assertSame('self', $rows[0]['compare_type']);
         self::assertSame('competitor', $rows[1]['compare_type']);
         self::assertSame('peer-1', $rows[1]['hotel_id']);
-        self::assertSame(7, $rows[1]['book_order_num']);
+        self::assertNull($rows[1]['book_order_num']);
         self::assertNull($rows[1]['quantity']);
-        self::assertSame(5234.0, $rows[1]['amount']);
+        self::assertNull($rows[1]['amount']);
         self::assertSame(0.0686, $rows[1]['data_value']);
         $raw = json_decode((string)$rows[1]['raw_data'], true);
         self::assertSame('last_7_days', $raw['order_flow_period']);
         self::assertSame('loss', $raw['order_flow_direction']);
+        self::assertSame(7, $raw['order_count']);
+        self::assertSame(5234, $raw['amount']);
         self::assertSame('大床房', $raw['lossRoomList'][0]['lossRoomName']);
     }
 }

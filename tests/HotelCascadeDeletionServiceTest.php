@@ -60,6 +60,7 @@ final class HotelCascadeDeletionServiceTest extends TestCase
 
         $preview = $service->preview(10);
         self::assertSame(1, $preview['tables']['online_daily_data'] ?? 0);
+        self::assertSame(1, $preview['tables']['temporal_forecast_snapshots'] ?? 0);
         self::assertSame(1, $preview['tables']['ota_credentials'] ?? 0);
         self::assertSame(1, $preview['tables']['ota_profile_bindings'] ?? 0);
         self::assertSame(1, $preview['tables']['ota_meituan_reviews'] ?? 0);
@@ -77,6 +78,7 @@ final class HotelCascadeDeletionServiceTest extends TestCase
         self::assertSame(20, (int)Db::name('users')->where('id', 2)->value('hotel_id'));
         self::assertSame(0, Db::name('user_hotel_permissions')->where('hotel_id', 10)->count());
         self::assertSame(0, Db::name('online_daily_data')->where('system_hotel_id', 10)->count());
+        self::assertSame(0, Db::name('temporal_forecast_snapshots')->where('system_hotel_id', 10)->count());
         self::assertSame(0, Db::name('ota_credentials')->where('system_hotel_id', 10)->count());
         self::assertSame(0, Db::name('ota_profile_bindings')->where('system_hotel_id', 10)->count());
         self::assertSame(0, Db::name('platform_data_sources')->where('system_hotel_id', 10)->count());
@@ -110,6 +112,7 @@ final class HotelCascadeDeletionServiceTest extends TestCase
             'CREATE TABLE users (id INTEGER PRIMARY KEY, hotel_id INTEGER NULL, tenant_id INTEGER NULL)',
             'CREATE TABLE user_hotel_permissions (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL)',
             'CREATE TABLE online_daily_data (id INTEGER PRIMARY KEY, system_hotel_id INTEGER NOT NULL, hotel_id TEXT NULL)',
+            'CREATE TABLE temporal_forecast_snapshots (id INTEGER PRIMARY KEY, system_hotel_id INTEGER NOT NULL)',
             'CREATE TABLE ota_credentials (id INTEGER PRIMARY KEY, system_hotel_id INTEGER NOT NULL, encrypted_payload TEXT NOT NULL)',
             'CREATE TABLE ota_profile_bindings (id INTEGER PRIMARY KEY, system_hotel_id INTEGER NOT NULL)',
             'CREATE TABLE platform_data_sources (id INTEGER PRIMARY KEY, system_hotel_id INTEGER NOT NULL)',
@@ -140,6 +143,7 @@ final class HotelCascadeDeletionServiceTest extends TestCase
             ['id' => 2, 'user_id' => 2, 'hotel_id' => 20],
         ]);
         Db::name('online_daily_data')->insert(['id' => 1, 'system_hotel_id' => 10, 'hotel_id' => '6866634']);
+        Db::name('temporal_forecast_snapshots')->insert(['id' => 1, 'system_hotel_id' => 10]);
         Db::name('ota_credentials')->insert(['id' => 1, 'system_hotel_id' => 10, 'encrypted_payload' => 'secret']);
         Db::name('ota_profile_bindings')->insert(['id' => 1, 'system_hotel_id' => 10]);
         Db::name('platform_data_sources')->insert(['id' => 1, 'system_hotel_id' => 10]);

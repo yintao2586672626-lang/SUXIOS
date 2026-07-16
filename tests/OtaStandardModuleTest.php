@@ -268,6 +268,7 @@ final class OtaStandardModuleTest extends TestCase
                 'source' => 'ctrip',
                 'data_type' => 'business',
                 'data_date' => '2026-05-27',
+                'source_trace_id' => 'trace-business-41',
                 'update_time' => '2026-05-27 10:00:00',
                 'amount' => 1200,
                 'quantity' => 6,
@@ -282,6 +283,7 @@ final class OtaStandardModuleTest extends TestCase
                 'source' => 'ctrip',
                 'data_type' => 'advertising',
                 'data_date' => '2026-05-27',
+                'source_trace_id' => 'trace-advertising-42',
                 'update_time' => '2026-05-27 10:05:00',
                 'amount' => 256.75,
                 'quantity' => 23,
@@ -300,6 +302,7 @@ final class OtaStandardModuleTest extends TestCase
                 'source' => 'ctrip',
                 'data_type' => 'quality',
                 'data_date' => '2026-05-27',
+                'source_trace_id' => 'trace-quality-43',
                 'update_time' => '2026-05-27 10:10:00',
                 'data_value' => 88.6,
                 'raw_data' => json_encode(['serviceScore' => 92.5, 'psiScore' => 88.6], JSON_UNESCAPED_UNICODE),
@@ -505,6 +508,7 @@ final class OtaStandardModuleTest extends TestCase
                 'source' => 'ctrip',
                 'data_type' => 'business',
                 'data_date' => '2026-05-27',
+                'source_trace_id' => 'trace-business-41-analysis',
                 'update_time' => '2026-05-27 10:00:00',
                 'amount' => 1200,
                 'quantity' => 6,
@@ -519,6 +523,7 @@ final class OtaStandardModuleTest extends TestCase
                 'source' => 'ctrip',
                 'data_type' => 'advertising',
                 'data_date' => '2026-05-27',
+                'source_trace_id' => 'trace-advertising-42-analysis',
                 'update_time' => '2026-05-27 10:05:00',
                 'amount' => 256.75,
                 'quantity' => 23,
@@ -537,6 +542,7 @@ final class OtaStandardModuleTest extends TestCase
                 'source' => 'ctrip',
                 'data_type' => 'quality',
                 'data_date' => '2026-05-27',
+                'source_trace_id' => 'trace-quality-43-analysis',
                 'update_time' => '2026-05-27 10:10:00',
                 'data_value' => 88.6,
                 'raw_data' => json_encode(['serviceScore' => 92.5, 'psiScore' => 88.6], JSON_UNESCAPED_UNICODE),
@@ -605,6 +611,7 @@ final class OtaStandardModuleTest extends TestCase
                     'source' => 'ctrip',
                     'data_type' => 'business',
                     'data_date' => '2026-05-20',
+                    'source_trace_id' => 'trace-business-12',
                     'update_time' => '2026-05-20 10:00:00',
                     'amount' => 1000,
                     'quantity' => 5,
@@ -886,6 +893,38 @@ final class OtaStandardModuleTest extends TestCase
         self::assertSame('available', $analysis['modules'][2]['status']);
         self::assertSame('available', $analysis['modules'][3]['status']);
         self::assertSame('watch', $analysis['modules'][5]['status']);
+    }
+
+    public function testInsightOptionalModulesPreserveMissingMetricsInsteadOfInventingZero(): void
+    {
+        $service = new OtaInsightAnalysisService();
+        $advertising = new ReflectionMethod($service, 'advertisingEfficiencyModule');
+        $advertising->setAccessible(true);
+        $adModule = $advertising->invoke($service, [
+            'rows' => 1,
+            'spend' => 100,
+            'roas' => 2.5,
+            'order_amount' => null,
+            'bookings' => null,
+            'room_nights' => null,
+            'impressions' => null,
+            'clicks' => null,
+        ]);
+
+        self::assertNull($adModule['metrics']['order_amount']);
+        self::assertNull($adModule['metrics']['room_nights']);
+        self::assertContains('advertising_order_amount_missing', $adModule['data_gaps']);
+
+        $quality = new ReflectionMethod($service, 'serviceQualityModule');
+        $quality->setAccessible(true);
+        $qualityModule = $quality->invoke($service, [
+            'rows' => 1,
+            'avg_psi_score' => 88,
+            'avg_service_score' => 90,
+            'hotel_collect' => null,
+        ]);
+        self::assertNull($qualityModule['metrics']['hotel_collect']);
+        self::assertContains('service_quality_hotel_collect_missing', $qualityModule['data_gaps']);
     }
 
     public function testInsightAnalysisDoesNotPromoteBlockedCredibilityGateToReady(): void
@@ -1452,6 +1491,7 @@ final class OtaStandardModuleTest extends TestCase
                 'source' => 'ctrip',
                 'data_type' => 'business',
                 'data_date' => '2026-05-18',
+                'source_trace_id' => 'trace-business-1',
                 'update_time' => '2026-05-18 10:00:00',
                 'amount' => 1200,
                 'quantity' => 6,
@@ -1477,6 +1517,7 @@ final class OtaStandardModuleTest extends TestCase
                 'source' => 'ctrip',
                 'data_type' => 'traffic',
                 'data_date' => '2026-05-18',
+                'source_trace_id' => 'trace-traffic-2',
                 'update_time' => '2026-05-18 10:05:00',
                 'list_exposure' => 1000,
                 'detail_exposure' => 200,
@@ -1493,6 +1534,7 @@ final class OtaStandardModuleTest extends TestCase
                 'source' => 'meituan',
                 'data_type' => 'review',
                 'data_date' => '2026-05-18',
+                'source_trace_id' => 'trace-review-3',
                 'dimension' => 'review:meituan',
                 'comment_score' => 3.0,
                 'quantity' => 1,

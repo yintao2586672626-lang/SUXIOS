@@ -5,9 +5,12 @@ namespace tests;
 
 use app\service\OtaBrowserAssistImportService;
 use PHPUnit\Framework\TestCase;
+use Tests\Support\ReflectionHelper;
 
 final class OtaBrowserAssistImportServiceTest extends TestCase
 {
+    use ReflectionHelper;
+
     public function testNormalizePlatformIdentityEvidenceWithoutCookieOrFullUrl(): void
     {
         $service = new OtaBrowserAssistImportService();
@@ -46,5 +49,27 @@ final class OtaBrowserAssistImportServiceTest extends TestCase
         self::assertArrayNotHasKey('url', $row);
         self::assertStringNotContainsString('diagnosisAnalysisType', json_encode($result, JSON_UNESCAPED_SLASHES));
         self::assertStringNotContainsString('Cookie', json_encode($result, JSON_UNESCAPED_SLASHES));
+    }
+
+    public function testAggregateImportStatusDoesNotPromotePartialPackageToSuccess(): void
+    {
+        $service = new OtaBrowserAssistImportService();
+
+        self::assertSame('success', $this->invokeNonPublic($service, 'aggregateImportStatus', [[
+            ['status' => 'success'],
+            ['status' => 'success'],
+        ]]));
+        self::assertSame('partial_success', $this->invokeNonPublic($service, 'aggregateImportStatus', [[
+            ['status' => 'success'],
+            ['status' => 'partial_success'],
+        ]]));
+        self::assertSame('partial_success', $this->invokeNonPublic($service, 'aggregateImportStatus', [[
+            ['status' => 'success'],
+            ['status' => 'failed'],
+        ]]));
+        self::assertSame('failed', $this->invokeNonPublic($service, 'aggregateImportStatus', [[
+            ['status' => 'failed'],
+            ['status' => 'unknown'],
+        ]]));
     }
 }

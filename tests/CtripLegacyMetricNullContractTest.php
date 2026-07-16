@@ -16,11 +16,16 @@ final class CtripLegacyMetricNullContractTest extends TestCase
         self::assertNotFalse($end);
         $method = substr($source, (int)$start, (int)$end - (int)$start);
 
-        foreach (['amount', 'quantity', 'bookOrderNum', 'listExposure', 'detailExposure', 'orderFillingNum', 'orderSubmitNum'] as $variable) {
+        self::assertStringContainsString('buildCtripBusinessObservedMetricPatch($item, $columns)', $method);
+        self::assertStringContainsString('OnlineDailyDataPersistenceService::buildMetricAwareWriteData(', $method);
+        self::assertStringContainsString('!$exists', $method);
+        self::assertStringContainsString('$value = $this->nullableNumberFromKeys($item, $keys);', $method);
+        self::assertStringContainsString('if ($value === null)', $method);
+        foreach (['amount', 'quantity', 'book_order_num', 'list_exposure', 'detail_exposure', 'order_filling_num', 'order_submit_num'] as $field) {
             self::assertMatchesRegularExpression(
-                '/\$' . preg_quote($variable, '/') . '\s*=\s*(?:\(int\))?\$this->nullableNumberFromKeys\(/',
+                "/'" . preg_quote($field, '/') . "'\\s*=>/",
                 $method,
-                "{$variable} must keep missing values nullable"
+                "{$field} must be part of the nullable observed-metric patch"
             );
         }
         self::assertStringNotContainsString('?? 0.0', $method);

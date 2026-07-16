@@ -1165,6 +1165,27 @@ final class OnlineDataTest extends TestCase
         self::assertSame(12, $rows[3]['orderSubmitNum']);
     }
 
+    public function testCtripBusinessMetricPatchKeepsObservedZeroAndOmitsMissingMetrics(): void
+    {
+        $patch = $this->invokeNonPublic($this->controller(), 'buildCtripBusinessObservedMetricPatch', [[
+            'amount' => 0,
+            'commentScore' => '0',
+            'flowRate' => '0%',
+        ], [
+            'amount' => true,
+            'quantity' => true,
+            'book_order_num' => true,
+            'comment_score' => true,
+            'flow_rate' => true,
+        ]]);
+
+        self::assertSame(0.0, $patch['amount']);
+        self::assertSame(0.0, $patch['comment_score']);
+        self::assertSame(0.0, $patch['flow_rate']);
+        self::assertArrayNotHasKey('quantity', $patch);
+        self::assertArrayNotHasKey('book_order_num', $patch);
+    }
+
     /**
      * 覆盖 extractCtripBusinessDataList/buildCtripBusinessFingerprint/extractCtripResponseDates/extractHotelData：
      * 验证多层响应解析、指纹稳定性、日期递归提取。
@@ -5338,6 +5359,49 @@ final class OnlineDataTest extends TestCase
         ], $query->calls);
     }
 
+    public function testCtripTargetDateMetadataDoesNotReuseHistoricalFetchStatus(): void
+    {
+        (new App(dirname(__DIR__)))->initialize();
+        restore_error_handler();
+        restore_exception_handler();
+        $controller = $this->controller();
+        $hotelId = '987654';
+        $cacheKey = 'online_data_ctrip_latest_fetch_' . $hotelId;
+        cache($cacheKey, [
+            'fetched_at' => '2026-07-12 09:30:00',
+            'data_date' => '2026-07-11',
+            'saved_count' => 26,
+        ], 120);
+
+        try {
+            $targetDate = '2026-07-14';
+            $sections = [];
+            foreach (['rank' => '榜单数据', 'traffic' => '流量数据', 'review' => '点评数据'] as $section => $label) {
+                $sections[$section] = $this->invokeNonPublic($controller, 'emptyCtripLatestSection', [
+                    $section,
+                    $label,
+                    $targetDate,
+                ]);
+            }
+
+            $metadata = $this->invokeNonPublic($controller, 'buildCtripLatestMetadata', [
+                $sections,
+                $hotelId,
+                'yesterday',
+            ]);
+
+            self::assertSame('empty', $metadata['status']);
+            self::assertSame('目标日期未采集', $metadata['status_label']);
+            self::assertSame($targetDate, $metadata['target_data_date']);
+            self::assertSame('', $metadata['data_date']);
+            self::assertSame('', $metadata['fetched_at']);
+            self::assertSame(0, $metadata['total_records']);
+            self::assertFalse($metadata['early_morning_fallback']);
+        } finally {
+            cache($cacheKey, null);
+        }
+    }
+
     public function testCtripLatestBatchScopeKeepsLatestSystemHotelAndFetchTimeWhenHotelIsEmpty(): void
     {
         $controller = $this->controller();
@@ -5424,6 +5488,27 @@ final class OnlineDataTest extends TestCase
 
         self::assertSame([
             ['whereBetween', 'update_time', ['2026-06-06 18:18:00', '2026-06-06 18:20:00']],
+        ], $query->calls);
+    }
+
+    public function testMeituanCompetitorLatestBatchScopePrefersCreateTimeAfterLaterRowRepair(): void
+    {
+        $controller = $this->controller();
+        $query = new OnlineDataQuerySpy();
+
+        $this->invokeNonPublic($controller, 'applyMeituanCompetitorLatestBatchScope', [
+            $query,
+            [
+                'system_hotel_id' => 7,
+                'create_time' => '2026-06-06 18:20:00',
+                'update_time' => '2026-06-06 19:45:00',
+            ],
+            '7',
+            ['system_hotel_id' => true, 'create_time' => true, 'update_time' => true],
+        ]);
+
+        self::assertSame([
+            ['whereBetween', 'create_time', ['2026-06-06 18:18:00', '2026-06-06 18:20:00']],
         ], $query->calls);
     }
 

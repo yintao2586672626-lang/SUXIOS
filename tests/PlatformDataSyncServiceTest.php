@@ -661,10 +661,10 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertCount(1, $rows);
         self::assertSame('realtime_snapshot', $rows[0]['data_period']);
         self::assertSame('2026-06-06 13:15:00', $rows[0]['snapshot_time']);
-        self::assertSame('2026060613', $rows[0]['snapshot_bucket']);
+        self::assertSame('202606061315', $rows[0]['snapshot_bucket']);
         self::assertSame(0, $rows[0]['is_final']);
         self::assertStringContainsString('"data_period":"realtime_snapshot"', $rows[0]['raw_data']);
-        self::assertStringContainsString('"snapshot_bucket":"2026060613"', $rows[0]['raw_data']);
+        self::assertStringContainsString('"snapshot_bucket":"202606061315"', $rows[0]['raw_data']);
     }
 
     public function testHistoricalPayloadNormalizesAsFinalDailyData(): void
@@ -2916,6 +2916,21 @@ final class PlatformDataSyncServiceTest extends TestCase
                         'exposure_count' => '300',
                     ],
                 ],
+                'order_flow' => [
+                    [
+                        'poi_id' => '68471',
+                        'poi_name' => 'Meituan Demo Hotel',
+                        'dataDate' => '2026-06-06',
+                        'date_source' => 'request.query.endDate',
+                        'order_flow_row_type' => 'summary',
+                        'order_flow_direction' => 'loss',
+                        'order_flow_period' => 'last_30_days',
+                        'dimension' => 'order_flow:last_30_days:loss:summary',
+                        'order_count' => '12',
+                        'room_nights' => '18',
+                        'amount' => '3988.00',
+                    ],
+                ],
                 'roomTypes' => [
                     [
                         'poi_id' => '68471',
@@ -2929,13 +2944,14 @@ final class PlatformDataSyncServiceTest extends TestCase
             $source = $this->meituanBrowserProfileSource();
             $result = $adapter->fetch($source, [
                 'interactive_browser' => false,
-                'capture_sections' => 'businessData,peerRank,searchKeywords,roomTypes',
+                'capture_sections' => 'businessData,peerRank,order_flow,searchKeywords,roomTypes',
                 'data_date' => '2026-06-06',
             ]);
 
             self::assertSame('success', $result['status']);
-            self::assertCount(4, $result['payload']['rows']);
+            self::assertCount(5, $result['payload']['rows']);
             self::assertSame(1, $result['payload']['sync_summary']['peer_rank_count']);
+            self::assertSame(1, $result['payload']['sync_summary']['order_flow_count']);
             self::assertSame(1, $result['payload']['sync_summary']['search_keyword_count']);
             self::assertSame(1, $result['payload']['sync_summary']['room_type_count']);
 
@@ -2943,7 +2959,13 @@ final class PlatformDataSyncServiceTest extends TestCase
             $types = array_values(array_unique(array_column($rows, 'data_type')));
             sort($types);
 
-            self::assertSame(['business', 'peer_rank', 'room_type', 'search_keyword'], $types);
+            self::assertSame(['business', 'order_flow', 'peer_rank', 'room_type', 'search_keyword'], $types);
+            $orderFlowRow = array_values(array_filter($rows, static fn(array $row): bool => $row['data_type'] === 'order_flow'))[0] ?? null;
+            self::assertIsArray($orderFlowRow);
+            self::assertSame(3988.0, $orderFlowRow['amount']);
+            self::assertSame(18, $orderFlowRow['quantity']);
+            self::assertSame(12, $orderFlowRow['book_order_num']);
+            self::assertSame('order_flow:last_30_days:loss:summary', $orderFlowRow['dimension']);
             $peerRow = array_values(array_filter($rows, static fn(array $row): bool => $row['data_type'] === 'peer_rank'))[0] ?? null;
             self::assertIsArray($peerRow);
             self::assertNull($peerRow['data_value']);
@@ -3055,6 +3077,27 @@ final class PlatformDataSyncServiceTest extends TestCase
         ], 1, 1, '2026-07-10 08:01:00');
         self::assertSame('unverified', $manualImport['primary_quality_state']);
         self::assertContains('manual_import_provenance_unverified', $manualImport['quality_flags']);
+    }
+
+    public function testNormalizedPersistenceReceiptAndValueReadbackStayTruthful(): void
+    {
+        $service = new PlatformDataSyncService();
+        $receiptMethod = new \ReflectionMethod($service, 'normalizedRowsRollbackReceipt');
+        $receiptMethod->setAccessible(true);
+        $matchMethod = new \ReflectionMethod($service, 'normalizedStoredValueMatches');
+        $matchMethod->setAccessible(true);
+
+        $receipt = $receiptMethod->invoke($service, 2, 'readback_mismatch');
+        self::assertSame(2, $receipt['attempted_count']);
+        self::assertSame(0, $receipt['saved_count']);
+        self::assertFalse($receipt['readback_verified']);
+        self::assertTrue($receipt['rolled_back']);
+        self::assertSame('readback_mismatch', $receipt['failure_reason']);
+
+        self::assertTrue($matchMethod->invoke($service, '123.500', 123.5));
+        self::assertFalse($matchMethod->invoke($service, '120.000', 123.5));
+        self::assertTrue($matchMethod->invoke($service, '{"source":"ctrip","count":2}', '{"count":2,"source":"ctrip"}'));
+        self::assertFalse($matchMethod->invoke($service, '{"source":"meituan"}', '{"source":"ctrip"}'));
     }
 
     private function ctripBrowserProfileSource(): array

@@ -44,6 +44,12 @@ final class ManualFetchPersistenceStateTest extends TestCase
         self::assertSame('readback_failed', $failureOutcome['save_status']);
         self::assertStringContainsString('未确认入库', $failureOutcome['message']);
 
+        $emptyOutcome = $outcomeMethod->invoke($harness, true, $empty);
+        self::assertSame(422, $emptyOutcome['code']);
+        self::assertSame(422, $emptyOutcome['http_status']);
+        self::assertSame('not_persisted', $emptyOutcome['save_status']);
+        self::assertStringContainsString('没有可入库记录', $emptyOutcome['message']);
+
         $successOutcome = $outcomeMethod->invoke($harness, true, $verified);
         self::assertSame(200, $successOutcome['http_status']);
         self::assertSame('', $successOutcome['save_status']);
@@ -104,6 +110,20 @@ final class ManualFetchPersistenceStateTest extends TestCase
         self::assertSame('readback_verified', $verified['persistence_status']);
         self::assertTrue($verified['persisted']);
         self::assertSame(3, $verified['saved_count']);
+    }
+
+    public function testCtripTrafficAndAdsUseDatabaseReadbackBeforeReportingPersistence(): void
+    {
+        $root = dirname(__DIR__);
+        $manualFetchSource = (string)file_get_contents($root . '/app/controller/concern/OnlineDataManualFetchConcern.php');
+        $adsSource = (string)file_get_contents($root . '/app/controller/concern/CtripAdsConcern.php');
+
+        self::assertStringContainsString('countCtripTrafficReadbackRows(', $manualFetchSource);
+        self::assertStringContainsString('countCtripCapturedAdRowsReadback(', $manualFetchSource);
+        self::assertStringContainsString("'readback_verified' => \$persistenceState['readback_verified']", $manualFetchSource);
+        self::assertStringContainsString("\$persistenceState['persistence_status'] === 'readback_failed'", $manualFetchSource);
+        self::assertStringContainsString('private function countCtripCapturedAdRowsReadback(array $rows): int', $adsSource);
+        self::assertStringContainsString("->field('id,raw_data')->find()", $adsSource);
     }
 
     private function harness(): object
