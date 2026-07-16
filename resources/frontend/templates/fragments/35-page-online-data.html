@@ -240,7 +240,7 @@
                                         <div v-if="manualOneClickFetchFilterOptions[0].count" class="mt-4 flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-3">
                                             <div class="text-xs text-gray-500">结果筛选</div>
                                             <div class="flex flex-wrap items-center gap-1.5">
-                                                <button v-for="option in manualOneClickFetchFilterOptions" :key="option.key" type="button" @click="manualOneClickFetchStatusFilter = option.key" :class="['rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors', manualOneClickFetchStatusFilter === option.key ? 'border-slate-800 bg-slate-800 text-white' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50']">
+                                                <button v-for="option in manualOneClickFetchFilterOptions" :key="option.key" type="button" @click="setManualOneClickFetchStatusFilter(option.key)" :class="['rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors', manualOneClickFetchStatusFilter === option.key ? 'border-slate-800 bg-slate-800 text-white' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50']">
                                                     {{ option.label }} · {{ option.count }}
                                                 </button>
                                             </div>
@@ -266,7 +266,7 @@
                                                     </tr>
                                                 </thead>
                                                 <tbody class="divide-y divide-gray-100 bg-white">
-                                                    <tr v-for="row in manualOneClickFetchDisplayRows" :key="row.key">
+                                                    <tr v-for="row in manualOneClickFetchPagedRows" :key="row.key">
                                                         <td class="px-3 py-3 align-top">
                                                             <span class="rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] text-gray-700">{{ row.platformText }}</span>
                                                         </td>
@@ -315,6 +315,22 @@
                                                     </tr>
                                                 </tbody>
                                             </table>
+                                        </div>
+                                        <div v-if="manualOneClickFetchPagination.total" class="mt-3 flex flex-col gap-2 text-xs text-gray-500 sm:flex-row sm:items-center sm:justify-between">
+                                            <div>显示 {{ manualOneClickFetchPagination.start }}–{{ manualOneClickFetchPagination.end }} / 共 {{ manualOneClickFetchPagination.total }} 条</div>
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <label class="flex items-center gap-1.5">
+                                                    <span>每页</span>
+                                                    <select :value="manualOneClickFetchPageSize" @change="changeManualOneClickFetchPageSize($event.target.value)" class="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700">
+                                                        <option :value="20">20</option>
+                                                        <option :value="50">50</option>
+                                                        <option :value="100">100</option>
+                                                    </select>
+                                                </label>
+                                                <button type="button" @click="changeManualOneClickFetchPage(manualOneClickFetchPagination.page - 1)" :disabled="manualOneClickFetchPagination.page <= 1" class="rounded-md border border-gray-200 bg-white px-2.5 py-1 text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40">上一页</button>
+                                                <span>第 {{ manualOneClickFetchPagination.page }} / {{ manualOneClickFetchPagination.totalPages }} 页</span>
+                                                <button type="button" @click="changeManualOneClickFetchPage(manualOneClickFetchPagination.page + 1)" :disabled="manualOneClickFetchPagination.page >= manualOneClickFetchPagination.totalPages" class="rounded-md border border-gray-200 bg-white px-2.5 py-1 text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40">下一页</button>
+                                            </div>
                                         </div>
                                         <div v-else="" class="mt-4 rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">
                                             {{ manualOneClickFetchFilteredEmptyText }}

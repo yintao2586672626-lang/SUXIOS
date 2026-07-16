@@ -2313,6 +2313,11 @@
             const manualOneClickFetchQunarAutoRetryAllowedAt = requireDataHealthStatic('manualOneClickFetchQunarAutoRetryAllowedAt');
             const manualOneClickFetchSavedCount = requireDataHealthStatic('manualOneClickFetchSavedCount');
             const summarizeManualOneClickFetchResult = requireDataHealthStatic('summarizeManualOneClickFetchResult');
+            const manualFetchTaskIdsFromResult = requireDataHealthStatic('manualFetchTaskIdsFromResult');
+            const manualFetchImmediateStatusesFromResult = requireDataHealthStatic('manualFetchImmediateStatusesFromResult');
+            const pollManualFetchTaskStatus = requireDataHealthStatic('pollManualFetchTaskStatus');
+            const summarizeManualFetchTaskStatuses = requireDataHealthStatic('summarizeManualFetchTaskStatuses');
+            const paginateManualOneClickFetchRows = requireDataHealthStatic('paginateManualOneClickFetchRows');
             const buildOnlineHistoryQueryParams = requireDataHealthStatic('buildOnlineHistoryQueryParams');
             const formatOnlineHistoryHotelOption = requireDataHealthStatic('formatOnlineHistoryHotelOption');
             const formatOnlineHistoryRaw = requireDataHealthStatic('formatOnlineHistoryRaw');
@@ -19288,6 +19293,8 @@
             const manualOneClickFetchRows = ref([]);
             const manualOneClickFetchLastRunAt = ref('');
             const manualOneClickFetchStatusFilter = ref('all');
+            const manualOneClickFetchPage = ref(1);
+            const manualOneClickFetchPageSize = ref(20);
             const manualOneClickFetchEvidenceRows = ref([]);
             const manualOneClickFetchEvidenceLoading = ref(false);
             const manualOneClickFetchEvidenceError = ref('');
@@ -19408,6 +19415,26 @@
                     status: manualOneClickFetchStatusFilter.value,
                 });
             });
+            const manualOneClickFetchPagination = computed(() => paginateManualOneClickFetchRows(
+                manualOneClickFetchDisplayRows.value,
+                manualOneClickFetchPage.value,
+                manualOneClickFetchPageSize.value,
+            ));
+            const manualOneClickFetchPagedRows = computed(() => manualOneClickFetchPagination.value.rows);
+            const setManualOneClickFetchStatusFilter = (status = 'all') => {
+                manualOneClickFetchStatusFilter.value = String(status || 'all');
+                manualOneClickFetchPage.value = 1;
+            };
+            const changeManualOneClickFetchPage = (page) => {
+                manualOneClickFetchPage.value = Math.max(1, Math.min(
+                    manualOneClickFetchPagination.value.totalPages,
+                    Number(page || 1),
+                ));
+            };
+            const changeManualOneClickFetchPageSize = (pageSize) => {
+                manualOneClickFetchPageSize.value = Math.max(1, Math.min(100, Number(pageSize || 20)));
+                manualOneClickFetchPage.value = 1;
+            };
             const manualOneClickFetchFilteredEmptyText = computed(() => {
                 if (manualOneClickFetchCoverageRows.value.length && manualOneClickFetchStatusFilter.value !== 'all') {
                     const label = manualOneClickFetchStatusFilter.value === 'success'
@@ -19596,6 +19623,85 @@
                     operatorName: getCurrentOperatorName(),
                 });
             };
+            const resolveManualOneClickFetchBackgroundResult = async ({ result = {}, baseRow = {} } = {}) => {
+                const taskIds = manualFetchTaskIdsFromResult(result);
+                const immediateStatuses = manualFetchImmediateStatusesFromResult(result);
+                const accepted = ['accepted', 'running', 'queued'].includes(String(result?.status || result?.data?.status || '').toLowerCase());
+                if (!taskIds.length) {
+                    if (accepted) {
+                        throw new Error('后台任务已受理，但未返回任务 ID，无法核验入库结果');
+                    }
+                    return { result, statuses: [], qualitySummary: null };
+                }
+
+                const latestStatuses = new Map(immediateStatuses.map(status => [status.taskId, status]));
+                const totalStatusCount = taskIds.length + immediateStatuses.length;
+                const updateProgress = (status) => {
+                    latestStatuses.set(status.taskId, status);
+                    const summary = summarizeManualFetchTaskStatuses([...latestStatuses.values()]);
+                    const finishedCount = summary.statuses.filter(item => item.done).length;
+                    const averageProgress = summary.statuses.length
+                        ? Math.round(summary.statuses.reduce((sum, item) => sum + item.progressPercent, 0) / summary.statuses.length)
+                        : 0;
+                    upsertManualOneClickFetchRow({
+                        ...baseRow,
+                        status: 'running',
+                        statusText: `获取中 ${averageProgress}%`,
+                        message: `后台任务 ${finishedCount}/${totalStatusCount} 已完成；页面可继续查看其他数据`,
+                        savedCount: summary.savedCount,
+                        taskIds,
+                        progressPercent: averageProgress,
+                        timeText: manualOneClickFetchNowText(),
+                    });
+                };
+                const settled = await Promise.allSettled(taskIds.map(taskId => pollManualFetchTaskStatus({
+                    taskId,
+                    requestStatus: currentTaskId => request(`/online-data/manual-fetch-task-status?task_id=${encodeURIComponent(currentTaskId)}`, {
+                        withBusinessContext: false,
+                    }),
+                    wait: delayMs => new Promise(resolve => window.setTimeout(resolve, delayMs)),
+                    intervalMs: 1500,
+                    maxAttempts: 800,
+                    onProgress: updateProgress,
+                })));
+                const statuses = immediateStatuses.concat(settled.map((entry, index) => {
+                    if (entry.status === 'fulfilled') return entry.value;
+                    return {
+                        taskId: taskIds[index],
+                        status: 'failed',
+                        statusText: '状态读取失败',
+                        message: entry.reason?.message || '后台任务状态读取失败',
+                        progressPercent: 100,
+                        savedCount: 0,
+                        readbackCount: 0,
+                        readbackVerified: false,
+                        done: true,
+                    };
+                }));
+                const summary = summarizeManualFetchTaskStatuses(statuses);
+                return {
+                    result: {
+                        ...result,
+                        code: summary.status === 'failed' ? 500 : 200,
+                        status: summary.status,
+                        message: summary.message,
+                        saved_count: summary.savedCount,
+                        totalSavedCount: summary.savedCount,
+                        readback_count: summary.readbackCount,
+                        readback_verified: summary.readbackVerified,
+                        taskStatuses: statuses,
+                        data: {
+                            ...(result?.data && typeof result.data === 'object' ? result.data : {}),
+                            status: summary.status,
+                            saved_count: summary.savedCount,
+                            readback_count: summary.readbackCount,
+                            readback_verified: summary.readbackVerified,
+                        },
+                    },
+                    statuses,
+                    qualitySummary: summary.qualitySummary,
+                };
+            };
             const runManualOneClickFetchForHotel = async ({ platform, hotel, runId, rowKey }) => {
                 const baseRow = buildManualOneClickFetchBaseRow({
                     platform,
@@ -19634,9 +19740,15 @@
                                 retryLimit: CTRIP_QUNAR_VISITOR_AUTO_RETRY_LIMIT,
                                 nowText: manualOneClickFetchNowText(),
                             }));
-                            result = await fetchCtripData();
+                            result = await fetchCtripData({
+                                background: true,
+                                suppressPostFetchRefresh: true,
+                            });
+                            const backgroundOutcome = await resolveManualOneClickFetchBackgroundResult({ result, baseRow });
+                            result = backgroundOutcome.result;
                             savedCount = Math.max(savedCount, manualOneClickFetchSavedCount(result));
-                            ctripQunarQuality = summarizeManualOneClickFetchQunarVisitorQuality(ctripHotelsList.value);
+                            ctripQunarQuality = backgroundOutcome.qualitySummary
+                                || summarizeManualOneClickFetchQunarVisitorQuality(ctripHotelsList.value);
                             const qunarVisitorNeedsRetry = manualOneClickFetchQunarVisitorNeedsRetry(ctripQunarQuality);
                             const qunarAutoRetryAllowed = manualOneClickFetchQunarAutoRetryAllowedAt();
                             if (qunarVisitorNeedsRetry && !qunarAutoRetryAllowed) {
@@ -19659,7 +19771,12 @@
                             skipIfAligned: false,
                         });
                         attempts = 1;
-                        result = await fetchMeituanData();
+                        result = await fetchMeituanData({
+                            background: true,
+                            suppressPostFetchRefresh: true,
+                        });
+                        const backgroundOutcome = await resolveManualOneClickFetchBackgroundResult({ result, baseRow });
+                        result = backgroundOutcome.result;
                         savedCount = manualOneClickFetchSavedCount(result);
                     }
                     const resultSummary = summarizeManualOneClickFetchResult({
@@ -19751,6 +19868,7 @@
                 const runId = `${Date.now()}`;
                 manualOneClickFetchRunning.value = normalizedPlatform;
                 manualOneClickFetchLastRunAt.value = manualOneClickFetchNowText();
+                manualOneClickFetchPage.value = 1;
                 manualOneClickFetchRows.value = tasks.map(task => buildManualOneClickFetchBaseRow({
                     ...task,
                     runId,
@@ -24835,7 +24953,7 @@
             };
 
             // 线上数据获取相关方法
-            const fetchCtripData = async () => {
+            const fetchCtripData = async (options = {}) => {
                 const preparingConfig = ctripManualFetchConfigProofPending();
                 if (preparingConfig) {
                     fetchingData.value = true;
@@ -24881,6 +24999,8 @@
                         handleFetchFailure: message => handleCtripFetchFailure(message),
                         hasVisibleSnapshot: hasVisibleCtripSnapshot,
                         logError: (...args) => console.error(...args),
+                        background: options?.background === true,
+                        suppressPostFetchRefresh: options?.suppressPostFetchRefresh === true,
                     });
                 } finally {
                     if (preparingConfig) {
@@ -24890,7 +25010,7 @@
             };
 
             // 美团ebooking数据获取 - 支持批量获取多个榜单和时间维度
-            const fetchMeituanData = async () => {
+            const fetchMeituanData = async (options = {}) => {
                 const runToken = ++meituanFetchRunToken;
                 const isActive = () => runToken === meituanFetchRunToken;
                 const preparingConfig = meituanManualFetchConfigProofPending();
@@ -24932,6 +25052,8 @@
                         refreshOnlineHistory: () => schedulePostFetchRefresh('online-history', () => refreshOnlineHistory({ refreshHotels: false }), 1400),
                         getOnlineDataTab: () => onlineDataTab.value,
                         refreshOnlineData: scheduleOnlineDataRefresh,
+                        background: options?.background === true,
+                        suppressPostFetchRefresh: options?.suppressPostFetchRefresh === true,
                     });
                 } finally {
                     if (preparingConfig && isActive()) {
@@ -31060,7 +31182,7 @@
                 onlineDataCorrectionLedgerOperationText, onlineDataCorrectionLedgerChangedFieldsText, onlineDataCorrectionLedgerStatusText, onlineDataCorrectionLedgerStatusClass,
                 collectionReliability, collectionReliabilityLoading, collectionReliabilityError,
                 otaConfigOverviewPageSize, otaConfigOverviewPages, otaConfigOverviewRefreshing, otaConfigOverviewProbeState, otaConfigOverviewSelectedCount, otaConfigOverviewHiddenSelectedCount, otaConfigOverviewPageCount, otaConfigOverviewPageNumber, otaConfigOverviewPageSummary, changeOtaConfigOverviewPage, isOtaConfigOverviewRowSelected, toggleOtaConfigOverviewRow, isOtaConfigOverviewPageSelected, toggleSelectOtaConfigOverviewPage, clearOtaConfigOverviewSelection, refreshOtaConfigOverviewStatus, probeOtaConfigOverviewRow, probeSelectedOtaConfigOverviewRows, runOtaConfigOverviewRowCollection, runSelectedOtaConfigOverviewCollection, deleteOtaConfigOverviewRow,
-                dailyWorkbench, dailyWorkbenchLoading, dailyWorkbenchError, dailyWorkbenchPatrol, dailyWorkbenchPatrolLoading, dailyWorkbenchPatrolRunning, dailyWorkbenchPatrolActionUpdating, dailyWorkbenchPatrolError, phase3OperationEffectLoop, phase3OperationEffectLoopLedger, phase3OperationEffectLoopLoading, phase3OperationEffectLoopError, phase3OperationEffectLoopActionUpdating, phase3OperationEffectLoopSummary, phase3OperationEffectLoopCards, phase3OperationEffectLoopRows, phase3OperationEffectLoopBoundaryText, phase3OperationEffectLoopLedgerText, phase3OperationEffectLoopEmptyText, phase3OperationEffectLoopStatusText, phase3OperationEffectLoopStatusClass, phase3OperationEffectLoopActionKey, dailyWorkbenchWriteBoundary, dailyWorkbenchSummary, dailyWorkbenchScopeText, dailyWorkbenchSummaryCards, dailyWorkbenchRows, employeeOtaChecklistScopeText, employeeOtaChecklistCards, employeeOtaChecklistHeadline, employeeOtaChecklistRows, employeeOtaChecklistEmptyText, employeeOtaChecklistActionRunning, runEmployeeOtaChecklistAction, dataAcquisitionWorkbenchRows, dataAcquisitionIssueGroups, dataAcquisitionWorkbenchCards, dataAcquisitionWorkbenchScopeText, dataAcquisitionWorkbenchHeadline, dataAcquisitionWorkbenchEmptyText, dataAcquisitionPrimaryFetchHotelId, dataAcquisitionFetchableHotelIds, otaConfigOverviewGroups, otaConfigOverviewExpanded, otaConfigOverviewFilters, otaConfigOverviewTotalCount, otaConfigOverviewFilteredCount, otaConfigOverviewHasFilters, resetOtaConfigOverviewFilters, otaConfigOverviewVisibleRows, toggleOtaConfigOverview, manageOtaConfigOverview, editOtaConfigOverviewRow, otaDirectViewCards, otaDirectIssueRows, handleOtaDirectIssueAction, manualOneClickFetchRunning, manualOneClickFetchRows, manualOneClickFetchDisplayRows, manualOneClickFetchCards, manualOneClickFetchScopeText, manualOneClickFetchEvidenceError, manualOneClickFetchStatusFilter, manualOneClickFetchFilterOptions, manualOneClickFetchFilteredEmptyText, manualOneClickFetchEmptyText, manualOneClickFetchStatusClass, canEditManualOneClickFetchRow, canRetryManualOneClickFetchRow, canDeleteManualOneClickFetchRow, canSupplementManualOneClickFetchRow, editManualOneClickFetchFailure, retryManualOneClickFetchFailure, deleteManualOneClickFetchConfig, supplementManualOneClickFetchConfig, runManualOneClickFetch, refreshManualOneClickFetchConfig, dailyWorkbenchNextActions, dailyWorkbenchPatrolVisibleActions, dailyWorkbenchEmptyText, dailyWorkbenchStatusText, dailyWorkbenchStatusClass, dailyWorkbenchPatrolLatest, dailyWorkbenchPatrolHealth, dailyWorkbenchPatrolHealthText, dailyWorkbenchPatrolHealthClass, dailyWorkbenchPatrolAutomationText, dailyWorkbenchPatrolAutomationClass, dailyWorkbenchPatrolNextActionText, dailyWorkbenchPatrolLatestText, dailyWorkbenchPatrolLatestRawText, dailyWorkbenchPatrolActionText, dailyWorkbenchPatrolBoundaryText, dailyWorkbenchPatrolTrackedStatusText, dailyWorkbenchPatrolTrackedStatusClass, dailyWorkbenchPatrolExecutionText, dailyWorkbenchPatrolTaskId, dailyWorkbenchPatrolReviewText, dailyWorkbenchPatrolReviewClass, dailyWorkbenchPatrolActionUpdatingKey, dailyWorkbenchPatrolReviewUpdatingKey,
+                dailyWorkbench, dailyWorkbenchLoading, dailyWorkbenchError, dailyWorkbenchPatrol, dailyWorkbenchPatrolLoading, dailyWorkbenchPatrolRunning, dailyWorkbenchPatrolActionUpdating, dailyWorkbenchPatrolError, phase3OperationEffectLoop, phase3OperationEffectLoopLedger, phase3OperationEffectLoopLoading, phase3OperationEffectLoopError, phase3OperationEffectLoopActionUpdating, phase3OperationEffectLoopSummary, phase3OperationEffectLoopCards, phase3OperationEffectLoopRows, phase3OperationEffectLoopBoundaryText, phase3OperationEffectLoopLedgerText, phase3OperationEffectLoopEmptyText, phase3OperationEffectLoopStatusText, phase3OperationEffectLoopStatusClass, phase3OperationEffectLoopActionKey, dailyWorkbenchWriteBoundary, dailyWorkbenchSummary, dailyWorkbenchScopeText, dailyWorkbenchSummaryCards, dailyWorkbenchRows, employeeOtaChecklistScopeText, employeeOtaChecklistCards, employeeOtaChecklistHeadline, employeeOtaChecklistRows, employeeOtaChecklistEmptyText, employeeOtaChecklistActionRunning, runEmployeeOtaChecklistAction, dataAcquisitionWorkbenchRows, dataAcquisitionIssueGroups, dataAcquisitionWorkbenchCards, dataAcquisitionWorkbenchScopeText, dataAcquisitionWorkbenchHeadline, dataAcquisitionWorkbenchEmptyText, dataAcquisitionPrimaryFetchHotelId, dataAcquisitionFetchableHotelIds, otaConfigOverviewGroups, otaConfigOverviewExpanded, otaConfigOverviewFilters, otaConfigOverviewTotalCount, otaConfigOverviewFilteredCount, otaConfigOverviewHasFilters, resetOtaConfigOverviewFilters, otaConfigOverviewVisibleRows, toggleOtaConfigOverview, manageOtaConfigOverview, editOtaConfigOverviewRow, otaDirectViewCards, otaDirectIssueRows, handleOtaDirectIssueAction, manualOneClickFetchRunning, manualOneClickFetchRows, manualOneClickFetchDisplayRows, manualOneClickFetchPagedRows, manualOneClickFetchPagination, manualOneClickFetchPage, manualOneClickFetchPageSize, setManualOneClickFetchStatusFilter, changeManualOneClickFetchPage, changeManualOneClickFetchPageSize, manualOneClickFetchCards, manualOneClickFetchScopeText, manualOneClickFetchEvidenceError, manualOneClickFetchStatusFilter, manualOneClickFetchFilterOptions, manualOneClickFetchFilteredEmptyText, manualOneClickFetchEmptyText, manualOneClickFetchStatusClass, canEditManualOneClickFetchRow, canRetryManualOneClickFetchRow, canDeleteManualOneClickFetchRow, canSupplementManualOneClickFetchRow, editManualOneClickFetchFailure, retryManualOneClickFetchFailure, deleteManualOneClickFetchConfig, supplementManualOneClickFetchConfig, runManualOneClickFetch, refreshManualOneClickFetchConfig, dailyWorkbenchNextActions, dailyWorkbenchPatrolVisibleActions, dailyWorkbenchEmptyText, dailyWorkbenchStatusText, dailyWorkbenchStatusClass, dailyWorkbenchPatrolLatest, dailyWorkbenchPatrolHealth, dailyWorkbenchPatrolHealthText, dailyWorkbenchPatrolHealthClass, dailyWorkbenchPatrolAutomationText, dailyWorkbenchPatrolAutomationClass, dailyWorkbenchPatrolNextActionText, dailyWorkbenchPatrolLatestText, dailyWorkbenchPatrolLatestRawText, dailyWorkbenchPatrolActionText, dailyWorkbenchPatrolBoundaryText, dailyWorkbenchPatrolTrackedStatusText, dailyWorkbenchPatrolTrackedStatusClass, dailyWorkbenchPatrolExecutionText, dailyWorkbenchPatrolTaskId, dailyWorkbenchPatrolReviewText, dailyWorkbenchPatrolReviewClass, dailyWorkbenchPatrolActionUpdatingKey, dailyWorkbenchPatrolReviewUpdatingKey,
                 dashboardAccountOverview, dashboardHotelPortrait, dashboardDataSources, hotelDashboardLoading, hotelDashboardError, dataHealthFullDiagnosticsLoaded, dataHealthSecondaryPanelsReady, dataHealthDetailPanelsReady, dataHealthEmployeePanelsReady, ctripEbookingModuleCardsReady, ctripEbookingSecondaryPanelsReady, ctripEbookingDeepPanelsReady, ctripEbookingBusinessDetailsReady, ctripEbookingDiagnosticsPanelsReady, handleCtripEbookingDiagnosticsToggle, dashboardHotelId,
                 dashboardStateText, dashboardStateClass, dashboardMetricText, dashboardEvidenceText, dashboardHotelOptions,
                 dashboardAccountSummaryCards, dashboardCoreKpis, dashboardRiskAlerts, dashboardTodayActions, dashboardPortraitSections, dashboardDataSourceDiagnostics,

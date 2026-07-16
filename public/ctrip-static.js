@@ -1768,6 +1768,8 @@ window.SUXI_CTRIP_STATIC = (() => {
         handleFetchFailure = async () => {},
         hasVisibleSnapshot = () => false,
         logError = () => {},
+        background = false,
+        suppressPostFetchRefresh = false,
     } = {}) => {
         if (!isLoggedIn()) {
             notify('请先登录', 'error');
@@ -1817,7 +1819,7 @@ window.SUXI_CTRIP_STATIC = (() => {
             debugLog('发送携程数据请求...', requestContext.debugMeta);
             const requestBody = requestContext.temporaryCookieQuery
                 ? { ...requestContext.requestBody }
-                : { ...requestContext.requestBody, async: false, background: false };
+                : { ...requestContext.requestBody, async: background === true, background: background === true };
             const fetchRequest = requestContext.temporaryCookieQuery && typeof requestTemporaryFetch === 'function'
                 ? requestTemporaryFetch
                 : requestFetch;
@@ -1837,10 +1839,12 @@ window.SUXI_CTRIP_STATIC = (() => {
                 });
                 setSavedCount(0);
                 setFetchSuccess(false);
-                runPostFetchRefresh(refreshOnlineHistory);
-                runPostFetchRefresh(refreshLatestCtripData, { silent: true });
-                if (getOnlineDataTab() === 'data') {
-                    runPostFetchRefresh(refreshOnlineData);
+                if (!suppressPostFetchRefresh) {
+                    runPostFetchRefresh(refreshOnlineHistory);
+                    runPostFetchRefresh(refreshLatestCtripData, { silent: true });
+                    if (getOnlineDataTab() === 'data') {
+                        runPostFetchRefresh(refreshOnlineData);
+                    }
                 }
                 return { status: 'accepted', response: res, requestBody };
             }
@@ -1905,13 +1909,15 @@ window.SUXI_CTRIP_STATIC = (() => {
                 if (persisted) {
                     setLatestMeta({ ...(getLatestMeta() || {}), ...currentFetchMeta });
                     updateAiAnalysisHotelList();
-                    refreshOnlineHistory();
-                    refreshLatestCtripData({ silent: true });
+                    if (!suppressPostFetchRefresh) {
+                        refreshOnlineHistory();
+                        refreshLatestCtripData({ silent: true });
+                    }
                 }
                 if (persisted && currentFetchMeta.fetched_at && (!getLatestMeta()?.fetched_at || String(getLatestMeta().fetched_at) < currentFetchMeta.fetched_at)) {
                     setLatestMeta({ ...(getLatestMeta() || {}), ...currentFetchMeta });
                 }
-                if (persisted && getOnlineDataTab() === 'data') {
+                if (persisted && !suppressPostFetchRefresh && getOnlineDataTab() === 'data') {
                     refreshOnlineData();
                 }
                 return {

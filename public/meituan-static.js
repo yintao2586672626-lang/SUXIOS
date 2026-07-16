@@ -3606,6 +3606,8 @@ window.SUXI_MEITUAN_STATIC = (() => {
         refreshOnlineHistory = async () => {},
         getOnlineDataTab = () => '',
         refreshOnlineData = () => {},
+        background = false,
+        suppressPostFetchRefresh = false,
     } = {}) => {
         const runIsActive = () => {
             try {
@@ -3708,7 +3710,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 notify(fetchTasks.length === 1 ? fetchTasks[0].toastText : `正在获取 ${fetchTasks.length} 个美团榜单任务...`);
             }
             await Promise.all(fetchTasks.map(async (task, index) => {
-                const requestBody = { ...task.body, async: false, background: false };
+                const requestBody = { ...task.body, async: background === true, background: background === true };
                 const maxAttempts = meituanRankMaxAttempts(task);
                 let attemptCount = 0;
                 try {
@@ -3909,9 +3911,11 @@ window.SUXI_MEITUAN_STATIC = (() => {
                         : `美团手动获取已提交 ${acceptedCount} 个后台任务，其余任务已返回结果`,
                     'info'
                 );
-                runPostFetchRefresh(refreshOnlineHistory);
-                if (getOnlineDataTab() === 'data') {
-                    refreshOnlineData();
+                if (!suppressPostFetchRefresh) {
+                    runPostFetchRefresh(refreshOnlineHistory);
+                    if (getOnlineDataTab() === 'data') {
+                        refreshOnlineData();
+                    }
                 }
                 return { status: 'accepted', results, acceptedCount, totalSavedCount };
             }
@@ -3940,9 +3944,11 @@ window.SUXI_MEITUAN_STATIC = (() => {
                         : `美团榜单已入库 ${verifiedSavedCount} 条，并完成数据库回读核验`,
                     failedCount + incompleteCount > 0 ? 'warning' : undefined
                 );
-                runPostFetchRefresh(refreshOnlineHistory);
-                if (getOnlineDataTab() === 'data') {
-                    refreshOnlineData();
+                if (!suppressPostFetchRefresh) {
+                    runPostFetchRefresh(refreshOnlineHistory);
+                    if (getOnlineDataTab() === 'data') {
+                        refreshOnlineData();
+                    }
                 }
             } else if (totalSavedCount > 0) {
                 notify(
@@ -3951,9 +3957,11 @@ window.SUXI_MEITUAN_STATIC = (() => {
                         : `批量请求已完成，接口报告处理 ${totalSavedCount} 条，尚未确认数据库回读`,
                     'warning'
                 );
-                runPostFetchRefresh(refreshOnlineHistory);
-                if (getOnlineDataTab() === 'data') {
-                    refreshOnlineData();
+                if (!suppressPostFetchRefresh) {
+                    runPostFetchRefresh(refreshOnlineHistory);
+                    if (getOnlineDataTab() === 'data') {
+                        refreshOnlineData();
+                    }
                 }
             } else if (allHotels.length > 0) {
                 notify(

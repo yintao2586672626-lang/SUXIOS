@@ -1095,6 +1095,207 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         };
     };
 
+    const manualFetchTaskIdsFromResult = (result = {}) => {
+        const taskIds = [];
+        const append = (value) => {
+            const taskId = String(value || '').trim();
+            if (!taskId || taskIds.includes(taskId)) return;
+            taskIds.push(taskId);
+        };
+        append(result?.task_id);
+        append(result?.taskId);
+        append(result?.data?.task_id);
+        append(result?.data?.taskId);
+        append(result?.response?.data?.task_id);
+        append(result?.response?.data?.taskId);
+        (Array.isArray(result?.results) ? result.results : []).forEach((row) => {
+            append(row?.task_id);
+            append(row?.taskId);
+            append(row?.data?.task_id);
+            append(row?.response?.data?.task_id);
+        });
+        return taskIds;
+    };
+
+    const manualFetchImmediateStatusesFromResult = (result = {}) => {
+        const activeStatuses = new Set(['accepted', 'running', 'queued', 'pending', 'processing', 'in_progress', 'fetching', 'saving']);
+        const failedStatuses = new Set(['failed', 'error', 'exception', 'business_failed', 'rejected', 'login_required']);
+        return (Array.isArray(result?.results) ? result.results : []).flatMap((row, index) => {
+            const taskId = String(
+                row?.task_id
+                || row?.taskId
+                || row?.data?.task_id
+                || row?.response?.data?.task_id
+                || ''
+            ).trim();
+            const sourceStatus = String(row?.status || row?.data?.status || '').trim().toLowerCase();
+            if (taskId || activeStatuses.has(sourceStatus)) return [];
+
+            const savedCount = Math.max(0, Number(row?.saved_count ?? row?.savedCount ?? row?.response?.data?.saved_count ?? 0) || 0);
+            const readbackCount = Math.max(0, Number(row?.readback_count ?? row?.readbackCount ?? row?.response?.data?.readback_count ?? 0) || 0);
+            const readbackVerified = row?.readback_verified === true
+                || row?.readbackVerified === true
+                || row?.response?.data?.readback_verified === true;
+            const failed = !!row?.error || failedStatuses.has(sourceStatus);
+            const status = failed
+                ? 'failed'
+                : (savedCount > 0 ? (readbackVerified ? 'success' : 'partial_success') : 'unverified');
+            return [{
+                taskId: `immediate:${index + 1}`,
+                hotelId: String(row?.hotel_id || row?.hotelId || '').trim(),
+                platform: String(row?.platform || 'meituan').trim().toLowerCase(),
+                taskKind: String(row?.rankType || row?.task_kind || '').trim().toLowerCase(),
+                status,
+                stage: 'completed',
+                statusText: failed ? '获取失败' : (status === 'success' ? '已入库' : (status === 'partial_success' ? '部分入库' : '未确认入库')),
+                message: String(row?.error || row?.message || (failed ? '手动获取失败' : '手动获取已完成，但未确认入库')).trim(),
+                progressPercent: 100,
+                savedCount,
+                readbackCount,
+                readbackVerified,
+                qualityStatus: String(row?.quality_status || row?.qualityStatus || '').trim().toLowerCase(),
+                qualitySummary: row?.quality_summary && typeof row.quality_summary === 'object'
+                    ? row.quality_summary
+                    : null,
+                done: true,
+                updatedAt: '',
+            }];
+        });
+    };
+
+    const normalizeManualFetchTaskStatus = (payload = {}) => {
+        const data = payload?.data && !Array.isArray(payload.data) && typeof payload.data === 'object'
+            ? payload.data
+            : payload;
+        const status = String(data?.status || 'queued').trim().toLowerCase();
+        const terminalStatuses = ['success', 'partial_success', 'failed', 'no_data', 'unverified'];
+        return {
+            taskId: String(data?.task_id || data?.taskId || '').trim(),
+            hotelId: String(data?.hotel_id || data?.hotelId || '').trim(),
+            platform: String(data?.platform || '').trim().toLowerCase(),
+            taskKind: String(data?.task_kind || data?.taskKind || '').trim().toLowerCase(),
+            status,
+            stage: String(data?.stage || '').trim().toLowerCase(),
+            statusText: String(data?.status_text || data?.statusText || '').trim(),
+            message: String(data?.message || '').trim(),
+            progressPercent: Math.max(0, Math.min(100, Number(data?.progress_percent ?? data?.progressPercent ?? 0) || 0)),
+            savedCount: Math.max(0, Number(data?.saved_count ?? data?.savedCount ?? 0) || 0),
+            readbackCount: Math.max(0, Number(data?.readback_count ?? data?.readbackCount ?? 0) || 0),
+            readbackVerified: data?.readback_verified === true || data?.readbackVerified === true,
+            qualityStatus: String(data?.quality_status || data?.qualityStatus || '').trim().toLowerCase(),
+            qualitySummary: data?.quality_summary && typeof data.quality_summary === 'object'
+                ? data.quality_summary
+                : (data?.qualitySummary && typeof data.qualitySummary === 'object' ? data.qualitySummary : null),
+            done: data?.done === true || terminalStatuses.includes(status),
+            updatedAt: String(data?.updated_at || data?.updatedAt || '').trim(),
+        };
+    };
+
+    const pollManualFetchTaskStatus = async ({
+        taskId = '',
+        requestStatus,
+        wait = delayMs => new Promise(resolve => setTimeout(resolve, delayMs)),
+        onProgress = () => {},
+        intervalMs = 1500,
+        maxAttempts = 480,
+    } = {}) => {
+        const normalizedTaskId = String(taskId || '').trim();
+        if (!normalizedTaskId || typeof requestStatus !== 'function') {
+            throw new Error('手动获取任务轮询参数无效');
+        }
+        const attempts = Math.max(1, Number(maxAttempts || 1));
+        const delayMs = Math.max(0, Number(intervalMs || 0));
+        let lastProgressSignature = '';
+        for (let attempt = 1; attempt <= attempts; attempt += 1) {
+            const response = await requestStatus(normalizedTaskId);
+            if (response?.code !== undefined && Number(response.code) !== 200) {
+                throw new Error(String(response?.message || '手动获取任务状态读取失败'));
+            }
+            const status = normalizeManualFetchTaskStatus(response);
+            if (status.taskId !== normalizedTaskId) {
+                throw new Error('手动获取任务状态与请求 ID 不匹配');
+            }
+            const progressSignature = [status.status, status.stage, status.progressPercent, status.savedCount, status.message].join('|');
+            if (progressSignature !== lastProgressSignature || status.done) {
+                lastProgressSignature = progressSignature;
+                onProgress(status, attempt);
+            }
+            if (status.done) return status;
+            if (attempt < attempts) await wait(delayMs);
+        }
+        throw new Error('手动获取任务等待超时，请稍后刷新任务状态');
+    };
+
+    const summarizeManualFetchTaskStatuses = (statuses = []) => {
+        const rows = (Array.isArray(statuses) ? statuses : []).map(normalizeManualFetchTaskStatus);
+        const savedCount = rows.reduce((sum, row) => sum + row.savedCount, 0);
+        const readbackCount = rows.reduce((sum, row) => sum + row.readbackCount, 0);
+        const successCount = rows.filter(row => row.status === 'success').length;
+        const partialCount = rows.filter(row => row.status === 'partial_success').length;
+        const failedCount = rows.filter(row => row.status === 'failed').length;
+        const noDataCount = rows.filter(row => ['no_data', 'unverified'].includes(row.status)).length;
+        const pendingCount = rows.filter(row => !row.done).length;
+        let status = 'queued';
+        if (rows.length > 0 && pendingCount === 0) {
+            if (successCount === rows.length) {
+                status = 'success';
+            } else if (savedCount > 0 || successCount > 0 || partialCount > 0) {
+                status = 'partial';
+            } else if (failedCount > 0) {
+                status = 'failed';
+            } else {
+                status = 'no_saved';
+            }
+        }
+        const message = pendingCount > 0
+            ? `后台任务执行中：${rows.length - pendingCount}/${rows.length} 已完成`
+            : (status === 'success'
+                ? `后台任务已完成并通过回读，共入库 ${savedCount} 条`
+                : (status === 'partial'
+                    ? `后台任务部分完成：入库 ${savedCount} 条，成功 ${successCount} 项，部分 ${partialCount} 项，失败 ${failedCount} 项`
+                    : (status === 'failed'
+                        ? (rows.find(row => row.message)?.message || '后台任务获取失败')
+                        : `后台任务已完成，但未确认入库（${noDataCount} 项）`)));
+        return {
+            status,
+            message,
+            savedCount,
+            readbackCount,
+            readbackVerified: rows.length > 0 && rows.every(row => row.readbackVerified === true),
+            successCount,
+            partialCount,
+            failedCount,
+            noDataCount,
+            pendingCount,
+            qualitySummary: rows.map(row => row.qualitySummary).find(Boolean) || null,
+            statuses: rows,
+        };
+    };
+
+    const paginateManualOneClickFetchRows = (rows = [], page = 1, pageSize = 20) => {
+        const safeRows = Array.isArray(rows) ? rows : [];
+        const requestedPageSize = Number(pageSize);
+        const normalizedPageSize = Number.isFinite(requestedPageSize)
+            ? Math.max(1, Math.min(100, Math.trunc(requestedPageSize)))
+            : 20;
+        const total = safeRows.length;
+        const totalPages = Math.max(1, Math.ceil(total / normalizedPageSize));
+        const requestedPage = Number(page);
+        const normalizedPage = Number.isFinite(requestedPage)
+            ? Math.max(1, Math.min(totalPages, Math.trunc(requestedPage)))
+            : 1;
+        const startIndex = (normalizedPage - 1) * normalizedPageSize;
+        return {
+            rows: safeRows.slice(startIndex, startIndex + normalizedPageSize),
+            total,
+            page: normalizedPage,
+            pageSize: normalizedPageSize,
+            totalPages,
+            start: total > 0 ? startIndex + 1 : 0,
+            end: Math.min(total, startIndex + normalizedPageSize),
+        };
+    };
+
     const buildOnlineHistoryQueryParams = ({ page = 1, pageSize = 20, filter = {} } = {}) => {
         const params = new URLSearchParams({
             page: String(page || 1),
@@ -6631,6 +6832,12 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         manualOneClickFetchSavedCount,
         manualOneClickFetchResultMessage,
         summarizeManualOneClickFetchResult,
+        manualFetchTaskIdsFromResult,
+        manualFetchImmediateStatusesFromResult,
+        normalizeManualFetchTaskStatus,
+        pollManualFetchTaskStatus,
+        summarizeManualFetchTaskStatuses,
+        paginateManualOneClickFetchRows,
         buildOnlineHistoryQueryParams,
         isDirtyQuestionMarkText,
         formatOnlineHistoryHotelOption,
