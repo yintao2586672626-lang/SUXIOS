@@ -15,6 +15,20 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      mysql:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: suxi-ci-root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
 
     steps:
       - name: Checkout
@@ -45,8 +59,25 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
+      - name: Install MySQL-compatible client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mariadb-client
+
       - name: Audit Node dependencies
         run: npm audit --audit-level=moderate
+
+      - name: Verify fresh database, repeatable migration, and 8-way concurrency
+        timeout-minutes: 10
+        env:
+          SUXI_CI_MYSQL_VERIFY: '1'
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_USER: root
+          DB_PASS: suxi-ci-root
+          MYSQL_BINARY: mariadb
+          PHP_BINARY: php
+        run: npm run verify:mysql-fresh-concurrency
 
       - name: Run backend tests
         run: composer test

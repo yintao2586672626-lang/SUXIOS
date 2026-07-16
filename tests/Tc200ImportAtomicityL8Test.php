@@ -176,6 +176,15 @@ final class Tc200ImportAtomicityL8Test extends TestCase
             $stored
         ));
         self::assertCount(self::BATCH_SIZE, $stored, $message);
+        self::assertSame(
+            [1],
+            array_values(array_unique(array_map(static fn(array $row): int => (int)$row['readback_verified'], $stored))),
+            $message
+        );
+        self::assertNotContains('', array_map(
+            static fn(array $row): string => trim((string)$row['readback_verified_at']),
+            $stored
+        ), $message);
         self::assertCount(self::BATCH_SIZE, array_unique($storedTraceIds), $message . ' retry created duplicate identities');
         self::assertSame(
             [self::TENANT_ID],
@@ -220,11 +229,16 @@ final class Tc200ImportAtomicityL8Test extends TestCase
 
     private static function createSchema(): void
     {
+        Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL)');
+        Db::name('hotels')->insert([
+            'id' => self::SYSTEM_HOTEL_ID,
+            'tenant_id' => self::TENANT_ID,
+        ]);
         Db::execute('CREATE TABLE platform_data_sources (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, system_hotel_id INTEGER, user_id INTEGER, name VARCHAR(120) NOT NULL, platform VARCHAR(50) NOT NULL, data_type VARCHAR(50) NOT NULL, ingestion_method VARCHAR(30) NOT NULL, status VARCHAR(30) NOT NULL, enabled INTEGER NOT NULL, config_json TEXT, secret_json TEXT, last_sync_time DATETIME, last_sync_status VARCHAR(30), last_error TEXT, created_by INTEGER, updated_by INTEGER, create_time DATETIME, update_time DATETIME)');
         Db::execute('CREATE TABLE platform_data_sync_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, data_source_id INTEGER, system_hotel_id INTEGER, platform VARCHAR(50) NOT NULL, data_type VARCHAR(50) NOT NULL, ingestion_method VARCHAR(30) NOT NULL, trigger_type VARCHAR(30) NOT NULL, status VARCHAR(30) NOT NULL, attempt_count INTEGER NOT NULL, max_attempts INTEGER NOT NULL, started_at DATETIME, finished_at DATETIME, next_retry_at DATETIME, requested_by INTEGER, message TEXT, stats_json TEXT, create_time DATETIME, update_time DATETIME)');
         Db::execute('CREATE TABLE platform_data_sync_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, sync_task_id INTEGER, data_source_id INTEGER, system_hotel_id INTEGER, level VARCHAR(20), event VARCHAR(80), message TEXT, context_json TEXT, create_time DATETIME)');
         Db::execute('CREATE TABLE platform_data_raw_records (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, data_source_id INTEGER, sync_task_id INTEGER, system_hotel_id INTEGER, platform VARCHAR(50), data_type VARCHAR(50), ingestion_method VARCHAR(30), payload_hash VARCHAR(64), raw_payload TEXT, http_status INTEGER, received_at DATETIME, create_time DATETIME)');
-        Db::execute('CREATE TABLE online_daily_data (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, hotel_id VARCHAR(50), hotel_name VARCHAR(100), system_hotel_id INTEGER, data_date DATE NOT NULL, amount DECIMAL(12,2), quantity INTEGER, book_order_num INTEGER, comment_score DECIMAL(3,1), qunar_comment_score DECIMAL(3,1), data_value DECIMAL(12,2), source VARCHAR(50), dimension VARCHAR(100), data_type VARCHAR(50), platform VARCHAR(50), compare_type VARCHAR(50), list_exposure INTEGER, detail_exposure INTEGER, flow_rate DECIMAL(12,4), order_filling_num INTEGER, order_submit_num INTEGER, validation_status VARCHAR(60), validation_flags TEXT, data_source_id INTEGER, sync_task_id INTEGER, ingestion_method VARCHAR(30), source_trace_id VARCHAR(100), data_period VARCHAR(30), snapshot_time DATETIME, snapshot_bucket VARCHAR(20), is_final INTEGER, raw_data TEXT, create_time DATETIME, update_time DATETIME)');
+        Db::execute('CREATE TABLE online_daily_data (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, hotel_id VARCHAR(50), hotel_name VARCHAR(100), system_hotel_id INTEGER, data_date DATE NOT NULL, amount DECIMAL(12,2), quantity INTEGER, book_order_num INTEGER, comment_score DECIMAL(3,1), qunar_comment_score DECIMAL(3,1), data_value DECIMAL(12,2), source VARCHAR(50), dimension VARCHAR(100), data_type VARCHAR(50), platform VARCHAR(50), compare_type VARCHAR(50), list_exposure INTEGER, detail_exposure INTEGER, flow_rate DECIMAL(12,4), order_filling_num INTEGER, order_submit_num INTEGER, validation_status VARCHAR(60), validation_flags TEXT, readback_verified INTEGER NOT NULL DEFAULT 0, readback_verified_at DATETIME, data_source_id INTEGER, sync_task_id INTEGER, ingestion_method VARCHAR(30), source_trace_id VARCHAR(100), data_period VARCHAR(30), snapshot_time DATETIME, snapshot_bucket VARCHAR(20), is_final INTEGER, raw_data TEXT, create_time DATETIME, update_time DATETIME)');
     }
 
     private function createManualSource(string $caseId): int
@@ -338,7 +352,8 @@ final class Tc200ImportAtomicityL8Test extends TestCase
                 'id', 'tenant_id', 'hotel_id', 'hotel_name', 'system_hotel_id', 'data_date', 'amount', 'quantity',
                 'book_order_num', 'comment_score', 'qunar_comment_score', 'data_value', 'source', 'dimension',
                 'data_type', 'platform', 'compare_type', 'list_exposure', 'detail_exposure', 'flow_rate',
-                'order_filling_num', 'order_submit_num', 'validation_status', 'validation_flags', 'data_source_id',
+                'order_filling_num', 'order_submit_num', 'validation_status', 'validation_flags',
+                'readback_verified', 'readback_verified_at', 'data_source_id',
                 'sync_task_id', 'ingestion_method', 'source_trace_id', 'data_period', 'snapshot_time',
                 'snapshot_bucket', 'is_final', 'raw_data', 'create_time', 'update_time',
             ], true),

@@ -170,6 +170,7 @@ final class CtripCompetitionCirclePersistenceServiceTest extends TestCase
         $expected = [
             11 => [
                 'id' => 11,
+                'tenant_id' => 44,
                 'system_hotel_id' => 7,
                 'hotel_id' => '832085',
                 'data_date' => '2026-07-13',
@@ -184,6 +185,7 @@ final class CtripCompetitionCirclePersistenceServiceTest extends TestCase
             ],
             12 => [
                 'id' => 12,
+                'tenant_id' => 44,
                 'system_hotel_id' => 7,
                 'hotel_id' => '688665',
                 'data_date' => '2026-07-13',
@@ -205,6 +207,15 @@ final class CtripCompetitionCirclePersistenceServiceTest extends TestCase
         self::assertTrue($verified['verified']);
         self::assertSame(2, $verified['matched_count']);
         self::assertSame([11, 12], $verified['row_ids']);
+        self::assertCount(2, $verified['matched_rows']);
+
+        $tenantMismatchRows = $matchingRows;
+        $tenantMismatchRows[0]['tenant_id'] = 45;
+        $tenantMismatch = (new CtripCompetitionCirclePersistenceService(
+            static fn(array $_scope): array => $tenantMismatchRows
+        ))->verifyPersistedRows($expected);
+        self::assertFalse($tenantMismatch['verified']);
+        self::assertSame(1, $tenantMismatch['matched_count']);
 
         $mismatchRows = $matchingRows;
         $mismatchRows[1]['amount'] = 0;
@@ -223,11 +234,25 @@ final class CtripCompetitionCirclePersistenceServiceTest extends TestCase
         self::assertFalse($traceFailure['verified']);
     }
 
+    public function testPersistenceUsesCanonicalHotelTenantScope(): void
+    {
+        $source = (string)file_get_contents(
+            dirname(__DIR__) . '/app/service/CtripCompetitionCirclePersistenceService.php'
+        );
+
+        self::assertGreaterThanOrEqual(3, substr_count(
+            $source,
+            'OnlineDailyDataPersistenceService::resolveTenantIdForSystemHotel($systemHotelId)'
+        ));
+        self::assertStringNotContainsString("'tenant_id' => \$systemHotelId", $source);
+    }
+
     public function testPersistenceReadbackUsesDatabaseDecimalPrecision(): void
     {
         $expected = [
             21 => [
                 'id' => 21,
+                'tenant_id' => 44,
                 'system_hotel_id' => 7,
                 'hotel_id' => '832085',
                 'data_date' => '2026-07-13',

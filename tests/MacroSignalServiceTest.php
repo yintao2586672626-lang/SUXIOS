@@ -227,6 +227,49 @@ final class MacroSignalServiceTest extends TestCase
         self::assertStringContainsString('不生成调价结论', $impact);
     }
 
+    public function testLegacyCompetitorPricesRemainReferenceOnlyAndNeverEnterAdrGap(): void
+    {
+        $service = new MacroSignalService();
+        $summary = $this->invokeNonPublic($service, 'summarizeComparableCompetitorPrices', [[
+            ['price' => 199, 'platform' => 'ctrip', 'fetch_time' => '2026-07-17 10:00:00'],
+            ['price' => 999, 'platform' => 'meituan', 'fetch_time' => '2026-07-17 10:05:00'],
+        ]]);
+
+        self::assertSame('reference_only', $summary['comparison_status']);
+        self::assertNull($summary['avg_price']);
+        self::assertSame(0, $summary['decision_eligible_row_count']);
+        self::assertContains('strict_comparability_missing', $summary['data_gaps']);
+
+        $card = $this->invokeNonPublic($service, 'buildPriceTrendCard', [[
+            ['adr' => 300.0],
+            ['adr' => 330.0],
+        ], 0.0, '近2日', $summary]);
+        self::assertSame('available', $card['status']);
+        self::assertSame('reference_only', $card['competitor_data_status']);
+        self::assertNull($card['competitor_avg']);
+        self::assertStringContainsString('未参与比较', $card['note']);
+        self::assertStringNotContainsString('较竞对均价', $card['note']);
+    }
+
+    public function testComparableCompetitorPricesAverageOnlyOneComparisonKey(): void
+    {
+        $service = new MacroSignalService();
+        $summary = $this->invokeNonPublic($service, 'summarizeComparableCompetitorPrices', [[
+            $this->comparableCompetitorPrice(260),
+            $this->comparableCompetitorPrice(300, ['fetch_time' => '2026-07-17 10:05:00']),
+            $this->comparableCompetitorPrice(900, [
+                'check_in_date' => '2026-07-20',
+                'check_out_date' => '2026-07-21',
+            ]),
+        ]]);
+
+        self::assertSame('eligible', $summary['comparison_status']);
+        self::assertSame(280.0, $summary['avg_price']);
+        self::assertSame(2, $summary['decision_eligible_row_count']);
+        self::assertSame(1, $summary['reference_only_row_count']);
+        self::assertContains('mixed_comparison_key', $summary['data_gaps']);
+    }
+
     public function testInsufficientTrendSamplesDoNotInventImpact(): void
     {
         $interpretation = $this->invokeNonPublic(new MacroSignalService(), 'buildTrendInterpretation', [[], 1, '近7日']);
@@ -294,5 +337,29 @@ final class MacroSignalServiceTest extends TestCase
         self::assertSame([], $rows);
         self::assertSame('read_failed', $status['status']);
         self::assertSame(['daily_reports'], $status['areas']);
+    }
+
+    private function comparableCompetitorPrice(float $price, array $overrides = []): array
+    {
+        return array_merge([
+            'price' => $price,
+            'platform' => 'ctrip',
+            'check_in_date' => '2026-07-18',
+            'check_out_date' => '2026-07-19',
+            'room_type_key' => 'deluxe-king',
+            'rate_plan_key' => 'bar-breakfast',
+            'breakfast' => 'included',
+            'cancellation_policy' => 'free_before_18:00',
+            'payment_mode' => 'pay_at_hotel',
+            'tax_fee_included' => true,
+            'price_basis' => 'per_room_per_night',
+            'currency' => 'CNY',
+            'adults' => 2,
+            'children' => 0,
+            'availability' => 'bookable',
+            'validation_status' => 'verified',
+            'readback_verified' => 1,
+            'fetch_time' => '2026-07-17 10:00:00',
+        ], $overrides);
     }
 }

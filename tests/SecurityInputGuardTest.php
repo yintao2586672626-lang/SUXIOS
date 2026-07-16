@@ -89,6 +89,47 @@ final class SecurityInputGuardTest extends TestCase
         self::assertTrue($this->invokeNonPublic($controller, 'isValidReportPrice', [388.0]));
     }
 
+    public function testCompetitorRateContextRequiresComparablePublicRateDimensions(): void
+    {
+        $controller = $this->controller(CompetitorApi::class);
+        $complete = $this->invokeNonPublic($controller, 'normalizeCompetitorRateContext', [[
+            'ota_hotel_id' => 'ctrip-100',
+            'collected_at' => '2026-07-17 10:20:30',
+            'source_method' => 'local_browser_profile',
+            'source_ref' => 'https://hotels.example.com/100?token=must-not-persist',
+            'check_in_date' => '2026-07-20',
+            'check_out_date' => '2026-07-22',
+            'adults' => 2,
+            'children' => 0,
+            'room_type_key' => 'standard-room',
+            'rate_plan_key' => 'public-flex',
+            'breakfast' => 'none',
+            'cancellation_policy' => 'free-before-18',
+            'payment_mode' => 'pay-at-hotel',
+            'tax_fee_included' => false,
+            'price_basis' => 'room_per_night',
+            'currency' => 'cny',
+            'availability' => 'available',
+        ], 'ctrip', 388.0]);
+
+        self::assertSame('valid', $complete['validation_status']);
+        self::assertSame(2, $complete['nights']);
+        self::assertSame(0, $complete['tax_fee_included']);
+        self::assertSame('CNY', $complete['currency']);
+        self::assertSame('https://hotels.example.com/100', $complete['source_ref']);
+        self::assertSame(64, strlen($complete['comparison_key']));
+        self::assertSame(64, strlen($complete['content_hash']));
+
+        $incomplete = $this->invokeNonPublic($controller, 'normalizeCompetitorRateContext', [[
+            'check_in_date' => '2026-07-20',
+            'check_out_date' => '2026-07-20',
+        ], 'ctrip', 388.0]);
+        self::assertSame('incomplete', $incomplete['validation_status']);
+        self::assertSame('', $incomplete['comparison_key']);
+        self::assertStringContainsString('valid_stay_window', $incomplete['failure_reason']);
+        self::assertStringContainsString('readback', (string)file_get_contents(dirname(__DIR__) . '/app/controller/CompetitorApi.php'));
+    }
+
     public function testBrowserProfileAdaptersNeverCreateCookieFiles(): void
     {
         $projectRoot = dirname(__DIR__);

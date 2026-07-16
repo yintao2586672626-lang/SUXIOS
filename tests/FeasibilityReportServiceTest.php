@@ -67,9 +67,17 @@ final class FeasibilityReportServiceTest extends TestCase
             ['report_data' => '{bad-json'],
         ]]);
         $online = $this->invokeNonPublic($service, 'summarizeOnlineData', [[[1], [2]]]);
-        $competitors = $this->invokeNonPublic($service, 'summarizeCompetitors', [
+        $legacyCompetitors = $this->invokeNonPublic($service, 'summarizeCompetitors', [
             [['id' => 1], ['id' => 2]],
             [['price' => 260], ['price' => 300], ['price' => 0]],
+        ]);
+        $competitors = $this->invokeNonPublic($service, 'summarizeCompetitors', [
+            [['id' => 1], ['id' => 2]],
+            [
+                $this->comparableCompetitorPrice(260),
+                $this->comparableCompetitorPrice(300, ['fetch_time' => '2026-07-17 10:05:00']),
+                $this->comparableCompetitorPrice(999, ['check_in_date' => '2026-07-20', 'check_out_date' => '2026-07-21']),
+            ],
         ]);
 
         self::assertSame(280.0, $daily['avg_adr']);
@@ -77,8 +85,16 @@ final class FeasibilityReportServiceTest extends TestCase
         self::assertSame(950.0, $daily['avg_revenue']);
         self::assertSame(2, $online['sample_count']);
         self::assertTrue($online['has_real_ota_data']);
+        self::assertNull($legacyCompetitors['avg_competitor_price']);
+        self::assertSame('reference_only', $legacyCompetitors['comparison_status']);
+        self::assertSame(3, $legacyCompetitors['reference_only_price_count']);
+        self::assertContains('strict_comparability_missing', $legacyCompetitors['data_gaps']);
         self::assertSame(2, $competitors['competitor_count']);
         self::assertSame(280.0, $competitors['avg_competitor_price']);
+        self::assertSame('eligible', $competitors['comparison_status']);
+        self::assertSame(2, $competitors['decision_eligible_price_count']);
+        self::assertSame(1, $competitors['reference_only_price_count']);
+        self::assertContains('mixed_comparison_key', $competitors['data_gaps']);
 
         $emptyDaily = $this->invokeNonPublic($service, 'summarizeDailyReports', [[]]);
         self::assertNull($emptyDaily['avg_adr']);
@@ -234,6 +250,8 @@ final class FeasibilityReportServiceTest extends TestCase
         self::assertEquals($snapshot, $payload['system_snapshot']);
         self::assertEquals($calculation, $payload['deterministic_calculation']);
         self::assertSame('B', $report['conclusion_grade']);
+        self::assertStringContainsString('reference_only', $client->messages[0]['content']);
+        self::assertStringContainsString('不得与项目 ADR 比较', $client->messages[0]['content']);
 
         $merged = $this->invokeNonPublic($service, 'mergeFinancials', [$report, $input, $calculation]);
         self::assertSame($calculation['scenarios'], $merged['financial_scenarios']);
@@ -301,6 +319,34 @@ final class FeasibilityReportServiceTest extends TestCase
         self::assertSame('manual_input_only', $readiness['stage']);
         self::assertFalse($readiness['feasibility_ready']);
         self::assertContains('source_evidence', array_column($readiness['missing_evidence'], 'code'));
+    }
+
+    public function testLegacyCompetitorPriceLogsDoNotQualifyAsInvestmentMarketEvidence(): void
+    {
+        $service = new FeasibilityReportService($this->failingClient());
+        $summary = $this->invokeNonPublic($service, 'summarizeCompetitors', [
+            [],
+            [['price' => 260], ['price' => 300]],
+        ]);
+        $snapshot = [
+            'source_counts' => ['competitor_price_logs' => 2],
+            'competitor_summary' => $summary,
+        ];
+
+        self::assertSame('reference_only', $summary['comparison_status']);
+        self::assertNull($summary['avg_competitor_price']);
+        self::assertFalse($this->invokeNonPublic($service, 'hasTraceableMarketEvidence', [$snapshot]));
+        self::assertSame(0, $this->invokeNonPublic($service, 'sourceCountTotal', [$snapshot]));
+
+        $bounded = $this->invokeNonPublic($service, 'enforceMarketEvidenceBoundary', [[
+            'market_judgement' => [
+                'market_score' => 88,
+                'competition_level' => '高',
+                'reasoning' => 'legacy price was high',
+            ],
+        ], $this->validInput(), $snapshot]);
+        self::assertNull($bounded['market_judgement']['market_score']);
+        self::assertSame('未评估', $bounded['market_judgement']['competition_level']);
     }
 
     public function testReadinessRequiresEvidenceReviewAndTrackingForFeasibilityClosure(): void
@@ -501,6 +547,30 @@ final class FeasibilityReportServiceTest extends TestCase
         self::assertSame('investment_decision_closure', $intentInput['target_value']['target_metric']);
         self::assertSame('approved_pending_tracking', $intentInput['evidence']['readiness_stage']);
         self::assertSame('medium', $intentInput['risk_level']);
+    }
+
+    private function comparableCompetitorPrice(float $price, array $overrides = []): array
+    {
+        return array_merge([
+            'price' => $price,
+            'platform' => 'ctrip',
+            'check_in_date' => '2026-07-18',
+            'check_out_date' => '2026-07-19',
+            'room_type_key' => 'deluxe-king',
+            'rate_plan_key' => 'bar-breakfast',
+            'breakfast' => 'included',
+            'cancellation_policy' => 'free_before_18:00',
+            'payment_mode' => 'pay_at_hotel',
+            'tax_fee_included' => true,
+            'price_basis' => 'per_room_per_night',
+            'currency' => 'CNY',
+            'adults' => 2,
+            'children' => 0,
+            'availability' => 'bookable',
+            'validation_status' => 'verified',
+            'readback_verified' => 1,
+            'fetch_time' => '2026-07-17 10:00:00',
+        ], $overrides);
     }
 
     private function validInput(array $overrides = []): array

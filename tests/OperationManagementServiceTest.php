@@ -441,7 +441,14 @@ final class OperationManagementServiceTest extends TestCase
         $result = $this->invokeNonPublic($service, 'buildRootCauseResult', [[
             'ota' => ['orders' => 5, 'exposure' => 0, 'visitors' => 0, 'view_rate' => 2, 'order_rate' => 1, 'data_status' => 'ok'],
             'summary' => ['adr' => 330, 'data_status' => 'ok'],
-            'competitors' => ['avg_price' => 250, 'avg_score' => 4.8, 'data_status' => 'ok'],
+            'competitors' => [
+                'avg_price' => 250,
+                'avg_our_public_price' => 330,
+                'avg_score' => 4.8,
+                'data_status' => 'ok',
+                'comparability_status' => 'eligible',
+                'comparison_key' => 'same-rate-context',
+            ],
             'service_quality' => ['avg_psi_score' => 76.5, 'avg_service_score' => 79.0, 'data_status' => 'ok'],
             'holiday' => ['days_left' => 7, 'data_status' => 'ok'],
         ], ['exposure' => 100, 'data_status' => 'ok'], ['view_rate' => 20, 'order_rate' => 10, 'data_status' => 'ok'], 'conversion_low']);
@@ -456,6 +463,38 @@ final class OperationManagementServiceTest extends TestCase
         self::assertSame($result['candidate_factors'], $result['root_causes']);
         self::assertSame($result['candidate_factors'][0]['rule_match_weight'], $result['candidate_factors'][0]['confidence']);
         self::assertStringContainsString('不是统计置信度', $result['candidate_factors'][0]['confidence_basis']);
+        foreach ($result['root_causes'] as $cause) {
+            self::assertSame('available', $cause['reference_basis']['status']);
+            self::assertNotSame('', $cause['reference_basis']['reference_version']);
+            self::assertSame('operation_root_cause.v1', $cause['reference_basis']['rule_version']);
+        }
+        $causesByType = array_column($result['root_causes'], null, 'type');
+        self::assertSame(7, $causesByType['traffic_down']['reference_basis']['history_window']);
+        self::assertSame('competitor_average', $causesByType['price_high']['reference_basis']['type']);
+        self::assertSame('ota_public_display_price', $causesByType['price_high']['reference_basis']['metric']);
+
+        $incomparable = $this->invokeNonPublic($service, 'buildRootCauseResult', [[
+            'ota' => ['data_status' => 'ok'],
+            'summary' => ['adr' => 999, 'data_status' => 'ok'],
+            'competitors' => [
+                'avg_price' => 100,
+                'price_gap' => 899,
+                'data_status' => 'data_gap',
+                'comparability_status' => 'insufficient_evidence',
+            ],
+            'service_quality' => [],
+            'holiday' => [],
+        ], [], [], '']);
+        self::assertNotContains('price_high', array_column($incomparable['root_causes'], 'type'));
+
+        $legacyAssessment = $this->invokeNonPublic($service, 'competitorAnalysisComparability', [[
+            'our_price' => 999,
+            'competitor_price' => 100,
+            'competitor_data' => [],
+        ]]);
+        self::assertFalse($legacyAssessment['eligible']);
+        self::assertContains('check_in_date_missing', $legacyAssessment['reasons']);
+        self::assertContains('readback_unverified', $legacyAssessment['reasons']);
 
         $empty = $this->invokeNonPublic($service, 'buildRootCauseResult', [[
             'ota' => [],

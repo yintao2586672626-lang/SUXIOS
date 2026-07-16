@@ -339,14 +339,14 @@ assert.match(permissionService, /isNormalExternalUser\(\$user\)[\s\S]*isNormalEx
 assert.match(permissionService, /getAttr\('name'\) === 'normal_user'/, 'runtime permission service must recognize normal external roles by role name as well as id');
 assert.match(permissionService, /getAttr\('level'\) >= Role::HOTEL_STAFF/, 'runtime permission service must recognize staff-level roles as normal external users');
 assert.match(authController, /\$allows = fn\(string \$permission\): bool => \$user->hasPermission\(\$permission\) && \$this->roleAllows\(\$user, \$permission\);/, 'login payload must gate permission booleans through the central runtime role policy');
-assert.match(authController, /getAttr\('level'\) >= Role::HOTEL_STAFF/, 'registration and login helpers must treat staff-level roles as normal external users');
+assert.doesNotMatch(authController, /registerLegacyDisabled|buildSelfRegistrationHotelPermissionDefaults/, 'auth controller must not retain disabled self-registration helpers');
 assert.match(authController, /'can_manage_users'\s*=>\s*\$user->canManageUser\(\) && \$this->roleAllows\(\$user,\s*'can_manage_users'\)/, 'login payload must not expose user-management grants unless runtime role policy also allows it');
 assert.match(authController, /'can_fetch_online_data'\s*=>\s*\$allows\('can_fetch_online_data'\)/, 'login payload must not expose legacy OTA collection grants unless runtime role policy also allows it');
 assert.match(authController, /'can_delete_online_data'\s*=>\s*\$allows\('can_delete_online_data'\)/, 'login payload must not expose legacy OTA deletion grants unless runtime role policy also allows it');
 assert.match(authController, /'can_manage_own_hotels'\s*=>\s*\$user->canManageOwnHotels\(\) && \$this->roleAllows\(\$user,\s*'can_manage_own_hotels'\)/, 'login payload must not expose legacy hotel-management grants to normal external users');
 assert.match(authController, /private function roleAllows\(User \$user, string \$permission\): bool\s*\{\s*return \(new PermissionService\(\)\)->roleAllows\(\$user, \$permission\);\s*\}/, 'auth payload permission helpers must reuse the central permission service');
-assert.match(userController, /private function validateUsernamePolicy\(string \$username\): \?string/, 'admin-created users must share the public registration username policy');
-assert.match(userController, /\^\[A-Za-z0-9_\]\{3,50\}\$/, 'admin-created users must allow underscores and the same length as public registration');
+assert.match(userController, /private function validateUsernamePolicy\(string \$username\): \?string/, 'administrator-created users must use one explicit username policy');
+assert.match(userController, /\^\[A-Za-z0-9_\]\{3,50\}\$/, 'administrator-created users must allow underscores and 3-50 characters');
 assert.doesNotMatch(userController, /alphaNum\|min:3\|max:20/, 'admin-created users must not keep the stricter legacy alphaNum username rule');
 assert.match(userController, /private function canEditUserUsername\(UserModel \$targetUser\): bool[\s\S]*\$this->currentUser->isSuperAdmin\(\) && \$targetUser->isBetaUser\(\)/, 'backend username edits must be limited to super-admin edits of existing beta users');
 assert.match(userController, /if \(!\$this->canEditUserUsername\(\$user\)\) \{[\s\S]*return \$this->error\([^;]+403\);[\s\S]*\$usernameError = \$this->validateUsernamePolicy\(\$nextUsername\)/, 'user update must enforce the beta username edit boundary before saving a changed username');
@@ -546,24 +546,27 @@ const loginPayload = authController.slice(
   authController.indexOf('private function buildUserPermissions')
 );
 assert.match(loginPayload, /'is_hotel_manager'\s*=>\s*\$user->isHotelManager\(\)/, 'login payload must expose is_hotel_manager for first-paint menu filtering');
-assert.match(authController, /buildSelfRegistrationHotelPermissionDefaults\(Role \$role\)/, 'self-registration hotel permissions must be derived from role capabilities');
-assert.match(authController, /\$user->status\s*=\s*User::STATUS_DISABLED;/, 'self-registration accounts must wait for super-admin approval before login');
-assert.doesNotMatch(authController, /can_fetch_online_data = 1;/, 'self-registration must not hard-code OTA collection permission');
-assert.match(indexHtml, /注册后需超级管理员审核启用，审核通过后才能登录。/, 'register form must tell users that approval is required before login');
-assert.match(indexHtml, /待审核\/暂停/, 'user management must expose pending approval or paused state for disabled self-registration accounts');
-assert.match(indexHtml, /@click="approveUser\(u\)"/, 'user management must expose a direct approval action for pending accounts');
+const publicRegisterPayload = authController.slice(
+  authController.indexOf('public function register(): Response'),
+  authController.indexOf('public function loginSupport(): Response')
+);
+assert.match(publicRegisterPayload, /系统已关闭自助注册，请联系管理员创建账号[\s\S]*403/, 'public registration must be rejected explicitly');
+assert.doesNotMatch(publicRegisterPayload, /new User\(|->save\(|Db::transaction/, 'public registration must not create an account');
+assert.doesNotMatch(indexHtml, /data-testid="open-register"|data-testid="register-submit"|注册后需超级管理员审核启用/, 'login page must not expose self-registration');
+assert.match(indexHtml, /已停用/, 'user management must expose a clear disabled-account state');
+assert.match(indexHtml, /@click="activateUser\(u\)"/, 'user management must expose a direct activation action for disabled accounts');
 assert.match(indexHtml, /@click="deactivateUser\(u\)"/, 'user management must expose a direct deactivate action for active accounts');
-assert.match(indexHtml, /暂停账户/, 'user management operation column must expose a clear pause account action');
+assert.match(indexHtml, /停用账号/, 'user management operation column must expose a clear disable-account action');
 assert.match(indexHtml, /<span>删除<\/span>/, 'user management operation column must expose a clear delete account action');
 assert.match(indexHtml, /v-if="showUserStatusConfirmModal"/, 'user status changes must use an in-app confirmation modal');
 assert.match(indexHtml, /v-if="showUserDeleteModal"/, 'user deletion must use an in-app confirmation modal');
-assert.match(indexHtml, /const nextStatus = isApprove \? 1 : 0;/, 'approval must enable and deactivation must disable the user status');
-assert.match(indexHtml, /body:\s*JSON\.stringify\(\{\s*status:\s*nextStatus\s*\}\)/, 'approval and deactivate actions must only update user status');
+assert.match(indexHtml, /const nextStatus = isActivate \? 1 : 0;/, 'activation must enable and deactivation must disable the user status');
+assert.match(indexHtml, /body:\s*JSON\.stringify\(\{\s*status:\s*nextStatus\s*\}\)/, 'activate and deactivate actions must only update user status');
 const userStatusActionSlice = indexHtml.slice(
   indexHtml.indexOf('const confirmUserStatusChange = async () => {'),
-  indexHtml.indexOf('const approveUser = (u) =>')
+  indexHtml.indexOf('const activateUser = (u) =>')
 );
-assert.doesNotMatch(userStatusActionSlice, /confirm\(/, 'user approval/deactivation must not use the native browser confirm dialog');
+assert.doesNotMatch(userStatusActionSlice, /confirm\(/, 'user activation/deactivation must not use the native browser confirm dialog');
 const userDeleteActionSlice = indexHtml.slice(
   indexHtml.indexOf('const confirmDeleteUser = async () => {'),
   indexHtml.indexOf('// 角色操作')

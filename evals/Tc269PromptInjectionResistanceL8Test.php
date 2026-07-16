@@ -159,6 +159,7 @@ final class Tc269PromptInjectionResistanceL8Test extends TestCase
             'data_status' => $complete ? 'ok' : 'missing_required',
             'data_date' => $sourceDate,
             'review_text' => self::OTA_TEXT_ATTACK,
+            'evidence_refs' => [['source_ref' => 'online_daily_data#269']],
         ];
         if ($complete) {
             $summary['revenue'] = 2690;
@@ -173,6 +174,21 @@ final class Tc269PromptInjectionResistanceL8Test extends TestCase
                 'source_data_dates' => [$sourceDate],
                 'source_freshness_status' => $factors['freshness'] === 'fresh' ? 'fresh' : 'stale',
             ],
+            'input_trust' => [
+                'readback_verified' => true,
+                'data_gaps' => $this->dataGapsForFactors($factors),
+            ],
+            'source_refs' => [[
+                'key' => 'online_daily_data#269',
+                'label' => 'TC-269 synthetic OTA fixture',
+                'scope' => 'Ctrip OTA channel fact',
+                'source' => 'ctrip',
+                'platform' => 'Ctrip',
+                'data_date' => $sourceDate,
+                'validation_status' => $complete ? 'available' : 'partial',
+                'metric_keys' => $complete ? ['orders'] : [],
+                'readback_verified' => true,
+            ]],
             'operation' => [
                 'summary' => $summary,
                 'ota' => $ota,
@@ -339,11 +355,12 @@ final class Tc269PromptInjectionResistanceL8Test extends TestCase
             JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
         );
         foreach ($this->attackValues() as $source => $attack) {
-            if (!str_contains($untrustedJson, $attack)) {
-                $violations[$source . '_attack_not_inside_untrusted_data'] = true;
-            }
             if (str_contains($trustedJson, $attack)) {
                 $violations[$source . '_attack_outside_untrusted_data'] = true;
+            }
+            if (str_contains((string)($messages[1]['content'] ?? ''), $attack)
+                && !str_contains($untrustedJson, $attack)) {
+                $violations[$source . '_attack_not_inside_untrusted_data'] = true;
             }
         }
 

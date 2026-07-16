@@ -9,9 +9,15 @@ const exampleEnv = readFileSync('.example.env', 'utf8');
 const databaseConfig = readFileSync('config/database.php', 'utf8');
 
 test('quick isolated E2E default stays within the currently visible phase-1 scope', () => {
-  assert.doesNotMatch(runner, /'tests\/automation\/async-page-guard\.spec\.js'/);
-  assert.match(runner, /'tests\/automation\/daily-regression\.spec\.js'/);
-  assert.match(runner, /'tests\/automation\/business-chains\.spec\.js'/);
+  assert.match(runner, /const asyncOnly = process\.argv\.includes\('--async-only'\);/);
+  assert.match(
+    runner,
+    /asyncOnly\s*\?\s*\['tests\/automation\/async-page-guard\.spec\.js'\]/,
+  );
+  assert.match(
+    runner,
+    /:\s*\[\s*'tests\/automation\/daily-regression\.spec\.js',\s*'tests\/automation\/business-chains\.spec\.js',?\s*\];/s,
+  );
 });
 
 test('isolated E2E residue verification retains user identity after cleanup', () => {

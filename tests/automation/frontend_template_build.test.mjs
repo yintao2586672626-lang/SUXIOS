@@ -9,6 +9,7 @@ import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   buildFrontendTemplateRender,
+  FRONTEND_TEMPLATE_MINIFY_OPTIONS,
   inspectFrontendTemplateBuild,
 } from '../../scripts/lib/frontend_template_build.mjs';
 import {
@@ -17,6 +18,10 @@ import {
   withFrontendTemplateLock,
   writeFileAtomic,
 } from '../../scripts/lib/frontend_template_lock.mjs';
+import {
+  extractAuthenticatedAssetReferences,
+  stripFrontendAssetQuery,
+} from '../../scripts/lib/frontend_authenticated_assets.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const templatePath = path.join(repoRoot, 'resources/frontend/app-template.html');
@@ -192,24 +197,29 @@ test('root template render and runtime-only Vue are deterministic pinned artifac
   assert.ok(Buffer.byteLength(runtimeVue) < Buffer.byteLength(fs.readFileSync(compilerVuePath)) * 0.75);
   assert.doesNotMatch(artifact, /\bwith\s*\(/);
   assert.doesNotThrow(() => new Function('Vue', artifact));
+  assert.equal(FRONTEND_TEMPLATE_MINIFY_OPTIONS.compress.booleans_as_integers, true);
+  assert.equal(artifact.endsWith('\n'), false);
   });
 });
 
-test('HTML loads the hashed runtime Vue and render before the minified setup entry', async () => {
+test('authenticated asset manifest loads the hashed runtime Vue and render before the minified setup entry', async () => {
   return withTemplateTestLock('runtime-entry-test', async () => {
   const html = fs.readFileSync(indexPath, 'utf8');
   const artifact = fs.readFileSync(renderPath, 'utf8');
   const appMain = fs.readFileSync(appMainPath, 'utf8');
   const hash = crypto.createHash('sha256').update(artifact).digest('hex').slice(0, 10);
-  const deferredScripts = [...html.matchAll(/<script\s+defer\s+src="([^"]+)"[^>]*><\/script>/g)]
-    .map((match) => match[1].split('?')[0]);
+  const authenticatedReferences = extractAuthenticatedAssetReferences(html);
+  const authenticatedAssets = authenticatedReferences.map(stripFrontendAssetQuery);
+  const renderReference = authenticatedReferences.find(
+    (reference) => stripFrontendAssetQuery(reference) === 'app-render.min.js',
+  );
 
   assert.match(html, /<div id="app" v-cloak><\/div>/);
   assert.doesNotMatch(html, /src="vue\.global\.prod\.js/);
-  assert.equal(deferredScripts[0], 'vue.runtime.global.prod.js');
-  assert.equal(deferredScripts.at(-2), 'app-render.min.js');
-  assert.equal(deferredScripts.at(-1), 'app-main.min.js');
-  assert.match(html, new RegExp(`<script defer src="app-render\\.min\\.js\\?v=[^"]*-h${hash}"`));
+  assert.equal(authenticatedAssets[0], 'vue.runtime.global.prod.js');
+  assert.equal(authenticatedAssets.at(-2), 'app-render.min.js');
+  assert.equal(authenticatedAssets.at(-1), 'app-main.min.js');
+  assert.match(renderReference, new RegExp(`^app-render\\.min\\.js\\?v=[^"]*-h${hash}$`));
   assert.match(appMain, /render:\s*requireSuxiAppRender\(\)/);
 
   const report = await inspectFrontendTemplateBuild(repoRoot, { lockHeld: true });

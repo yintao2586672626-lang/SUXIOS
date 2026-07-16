@@ -3,12 +3,9 @@ declare(strict_types=1);
 
 namespace Tests;
 
-use app\controller\Auth as AuthController;
 use app\controller\User as UserController;
-use app\model\SystemConfig;
 use app\model\User as UserModel;
 use PHPUnit\Framework\TestCase;
-use ReflectionProperty;
 use think\App;
 use think\Response;
 use think\facade\Config;
@@ -72,71 +69,6 @@ final class UserTenantPropagationTest extends TestCase
             @unlink(self::$sqlitePath);
         }
         Db::connect(null, true);
-        $this->resetSystemConfigCache();
-    }
-
-    public function testAuthRegistrationUsesAuthoritativeHotelTenantAndIgnoresForgedTenant(): void
-    {
-        $this->createSchema(true);
-        $this->seedRoleAndHotels();
-
-        $response = $this->authController([
-            'username' => 'tenant_auth_user',
-            'password' => 'Strong123!',
-            'confirm_password' => 'Strong123!',
-            'hotel_id' => 10,
-            'tenant_id' => 999,
-        ])->register();
-
-        self::assertSame(200, $this->json($response)['code']);
-        $user = Db::name('users')->where('username', 'tenant_auth_user')->find();
-        self::assertSame(101, (int)$user['tenant_id']);
-        self::assertSame(10, (int)$user['hotel_id']);
-        self::assertSame(101, (int)Db::name('user_hotel_permissions')->where('user_id', (int)$user['id'])->value('tenant_id'));
-    }
-
-    public function testAuthRegistrationRejectsZeroHotelTenantWithoutPartialWrites(): void
-    {
-        $this->createSchema(true);
-        $this->seedRoleAndHotels();
-
-        $response = $this->authController([
-            'username' => 'invalid_auth_tenant',
-            'password' => 'Strong123!',
-            'confirm_password' => 'Strong123!',
-            'hotel_id' => 30,
-        ])->register();
-
-        self::assertSame(422, $this->json($response)['code']);
-        self::assertSame(0, Db::name('users')->count());
-        self::assertSame(0, Db::name('user_hotel_permissions')->count());
-    }
-
-    public function testAuthRegistrationFailsClosedWhenTenantSchemaIntrospectionFails(): void
-    {
-        $this->createSchema(true);
-        $this->seedRoleAndHotels();
-        $controller = $this->authController([
-            'username' => 'schema_failure_auth_user',
-            'password' => 'Strong123!',
-            'confirm_password' => 'Strong123!',
-            'hotel_id' => 10,
-        ], true);
-
-        $error = null;
-        try {
-            $controller->register();
-        } catch (\RuntimeException $exception) {
-            $error = $exception;
-        }
-
-        self::assertInstanceOf(\RuntimeException::class, $error);
-        self::assertStringContainsString('tenant schema', $error->getMessage());
-        self::assertCount(2, $controller->schemaQueries());
-        self::assertStringStartsWith('SHOW COLUMNS', $controller->schemaQueries()[0]);
-        self::assertStringStartsWith('PRAGMA table_info', $controller->schemaQueries()[1]);
-        self::assertSame(0, Db::name('users')->count());
-        self::assertSame(0, Db::name('user_hotel_permissions')->count());
     }
 
     public function testUserCreateUsesPrimaryHotelTenantAndPerHotelPermissionTenants(): void
@@ -500,14 +432,6 @@ final class UserTenantPropagationTest extends TestCase
         return $controller;
     }
 
-    private function authController(array $payload, bool $failSchemaIntrospection = false): AuthTenantHarness
-    {
-        $controller = new AuthTenantHarness(self::$app, $payload, $failSchemaIntrospection);
-        $controller->resetRegistrationRateLimit();
-
-        return $controller;
-    }
-
     /** @return array<string, mixed> */
     private function json(Response $response): array
     {
@@ -517,12 +441,6 @@ final class UserTenantPropagationTest extends TestCase
         return $decoded;
     }
 
-    private function resetSystemConfigCache(): void
-    {
-        $cache = new ReflectionProperty(SystemConfig::class, 'valueCache');
-        $cache->setAccessible(true);
-        $cache->setValue(null, []);
-    }
 }
 
 final class TenantTestAdminUser extends UserModel
@@ -535,47 +453,6 @@ final class TenantTestAdminUser extends UserModel
     public function isSuperAdmin(): bool
     {
         return true;
-    }
-}
-
-final class AuthTenantHarness extends AuthController
-{
-    /** @var array<int, string> */
-    private array $schemaQueries = [];
-
-    /** @param array<string, mixed> $payload */
-    public function __construct(App $app, private array $payload, private bool $failSchemaIntrospection = false)
-    {
-        parent::__construct($app);
-    }
-
-    /** @return array<int, string> */
-    public function schemaQueries(): array
-    {
-        return $this->schemaQueries;
-    }
-
-    public function resetRegistrationRateLimit(): void
-    {
-        $window = 600;
-        $bucket = (int)floor(time() / $window);
-        $ipHash = substr(sha1((string)$this->request->ip()), 0, 16);
-        cache(sprintf('register_rate_%s_%d', $ipHash, $bucket), null);
-    }
-
-    protected function querySchema(string $sql): array
-    {
-        $this->schemaQueries[] = $sql;
-        if ($this->failSchemaIntrospection) {
-            throw new \RuntimeException('Synthetic schema introspection failure.');
-        }
-
-        return Db::query($sql);
-    }
-
-    protected function requestData(): array
-    {
-        return $this->payload;
     }
 }
 

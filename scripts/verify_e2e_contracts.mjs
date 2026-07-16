@@ -122,13 +122,14 @@ requireText('public/index.html', "requireAppSystemStatic('getRememberedLoginAcco
 requireText('public/index.html', "requireAppSystemStatic('buildLoginRequestPayload')", 'entry uses extracted login payload builder');
 requireText('public/index.html', "requireAppSystemStatic('validateLoginRequestPayload')", 'entry uses extracted login validation');
 requireText('public/index.html', "requireAppSystemStatic('applyRememberedLoginAccount')", 'entry uses extracted remembered login account writer');
-requireText('public/index.html', 'data-testid="open-register"', 'login page exposes self-registration entry selector');
-requireText('public/index.html', 'data-testid="register-submit"', 'login page exposes self-registration submit');
-requireText('public/index.html', 'data-testid="register-username"', 'login page exposes self-registration fields');
-requireText('public/index.html', "request('/auth/register'", 'frontend calls public self-registration API');
-requireText('public/index.html', "requireAppSystemStatic('createRegisterForm')", 'entry uses extracted register form builder');
-requireText('public/index.html', "requireAppSystemStatic('buildRegisterRequestPayload')", 'entry uses extracted register payload builder');
-requireText('public/index.html', "requireAppSystemStatic('validateRegisterRequestPayload')", 'entry uses extracted register validation');
+requireNoText('resources/frontend/app-template.html', 'data-testid="open-register"', 'login page does not expose a self-registration entry');
+requireNoText('resources/frontend/app-template.html', 'data-testid="register-submit"', 'login page does not expose a self-registration submit action');
+requireNoText('resources/frontend/app-template.html', 'data-testid="register-username"', 'login page does not expose self-registration fields');
+requirePattern(
+  'app/controller/Auth.php',
+  /public function register\(\): Response\s*\{\s*return \$this->error\('系统已关闭自助注册，请联系管理员创建账号', 403\);\s*\}/,
+  'public registration endpoint is hard-disabled with an explicit 403 response'
+);
 requireText('public/index.html', 'data-testid="app-nav"', 'sidebar nav has stable selector');
 requireText('public/index.html', 'data-testid="app-main"', 'main app surface has stable selector');
 requireText('public/index.html', ':data-current-page="currentPage"', 'main app surface exposes current page state');
@@ -1376,7 +1377,9 @@ requireNoTextBetween('public/index.html', 'const returnToMeituanRankingAfterConf
 requireText('public/index.html', "const resolveMeituanConfigSaveCookieState = requireMeituanStatic('resolveMeituanConfigSaveCookieState');", 'Meituan config-save Cookie state is owned by the static helper');
 requireText('public/meituan-static.js', "const resolveMeituanConfigSaveCookieState = (cookies = '', options = {}) => {", 'Meituan static helper owns replace-only config-save Cookie state');
 requireText('public/index.html', 'const cookieState = resolveMeituanConfigSaveCookieState(meituanConfigForm.value.cookies, {', 'entry keeps replace-only Meituan config-save Cookie state as a thin adapter');
-requireText('public/index.html', "String(meituanConfigForm.value.credential_status || '') === 'ready'", 'blank Meituan edit keeps an existing ready vault credential without hydrating it');
+requireText('public/index.html', 'keepExisting: Boolean(meituanConfigForm.value.id)', 'blank Meituan edit only keeps a credential for an existing config');
+requireText('public/index.html', '&& meituanConfigForm.value.has_cookies === true', 'blank Meituan edit keeps an existing stored vault credential without hydrating it');
+requireNoTextBetween('public/index.html', 'const saveMeituanConfigItem = async () => {', 'const useMeituanConfig', 'credential_status', 'Meituan config-save preservation must not depend on stale credential status metadata');
 requireText('public/index.html', 'showToast(cookieState.message, cookieState.level);', 'Meituan config-save empty Cookie prompt comes from static helper state');
 requireText('public/index.html', 'cookies: cookieState.cookies,', 'Meituan config-save request body uses normalized Cookie state');
 requireNoTextBetween('public/index.html', 'const saveMeituanConfigItem = async () => {', 'const useMeituanConfig', "String(meituanConfigForm.value.cookies || '').trim()", 'Meituan config-save Cookie normalization is not re-inlined');
@@ -1635,9 +1638,30 @@ requireText('public/system-static.js', 'const getRememberedLoginAccount', 'syste
 requireText('public/system-static.js', 'const buildLoginRequestPayload', 'system static builds login request payloads');
 requireText('public/system-static.js', 'const validateLoginRequestPayload', 'system static validates login request payloads');
 requireText('public/system-static.js', 'const applyRememberedLoginAccount', 'system static writes remembered login account without persisting passwords');
-requireText('public/system-static.js', 'const createRegisterForm', 'system static builds register default forms');
-requireText('public/system-static.js', 'const buildRegisterRequestPayload', 'system static builds register request payloads');
-requireText('public/system-static.js', 'const validateRegisterRequestPayload', 'system static validates register request payloads');
+requireNoText('public/system-static.js', 'createRegisterForm', 'system static no longer ships public registration form helpers');
+requireNoText('public/app-main.js', "request('/auth/register'", 'entry never submits public registration requests');
+requireNoText('public/app-main.js', 'registerMode', 'entry no longer carries public registration state');
+requireText('public/app-main.js', 'const syncLoginFormFromDom = () => {', 'login reconciles browser autofill values into Vue state');
+requireText('public/app-main.js', "window.addEventListener('pageshow', scheduleLoginAutofillSync);", 'login rechecks autofill after page restoration');
+requireText('public/app-main.js', "const requestWithTimeout = async", 'login requests share a bounded timeout helper');
+requireText('public/app-main.js', "requestWithTimeout('/auth/login'", 'login request cannot leave the submit button locked indefinitely');
+requireText('public/app-main.js', "requestWithTimeout('/auth/login-support'", 'login support loads the whitelisted public contact endpoint with a bounded timeout');
+requireText('public/app-main.js', '登录请求超时，请检查网络后重试', 'login timeout exposes an actionable error');
+requireText('public/app-main.js', "if (error?.name !== 'AbortError')", 'expected request aborts do not create console errors');
+requireNoText('public/app-main.js', "alert('请在微信里联系", 'login support no longer opens duplicate native alerts');
+requireText('resources/frontend/templates/fragments/00-app-shell.html', 'data-testid="login-support-dialog"', 'login support uses one accessible in-page dialog');
+requireText('resources/frontend/templates/fragments/00-app-shell.html', 'role="alert" aria-live="assertive" aria-atomic="true"', 'login errors are announced immediately');
+requireText('resources/frontend/templates/fragments/00-app-shell.html', 'aria-labelledby="login-support-title"', 'login support dialog has an accessible name');
+requireText('resources/frontend/templates/fragments/00-app-shell.html', 'id="login-caps-lock"', 'password input exposes a Caps Lock warning');
+requireText('resources/frontend/templates/fragments/00-app-shell.html', 'class="login-public-footer"', 'external login page exposes its authorized-use and credential-safety notice');
+requireText('resources/frontend/templates/fragments/00-app-shell.html', '开通账号或处理登录问题', 'account support wording does not imply self-registration');
+requireNoText('resources/frontend/templates/fragments/00-app-shell.html', '申请账号或处理登录问题', 'login support no longer advertises an application flow');
+requireNoText('resources/frontend/templates/fragments/00-app-shell.html', 'login-locale-switch', 'login page no longer exposes an unfinished language switch');
+requireNoText('public/app-main.js', '微信：殷涛 | 归鹿🦌宿里', 'public login defaults do not expose a personal contact');
+requireNoText('public/system-static.js', '微信：殷涛 | 归鹿🦌宿里', 'system config defaults do not expose a personal contact');
+requireNoText('app/model/SystemConfig.php', '微信：殷涛 | 归鹿🦌宿里', 'backend defaults do not expose a personal contact');
+requireText('app/controller/Auth.php', "return $this->error('系统已关闭自助注册，请联系管理员创建账号', 403);", 'public registration remains a fixed compatibility tombstone');
+requireNoText('app/controller/Auth.php', 'registerLegacyDisabled', 'disabled registration has no hidden account-creation implementation');
 requireText('public/system-static.js', 'const getDefaultDataConfigForm', 'system static builds data config default form');
 requireText('public/system-static.js', 'const getDataConfigTypeDefaults', 'system static owns data config type defaults');
 requireText('public/system-static.js', 'const getSystemConfigDefaults', 'system static owns system config defaults');
@@ -7517,9 +7541,6 @@ try {
   const buildLoginRequestPayload = context.window.SUXI_SYSTEM_STATIC?.buildLoginRequestPayload;
   const validateLoginRequestPayload = context.window.SUXI_SYSTEM_STATIC?.validateLoginRequestPayload;
   const applyRememberedLoginAccount = context.window.SUXI_SYSTEM_STATIC?.applyRememberedLoginAccount;
-  const createRegisterForm = context.window.SUXI_SYSTEM_STATIC?.createRegisterForm;
-  const buildRegisterRequestPayload = context.window.SUXI_SYSTEM_STATIC?.buildRegisterRequestPayload;
-  const validateRegisterRequestPayload = context.window.SUXI_SYSTEM_STATIC?.validateRegisterRequestPayload;
   const createHotelForm = context.window.SUXI_SYSTEM_STATIC?.createHotelForm;
   const buildHotelSavePayload = context.window.SUXI_SYSTEM_STATIC?.buildHotelSavePayload;
   const buildHotelOtaCtripConfigSavePayload = context.window.SUXI_SYSTEM_STATIC?.buildHotelOtaCtripConfigSavePayload;
@@ -7600,6 +7621,8 @@ try {
       label: 'system config defaults preserve product and security defaults',
       ok: first.system_name === '宿析OS'
         && first.system_description.includes('授权OTA数据')
+        && String(first.login_support_contact || '').length > 0
+        && !Object.hasOwn(first, 'enable_registration')
         && first.menu_online_data_name === '竞对价格监控'
         && first.complaint_mini_page === 'pages/complaint/index'
         && first.complaint_mini_use_scene === '1'
@@ -7660,38 +7683,14 @@ try {
       detail: 'login helper samples and remembered_password cleanup',
     });
   }
-  if (typeof createRegisterForm !== 'function' || typeof buildRegisterRequestPayload !== 'function' || typeof validateRegisterRequestPayload !== 'function') {
-    checks.push({
-      file: 'public/system-static.js',
-      label: 'system static exports register form helpers',
-      ok: false,
-      detail: 'createRegisterForm/buildRegisterRequestPayload/validateRegisterRequestPayload',
-    });
-  } else {
-    const first = createRegisterForm();
-    const second = createRegisterForm();
-    first.username = 'mutated';
-    const payload = buildRegisterRequestPayload({
-      username: ' test_user ',
-      realname: ' 店长 ',
-      password: 'secret123',
-      confirm_password: 'secret123',
-    });
-    checks.push({
-      file: 'public/system-static.js',
-      label: 'system static register helpers preserve defaults, normalization, and explicit validation',
-      ok: first.username === 'mutated'
-        && second.username === ''
-        && payload.username === 'test_user'
-        && payload.realname === '店长'
-        && payload.password === 'secret123'
-        && payload.confirm_password === 'secret123'
-        && validateRegisterRequestPayload(payload) === ''
-        && validateRegisterRequestPayload({ ...payload, confirm_password: 'other' }).includes('不一致')
-        && validateRegisterRequestPayload({ ...payload, username: '' }).includes('用户名'),
-      detail: 'createRegisterForm/buildRegisterRequestPayload/validateRegisterRequestPayload samples',
-    });
-  }
+  checks.push({
+    file: 'public/system-static.js',
+    label: 'system static does not export public registration helpers',
+    ok: !Object.hasOwn(context.window.SUXI_SYSTEM_STATIC || {}, 'createRegisterForm')
+      && !Object.hasOwn(context.window.SUXI_SYSTEM_STATIC || {}, 'buildRegisterRequestPayload')
+      && !Object.hasOwn(context.window.SUXI_SYSTEM_STATIC || {}, 'validateRegisterRequestPayload'),
+    detail: 'registration helper exports absent',
+  });
   if (typeof createHotelForm !== 'function' || typeof buildHotelSavePayload !== 'function') {
     checks.push({
       file: 'public/system-static.js',

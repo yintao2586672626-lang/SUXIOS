@@ -5,6 +5,7 @@ import vm from 'node:vm';
 
 const read = path => readFileSync(path, 'utf8');
 const appMain = read('public/app-main.js');
+const appStyle = read('public/style.css');
 const dualOtaStatic = read('public/dual-ota-home-static.js');
 const dualOtaPage = read('resources/frontend/templates/fragments/23b-page-ai-workbench.html');
 const ctripStatic = read('public/ctrip-static.js');
@@ -41,6 +42,21 @@ test('dual OTA values preserve authoritative zero and reject missing arithmetic'
   assert.match(dualOtaPage, /:title="node\.note \|\| ''"/);
   assert.doesNotMatch(dualOtaPage, /nodeExplanations\[node\.id\].*description/);
   assert.doesNotMatch(dualOtaStatic, /美团昨日漏斗来自.*样例/);
+});
+
+test('Ctrip field chain starts from its returned visitor stage without a duplicate browse gap', () => {
+  const lossChainStart = appMain.indexOf('dualOtaCurrentLossNodes = () => {');
+  const ctripStart = appMain.indexOf("if (scope === 'ctrip') {", lossChainStart);
+  const meituanStart = appMain.indexOf("if (scope === 'meituan') {", ctripStart);
+  assert.ok(lossChainStart >= 0 && ctripStart > lossChainStart && meituanStart > ctripStart, 'Ctrip field-chain branch is missing');
+
+  const ctripBranch = appMain.slice(ctripStart, meituanStart);
+  assert.match(ctripBranch, /dualOtaLossNode\('detailVisitors', '访客', ctripVisitors/);
+  assert.doesNotMatch(ctripBranch, /dualOtaLossNode\('browse'/);
+  assert.match(appMain, /const dualOtaLossChainSubtitle = computed\(\(\) => \{[\s\S]*携程曝光字段未返回/);
+  assert.match(dualOtaPage, /\{\{ dualOtaLossChainSubtitle \}\}/);
+  assert.match(dualOtaPage, /--dual-ota-loss-columns/);
+  assert.match(appStyle, /repeat\(var\(--dual-ota-loss-columns, 5\), minmax\(82px, 1fr\)\)/);
 });
 
 test('home temporal cards do not coerce null into zero or probability confidence', () => {

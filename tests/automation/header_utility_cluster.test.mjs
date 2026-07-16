@@ -26,4 +26,7 @@ test('header utility cluster exposes one-click language, truthful notifications,
   assert.match(css, /\.header-language-option\.is-active/);
   assert.match(css, /\.header-notification-button\.is-open/);
   assert.match(css, /@media \(max-width: 767px\)[\s\S]*\.header-notification-panel[\s\S]*position: fixed/);
+  assert.match(css, /Header utility visual repair/);
+  assert.match(css, /grid-template-columns: 28px minmax\(58px, 1fr\) auto/);
+  assert.match(css, /\.header-notification-count[\s\S]*min-width: 30px/);
 });

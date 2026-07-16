@@ -2199,39 +2199,28 @@ final class OtaCredentialReadPathTest extends TestCase
         ]);
     }
 
-    public function testScheduledCollectorUsesScopedVaultInsteadOfLegacyCredentialStores(): void
+    public function testScheduledCollectorUsesBrowserProfilesWithoutCookieVaultFallback(): void
     {
         $source = (string)file_get_contents(dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php');
+        $scheduledExecution = $this->methodSource(
+            $source,
+            'private function fetchDataForHotel(',
+            'private function syncBrowserProfileSources('
+        );
 
-        self::assertStringContainsString('OtaCredentialVault', $source);
-        self::assertStringContainsString('withPayloadForExecution(', $source);
-        self::assertStringContainsString("where('credential_status', 'ready')", $source);
-        self::assertStringContainsString("where('platform', 'ctrip')", $source);
-        foreach (['ctrip_config_list', 'online_data_cookies_', "['cookies'] ?? ''", "['cookie'] ?? ''"] as $forbidden) {
-            self::assertStringNotContainsString($forbidden, $source);
+        self::assertStringContainsString('syncBrowserProfileSources(', $scheduledExecution);
+        self::assertStringContainsString('scheduled_browser_profile_source_required', $scheduledExecution);
+        foreach (['OtaCredentialVault', 'withPayloadForExecution(', 'sendHttpRequest(', "['cookies']", "['cookie']"] as $forbidden) {
+            self::assertStringNotContainsString($forbidden, $scheduledExecution);
         }
     }
 
-    public function testScheduledCollectorRequiresExplicitConfigWhenMoreThanOneCredentialIsReady(): void
+    public function testScheduledCollectorDoesNotExposeCredentialLocatorFallback(): void
     {
-        Db::name('ota_credentials')->insertAll([
-            ['tenant_id' => 7, 'system_hotel_id' => 58, 'platform' => 'ctrip', 'config_id' => 'cfg-a', 'credential_status' => 'ready'],
-            ['tenant_id' => 7, 'system_hotel_id' => 58, 'platform' => 'ctrip', 'config_id' => 'cfg-b', 'credential_status' => 'ready'],
-        ]);
-        $command = new \app\command\AutoFetchOnlineData();
-        $method = new \ReflectionMethod($command, 'resolveCtripCredentialLocatorForHotel');
-        $method->setAccessible(true);
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php');
 
-        $ambiguous = $method->invoke($command, 58, '');
-        self::assertSame('ambiguous_credential', $ambiguous['status']);
-
-        $selected = $method->invoke($command, 58, 'cfg-b');
-        self::assertSame('ready', $selected['status']);
-        self::assertSame(7, $selected['tenant_id']);
-        self::assertSame('cfg-b', $selected['config_id']);
-
-        $missing = $method->invoke($command, 58, 'cfg-c');
-        self::assertSame('missing_credential', $missing['status']);
+        self::assertStringNotContainsString('resolveCtripCredentialLocatorForHotel', $source);
+        self::assertStringNotContainsString('credential_selection_ambiguous', $source);
     }
 
     public function testScheduledCollectorPreservesOnlyValidatedCtripExecutionMetadata(): void

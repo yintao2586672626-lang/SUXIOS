@@ -324,6 +324,12 @@ final class AiDailyReportReadinessServiceTest extends TestCase
             'source_refs' => [['key' => 'operation.full_data']],
         ], [
             'summary' => '模型解释文本',
+            'ai_interpretation' => [
+                'possible_explanations' => ['可能与渠道曝光变化有关'],
+                'conflicting_evidence' => ['订单趋势未同步变化'],
+                'missing_information' => ['缺少同口径历史窗口'],
+                'confidence' => 'low',
+            ],
             'abnormal_metrics' => [['key' => 'invented_metric']],
             'recommended_actions' => [[
                 'title' => 'Invented action',
@@ -334,6 +340,8 @@ final class AiDailyReportReadinessServiceTest extends TestCase
         self::assertSame([], $report['abnormal_metrics']);
         self::assertSame([], $report['recommended_actions']);
         self::assertSame('规则未发现异常', $report['summary']);
+        self::assertSame('low', $report['ai_interpretation']['confidence']);
+        self::assertSame(['可能与渠道曝光变化有关'], $report['ai_interpretation']['possible_explanations']);
     }
 
     public function testLegacyFallbackManualReviewIsStillExcludedFromExecutionDenominator(): void
@@ -464,13 +472,35 @@ final class AiDailyReportReadinessServiceTest extends TestCase
             'data_gaps_json' => '[]',
             'recommended_actions_json' => '[{"title":"Review price","can_create_execution_intent":true}]',
             'source_refs_json' => '[{"key":"operation.full_data"}]',
-            'snapshot_json' => '{}',
+            'snapshot_json' => '{"input_trust":{"readback_verified":true}}',
         ]]);
 
         self::assertSame('pending_execution_transfer', $rows[0]['report_readiness']['stage']);
         self::assertSame('pending_transfer', $rows[0]['recommended_actions'][0]['action_readiness']['stage']);
         self::assertSame(8, $rows[0]['yesterday_result']['metrics'][0]['value']);
         self::assertSame([], $rows[0]['owner_communication_brief']);
+    }
+
+    public function testLegacyUntrustedReportIsFailClosedAgainDuringReadback(): void
+    {
+        $service = new AiDailyReportService();
+        $rows = $service->enrichReportRows([[
+            'id' => 0,
+            'hotel_id' => 2,
+            'created_by' => 1,
+            'yesterday_result_json' => '{}',
+            'abnormal_metrics_json' => '[]',
+            'competitor_changes_json' => '[]',
+            'data_gaps_json' => '[{"code":"ota_evidence_readback_unverified","message":"readback missing"}]',
+            'recommended_actions_json' => '[{"title":"Review conversion","action_type":"promotion","can_create_execution_intent":true}]',
+            'source_refs_json' => '[]',
+            'snapshot_json' => '{"input_trust":{"readback_verified":false}}',
+        ]]);
+
+        self::assertFalse($rows[0]['recommended_actions'][0]['can_create_execution_intent']);
+        self::assertSame('blocked_by_data_gap', $rows[0]['recommended_actions'][0]['action_readiness']['stage']);
+        self::assertSame(0, $rows[0]['report_readiness']['transferable_count']);
+        self::assertSame('data_recheck_required', $rows[0]['report_readiness']['stage']);
     }
 
     public function testExecutionIntentIdempotencyIsPerActionAndFailedTerminalsCanRetry(): void
@@ -514,11 +544,163 @@ final class AiDailyReportReadinessServiceTest extends TestCase
             'data_gaps_json' => '[]',
             'recommended_actions_json' => '[{"title":"Review price","can_create_execution_intent":true}]',
             'source_refs_json' => '[{"key":"operation.full_data"}]',
-            'snapshot_json' => '{"owner_communication_brief":{"status":"available","non_execution":true,"source_policy":"daily_report_operating_data_plus_owner_negotiation_playbook_reference"}}',
+            'snapshot_json' => '{"input_trust":{"readback_verified":true},"owner_communication_brief":{"status":"available","non_execution":true,"source_policy":"daily_report_operating_data_plus_owner_negotiation_playbook_reference"}}',
         ]]);
 
         self::assertSame('available', $rows[0]['owner_communication_brief']['status']);
         self::assertTrue($rows[0]['owner_communication_brief']['non_execution']);
         self::assertArrayNotHasKey('owner_communication_brief', $rows[0]['recommended_actions'][0]);
+    }
+
+    public function testVerifiedResultStaysUsableWithoutAiActionsOrRoi(): void
+    {
+        $service = new AiDailyReportService();
+        $readiness = $service->buildResultReadiness([
+            'model_status' => 'failed',
+            'source_refs' => [['key' => 'online_daily_data#9']],
+            'data_gaps' => [],
+            'yesterday_result' => [
+                'metrics' => [['key' => 'orders', 'value' => 8, 'result_layer' => 'source_fact']],
+            ],
+            'recommended_actions' => [],
+            'snapshot' => ['input_trust' => ['readback_verified' => true]],
+        ]);
+
+        self::assertSame('available', $readiness['status']);
+        self::assertTrue($readiness['usable']);
+        self::assertFalse($readiness['ai_required']);
+        self::assertTrue($readiness['workflow_independent']);
+    }
+
+    public function testDeclaredDataGapMakesResultPartialButDoesNotEraseMeasuredFacts(): void
+    {
+        $service = new AiDailyReportService();
+        $readiness = $service->buildResultReadiness([
+            'source_refs' => [['key' => 'online_daily_data#9']],
+            'data_gaps' => [['code' => 'competitors_data_pending', 'message' => 'competitors missing']],
+            'yesterday_result' => [
+                'metrics' => [['key' => 'orders', 'value' => 8, 'result_layer' => 'source_fact']],
+            ],
+            'snapshot' => ['input_trust' => ['readback_verified' => true]],
+        ]);
+
+        self::assertSame('partial', $readiness['status']);
+        self::assertTrue($readiness['usable']);
+        self::assertSame(1, $readiness['declared_data_gap_count']);
+    }
+
+    public function testSignalWithoutComparableReferenceIsNotForcedIntoConfirmedAnomaly(): void
+    {
+        $service = new AiDailyReportService();
+        $method = new \ReflectionMethod($service, 'collectAbnormalMetrics');
+        $method->setAccessible(true);
+        $signals = $method->invoke($service, ['abnormal_flags' => ['曝光变化待关注']], ['root_causes' => []]);
+
+        self::assertCount(1, $signals);
+        self::assertSame('reference_missing', $signals[0]['signal_status']);
+        self::assertNull($signals[0]['is_anomaly']);
+        self::assertSame('missing', $signals[0]['reference_basis']['status']);
+    }
+
+    public function testWorkflowGapDoesNotBecomeResultDataGap(): void
+    {
+        $service = new AiDailyReportService();
+        $resultMethod = new \ReflectionMethod($service, 'collectDataGaps');
+        $resultMethod->setAccessible(true);
+        $workflowMethod = new \ReflectionMethod($service, 'collectWorkflowGaps');
+        $workflowMethod->setAccessible(true);
+        $executionFlow = [
+            'data_gaps' => [['code' => 'roi_evidence_missing', 'message' => 'ROI evidence missing']],
+        ];
+
+        self::assertSame([], $resultMethod->invoke($service, [], [], $executionFlow));
+        $workflowGaps = $workflowMethod->invoke($service, $executionFlow);
+        self::assertCount(1, $workflowGaps);
+        self::assertSame('roi_evidence_missing', $workflowGaps[0]['code']);
+    }
+
+    public function testDeterministicResultVersionIgnoresModelModeAndAiText(): void
+    {
+        $service = new AiDailyReportService();
+        $method = new \ReflectionMethod($service, 'buildResultContract');
+        $method->setAccessible(true);
+        $report = [
+            'report_scope' => ['hotel_id' => 2, 'report_date' => '2026-07-16'],
+            'yesterday_result' => [
+                'source_scope' => 'OTA and operating-report scope',
+                'metrics' => [['key' => 'orders', 'value' => 8, 'result_layer' => 'source_fact']],
+            ],
+            'abnormal_metrics' => [],
+            'competitor_changes' => [],
+            'data_gaps' => [],
+            'source_refs' => [['key' => 'online_daily_data#9', 'platform' => 'ctrip']],
+        ];
+        $first = $method->invoke($service, $report, [
+            'ai_explanation' => '解释A',
+            'ai_interpretation' => ['possible_explanations' => ['解释A'], 'confidence' => 'low'],
+        ], 'model-a-fingerprint');
+        $second = $method->invoke($service, $report, [
+            'ai_explanation' => '解释B',
+            'ai_interpretation' => ['possible_explanations' => ['解释B'], 'confidence' => 'high'],
+        ], 'rule-only-fingerprint');
+
+        self::assertSame($first['result_version'], $second['result_version']);
+        self::assertNotSame($first['input_fingerprint'], $second['input_fingerprint']);
+    }
+
+    public function testTrialAcceptanceUsesTrustedCollectionComparableFollowUpAndUsefulnessConfirmation(): void
+    {
+        $service = new AiDailyReportService();
+        $method = new \ReflectionMethod($service, 'buildTrialValidation');
+        $method->setAccessible(true);
+        $contract = [
+            'metric_version' => 'metric-v1',
+            'reference_version' => 'reference-v1',
+            'analysis_object' => ['hotel_id' => 2, 'platforms' => ['ctrip']],
+        ];
+        $current = [
+            'result_contract' => $contract,
+            'source_trust' => ['ota' => ['readback_verified' => true]],
+            'input_trust' => ['data_gaps' => []],
+            'human_judgments' => [[
+                'target_type' => 'report_usefulness',
+                'decision' => 'accepted',
+            ]],
+        ];
+        $result = $method->invoke($service, $current, ['result_contract' => $contract]);
+
+        self::assertTrue($result['first_trusted_collection']['passed']);
+        self::assertTrue($result['second_same_scope_comparison']['passed']);
+        self::assertTrue($result['missing_items_exposed']['passed']);
+        self::assertTrue($result['user_confirmed_useful']['passed']);
+        self::assertTrue($result['passed']);
+    }
+
+    public function testReferenceVersionTracksDefinitionInsteadOfDailyMeasuredValue(): void
+    {
+        $service = new AiDailyReportService();
+        $method = new \ReflectionMethod($service, 'buildResultContract');
+        $method->setAccessible(true);
+        $base = [
+            'report_scope' => ['hotel_id' => 2, 'report_date' => '2026-07-16'],
+            'yesterday_result' => ['metrics' => []],
+            'competitor_changes' => [],
+            'data_gaps' => [],
+            'source_refs' => [],
+        ];
+        $basis = [
+            'status' => 'available', 'type' => 'historical_average', 'metric' => 'exposure',
+            'history_window' => 7, 'comparison_rule' => 'measured_value < reference_value * 0.7',
+            'reference_scope' => 'same_hotel_same_platform', 'rule_version' => 'operation_root_cause.v1',
+        ];
+        $first = $method->invoke($service, $base + ['abnormal_metrics' => [[
+            'type' => 'traffic_down', 'reference_basis' => $basis + ['measured_value' => 70, 'reference_value' => 110],
+        ]]], [], '');
+        $second = $method->invoke($service, $base + ['abnormal_metrics' => [[
+            'type' => 'traffic_down', 'reference_basis' => $basis + ['measured_value' => 60, 'reference_value' => 100],
+        ]]], [], '');
+
+        self::assertSame($first['reference_version'], $second['reference_version']);
+        self::assertNotSame($first['result_version'], $second['result_version']);
     }
 }

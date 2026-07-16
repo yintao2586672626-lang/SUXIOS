@@ -16,12 +16,14 @@ function loopbackBaseURL(value) {
   return parsed.toString();
 }
 
-const sharedDatabaseOptIn = String(process.env.SUXI_E2E_ALLOW_SHARED_DB || '').trim() === '1';
 const configuredDedicatedDatabase = String(process.env.SUXI_E2E_DB_NAME || '').trim();
 const dedicatedDatabaseName = configuredDedicatedDatabase !== ''
   ? configuredDedicatedDatabase
-  : (sharedDatabaseOptIn ? '' : 'hotelx_e2e');
-const selfHosted = dedicatedDatabaseName !== '';
+  : 'hotelx_e2e';
+if (!/(?:^|[_-])(?:test(?:ing)?|e2e)(?:$|[_-])/i.test(dedicatedDatabaseName)) {
+  throw new Error('Isolated E2E requires a dedicated *_test/*_testing/*_e2e database name');
+}
+const selfHosted = true;
 const appPort = Number(process.env.SUXI_E2E_APP_PORT || 18080);
 if (!Number.isInteger(appPort) || appPort < 1024 || appPort > 65535) {
   throw new Error('SUXI_E2E_APP_PORT must be an integer between 1024 and 65535');
@@ -54,7 +56,33 @@ const dailyOnly = process.argv.includes('--daily-only');
 const otaOnly = process.argv.includes('--ota-only');
 const temporalOnly = process.argv.includes('--temporal-only');
 const preflightOnly = process.argv.includes('--preflight-only');
-const specs = temporalOnly
+const asyncOnly = process.argv.includes('--async-only');
+const edgeOnly = process.argv.includes('--edge-only');
+const uiOnly = process.argv.includes('--ui-only');
+const moduleOnly = process.argv.includes('--module-only');
+const fullClick = process.argv.includes('--full-click') || process.argv.includes('--full-click-bounded');
+const fullClickBounded = process.argv.includes('--full-click-bounded');
+const codexProfileArg = process.argv.find((arg) => arg.startsWith('--codex-profile='));
+const codexIterationsArg = process.argv.find((arg) => arg.startsWith('--codex-iterations='));
+const codexProfile = codexProfileArg ? codexProfileArg.slice('--codex-profile='.length).trim() : '';
+const codexIterations = codexIterationsArg ? codexIterationsArg.slice('--codex-iterations='.length).trim() : '';
+if (codexProfile && !['quick', 'extreme'].includes(codexProfile)) {
+  throw new Error('--codex-profile must be quick or extreme');
+}
+if (codexIterations && (!/^\d+$/.test(codexIterations) || Number(codexIterations) < 1)) {
+  throw new Error('--codex-iterations must be a positive integer');
+}
+const specs = fullClick
+  ? ['tests/automation/full-click-coverage.spec.js']
+  : moduleOnly
+    ? ['tests/automation/module-smoke.spec.js']
+    : asyncOnly
+      ? ['tests/automation/async-page-guard.spec.js']
+      : edgeOnly
+        ? ['tests/automation/edge-input-guard.spec.js']
+        : uiOnly
+          ? ['tests/automation/daily-regression.spec.js', 'tests/automation/edge-input-guard.spec.js']
+          : temporalOnly
   ? ['tests/automation/temporal-axis.spec.js']
   : businessOnly
   ? ['tests/automation/business-chains.spec.js']
@@ -236,21 +264,50 @@ async function verifyIsolatedIdentity(seed) {
 }
 
 function runPlaywright(seed) {
+  const isolatedEnv = {
+    ...e2eProcessEnv,
+    E2E_BASE_URL: baseURL,
+    E2E_USERNAME: seed.username,
+    E2E_PASSWORD: password,
+    E2E_HOTEL_ID: String(seed.hotel_id),
+    E2E_HOTEL_NAME: seed.hotel_name,
+    E2E_OBJECT_PREFIX: objectPrefix,
+    E2E_RUN_ID: objectPrefix,
+    SUXI_E2E_ISOLATED_RUNNER: '1',
+  };
+  if (codexProfile) {
+    return spawnSync(process.execPath, [
+      'scripts/codex_automation_runner.mjs',
+      `--profile=${codexProfile}`,
+      `--iterations=${codexIterations || (codexProfile === 'quick' ? '1' : '10')}`,
+    ], {
+      cwd: root,
+      stdio: 'inherit',
+      windowsHide: true,
+      env: isolatedEnv,
+    });
+  }
+
   const cli = path.join(root, 'node_modules', '@playwright', 'test', 'cli.js');
   const focusArgs = otaOnly ? ['--grep', 'OTA import'] : [];
+  const fullClickEnv = fullClick ? {
+    E2E_MUTATE: '1',
+    E2E_ALLOW_DESTRUCTIVE: '0',
+    E2E_DB_BACKUP: '0',
+    E2E_DB_RESTORE: '0',
+    ...(fullClickBounded ? {
+      E2E_FULL_MIN_LOOP: process.env.E2E_FULL_MIN_LOOP || '1',
+      E2E_FULL_MAX_LOOP: process.env.E2E_FULL_MAX_LOOP || '3',
+      E2E_LOOP: process.env.E2E_LOOP || process.env.E2E_FULL_MAX_LOOP || '3',
+    } : {}),
+  } : {};
   return spawnSync(process.execPath, [cli, 'test', ...specs, ...focusArgs, '--workers=1', '--reporter=list'], {
     cwd: root,
     stdio: 'inherit',
     windowsHide: true,
     env: {
-      ...e2eProcessEnv,
-      E2E_BASE_URL: baseURL,
-      E2E_USERNAME: seed.username,
-      E2E_PASSWORD: password,
-      E2E_HOTEL_ID: String(seed.hotel_id),
-      E2E_HOTEL_NAME: seed.hotel_name,
-      E2E_OBJECT_PREFIX: objectPrefix,
-      E2E_RUN_ID: objectPrefix,
+      ...isolatedEnv,
+      ...fullClickEnv,
     },
   });
 }

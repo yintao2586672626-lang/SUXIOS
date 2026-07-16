@@ -66,6 +66,7 @@ final class HotelCascadeDeletionServiceTest extends TestCase
         self::assertSame(1, $preview['tables']['ota_meituan_reviews'] ?? 0);
         self::assertSame(1, $preview['tables']['opening_tasks'] ?? 0);
         self::assertSame(1, $preview['tables']['operation_execution_evidence'] ?? 0);
+        self::assertSame(1, $preview['tables']['competitor_price_log'] ?? 0);
         self::assertSame(2, $preview['config_entries']);
         self::assertArrayNotHasKey('encrypted_payload', $preview);
 
@@ -86,6 +87,8 @@ final class HotelCascadeDeletionServiceTest extends TestCase
         self::assertSame(0, Db::name('ota_meituan_reviews')->where('system_hotel_id', 10)->count());
         self::assertSame(0, Db::name('opening_tasks')->where('project_id', 100)->count());
         self::assertSame(0, Db::name('operation_execution_evidence')->where('task_id', 200)->count());
+        self::assertSame(0, Db::name('competitor_price_log')->where('store_id', 10)->count());
+        self::assertSame(1, Db::name('competitor_price_log')->where('store_id', 20)->where('hotel_id', 10)->count(), 'A competitor id collision in another store must not be deleted.');
         self::assertSame(2, $result['config_entries_deleted']);
         self::assertGreaterThanOrEqual(9, $result['deleted_rows']);
 
@@ -122,6 +125,7 @@ final class HotelCascadeDeletionServiceTest extends TestCase
             'CREATE TABLE opening_tasks (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL)',
             'CREATE TABLE operation_execution_tasks (id INTEGER PRIMARY KEY, hotel_id INTEGER NOT NULL)',
             'CREATE TABLE operation_execution_evidence (id INTEGER PRIMARY KEY, task_id INTEGER NOT NULL)',
+            'CREATE TABLE competitor_price_log (id INTEGER PRIMARY KEY, store_id INTEGER NOT NULL, hotel_id INTEGER NOT NULL)',
             'CREATE TABLE system_configs (id INTEGER PRIMARY KEY, config_key TEXT UNIQUE, config_value TEXT, update_time TEXT NULL)',
         ] as $sql) {
             Db::execute($sql);
@@ -153,6 +157,10 @@ final class HotelCascadeDeletionServiceTest extends TestCase
         Db::name('opening_tasks')->insert(['id' => 101, 'project_id' => 100]);
         Db::name('operation_execution_tasks')->insert(['id' => 200, 'hotel_id' => 10]);
         Db::name('operation_execution_evidence')->insert(['id' => 201, 'task_id' => 200]);
+        Db::name('competitor_price_log')->insertAll([
+            ['id' => 301, 'store_id' => 10, 'hotel_id' => 999],
+            ['id' => 302, 'store_id' => 20, 'hotel_id' => 10],
+        ]);
 
         foreach (['ctrip_config_list', 'meituan_config_list'] as $index => $key) {
             Db::name('system_configs')->insert([

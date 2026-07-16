@@ -101,6 +101,17 @@ final class OtaConfigVerificationServiceTest extends TestCase
         self::assertFalse($status['configuration_verified']);
     }
 
+    public function testMeituanPendingLabelExplainsCookieNeedsCollectionVerification(): void
+    {
+        $status = (new OtaConfigVerificationService())->statusForConfig(
+            $this->config(''),
+            'meituan'
+        );
+
+        self::assertSame('saved_pending_verification', $status['verification_status']);
+        self::assertSame('Cookie 已保存，待采集验证', $status['verification_status_label']);
+    }
+
     /** @return array<string, mixed> */
     private function config(string $updatedAt): array
     {

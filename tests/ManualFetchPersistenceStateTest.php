@@ -123,7 +123,8 @@ final class ManualFetchPersistenceStateTest extends TestCase
         self::assertStringContainsString("'readback_verified' => \$persistenceState['readback_verified']", $manualFetchSource);
         self::assertStringContainsString("\$persistenceState['persistence_status'] === 'readback_failed'", $manualFetchSource);
         self::assertStringContainsString('private function countCtripCapturedAdRowsReadback(array $rows): int', $adsSource);
-        self::assertStringContainsString("->field('id,raw_data')->find()", $adsSource);
+        self::assertStringContainsString("->field('id,raw_data,readback_verified')->find()", $adsSource);
+        self::assertStringContainsString("(int)(\$stored['readback_verified'] ?? 0) !== 1", $adsSource);
     }
 
     private function harness(): object

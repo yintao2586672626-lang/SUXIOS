@@ -4,6 +4,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const source = readFileSync('public/meituan-static.js', 'utf8');
+const onlineDataQualityConcern = readFileSync('app/controller/concern/OnlineDataQualityConcern.php', 'utf8');
 const sandbox = { console, window: {} };
 vm.runInNewContext(`${source}\nthis.__api = window.SUXI_MEITUAN_STATIC;`, sandbox);
 const api = sandbox.__api;
@@ -60,4 +61,11 @@ test('generic data_value never becomes Meituan traffic and missing metrics stay 
   assert.equal(result.adsExposure, null);
   assert.equal(result.adsClick, null);
   assert.equal(result.adsClickRate, null);
+});
+
+test('daily data API displays the bound system hotel name and preserves the captured source label', () => {
+  assert.match(onlineDataQualityConcern, /Db::name\('hotels'\)->whereIn\('id', \$systemHotelIds\)->column\('name', 'id'\)/);
+  assert.match(onlineDataQualityConcern, /\$item\['captured_hotel_name'\] = \$capturedHotelName/);
+  assert.match(onlineDataQualityConcern, /\$item\['system_hotel_name'\] = \$systemHotelName/);
+  assert.match(onlineDataQualityConcern, /\$item\['hotel_name'\] = \$systemHotelName/);
 });

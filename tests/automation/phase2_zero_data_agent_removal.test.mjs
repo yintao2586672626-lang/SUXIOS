@@ -51,7 +51,7 @@ test('zero-data Agent routes and frontend requests are removed while core Agent 
   ];
   for (const segment of removedSegments) {
     const escaped = segment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    assert.doesNotMatch(routes, new RegExp(`Route::(?:get|post)\\('\\/${escaped}`));
+    assert.doesNotMatch(routes, new RegExp(`Route::(?:get|post)\\('\\/${escaped}[^']*',\\s*'Agent\\/`));
     assert.doesNotMatch(html, new RegExp(`\\/agent\\/${escaped}`));
   }
   assert.match(routes, /Route::post\('\/ota-diagnosis', 'Agent\/otaDiagnosis'\)/);

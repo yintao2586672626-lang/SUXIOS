@@ -13,9 +13,13 @@ final class MeituanDirectPersistenceContractTest extends TestCase
         $daily = (string)file_get_contents(dirname(__DIR__) . '/app/service/OnlineDailyDataPersistenceService.php');
 
         self::assertStringContainsString('insertGetId($data)', $captured);
-        self::assertStringContainsString('verifyMeituanCapturedDailyRowReadback', $captured);
+        self::assertStringContainsString(
+            'OnlineDailyDataPersistenceService::applyTenantScope($row, $columns)',
+            $captured
+        );
+        self::assertStringContainsString('verifiedMeituanCapturedDailyRowReadback', $captured);
         self::assertStringContainsString('insertGetId($data)', $daily);
-        self::assertStringContainsString('verifyTrafficRowReadback', $daily);
+        self::assertStringContainsString('verifiedTrafficRowReadback', $daily);
     }
 
     public function testTrafficOrdersAndAdsExposeVerifiedPersistenceState(): void

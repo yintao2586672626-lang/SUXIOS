@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
@@ -10,8 +11,26 @@ vm.runInNewContext(readFileSync('public/revenue-ai-static.js', 'utf8'), context,
 
 const helpers = context.window.SUXI_REVENUE_AI_STATIC;
 const indexHtml = readFileSync('public/index.html', 'utf8');
+const appMain = readFileSync('public/app-main.js', 'utf8');
 const appTemplate = readFileSync('resources/frontend/app-template.html', 'utf8');
-const html = `${indexHtml}\n${appTemplate}\n${readFileSync('public/app-main.js', 'utf8')}`;
+const aiDailyReportFragment = readFileSync('resources/frontend/templates/fragments/16-page-ai-daily-report.html', 'utf8');
+const html = `${indexHtml}\n${appTemplate}\n${appMain}`;
+
+const aiDailyTaskHelpersStart = '// AI_DAILY_REPORT_TASK_HELPERS_START';
+const aiDailyTaskHelpersEnd = '// AI_DAILY_REPORT_TASK_HELPERS_END';
+const aiDailyTaskHelpersSource = appMain.slice(
+  appMain.indexOf(aiDailyTaskHelpersStart) + aiDailyTaskHelpersStart.length,
+  appMain.indexOf(aiDailyTaskHelpersEnd),
+);
+const aiDailyTaskHelpers = vm.runInNewContext(`(() => {
+  ${aiDailyTaskHelpersSource}
+  return {
+    normalizeAiDailyReportGenerationTask,
+    resolveAiDailyReportGenerationOutcome,
+    pollAiDailyReportGenerationTask,
+    aiDailyReportModelIsLimited,
+  };
+})()`, {}, { filename: 'ai-daily-report-task-helpers.js' });
 
 test('Revenue AI static helper exposes the required display contract', () => {
   assert.equal(typeof helpers, 'object');
@@ -95,8 +114,24 @@ test('Revenue AI static helper exposes the required display contract', () => {
   assert.match(helpers.revenueAiReasonText('holiday_event_nearby'), /节假日窗口/);
 });
 
-test('Revenue AI entry cache-busts the business closure helper contract', () => {
-  assert.match(indexHtml, /<script defer src="revenue-ai-static\.js\?v=20260715-truthful-not-loaded-h29ec697779"><\/script>/);
+test('Revenue AI entry lazy-loads the versioned helper outside the startup chain', () => {
+  const helperHash = crypto.createHash('sha256')
+    .update(readFileSync('public/revenue-ai-static.js'))
+    .digest('hex')
+    .slice(0, 10);
+  assert.doesNotMatch(indexHtml, /<script[^>]+src="revenue-ai-static\.js(?:\?[^"']*)?"/);
+  assert.match(appMain, /const revenueAiStaticScript = 'revenue-ai-static\.js';/);
+  assert.match(appMain, new RegExp(`const revenueAiStaticVersion = '[^']*-h${helperHash}';`));
+  assert.match(appMain, /if \(revenueAiStaticLoadPromise\) \{\s*return revenueAiStaticLoadPromise;\s*\}/);
+  assert.match(appMain, /revenueAiStaticLoadPromise = null;[\s\S]*data-suxi-revenue-ai-static/);
+  assert.match(appMain, /script\.src = `\$\{revenueAiStaticScript\}\?v=\$\{revenueAiStaticVersion\}`;/);
+  assert.match(appMain, /revenueAiStaticRevision\.value \+= 1;/);
+  assert.match(appMain, /buildRevenueAiGapSummary: \(\) => \(\{ status: 'not_loaded', total: null/);
+  assert.match(appMain, /buildAiDailyFactGate: \(\) => \(\{[\s\S]*status: 'not_loaded'[\s\S]*configuredCount: null/);
+  assert.match(appMain, /const HOME_SECONDARY_PANEL_DELAY_MS = 4200;/);
+  assert.match(appMain, /homeSecondaryPanelsReady\.value = true;[\s\S]*ensureRevenueAiStaticReady\(\)[\s\S]*loadRevenueAiOverview\(\)/);
+  assert.match(appMain, /if \(newPage === 'agent-center'\) \{[\s\S]*runPageLoadOnce\(newPage, 'revenue-ai-static', \(\) => ensureRevenueAiStaticReady\(\)\)/);
+  assert.match(appMain, /if \(newPage === 'ai-daily-report'\) \{[\s\S]*await ensureRevenueAiStaticReady\(\);[\s\S]*return loadAiDailyReport\(\);/);
   assert.match(html, /requireRevenueAiStatic\('buildRevenueAiBusinessClosure'\)/);
   assert.match(html, /data-testid="revenue-ai-pricing-generation-preflight"/);
   assert.match(html, /data-testid="agent-pricing-generation-preflight-summary"/);
@@ -108,6 +143,120 @@ test('Revenue AI entry cache-busts the business closure helper contract', () => 
   assert.match(html, /requireRevenueAiStatic\('buildRevenueAiPricingGenerationPreflightSummary'\)/);
   assert.match(html, /requireRevenueAiStatic\('buildRevenueAiPriceSuggestionGenerateResult'\)/);
   assert.doesNotMatch(html, /已生成 \$\{res\.data\?\.created_count \|\| 0\} 条建议/);
+});
+
+test('AI daily report generation uses background tasks, exact readback, and sync compatibility', () => {
+  assert.match(appMain, /background: true/);
+  assert.match(appMain, /`\/ai-daily-reports\/tasks\/\$\{encodeURIComponent\(taskId\)\}`/);
+  assert.match(appMain, /`\/ai-daily-reports\/\$\{normalizedReportId\}`/);
+  assert.match(appMain, /pollResult\.task\.resultReportId/);
+  assert.match(appMain, /AI经营日报回读酒店范围不一致/);
+  assert.match(appMain, /if \(!responseTaskId\) \{/);
+  assert.match(appMain, /responseData\?\.report \|\| responseData/);
+  assert.doesNotMatch(appMain, /aiDailyReport\.value = res\.data \|\| null;\s*showToast\('AI经营日报已生成'\)/);
+  assert.match(aiDailyReportFragment, /data-testid="ai-daily-report-generation-task"/);
+  assert.match(aiDailyReportFragment, /data-testid="ai-daily-report-generation-progress"/);
+  assert.match(aiDailyReportFragment, /不表示 AI 已形成完整经营结论/);
+});
+
+test('AI daily explanation stays optional and separate from the rule summary', () => {
+  assert.match(appMain, /const aiDailyReportAiExplanation = computed\(\(\) => String\(aiDailyReport\.value\?\.ai_explanation \|\| ''\)\.trim\(\)\);/);
+  assert.match(aiDailyReportFragment, /v-if="aiDailyReportAiExplanation \|\| aiDailyReportAiInterpretation\.status"/);
+  assert.match(aiDailyReportFragment, /data-testid="ai-daily-report-ai-explanation"/);
+  assert.match(aiDailyReportFragment, /aiDailyReportAiInterpretation\.possible_explanations/);
+  assert.match(aiDailyReportFragment, /aiDailyReportAiInterpretation\.conflicting_evidence/);
+  assert.match(aiDailyReportFragment, /aiDailyReportAiInterpretation\.missing_information/);
+  assert.match(aiDailyReportFragment, /aiDailyReportAiInterpretation\.boundary/);
+  assert.match(aiDailyReportFragment, /\{\{ aiDailyReport\.summary \|\| '暂无摘要' \}\}/);
+  assert.doesNotMatch(aiDailyReportFragment, /aiDailyReport\.summary\s*\|\|\s*aiDailyReportAiExplanation/);
+});
+
+test('AI daily report task helpers keep hotel scope and terminal truthfulness', () => {
+  const queued = aiDailyTaskHelpers.normalizeAiDailyReportGenerationTask({
+    task_id: 'daily-7',
+    hotel_id: 7,
+    status: 'queued',
+    stage: 'queued',
+    progress_percent: 0,
+    done: false,
+  }, 7, 'daily-7');
+  assert.equal(queued.hotelId, 7);
+  assert.equal(queued.progressPercent, 0);
+  assert.equal(aiDailyTaskHelpers.resolveAiDailyReportGenerationOutcome(queued).kind, 'pending');
+
+  assert.throws(() => aiDailyTaskHelpers.normalizeAiDailyReportGenerationTask({
+    task_id: 'daily-7', hotel_id: 8, status: 'queued', progress_percent: 0,
+  }, 7, 'daily-7'), /酒店范围不一致/);
+  assert.throws(() => aiDailyTaskHelpers.normalizeAiDailyReportGenerationTask({
+    task_id: 'daily-other', hotel_id: 7, status: 'queued', progress_percent: 0,
+  }, 7, 'daily-7'), /任务标识不一致/);
+
+  assert.equal(aiDailyTaskHelpers.resolveAiDailyReportGenerationOutcome({
+    status: 'succeeded', stage: 'completed', resultReportId: 81,
+  }).kind, 'succeeded');
+  assert.equal(aiDailyTaskHelpers.resolveAiDailyReportGenerationOutcome({
+    status: 'succeeded', stage: 'completed_with_data_gap', resultReportId: 82,
+  }).kind, 'limited');
+  assert.equal(aiDailyTaskHelpers.resolveAiDailyReportGenerationOutcome({
+    status: 'blocked', resultReportId: 83, errorMessage: '可信数据不足',
+  }).kind, 'limited');
+  assert.equal(aiDailyTaskHelpers.resolveAiDailyReportGenerationOutcome({
+    status: 'partial', resultReportId: 84,
+  }).kind, 'limited');
+  assert.equal(aiDailyTaskHelpers.resolveAiDailyReportGenerationOutcome({
+    status: 'blocked', resultReportId: null,
+  }).kind, 'failed');
+  assert.equal(aiDailyTaskHelpers.resolveAiDailyReportGenerationOutcome({
+    status: 'failed', errorMessage: '生成器失败', resultReportId: null,
+  }).message, '生成器失败');
+  assert.equal(aiDailyTaskHelpers.resolveAiDailyReportGenerationOutcome({
+    status: 'future_terminal', done: true, resultReportId: 85,
+  }).kind, 'failed');
+  for (const status of ['blocked_by_data_quality', 'failed', 'invalid_output', 'partial']) {
+    assert.equal(aiDailyTaskHelpers.aiDailyReportModelIsLimited(status), true, status);
+  }
+  assert.equal(aiDailyTaskHelpers.aiDailyReportModelIsLimited('ok'), false);
+  assert.equal(aiDailyTaskHelpers.aiDailyReportModelIsLimited('not_requested'), false);
+  assert.equal(aiDailyTaskHelpers.resolveAiDailyReportGenerationOutcome({
+    status: 'succeeded', stage: 'completed', modelStatus: 'invalid_output', resultReportId: 88,
+  }).kind, 'limited');
+  assert.match(appMain, /数据或模型受限，规则版仅供核验/);
+  assert.match(appMain, /aiDailyReportModelIsLimited\(report\.model_status\).*bg-amber-50 text-amber-700/s);
+});
+
+test('AI daily report polling stops on a terminal task without real timers', async () => {
+  const responses = [{
+    code: 200,
+    data: {
+      task_id: 'daily-7', hotel_id: 7, status: 'running', stage: 'generating', progress_percent: 60, done: false,
+    },
+  }, {
+    code: 200,
+    data: {
+      task_id: 'daily-7', hotel_id: 7, status: 'blocked', stage: 'completed_with_data_gap', progress_percent: 100,
+      result_report_id: 91, model_status: 'blocked_by_data_quality', done: true,
+    },
+  }];
+  const waits = [];
+  const progress = [];
+  const result = await aiDailyTaskHelpers.pollAiDailyReportGenerationTask({
+    taskId: 'daily-7',
+    expectedHotelId: 7,
+    initialTask: {
+      task_id: 'daily-7', hotel_id: 7, status: 'queued', stage: 'queued', progress_percent: 0, done: false,
+    },
+    requestTask: async () => responses.shift(),
+    wait: async (delay) => { waits.push(delay); },
+    intervalMs: 25,
+    maxAttempts: 5,
+    onProgress: task => progress.push(task.progressPercent),
+  });
+
+  assert.equal(result.outcome.kind, 'limited');
+  assert.equal(result.task.resultReportId, 91);
+  assert.deepEqual(progress, [0, 60, 100]);
+  assert.deepEqual(waits, [25, 25]);
+  assert.equal(responses.length, 0);
 });
 
 test('AI daily report blocking helpers keep data gaps out of execution orders', () => {

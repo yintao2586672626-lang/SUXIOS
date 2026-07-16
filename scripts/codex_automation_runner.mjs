@@ -5,9 +5,6 @@ import { pathToFileURL } from 'node:url';
 
 const root = process.cwd();
 const DEFAULT_ITERATIONS = 10;
-const DEFAULT_BASE_URL = 'http://localhost:8080/';
-const DEFAULT_USERNAME = 'admin';
-const DEFAULT_PASSWORD = 'admin123';
 
 const SUITES = [
   {
@@ -67,7 +64,7 @@ const SUITES = [
     env: {
       E2E_MUTATE: '1',
       E2E_ALLOW_DESTRUCTIVE: '0',
-      E2E_DB_BACKUP: '1',
+      E2E_DB_BACKUP: '0',
       E2E_DB_RESTORE: '0',
       E2E_MAX_BUTTONS_PER_MODULE: '30',
       E2E_MAX_FIELDS_PER_MODULE: '40',
@@ -84,9 +81,9 @@ function parseArgs(argv) {
     iterations: DEFAULT_ITERATIONS,
     runId: new Date().toISOString().replace(/[:.]/g, '-'),
     outputDir: path.join(root, 'output', 'codex-runner'),
-    baseUrl: process.env.E2E_BASE_URL || DEFAULT_BASE_URL,
-    username: process.env.E2E_USERNAME || DEFAULT_USERNAME,
-    password: process.env.E2E_PASSWORD || DEFAULT_PASSWORD,
+    baseUrl: process.env.E2E_BASE_URL || '',
+    username: process.env.E2E_USERNAME || '',
+    password: process.env.E2E_PASSWORD || '',
     continueOnFailure: true,
     suites: null,
   };
@@ -142,15 +139,47 @@ Options:
   --suites=a,b                run selected suite names only
   --dry-run                   write planned commands without executing
   --fail-fast                 stop after first failed command
-  --base-url=http://...       E2E_BASE_URL override
-  --username=admin            E2E_USERNAME override
-  --password=admin123         E2E_PASSWORD override
+  --base-url=http://...       isolated E2E_BASE_URL override
+  --username=name             isolated E2E_USERNAME override
+  --password=value            isolated E2E_PASSWORD override
   --output-dir=output/path    report root
   --run-id=name               deterministic report folder name`);
 }
 
 function safeFileName(value) {
   return String(value || 'run').replace(/[^\w.-]+/g, '_');
+}
+
+function assertIsolatedAutomationEnvironment(options) {
+  const databaseName = String(process.env.SUXI_E2E_DB_NAME || '').trim();
+  const objectPrefix = String(process.env.E2E_OBJECT_PREFIX || '').trim();
+  if (process.env.SUXI_E2E_ISOLATED_RUNNER !== '1'
+    || process.env.SUXI_E2E_DB_OVERRIDE !== '1'
+    || !/(?:^|[_-])(?:test(?:ing)?|e2e)(?:$|[_-])/i.test(databaseName)) {
+    throw new Error('Codex E2E execution requires the isolated runner and a dedicated test database');
+  }
+  let parsed;
+  try {
+    parsed = new URL(options.baseUrl);
+  } catch {
+    throw new Error('Codex E2E execution requires an isolated loopback base URL');
+  }
+  const appPort = Number(process.env.SUXI_E2E_APP_PORT || 18080);
+  const effectivePort = Number(parsed.port || 80);
+  if (parsed.protocol !== 'http:'
+    || !['127.0.0.1', 'localhost'].includes(parsed.hostname.toLowerCase())
+    || effectivePort !== appPort
+    || effectivePort === 8080
+    || parsed.pathname !== '/'
+    || parsed.search
+    || parsed.hash
+    || parsed.username
+    || parsed.password
+    || !options.username
+    || !options.password
+    || !/^codex_e2e_[a-z0-9_]{8,48}$/.test(objectPrefix)) {
+    throw new Error('Codex E2E execution environment is not isolated');
+  }
 }
 
 function ensureDir(dir) {
@@ -360,6 +389,9 @@ function toMarkdown(summary) {
 
 export function runAutomation(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
+  if (!options.dryRun) {
+    assertIsolatedAutomationEnvironment(options);
+  }
   const suites = selectedSuites(options);
   const plan = plannedCommands(options, suites);
   const runDir = path.join(options.outputDir, options.runId);

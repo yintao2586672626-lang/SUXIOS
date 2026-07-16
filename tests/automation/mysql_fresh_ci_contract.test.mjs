@@ -1,0 +1,100 @@
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import test from 'node:test';
+
+const read = path => readFileSync(path, 'utf8');
+
+test('CI provisions the project MariaDB dialect and runs the host-client fresh database concurrency gate', () => {
+  const workflow = read('.github/workflows/php.yml');
+  const packageJson = JSON.parse(read('package.json'));
+
+  assert.match(workflow, /services:\s+mysql:/);
+  assert.match(workflow, /image:\s+mariadb:10\.11/);
+  assert.match(workflow, /sudo apt-get install -y mariadb-client/);
+  assert.match(workflow, /MYSQL_BINARY:\s*mariadb/);
+  assert.doesNotMatch(workflow, /verify-oracle-mysql:/);
+  assert.doesNotMatch(workflow, /image:\s+mysql:8\.4/);
+  assert.doesNotMatch(workflow, /MYSQL_DOCKER_CONTAINER_ID/);
+  assert.match(workflow, /SUXI_CI_MYSQL_VERIFY:\s*['"]1['"]/);
+  assert.match(workflow, /npm run verify:mysql-fresh-concurrency/);
+  assert.match(workflow, /verify:\s+runs-on:\s+ubuntu-latest\s+timeout-minutes:\s+45/);
+  assert.match(workflow, /Verify fresh database, repeatable migration, and 8-way concurrency\s+timeout-minutes:\s+10/);
+  assert.equal(
+    packageJson.scripts['verify:mysql-fresh-concurrency'],
+    'node scripts/verify_mysql_fresh_migration_concurrency.mjs',
+  );
+});
+
+test('fresh database verifier is gated, repeats the migration, and launches exactly eight workers', () => {
+  const verifier = read('scripts/verify_mysql_fresh_migration_concurrency.mjs');
+  const worker = read('scripts/mysql_execution_intent_concurrency_worker.php');
+  const initialization = read('database/init_full.sql');
+
+  assert.match(verifier, /SUXI_CI_MYSQL_VERIFY/);
+  assert.match(verifier, /dedicated .+_(?:test|testing|e2e)/i);
+  assert.match(initialization, /SOURCE \.\/database\/migrations\/20260716_add_execution_intent_idempotency_key\.sql;/);
+  assert.match(verifier, /init_full\.sql migration list does not match tracked database\/migrations/);
+  assert.match(verifier, /for \(const \[index, migrationPath\] of migrationPaths\.entries\(\)\)/);
+  assert.match(verifier, /migrationRuns\s*=\s*2/);
+  assert.match(verifier, /workerCount\s*=\s*8/);
+  assert.match(verifier, /unique_intent_ids/);
+  assert.match(verifier, /database_rows/);
+  assert.match(verifier, /migration_files:\s*migrationPaths\.length/);
+  assert.match(verifier, /idx_online_daily_history_date_id/);
+  assert.match(verifier, /ai_report_generation_tasks/);
+  assert.match(verifier, /login_support_contact/);
+  assert.match(verifier, /ota_competition_pulse_reference/);
+  assert.match(verifier, /const allWorkers = Promise\.all\(workerPromises\)/);
+  assert.match(verifier, /Promise\.race\(\[waitForReady\(barrierDirectory, workerCount\), workerEarlyExit\]\)/);
+  assert.match(verifier, /timeout:\s*mysqlCommandTimeoutMs/);
+  assert.match(verifier, /withTimeout\(allWorkers, workerCompletionTimeoutMs, 'concurrency workers'\)/);
+  assert.match(verifier, /child\.kill\('SIGTERM'\)/);
+  assert.match(verifier, /child\.kill\('SIGKILL'\)/);
+  assert.match(verifier, /await stopChildren\(\)/);
+  assert.doesNotMatch(verifier, /MYSQL_DOCKER_CONTAINER_ID/);
+  assert.doesNotMatch(verifier, /mysqlSpawnPrefix/);
+  assert.match(verifier, /requires the project MariaDB dialect/);
+  assert.match(verifier, /input:\s*readFileSync\(initializationPath\)/);
+  assert.match(verifier, /energyBenchmarkSeedCountsAfterInit/);
+  assert.match(verifier, /energyBenchmarkSeedCountsAfterRepeats/);
+  assert.match(verifier, /expectedEnergyBenchmarkKeys\s*=\s*\['1:1', '2:1', '3:1'\]/);
+  assert.match(verifier, /JSON\.stringify\(energyBenchmarkSeedCountsAfterRepeats\) !== JSON\.stringify\(energyBenchmarkSeedCountsAfterInit\)/);
+  assert.match(verifier, /energy_benchmark_seed_stable:\s*true/);
+
+  assert.match(worker, /SUXI_E2E_DB_OVERRIDE/);
+  assert.match(worker, /createExecutionIntent\(/);
+  assert.match(worker, /trustedExpansionSource:\s*true/);
+});
+
+test('fresh database verifier rejects missing gates, unsafe names, and remote hosts before starting a client', () => {
+  const run = env => spawnSync(process.execPath, ['scripts/verify_mysql_fresh_migration_concurrency.mjs'], {
+    cwd: process.cwd(),
+    env: { ...process.env, ...env },
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  const missingGate = run({
+    SUXI_CI_MYSQL_VERIFY: '',
+    SUXI_CI_MYSQL_DB_NAME: 'suxi_contract_e2e',
+  });
+  assert.notEqual(missingGate.status, 0);
+  assert.match(`${missingGate.stdout}\n${missingGate.stderr}`, /SUXI_CI_MYSQL_VERIFY=1 is required/);
+
+  const unsafeName = run({
+    SUXI_CI_MYSQL_VERIFY: '1',
+    SUXI_CI_MYSQL_DB_NAME: 'hotelx',
+    DB_HOST: '127.0.0.1',
+  });
+  assert.notEqual(unsafeName.status, 0);
+  assert.match(`${unsafeName.stdout}\n${unsafeName.stderr}`, /dedicated database name/i);
+
+  const remoteHost = run({
+    SUXI_CI_MYSQL_VERIFY: '1',
+    SUXI_CI_MYSQL_DB_NAME: 'suxi_contract_e2e',
+    DB_HOST: '192.0.2.10',
+    SUXI_E2E_ALLOW_REMOTE_TEST_DB: '',
+  });
+  assert.notEqual(remoteHost.status, 0);
+  assert.match(`${remoteHost.stdout}\n${remoteHost.stderr}`, /refused a non-loopback host/i);
+});

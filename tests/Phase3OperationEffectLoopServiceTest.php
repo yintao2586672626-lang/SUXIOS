@@ -82,6 +82,7 @@ final class Phase3OperationEffectLoopServiceTest extends TestCase
         $service = new Phase3OperationEffectLoopService();
         $record = [
             'validation_status' => 'verified',
+            'readback_verified' => 1,
             'compare_type' => 'self',
             'hotel_id' => 123,
             'source' => 'ctrip',
@@ -94,7 +95,9 @@ final class Phase3OperationEffectLoopServiceTest extends TestCase
         ];
 
         self::assertSame('operating', $this->invokeNonPublic($service, 'effectMetricRecordRole', [$record, ['ctrip']]));
+        self::assertSame('operating', $this->invokeNonPublic($service, 'effectMetricRecordRole', [array_merge($record, ['validation_status' => 'normal']), ['ctrip']]));
         self::assertSame('', $this->invokeNonPublic($service, 'effectMetricRecordRole', [array_merge($record, ['validation_status' => '']), ['ctrip']]));
+        self::assertSame('', $this->invokeNonPublic($service, 'effectMetricRecordRole', [array_merge($record, ['readback_verified' => 0]), ['ctrip']]));
         self::assertSame('', $this->invokeNonPublic($service, 'effectMetricRecordRole', [array_merge($record, ['is_final' => 0]), ['ctrip']]));
         self::assertSame('', $this->invokeNonPublic($service, 'effectMetricRecordRole', [array_merge($record, ['data_period' => 'realtime_snapshot']), ['ctrip']]));
         self::assertSame('', $this->invokeNonPublic($service, 'effectMetricRecordRole', [array_merge($record, ['platform' => 'meituan']), ['ctrip']]));

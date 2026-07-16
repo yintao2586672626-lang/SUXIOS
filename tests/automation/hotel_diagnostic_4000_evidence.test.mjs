@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -12,8 +13,11 @@ const childProcessMaxBuffer = 16 * 1024 * 1024;
 
 test('4000-case generator only promotes L8 variants with signature-bound direct evidence', () => {
   const tempRoot = mkdtempSync(path.join(tmpdir(), 'suxi-4000-evidence-'));
+  const batchFixtureDir = mkdtempSync(path.join(root, 'tests', 'automation', '.tmp-suxi-4000-batch-'));
   const outputDir = path.join(tempRoot, 'output');
   const evidencePath = path.join(tempRoot, 'execution-evidence.json');
+  const batchFixturePath = path.join(batchFixtureDir, 'batch-evidence.json');
+  const batchFixtureRef = path.relative(root, batchFixturePath).replaceAll('\\', '/');
 
   try {
     const baseline = runGenerator(outputDir, evidencePath);
@@ -35,13 +39,22 @@ test('4000-case generator only promotes L8 variants with signature-bound direct 
     assert.ok(target, 'DX-1249 must exist in the generated L8 matrix');
     assert.equal(target.variant_execution_status, 'not_executed');
 
+    const batchCase = {
+      case_id: target.id,
+      scenario_signature: target.scenario_signature,
+      status: 'pass',
+      exit_code: 0,
+    };
+    writeBatchEvidence(batchFixturePath, [batchCase]);
+
     const evidenceRecord = {
       case_id: target.id,
       scenario_signature: target.scenario_signature,
       status: 'pass',
       executed_at: '2026-07-15T09:30:00+08:00',
       runner: 'node:test isolated fixture',
-      evidence_ref: 'tests/automation/hotel_diagnostic_4000_evidence.test.mjs#DX-1249',
+      evidence_ref: `${batchFixtureRef}#case=DX-1249`,
+      evidence_sha256: sha256File(batchFixturePath),
       exit_code: 0,
       assertions: ['quality state remains explicit for the selected L8 variant'],
       notes: 'Synthetic isolated fixture; not live OTA evidence.',
@@ -49,7 +62,7 @@ test('4000-case generator only promotes L8 variants with signature-bound direct 
 
     writeLedger(evidencePath, [{
       ...evidenceRecord,
-      evidence_ref: 'tests/automation/does-not-exist.json#DX-1249',
+      evidence_ref: 'tests/automation/does-not-exist.json#case=DX-1249',
     }]);
     const missingEvidence = runGenerator(outputDir, evidencePath);
     assert.notEqual(missingEvidence.status, 0);
@@ -57,7 +70,7 @@ test('4000-case generator only promotes L8 variants with signature-bound direct 
 
     writeLedger(evidencePath, [{
       ...evidenceRecord,
-      evidence_ref: `${path.join(root, 'tests', 'automation', 'hotel_diagnostic_4000_evidence.test.mjs')}#DX-1249`,
+      evidence_ref: `${batchFixturePath}#case=DX-1249`,
     }]);
     const absoluteEvidence = runGenerator(outputDir, evidencePath);
     assert.notEqual(absoluteEvidence.status, 0);
@@ -65,11 +78,71 @@ test('4000-case generator only promotes L8 variants with signature-bound direct 
 
     writeLedger(evidencePath, [{
       ...evidenceRecord,
-      evidence_ref: '../package.json#DX-1249',
+      evidence_ref: '../package.json#case=DX-1249',
     }]);
     const escapedEvidence = runGenerator(outputDir, evidencePath);
     assert.notEqual(escapedEvidence.status, 0);
     assert.match(`${escapedEvidence.stdout}\n${escapedEvidence.stderr}`, /evidence_ref must be project-relative for DX-1249/);
+
+    writeLedger(evidencePath, [{
+      ...evidenceRecord,
+      evidence_ref: batchFixtureRef,
+    }]);
+    const missingAnchor = runGenerator(outputDir, evidencePath);
+    assert.notEqual(missingAnchor.status, 0);
+    assert.match(`${missingAnchor.stdout}\n${missingAnchor.stderr}`, /must include exactly one #case=DX-1249 anchor/);
+
+    writeLedger(evidencePath, [{
+      ...evidenceRecord,
+      evidence_ref: `${batchFixtureRef}#case=DX-1250`,
+    }]);
+    const mismatchedAnchor = runGenerator(outputDir, evidencePath);
+    assert.notEqual(mismatchedAnchor.status, 0);
+    assert.match(`${mismatchedAnchor.stdout}\n${mismatchedAnchor.stderr}`, /case anchor mismatch for DX-1249: DX-1250/);
+
+    writeLedger(evidencePath, [{
+      ...evidenceRecord,
+      evidence_ref: 'package.json#case=DX-1249',
+    }]);
+    const arbitraryJson = runGenerator(outputDir, evidencePath);
+    assert.notEqual(arbitraryJson.status, 0);
+    assert.match(`${arbitraryJson.stdout}\n${arbitraryJson.stderr}`, /batch contract is invalid for DX-1249/);
+
+    writeBatchEvidence(batchFixturePath, [{ ...batchCase, case_id: 'DX-0001' }]);
+    writeLedger(evidencePath, [evidenceRecord]);
+    const missingBoundCase = runGenerator(outputDir, evidencePath);
+    assert.notEqual(missingBoundCase.status, 0);
+    assert.match(`${missingBoundCase.stdout}\n${missingBoundCase.stderr}`, /must resolve exactly one batch case for DX-1249/);
+
+    writeBatchEvidence(batchFixturePath, [batchCase, batchCase]);
+    const duplicateBoundCase = runGenerator(outputDir, evidencePath);
+    assert.notEqual(duplicateBoundCase.status, 0);
+    assert.match(`${duplicateBoundCase.stdout}\n${duplicateBoundCase.stderr}`, /must resolve exactly one batch case for DX-1249/);
+
+    writeBatchEvidence(batchFixturePath, [{ ...batchCase, scenario_signature: `sha256:${'0'.repeat(64)}` }]);
+    const mismatchedBatchSignature = runGenerator(outputDir, evidencePath);
+    assert.notEqual(mismatchedBatchSignature.status, 0);
+    assert.match(`${mismatchedBatchSignature.stdout}\n${mismatchedBatchSignature.stderr}`, /batch scenario_signature mismatch for DX-1249/);
+
+    writeBatchEvidence(batchFixturePath, [{ ...batchCase, status: 'partial' }]);
+    const mismatchedBatchStatus = runGenerator(outputDir, evidencePath);
+    assert.notEqual(mismatchedBatchStatus.status, 0);
+    assert.match(`${mismatchedBatchStatus.stdout}\n${mismatchedBatchStatus.stderr}`, /batch status mismatch for DX-1249/);
+
+    writeBatchEvidence(batchFixturePath, [{ ...batchCase, status: 'blocked', exit_code: 9 }]);
+    writeLedger(evidencePath, [{ ...evidenceRecord, status: 'blocked', exit_code: null }]);
+    const mismatchedBatchExit = runGenerator(outputDir, evidencePath);
+    assert.notEqual(mismatchedBatchExit.status, 0);
+    assert.match(`${mismatchedBatchExit.stdout}\n${mismatchedBatchExit.stderr}`, /batch exit_code mismatch for DX-1249/);
+
+    writeBatchEvidence(batchFixturePath, [batchCase]);
+    writeLedger(evidencePath, [{
+      ...evidenceRecord,
+      evidence_sha256: `sha256:${'0'.repeat(64)}`,
+    }]);
+    const mismatchedEvidenceHash = runGenerator(outputDir, evidencePath);
+    assert.notEqual(mismatchedEvidenceHash.status, 0);
+    assert.match(`${mismatchedEvidenceHash.stdout}\n${mismatchedEvidenceHash.stderr}`, /evidence_sha256 mismatch for DX-1249/);
 
     writeLedger(evidencePath, [{ ...evidenceRecord, status: 'partial', exit_code: 7 }]);
     const partialWithFailureExit = runGenerator(outputDir, evidencePath);
@@ -107,6 +180,14 @@ test('4000-case generator only promotes L8 variants with signature-bound direct 
     assert.equal(promotedTarget.variant_execution_status, 'pass');
     assert.equal(promotedTarget.pending_execution_note, null);
     assert.equal(promotedTarget.variant_execution_evidence.evidence_ref, evidenceRecord.evidence_ref);
+    assert.equal(promotedTarget.variant_execution_evidence.evidence_sha256, evidenceRecord.evidence_sha256);
+
+    const { evidence_sha256: _evidenceSha256, ...recordWithoutPinnedHash } = evidenceRecord;
+    writeLedger(evidencePath, [recordWithoutPinnedHash]);
+    const compatibleUnpinnedEvidence = runGenerator(outputDir, evidencePath);
+    assert.equal(compatibleUnpinnedEvidence.status, 0, compatibleUnpinnedEvidence.stderr);
+    const compatibleTarget = readCases(outputDir).find((entry) => entry.id === target.id);
+    assert.equal(compatibleTarget.variant_execution_evidence.evidence_sha256, evidenceRecord.evidence_sha256);
 
     writeLedger(evidencePath, [{ ...evidenceRecord, scenario_signature: `sha256:${'0'.repeat(64)}` }]);
     const mismatched = runGenerator(outputDir, evidencePath);
@@ -119,6 +200,7 @@ test('4000-case generator only promotes L8 variants with signature-bound direct 
     assert.match(`${duplicated.stdout}\n${duplicated.stderr}`, /duplicate case_id: DX-1249/);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
+    rmSync(batchFixtureDir, { recursive: true, force: true });
   }
 });
 
@@ -160,4 +242,16 @@ function writeLedger(evidencePath, records) {
     audit_date: auditDate,
     records,
   }, null, 2)}\n`, 'utf8');
+}
+
+function writeBatchEvidence(filePath, cases) {
+  writeFileSync(filePath, `${JSON.stringify({
+    schema_version: 1,
+    audit_date: auditDate,
+    cases,
+  }, null, 2)}\n`, 'utf8');
+}
+
+function sha256File(filePath) {
+  return `sha256:${createHash('sha256').update(readFileSync(filePath)).digest('hex')}`;
 }

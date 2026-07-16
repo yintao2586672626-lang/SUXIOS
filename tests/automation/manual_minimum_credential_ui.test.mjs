@@ -2764,6 +2764,10 @@ test('Meituan display model keeps self metric anchors scoped by date range', () 
 
 test('Meituan config saves cookie-only and no longer treats room counts as credentials', () => {
   const saveMeituanConfigItem = functionSlice('saveMeituanConfigItem');
+  const meituanStaticFallback = constSlice(
+    'const meituanStaticFallbackFor = (key) => {',
+    '\n            const requireMeituanStatic = (key) => {'
+  );
   const returnToMeituanRankingAfterConfigSave = constSlice(
     'const returnToMeituanRankingAfterConfigSave = async (hotelId) => {',
     '\n\n            let manualOnlineFetchConfigReadyPromise'
@@ -2785,8 +2789,20 @@ test('Meituan config saves cookie-only and no longer treats room counts as crede
     '\n\n            const fetchCustomData'
   );
 
+  assert.match(html, /const meituanConfigSaveHelperKeys = Object\.freeze\(\[/);
+  assert.match(html, /const resolveMeituanStaticHelperAvailability = \(keys = \[\]\) => \{/);
+  assert.match(saveMeituanConfigItem, /const helperAvailability = resolveMeituanStaticHelperAvailability\(meituanConfigSaveHelperKeys\);/);
+  assert.match(saveMeituanConfigItem, /if \(!helperAvailability\.available\) \{/);
+  assert.match(saveMeituanConfigItem, /本次未发送请求/);
+  assert.ok(
+    saveMeituanConfigItem.indexOf('if (!helperAvailability.available) {')
+      < saveMeituanConfigItem.indexOf("request('/online-data/save-meituan-config-item', {")
+  );
+  assert.doesNotMatch(meituanStaticFallback, /if \(key === '(?:resolveMeituanConfigSaveCookieState|buildMeituanConfigAutoName|buildMeituanConfigSaveRequestBody|buildMeituanConfigSaveSuccessState|buildMeituanConfigSaveFailureState)'\)/);
   assert.match(saveMeituanConfigItem, /const cookieState = resolveMeituanConfigSaveCookieState\(meituanConfigForm\.value\.cookies, \{/);
   assert.match(saveMeituanConfigItem, /keepExisting: Boolean\(meituanConfigForm\.value\.id\)/);
+  assert.match(saveMeituanConfigItem, /meituanConfigForm\.value\.has_cookies === true/);
+  assert.doesNotMatch(saveMeituanConfigItem, /credential_status/);
   assert.match(saveMeituanConfigItem, /if \(!cookieState\.canSave\) \{/);
   assert.match(saveMeituanConfigItem, /showToast\(cookieState\.message, cookieState\.level\);/);
   assert.doesNotMatch(saveMeituanConfigItem, /String\(meituanConfigForm\.value\.cookies \|\| ''\)\.trim\(\)/);
@@ -3096,6 +3112,11 @@ test('Meituan config saves cookie-only and no longer treats room counts as crede
   assert.match(html, /缺门店标识/);
   assert.match(html, /平台接口标识（一次性配置，可后补）/);
   assert.match(html, /平台门店标识（一次性配置，可后补）/);
+  assert.match(html, /酒店总房量（采集优先，可选补充）/);
+  assert.match(html, /竞争圈总房量（采集优先，可选补充）/);
+  assert.match(html, /留空会显示待补，不会按 0 参与分析/);
+  assert.match(html, /Cookie 已保存，待采集验证/);
+  assert.match(html, /仅 Cookie 失效时粘贴新内容；留空不会覆盖/);
   assert.match(html, /detail\?partnerId=\.\.\./);
   assert.match(html, /poiId=xxx/);
   assert.match(html, /partnerId=xxx/);

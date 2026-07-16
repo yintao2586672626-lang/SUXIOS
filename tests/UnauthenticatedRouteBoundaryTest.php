@@ -40,6 +40,7 @@ final class UnauthenticatedRouteBoundaryTest extends TestCase
             ['GET', '/api/lifecycle/overview', ''],
             ['POST', '/api/strategy/simulate', '{}'],
             ['POST', '/api/knowledge/distillation/run', '{"mode":"invalid"}'],
+            ['GET', '/api/system-config?scope=public', ''],
         ];
 
         foreach ($cases as [$method, $path, $body]) {
@@ -49,6 +50,18 @@ final class UnauthenticatedRouteBoundaryTest extends TestCase
             self::assertSame(401, $response->getCode(), "Canonical route must require authentication: {$path}");
             self::assertSame('missing_token', $payload['data']['reason'] ?? null, "Missing-token reason expected: {$path}");
         }
+    }
+
+    public function testLoginSupportIsPublicAndOnlyReturnsTheContactField(): void
+    {
+        $response = $this->dispatch('GET', '/api/auth/login-support', '');
+        $payload = json_decode((string)$response->getContent(), true);
+
+        self::assertSame(200, $response->getCode());
+        self::assertSame(200, $payload['code'] ?? null);
+        self::assertSame(['contact'], array_keys($payload['data'] ?? []));
+        self::assertNotSame('', trim((string)($payload['data']['contact'] ?? '')));
+        self::assertLessThanOrEqual(120, mb_strlen((string)($payload['data']['contact'] ?? '')));
     }
 
     private function dispatch(string $method, string $url, string $body): Response

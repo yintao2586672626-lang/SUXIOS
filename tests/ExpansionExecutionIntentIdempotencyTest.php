@@ -107,6 +107,7 @@ final class ExpansionExecutionIntentIdempotencyTest extends TestCase
         $baseSchema = file_get_contents(__DIR__ . '/../database/migrations/20260526_create_operation_execution_loop_tables.sql');
         $initSchema = file_get_contents(__DIR__ . '/../database/init_full.sql');
         $controller = file_get_contents(__DIR__ . '/../app/controller/Expansion.php');
+        $expansionService = file_get_contents(__DIR__ . '/../app/service/ExpansionService.php');
 
         self::assertIsString($migration);
         self::assertStringContainsString('ADD COLUMN IF NOT EXISTS `idempotency_key`', $migration);
@@ -120,6 +121,9 @@ final class ExpansionExecutionIntentIdempotencyTest extends TestCase
         self::assertIsString($controller);
         self::assertStringContainsString('$this->service->detail($id, $userId, $isSuperAdmin, true)', $controller);
         self::assertStringContainsString("'idempotent_replay' => true", $controller);
+        self::assertIsString($expansionService);
+        self::assertStringContainsString('if ($lockForUpdate) {', $expansionService);
+        self::assertStringContainsString('$query->lock(true);', $expansionService);
 
         $methodStart = strpos($controller, 'public function createExecutionIntent');
         $methodEnd = strpos($controller, 'public function archive', $methodStart);

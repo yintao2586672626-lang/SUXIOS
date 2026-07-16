@@ -9,7 +9,7 @@ test.use({
   navigationTimeout: 15000,
 });
 
-test('OTA auth failure strongly reminds only the direct store submitter', async ({ page }) => {
+test('OTA Cookie reminder auto-closes while keeping the top banner', async ({ page }) => {
   test.setTimeout(45000);
   let clearRequestCount = 0;
   const user = {
@@ -32,10 +32,10 @@ test('OTA auth failure strongly reminds only the direct store submitter', async 
     category_label: '登录失效强提醒',
     severity: 'error',
     title: index % 2 === 0 ? '美团登录授权已失效' : '携程登录授权已失效',
-    detail: '该门店的平台登录授权已失效，请由提交人重新登录并验证。',
+    detail: '该门店的 Cookie 可能已失效，请更新并验证后再采集。',
     is_read: false,
     updated_at: `2026-07-14 19:0${index}:00`,
-    action_label: '重新登录并验证',
+    action_label: '更新 Cookie',
     target_page: 'online-data',
     target_tab: 'data-health',
     requires_resolution: true,
@@ -45,7 +45,7 @@ test('OTA auth failure strongly reminds only the direct store submitter', async 
     authorization_source_label: `运营账号授权 ${index + 1}`,
     authorization_source_type: index % 2 === 0 ? 'cookie_api' : 'profile',
     authorization_source_state: 'exact',
-    authorization_source_note: '本次失败已记录到该授权来源，完整原因默认折叠。',
+    authorization_source_note: '来源详情不应在强提醒卡片中展开显示。',
     data_source_id: 208 + index,
   }));
 
@@ -72,6 +72,7 @@ test('OTA auth failure strongly reminds only the direct store submitter', async 
           code: 200,
           data: {
             list: reminderRows,
+            strong_reminders: reminderRows,
             total: reminderRows.length,
             unread_count: reminderRows.length,
             poll_interval_ms: 120000,
@@ -81,7 +82,7 @@ test('OTA auth failure strongly reminds only the direct store submitter', async 
       return;
     }
     if (pathname === '/api/notifications/clear') {
-      clearRequestCount++;
+      clearRequestCount += 1;
     }
     await route.fulfill({
       status: 200,
@@ -94,21 +95,30 @@ test('OTA auth failure strongly reminds only the direct store submitter', async 
 
   const banner = page.getByTestId('ota-auth-strong-reminder-banner');
   const modal = page.getByTestId('ota-auth-strong-reminder-modal');
-  await expect(modal).toBeVisible({ timeout: 15000 });
-  await expect(banner).toBeVisible();
-  await expect(modal).toContainText('测试门店80');
-  await expect(modal).toContainText('美团');
-  await expect(modal).toContainText('已定位');
-  await expect(modal).toContainText('运营账号授权 1');
-  await expect(modal).toContainText('Cookie/API');
-  await expect(modal.getByRole('button', { name: '重新登录并验证' })).toHaveCount(6);
-  await expect(modal.locator('details')).toHaveCount(6);
-  expect(await modal.locator('details').evaluateAll(nodes => nodes.every(node => !node.hasAttribute('open')))).toBe(true);
-
   const footer = page.getByTestId('ota-auth-strong-reminder-footer');
   const list = page.getByTestId('ota-auth-strong-reminder-list');
+  const countdown = page.getByTestId('ota-auth-auto-dismiss-countdown');
+
+  await expect(modal).toBeVisible({ timeout: 15000 });
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText('6 项 OTA Cookie 状态需处理');
+  await expect(banner).toContainText('Cookie 可能已失效');
+
+  await expect(modal).toContainText('部分账号 Cookie 可能已失效');
+  await expect(modal).toContainText('测试门店80');
+  await expect(modal).toContainText('美团');
+  await expect(modal).toContainText('Cookie 可能已失效');
+  await expect(modal.getByRole('button', { name: '更新 Cookie' })).toHaveCount(6);
+  await expect(modal.locator('details')).toHaveCount(0);
+  await expect(modal.getByText('查看详情')).toHaveCount(0);
+  await expect(modal.getByText('候选授权来源')).toHaveCount(0);
+  await expect(modal.getByText('运营账号授权 1')).toHaveCount(0);
+
   await expect(footer).toBeVisible();
   await expect(list).toBeVisible();
+  await expect(countdown).toContainText('未操作将在');
+  await expect(countdown).toContainText('秒后自动关闭，顶部提醒仍会保留。');
+
   const panelBox = await modal.locator('section').boundingBox();
   const footerBox = await footer.boundingBox();
   expect(panelBox).not.toBeNull();
@@ -120,21 +130,23 @@ test('OTA auth failure strongly reminds only the direct store submitter', async 
   const deferButton = page.getByTestId('ota-auth-strong-reminder-defer');
   const snoozeButton = page.getByTestId('ota-auth-strong-reminder-snooze-24h');
   const closeButton = page.getByTestId('ota-auth-strong-reminder-close');
-  await expect(deferButton).toBeDisabled();
-  await expect(snoozeButton).toBeDisabled();
-  await expect(closeButton).toBeDisabled();
-  await expect(deferButton).toHaveText('下次登录再提醒');
-  await expect(snoozeButton).toHaveText('24 小时内不再弹窗');
-  await expect(deferButton).toBeEnabled({ timeout: 6000 });
+  await expect(deferButton).toBeEnabled();
   await expect(snoozeButton).toBeEnabled();
   await expect(closeButton).toBeEnabled();
+  await expect(deferButton).toHaveText('下次登录再提醒');
+  await expect(snoozeButton).toHaveText('24 小时内不再弹窗');
+
+  await expect(modal).toBeHidden({ timeout: 7000 });
+  await expect(banner).toBeVisible();
+
+  await banner.getByRole('button', { name: '立即处理' }).click();
+  await expect(modal).toBeVisible();
   await closeButton.click();
   await expect(modal).toBeHidden();
   await expect(banner).toBeVisible();
 
   await banner.getByRole('button', { name: '立即处理' }).click();
   await expect(modal).toBeVisible();
-  await expect(snoozeButton).toBeEnabled({ timeout: 6000 });
   await snoozeButton.click();
   await expect(modal).toBeHidden();
   await expect(banner).toBeVisible();
@@ -147,7 +159,4 @@ test('OTA auth failure strongly reminds only the direct store submitter', async 
   await page.getByRole('button', { name: '清空普通提醒' }).click();
   await expect(banner).toBeVisible();
   await expect.poll(() => clearRequestCount).toBe(0);
-
-  await banner.getByRole('button', { name: '立即处理' }).click();
-  await expect(modal).toBeVisible();
 });

@@ -129,19 +129,47 @@ const DETAIL_API_PATTERNS = [
 ];
 
 function getConfig() {
+  const baseURL = String(process.env.E2E_BASE_URL || '').trim();
   const username = String(process.env.E2E_USERNAME || '').trim();
   const password = String(process.env.E2E_PASSWORD || '');
-  if (!username || !password) {
-    throw new Error('E2E_USERNAME and E2E_PASSWORD are required; use an isolated E2E runner or provide explicit test credentials');
+  const databaseName = String(process.env.SUXI_E2E_DB_NAME || '').trim();
+  const objectPrefix = String(process.env.E2E_OBJECT_PREFIX || '').trim();
+  if (process.env.SUXI_E2E_ISOLATED_RUNNER !== '1'
+    || process.env.SUXI_E2E_DB_OVERRIDE !== '1'
+    || !/(?:^|[_-])(?:test(?:ing)?|e2e)(?:$|[_-])/i.test(databaseName)) {
+    throw new Error('Playwright E2E requires the isolated runner and a dedicated *_test/*_testing/*_e2e database');
+  }
+  let parsedBaseURL;
+  try {
+    parsedBaseURL = new URL(baseURL);
+  } catch {
+    throw new Error('E2E_BASE_URL must be an isolated loopback URL');
+  }
+  const host = parsedBaseURL.hostname.toLowerCase();
+  const appPort = Number(process.env.SUXI_E2E_APP_PORT || 18080);
+  const effectivePort = Number(parsedBaseURL.port || 80);
+  if (parsedBaseURL.protocol !== 'http:'
+    || !['127.0.0.1', 'localhost'].includes(host)
+    || effectivePort !== appPort
+    || effectivePort === 8080
+    || parsedBaseURL.pathname !== '/'
+    || parsedBaseURL.search
+    || parsedBaseURL.hash
+    || parsedBaseURL.username
+    || parsedBaseURL.password) {
+    throw new Error('E2E_BASE_URL must match the isolated loopback app port and root path');
+  }
+  if (!username || !password || !/^codex_e2e_[a-z0-9_]{8,48}$/.test(objectPrefix)) {
+    throw new Error('Isolated E2E credentials and object prefix are required');
   }
 
   return {
-    baseURL: process.env.E2E_BASE_URL || 'http://localhost:8080/',
+    baseURL,
     username,
     password,
     hotelId: Number(process.env.E2E_HOTEL_ID || 0),
     hotelName: String(process.env.E2E_HOTEL_NAME || '').trim(),
-    objectPrefix: String(process.env.E2E_OBJECT_PREFIX || '').trim(),
+    objectPrefix,
   };
 }
 

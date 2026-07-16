@@ -3,6 +3,10 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
+import {
+  extractAuthenticatedAssetReferences,
+  stripFrontendAssetQuery,
+} from '../../scripts/lib/frontend_authenticated_assets.mjs';
 import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const source = readFileSync('public/ctrip-search-opportunity-static.js', 'utf8');
@@ -11,7 +15,11 @@ const ctripStaticSource = readFileSync('public/ctrip-static.js', 'utf8');
 
 test('future search helper cache version follows the current helper content', () => {
   const hash = createHash('sha256').update(source).digest('hex').slice(0, 10);
-  const version = html.match(/<script\s+(?:defer\s+)?src="ctrip-search-opportunity-static\.js\?v=([^"]+)"/)?.[1] || '';
+  const index = readFileSync('public/index.html', 'utf8');
+  const reference = extractAuthenticatedAssetReferences(index).find(
+    (item) => stripFrontendAssetQuery(item) === 'ctrip-search-opportunity-static.js',
+  ) || '';
+  const version = reference.split('?', 2)[1] || '';
 
   assert.match(version, new RegExp(`h${hash}`));
 });

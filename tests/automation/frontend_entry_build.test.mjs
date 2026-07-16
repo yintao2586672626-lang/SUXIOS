@@ -6,6 +6,10 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { buildFrontendEntry } from '../../scripts/lib/frontend_entry_build.mjs';
+import {
+  extractAuthenticatedAssetReferences,
+  stripFrontendAssetQuery,
+} from '../../scripts/lib/frontend_authenticated_assets.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const sourcePath = path.join(repoRoot, 'public/app-main.js');
@@ -23,16 +27,19 @@ test('browser entry is the deterministic minified form of the canonical source',
   assert.doesNotThrow(() => new Function(artifact));
 });
 
-test('HTML loads only the hashed minified entry at the end of the deferred chain', () => {
+test('authenticated asset manifest loads only the hashed minified entry at the end of the application chain', () => {
   const html = fs.readFileSync(indexPath, 'utf8');
   const artifact = fs.readFileSync(artifactPath, 'utf8');
   const hash = crypto.createHash('sha256').update(artifact).digest('hex').slice(0, 10);
-  const deferredScripts = [...html.matchAll(/<script\s+defer\s+src="([^"]+)"[^>]*><\/script>/g)]
-    .map((match) => match[1].split('?')[0]);
+  const authenticatedReferences = extractAuthenticatedAssetReferences(html);
+  const authenticatedAssets = authenticatedReferences.map(stripFrontendAssetQuery);
+  const entryReference = authenticatedReferences.find(
+    (reference) => stripFrontendAssetQuery(reference) === 'app-main.min.js',
+  );
 
-  assert.match(html, new RegExp(`<script defer src="app-main\\.min\\.js\\?v=[^"]*-h${hash}"`));
-  assert.doesNotMatch(html, /<script\s+defer\s+src="app-main\.js\?/);
-  assert.equal(deferredScripts[0], 'vue.runtime.global.prod.js');
-  assert.equal(deferredScripts.at(-2), 'app-render.min.js');
-  assert.equal(deferredScripts.at(-1), 'app-main.min.js');
+  assert.match(entryReference, new RegExp(`^app-main\\.min\\.js\\?v=[^"]*-h${hash}$`));
+  assert.doesNotMatch(html, /(?:src="|\")app-main\.js\?/);
+  assert.equal(authenticatedAssets[0], 'vue.runtime.global.prod.js');
+  assert.equal(authenticatedAssets.at(-2), 'app-render.min.js');
+  assert.equal(authenticatedAssets.at(-1), 'app-main.min.js');
 });

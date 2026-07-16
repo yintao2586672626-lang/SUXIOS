@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\RevenuePricingRecommendationService;
+use app\service\TrustedOtaFactRepository;
 use PHPUnit\Framework\TestCase;
 
 final class RevenuePricingRecommendationServiceTest extends TestCase
@@ -299,5 +300,46 @@ final class RevenuePricingRecommendationServiceTest extends TestCase
         self::assertSame('effect_review_ready', $readiness['stage']);
         self::assertTrue($readiness['review_ready']);
         self::assertSame([], $readiness['missing_evidence']);
+    }
+
+    public function testPricingSummaryPropagatesTrustedHistoryGapsAndSourcePolicy(): void
+    {
+        $repository = new class extends TrustedOtaFactRepository {
+            /** @var array<int, array{hotel_id:int,start_date:string,end_date:string}> */
+            public array $calls = [];
+
+            public function pricingHistory(int $systemHotelId, string $startDate, string $endDate): array
+            {
+                $this->calls[] = [
+                    'hotel_id' => $systemHotelId,
+                    'start_date' => $startDate,
+                    'end_date' => $endDate,
+                ];
+
+                return [
+                    'data_status' => 'blocked',
+                    'rows' => [],
+                    'data_gaps' => ['pricing_history_readback_verified_column_missing'],
+                    'source_policy' => [
+                        'hotel_scope' => 'system_hotel_id_strict_exact_only',
+                        'readback_policy' => 'readback_verified_required_equals_1',
+                    ],
+                    'data_quality' => ['queried_rows' => 0, 'trusted_rows' => 0],
+                ];
+            }
+        };
+        $service = new RevenuePricingRecommendationService($repository);
+
+        $summary = $service->hotelPricingModelSummary(80, '2026-07-17');
+        $cachedSummary = $service->hotelPricingModelSummary(80, '2026-07-17');
+
+        self::assertSame('blocked', $summary['history_data_status']);
+        self::assertContains('pricing_history_readback_verified_column_missing', $summary['data_gaps']);
+        self::assertContains('online_daily_history_missing', $summary['data_gaps']);
+        self::assertSame('system_hotel_id_strict_exact_only', $summary['source_policy']['hotel_scope']);
+        self::assertSame('readback_verified_required_equals_1', $summary['source_policy']['readback_policy']);
+        self::assertSame($summary, $cachedSummary);
+        self::assertCount(1, $repository->calls);
+        self::assertSame(80, $repository->calls[0]['hotel_id']);
     }
 }

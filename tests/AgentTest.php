@@ -37,6 +37,24 @@ final class AgentTest extends TestCase
                 'platform' => 'ctrip',
                 'price' => 288,
                 'fetch_time' => '2026-05-24 10:00:00',
+                'collected_at' => '2026-05-24 10:00:00',
+                'source_method' => 'local_browser_profile',
+                'source_ref' => 'https://hotels.ctrip.com/hotels/200.html',
+                'validation_status' => 'verified',
+                'readback_verified' => 1,
+                'check_in_date' => '2026-05-25',
+                'check_out_date' => '2026-05-26',
+                'adults' => 2,
+                'children' => 0,
+                'room_type_key' => 'standard-room',
+                'rate_plan_key' => 'public-flex',
+                'breakfast' => 'none',
+                'cancellation_policy' => 'free-before-18',
+                'payment_mode' => 'pay-at-hotel',
+                'tax_fee_included' => 1,
+                'price_basis' => 'room_per_night',
+                'currency' => 'CNY',
+                'availability' => 'available',
             ]],
             'price_suggestions' => [[
                 'id' => 30,
@@ -103,6 +121,82 @@ final class AgentTest extends TestCase
         self::assertContains('advertising', $items[0]['required_evidence']);
         self::assertSame('missing_advertising_evidence', $items[0]['missing_evidence'][0]['code']);
         self::assertSame('blocked', $items[0]['human_confirmation_status']);
+    }
+
+    public function testOtaDiagnosisDecisionGateRequiresVerifiedQualityAndReadback(): void
+    {
+        $controller = $this->controller();
+
+        self::assertTrue($this->invokeNonPublic($controller, 'isOtaDiagnosisDecisionEligibleRow', [[
+            'readback_verified' => 1,
+            'validation_status' => 'normal',
+        ]]));
+        self::assertFalse($this->invokeNonPublic($controller, 'isOtaDiagnosisDecisionEligibleRow', [[
+            'readback_verified' => 1,
+            'validation_status' => 'stale',
+        ]]));
+        self::assertFalse($this->invokeNonPublic($controller, 'isOtaDiagnosisDecisionEligibleRow', [[
+            'readback_verified' => 0,
+            'validation_status' => 'verified',
+        ]]));
+    }
+
+    public function testOtaDiagnosisEvidenceUsesLatestEligibleRowsAndCarriesTraceMetadata(): void
+    {
+        $controller = $this->controller();
+        $sources = $this->invokeNonPublic($controller, 'buildOtaDiagnosisEvidenceSources', [[
+            'decision_quality' => ['gate' => 'eligible_rows_only'],
+            'decision_eligible_online_rows' => [
+                [
+                    'id' => 1,
+                    'source' => 'ctrip',
+                    'hotel_id' => '1001',
+                    'data_type' => 'traffic',
+                    'data_date' => '2026-05-20',
+                    'validation_status' => 'normal',
+                    'readback_verified' => 1,
+                ],
+                [
+                    'id' => 2,
+                    'source' => 'ctrip',
+                    'hotel_id' => '1001',
+                    'data_type' => 'traffic',
+                    'data_date' => '2026-05-24',
+                    'validation_status' => 'verified',
+                    'readback_verified' => 1,
+                    'readback_verified_at' => '2026-05-24 10:01:00',
+                    'source_trace_id' => 'trace-safe-2',
+                    'create_time' => '2026-05-24 10:00:00',
+                    'raw_data' => json_encode([
+                        'capture_meta' => [
+                            'source_method' => 'local_browser_profile',
+                            'source_url' => 'https://hotels.ctrip.com/hotels/1001.html',
+                            'evidence_asset_ref' => 'local-evidence://capture-2',
+                        ],
+                    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                ],
+            ],
+            'excluded_online_rows' => [[
+                'id' => 3,
+                'source' => 'ctrip',
+                'hotel_id' => '1001',
+                'data_type' => 'traffic',
+                'data_date' => '2026-05-25',
+                'validation_status' => 'stale',
+                'readback_verified' => 1,
+            ]],
+        ], []]);
+
+        $byRef = array_column($sources, null, 'ref');
+        self::assertSame('verified', $byRef['online_daily_data#2']['quality_status']);
+        self::assertSame('trace-safe-2', $byRef['online_daily_data#2']['source_trace_id']);
+        self::assertSame('local_browser_profile', $byRef['online_daily_data#2']['source_method']);
+        self::assertSame('https://hotels.ctrip.com/hotels/1001.html', $byRef['online_daily_data#2']['source_url']);
+        self::assertTrue($byRef['online_daily_data#2']['decision_eligible']);
+        self::assertTrue($byRef['online_daily_data_excluded#3']['excluded_from_decision']);
+        self::assertFalse($byRef['online_daily_data_excluded#3']['decision_eligible']);
+        self::assertSame('stale', $byRef['online_daily_data_excluded#3']['quality_status']);
+        self::assertSame([], $byRef['online_daily_data_excluded#3']['metrics']);
     }
 
     public function testOtaDiagnosisUsesAdvertisingAndQualityWithoutCommentDependency(): void
@@ -364,11 +458,35 @@ final class AgentTest extends TestCase
         $refs = $this->invokeNonPublic($controller, 'selectOtaEvidenceRefsForAction', [
             'Improve traffic conversion',
             [
-                ['ref' => 'online_daily_data#10', 'tags' => ['traffic']],
-                ['ref' => 'competitor_price_log#2', 'tags' => ['price']],
+                ['ref' => 'online_daily_data#10', 'tags' => ['traffic'], 'decision_eligible' => true],
+                ['ref' => 'competitor_price_log#2', 'tags' => ['price'], 'decision_eligible' => false],
             ],
         ]);
         self::assertSame(['online_daily_data#10'], $refs);
+    }
+
+    public function testLegacyCompetitorPriceIsReferenceOnlyAndCannotUnlockPriceAction(): void
+    {
+        $controller = $this->controller();
+        $sources = $this->invokeNonPublic($controller, 'buildOtaDiagnosisEvidenceSources', [[
+            'competitor_prices' => [[
+                'id' => 90,
+                'platform' => 'ctrip',
+                'price' => 99,
+                'fetch_time' => '2026-05-24 10:00:00',
+            ]],
+        ], []]);
+        $byRef = array_column($sources, null, 'ref');
+
+        self::assertFalse($byRef['competitor_price_log#90']['decision_eligible']);
+        self::assertTrue($byRef['competitor_price_log#90']['excluded_from_decision']);
+        self::assertSame([], $byRef['competitor_price_log#90']['metrics']);
+
+        $items = $this->invokeNonPublic($controller, 'buildOtaDiagnosisActionItems', [[
+            '对比竞对价格后调整本店房价',
+        ], $sources]);
+        self::assertFalse($items[0]['execution_ready']);
+        self::assertContains('missing_competitor_evidence', array_column($items[0]['missing_evidence'], 'code'));
     }
 
     public function testOtaDiagnosisNoDataResultKeepsEvidenceGapsAndActionItems(): void

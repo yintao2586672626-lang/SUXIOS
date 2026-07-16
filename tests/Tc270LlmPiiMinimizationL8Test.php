@@ -190,6 +190,7 @@ final class Tc270LlmPiiMinimizationL8Test extends TestCase
             'data_date' => $sourceDate,
             'id_card' => $pii['id_card'],
             'order_remark' => $pii['order_remark'],
+            'evidence_refs' => [['source_ref' => 'online_daily_data#270']],
         ];
         if ($complete) {
             $summary['revenue'] = 2700;
@@ -202,6 +203,21 @@ final class Tc270LlmPiiMinimizationL8Test extends TestCase
                 'report_date' => self::REPORT_DATE,
                 'source_data_date' => $sourceDate,
             ],
+            'input_trust' => [
+                'readback_verified' => true,
+                'data_gaps' => $gaps,
+            ],
+            'source_refs' => [[
+                'key' => 'online_daily_data#270',
+                'label' => 'TC-270 synthetic OTA fixture',
+                'scope' => 'Ctrip OTA channel fact',
+                'source' => 'ctrip',
+                'platform' => 'Ctrip',
+                'data_date' => $sourceDate,
+                'validation_status' => $complete ? 'available' : 'partial',
+                'metric_keys' => $complete ? ['orders'] : [],
+                'readback_verified' => true,
+            ]],
             'operation' => [
                 'summary' => $summary,
                 'ota' => $ota,

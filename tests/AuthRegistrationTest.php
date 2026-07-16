@@ -8,7 +8,6 @@ use app\controller\Base;
 use app\controller\RoleController;
 use app\controller\User as UserController;
 use app\model\Role;
-use app\model\SystemConfig;
 use app\model\User as UserModel;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
@@ -16,66 +15,16 @@ use ReflectionProperty;
 
 final class AuthRegistrationTest extends TestCase
 {
-    public function testDefaultConfigEnablesSelfRegistration(): void
-    {
-        $defaults = SystemConfig::getDefaultConfigs();
-
-        self::assertSame('1', $defaults[SystemConfig::KEY_ENABLE_REGISTRATION]);
-    }
-
-    public function testRegistrationEnabledConfigParsing(): void
+    public function testPublicRegistrationIsHardDisabledWithoutLegacyWriter(): void
     {
         $reflection = new ReflectionClass(Auth::class);
         $controller = $reflection->newInstanceWithoutConstructor();
-        $method = $reflection->getMethod('isEnabledConfigValue');
-        $method->setAccessible(true);
+        $response = $controller->register();
 
-        self::assertTrue($method->invoke($controller, '1'));
-        self::assertTrue($method->invoke($controller, 'yes'));
-        self::assertFalse($method->invoke($controller, '0'));
-        self::assertFalse($method->invoke($controller, ''));
-    }
-
-    public function testSelfRegistrationHotelPermissionDefaultsFollowRoleCapabilities(): void
-    {
-        $reflection = new ReflectionClass(Auth::class);
-        $controller = $reflection->newInstanceWithoutConstructor();
-        $method = $reflection->getMethod('buildSelfRegistrationHotelPermissionDefaults');
-        $method->setAccessible(true);
-
-        $normalRole = $this->roleWithPermissions(['dashboard.view', 'hotel.view', 'ota.view', 'report.view']);
-        $normalDefaults = $method->invoke($controller, $normalRole);
-
-        self::assertSame(1, $normalDefaults['can_view_online_data']);
-        self::assertSame(0, $normalDefaults['can_fetch_online_data']);
-        self::assertSame(0, $normalDefaults['can_delete_online_data']);
-
-        $dirtyNormalRole = $this->roleWithPermissions([
-            'hotel.view',
-            'hotel.update',
-            'ota.view',
-            'ota.collect',
-            'ota.delete',
-            'can_export_data',
-            'ai.execute',
-        ], Role::NORMAL_USER, 'normal_user');
-        $dirtyNormalDefaults = $method->invoke($controller, $dirtyNormalRole);
-
-        self::assertSame(1, $dirtyNormalDefaults['can_view_online_data']);
-        self::assertSame(0, $dirtyNormalDefaults['can_edit']);
-        self::assertSame(0, $dirtyNormalDefaults['can_fetch_ota']);
-        self::assertSame(0, $dirtyNormalDefaults['can_delete_ota']);
-        self::assertSame(0, $dirtyNormalDefaults['can_export']);
-        self::assertSame(0, $dirtyNormalDefaults['can_ai']);
-        self::assertSame(0, $dirtyNormalDefaults['can_fetch_online_data']);
-        self::assertSame(0, $dirtyNormalDefaults['can_delete_online_data']);
-
-        $operatorRole = $this->roleWithPermissions(['hotel.view', 'ota.view', 'ota.collect', 'ota.delete']);
-        $operatorDefaults = $method->invoke($controller, $operatorRole);
-
-        self::assertSame(1, $operatorDefaults['can_view_online_data']);
-        self::assertSame(1, $operatorDefaults['can_fetch_online_data']);
-        self::assertSame(1, $operatorDefaults['can_delete_online_data']);
+        self::assertSame(403, $response->getCode());
+        self::assertStringContainsString('系统已关闭自助注册', (string)$response->getContent());
+        self::assertFalse($reflection->hasMethod('registerLegacyDisabled'));
+        self::assertFalse($reflection->hasMethod('buildSelfRegistrationHotelPermissionDefaults'));
     }
 
     public function testNormalExternalUserIssueRejectsOtaCollectionPermission(): void
@@ -264,30 +213,6 @@ final class AuthRegistrationTest extends TestCase
         self::assertFalse($permissions['can_export_data']);
     }
 
-    public function testSelfRegistrationDefaultsHideDeniedGrantsForStaffLevelAboveThreeRole(): void
-    {
-        $reflection = new ReflectionClass(Auth::class);
-        $controller = $reflection->newInstanceWithoutConstructor();
-        $method = $reflection->getMethod('buildSelfRegistrationHotelPermissionDefaults');
-        $method->setAccessible(true);
-
-        $role = $this->roleWithPermissions([
-            'hotel.view',
-            'hotel.update',
-            'ota.view',
-            'ota.collect',
-            'ota.delete',
-            'can_export_data',
-        ], 9, 'external_staff_reader', 4);
-        $defaults = $method->invoke($controller, $role);
-
-        self::assertSame(1, $defaults['can_view_online_data']);
-        self::assertSame(0, $defaults['can_edit']);
-        self::assertSame(0, $defaults['can_fetch_ota']);
-        self::assertSame(0, $defaults['can_delete_ota']);
-        self::assertSame(0, $defaults['can_export']);
-    }
-
     public function testExternalRolesWithAllPermissionDoNotBecomeSuperAdmin(): void
     {
         $normalRole = $this->roleWithPermissions(['all'], Role::NORMAL_USER, 'normal_user', 3);
@@ -452,6 +377,47 @@ final class AuthRegistrationTest extends TestCase
         self::assertArrayNotHasKey('deadline', $notices[0]);
         self::assertStringContainsString('未绑定或未分配的门店将无法查看', $notices[0]['message']);
         self::assertStringNotContainsString('2026-07-05', $notices[0]['message']);
+    }
+
+    public function testDeniedRequestedHotelDoesNotBecomeActiveAuthContext(): void
+    {
+        $reflection = new ReflectionClass(Auth::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+        $request = new class {
+            public function get(string $key, $default = null)
+            {
+                return match ($key) {
+                    'system_hotel_id' => 999,
+                    'platform' => 'ctrip',
+                    default => $default,
+                };
+            }
+        };
+        $requestProperty = new ReflectionProperty(Base::class, 'request');
+        $requestProperty->setAccessible(true);
+        $requestProperty->setValue($controller, $request);
+
+        $user = $this->getMockBuilder(UserModel::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['__get', '__isset'])
+            ->getMock();
+        $user->method('__isset')->willReturnCallback(static fn(string $key): bool => $key === 'hotel_id');
+        $user->method('__get')->willReturnCallback(static fn(string $key): ?int => $key === 'hotel_id' ? 7 : null);
+
+        $method = $reflection->getMethod('buildAuthContext');
+        $method->setAccessible(true);
+        $context = $method->invoke($controller, $user, [[
+            'id' => 7,
+            'tenant_id' => 70,
+            'name' => 'Permitted Hotel',
+        ]]);
+
+        self::assertSame(7, $context['hotelId']);
+        self::assertSame(70, $context['tenantId']);
+        self::assertSame('Permitted Hotel', $context['currentHotelName']);
+        self::assertSame('denied', $context['permissionStatus']);
+        self::assertSame(999, $context['requestedHotelId']);
+        self::assertNotSame($context['requestedHotelId'], $context['hotelId']);
     }
 
     /**

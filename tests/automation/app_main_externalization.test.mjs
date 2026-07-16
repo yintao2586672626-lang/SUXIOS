@@ -2,12 +2,16 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import test from 'node:test';
+import {
+  extractAuthenticatedAssetReferences,
+  stripFrontendAssetQuery,
+} from '../../scripts/lib/frontend_authenticated_assets.mjs';
 
 const indexPath = 'public/index.html';
 const appMainPath = 'public/app-main.js';
 const appMainRuntimePath = 'public/app-main.min.js';
 
-test('main Vue bootstrap is external, deferred, ordered, and content-versioned', () => {
+test('main Vue bootstrap is external, authenticated, ordered, and content-versioned', () => {
   const html = fs.readFileSync(indexPath, 'utf8');
   assert.equal(fs.existsSync(appMainPath), true, 'public/app-main.js must exist');
   assert.equal(fs.existsSync(appMainRuntimePath), true, 'public/app-main.min.js must exist');
@@ -16,22 +20,25 @@ test('main Vue bootstrap is external, deferred, ordered, and content-versioned',
   assert.doesNotMatch(html, /const\s+suxiApp\s*=\s*createApp\(/);
   assert.match(appMain, /const\s+suxiApp\s*=\s*createApp\(/);
 
-  const deferredSources = [...html.matchAll(/<script\s+defer\s+src="([^"]+)"[^>]*><\/script>/g)]
-    .map((match) => match[1]);
-  assert.equal(deferredSources[0]?.split('?')[0], 'vue.runtime.global.prod.js');
-  assert.equal(deferredSources.at(-2)?.split('?')[0], 'app-render.min.js');
-  assert.equal(deferredSources.at(-1)?.split('?')[0], 'app-main.min.js');
-  assert.ok(deferredSources.every((source) => source.endsWith('.js') || source.includes('.js?')));
+  const authenticatedSources = extractAuthenticatedAssetReferences(html);
+  const authenticatedAssets = authenticatedSources.map(stripFrontendAssetQuery);
+  assert.equal(authenticatedAssets[0], 'vue.runtime.global.prod.js');
+  assert.equal(authenticatedAssets.at(-2), 'app-render.min.js');
+  assert.equal(authenticatedAssets.at(-1), 'app-main.min.js');
+  assert.ok(authenticatedSources.every((source) => source.endsWith('.js') || source.includes('.js?')));
 
-  const appReference = deferredSources.at(-1);
+  const appReference = authenticatedSources.at(-1);
   const versionHash = appReference.match(/-h([a-f0-9]{10})(?:$|&)/)?.[1];
   const contentHash = crypto.createHash('sha256').update(appMainRuntime).digest('hex').slice(0, 10);
   assert.equal(versionHash, contentHash);
 });
 
-test('asset failure renderer survives app-main load failure without changing success DOM', () => {
+test('asset failure renderer survives authenticated application load failure without changing success DOM', () => {
   const html = fs.readFileSync(indexPath, 'utf8');
+  const bootstrap = fs.readFileSync('public/app-bootstrap.js', 'utf8');
   assert.match(html, /window\.SUXI_RENDER_ASSET_LOAD_ERROR\s*=/);
-  assert.match(html, /onerror="window\.SUXI_RENDER_ASSET_LOAD_ERROR\('app-main\.min\.js'\)"/);
+  assert.match(html, /onerror="window\.SUXI_RENDER_ASSET_LOAD_ERROR\('app-bootstrap\.js'\)"/);
+  assert.match(bootstrap, /window\.SUXI_RENDER_ASSET_LOAD_ERROR\?\.\(failedAsset\)/);
+  assert.match(bootstrap, /await loadScript\(entry\);/);
   assert.match(html, /<div id="app" v-cloak>/);
 });

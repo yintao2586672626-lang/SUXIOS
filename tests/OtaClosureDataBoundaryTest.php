@@ -231,6 +231,7 @@ final class OtaClosureDataBoundaryTest extends TestCase
             'platform' => 'Ctrip',
             'compare_type' => 'self',
             'validation_status' => 'verified',
+            'readback_verified' => 1,
             'data_period' => 'historical_daily',
             'is_final' => 1,
             'snapshot_time' => null,

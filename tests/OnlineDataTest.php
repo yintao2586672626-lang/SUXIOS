@@ -6486,35 +6486,52 @@ final class OnlineDataTest extends TestCase
         self::assertSame('readback_verified', $deduplicatedPersistenceState['persistence_status']);
         self::assertMatchesRegularExpression('/^ads:identity:[a-f0-9]{24}$/', $rows[0]['dimension']);
         self::assertStringNotContainsString('campaign-1', $rows[0]['dimension']);
+        $expectedRow = [...$rows[0], 'tenant_id' => 44];
         self::assertTrue($this->invokeNonPublic(
             $controller,
             'meituanCapturedRowMatchesReadback',
-            [$rows[0], $rows[0]]
+            [$expectedRow, $expectedRow]
         ));
 
-        $wrongAmount = $rows[0];
+        $wrongAmount = $expectedRow;
         $wrongAmount['amount'] = 0;
         self::assertFalse($this->invokeNonPublic(
             $controller,
             'meituanCapturedRowMatchesReadback',
-            [$wrongAmount, $rows[0]]
+            [$wrongAmount, $expectedRow]
         ));
 
-        $persistedZeroQuantity = $rows[0];
+        $wrongRawData = $expectedRow;
+        $wrongRawData['raw_data'] = '{"different":true}';
+        self::assertFalse($this->invokeNonPublic(
+            $controller,
+            'meituanCapturedRowMatchesReadback',
+            [$wrongRawData, $expectedRow]
+        ));
+
+        $expectedWithTrace = [...$expectedRow, 'source_trace_id' => 'meituan-trace-a'];
+        $persistedWithWrongTrace = [...$expectedWithTrace, 'source_trace_id' => 'meituan-trace-b'];
+        self::assertFalse($this->invokeNonPublic(
+            $controller,
+            'meituanCapturedRowMatchesReadback',
+            [$persistedWithWrongTrace, $expectedWithTrace]
+        ));
+
+        $persistedZeroQuantity = $expectedRow;
         $persistedZeroQuantity['quantity'] = 0;
         self::assertNull($rows[0]['quantity']);
         self::assertFalse($this->invokeNonPublic(
             $controller,
             'meituanCapturedRowMatchesReadback',
-            [$persistedZeroQuantity, $rows[0]]
+            [$persistedZeroQuantity, $expectedRow]
         ));
 
-        $roundedByDatabase = $rows[0];
+        $roundedByDatabase = $expectedRow;
         $roundedByDatabase['amount'] = 88.51;
         self::assertTrue($this->invokeNonPublic(
             $controller,
             'meituanCapturedRowMatchesReadback',
-            [$roundedByDatabase, $rows[0]]
+            [$roundedByDatabase, $expectedRow]
         ));
     }
 

@@ -11,6 +11,7 @@ use ReflectionMethod;
 final class ManualOnlineFetchTaskServiceTest extends TestCase
 {
     private string|false $previousPhpCliBinary;
+    private string|false $previousStatusDriver;
 
     /** @var array<int, string> */
     private array $createdTaskDirs = [];
@@ -18,7 +19,9 @@ final class ManualOnlineFetchTaskServiceTest extends TestCase
     protected function setUp(): void
     {
         $this->previousPhpCliBinary = getenv('PHP_CLI_BINARY');
+        $this->previousStatusDriver = getenv('SUXI_MANUAL_FETCH_TASK_STATUS_DRIVER');
         putenv('PHP_CLI_BINARY=' . PHP_BINARY);
+        putenv('SUXI_MANUAL_FETCH_TASK_STATUS_DRIVER=file');
     }
 
     protected function tearDown(): void
@@ -38,6 +41,11 @@ final class ManualOnlineFetchTaskServiceTest extends TestCase
             putenv('PHP_CLI_BINARY');
         } else {
             putenv('PHP_CLI_BINARY=' . $this->previousPhpCliBinary);
+        }
+        if ($this->previousStatusDriver === false) {
+            putenv('SUXI_MANUAL_FETCH_TASK_STATUS_DRIVER');
+        } else {
+            putenv('SUXI_MANUAL_FETCH_TASK_STATUS_DRIVER=' . $this->previousStatusDriver);
         }
     }
 

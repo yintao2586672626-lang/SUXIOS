@@ -46,6 +46,33 @@ final class AuthMiddlewareAuditTest extends TestCase
         self::assertSame(7, $this->invokeNonPublic($middleware, 'resolveAuditHotelId', [[], $user]));
     }
 
+    public function testRateLimitTenantIgnoresClientSuppliedTenantAndHotelIds(): void
+    {
+        $middleware = new Auth();
+        $user = $this->getMockBuilder(User::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['__get', '__isset'])
+            ->getMock();
+        $user->method('__isset')->willReturnCallback(
+            static fn(string $key): bool => in_array($key, ['tenant_id', 'hotel_id'], true)
+        );
+        $user->method('__get')->willReturnCallback(
+            static fn(string $key): ?int => match ($key) {
+                'tenant_id' => 7,
+                'hotel_id' => 12,
+                default => null,
+            }
+        );
+
+        $tenantId = $this->invokeNonPublic($middleware, 'resolveTenantIdForRateLimit', [[
+            'tenant_id' => 999,
+            'system_hotel_id' => 998,
+            'hotel_id' => 997,
+        ], $user]);
+
+        self::assertSame(7, $tenantId);
+    }
+
     public function testRateLimitPolicyUsesStricterExportAndWriteBuckets(): void
     {
         $middleware = new Auth();

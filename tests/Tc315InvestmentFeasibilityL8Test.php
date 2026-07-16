@@ -140,7 +140,7 @@ final class Tc315InvestmentFeasibilityL8Test extends TestCase
             );
             self::assertSame([], $decisionRecords['records'][0]['missing_evidence'], $caseId);
             self::assertSame(3, $competitor['sample_count'], $caseId);
-            self::assertNotContains('competitor_sample_missing', array_column($competitor['missing_evidence'], 'code'), $caseId);
+            self::assertNotContains('competitor_decision_eligible_sample_missing', array_column($competitor['missing_evidence'], 'code'), $caseId);
             return;
         }
 
@@ -159,7 +159,7 @@ final class Tc315InvestmentFeasibilityL8Test extends TestCase
         self::assertContains('closed_operating_roi_missing', $operatingGapCodes, $caseId);
         self::assertContains('operation_process_closure_missing', $operatingGapCodes, $caseId);
         self::assertSame(0, $competitor['sample_count'], $caseId);
-        self::assertContains('competitor_sample_missing', array_column($competitor['missing_evidence'], 'code'), $caseId);
+        self::assertContains('competitor_decision_eligible_sample_missing', array_column($competitor['missing_evidence'], 'code'), $caseId);
     }
 
     private function assertFreshness(array $overview, bool $fresh, string $caseId): void
@@ -389,6 +389,7 @@ final class Tc315InvestmentFeasibilityL8Test extends TestCase
             'competitor' => [
                 'status' => $complete ? 'ok' : 'partial',
                 'sample_count' => $complete ? 3 : 0,
+                'decision_eligible_sample_count' => $complete ? 3 : 0,
                 'latest_at' => $fresh ? self::TARGET_DATE : self::STALE_DATE,
                 'data_sources' => $complete
                     ? [['table' => 'isolated_competitor_fixture', 'count' => 3]]
@@ -417,6 +418,7 @@ final class Tc315InvestmentFeasibilityL8Test extends TestCase
         return [
             'status' => 'permission_denied',
             'sample_count' => 0,
+            'decision_eligible_sample_count' => 0,
             'latest_at' => '',
             'data_sources' => [],
             'data_gaps' => [$this->gap('target_hotel_permission_denied')],

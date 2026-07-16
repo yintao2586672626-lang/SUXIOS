@@ -13,6 +13,29 @@ function extractJson(text) {
   return JSON.parse(source.slice(start, end + 1));
 }
 
+test('Business-chain source rows never label accepted non-traffic evidence as ready', (t) => {
+  if (!existsSync(php)) {
+    t.skip(`${php} is not available`);
+    return;
+  }
+  const source = readFileSync('scripts/report_business_chain_status.php', 'utf8');
+  assert.match(source, /function business_chain_source_evidence_status/);
+  assert.match(source, /reference_only_non_traffic/);
+
+  const result = spawnSync(php, ['scripts/report_business_chain_status.php'], {
+    cwd: process.cwd(),
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  const payload = extractJson(result.stdout || result.stderr);
+  for (const row of payload.source_rows) {
+    const accepted = Number(row.target_counts?.accepted || 0);
+    const traffic = Number(row.target_counts?.traffic || 0);
+    const expected = accepted <= 0 ? 'empty' : (traffic > 0 ? 'ready' : 'reference_only_non_traffic');
+    assert.equal(row.target_status, expected, JSON.stringify(row));
+  }
+});
+
 test('Business-chain report keeps operator-skipped Meituan read-only and action-free', (t) => {
   if (!existsSync(php)) {
     t.skip(`${php} is not available`);

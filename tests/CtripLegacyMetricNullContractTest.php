@@ -30,4 +30,17 @@ final class CtripLegacyMetricNullContractTest extends TestCase
         }
         self::assertStringNotContainsString('?? 0.0', $method);
     }
+
+    public function testScheduledCtripCollectionCannotRegressToCookieFallback(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php');
+
+        self::assertStringContainsString('scheduled_browser_profile_source_required', $source);
+        self::assertStringContainsString('Scheduled collection is Profile-only.', $source);
+        self::assertStringNotContainsString('private function sendHttpRequest(', $source);
+        self::assertStringNotContainsString('private function parseAndSaveData(', $source);
+        self::assertStringNotContainsString('legacyBusinessObservedMetrics(', $source);
+        self::assertStringNotContainsString("'Cookie: ' .", $source);
+        self::assertStringNotContainsString('OnlineDailyDataPersistenceService', $source);
+    }
 }

@@ -176,4 +176,94 @@ final class OnlineDailyDataPersistenceServiceTest extends TestCase
             ['list_exposure', 'detail_exposure']
         ));
     }
+
+    public function testEveryUpdateClearsAnOldReadbackProofBeforeWriting(): void
+    {
+        $reset = OnlineDailyDataPersistenceService::resetReadbackVerification(
+            [
+                'amount' => 120.5,
+                'readback_verified' => 1,
+                'readback_verified_at' => '2026-07-16 09:00:00',
+            ],
+            [
+                'amount' => true,
+                'readback_verified' => true,
+                'readback_verified_at' => true,
+            ]
+        );
+
+        self::assertSame(0, $reset['readback_verified']);
+        self::assertNull($reset['readback_verified_at']);
+
+        $withoutMigration = OnlineDailyDataPersistenceService::resetReadbackVerification(
+            ['amount' => 120.5],
+            ['amount' => true]
+        );
+        self::assertArrayNotHasKey('readback_verified', $withoutMigration);
+        self::assertArrayNotHasKey('readback_verified_at', $withoutMigration);
+    }
+
+    public function testBusinessReadbackMustMatchIdentityAndActualMetricValuesBeforeTrust(): void
+    {
+        $expected = [
+            'tenant_id' => 44,
+            'source' => 'ctrip',
+            'data_type' => 'business',
+            'data_date' => '2026-07-15',
+            'dimension' => '',
+            'hotel_id' => '832085',
+            'system_hotel_id' => 7,
+            'amount' => 1280.5,
+            'quantity' => 10,
+            'raw_data' => '{"amount":1280.5,"quantity":10}',
+        ];
+        $persisted = array_merge($expected, [
+            'system_hotel_id' => '7',
+            'amount' => '1280.50',
+            'quantity' => '10',
+        ]);
+
+        self::assertTrue(OnlineDailyDataPersistenceService::matchesBusinessReadback($persisted, $expected));
+
+        $persisted['tenant_id'] = '45';
+        self::assertFalse(OnlineDailyDataPersistenceService::matchesBusinessReadback($persisted, $expected));
+
+        $persisted['tenant_id'] = '44';
+        $persisted['amount'] = '1280.49';
+        self::assertFalse(OnlineDailyDataPersistenceService::matchesBusinessReadback($persisted, $expected));
+
+        $persisted['amount'] = '1280.50';
+        $persisted['raw_data'] = '{"amount":0,"quantity":10}';
+        self::assertFalse(OnlineDailyDataPersistenceService::matchesBusinessReadback($persisted, $expected));
+    }
+
+    public function testPrimaryOtaWritersResetProofAndOnlyMarkAfterReadback(): void
+    {
+        $root = dirname(__DIR__);
+        foreach ([
+            'app/service/OnlineDailyDataPersistenceService.php',
+            'app/service/PlatformDataSyncService.php',
+            'app/service/MeituanOnlineDataPersistenceService.php',
+            'app/service/CtripCompetitionCirclePersistenceService.php',
+            'app/controller/concern/BusinessDisplayConcern.php',
+            'app/controller/concern/MeituanCapturedDataConcern.php',
+            'app/controller/concern/CtripAdsConcern.php',
+            'app/controller/concern/AutoFetchConcern.php',
+        ] as $path) {
+            $source = (string)file_get_contents($root . '/' . $path);
+            self::assertStringContainsString('resetReadbackVerification(', $source, $path);
+            self::assertStringContainsString('markRowsReadbackVerified(', $source, $path);
+            self::assertDoesNotMatchRegularExpression(
+                '/markRowsReadbackVerified\(\s*(?:\[\s*)?\$(?:rowId|rowIds)\b/',
+                $source,
+                $path
+            );
+        }
+
+        $scheduled = (string)file_get_contents($root . '/app/command/AutoFetchOnlineData.php');
+        self::assertStringContainsString('$service->syncDataSource(', $scheduled);
+        self::assertStringNotContainsString("Db::name('online_daily_data')", $scheduled);
+        self::assertStringNotContainsString('resetReadbackVerification(', $scheduled);
+        self::assertStringNotContainsString('markRowsReadbackVerified(', $scheduled);
+    }
 }
