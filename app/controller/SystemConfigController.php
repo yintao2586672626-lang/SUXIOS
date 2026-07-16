@@ -66,6 +66,12 @@ class SystemConfigController extends Base
         $this->checkSuperAdmin();
 
         $data = $this->requestData();
+        $customConfigKey = trim((string)($data['config_key'] ?? ''));
+        if ($customConfigKey === SystemConfig::KEY_SESSION_TIMEOUT
+            || array_key_exists(SystemConfig::KEY_SESSION_TIMEOUT, $data)
+        ) {
+            return $this->error('会话有效期固定为72小时，不支持在线修改', 422);
+        }
 
         // 支持自定义配置项（如数据配置）
         if (isset($data['config_key']) && isset($data['config_value'])) {
@@ -181,7 +187,6 @@ class SystemConfigController extends Base
             SystemConfig::KEY_TIME_FORMAT,
             SystemConfig::KEY_PAGE_SIZE_OPTIONS,
             SystemConfig::KEY_DEFAULT_PAGE_SIZE,
-            SystemConfig::KEY_ENABLE_REGISTRATION,
             SystemConfig::KEY_ENABLE_LOGIN_LOG,
             SystemConfig::KEY_ENABLE_OPERATION_LOG,
             SystemConfig::KEY_ENABLE_DATA_BACKUP,

@@ -143,7 +143,9 @@ $ctripBookmarkletSource = extract_method_source_regression($onlineDataRequestSou
 $disabledCookieBookmarkletHelperSource = extract_method_source_regression($cookieEndpointSource, 'buildDisabledCookieBookmarkletScript');
 $dailyPatrolCronSource = extract_method_source_regression($operationWorkbenchSource, 'dailyWorkbenchPatrolCron');
 $competitorTaskSource = extract_method_source_regression($competitorSource, 'task');
-$competitorReportSource = extract_method_source_regression($competitorSource, 'report');
+$competitorReportSource = extract_method_source_regression($competitorSource, 'report')
+    . "\n"
+    . extract_method_source_regression($competitorSource, 'reportLegacy');
 $competitorReportTokenSource = extract_method_source_regression($competitorSource, 'isValidReportToken');
 $competitorAuditSanitizerSource = extract_method_source_regression($competitorSource, 'sanitizeExternalAuditText');
 $robotIndexSource = extract_method_source_regression($robotControllerSource, 'index');
@@ -154,13 +156,12 @@ $robotWebhookNormalizeSource = extract_method_source_regression($robotController
 $robotPostJsonSource = extract_method_source_regression($robotControllerSource, 'postJson');
 $userDeleteSource = extract_method_source_regression($userSource, 'delete');
 $hotelDeleteSource = extract_method_source_regression($hotelSource, 'delete');
+$authRegisterSource = extract_method_source_regression($authSource, 'register');
 
 assert_regression(str_contains($baseSource, 'return json($result, $httpStatus)'), 'Base::error must pass HTTP status into json()');
 assert_regression((bool)preg_match('/Bearer\s*\\\\s\+/', $logoutSource) || str_contains($logoutSource, 'extractTokenFromAuthorizationHeader'), 'logout must strip Bearer prefix before cache deletion');
-assert_regression(str_contains($authSource, '$this->enforceRegistrationRateLimit()'), 'public self-registration must enforce a route-local rate limit before validation');
-assert_regression(str_contains($authSource, "register_rate_") && str_contains($authSource, "\$ipHash = substr(sha1((string)\$this->request->ip()), 0, 16);"), 'public self-registration rate limit must be keyed by IP hash');
-assert_regression(str_contains($authSource, "'register_rate_limited'"), 'rate-limited self-registration attempts must be audited');
-assert_regression(!str_contains($authSource, "return \$this->error('用户名已存在', 409);"), 'public self-registration must not disclose username existence');
+assert_regression(str_contains($authRegisterSource, "return \$this->error('系统已关闭自助注册，请联系管理员创建账号', 403);"), 'public registration must remain a fixed 403 compatibility tombstone');
+assert_regression(!str_contains($authSource, 'registerLegacyDisabled') && !str_contains($authRegisterSource, 'new User'), 'public registration must not retain a hidden account-creation path');
 
 assert_regression(!str_contains($competitorSource, 'DEV_FALLBACK_TOKEN'), 'competitor API must not keep a fixed fallback token');
 assert_regression(!str_contains($competitorSource, 'isLocalOrDevEnvironment'), 'competitor API token validation must not depend on debug/local fallback');

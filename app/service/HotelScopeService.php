@@ -9,6 +9,9 @@ use think\facade\Db;
 
 class HotelScopeService
 {
+    /** @var array<string, bool> */
+    private array $tableColumnCache = [];
+
     /**
      * @return array<int, int>
      */
@@ -307,23 +310,28 @@ class HotelScopeService
     {
         $table = str_replace('`', '', $table);
         $column = str_replace(['`', "'"], '', $column);
+        $cacheKey = $table . '.' . $column;
+
+        if (array_key_exists($cacheKey, $this->tableColumnCache)) {
+            return $this->tableColumnCache[$cacheKey];
+        }
 
         try {
-            return !empty(Db::query("SHOW COLUMNS FROM `{$table}` LIKE '{$column}'"));
+            return $this->tableColumnCache[$cacheKey] = !empty(Db::query("SHOW COLUMNS FROM `{$table}` LIKE '{$column}'"));
         } catch (\Throwable $e) {
             try {
                 $rows = Db::query("PRAGMA table_info(`{$table}`)");
             } catch (\Throwable $ignored) {
-                return false;
+                return $this->tableColumnCache[$cacheKey] = false;
             }
 
             foreach ($rows as $row) {
                 if (($row['name'] ?? '') === $column) {
-                    return true;
+                    return $this->tableColumnCache[$cacheKey] = true;
                 }
             }
 
-            return false;
+            return $this->tableColumnCache[$cacheKey] = false;
         }
     }
 }

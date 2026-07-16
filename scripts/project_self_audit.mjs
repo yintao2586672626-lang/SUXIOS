@@ -406,11 +406,21 @@ function measureTopLevel() {
 function measureCleanupTargets() {
   const candidates = [
     'output',
-    'runtime',
     'test-results',
     '.pytest_cache',
     '.gstack',
   ];
+  const runtimeCleanupNames = [
+    'cache',
+    'static-gzip',
+    'static-html',
+    'log',
+    'codex-runner-contract',
+    'test_ctrip_mapping',
+  ];
+  for (const runtimeName of runtimeCleanupNames) {
+    candidates.push(path.join('runtime', runtimeName));
+  }
   const storagePath = path.join(repoRoot, 'storage');
   if (safeStat(storagePath)?.isDirectory()) {
     for (const entry of fs.readdirSync(storagePath, { withFileTypes: true })) {

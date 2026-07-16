@@ -193,7 +193,7 @@ class Auth
             'token_revoked' => '登录凭证已撤销，请重新登录',
             'invalid_token' => '认证信息无效',
             'user_not_found' => '用户不存在',
-            'user_disabled' => '账号待审核或已停用，请联系超级管理员启用',
+            'user_disabled' => '账号已停用，请联系管理员启用',
         ];
 
         return json([
@@ -440,14 +440,8 @@ class Auth
         );
     }
 
-    private function resolveTenantIdForRateLimit(array $params, User $user): int
+    private function resolveTenantIdForRateLimit(array $_params, User $user): int
     {
-        foreach (['tenant_id', 'system_hotel_id', 'hotel_id'] as $key) {
-            if (isset($params[$key]) && is_numeric($params[$key]) && (int)$params[$key] > 0) {
-                return (int)$params[$key];
-            }
-        }
-
         foreach (['tenant_id', 'hotel_id'] as $key) {
             if (isset($user->{$key}) && is_numeric($user->{$key}) && (int)$user->{$key} > 0) {
                 return (int)$user->{$key};

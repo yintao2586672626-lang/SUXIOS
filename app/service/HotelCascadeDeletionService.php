@@ -19,7 +19,8 @@ final class HotelCascadeDeletionService
         ['ai_daily_reports', 'hotel_id'],
         ['ai_model_call_logs', 'hotel_id'],
         ['competitor_analysis', 'hotel_id'],
-        ['competitor_price_log', 'hotel_id'],
+        // hotel_id is the competitor-hotel record id; store_id owns the log.
+        ['competitor_price_log', 'store_id'],
         ['complaint_feedbacks', 'hotel_id'],
         ['complaint_rooms', 'hotel_id'],
         ['daily_reports', 'hotel_id'],

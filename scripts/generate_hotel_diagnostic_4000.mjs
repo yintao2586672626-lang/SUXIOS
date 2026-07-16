@@ -188,8 +188,14 @@ for (const record of executionLedger.records) {
   for (const field of ['executed_at', 'runner', 'evidence_ref']) {
     if (!String(record?.[field] || '').trim()) throw new Error(`Execution evidence ${field} is required for ${caseId}`);
   }
-  verifyLocalEvidenceRef(record.evidence_ref, caseId);
   const exitCode = verifiedExitCode(record.exit_code, status, caseId);
+  const evidenceBinding = verifyLocalEvidenceRef(record.evidence_ref, {
+    caseId,
+    scenarioSignature: signature,
+    status,
+    exitCode,
+    expectedSha256: record.evidence_sha256,
+  });
   const assertions = normalizedAssertions(record.assertions, caseId);
   if (assertions.length === 0 && !hasMinimumOutputSummary(record.output_summary)) {
     throw new Error(`Execution evidence minimum assertion or output summary is required for ${caseId}`);
@@ -200,6 +206,7 @@ for (const record of executionLedger.records) {
     executed_at: String(record.executed_at),
     runner: String(record.runner),
     evidence_ref: String(record.evidence_ref),
+    evidence_sha256: evidenceBinding.sha256,
     exit_code: exitCode,
     assertions,
     notes: String(record.notes || ''),
@@ -210,10 +217,28 @@ for (const record of executionLedger.records) {
   testCase.pending_execution_note = null;
 }
 
-function verifyLocalEvidenceRef(evidenceRef, caseId) {
-  const fileRef = String(evidenceRef).split('#', 1)[0].trim();
+function verifyLocalEvidenceRef(evidenceRef, expected) {
+  const rawRef = String(evidenceRef).trim();
+  const hashIndex = rawRef.indexOf('#');
+  const fileRef = (hashIndex === -1 ? rawRef : rawRef.slice(0, hashIndex)).trim();
+  const fragment = hashIndex === -1 ? '' : rawRef.slice(hashIndex + 1).trim();
+  const caseId = expected.caseId;
   if (!fileRef || /^[a-z][a-z\d+.-]*:\/\//iu.test(fileRef)) {
     throw new Error(`Execution evidence evidence_ref must reference a local file for ${caseId}`);
+  }
+
+  const fragmentParams = new URLSearchParams(fragment);
+  const anchorCaseIds = fragmentParams.getAll('case').map((value) => value.trim());
+  const fragmentKeys = [...fragmentParams.keys()];
+  if (anchorCaseIds.length !== 1
+    || fragmentKeys.length !== 1
+    || fragmentKeys[0] !== 'case'
+    || !anchorCaseIds[0]
+  ) {
+    throw new Error(`Execution evidence evidence_ref must include exactly one #case=${caseId} anchor`);
+  }
+  if (!hashEquals(anchorCaseIds[0], caseId)) {
+    throw new Error(`Execution evidence evidence_ref case anchor mismatch for ${caseId}: ${anchorCaseIds[0]}`);
   }
 
   const portableRef = fileRef.replaceAll('\\', '/');
@@ -231,6 +256,50 @@ function verifyLocalEvidenceRef(evidenceRef, caseId) {
   if (!existsSync(absolutePath) || !statSync(absolutePath).isFile()) {
     throw new Error(`Execution evidence evidence_ref file is missing for ${caseId}: ${fileRef}`);
   }
+
+  const evidenceBytes = readFileSync(absolutePath);
+  let evidenceDocument;
+  try {
+    evidenceDocument = JSON.parse(evidenceBytes.toString('utf8').replace(/^\uFEFF/u, ''));
+  } catch {
+    throw new Error(`Execution evidence evidence_ref must contain a valid JSON batch for ${caseId}: ${fileRef}`);
+  }
+  if (Number(evidenceDocument?.schema_version) !== 1
+    || evidenceDocument?.audit_date !== auditDate
+    || !Array.isArray(evidenceDocument?.cases)
+  ) {
+    throw new Error(`Execution evidence evidence_ref batch contract is invalid for ${caseId}: ${fileRef}`);
+  }
+
+  const matchingCases = evidenceDocument.cases.filter((entry) => String(entry?.case_id || '').trim() === caseId);
+  if (matchingCases.length !== 1) {
+    throw new Error(`Execution evidence evidence_ref must resolve exactly one batch case for ${caseId}`);
+  }
+  const evidenceCase = matchingCases[0];
+  if (!hashEquals(String(evidenceCase?.scenario_signature || '').trim(), expected.scenarioSignature)) {
+    throw new Error(`Execution evidence batch scenario_signature mismatch for ${caseId}`);
+  }
+  const evidenceStatus = String(evidenceCase?.status || '').trim();
+  if (!hashEquals(evidenceStatus, expected.status)) {
+    throw new Error(`Execution evidence batch status mismatch for ${caseId}`);
+  }
+  const evidenceExitCode = verifiedExitCode(evidenceCase?.exit_code, evidenceStatus, caseId);
+  if (evidenceExitCode !== expected.exitCode) {
+    throw new Error(`Execution evidence batch exit_code mismatch for ${caseId}`);
+  }
+
+  const sha256 = `sha256:${createHash('sha256').update(evidenceBytes).digest('hex')}`;
+  if (expected.expectedSha256 !== undefined) {
+    const suppliedSha256 = String(expected.expectedSha256 || '').trim();
+    if (!/^sha256:[a-f\d]{64}$/u.test(suppliedSha256)) {
+      throw new Error(`Execution evidence evidence_sha256 is invalid for ${caseId}`);
+    }
+    if (!hashEquals(suppliedSha256, sha256)) {
+      throw new Error(`Execution evidence evidence_sha256 mismatch for ${caseId}`);
+    }
+  }
+
+  return { sha256 };
 }
 
 function verifiedExitCode(value, status, caseId) {

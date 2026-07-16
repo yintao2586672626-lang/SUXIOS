@@ -205,6 +205,7 @@ $otaConfigConcernSource = file_get_contents(__DIR__ . '/../app/controller/concer
 $otaMigrationCommandSource = file_get_contents(__DIR__ . '/../app/command/MigrateOtaCredentials.php');
 $otaMigrationServiceSource = file_get_contents(__DIR__ . '/../app/service/OtaCredentialMigrationService.php');
 $packageSource = file_get_contents(__DIR__ . '/../package.json');
+$meituanCapturedPersistenceSource = extract_method_source($onlineSource, 'saveMeituanCapturedDailyRows');
 $competitorTaskSource = extract_method_source($competitorSource, 'task');
 $competitorReportSource = extract_method_source($competitorSource, 'report')
     . "\n"
@@ -216,6 +217,7 @@ $dailyPatrolCronSource = extract_method_source($onlineSource, 'dailyWorkbenchPat
 $competitorAlertSource = extract_method_source($competitorAnalysisModelSource, 'getAlertCompetitors');
 $hotelMergePreviewSource = extract_method_source($hotelControllerSource, 'mergePreview');
 $hotelMergeExecuteSource = extract_method_source($hotelControllerSource, 'mergeExecute');
+$registerSource = extract_method_source($authControllerSource, 'register');
 
 assert_true((bool)preg_match('/function\s+fetchCtrip\s*\([^)]*\)\s*:\s*Response\s*\{\s*\$this->checkPermission\(\);/s', $onlineSource), 'fetchCtrip must check login and hotel binding before reading cookies');
 assert_true((bool)preg_match('/function\s+saveCtripConfig\s*\([^)]*\)\s*:\s*Response\s*\{\s*\$this->checkPermission\(\);/s', $onlineSource), 'saveCtripConfig must check login and hotel binding');
@@ -224,10 +226,8 @@ assert_true(str_contains($onlineSource, "checkActionPermission('can_delete_onlin
 assert_true(str_contains($authSource, 'enforceRateLimit'), 'authenticated APIs must enforce request rate limits');
 assert_true(str_contains($authSource, 'rate_limited'), 'rate-limited requests must be written to operation logs');
 assert_true(str_contains($authControllerSource, 'private const TOKEN_TTL_SECONDS = 259200'), 'login tokens must use the product-approved 72-hour TTL');
-assert_true(str_contains($authControllerSource, '$this->enforceRegistrationRateLimit()'), 'public self-registration must enforce a route-local rate limit before validation');
-assert_true(str_contains($authControllerSource, "register_rate_") && str_contains($authControllerSource, "\$ipHash = substr(sha1((string)\$this->request->ip()), 0, 16);"), 'public self-registration rate limit must be keyed by IP hash');
-assert_true(str_contains($authControllerSource, "'register_rate_limited'"), 'rate-limited self-registration attempts must be audited');
-assert_true(!str_contains($authControllerSource, "return \$this->error('用户名已存在', 409);"), 'public self-registration must not disclose username existence');
+assert_true(str_contains($registerSource, "return \$this->error('系统已关闭自助注册，请联系管理员创建账号', 403);"), 'public registration must remain a fixed 403 compatibility tombstone');
+assert_true(!str_contains($authControllerSource, 'registerLegacyDisabled') && !str_contains($registerSource, 'new User'), 'public registration must not retain a hidden account-creation path');
 assert_true(str_contains($authSource, 'private const TOKEN_MAX_AGE_SECONDS = 259200'), 'auth middleware must reject tokens older than the product-approved 72-hour limit');
 assert_true(str_contains($authSource, 'isTokenExpiredByAge'), 'auth middleware must enforce token created_at age');
 assert_true(str_contains($competitorSource, 'enforceExternalRateLimit'), 'public competitor token APIs must enforce route-local rate limits');
@@ -283,10 +283,13 @@ assert_true(str_contains($systemConfigControllerSource, 'validateSystemConfigImp
 assert_true(str_contains($systemConfigControllerSource, 'containsRedactedExportSecretPlaceholder'), 'system config import must detect redacted export placeholders before applying configs');
 assert_true(str_contains($systemConfigControllerSource, 'skipped_redacted_values'), 'system config import must report skipped redacted export placeholders');
 assert_true(str_contains($frontendLogicSource, 'skipped_redacted_values'), 'system config import UI must show skipped redacted placeholder count');
-assert_true(str_contains($onlineDailyPersistenceSource, 'tenantIdForSystemHotel'), 'online daily data writes must populate tenant_id when available');
+assert_true(str_contains($onlineDailyPersistenceSource, 'resolveTenantIdForSystemHotel'), 'online daily data writes must resolve tenant_id from the owning system hotel');
+assert_true(str_contains($onlineDailyPersistenceSource, 'applyTenantScope'), 'online daily data writes must apply the resolved tenant scope');
+assert_true(str_contains($meituanCapturedPersistenceSource, 'OnlineDailyDataPersistenceService::applyTenantScope($row, $columns)'), 'direct Meituan capture writes must apply tenant scope before persistence');
 assert_true(str_contains($platformSyncSource, "'tenant_id'"), 'platform sync writes must populate tenant_id when available');
 assert_true(str_contains($loginLogSource, 'tenantIdForUser'), 'login logs must populate tenant_id for authenticated users when available');
-assert_true(str_contains($operationSource, 'withTenantId'), 'operation management writes must populate tenant_id when available');
+assert_true(str_contains($operationSource, 'withHotelTenantId'), 'hotel-scoped operation writes must resolve tenant_id from the owning hotel');
+assert_true(str_contains($operationSource, 'withExecutionTaskTenantId'), 'execution evidence writes must inherit and verify the task tenant scope');
 assert_true(str_contains($transferSource, "'tenant_id' => \$hotelId"), 'transfer records must populate tenant_id on write');
 assert_true(str_contains($initFullSource, '20260529_add_tenant_security_fields.sql'), 'full database initialization must apply tenant security migration');
 assert_true(str_contains($hotelMergePreviewSource, '$this->checkPermission(true);'), 'hotel data merge preview must require super admin');
@@ -348,7 +351,9 @@ assert_true(str_contains($otaConfigConcernSource, 'withPayloadForExecution('), '
 foreach (['ctrip_config_list', 'meituan_config_list', 'online_data_cookies_', 'data_config_'] as $legacySecretStore) {
     assert_true(!str_contains($commandSource, $legacySecretStore), 'scheduled OTA execution must not parse legacy secret store ' . $legacySecretStore);
 }
-assert_true(str_contains($commandSource, 'withPayloadForExecution('), 'scheduled OTA execution must decrypt only inside the vault callback');
+assert_true(str_contains($commandSource, 'Scheduled collection is Profile-only.'), 'scheduled OTA execution must remain Profile-only');
+assert_true(str_contains($commandSource, "where('ingestion_method', 'browser_profile')"), 'scheduled OTA execution must select browser Profile sources only');
+assert_true(!str_contains($commandSource, 'withPayloadForExecution('), 'scheduled OTA execution must not decrypt reusable Cookie/API credentials');
 
 $migrationRunSource = extract_method_source($otaMigrationServiceSource, 'run');
 $migrationSummarySource = extract_method_source($otaMigrationServiceSource, 'safeSummary');
@@ -406,7 +411,7 @@ assert_true(str_contains($fetchCustom, 'isAllowedOtaRequestUrl'), 'custom OTA fe
 assert_true(str_contains($sendHttpRequest, 'isAllowedOtaRequestUrl'), 'Ctrip HTTP requests must restrict target hosts');
 assert_true(str_contains($sendCtripJsonRequest, 'isAllowedOtaRequestUrl'), 'Ctrip JSON requests must restrict target hosts');
 assert_true(str_contains($sendMeituanRequest, 'isAllowedOtaRequestUrl'), 'Meituan HTTP requests must restrict target hosts');
-assert_true(str_contains($commandSource, 'isAllowedCtripRequestUrl'), 'scheduled Ctrip command must restrict target hosts');
+assert_true(str_contains($commandSource, 'normalizeScheduledCtripRequestUrl') && str_contains($commandSource, "'ebooking.ctrip.com'"), 'retained scheduled Ctrip URL normalization must restrict target hosts');
 assert_true(str_contains($getMeituanCommentConfigList, 'return $this->success([]);') && !str_contains($getMeituanCommentConfigList, "readOtaDataConfigValue('meituan-comments')"), 'Meituan comment config list must expose no legacy Cookie/API config');
 assert_true(str_contains($getCtripCommentConfigList, 'return $this->success([]);') && !str_contains($getCtripCommentConfigList, "readOtaDataConfigValue('ctrip-comments')"), 'Ctrip comment config list must expose no legacy Cookie/API config');
 assert_true(str_contains($saveCookies, 'Legacy Cookie storage is disabled.') && !str_contains($saveCookies, 'setConfigList'), 'legacy Cookie save endpoint must not persist plaintext');

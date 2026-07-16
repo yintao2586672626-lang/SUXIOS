@@ -63,6 +63,27 @@ if (-not $PhpExe) {
     throw "PHP was not found. Install XAMPP or add php.exe to PATH."
 }
 
+$PhpRuntimeArgs = @(
+    "-d", "realpath_cache_size=4096K",
+    "-d", "realpath_cache_ttl=600"
+)
+$PhpDir = Split-Path -Parent $PhpExe
+$PhpOpcacheDll = Resolve-FirstExisting @(
+    (Join-Path $PhpDir "ext\php_opcache.dll"),
+    "C:\xampp\php\ext\php_opcache.dll",
+    "D:\xampp\php\ext\php_opcache.dll"
+)
+if ($PhpOpcacheDll) {
+    $PhpRuntimeArgs += @(
+        "-d", "zend_extension=$PhpOpcacheDll",
+        "-d", "opcache.enable_cli=1",
+        "-d", "opcache.memory_consumption=128",
+        "-d", "opcache.max_accelerated_files=20000",
+        "-d", "opcache.validate_timestamps=1",
+        "-d", "opcache.revalidate_freq=2"
+    )
+}
+
 $MySqlExe = Resolve-FirstExisting @(
     "C:\xampp\mysql\bin\mysql.exe",
     "D:\xampp\mysql\bin\mysql.exe"
@@ -169,6 +190,33 @@ WHERE TABLE_SCHEMA='$DbName'
     Write-Host "[OK] Database '$DbName' and core tables are ready"
 }
 
+function Invoke-OtaRetentionMaintenance {
+    Write-Host "[INFO] Checking 30-day OTA credential/Profile retention..."
+    $maintenanceArgs = $PhpRuntimeArgs + @(
+        "think",
+        "online-data:cleanup-dormant-profiles",
+        "--retention-days=30"
+    )
+    $maintenanceOutput = & $PhpExe @maintenanceArgs 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "OTA retention maintenance did not complete; credentials and Profiles were kept fail-closed."
+        return
+    }
+
+    $summaryLine = $maintenanceOutput | Select-Object -Last 1
+    try {
+        $summary = $summaryLine | ConvertFrom-Json
+        Write-Host (
+            "[OK] OTA retention checked: profiles removed={0}, credentials revoked={1}, errors={2}" -f `
+                [int]$summary.profiles_removed,
+                [int]$summary.credentials_revoked,
+                [int]$summary.errors
+        )
+    } catch {
+        Write-Host "[OK] OTA retention maintenance completed"
+    }
+}
+
 function Test-HttpHealth {
     try {
         $response = Invoke-WebRequest -UseBasicParsing -Uri $HealthUrl -TimeoutSec 2
@@ -211,7 +259,7 @@ function Start-ThinkPhp {
     Write-Host "[INFO] Starting ThinkPHP on $BaseUrl"
     Start-Process `
         -FilePath $PhpExe `
-        -ArgumentList @("-S", "$BindHost`:$Port", "-t", "public", "public/router.php") `
+        -ArgumentList ($PhpRuntimeArgs + @("-S", "$BindHost`:$Port", "-t", "public", "public/router.php")) `
         -WorkingDirectory $RepoRoot `
         -WindowStyle Hidden `
         -RedirectStandardOutput $stdout `
@@ -235,6 +283,7 @@ if (-not (Test-Path (Join-Path $RepoRoot "think"))) {
 
 Start-LocalMySql
 Assert-DatabaseReady
+Invoke-OtaRetentionMaintenance
 Start-ThinkPhp
 
 if (-not $NoBrowser) {

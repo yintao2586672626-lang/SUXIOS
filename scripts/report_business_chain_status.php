@@ -334,6 +334,15 @@ function business_chain_fact_counts(array $dataset): array
     ];
 }
 
+function business_chain_source_evidence_status(array $dataset): string
+{
+    $counts = business_chain_fact_counts($dataset);
+    if ($counts['accepted'] <= 0) {
+        return 'empty';
+    }
+    return $counts['traffic'] > 0 ? 'ready' : 'reference_only_non_traffic';
+}
+
 /**
  * @param array<string, mixed> $revenue
  * @param array<string, mixed> $closure
@@ -692,6 +701,7 @@ function business_chain_downstream_reference_scope(array $sourceRows, array $ope
     $operatorSkippedLookup = array_fill_keys(array_map('strtolower', $operatorSkippedPlatforms), true);
     $targetReadyPlatforms = [];
     $targetBlockedPlatforms = [];
+    $targetReferenceOnlyPlatforms = [];
     $referenceReadyPlatforms = [];
     $operatorSkippedReadyPlatforms = [];
     $targetDate = '';
@@ -713,8 +723,11 @@ function business_chain_downstream_reference_scope(array $sourceRows, array $ope
             $targetReadyPlatforms[] = $source;
         } else {
             $targetBlockedPlatforms[] = $source;
+            if (($row['target_status'] ?? '') === 'reference_only_non_traffic') {
+                $targetReferenceOnlyPlatforms[] = $source;
+            }
         }
-        if (($row['reference_status'] ?? '') === 'ready') {
+        if (in_array(($row['reference_status'] ?? ''), ['ready', 'reference_only_non_traffic'], true)) {
             $referenceReadyPlatforms[] = $source;
         }
         if ($operatorSkipped) {
@@ -727,6 +740,8 @@ function business_chain_downstream_reference_scope(array $sourceRows, array $ope
         $status = 'partial_target_date_ready';
     } elseif ($targetReadyPlatforms !== []) {
         $status = 'target_date_ready';
+    } elseif ($targetReferenceOnlyPlatforms !== []) {
+        $status = 'target_date_reference_only';
     } elseif ($referenceReadyPlatforms !== []) {
         $status = 'latest_reference_ready';
     }
@@ -737,6 +752,7 @@ function business_chain_downstream_reference_scope(array $sourceRows, array $ope
         'target_date' => $targetDate,
         'target_ready_platforms' => array_values(array_unique($targetReadyPlatforms)),
         'target_blocked_platforms' => array_values(array_unique($targetBlockedPlatforms)),
+        'target_reference_only_platforms' => array_values(array_unique($targetReferenceOnlyPlatforms)),
         'reference_ready_platforms' => array_values(array_unique($referenceReadyPlatforms)),
         'operator_skip_platforms' => array_values(array_unique($operatorSkippedReadyPlatforms)),
         'claim_policy' => 'ready_platform_rows_are_read_only_reference_until_all_required_p0_platforms_ready',
@@ -1949,14 +1965,18 @@ function business_chain_report(array $options): array
         }
         $targetDatasets[$source] = $target;
         $referenceDatasets[$source] = $reference;
+        $targetCounts = business_chain_fact_counts($target);
+        $referenceCounts = business_chain_fact_counts($reference);
         $sourceRows[] = [
             'source' => $source,
             'target_date' => $targetDate,
-            'target_status' => $target['status'] ?? 'empty',
-            'target_counts' => business_chain_fact_counts($target),
+            'target_status' => business_chain_source_evidence_status($target),
+            'target_dataset_status' => $target['status'] ?? 'empty',
+            'target_counts' => $targetCounts,
             'reference_date' => $referenceDate,
-            'reference_status' => $reference['status'] ?? 'empty',
-            'reference_counts' => business_chain_fact_counts($reference),
+            'reference_status' => business_chain_source_evidence_status($reference),
+            'reference_dataset_status' => $reference['status'] ?? 'empty',
+            'reference_counts' => $referenceCounts,
             'reference_only' => $referenceDate !== '' && $referenceDate !== $targetDate,
         ];
     }

@@ -41,6 +41,7 @@ class SystemConfig extends Model
     const KEY_FAVICON_URL = 'favicon_url';
     const KEY_SYSTEM_DESCRIPTION = 'system_description';
     const KEY_SYSTEM_KEYWORDS = 'system_keywords';
+    const KEY_LOGIN_SUPPORT_CONTACT = 'login_support_contact';
     
     // 菜单配置
     const KEY_MENU_HOTEL = 'menu_hotel_name';
@@ -57,7 +58,6 @@ class SystemConfig extends Model
     const KEY_DEFAULT_PAGE_SIZE = 'default_page_size';
     
     // 功能开关
-    const KEY_ENABLE_REGISTRATION = 'enable_registration';
     const KEY_ENABLE_LOGIN_LOG = 'enable_login_log';
     const KEY_ENABLE_OPERATION_LOG = 'enable_operation_log';
     const KEY_ENABLE_DATA_BACKUP = 'enable_data_backup';
@@ -276,6 +276,7 @@ class SystemConfig extends Model
             self::KEY_LOGO_URL => '',
             self::KEY_FAVICON_URL => '',
             self::KEY_SYSTEM_KEYWORDS => '酒店管理,收益分析,数据分析',
+            self::KEY_LOGIN_SUPPORT_CONTACT => '请联系贵司宿析OS系统管理员',
             
             // 菜单配置
             self::KEY_MENU_HOTEL => '酒店管理',
@@ -292,7 +293,6 @@ class SystemConfig extends Model
             self::KEY_DEFAULT_PAGE_SIZE => '20',
             
             // 功能开关
-            self::KEY_ENABLE_REGISTRATION => '1',
             self::KEY_ENABLE_LOGIN_LOG => '1',
             self::KEY_ENABLE_OPERATION_LOG => '1',
             self::KEY_ENABLE_DATA_BACKUP => '1',
@@ -306,7 +306,7 @@ class SystemConfig extends Model
             self::KEY_COMPLAINT_MINI_USE_SCENE => '1',
             
             // 安全设置
-            self::KEY_SESSION_TIMEOUT => '14400',
+            self::KEY_SESSION_TIMEOUT => '4320',
             self::KEY_PASSWORD_MIN_LENGTH => '6',
             self::KEY_PASSWORD_REQUIRE_SPECIAL => '0',
             self::KEY_PROTECTED_CAPABILITY_POLICY => json_encode([
@@ -340,6 +340,7 @@ class SystemConfig extends Model
                     self::KEY_FAVICON_URL,
                     self::KEY_SYSTEM_DESCRIPTION,
                     self::KEY_SYSTEM_KEYWORDS,
+                    self::KEY_LOGIN_SUPPORT_CONTACT,
                 ],
             ],
             'menu' => [
@@ -368,7 +369,6 @@ class SystemConfig extends Model
                 'title' => '功能开关',
                 'icon' => 'fas fa-toggle-on',
                 'keys' => [
-                    self::KEY_ENABLE_REGISTRATION,
                     self::KEY_ENABLE_LOGIN_LOG,
                     self::KEY_ENABLE_OPERATION_LOG,
                     self::KEY_ENABLE_DATA_BACKUP,
@@ -422,6 +422,7 @@ class SystemConfig extends Model
             self::KEY_FAVICON_URL => '浏览器图标URL',
             self::KEY_SYSTEM_DESCRIPTION => '系统描述',
             self::KEY_SYSTEM_KEYWORDS => '系统关键词',
+            self::KEY_LOGIN_SUPPORT_CONTACT => '登录页管理员联系方式',
             
             // 菜单配置
             self::KEY_MENU_HOTEL => '酒店管理菜单名',
@@ -438,7 +439,6 @@ class SystemConfig extends Model
             self::KEY_DEFAULT_PAGE_SIZE => '默认分页大小',
             
             // 功能开关
-            self::KEY_ENABLE_REGISTRATION => '启用用户注册',
             self::KEY_ENABLE_LOGIN_LOG => '启用登录日志',
             self::KEY_ENABLE_OPERATION_LOG => '启用操作日志',
             self::KEY_ENABLE_DATA_BACKUP => '启用数据备份',
@@ -452,7 +452,7 @@ class SystemConfig extends Model
             self::KEY_COMPLAINT_MINI_USE_SCENE => '吐槽码小程序使用scene',
             
             // 安全设置
-            self::KEY_SESSION_TIMEOUT => '会话超时时间(分钟)',
+            self::KEY_SESSION_TIMEOUT => '旧版会话超时时间（当前固定72小时，不可在线修改）',
             self::KEY_PASSWORD_MIN_LENGTH => '密码最小长度',
             self::KEY_PASSWORD_REQUIRE_SPECIAL => '密码要求特殊字符',
             self::KEY_PROTECTED_CAPABILITY_POLICY => '高价值能力后端保护策略 JSON',
