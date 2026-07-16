@@ -12,6 +12,7 @@ use Throwable;
 class ExpansionService
 {
     private LlmClient $client;
+    private bool $tableEnsured = false;
 
     private const TASKS = [
         '市场调研',
@@ -36,10 +37,10 @@ class ExpansionService
         $estimatedRent = $this->requiredNumber($input, 'estimated_rent', '预估租金不能为空');
         $targetRoomCount = (int)$this->requiredNumber($input, 'target_room_count', '目标房量不能为空');
         $cityTier = $this->text($input, ['city_tier'], '');
-        $decorationLevel = $this->text($input, ['decoration_level'], '中端精选-标准');
-        $primaryCustomer = $this->text($input, ['primary_customer'], '商务差旅');
-        $secondaryCustomer = $this->text($input, ['secondary_customer'], '会议会展');
-        $targetCustomer = $this->text($input, ['target_customer'], $primaryCustomer . '+' . $secondaryCustomer);
+        $decorationLevel = $this->text($input, ['decoration_level'], '');
+        $primaryCustomer = $this->text($input, ['primary_customer'], '');
+        $secondaryCustomer = $this->text($input, ['secondary_customer'], '');
+        $targetCustomer = $this->text($input, ['target_customer'], implode('+', array_filter([$primaryCustomer, $secondaryCustomer])));
         if (trim((string)($input['primary_customer'] ?? '')) === '' && $targetCustomer !== '') {
             $customerParts = preg_split('/[+＋\/、,，]/u', $targetCustomer) ?: [];
             $customerParts = array_values(array_filter(array_map(static fn($value) => trim((string)$value), $customerParts)));
@@ -59,9 +60,9 @@ class ExpansionService
             $otaMarketPenetrationRate = $this->optionalNumber($input, 'ota_platform_market_penetration_rate');
         }
         $parkingSpaces = $this->optionalNumber($input, 'parking_spaces');
-        $assetType = $this->text($input, ['asset_type'], '集中楼层');
-        $operationModel = $this->text($input, ['operation_model'], '直营');
-        $contractStatus = $this->text($input, ['contract_status'], '待谈判');
+        $assetType = $this->text($input, ['asset_type'], '');
+        $operationModel = $this->text($input, ['operation_model'], '');
+        $contractStatus = $this->text($input, ['contract_status'], '');
 
         if ($propertyArea <= 0) {
             throw new InvalidArgumentException('物业面积必须大于0');
@@ -92,6 +93,27 @@ class ExpansionService
         $riskPoints = [];
         $reasons = [];
         $missing = [];
+        foreach ([
+            '租期' => $leaseYears,
+            '目标ADR' => $expectedAdr,
+            '目标入住率' => $expectedOccupancyRate,
+            '周边竞品数量' => $competitorCount,
+        ] as $label => $value) {
+            if ($value === null) {
+                $missing[] = $label;
+            }
+        }
+        foreach ([
+            '装修定位' => $decorationLevel,
+            '目标客群' => $targetCustomer,
+            '物业形态' => $assetType,
+            '经营模式' => $operationModel,
+            '合同状态' => $contractStatus,
+        ] as $label => $value) {
+            if (trim($value) === '') {
+                $missing[] = $label;
+            }
+        }
         $areaPerRoom = $propertyArea / max(1, $targetRoomCount);
         $rentPerRoom = $estimatedRent / max(1, $targetRoomCount);
         $rentPerSquare = $estimatedRent / max(1, $propertyArea);
@@ -234,6 +256,8 @@ class ExpansionService
 
         $rawScore = (int)round($score);
         $score = $this->score($score);
+        $missing = array_values(array_unique($missing));
+        $hasEvidenceGaps = $missing !== [];
         $riskLevel = $this->riskLevel($score, $riskPoints);
         $priceBand = $this->priceBand($decorationLevel, $rentPerRoom);
         $competition = $businessArea === '' ? '待补充商圈后判断' : ($score >= 78 ? '中等竞争，可通过产品差异化切入' : '竞争压力偏高，需补充竞品价格与点评数据');
@@ -245,7 +269,13 @@ class ExpansionService
                 'raw_score' => $rawScore,
                 'final_score' => $score,
                 'cap_rule' => '0-100封顶/保底',
+                'semantics' => '基于录入条件和预设阈值的规则初筛指数，不是真实市场热度或投资成功概率',
             ],
+            'score_type' => 'rule_screening_index',
+            'source' => 'user_input_and_rule_thresholds',
+            'decision_ready' => false,
+            'manual_unverified' => true,
+            'scope_note' => '规则指数只反映当前录入条件；缺少竞品、OTA、租约或经营证据时不形成投资结论。',
             'market_heat_score_breakdown' => $scoreBreakdown,
             'supply_competition_strength' => $competition,
             'price_band_suggestion' => $priceBand,
@@ -256,7 +286,7 @@ class ExpansionService
                 $businessArea === '' ? '补充商圈与OTA平台渗透率数据' : '用3公里竞品价格、评分、点评量校准价格带',
                 '将租金、免租期、装修单房投入拆成保守/基准/乐观三套现金流',
             ],
-            'not_recommended_risks' => array_values(array_unique($riskPoints ?: ['暂无硬性否决项，但需接入真实竞品和客流数据后复核'])),
+            'not_recommended_risks' => array_values(array_unique($riskPoints ?: ['当前证据不足，未形成可判定的风险清单；需补充竞品、客流与租约证据'])),
             'metrics' => [
                 'area_per_room' => round($areaPerRoom, 1),
                 'rent_per_room' => round($rentPerRoom, 0),
@@ -264,11 +294,11 @@ class ExpansionService
             ],
             'investment_conditions' => [
                 ['label' => '城市线级', 'value' => $cityTier !== '' ? $cityTier : '待补充'],
-                ['label' => '物业形态', 'value' => $assetType],
-                ['label' => '经营模式', 'value' => $operationModel],
-                ['label' => '合同状态', 'value' => $contractStatus],
-                ['label' => '主客群', 'value' => $primaryCustomer],
-                ['label' => '辅助客群', 'value' => $secondaryCustomer],
+                ['label' => '物业形态', 'value' => $assetType !== '' ? $assetType : '待补充'],
+                ['label' => '经营模式', 'value' => $operationModel !== '' ? $operationModel : '待补充'],
+                ['label' => '合同状态', 'value' => $contractStatus !== '' ? $contractStatus : '待补充'],
+                ['label' => '主客群', 'value' => $primaryCustomer !== '' ? $primaryCustomer : '待补充'],
+                ['label' => '辅助客群', 'value' => $secondaryCustomer !== '' ? $secondaryCustomer : '待补充'],
                 ['label' => '租期', 'value' => $leaseYears !== null ? round($leaseYears, 1) . '年' : '待补充'],
                 ['label' => '免租期', 'value' => $rentFreeMonths !== null ? round($rentFreeMonths, 1) . '个月' : '待补充'],
                 ['label' => '押金', 'value' => $depositMonths !== null ? round($depositMonths, 1) . '个月' : '待补充'],
@@ -279,7 +309,9 @@ class ExpansionService
                 ['label' => '周边竞品', 'value' => $competitorCount !== null ? round($competitorCount, 0) . '家' : '待补充'],
                 ['label' => 'OTA平台市场渗透率', 'value' => $otaMarketPenetrationRate !== null ? round($otaMarketPenetrationRate, 1) . '%' : '待补充'],
             ],
-            'decision' => $score >= 80 ? '建议推进' : ($score >= 65 ? '谨慎推进' : '不建议按当前条件推进'),
+            'decision' => $hasEvidenceGaps
+                ? '数据不足，仅可规则初筛'
+                : ($score >= 80 ? '规则初筛偏积极，待人工尽调' : ($score >= 65 ? '规则初筛中性，待人工尽调' : '规则初筛偏谨慎，待人工尽调')),
             'data_status' => $this->dataStatus($missing),
             'rule_reasons' => array_values(array_unique($reasons)),
         ];
@@ -289,6 +321,16 @@ class ExpansionService
             $modelKey = 'deepseek_v4_default';
         }
         $aiEvaluation = $this->buildMarketAiEvaluation($input, $result, $modelKey);
+        if ($hasEvidenceGaps) {
+            $gapText = implode('、', $missing);
+            $aiEvaluation['summary'] = '当前缺少' . $gapText . '；模型或规则输出只用于安排补证，不形成投资结论。';
+            $aiEvaluation['decision'] = '数据不足，仅可规则初筛';
+            $aiEvaluation['market_judgement']['decision'] = '数据不足，仅可规则初筛';
+            $aiEvaluation['assumptions'] = array_values(array_unique(array_merge(
+                (array)($aiEvaluation['assumptions'] ?? []),
+                ['缺失字段：' . $gapText, '规则初筛指数不是真实市场热度或投资成功概率']
+            )));
+        }
         $result['ai_evaluation'] = $aiEvaluation;
         if ($aiEvaluation['source'] === 'llm') {
             $result['ai_operation_suggestions'] = array_values(array_filter(array_map(
@@ -336,12 +378,26 @@ class ExpansionService
             static fn(string $key): string => $detailLabels[$key] ?? $key,
             array_diff(array_keys($detailInputs), $filledDetailKeys)
         ));
-        $competitorCount = (int)max(1, round($detailInputs['competitor_count'] ?? ($targetRoomCount >= 70 ? 16 : 10)));
-        $avgCompetitorPrice = (int)max(1, round($detailInputs['avg_competitor_price'] ?? $price['mid']));
-        $avgCompetitorScore = round(max(1, min(5, $detailInputs['avg_competitor_score'] ?? 4.6)), 1);
-        $avgReviewCount = (int)max(1, round($detailInputs['avg_review_count'] ?? ($targetRoomCount >= 70 ? 420 : 260)));
-        $otaHeatIndex = (int)max(0, min(100, round($detailInputs['ota_heat_index'] ?? $baseHeat)));
-        $trafficRadiusKm = round(max(0.1, $detailInputs['traffic_radius_km'] ?? 3), 1);
+        $hasCompleteCompetitorInputs = count($filledDetailKeys) === count($detailInputs);
+        $benchmarkSource = $hasCompleteCompetitorInputs ? 'user_provided_competitor_metrics' : 'synthetic_rule_scenario';
+        $competitorCount = $detailInputs['competitor_count'] !== null
+            ? (int)max(1, round($detailInputs['competitor_count']))
+            : null;
+        $avgCompetitorPrice = $detailInputs['avg_competitor_price'] !== null
+            ? (int)max(1, round($detailInputs['avg_competitor_price']))
+            : null;
+        $avgCompetitorScore = $detailInputs['avg_competitor_score'] !== null
+            ? round(max(1, min(5, $detailInputs['avg_competitor_score'])), 1)
+            : null;
+        $avgReviewCount = $detailInputs['avg_review_count'] !== null
+            ? (int)max(1, round($detailInputs['avg_review_count']))
+            : null;
+        $otaHeatIndex = $detailInputs['ota_heat_index'] !== null
+            ? (int)max(0, min(100, round($detailInputs['ota_heat_index'])))
+            : null;
+        $trafficRadiusKm = $detailInputs['traffic_radius_km'] !== null
+            ? round(max(0.1, $detailInputs['traffic_radius_km']), 1)
+            : null;
         $detailMetrics = [
             'competitor_count' => $competitorCount,
             'avg_competitor_price' => $avgCompetitorPrice,
@@ -351,60 +407,107 @@ class ExpansionService
             'traffic_radius_km' => $trafficRadiusKm,
             'data_completeness' => count($filledDetailKeys) . '/' . count($detailInputs),
             'estimated_fields' => $estimatedFields,
+            'source' => $benchmarkSource,
         ];
-        $models = [
-            [
-                'name' => '标杆模型A',
-                'score' => 4.8,
-                'price' => $price['mid'],
-                'room_count' => max($targetRoomCount, 70),
-                'heat' => min(95, $baseHeat + 5),
-                'selling_points' => ['核心房型少而清晰', '商务客源转化稳定', '点评关键词聚焦干净与便利'],
-                'learn_from' => '学习房型结构、点评运营和主力价格带稳定性',
-            ],
-            [
-                'name' => '标杆模型B',
-                'score' => 4.7,
-                'price' => max(1, $price['mid'] - 20),
-                'room_count' => max(50, $targetRoomCount - 8),
-                'heat' => $baseHeat,
-                'selling_points' => ['低波动价格策略', '渠道覆盖完整', '图片展示统一'],
-                'learn_from' => '学习渠道铺排、价格梯度和图片标准化',
-            ],
-            [
-                'name' => '标杆模型C',
-                'score' => 4.6,
-                'price' => $price['mid'] + 25,
-                'room_count' => max(40, $targetRoomCount + 10),
-                'heat' => max(60, $baseHeat - 6),
-                'selling_points' => ['差异化房型', '服务标签突出', '适合拉高ADR'],
-                'learn_from' => '学习服务标签和高价房型包装，不照搬成本结构',
-            ],
-        ];
-        $distanceFactors = [0.6, 0.85, 1.15];
-        $reviewFactors = [1.25, 1.0, 0.75];
-        $models = array_map(function (array $model, int $index) use ($avgCompetitorPrice, $avgCompetitorScore, $avgReviewCount, $otaHeatIndex, $trafficRadiusKm, $competitorCount, $distanceFactors, $reviewFactors): array {
-            $priceGap = (int)round(((float)$model['price']) - $avgCompetitorPrice);
-            $reviewCount = (int)max(1, round($avgReviewCount * ($reviewFactors[$index] ?? 1)));
-            $distanceKm = round(max(0.1, $trafficRadiusKm * ($distanceFactors[$index] ?? 1)), 1);
-            $scoreGap = round(((float)$model['score']) - $avgCompetitorScore, 1);
-            $heatGap = (int)round(((float)$model['heat']) - $otaHeatIndex);
-            $priceFit = 100 - min(45, abs($priceGap) / max(1, $avgCompetitorPrice) * 100);
-            $scoreFit = 100 - min(35, abs($scoreGap) * 25);
-            $heatFit = 100 - min(40, abs($heatGap));
+        if ($hasCompleteCompetitorInputs) {
+            $models = [
+                [
+                    'name' => '标杆模型A',
+                    'score' => 4.8,
+                    'price' => $price['mid'],
+                    'room_count' => max($targetRoomCount, 70),
+                    'heat' => min(95, $baseHeat + 5),
+                    'selling_points' => ['核心房型少而清晰', '商务客源转化稳定', '点评关键词聚焦干净与便利'],
+                    'learn_from' => '学习房型结构、点评运营和主力价格带稳定性',
+                ],
+                [
+                    'name' => '标杆模型B',
+                    'score' => 4.7,
+                    'price' => max(1, $price['mid'] - 20),
+                    'room_count' => max(50, $targetRoomCount - 8),
+                    'heat' => $baseHeat,
+                    'selling_points' => ['低波动价格策略', '渠道覆盖完整', '图片展示统一'],
+                    'learn_from' => '学习渠道铺排、价格梯度和图片标准化',
+                ],
+                [
+                    'name' => '标杆模型C',
+                    'score' => 4.6,
+                    'price' => $price['mid'] + 25,
+                    'room_count' => max(40, $targetRoomCount + 10),
+                    'heat' => max(60, $baseHeat - 6),
+                    'selling_points' => ['差异化房型', '服务标签突出', '适合拉高ADR'],
+                    'learn_from' => '学习服务标签和高价房型包装，不照搬成本结构',
+                ],
+            ];
+            $distanceFactors = [0.6, 0.85, 1.15];
+            $reviewFactors = [1.25, 1.0, 0.75];
+            $models = array_map(function (array $model, int $index) use ($avgCompetitorPrice, $avgCompetitorScore, $avgReviewCount, $otaHeatIndex, $trafficRadiusKm, $competitorCount, $distanceFactors, $reviewFactors, $benchmarkSource): array {
+                $priceGap = (int)round(((float)$model['price']) - $avgCompetitorPrice);
+                $reviewCount = (int)max(1, round($avgReviewCount * ($reviewFactors[$index] ?? 1)));
+                $distanceKm = round(max(0.1, $trafficRadiusKm * ($distanceFactors[$index] ?? 1)), 1);
+                $scoreGap = round(((float)$model['score']) - $avgCompetitorScore, 1);
+                $heatGap = (int)round(((float)$model['heat']) - $otaHeatIndex);
+                $priceFit = 100 - min(45, abs($priceGap) / max(1, $avgCompetitorPrice) * 100);
+                $scoreFit = 100 - min(35, abs($scoreGap) * 25);
+                $heatFit = 100 - min(40, abs($heatGap));
 
-            $model['distance_km'] = $distanceKm;
-            $model['review_count'] = $reviewCount;
-            $model['price_gap_to_market'] = $priceGap;
-            $model['score_gap_to_market'] = $scoreGap;
-            $model['heat_gap_to_market'] = $heatGap;
-            $model['model_fit_score'] = $this->score($priceFit * 0.42 + $scoreFit * 0.33 + $heatFit * 0.25);
-            $model['sample_basis'] = "{$trafficRadiusKm}公里内{$competitorCount}家竞品样本";
+                $model['source'] = $benchmarkSource;
+                $model['distance_km'] = $distanceKm;
+                $model['review_count'] = $reviewCount;
+                $model['price_gap_to_market'] = $priceGap;
+                $model['score_gap_to_market'] = $scoreGap;
+                $model['heat_gap_to_market'] = $heatGap;
+                $model['model_fit_score'] = $this->score($priceFit * 0.42 + $scoreFit * 0.33 + $heatFit * 0.25);
+                $model['sample_basis'] = "{$trafficRadiusKm}公里内{$competitorCount}家竞品样本";
 
-            return $model;
-        }, $models, array_keys($models));
+                return $model;
+            }, $models, array_keys($models));
+        } else {
+            $models = [
+                [
+                    'name' => '情景模型A',
+                    'price' => $price['mid'],
+                    'room_count' => max($targetRoomCount, 70),
+                    'selling_points' => ['精简主力房型', '以商务客群为目标假设', '围绕干净与便利设计点评运营'],
+                    'learn_from' => '用于验证房型结构、点评运营和主力价格带假设',
+                ],
+                [
+                    'name' => '情景模型B',
+                    'price' => max(1, $price['mid'] - 20),
+                    'room_count' => max(50, $targetRoomCount - 8),
+                    'selling_points' => ['低波动价格策略', '目标渠道基础覆盖', '图片展示标准化'],
+                    'learn_from' => '用于验证渠道铺排、价格梯度和图片标准化假设',
+                ],
+                [
+                    'name' => '情景模型C',
+                    'price' => $price['mid'] + 25,
+                    'room_count' => max(40, $targetRoomCount + 10),
+                    'selling_points' => ['差异化房型假设', '服务标签假设', '高ADR探索情景'],
+                    'learn_from' => '用于验证服务标签和较高价格带，不代表真实竞品表现',
+                ],
+            ];
+            $models = array_map(static function (array $model) use ($benchmarkSource): array {
+                $model['source'] = $benchmarkSource;
+                $model['score'] = null;
+                $model['heat'] = null;
+                $model['distance_km'] = null;
+                $model['review_count'] = null;
+                $model['price_gap_to_market'] = null;
+                $model['score_gap_to_market'] = null;
+                $model['heat_gap_to_market'] = null;
+                $model['model_fit_score'] = null;
+                $model['sample_basis'] = '基于用户输入及默认假设生成的规则情景，非真实竞品样本';
+                $model['assumption_fields'] = [
+                    'price' => '基于目标价格带生成的情景值',
+                    'room_count' => '基于目标房量生成的情景值',
+                ];
+
+                return $model;
+            }, $models);
+        }
 
         $result = [
+            'source' => $benchmarkSource,
             'position' => [
                 'city' => $city,
                 'business_area' => $businessArea,
@@ -421,20 +524,31 @@ class ExpansionService
                 'review' => '围绕卫生、隔音、交通、服务响应建立点评关键词',
                 'image' => '首图突出房间真实尺度，补齐外立面、前台、卫浴和窗景',
                 'service' => str_contains($hotelType, '商务') ? '强化发票、洗衣、延迟退房和安静楼层' : '强化入住指引、行李寄存和本地化推荐',
-                'data' => "按{$trafficRadiusKm}公里、{$competitorCount}家竞品校准价格差、评分差和点评量，再确定主力标杆",
+                'data' => $hasCompleteCompetitorInputs
+                    ? "按{$trafficRadiusKm}公里、{$competitorCount}家竞品校准价格差、评分差和点评量，再确定主力标杆"
+                    : '补充真实竞品数量、均价、评分、点评量、OTA热度和采样半径后，再校准主力标杆',
             ],
             'differentiation_suggestions' => [
                 $businessArea === '' ? '补充商圈后再定义差异化锚点' : "围绕{$businessArea}的主要客源设计首图和权益",
                 $targetRoomCount < 45 ? '小房量项目避免复制大店组织架构，优先做轻人效模型' : '用标准化房型提升清扫、人效和收益管理效率',
-                "优先复核与竞品均价差在±30元、评分差在0.2分内的标杆样本",
+                $hasCompleteCompetitorInputs
+                    ? '优先复核与竞品均价差在±30元、评分差在0.2分内的标杆样本'
+                    : '补充真实竞品均价、评分和点评量后，再验证目标价格带',
                 '选择一个强标签作为差异点，不同时堆叠过多卖点',
             ],
             'avoid_copying_points' => [
                 '不要照搬真实酒店名称、装修造价和供应商配置',
                 '不要复制超出自身房量承载能力的早餐、会议室或复杂服务',
-                '不要用标杆高分直接推导本项目ADR，需结合租金和爬坡周期复核',
+                $hasCompleteCompetitorInputs
+                    ? '不要用标杆高分直接推导本项目ADR，需结合租金和爬坡周期复核'
+                    : '不要用情景模型直接推导本项目ADR，需补充真实竞品并结合租金和爬坡周期复核',
             ],
-            'data_status' => $this->dataStatus($missing),
+            'data_status' => array_merge($this->dataStatus($missing), [
+                'source' => $benchmarkSource,
+                'notice' => $hasCompleteCompetitorInputs
+                    ? '当前竞品指标来自用户输入，仍需结合可追溯样本证据复核'
+                    : '当前仅为基于用户输入及默认假设生成的规则情景，非真实竞品样本',
+            ]),
         ];
 
         $modelKey = trim((string)($input['model_key'] ?? $input['modelKey'] ?? 'deepseek_v4_default'));
@@ -459,9 +573,11 @@ class ExpansionService
         $daysLeft = (int)$today->diff($onlineDate)->format('%r%a');
         $tasks = $this->normalizeTasks(is_array($input['tasks'] ?? null) ? $input['tasks'] : [], $currentStage, $today);
 
-        $completed = count(array_filter($tasks, fn (array $task): bool => $task['status'] === '已完成'));
+        $confirmedTasks = array_values(array_filter($tasks, fn (array $task): bool => ($task['is_observed'] ?? false) === true));
+        $completed = count(array_filter($confirmedTasks, fn (array $task): bool => $task['status'] === '已完成'));
         $total = count($tasks);
-        $progress = (int)round($completed / max(1, $total) * 100);
+        $confirmedTotal = count($confirmedTasks);
+        $progress = $confirmedTotal > 0 ? (int)round($completed / $confirmedTotal * 100) : null;
         $riskPoints = [];
 
         foreach ($tasks as $task) {
@@ -486,7 +602,9 @@ class ExpansionService
             $riskPoints[] = '预计上线时间已过期';
         }
 
-        $riskLevel = !empty(array_filter($riskPoints, fn (string $item): bool => str_contains($item, '15天') || str_contains($item, '逾期') || str_contains($item, '已过期'))) ? '高风险' : (!empty($riskPoints) ? '中风险' : '低风险');
+        $riskLevel = $confirmedTotal === 0
+            ? '待评估'
+            : (!empty(array_filter($riskPoints, fn (string $item): bool => str_contains($item, '15天') || str_contains($item, '逾期') || str_contains($item, '已过期'))) ? '高风险' : (!empty($riskPoints) ? '中风险' : '未发现明确延误风险'));
         $nextTask = $this->nextTask($tasks);
 
         return [
@@ -502,12 +620,18 @@ class ExpansionService
             'progress' => [
                 'completed' => $completed,
                 'total' => $total,
+                'confirmed_total' => $confirmedTotal,
+                'template_pending_count' => $total - $confirmedTotal,
                 'percent' => $progress,
-                'status_text' => "已完成{$completed}/{$total}项",
+                'status_text' => $confirmedTotal > 0
+                    ? "已确认完成{$completed}/{$confirmedTotal}项；另有" . ($total - $confirmedTotal) . '项模板待确认'
+                    : '当前仅生成任务模板，尚无已确认进度',
             ],
             'delay_risk' => [
                 'level' => $riskLevel,
-                'points' => $riskPoints ?: ['暂无明确延误风险，按当前节奏推进'],
+                'points' => $riskPoints ?: ($confirmedTotal > 0
+                    ? ['基于已确认任务，当前未发现明确延误信号；不等于已完成全部风险核验']
+                    : ['任务状态、负责人和截止日期尚未由人工确认，暂不判断延误风险']),
             ],
             'next_actions' => [
                 $nextTask ? '下一步优先推进：' . $nextTask['name'] . '，负责人：' . $nextTask['owner'] : '全部任务已完成，进入上线复盘',
@@ -520,117 +644,12 @@ class ExpansionService
 
     public function buildProjectReadiness(string $recordType, array $input, array $result): array
     {
-        $marketInput = is_array($input['market_input'] ?? null) ? $input['market_input'] : $input;
-        $benchmarkInput = is_array($input['benchmark_input'] ?? null) ? $input['benchmark_input'] : $input;
-        $marketResult = $this->readinessMarketResult($recordType, $input, $result);
-        $benchmarkResult = $this->readinessBenchmarkResult($recordType, $input, $result);
-        $collaborationResult = $this->readinessCollaborationResult($recordType, $input, $result);
-
-        $marketReady = isset($marketResult['market_heat_score']) && trim((string)($marketResult['decision'] ?? '')) !== '';
-        $benchmarkReady = is_array($benchmarkResult['recommended_benchmarks'] ?? null) && count($benchmarkResult['recommended_benchmarks']) > 0;
-        $collaborationReady = is_array($collaborationResult['task_board'] ?? null) && count($collaborationResult['task_board']) > 0;
-        $financialReady = $this->expansionFinancialInputsReady($marketInput, $marketResult);
-        $sourceBacked = $this->expansionSourceEvidenceReady($input, $marketResult, $benchmarkInput, $benchmarkResult);
-        $riskClear = !$this->expansionHasHighRisk($marketResult, $collaborationResult);
-        $taskPlanReady = $this->expansionTaskPlanReady($collaborationResult);
-        $humanReviewReady = $this->hasHumanReviewApproval($input, $result);
-        $trackingReady = $this->hasPostDecisionTracking($input, $result);
-
-        $checks = [
-            $this->readinessCheck('market_screening', '市场评估结果', $marketReady, '已形成市场热度、风险和推进建议', '先生成市场评估，不能只保留物业输入。', 15),
-            $this->readinessCheck('benchmark_model', '标杆选模结果', $benchmarkReady, '已生成可参考标杆和复制策略', '补齐标杆选模，避免只凭单一市场评分立项。', 12),
-            $this->readinessCheck('collaboration_plan', '协同推进看板', $collaborationReady, '已拆解项目任务、责任人和风险', '生成协同提效看板，把评估结果落到项目动作。', 12),
-            $this->readinessCheck('financial_assumptions', '财务与租赁假设', $financialReady, '房量、租金、租期、ADR、入住率等关键假设已填写', '补齐房量、租金、租期、免租期、装修预算、ADR和入住率。', 14),
-            $this->readinessCheck('source_evidence', '真实样本证据', $sourceBacked, $this->sourceEvidenceText($input, $marketResult, $benchmarkResult), '补充竞品样本、OTA热度、点评量、租约或实勘证据；当前仅能视为初筛。', 16),
-            $this->readinessCheck('risk_recheck', '风险复核', $riskClear, '未出现高风险或严重延期标记', '先复核高风险项，明确重谈、放弃或补证动作。', 8),
-            $this->readinessCheck('task_owner_due_date', '责任人与时限', $taskPlanReady, '任务板已包含责任人、截止时间和状态', '为关键任务补齐责任人、截止日期和风险说明。', 8),
-            $this->readinessCheck('manual_review', '人工立项复核', $humanReviewReady, '已记录人工复核/审批状态', '补一条人工复核结论，明确推进、重谈、暂缓或放弃。', 8),
-            $this->readinessCheck('post_decision_tracking', '后续执行跟踪', $trackingReady, '已关联执行、开业或跟踪记录', '关联开业项目、运营执行或投后跟踪记录，避免立项后断链。', 7),
-        ];
-
-        $missingEvidence = [];
-        foreach ($checks as $check) {
-            if (!$check['passed']) {
-                $missingEvidence[] = [
-                    'code' => $check['key'],
-                    'label' => $check['label'],
-                    'next_action' => $check['next_action'],
-                ];
-            }
-        }
-
-        $stage = $this->projectReadinessStage(
-            $marketReady,
-            $benchmarkReady,
-            $collaborationReady,
-            $financialReady,
-            $sourceBacked,
-            $riskClear,
-            $taskPlanReady,
-            $humanReviewReady,
-            $trackingReady
-        );
-        $score = 0;
-        foreach ($checks as $check) {
-            if ($check['passed']) {
-                $score += (int)$check['weight'];
-            }
-        }
-
-        return [
-            'stage' => $stage,
-            'status_label' => $this->projectReadinessStageLabel($stage),
-            'score' => $score,
-            'ready_for_review' => in_array($stage, ['review_ready', 'approved_pending_tracking', 'project_ready'], true),
-            'project_ready' => $stage === 'project_ready',
-            'record_type' => $recordType,
-            'checks' => $checks,
-            'missing_evidence' => $missingEvidence,
-            'next_action' => $missingEvidence[0]['next_action'] ?? '进入人工立项复核，并保留执行跟踪证据。',
-            'notice' => $this->projectReadinessNotice($stage),
-        ];
+        return (new ExpansionProjectReadinessService())->build($recordType, $input, $result);
     }
 
     public function readinessSummaryFromRows(array $rows): array
     {
-        $summary = [
-            'record_count' => 0,
-            'stage_counts' => [],
-            'review_ready_count' => 0,
-            'project_ready_count' => 0,
-            'best_score' => 0,
-            'best_stage' => '',
-            'best_status_label' => '',
-            'missing_evidence' => [],
-        ];
-
-        foreach ($rows as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-            $readiness = $this->buildProjectReadiness(
-                (string)($row['record_type'] ?? ''),
-                $this->decodeJson($row['input_json'] ?? ''),
-                $this->decodeJson($row['result_json'] ?? '')
-            );
-            $summary['record_count']++;
-            $stage = (string)$readiness['stage'];
-            $summary['stage_counts'][$stage] = (int)($summary['stage_counts'][$stage] ?? 0) + 1;
-            if (($readiness['ready_for_review'] ?? false) === true) {
-                $summary['review_ready_count']++;
-            }
-            if (($readiness['project_ready'] ?? false) === true) {
-                $summary['project_ready_count']++;
-            }
-            if ((int)$readiness['score'] >= (int)$summary['best_score']) {
-                $summary['best_score'] = (int)$readiness['score'];
-                $summary['best_stage'] = $stage;
-                $summary['best_status_label'] = (string)$readiness['status_label'];
-                $summary['missing_evidence'] = array_slice((array)$readiness['missing_evidence'], 0, 4);
-            }
-        }
-
-        return $summary;
+        return (new ExpansionProjectReadinessService())->summaryFromRows($rows);
     }
 
     public function saveRecord(string $recordType, array $input, array $result, int $userId): int
@@ -669,7 +688,7 @@ class ExpansionService
         return array_values(array_map(fn(array $row): array => $this->formatRecord($row, false), $rows));
     }
 
-    public function detail(int $id, int $userId, bool $isSuperAdmin): array
+    public function detail(int $id, int $userId, bool $isSuperAdmin, bool $lockForUpdate = false): array
     {
         $this->ensureTable();
 
@@ -677,6 +696,9 @@ class ExpansionService
         $this->applyTenantScope($query, $userId, $isSuperAdmin);
         if (!$isSuperAdmin) {
             $query->where('created_by', $userId);
+        }
+        if ($lockForUpdate) {
+            $query->lock(true);
         }
 
         $row = $query->find();
@@ -755,6 +777,12 @@ class ExpansionService
         $readiness = is_array($record['project_readiness'] ?? null)
             ? $record['project_readiness']
             : $this->buildProjectReadiness($recordType, $input, $result);
+        $readinessStage = trim((string)($readiness['stage'] ?? ''));
+        if (!in_array($readinessStage, ['review_ready', 'approved_pending_tracking'], true)) {
+            throw new InvalidArgumentException(
+                'expansion record is not ready for execution review: ' . ($readinessStage !== '' ? $readinessStage : 'readiness_stage missing')
+            );
+        }
         $date = date('Y-m-d');
         $dateStart = trim((string)($overrides['date_start'] ?? '')) ?: $date;
         $dateEnd = trim((string)($overrides['date_end'] ?? '')) ?: $dateStart;
@@ -778,18 +806,18 @@ class ExpansionService
                 'city_area' => (string)($record['city_area'] ?? $input['city_area'] ?? ''),
                 'decision' => (string)($record['decision'] ?? $result['decision'] ?? ''),
                 'risk_level' => (string)($record['risk_level'] ?? $result['investment_risk_level'] ?? ''),
-                'readiness_stage' => (string)($readiness['stage'] ?? ''),
+                'readiness_stage' => $readinessStage,
             ],
             'target_value' => [
                 'project_name' => $projectName,
                 'tracking_status' => 'pending_expansion_post_decision_tracking',
                 'target_metric' => 'expansion_project_closure',
-                'decision_stage' => (string)($readiness['stage'] ?? ''),
+                'decision_stage' => $readinessStage,
                 'next_action' => (string)($readiness['next_action'] ?? ''),
             ],
             'evidence' => [
                 'record_type' => $recordType,
-                'readiness_stage' => (string)($readiness['stage'] ?? ''),
+                'readiness_stage' => $readinessStage,
                 'readiness_score' => (int)($readiness['score'] ?? 0),
                 'missing_evidence' => array_values((array)($readiness['missing_evidence'] ?? [])),
                 'decision' => (string)($record['decision'] ?? ''),
@@ -824,6 +852,15 @@ class ExpansionService
         }
 
         $result = $this->decodeJson($row['result_json'] ?? '');
+        $linkedIntentId = (int)($result['operation_execution_intent_id'] ?? $result['execution_intent_id'] ?? 0);
+        if ($linkedIntentId > 0) {
+            if ($linkedIntentId !== $intentId) {
+                throw new RuntimeException('expansion record is already linked to a different execution intent', 409);
+            }
+
+            return $this->formatRecord($row, true);
+        }
+
         $now = date('Y-m-d H:i:s');
         $trackingPayload = [
             'type' => 'operation_execution_intent',
@@ -866,6 +903,10 @@ class ExpansionService
 
     public function ensureTable(): void
     {
+        if ($this->tableEnsured) {
+            return;
+        }
+
         Db::execute("
             CREATE TABLE IF NOT EXISTS expansion_records (
                 id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -888,342 +929,13 @@ class ExpansionService
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         ");
         $this->ensureTenantColumns();
+        $this->tableEnsured = true;
     }
 
     private function ensureTenantColumns(): void
     {
         Db::execute("ALTER TABLE expansion_records ADD COLUMN IF NOT EXISTS tenant_id BIGINT UNSIGNED DEFAULT NULL COMMENT '租户ID，默认跟随创建用户' AFTER id");
         Db::execute("ALTER TABLE expansion_records ADD INDEX IF NOT EXISTS idx_expansion_records_tenant_user (tenant_id, created_by, id)");
-    }
-
-    private function readinessMarketResult(string $recordType, array $input, array $result): array
-    {
-        if ($recordType === 'market') {
-            return $result;
-        }
-
-        foreach ([$input, $result] as $payload) {
-            foreach (['market_result', 'market_evaluation_result', 'market'] as $key) {
-                if (is_array($payload[$key] ?? null)) {
-                    return $payload[$key];
-                }
-            }
-        }
-
-        return [];
-    }
-
-    private function readinessBenchmarkResult(string $recordType, array $input, array $result): array
-    {
-        if ($recordType === 'benchmark') {
-            return $result;
-        }
-
-        foreach ([$input, $result] as $payload) {
-            foreach (['benchmark_result', 'benchmark_model_result', 'benchmark'] as $key) {
-                if (is_array($payload[$key] ?? null)) {
-                    return $payload[$key];
-                }
-            }
-        }
-
-        return [];
-    }
-
-    private function readinessCollaborationResult(string $recordType, array $input, array $result): array
-    {
-        if ($recordType === 'collaboration') {
-            return $result;
-        }
-
-        foreach ([$input, $result] as $payload) {
-            foreach (['collaboration_result', 'collaboration_efficiency_result', 'collaboration'] as $key) {
-                if (is_array($payload[$key] ?? null)) {
-                    return $payload[$key];
-                }
-            }
-        }
-
-        return [];
-    }
-
-    private function expansionFinancialInputsReady(array $input, array $marketResult): bool
-    {
-        foreach (['property_area', 'estimated_rent', 'target_room_count', 'lease_years', 'fitout_budget', 'expected_adr', 'expected_occupancy_rate'] as $key) {
-            if (!$this->hasPositiveReadinessValue($this->readinessValue($input, $marketResult, [$key]))) {
-                return false;
-            }
-        }
-
-        $rentFreeMonths = $this->readinessValue($input, $marketResult, ['rent_free_months']);
-        return is_numeric($rentFreeMonths) && (float)$rentFreeMonths >= 0;
-    }
-
-    private function expansionSourceEvidenceReady(array $input, array $marketResult, array $benchmarkInput, array $benchmarkResult): bool
-    {
-        foreach ([$input, $marketResult, $benchmarkInput, $benchmarkResult] as $payload) {
-            foreach ([
-                'source_evidence',
-                'evidence',
-                'evidence_files',
-                'attachments',
-                'competitor_samples',
-                'competitor_sample_evidence',
-                'field_visit_evidence',
-                'lease_contract_evidence',
-                'rent_contract_evidence',
-                'ota_evidence',
-                'review_sample_evidence',
-                'sample_records',
-                'diligence_evidence',
-            ] as $key) {
-                if ($this->hasNonEmptyEvidenceValue($payload[$key] ?? null)) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private function expansionHasHighRisk(array $marketResult, array $collaborationResult): bool
-    {
-        $riskTexts = [
-            (string)($marketResult['investment_risk_level'] ?? ''),
-            (string)($marketResult['decision'] ?? ''),
-            (string)($collaborationResult['delay_risk']['level'] ?? ''),
-        ];
-        $score = $marketResult['market_heat_score'] ?? null;
-        if (is_numeric($score) && (int)$score < 60) {
-            return true;
-        }
-
-        foreach ($riskTexts as $text) {
-            if ($this->containsAny($text, ['高风险', '不建议']) || in_array(strtoupper(trim($text)), ['D', 'E'], true)) {
-                return true;
-            }
-        }
-
-        foreach ((array)($collaborationResult['delay_risk']['points'] ?? []) as $point) {
-            if ($this->containsAny((string)$point, ['高风险', '逾期', '已过期'])) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function expansionTaskPlanReady(array $collaborationResult): bool
-    {
-        $tasks = is_array($collaborationResult['task_board'] ?? null) ? $collaborationResult['task_board'] : [];
-        if (empty($tasks)) {
-            return false;
-        }
-
-        foreach ($tasks as $task) {
-            if (!is_array($task)) {
-                return false;
-            }
-            $name = trim((string)($task['name'] ?? ''));
-            $status = trim((string)($task['status'] ?? ''));
-            $owner = trim((string)($task['owner'] ?? ''));
-            $dueDate = trim((string)($task['due_date'] ?? ''));
-            if ($name === '' || $status === '' || $owner === '' || $dueDate === '') {
-                return false;
-            }
-            if ($this->containsAny($owner, ['待分配', '未分配', 'TBD'])) {
-                return false;
-            }
-            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dueDate)) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private function hasHumanReviewApproval(array $input, array $result): bool
-    {
-        foreach ([$input, $result] as $payload) {
-            foreach (['review_status', 'approval_status', 'decision_status', 'manual_review_status', 'project_review_status'] as $key) {
-                $value = strtolower(trim((string)($payload[$key] ?? '')));
-                if (in_array($value, ['approved', 'reviewed', 'passed', '通过', '已复核', '已审批', '立项通过'], true)) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private function hasPostDecisionTracking(array $input, array $result): bool
-    {
-        foreach ([$input, $result] as $payload) {
-            foreach (['opening_project_id', 'operation_execution_intent_id', 'execution_intent_id', 'tracking_record_id', 'post_decision_tracking_id'] as $key) {
-                if ((int)($payload[$key] ?? 0) > 0) {
-                    return true;
-                }
-            }
-            if ($this->nullableBool($payload['post_decision_tracking'] ?? null) === true) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function projectReadinessStage(
-        bool $marketReady,
-        bool $benchmarkReady,
-        bool $collaborationReady,
-        bool $financialReady,
-        bool $sourceBacked,
-        bool $riskClear,
-        bool $taskPlanReady,
-        bool $humanReviewReady,
-        bool $trackingReady
-    ): string {
-        if (!$marketReady && !$benchmarkReady && !$collaborationReady) {
-            return 'screening_missing';
-        }
-        if (!$riskClear) {
-            return 'risk_recheck_required';
-        }
-        if (!$marketReady || !$benchmarkReady) {
-            return 'screening_record_only';
-        }
-        if (!$collaborationReady) {
-            return 'partial_screening';
-        }
-        if (!$financialReady || !$sourceBacked || !$taskPlanReady) {
-            return 'diligence_required';
-        }
-        if (!$humanReviewReady) {
-            return 'review_ready';
-        }
-        if (!$trackingReady) {
-            return 'approved_pending_tracking';
-        }
-
-        return 'project_ready';
-    }
-
-    private function projectReadinessStageLabel(string $stage): string
-    {
-        return [
-            'screening_missing' => '未形成筛选',
-            'screening_record_only' => '仅单点筛选',
-            'partial_screening' => '筛选未闭合',
-            'risk_recheck_required' => '需风险复核',
-            'diligence_required' => '需补立项证据',
-            'review_ready' => '可进入人工复核',
-            'approved_pending_tracking' => '已复核待跟踪',
-            'project_ready' => '立项闭环就绪',
-        ][$stage] ?? $stage;
-    }
-
-    private function projectReadinessNotice(string $stage): string
-    {
-        return [
-            'screening_missing' => '当前还没有可复核的扩张筛选结果。',
-            'screening_record_only' => '当前仅有单点筛选记录，不能替代完整立项判断。',
-            'partial_screening' => '市场与标杆已部分形成，但尚未落到协同任务和责任人。',
-            'risk_recheck_required' => '存在显式高风险或否决信号，需先复核再继续推进。',
-            'diligence_required' => '筛选和任务已形成，但缺少财务假设、样本证据或责任期限。',
-            'review_ready' => '核心证据已具备，可进入人工立项复核；尚不等同于已审批。',
-            'approved_pending_tracking' => '已有人工复核痕迹，但还缺开业、执行或投后跟踪记录。',
-            'project_ready' => '已有筛选、证据、复核和跟踪记录，可视为立项闭环就绪。',
-        ][$stage] ?? '';
-    }
-
-    private function readinessCheck(string $key, string $label, bool $passed, string $evidence, string $nextAction, int $weight): array
-    {
-        return [
-            'key' => $key,
-            'label' => $label,
-            'passed' => $passed,
-            'status' => $passed ? 'ok' : 'missing',
-            'evidence' => $evidence,
-            'next_action' => $nextAction,
-            'weight' => $weight,
-        ];
-    }
-
-    private function sourceEvidenceText(array $input, array $marketResult, array $benchmarkResult): string
-    {
-        foreach ([$input, $marketResult, $benchmarkResult] as $payload) {
-            foreach (['source_evidence', 'evidence', 'evidence_files', 'attachments', 'competitor_samples', 'sample_records', 'diligence_evidence'] as $key) {
-                if ($this->hasNonEmptyEvidenceValue($payload[$key] ?? null)) {
-                    return '已记录来源证据、样本说明或附件';
-                }
-            }
-        }
-
-        return '尚未记录可追溯来源证据';
-    }
-
-    private function readinessValue(array $input, array $result, array $keys): mixed
-    {
-        foreach ($keys as $key) {
-            if (array_key_exists($key, $input)) {
-                return $input[$key];
-            }
-            if (array_key_exists($key, $result)) {
-                return $result[$key];
-            }
-        }
-
-        return null;
-    }
-
-    private function hasPositiveReadinessValue(mixed $value): bool
-    {
-        return is_numeric($value) && (float)$value > 0;
-    }
-
-    private function hasNonEmptyEvidenceValue(mixed $value): bool
-    {
-        if (is_array($value)) {
-            return !empty(array_filter($value, fn(mixed $item): bool => $this->hasNonEmptyEvidenceValue($item)));
-        }
-        if (is_bool($value)) {
-            return $value;
-        }
-
-        return trim((string)$value) !== '';
-    }
-
-    private function containsAny(string $text, array $needles): bool
-    {
-        foreach ($needles as $needle) {
-            if ($needle !== '' && str_contains($text, $needle)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function nullableBool(mixed $value): ?bool
-    {
-        if ($value === null || $value === '') {
-            return null;
-        }
-        if (is_bool($value)) {
-            return $value;
-        }
-        if (is_numeric($value)) {
-            return (int)$value === 1;
-        }
-        $text = strtolower(trim((string)$value));
-        if (in_array($text, ['1', 'true', 'yes', 'on', '是', '有', '齐全', '完整'], true)) {
-            return true;
-        }
-        if (in_array($text, ['0', 'false', 'no', 'off', '否', '无', '不齐全', '缺失'], true)) {
-            return false;
-        }
-
-        return null;
     }
 
     private function applyTenantScope($query, int $userId, bool $isSuperAdmin): void
@@ -1378,7 +1090,7 @@ class ExpansionService
         $messages = [
             [
                 'role' => 'system',
-                'content' => '你是酒店投资市场评估分析师。只输出符合 schema 的 JSON。必须基于用户输入和市场评估结果生成投决复核意见；不得改写或发明财务数字；缺少真实市场、竞品或 OTA 数据时写入 assumptions；watch_points 必须给出风险严重度、判断依据、潜在影响、复核动作、责任角色和完成时限；建议必须可执行、克制、面向投资决策。',
+                'content' => '你是酒店投资市场评估分析师。只输出符合 schema 的 JSON。必须基于用户输入和市场评估结果生成投决复核意见；market_heat_score 是预设阈值形成的规则初筛指数，不是真实市场热度或投资成功概率；不得改写或发明财务数字；缺少真实市场、竞品、租约或 OTA 数据时必须写入 assumptions，且不得输出推进、通过或可投资结论；watch_points 必须给出风险严重度、判断依据、潜在影响、复核动作、责任角色和完成时限；建议必须可执行、克制、面向投资决策。',
             ],
             [
                 'role' => 'user',
@@ -1414,7 +1126,7 @@ class ExpansionService
             'source' => 'fallback',
             'model_key' => $modelKey,
             'generated_at' => date('Y-m-d H:i:s'),
-            'summary' => '本地规则评估显示，市场热度评分为' . $score . '分，投资风险为' . $riskLevel . '，当前建议为' . $decision . '。',
+            'summary' => '本地规则初筛指数为' . $score . '分，规则风险标记为' . $riskLevel . '，当前状态为' . $decision . '；该指数不代表真实市场热度或投资成功概率。',
             'decision' => $decision,
             'market_judgement' => [
                 'supply_competition_strength' => (string)($result['supply_competition_strength'] ?? ''),
@@ -1643,10 +1355,18 @@ class ExpansionService
 
     private function buildBenchmarkAiEvaluation(array $input, array $result, string $modelKey): array
     {
+        if (($result['source'] ?? '') === 'synthetic_rule_scenario') {
+            return $this->buildFallbackBenchmarkAiEvaluation(
+                $result,
+                $modelKey,
+                '竞品细化指标不完整，当前仅生成规则情景草案，未调用AI标杆复核。'
+            );
+        }
+
         $messages = [
             [
                 'role' => 'system',
-                'content' => '你是酒店扩张标杆选模分析师。只输出符合 schema 的 JSON。必须基于用户输入、竞品细化数据和标杆选模结果生成复核意见；不得发明真实酒店名称或未提供的财务数字；不得输出“规则引擎”等内部实现描述，需用“初筛模型”或“当前输入”表达；缺少真实竞品、点评或 OTA 数据时写入 assumptions；建议必须可执行、克制、面向复制策略和差异化落地。',
+                'content' => '你是酒店扩张标杆选模分析师。只输出符合 schema 的 JSON。必须基于用户输入、竞品细化数据和标杆选模结果生成复核意见；不得发明真实酒店名称、未提供的竞品事实或财务数字；用户录入的竞品汇总指标仍需可追溯样本复核，不得描述为已验证真实酒店样本；不得输出“规则引擎”等内部实现描述，需用“初筛模型”或“当前输入”表达；缺少真实竞品、点评或 OTA 数据时写入 assumptions；建议必须可执行、克制、面向复制策略和差异化落地。',
             ],
             [
                 'role' => 'user',
@@ -1672,14 +1392,16 @@ class ExpansionService
 
     private function buildFallbackBenchmarkAiEvaluation(array $result, string $modelKey, string $reason): array
     {
+        $isSyntheticScenario = ($result['source'] ?? '') === 'synthetic_rule_scenario';
         $benchmarks = is_array($result['recommended_benchmarks'] ?? null) ? $result['recommended_benchmarks'] : [];
-        $best = $benchmarks[0] ?? ['name' => '标杆模型A', 'model_fit_score' => null];
+        $defaultModelName = $isSyntheticScenario ? '情景模型A' : '标杆模型A';
+        $best = $benchmarks[0] ?? ['name' => $defaultModelName, 'model_fit_score' => null];
         foreach ($benchmarks as $benchmark) {
             if ((int)($benchmark['model_fit_score'] ?? 0) > (int)($best['model_fit_score'] ?? 0)) {
                 $best = $benchmark;
             }
         }
-        $bestName = (string)($best['name'] ?? '标杆模型A');
+        $bestName = (string)($best['name'] ?? $defaultModelName);
         $fitScore = $best['model_fit_score'] ?? null;
         $strategies = is_array($result['copyable_strategies'] ?? null) ? $result['copyable_strategies'] : [];
         $strategyLabels = [
@@ -1719,8 +1441,12 @@ class ExpansionService
             'source' => 'fallback',
             'model_key' => $modelKey,
             'generated_at' => date('Y-m-d H:i:s'),
-            'summary' => '本地标杆选模显示，优先参考' . $bestName . ($fitScore !== null ? '，匹配度约' . (int)$fitScore . '%' : '') . '，需结合真实竞品样本复核。',
-            'decision' => '优先复制高匹配标杆的房型、价格和渠道做法，差异化卖点需单独验证。',
+            'summary' => $isSyntheticScenario
+                ? '当前仅生成规则情景草案，可从' . $bestName . '开始验证；未接入完整竞品指标，不代表真实酒店样本或已验证匹配度。'
+                : '本地标杆选模显示，优先参考' . $bestName . ($fitScore !== null ? '，匹配度约' . (int)$fitScore . '%' : '') . '，需结合真实竞品样本复核。',
+            'decision' => $isSyntheticScenario
+                ? '先补齐可追溯的竞品数量、价格、评分、点评量、OTA热度和采样半径，再形成标杆选择。'
+                : '优先复制高匹配标杆的房型、价格和渠道做法，差异化卖点需单独验证。',
             'model_judgement' => [
                 'best_fit_model' => $bestName,
                 'copy_priority' => '先复制房型效率、主力价格带和渠道首图标准，再验证服务标签。',
@@ -1728,7 +1454,9 @@ class ExpansionService
             ],
             'recommendations' => $recommendations,
             'watch_points' => $watchPoints,
-            'assumptions' => ['AI模型不可用时启用本地标杆选模兜底。', '尚未接入真实竞品酒店名称、点评文本和 OTA 转化数据。'],
+            'assumptions' => $isSyntheticScenario
+                ? ['当前为基于用户输入及默认假设生成的规则情景，非真实竞品样本。', '竞品细化指标不完整，未生成真实样本匹配度。']
+                : ['AI模型不可用时启用本地标杆选模兜底。', '用户录入的竞品汇总指标仍需可追溯样本复核。'],
             'error' => mb_substr(trim($reason), 0, 120),
         ];
     }
@@ -1832,28 +1560,25 @@ class ExpansionService
             }
         }
 
-        $stageIndex = $this->stageIndex($currentStage);
-        return array_map(function (string $name, int $index) use ($inputByName, $stageIndex, $today): array {
+        return array_map(function (string $name) use ($inputByName): array {
             $task = $inputByName[$name] ?? [];
+            $isObserved = $task !== [];
             return [
                 'name' => $name,
-                'status' => $this->taskStatus((string)($task['status'] ?? $this->defaultTaskStatus($index, $stageIndex))),
+                'status' => $this->taskStatus((string)($task['status'] ?? '待确认')),
                 'owner' => trim((string)($task['owner'] ?? '待分配')),
-                'due_date' => trim((string)($task['due_date'] ?? $today->modify('+' . (($index + 1) * 7) . ' days')->format('Y-m-d'))),
+                'due_date' => trim((string)($task['due_date'] ?? '')),
                 'risk_note' => trim((string)($task['risk_note'] ?? '')),
+                'source' => $isObserved ? 'operator_provided' : 'rule_template',
+                'evidence_status' => $isObserved ? 'operator_provided' : 'unconfirmed_template',
+                'is_observed' => $isObserved,
             ];
-        }, self::TASKS, array_keys(self::TASKS));
+        }, self::TASKS);
     }
 
     private function defaultTaskStatus(int $taskIndex, int $stageIndex): string
     {
-        if ($taskIndex < $stageIndex) {
-            return '已完成';
-        }
-        if ($taskIndex === $stageIndex) {
-            return '进行中';
-        }
-        return '未开始';
+        return '待确认';
     }
 
     private function stageIndex(string $stage): int
@@ -1882,7 +1607,7 @@ class ExpansionService
 
     private function taskStatus(string $status): string
     {
-        return in_array($status, ['未开始', '进行中', '已完成', '风险'], true) ? $status : '未开始';
+        return in_array($status, ['待确认', '未开始', '进行中', '已完成', '风险'], true) ? $status : '待确认';
     }
 
     private function dataStatus(array $missing): array

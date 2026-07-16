@@ -31,7 +31,7 @@ class Expansion extends Base
             $result['record_id'] = $this->service->saveRecord('market', $input, $result, (int)($this->currentUser->id ?? 0));
             $result['project_readiness'] = $this->service->buildProjectReadiness('market', $input, $result);
 
-            return $this->success($result, '市场评估已生成');
+            return $this->success($result, '市场规则初筛已生成（不等同投资结论）');
         } catch (InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 422);
         } catch (\Throwable $e) {
@@ -48,7 +48,11 @@ class Expansion extends Base
             $result['record_id'] = $this->service->saveRecord('benchmark', $input, $result, (int)($this->currentUser->id ?? 0));
             $result['project_readiness'] = $this->service->buildProjectReadiness('benchmark', $input, $result);
 
-            return $this->success($result, '标杆选模已生成');
+            $message = ($result['source'] ?? '') === 'synthetic_rule_scenario'
+                ? '情景标杆草案已生成（非真实竞品数据）'
+                : '标杆选模已生成';
+
+            return $this->success($result, $message);
         } catch (InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 422);
         } catch (\Throwable $e) {
@@ -118,18 +122,39 @@ class Expansion extends Base
 
             $userId = (int)($this->currentUser->id ?? 0);
             $isSuperAdmin = $this->currentUser->isSuperAdmin();
-            $record = $this->service->detail($id, $userId, $isSuperAdmin);
-            if ((int)($record['execution_intent_id'] ?? $record['result']['operation_execution_intent_id'] ?? $record['result']['execution_intent_id'] ?? 0) > 0) {
-                return $this->error('expansion record already linked to execution intent', 409);
-            }
+            $dateOverrides = [
+                'date_start' => (string)$this->request->param('date_start', ''),
+                'date_end' => (string)$this->request->param('date_end', ''),
+            ];
 
-            $result = Db::transaction(function () use ($record, $id, $hotelId, $permittedHotelIds, $userId, $isSuperAdmin): array {
+            // Prepare schema before the transaction: MySQL/MariaDB DDL may implicitly commit.
+            $this->service->ensureTable();
+
+            $result = Db::transaction(function () use ($id, $hotelId, $permittedHotelIds, $userId, $isSuperAdmin, $dateOverrides): array {
+                $record = $this->service->detail($id, $userId, $isSuperAdmin, true);
                 $operationService = new OperationManagementService();
-                $input = $this->service->buildExecutionIntentInput($record, $hotelId, [
-                    'date_start' => (string)$this->request->param('date_start', ''),
-                    'date_end' => (string)$this->request->param('date_end', ''),
-                ]);
-                $intent = $operationService->createExecutionIntent($permittedHotelIds, $hotelId, $input, $userId);
+                $linkedIntentId = (int)($record['execution_intent_id']
+                    ?? $record['result']['operation_execution_intent_id']
+                    ?? $record['result']['execution_intent_id']
+                    ?? 0);
+                if ($linkedIntentId > 0) {
+                    $intent = $operationService->readExecutionIntent($linkedIntentId, $permittedHotelIds);
+                    if ((int)($intent['hotel_id'] ?? 0) !== $hotelId) {
+                        return [
+                            'conflict' => true,
+                            'linked_hotel_id' => (int)($intent['hotel_id'] ?? 0),
+                        ];
+                    }
+
+                    return [
+                        'execution_intent' => $intent,
+                        'record' => $record,
+                        'idempotent_replay' => true,
+                    ];
+                }
+
+                $input = $this->service->buildExecutionIntentInput($record, $hotelId, $dateOverrides);
+                $intent = $operationService->createExecutionIntent($permittedHotelIds, $hotelId, $input, $userId, true);
                 $updatedRecord = $this->service->attachExecutionTracking($id, $userId, $isSuperAdmin, [
                     'execution_intent_id' => (int)($intent['id'] ?? 0),
                     'hotel_id' => $hotelId,
@@ -139,14 +164,23 @@ class Expansion extends Base
                 return [
                     'execution_intent' => $intent,
                     'record' => $updatedRecord,
+                    'idempotent_replay' => false,
                 ];
             });
 
-            return $this->success($result, 'execution intent created');
+            if (($result['conflict'] ?? false) === true) {
+                return $this->error('expansion record is already linked to an execution intent for a different hotel', 409);
+            }
+
+            return $this->success(
+                $result,
+                ($result['idempotent_replay'] ?? false) ? 'execution intent already linked' : 'execution intent created'
+            );
         } catch (InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 422);
         } catch (RuntimeException $e) {
-            return $this->error($e->getMessage(), 404);
+            $status = in_array((int)$e->getCode(), [409, 500], true) ? (int)$e->getCode() : 404;
+            return $this->error($e->getMessage(), $status);
         } catch (Throwable $e) {
             return $this->error('create expansion execution intent failed: ' . $e->getMessage(), 500);
         }

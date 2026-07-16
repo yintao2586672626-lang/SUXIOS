@@ -31,16 +31,16 @@ class FeasibilityReportService
             'input_json' => $input,
             'snapshot_json' => $snapshot,
             'report_json' => $report,
-            'conclusion_grade' => $report['conclusion_grade'] ?? 'C',
+            'conclusion_grade' => $report['conclusion_grade'] ?? null,
             'payback_months' => $report['summary']['payback_months'] ?? null,
-            'total_investment' => $report['summary']['total_investment'] ?? 0,
+            'total_investment' => $report['summary']['total_investment'] ?? null,
             'created_by' => $userId,
         ]);
 
         return $this->formatRecord($record);
     }
 
-    public function regenerate(int $id, int $userId, bool $isSuperAdmin): ?array
+    public function regenerate(int $id, int $userId, bool $isSuperAdmin, array $updatedInput = []): ?array
     {
         $this->ensureTable();
         $query = FeasibilityReport::where('id', $id)->whereNull('deleted_at');
@@ -54,7 +54,10 @@ class FeasibilityReportService
             return null;
         }
 
-        return $this->generate((array) $old->input_json, $userId);
+        $storedInput = (array)$old->input_json;
+        $nextInput = $updatedInput === [] ? $storedInput : array_merge($storedInput, $updatedInput);
+
+        return $this->generate($nextInput, $userId);
     }
 
     public function detail(int $id, int $userId, bool $isSuperAdmin): ?array
@@ -121,6 +124,9 @@ class FeasibilityReportService
         $readiness = is_array($record['feasibility_readiness'] ?? null)
             ? $record['feasibility_readiness']
             : $this->buildFeasibilityReadiness($input, $snapshot, $report);
+        if (($readiness['decision_ready'] ?? false) !== true) {
+            throw new \InvalidArgumentException('核心投资输入未齐全，待评估报告不能转投后跟踪');
+        }
         $summary = is_array($report['summary'] ?? null) ? $report['summary'] : [];
         $projectName = trim((string)($record['project_name'] ?? $summary['project_name'] ?? $input['project_name'] ?? ''));
         $date = date('Y-m-d');
@@ -225,10 +231,17 @@ class FeasibilityReportService
 
     public function buildFeasibilityReadiness(array $input, array $snapshot, array $report): array
     {
-        $reportReady = trim((string)($report['conclusion_grade'] ?? '')) !== ''
+        $inputDataGaps = $this->feasibilityInputDataGaps($input);
+        $reportDataGaps = array_values(array_filter(
+            (array)($report['data_gaps'] ?? []),
+            static fn ($gap): bool => is_string($gap) && trim($gap) !== ''
+        ));
+        $dataGaps = array_values(array_unique(array_merge($inputDataGaps, $reportDataGaps)));
+        $decisionReady = $dataGaps === [] && (($report['decision_ready'] ?? true) === true);
+        $reportReady = $decisionReady
+            && trim((string)($report['conclusion_grade'] ?? '')) !== ''
             && trim((string)($report['conclusion_text'] ?? '')) !== '';
-        $scenarioReady = is_array($report['financial_scenarios'] ?? null)
-            && count($report['financial_scenarios']) >= 3;
+        $scenarioReady = $decisionReady && $this->financialScenariosReady($report['financial_scenarios'] ?? null);
         $financialReady = $this->feasibilityFinancialInputsReady($input, $snapshot, $report);
         $sourceBacked = $this->feasibilitySourceEvidenceReady($input, $snapshot, $report);
         $riskClear = $this->feasibilityRiskClear($report);
@@ -271,27 +284,34 @@ class FeasibilityReportService
             ];
         }
 
-        $stage = $this->feasibilityReadinessStage(
-            $reportReady,
-            $scenarioReady,
-            $financialReady,
-            $sourceBacked,
-            $riskClear,
-            $diligenceReady,
-            $humanReviewReady,
-            $trackingReady
-        );
+        $stage = $decisionReady
+            ? $this->feasibilityReadinessStage(
+                $reportReady,
+                $scenarioReady,
+                $financialReady,
+                $sourceBacked,
+                $riskClear,
+                $diligenceReady,
+                $humanReviewReady,
+                $trackingReady
+            )
+            : 'input_pending';
 
         return [
             'stage' => $stage,
             'status_label' => $this->feasibilityReadinessStageLabel($stage),
             'score' => $score,
+            'decision_ready' => $decisionReady,
+            'data_gaps' => $dataGaps,
+            'evaluation_status' => $decisionReady ? '可评估' : '待评估',
             'ready_for_review' => in_array($stage, ['review_ready', 'approved_pending_tracking', 'feasibility_ready'], true),
             'feasibility_ready' => $stage === 'feasibility_ready',
             'source_scope' => $this->feasibilitySourceScope($snapshot),
             'checks' => $checks,
             'missing_evidence' => $missingEvidence,
-            'next_action' => $missingEvidence[0]['next_action'] ?? '进入人工投决复核，并保留审批、执行和投后跟踪证据。',
+            'next_action' => !$decisionReady
+                ? '补齐预期 ADR、预期 OCC、开办费及其他核心投资输入后重新评估。'
+                : ($missingEvidence[0]['next_action'] ?? '进入人工投决复核，并保留审批、执行和投后跟踪证据。'),
             'notice' => $this->feasibilityReadinessNotice($stage),
         ];
     }
@@ -424,7 +444,7 @@ class FeasibilityReportService
             'decoration_budget', 'transfer_fee', 'opening_cost', 'adr', 'occ',
         ];
         foreach ($numberFields as $field) {
-            $result[$field] = round((float) ($input[$field] ?? 0), 2);
+            $result[$field] = $this->nullableNumber($input[$field] ?? null, $field);
         }
 
         if ($result['project_name'] === '') {
@@ -436,8 +456,128 @@ class FeasibilityReportService
         if ($result['property_area'] <= 0) {
             throw new \InvalidArgumentException('物业面积必须大于 0');
         }
+        foreach (['monthly_rent', 'decoration_budget', 'transfer_fee', 'opening_cost'] as $field) {
+            if ($result[$field] !== null && $result[$field] < 0) {
+                throw new \InvalidArgumentException($field . ' 不能为负数');
+            }
+        }
+        if ($result['occ'] !== null && $result['occ'] > 100) {
+            throw new \InvalidArgumentException('预期 OCC 不能大于 100%');
+        }
 
         return $result;
+    }
+
+    private function nullableNumber(mixed $value, string $field): ?float
+    {
+        if ($value === null || (is_string($value) && trim($value) === '')) {
+            return null;
+        }
+        if (!is_numeric($value)) {
+            throw new \InvalidArgumentException($field . ' 必须是数字');
+        }
+
+        return round((float)$value, 2);
+    }
+
+    private function numericOrNull(mixed $value): ?float
+    {
+        return is_numeric($value) ? (float)$value : null;
+    }
+
+    private function normalizeOccupancy(mixed $value): ?float
+    {
+        if (!is_numeric($value)) {
+            return null;
+        }
+        $occ = (float)$value;
+        if ($occ > 1) {
+            $occ /= 100;
+        }
+
+        return $occ > 0 && $occ <= 1 ? $occ : null;
+    }
+
+    private function feasibilityInputDataGaps(array $input): array
+    {
+        $gaps = [];
+        foreach (['property_area', 'room_count', 'lease_years'] as $field) {
+            if (!$this->hasPositiveReadinessValue($input[$field] ?? null)) {
+                $gaps[] = $field . '_missing_or_invalid';
+            }
+        }
+        foreach (['monthly_rent', 'decoration_budget', 'transfer_fee', 'opening_cost'] as $field) {
+            $value = $this->numericOrNull($input[$field] ?? null);
+            if ($value === null) {
+                $gaps[] = $field . '_missing';
+            } elseif ($value < 0) {
+                $gaps[] = $field . '_must_be_non_negative';
+            }
+        }
+        $investmentParts = array_map(
+            fn (string $field): ?float => $this->numericOrNull($input[$field] ?? null),
+            ['decoration_budget', 'transfer_fee', 'opening_cost']
+        );
+        if (!in_array(null, $investmentParts, true) && array_sum($investmentParts) <= 0) {
+            $gaps[] = 'total_investment_must_be_positive';
+        }
+        if (!$this->hasPositiveReadinessValue($input['adr'] ?? null)) {
+            $gaps[] = 'expected_adr_missing_or_invalid';
+        }
+        if ($this->normalizeOccupancy($input['occ'] ?? null) === null) {
+            $gaps[] = 'expected_occ_missing_or_invalid';
+        }
+
+        return array_values(array_unique($gaps));
+    }
+
+    private function feasibilityDataGapLabels(array $gaps): array
+    {
+        $labels = [
+            'property_area_missing_or_invalid' => '物业面积',
+            'room_count_missing_or_invalid' => '房间数',
+            'monthly_rent_missing' => '月租金（无租金请显式填 0）',
+            'monthly_rent_must_be_non_negative' => '有效月租金',
+            'lease_years_missing_or_invalid' => '有效租期',
+            'decoration_budget_missing' => '装修预算（无预算请显式填 0）',
+            'decoration_budget_must_be_non_negative' => '有效装修预算',
+            'transfer_fee_missing' => '转让费（无转让费请显式填 0）',
+            'transfer_fee_must_be_non_negative' => '有效转让费',
+            'opening_cost_missing' => '预期开办费（无费用请显式填 0）',
+            'opening_cost_must_be_non_negative' => '有效预期开办费',
+            'expected_adr_missing_or_invalid' => '大于 0 的预期 ADR',
+            'expected_occ_missing_or_invalid' => '0%—100% 之间的预期 OCC',
+            'total_investment_must_be_positive' => '大于 0 的总投资',
+        ];
+
+        return array_map(
+            static fn (string $gap): string => $labels[$gap] ?? $gap,
+            array_values(array_filter($gaps, 'is_string'))
+        );
+    }
+
+    private function financialScenariosReady(mixed $scenarios): bool
+    {
+        if (!is_array($scenarios) || count($scenarios) < 3) {
+            return false;
+        }
+        foreach (array_slice($scenarios, 0, 3) as $scenario) {
+            if (!is_array($scenario)) {
+                return false;
+            }
+            foreach (['adr', 'occ', 'monthly_revenue', 'monthly_operating_cost', 'monthly_net_cashflow'] as $field) {
+                if (!is_numeric($scenario[$field] ?? null)) {
+                    return false;
+                }
+            }
+            if (($scenario['calculation_status'] ?? 'rule_scenario_ready') === 'pending_input'
+                || trim((string)($scenario['risk_level'] ?? '')) === '待评估'
+            ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function buildSnapshot(array $input, ?int $tenantId = null): array
@@ -551,46 +691,87 @@ class FeasibilityReportService
 
     private function calculate(array $input, array $snapshot): array
     {
-        $assumptions = [];
-        $roomCount = max(1, (float) $input['room_count']);
+        $assumptions = [
+            '固定成本采用规则情景假设（非经营实绩）：月租金 + 900 元/间人工 + 260 元/间能耗 + 18,000 元其他固定成本。',
+            '变动成本采用规则情景假设（非经营实绩）：按情景营业收入的 18% 测算。',
+        ];
+        $roomCount = (float)$input['room_count'];
         $areaPerRoom = round((float) $input['property_area'] / $roomCount, 2);
-        $openingCost = (float) ($input['opening_cost'] ?: round($roomCount * 2500));
-        if (empty($input['opening_cost'])) {
-            $assumptions[] = '开办费按 2500 元/间估算。';
-        }
+        $openingCost = $this->numericOrNull($input['opening_cost'] ?? null);
+        $baseAdr = $this->hasPositiveReadinessValue($input['adr'] ?? null) ? (float)$input['adr'] : null;
+        $baseOcc = $this->normalizeOccupancy($input['occ'] ?? null);
+        $dataGaps = $this->feasibilityInputDataGaps($input);
 
-        $baseAdr = (float) $input['adr'];
-        if ($baseAdr <= 0) {
-            $baseAdr = (float) ($snapshot['daily_summary']['avg_adr'] ?: $snapshot['competitor_summary']['avg_competitor_price'] ?: 260);
-            $assumptions[] = '未输入 ADR，使用系统历史/竞对数据估算，若无样本则按 260 元估算。';
+        $investmentParts = [
+            $this->numericOrNull($input['decoration_budget'] ?? null),
+            $this->numericOrNull($input['transfer_fee'] ?? null),
+            $openingCost,
+        ];
+        $totalInvestment = in_array(null, $investmentParts, true)
+            ? null
+            : round(array_sum($investmentParts), 2);
+        if ($totalInvestment !== null && $totalInvestment <= 0) {
+            $dataGaps[] = 'total_investment_must_be_positive';
         }
+        $dataGaps = array_values(array_unique($dataGaps));
+        $decisionReady = $dataGaps === [];
 
-        $baseOcc = (float) $input['occ'];
-        if ($baseOcc <= 0) {
-            $baseOcc = (float) ($snapshot['daily_summary']['avg_occ'] ?: 0.72);
-            $assumptions[] = '未输入 OCC，使用系统历史入住率估算，若无样本则按 72% 估算。';
-        } elseif ($baseOcc > 1) {
-            $baseOcc = $baseOcc / 100;
-        }
-
-        $totalInvestment = (float) $input['decoration_budget'] + (float) $input['transfer_fee'] + $openingCost;
+        $conservativeAdr = $baseAdr === null ? null : $baseAdr * 0.9;
+        $optimisticAdr = $baseAdr === null ? null : $baseAdr * 1.08;
+        $conservativeOcc = $baseOcc === null ? null : max(0.0, $baseOcc - 0.10);
+        $optimisticOcc = $baseOcc === null ? null : min(1.0, $baseOcc + 0.08);
         $scenarios = [
-            $this->scenario('保守情景', $roomCount, $baseAdr * 0.9, max(0.35, $baseOcc - 0.10), $input, $totalInvestment),
-            $this->scenario('基准情景', $roomCount, $baseAdr, $baseOcc, $input, $totalInvestment),
-            $this->scenario('乐观情景', $roomCount, $baseAdr * 1.08, min(0.95, $baseOcc + 0.08), $input, $totalInvestment),
+            $this->scenario('保守情景', $roomCount, $conservativeAdr, $conservativeOcc, $input, $totalInvestment, $decisionReady),
+            $this->scenario('基准情景', $roomCount, $baseAdr, $baseOcc, $input, $totalInvestment, $decisionReady),
+            $this->scenario('乐观情景', $roomCount, $optimisticAdr, $optimisticOcc, $input, $totalInvestment, $decisionReady),
         ];
 
         return [
+            'decision_ready' => $decisionReady,
+            'evaluation_status' => $decisionReady ? '可评估' : '待评估',
+            'data_gaps' => $dataGaps,
             'area_per_room' => $areaPerRoom,
             'opening_cost' => $openingCost,
-            'total_investment' => round($totalInvestment, 2),
+            'total_investment' => $totalInvestment,
             'scenarios' => $scenarios,
+            'cost_model' => [
+                'basis' => 'rule_scenario_assumption',
+                'is_actual_performance' => false,
+                'variable_cost_ratio' => 0.18,
+                'fixed_cost_formula' => 'monthly_rent + room_count * 900 + room_count * 260 + 18000',
+            ],
             'assumptions' => $assumptions,
         ];
     }
 
-    private function scenario(string $name, float $roomCount, float $adr, float $occ, array $input, float $totalInvestment): array
+    private function scenario(
+        string $name,
+        float $roomCount,
+        ?float $adr,
+        ?float $occ,
+        array $input,
+        ?float $totalInvestment,
+        bool $decisionReady
+    ): array
     {
+        $base = [
+            'name' => $name,
+            'adr' => $adr === null ? null : round($adr, 2),
+            'occ' => $occ === null ? null : round($occ, 4),
+            'revpar' => null,
+            'monthly_revenue' => null,
+            'monthly_operating_cost' => null,
+            'monthly_net_cashflow' => null,
+            'payback_months' => null,
+            'rent_ratio' => null,
+            'risk_level' => '待评估',
+            'calculation_status' => 'pending_input',
+            'cost_basis' => 'rule_scenario_assumption_not_actuals',
+        ];
+        if (!$decisionReady || $adr === null || $occ === null || $totalInvestment === null) {
+            return $base;
+        }
+
         $revpar = $adr * $occ;
         $monthlyRevenue = $roomCount * 30 * $revpar;
         $variableCost = $monthlyRevenue * 0.18;
@@ -600,10 +781,7 @@ class FeasibilityReportService
         $payback = $net > 0 ? $totalInvestment / $net : null;
         $rentRatio = $monthlyRevenue > 0 ? (float) $input['monthly_rent'] / $monthlyRevenue : 0;
 
-        return [
-            'name' => $name,
-            'adr' => round($adr, 2),
-            'occ' => round($occ, 4),
+        return array_merge($base, [
             'revpar' => round($revpar, 2),
             'monthly_revenue' => round($monthlyRevenue, 2),
             'monthly_operating_cost' => round($monthlyCost, 2),
@@ -611,7 +789,8 @@ class FeasibilityReportService
             'payback_months' => $payback === null ? null : round($payback, 1),
             'rent_ratio' => round($rentRatio, 4),
             'risk_level' => $this->scenarioRisk($net, $payback, $rentRatio),
-        ];
+            'calculation_status' => 'rule_scenario_ready',
+        ]);
     }
 
     private function scenarioRisk(float $net, ?float $payback, float $rentRatio): string
@@ -627,10 +806,14 @@ class FeasibilityReportService
 
     private function buildAiReport(array $input, array $snapshot, array $calculation): array
     {
+        if (($calculation['decision_ready'] ?? false) !== true) {
+            return $this->buildPendingReport($input, $snapshot, $calculation);
+        }
+
         $messages = [
             [
                 'role' => 'system',
-                'content' => '你是酒店投资可行性分析师。只输出符合 schema 的 JSON。财务数字必须采用用户输入和本地测算，不要编造来源；无来源的数据写入 assumptions；风险评级保持保守。',
+                'content' => '你是酒店投资可行性分析师。只输出符合 schema 的 JSON。财务数字必须采用用户显式输入和本地规则情景测算，不要编造来源；固定成本公式与 18% 变动成本均为规则情景假设，不是经营实绩。无可追溯市场或竞品证据时，market_score 必须为 null、competition_level 必须写“未评估”；用户未输入产品定位或目标客群时，recommended_model 和 target_customer 必须为 null；无来源的数据写入 assumptions；风险评级保持保守。',
             ],
             [
                 'role' => 'user',
@@ -645,10 +828,69 @@ class FeasibilityReportService
 
         $modelKey = trim((string)($input['model_key'] ?? 'deepseek_v4_default'));
         try {
-            return $this->client->createJsonResponse($messages, $this->schema(), $modelKey !== '' ? $modelKey : 'deepseek_v4_default');
+            $report = $this->client->createJsonResponse($messages, $this->schema(), $modelKey !== '' ? $modelKey : 'deepseek_v4_default');
+            return $this->enforceMarketEvidenceBoundary($report, $input, $snapshot);
         } catch (\Throwable $e) {
             return $this->buildFallbackReport($input, $snapshot, $calculation, $e->getMessage());
         }
+    }
+
+    private function buildPendingReport(array $input, array $snapshot, array $calculation): array
+    {
+        $dataGaps = array_values(array_unique((array)($calculation['data_gaps'] ?? [])));
+        $gapLabels = $this->feasibilityDataGapLabels($dataGaps);
+        $gapText = $gapLabels ? implode('、', $gapLabels) : '核心投资输入';
+        $location = trim((string)$input['city'] . ' ' . (string)$input['district'] . ' ' . (string)$input['address']);
+        $hasMarketEvidence = $this->hasTraceableMarketEvidence($snapshot);
+
+        return [
+            'decision_ready' => false,
+            'evaluation_status' => '待评估',
+            'data_gaps' => $dataGaps,
+            'report_source' => 'pending_input',
+            'conclusion_grade' => null,
+            'conclusion_text' => '待评估：核心测算输入未齐全。',
+            'core_reason' => '缺少或无效输入：' . $gapText . '。系统未生成回本期或结论等级。',
+            'summary' => [
+                'project_name' => (string)$input['project_name'],
+                'location' => $location,
+                'room_count' => (int)$input['room_count'],
+                'total_investment' => $calculation['total_investment'] ?? null,
+                'payback_months' => null,
+            ],
+            'basic_info' => [],
+            'market_judgement' => [
+                'market_score' => null,
+                'competition_level' => '未评估',
+                'recommended_model' => $input['target_brand_level'] !== '' ? (string)$input['target_brand_level'] : null,
+                'target_customer' => $input['target_customer'] !== '' ? (string)$input['target_customer'] : null,
+                'reasoning' => $hasMarketEvidence
+                    ? '存在本地竞品记录，但核心投资输入未齐，且当前记录来源、门店、日期和字段口径未形成完整投决证据。'
+                    : '未读取到可追溯的市场或竞品记录，市场判断保持未评估。',
+            ],
+            'financial_scenarios' => (array)($calculation['scenarios'] ?? []),
+            'risk_list' => [
+                [
+                    'risk' => '核心输入完整性',
+                    'level' => '待核验',
+                    'reason' => '缺少或无效输入：' . $gapText . '。',
+                    'action' => '在本页显式补齐输入后重新评估，不使用演示值或隐藏默认值。',
+                ],
+            ],
+            'action_plan' => [
+                ['title' => '补齐核心测算输入', 'priority' => 'P0', 'detail' => '补齐：' . $gapText . '。'],
+                ['title' => '复核规则情景成本', 'priority' => 'P1', 'detail' => '确认固定成本公式和 18% 变动成本假设是否适用于该项目。'],
+            ],
+            'assumptions' => (array)($calculation['assumptions'] ?? []),
+            'evidence' => [
+                [
+                    'source' => 'user_input_pending',
+                    'title' => '待补充的项目输入',
+                    'url' => '',
+                    'summary' => '当前仅保存已填写内容；未形成可用回本期、结论等级或投资可行性结论。',
+                ],
+            ],
+        ];
     }
 
     private function buildFallbackReport(array $input, array $snapshot, array $calculation, string $reason): array
@@ -666,27 +908,36 @@ class FeasibilityReportService
         }
 
         $location = trim((string)$input['city'] . ' ' . (string)$input['district'] . ' ' . (string)$input['address']);
-        $sourceCounts = $snapshot['source_counts'] ?? [];
-        $hasLocalEvidence = array_sum(array_map('intval', is_array($sourceCounts) ? $sourceCounts : [])) > 0;
+        $sourceCounts = is_array($snapshot['source_counts'] ?? null) ? $snapshot['source_counts'] : [];
+        $hasLocalRecords = array_sum(array_map('intval', $sourceCounts)) > 0;
+        $hasMarketEvidence = $this->hasTraceableMarketEvidence($snapshot);
 
         return [
+            'decision_ready' => true,
+            'evaluation_status' => '可评估',
+            'data_gaps' => [],
+            'report_source' => 'fallback',
             'conclusion_grade' => $grade,
             'conclusion_text' => $grade === 'A' || $grade === 'B' ? '可进入下一轮尽调，需继续校验租金、ADR和入住率假设。' : '当前条件需谨慎推进，建议先优化租金或投资规模。',
-            'core_reason' => '本地测算显示基准情景回本周期为' . ($payback === null ? '不可回本' : $payback . '个月') . '，风险等级为' . $riskLevel . '。',
+            'core_reason' => $payback === null
+                ? '本地规则测算显示基准情景未形成正净现金流，回本期无法计算；财务情景规则风险为' . $riskLevel . '。'
+                : '本地规则测算显示基准情景回本周期为' . $payback . '个月，财务情景规则风险为' . $riskLevel . '。',
             'summary' => [
                 'project_name' => (string)$input['project_name'],
                 'location' => $location,
                 'room_count' => (int)$input['room_count'],
                 'total_investment' => (float)$calculation['total_investment'],
-                'payback_months' => $payback === null ? 0 : (float)$payback,
+                'payback_months' => $payback === null ? null : (float)$payback,
             ],
             'basic_info' => [],
             'market_judgement' => [
-                'market_score' => $hasLocalEvidence ? 70 : 60,
-                'competition_level' => $hasLocalEvidence ? '可参考本地经营/OTA样本' : '真实样本不足',
-                'recommended_model' => (string)($input['target_brand_level'] ?: '中端精选'),
-                'target_customer' => (string)($input['target_customer'] ?: '商务差旅'),
-                'reasoning' => $hasLocalEvidence ? '已读取系统历史数据快照，仍需补充竞品实采。' : '缺少足够历史样本，本次主要依据用户输入和本地财务模型。',
+                'market_score' => null,
+                'competition_level' => '未评估',
+                'recommended_model' => $input['target_brand_level'] !== '' ? (string)$input['target_brand_level'] : null,
+                'target_customer' => $input['target_customer'] !== '' ? (string)$input['target_customer'] : null,
+                'reasoning' => $hasMarketEvidence
+                    ? '已读取可追溯的本地竞品记录，但当前规则未定义市场评分和竞争强度口径，因此不生成分数或强度结论；记录来源真实性仍待核验。'
+                    : '未读取到可追溯的市场或竞品记录，市场评分与竞争强度保持未评估；产品定位和目标客群仅回显用户输入。',
             ],
             'financial_scenarios' => $calculation['scenarios'],
             'risk_list' => [
@@ -698,8 +949,10 @@ class FeasibilityReportService
                 ],
                 [
                     'risk' => '数据来源',
-                    'level' => $hasLocalEvidence ? '低' : '中',
-                    'reason' => $hasLocalEvidence ? '已有部分系统数据快照。' : '缺少充分经营、OTA和竞对样本。',
+                    'level' => '待核验',
+                    'reason' => $hasLocalRecords
+                        ? '存在本地系统记录，但记录存在不等于来源、门店、日期和字段口径已核验。'
+                        : '缺少可追溯的经营、OTA和竞品记录。',
                     'action' => '接入近期日报、OTA订单和竞对价格后重新生成。',
                 ],
             ],
@@ -714,10 +967,12 @@ class FeasibilityReportService
             ))),
             'evidence' => [
                 [
-                    'source' => 'system',
-                    'title' => '宿析OS本地测算',
+                    'source' => 'local_calculation',
+                    'title' => '宿析OS规则情景测算',
                     'url' => '',
-                    'summary' => '基于用户输入、系统快照和内置财务公式生成。',
+                    'summary' => $hasLocalRecords
+                        ? '基于用户输入、可用本地记录和内置财务规则生成；本地记录来源真实性仍待核验。'
+                        : '仅基于用户输入和内置财务规则生成，未使用可追溯市场或竞品证据。',
                 ],
             ],
         ];
@@ -725,15 +980,26 @@ class FeasibilityReportService
 
     private function mergeFinancials(array $report, array $input, array $calculation): array
     {
-        $base = $calculation['scenarios'][1];
+        $decisionReady = ($calculation['decision_ready'] ?? false) === true;
+        $base = is_array($calculation['scenarios'][1] ?? null) ? $calculation['scenarios'][1] : [];
+        $payback = $decisionReady && array_key_exists('payback_months', $base) ? $base['payback_months'] : null;
         $report['summary'] = array_merge($report['summary'] ?? [], [
             'project_name' => $input['project_name'],
             'location' => trim($input['city'] . ' ' . $input['district'] . ' ' . $input['address']),
             'room_count' => (int) $input['room_count'],
             'total_investment' => $calculation['total_investment'],
-            'payback_months' => $base['payback_months'] ?? 0,
+            'payback_months' => $payback,
         ]);
+        $report['decision_ready'] = $decisionReady;
+        $report['evaluation_status'] = $decisionReady ? '可评估' : '待评估';
+        $report['data_gaps'] = array_values(array_unique((array)($calculation['data_gaps'] ?? [])));
+        if (!$decisionReady) {
+            $report['conclusion_grade'] = null;
+            $report['conclusion_text'] = '待评估：核心测算输入未齐全。';
+            $report['summary']['payback_months'] = null;
+        }
         $report['financial_scenarios'] = $calculation['scenarios'];
+        $report['cost_model'] = $calculation['cost_model'] ?? [];
         $report['assumptions'] = array_values(array_unique(array_merge($calculation['assumptions'], $report['assumptions'] ?? [])));
         $report['basic_info'] = [
             ['label' => '项目名称', 'value' => $input['project_name'], 'source' => '用户输入'],
@@ -741,10 +1007,36 @@ class FeasibilityReportService
             ['label' => '物业面积', 'value' => $input['property_area'] . '㎡', 'source' => '用户输入'],
             ['label' => '计划房量', 'value' => $input['room_count'] . '间', 'source' => '用户输入'],
             ['label' => '单房面积', 'value' => $calculation['area_per_room'] . '㎡/间', 'source' => '本地测算'],
-            ['label' => '总投资', 'value' => $calculation['total_investment'], 'source' => '本地测算'],
+            [
+                'label' => '总投资',
+                'value' => $calculation['total_investment'] ?? '待评估',
+                'source' => $decisionReady ? '规则情景测算' : '输入待补充',
+            ],
         ];
 
         return $report;
+    }
+
+    private function enforceMarketEvidenceBoundary(array $report, array $input, array $snapshot): array
+    {
+        $market = is_array($report['market_judgement'] ?? null) ? $report['market_judgement'] : [];
+        if (!$this->hasTraceableMarketEvidence($snapshot)) {
+            $market['market_score'] = null;
+            $market['competition_level'] = '未评估';
+            $market['reasoning'] = '未读取到可追溯的市场或竞品记录，市场评分与竞争强度保持未评估；产品定位和目标客群仅回显用户输入。';
+        }
+        $market['recommended_model'] = $input['target_brand_level'] !== '' ? (string)$input['target_brand_level'] : null;
+        $market['target_customer'] = $input['target_customer'] !== '' ? (string)$input['target_customer'] : null;
+        $report['market_judgement'] = $market;
+
+        return $report;
+    }
+
+    private function hasTraceableMarketEvidence(array $snapshot): bool
+    {
+        $counts = is_array($snapshot['source_counts'] ?? null) ? $snapshot['source_counts'] : [];
+        return (int)($counts['competitor_hotels'] ?? 0) > 0
+            || (int)($counts['competitor_price_logs'] ?? 0) > 0;
     }
 
     private function formatRecord(FeasibilityReport $record): array
@@ -758,15 +1050,22 @@ class FeasibilityReportService
         $snapshot = $this->decodeJson($row['snapshot_json'] ?? []);
         $report = $this->decodeJson($row['report_json'] ?? []);
         $readiness = $this->buildFeasibilityReadiness($input, $snapshot, $report);
+        $decisionReady = ($readiness['decision_ready'] ?? false) === true;
+        $summary = is_array($report['summary'] ?? null) ? $report['summary'] : [];
 
         $data = [
             'id' => (int) $row['id'],
             'project_name' => $row['project_name'],
             'city' => (string)($input['city'] ?? ''),
             'district' => (string)($input['district'] ?? ''),
-            'conclusion_grade' => $row['conclusion_grade'] ?? '',
-            'payback_months' => $row['payback_months'] ?? null,
-            'total_investment' => $row['total_investment'] ?? 0,
+            'decision_ready' => $decisionReady,
+            'evaluation_status' => $decisionReady ? '可评估' : '待评估',
+            'data_gaps' => array_values((array)($readiness['data_gaps'] ?? [])),
+            'conclusion_grade' => $decisionReady ? ($report['conclusion_grade'] ?? $row['conclusion_grade'] ?? null) : null,
+            'payback_months' => $decisionReady ? ($summary['payback_months'] ?? $row['payback_months'] ?? null) : null,
+            'total_investment' => array_key_exists('total_investment', $summary)
+                ? $summary['total_investment']
+                : ($row['total_investment'] ?? null),
             'risk_level' => $this->feasibilityRiskLevel($report),
             'feasibility_readiness' => $readiness,
             'created_at' => $row['created_at'] ?? null,
@@ -780,10 +1079,10 @@ class FeasibilityReportService
         return $data;
     }
 
-    private function avg(array $values): float
+    private function avg(array $values): ?float
     {
         $values = array_values(array_filter($values, fn ($value) => is_numeric($value) && (float) $value > 0));
-        return $values ? round(array_sum($values) / count($values), 2) : 0.0;
+        return $values ? round(array_sum($values) / count($values), 2) : null;
     }
 
     private function decodeJson(mixed $value): array
@@ -848,6 +1147,7 @@ class FeasibilityReportService
     private function feasibilityReadinessStageLabel(string $stage): string
     {
         return [
+            'input_pending' => '待评估',
             'report_missing' => '未形成报告',
             'partial_report' => '报告未完整',
             'manual_input_only' => '仅手工可研',
@@ -862,9 +1162,10 @@ class FeasibilityReportService
     private function feasibilityReadinessNotice(string $stage): string
     {
         return [
+            'input_pending' => '核心投资输入未齐全，当前仅保存已填写内容；不生成回本期或结论等级。',
             'report_missing' => '当前还没有可复核的可行性报告结果。',
             'partial_report' => '报告或三情景测算尚未完整，不能进入投决复核。',
-            'manual_input_only' => '当前主要依赖手工输入或模型默认测算，缺少真实经营、竞品、OTA、租约或外部调研证据。',
+            'manual_input_only' => '当前主要依赖手工输入与规则情景测算，缺少真实经营、竞品、OTA、租约或外部调研证据。',
             'data_recheck_required' => '存在 C/D 结论、高风险、负现金流或不可回本信号，需先复核。',
             'diligence_required' => '报告和来源已基本形成，但缺少租约、证照、现场或法务尽调证据。',
             'review_ready' => '核心测算、来源和尽调证据已具备复核条件；尚不等于已审批或已投资。',
@@ -875,21 +1176,7 @@ class FeasibilityReportService
 
     private function feasibilityFinancialInputsReady(array $input, array $snapshot, array $report): bool
     {
-        foreach (['property_area', 'room_count', 'monthly_rent', 'lease_years'] as $key) {
-            if (!$this->hasPositiveReadinessValue($input[$key] ?? null)) {
-                return false;
-            }
-        }
-
-        $investmentReady = $this->hasPositiveReadinessValue($input['decoration_budget'] ?? null)
-            || $this->hasPositiveReadinessValue($report['summary']['total_investment'] ?? null);
-        $adrReady = $this->hasPositiveReadinessValue($input['adr'] ?? null)
-            || $this->hasPositiveReadinessValue($snapshot['daily_summary']['avg_adr'] ?? null)
-            || $this->hasPositiveReadinessValue($snapshot['competitor_summary']['avg_competitor_price'] ?? null);
-        $occReady = $this->hasPositiveReadinessValue($input['occ'] ?? null)
-            || $this->hasPositiveReadinessValue($snapshot['daily_summary']['avg_occ'] ?? null);
-
-        return $investmentReady && $adrReady && $occReady;
+        return $this->feasibilityInputDataGaps($input) === [];
     }
 
     private function feasibilitySourceEvidenceReady(array $input, array $snapshot, array $report): bool
@@ -984,23 +1271,33 @@ class FeasibilityReportService
 
     private function feasibilityRiskLevel(array $report): string
     {
+        $resolvedLevel = '';
         foreach ((array)($report['risk_list'] ?? []) as $risk) {
             if (!is_array($risk)) {
                 continue;
             }
             $level = (string)($risk['level'] ?? '');
             if ($level !== '') {
+                if (str_contains($level, '待核验') || stripos($level, 'unverified') !== false || stripos($level, 'unknown') !== false) {
+                    return '待核验';
+                }
                 if (str_contains($level, '高') || stripos($level, 'high') !== false) {
                     return '高风险';
                 }
                 if (str_contains($level, '中') || stripos($level, 'medium') !== false) {
-                    return '中风险';
+                    $resolvedLevel = '中风险';
+                    continue;
                 }
                 if (str_contains($level, '低') || str_contains($level, '浣') || stripos($level, 'low') !== false) {
-                    return '低风险';
+                    $resolvedLevel = $resolvedLevel !== '' ? $resolvedLevel : '低风险';
+                    continue;
                 }
-                return $level;
+                $resolvedLevel = $resolvedLevel !== '' ? $resolvedLevel : $level;
             }
+        }
+
+        if ($resolvedLevel !== '') {
+            return $resolvedLevel;
         }
 
         $grade = strtoupper(trim((string)($report['conclusion_grade'] ?? '')));
@@ -1137,7 +1434,7 @@ class FeasibilityReportService
                         'location' => ['type' => 'string'],
                         'room_count' => ['type' => 'number'],
                         'total_investment' => ['type' => 'number'],
-                        'payback_months' => ['type' => 'number'],
+                        'payback_months' => ['type' => ['number', 'null']],
                     ],
                 ],
                 'basic_info' => [
@@ -1158,10 +1455,10 @@ class FeasibilityReportService
                     'additionalProperties' => false,
                     'required' => ['market_score', 'competition_level', 'recommended_model', 'target_customer', 'reasoning'],
                     'properties' => [
-                        'market_score' => ['type' => 'number'],
+                        'market_score' => ['type' => ['number', 'null']],
                         'competition_level' => ['type' => 'string'],
-                        'recommended_model' => ['type' => 'string'],
-                        'target_customer' => ['type' => 'string'],
+                        'recommended_model' => ['type' => ['string', 'null']],
+                        'target_customer' => ['type' => ['string', 'null']],
                         'reasoning' => ['type' => 'string'],
                     ],
                 ],
@@ -1191,7 +1488,7 @@ class FeasibilityReportService
                         'required' => ['risk', 'level', 'reason', 'action'],
                         'properties' => [
                             'risk' => ['type' => 'string'],
-                            'level' => ['type' => 'string', 'enum' => ['高', '中', '低']],
+                            'level' => ['type' => 'string', 'enum' => ['高', '中', '低', '待核验']],
                             'reason' => ['type' => 'string'],
                             'action' => ['type' => 'string'],
                         ],
