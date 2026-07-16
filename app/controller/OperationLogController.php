@@ -6,6 +6,7 @@ namespace app\controller;
 use app\model\OperationLog;
 use app\model\User;
 use app\model\Hotel;
+use app\service\SecurityMonitoringService;
 use think\Request;
 use think\exception\ValidateException;
 
@@ -237,6 +238,17 @@ class OperationLogController extends Base
     }
 
     /**
+     * Read-only security monitoring overview for super administrators.
+     */
+    public function securityOverview(Request $request)
+    {
+        $this->requireSuperAdminAccess();
+
+        $days = min(30, max(1, (int)$request->param('days', 30)));
+        return $this->success((new SecurityMonitoringService())->overview($days));
+    }
+
+    /**
      * 日志详情
      */
     public function detail(Request $request)
@@ -377,6 +389,11 @@ class OperationLogController extends Base
 
     private function applyAuditTypeFilter($query, string $auditType): void
     {
+        if ($auditType === 'security') {
+            $query->where('module', 'security');
+            return;
+        }
+
         if ($auditType === 'acquisition') {
             $query->where(function ($q) {
                 $q->whereIn('action', self::DATA_ACQUISITION_ACTIONS)
@@ -429,15 +446,19 @@ class OperationLogController extends Base
     private function resolveAuditType(array $log): string
     {
         $extraData = $log['extra_data'] ?? null;
-        if (is_array($extraData) && in_array(($extraData['audit_type'] ?? ''), ['acquisition', 'analysis'], true)) {
+        if (is_array($extraData) && in_array(($extraData['audit_type'] ?? ''), ['acquisition', 'analysis', 'security'], true)) {
             return $extraData['audit_type'];
         }
 
         if (is_string($extraData) && $extraData !== '') {
             $decoded = json_decode($extraData, true);
-            if (is_array($decoded) && in_array(($decoded['audit_type'] ?? ''), ['acquisition', 'analysis'], true)) {
+            if (is_array($decoded) && in_array(($decoded['audit_type'] ?? ''), ['acquisition', 'analysis', 'security'], true)) {
                 return $decoded['audit_type'];
             }
+        }
+
+        if (strtolower((string)($log['module'] ?? '')) === 'security') {
+            return 'security';
         }
 
         $action = (string)($log['action'] ?? '');
