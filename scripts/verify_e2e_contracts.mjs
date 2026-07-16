@@ -229,6 +229,7 @@ requireText('public/index.html', 'const dualOtaRatePreviousExtra = (value) => {'
 requireText('public/index.html', 'ctripLatestComparison.value = payload?.rank?.comparison || null;', 'AI workbench stores Ctrip latest comparison snapshot from backend response');
 requireText('public/index.html', "const latestRange = isCompassDataPage() ? String(dualOtaSelectedRange.value || '').trim() : '';", 'AI workbench sends selected range when loading latest Ctrip data');
 requireText('public/index.html', 'const requestRange = explicitRange || latestRange || resolveCtripLatestRequestRange();', 'AI workbench resolves one explicit latest-data range before the Ctrip request');
+requireText('public/index.html', "return currentPage.value === 'ctrip-ebooking' ? 'yesterday' : '';", 'Ctrip current data page requests the target date instead of an unscoped historical latest snapshot');
 requireText('public/index.html', "if (requestRange) params.append('range', requestRange);", 'AI workbench appends the resolved range to the latest Ctrip data request');
 requireText('public/index.html', "const res = await request(`/online-data/ctrip/latest${query ? '?' + query : ''}`);", 'AI workbench keeps Ctrip latest request query-driven after adding range');
 requireText('public/index.html', "const summaryRange = isCompassDataPage() ? String(dualOtaSelectedRange.value || '').trim() : '';", 'AI workbench sends selected range when loading Meituan competitor summary');
@@ -236,8 +237,8 @@ requireText('public/index.html', "if (summaryRange) params.append('range', summa
 requireText('public/index.html', 'loadCompetitorSummary({ requireCompass: true, force: true });', 'AI workbench refreshes Meituan competitor summary after changing top range');
 requireText('public/index.html', "const dualOtaMeituanComparisonRows = () => dualOtaComparisonRows(competitorSummary.value?.comparison || {});", 'AI workbench can reuse previous-period Meituan display rows when comparison summary metrics omit derived values');
 requireText('public/index.html', "const dualOtaMeituanMetricTotals = (metrics = {}, rows = []) => {", 'AI workbench centralizes Meituan summary-first row-backed metric totals');
-requireText('public/index.html', "const totalRevenue = dualOtaFiniteNumber(metrics.totalRoomRevenue) || dualOtaRowsMetricTotal(rowList, ['roomRevenue', 'sales']);", 'AI workbench Meituan comparison falls back to display rows for derived revenue');
-requireText('public/index.html', "return dualOtaExistingMetricText(row?.[textField]) ? value : 0;", 'AI workbench row-backed Meituan totals honor backend displayable metric status');
+requireText('public/index.html', "const totalRevenue = observedOrRows(metrics.totalRoomRevenue, ['roomRevenue', 'sales']);", 'AI workbench Meituan comparison preserves explicit zero and only falls back when summary revenue is missing');
+requireText('public/index.html', "return dualOtaExistingMetricText(row?.[textField]) ? value : null;", 'AI workbench row-backed Meituan totals keep undisplayable metrics missing instead of coercing them to zero');
 requireText('public/index.html', "const previousTotals = dualOtaMeituanMetricTotals(previousMetrics, previousRows);", 'AI workbench Meituan average comparison uses previous-period row-backed metric totals');
 requireText('public/index.html', "const previousMeituanTotals = dualOtaMeituanMetricTotals(previousMeituanMetrics, previousMeituanRows);", 'AI workbench combined comparison uses previous-period Meituan row-backed metric totals');
 requireText('public/index.html', 'class="dual-ota-context-select dual-ota-hotel-select"', 'AI workbench current-hotel select uses the dedicated readable select styling');
@@ -279,7 +280,7 @@ requireText('public/index.html', '<div v-if="dualOtaPlatformRevenueHasContributi
 requireText('public/index.html', 'dualOtaCurrentLossNodes = () => {', 'AI workbench loss chain is derived from current selected OTA rows');
 requireText('public/index.html', "delta: missing ? '字段未返回' : '已返回',", 'AI workbench loss-chain status does not repeat the missing value as a second metric');
 requireNoText('public/index.html', 'const platforms = Array.isArray(dualOtaDashboard.value.platformRevenue?.platforms) ? dualOtaDashboard.value.platformRevenue.platforms : [];', 'AI workbench revenue structure no longer uses static sample platform rows');
-requireText('public/dual-ota-home-static.js', "title: '曝光正常',", 'AI workbench loss-chain exposure explanation uses clear wording');
+requireText('public/dual-ota-home-static.js', "title: '曝光字段',", 'AI workbench loss-chain exposure explanation does not claim normality without a comparison baseline');
 requireText('public/dual-ota-home-static.js', "activeRange: 'yesterday',", 'AI workbench defaults the top time range to yesterday');
 requireText('public/dual-ota-home-static.js', "{ name: '携程竞争圈数据', reason: '' }", 'AI workbench bottom module labels Ctrip competitor-circle data explicitly');
 requireText('public/dual-ota-home-static.js', "{ name: '美团竞争圈数据', reason: '' }", 'AI workbench bottom module labels Meituan competitor-circle data explicitly');
@@ -408,9 +409,11 @@ requireText('public/index.html', '<span class="text-xs text-gray-400">仅显示�
 requireText('public/ctrip-static.js', 'const buildTruthfulCtripDisplayModel', 'Ctrip display strips unsupported estimate fields from legacy snapshots');
 requireNoText('public/ctrip-static.js', "if (field === 'aiEstimatedTotalRoomNights')", 'Ctrip static sorter omits the unsupported AI estimate field');
 requireText('app/controller/concern/OnlineDataHistoryConcern.php', 'findLatestCtripRankRowsWithTraffic($latest, $hotelId, $currentUser, $columns)', 'Ctrip latest rank display falls back to the newest rank batch with traffic when the latest batch has no traffic fields');
+requireText('app/controller/concern/OnlineDataHistoryConcern.php', "$range === '' && $section === 'rank'", 'Ctrip target-date reads never replace missing current data with a historical rank batch');
 requireText('app/controller/concern/OnlineDataHistoryConcern.php', "'reason' => 'latest_rank_without_traffic'", 'Ctrip latest traffic fallback exposes an explicit reason');
 requireText('app/controller/concern/OnlineDataHistoryConcern.php', '当前最新批次未返回流量字段，已展示最近一组有流量的携程竞争圈数据。', 'Ctrip latest traffic fallback exposes source notice instead of silently mixing data');
 requireText('app/controller/concern/OnlineDataHistoryConcern.php', 'ctripLatestBatchKey(array $row, array $columns, bool $includeSystemHotel): string', 'Ctrip latest traffic fallback groups rows by capture batch');
+requireNoText('app/controller/concern/OnlineDataHistoryConcern.php', 'early_morning_yesterday_not_ready', 'Ctrip target-date API does not fall back to an older capture in the early morning');
 requireText('public/index.html', "requireCtripStatic('isCtripAdsApiUrl')", 'entry uses extracted Ctrip ads URL guard');
 requireText('public/index.html', "requireCtripStatic('createCtripConfigForm')", 'entry uses extracted Ctrip config default form builder');
 requireText('public/index.html', "requireCtripStatic('buildCtripBookmarkletSuccessState')", 'entry uses extracted Ctrip bookmarklet success state builder');
@@ -760,6 +763,7 @@ requireText('public/index.html', 'const scheduleDownloadCenterTabLoad = (tab, co
 requireText('public/index.html', "const switchDownloadTab = (tab) => {", 'download center tab switch is non-blocking');
 requireText('public/index.html', "const switchToDownloadCenter = () => {", 'Ctrip download center entry is non-blocking');
 requireText('public/index.html', "const switchToMeituanDownloadCenter = () => {", 'Meituan download center entry is non-blocking');
+requireText('public/index.html', 'applyMeituanStoredDataFilter(downloadCenterTab.value, { resetPage: true, resetDates: true });', 'Meituan stored-data entry clears stale cross-platform date filters');
 requireText('public/meituan-static.js', 'const buildMeituanDownloadData = (rows = []) => {', 'Meituan download center computes empty data into explicit zero-valued dashboard rows');
 requireText('public/index.html', 'const meituanDownloadData = computed(() => buildMeituanDownloadData(onlineDataList.value));', 'Meituan download center uses the static dashboard data builder');
 requirePattern(
@@ -896,7 +900,7 @@ requireText('public/index.html', '@toggle="handleCtripEbookingDiagnosticsToggle"
 requireText('public/index.html', '<div v-if="ctripEbookingDiagnosticsPanelsReady" class="p-4 border-t space-y-4">', 'Ctrip manual collapsed diagnostics content is not mounted while collapsed');
 requireText('public/index.html', '}, CTRIP_EBOOKING_STARTUP_CONFIG_DELAY_MS);\n                scheduleDelayedPageTask(() => {', 'Ctrip manual startup config-list read uses the explicit short delay constant');
 requireNoText('public/index.html', "prewarmSelectedCtripConfigSecret();\n                    return null;\n                }, 1800);", 'Ctrip manual startup config-list read must not use an unlabeled hard-coded delay');
-requireText('public/index.html', 'return loadLatestCtripData({ silent: true });\n                }, CTRIP_EBOOKING_LATEST_DATA_DELAY_MS);', 'Ctrip latest-data refresh uses a long explicit delay');
+requireText('public/index.html', 'return loadLatestCtripData({ silent: true, hydrateDisplay: true });\n                }, CTRIP_EBOOKING_LATEST_DATA_DELAY_MS);', 'Ctrip latest-data refresh hydrates the stored snapshot after the explicit delay');
 requireText('public/index.html', 'return loadCookiesList();\n                }, CTRIP_EBOOKING_COOKIE_STATUS_DELAY_MS);', 'Ctrip legacy Cookie local state reset stays outside the first interaction window');
 requireText('public/index.html', 'return loadBookmarklet();\n                }, CTRIP_EBOOKING_BOOKMARKLET_DELAY_MS);', 'Ctrip bookmarklet loading uses a long explicit delay');
 requireNoText('public/index.html', 'return loadLatestCtripData({ silent: true });\n                }, 2400);', 'Ctrip latest-data refresh must not compete with the first interaction window');
@@ -950,16 +954,15 @@ requireText('public/index.html', "if (!token.value || !isCompassDataPage() || ma
 requireText('public/index.html', "if (options.requireCompass === true && !isCompassDataPage()) return;", 'home competitor summary request can be scoped to compass-data pages');
 requireText('public/index.html', 'const delay = Number.isFinite(options.delay) ? options.delay : 1800;', 'Meituan manual ranking summary is delayed so first paint stays responsive');
 requireText('public/index.html', 'scheduleDelayedPageTask(async () => {\n                    if (currentPage.value !== \'meituan-ebooking\' || onlineDataTab.value !== \'meituan-ranking\') return;', 'Meituan manual ranking summary skips after page switches');
-requireText('public/index.html', 'if (force) {\n                        await loadCompetitorSummary({ includeByHotel: false });\n                        return;\n                    }', 'Meituan manual ranking summary only requests competitor summary when forced');
-requireNoText('public/index.html', 'if (force || !competitorSummary.value) {\n                        await loadCompetitorSummary({ includeByHotel: false });', 'Meituan manual page must not auto-start slow competitor summary on first paint');
+requireText('public/index.html', 'await loadCompetitorSummary({ includeByHotel: false, force });', 'Meituan manual ranking loads the selected hotel stored summary after first paint');
 requireText('public/index.html', "if (currentPage.value !== 'compass') return;", 'weather request does not run after leaving the compass page');
 requireText('public/index.html', 'const COMPASS_WEATHER_REFRESH_DELAY_MS = 3200;', 'compass weather refresh stays outside the fast OTA navigation window');
-requireText('public/index.html', "scheduleDelayedPageTask(() => {\n                            if (!isCompassDataPage()) return null;\n                            loadWeatherForCity();\n                            return null;\n                        }, COMPASS_WEATHER_REFRESH_DELAY_MS);", 'compass response delays weather and skips after leaving compass-data pages');
+requireText('public/index.html', "scheduleDelayedPageTask(() => {\n                            if (!isCurrentRequest()) return null;\n                            loadWeatherForCity();\n                            return null;\n                        }, COMPASS_WEATHER_REFRESH_DELAY_MS);", 'compass response delays weather and skips stale hotel or page requests');
 requireText('app/controller/admin/Compass.php', "'weather' => []", 'compass backend does not synthesize weather facts without a verified weather source');
 requireText('app/controller/admin/Compass.php', "'weather_source_policy' => 'compass_contract_only_no_weather_facts'", 'compass backend exposes weather as not-loaded contract data');
 requireNoText('app/controller/admin/Compass.php', 'crc32($location)', 'compass backend must not generate deterministic fake weather from location hashes');
 requireNoText('app/controller/admin/Compass.php', 'private function getWeatherForecast', 'compass backend weather must come from verified sources, not local synthesis');
-requireText('public/index.html', "if (!isCompassDataPage()) return null;", 'deferred compass background jobs are skipped after page switch');
+requireText('public/index.html', "if (!isCurrentRequest()) return null;", 'deferred compass background jobs are skipped after page or hotel switch');
 requireText('public/index.html', 'loadCompetitorSummary({ requireCompass: true })', 'deferred compass competitor summary uses page visibility guard');
 requireText('public/index.html', 'const compassBackgroundJobs = [', 'deferred compass background jobs are queued explicitly');
 requireText('public/index.html', 'await job();', 'deferred compass background jobs run serially instead of in parallel');
@@ -1598,13 +1601,15 @@ requireText('public/index.html', 'async: true, ...buildManualAutoFetchModePayloa
 requireText('public/index.html', "['running', 'queued', 'accepted'].includes(retryStatus)", 'retry auto-fetch treats backend queued state as non-blocking');
 requireText('public/ctrip-static.js', 'const isCtripBackgroundAcceptedResponse', 'Ctrip static shares accepted/running/queued background response detection');
 requireText('public/ctrip-static.js', 'const requestBody = requestContext.temporaryCookieQuery', 'Ctrip ranking manual fetch separates saved and one-shot request modes');
-requireText('public/ctrip-static.js', ": { ...requestContext.requestBody, async: false, background: false };", 'Ctrip saved-config ranking fetch requests direct results for immediate display');
+requireText('public/ctrip-static.js', 'background = false', 'Ctrip saved-config ranking fetch defaults to direct results');
+requireText('public/ctrip-static.js', ": { ...requestContext.requestBody, async: background === true, background: background === true };", 'Ctrip saved-config ranking fetch supports explicit background execution');
 requireText('public/ctrip-static.js', "const fetchRequest = requestContext.temporaryCookieQuery && typeof requestTemporaryFetch === 'function'", 'Ctrip one-shot Cookie query uses the dedicated display-only endpoint');
 requireNoText('public/ctrip-static.js', 'const requestBody = { ...requestContext.requestBody, async: true };', 'Ctrip ranking manual fetch must not enqueue background tasks by default');
 requireText('public/ctrip-static.js', 'const directRequestBody = { ...requestBody, async: false, background: false };', 'Ctrip traffic and ads manual fetch flows request direct results');
 requireNoText('public/ctrip-static.js', 'const queuedRequestBody = { ...requestBody, async: true };', 'Ctrip manual fetch flows must not enqueue background tasks by default');
 requireText('public/ctrip-static.js', "return { status: 'accepted'", 'Ctrip manual fetch flows keep defensive backend queued-state handling');
-requireText('public/meituan-static.js', 'const requestBody = { ...task.body, async: false, background: false }', 'Meituan manual ranking fetch requests direct results for immediate display');
+requireText('public/meituan-static.js', 'background = false', 'Meituan manual ranking fetch defaults to direct results');
+requireText('public/meituan-static.js', 'const requestBody = { ...task.body, async: background === true, background: background === true }', 'Meituan manual ranking fetch supports explicit background execution');
 requireText('public/meituan-static.js', 'await Promise.all(fetchTasks.map(async (task, index) => {', 'Meituan manual ranking fetch keeps independent direct requests concurrent');
 requireNoText('public/meituan-static.js', 'const requestBody = { ...task.body, async: true, background: true }', 'Meituan manual ranking fetch must not enqueue background tasks by default');
 requireText('public/meituan-static.js', 'const modelRes = await requestDisplayModel', 'Meituan manual ranking fetch still builds the display model when direct results are returned');
@@ -2433,7 +2438,11 @@ requireNoText('public/index.html', 'const readSet = new Set(globalNotificationRe
 requireTextInFiles(['public/index.html', 'public/ota-diagnosis-static.js'], 'result.diagnosis_sections', 'OTA diagnosis UI renders backend-provided diagnosis sections');
 requireNoText('public/index.html', '<script src="ota-diagnosis-static.js', 'frontend lazy-loads extracted OTA diagnosis static helper');
 requireText('public/index.html', "const otaDiagnosisStaticScript = 'ota-diagnosis-static.js", 'entry keeps OTA diagnosis static lazy script path');
-requireText('public/index.html', 'ota-diagnosis-static.js?v=20260627-decision-closure-v2', 'entry loads OTA diagnosis decision-closure static bundle version');
+requirePattern(
+  'public/index.html',
+  /ota-diagnosis-static\.js\?v=[0-9]{8}-[a-z0-9-]+/,
+  'entry loads a cache-busted OTA diagnosis static bundle version',
+);
 requireText('public/index.html', '业务闭环拆解', 'OTA diagnosis page exposes business loop breakdown');
 requireText('public/index.html', '建议动作与阻断状态', 'OTA diagnosis page exposes action readiness and blocked states');
 requireText('public/index.html', '缺口未补齐前，不进入可执行建议', 'OTA diagnosis page keeps evidence gaps separate from executable actions');
@@ -2800,7 +2809,16 @@ try {
           if (overrides.throwRequest) {
             throw new Error('network failed');
           }
-          return overrides.response || { code: 200, message: 'ok', data: { saved_count: 9 } };
+          return overrides.response || {
+            code: 200,
+            message: 'ok',
+            data: {
+              status: 'success',
+              saved_count: 9,
+              persistence_status: 'readback_verified',
+              readback_verified: true,
+            },
+          };
         },
         getDurationText: () => '9秒',
         updateLastResult: (response, success, message) => events.push(['lastResult', success, message, response]),
@@ -2961,7 +2979,7 @@ try {
         && successRun.capturedRequestBody.async === true
         && successRun.events.some(event => event[0] === 'state' && event[1] === 'running')
         && successRun.events.some(event => event[0] === 'state' && event[1] === 'success')
-        && successRun.events.some(event => event[0] === 'lastResult' && event[1] === true && event[2] === 'ok')
+        && successRun.events.some(event => event[0] === 'lastResult' && event[1] === true && event[2].includes('数据库回读核验'))
         && successRun.events.some(event => event[0] === 'refresh' && event[1] === 'online')
         && successRun.events.some(event => event[0] === 'refresh' && event[1] === 'history')
         && successRun.events.some(event => event[0] === 'refresh' && event[1] === 'latest' && event[2]?.silent === true)
@@ -3045,12 +3063,12 @@ try {
     checks.push({
       file: 'public/auto-fetch-static.js',
       label: 'data-source config test flow keeps success, failed and skipped states visible',
-      ok: configSuccessRun.result.status === 'success'
+      ok: configSuccessRun.result.status === 'request_completed'
         && configSuccessRun.capturedApiUrl === '/online-data/fetch-ctrip-ads'
         && configSuccessRun.capturedBody?.config_id === 'ctrip-ads-58'
         && !Object.hasOwn(configSuccessRun.capturedBody || {}, 'cookies')
         && !Object.hasOwn(configSuccessRun.capturedBody || {}, 'payload_json')
-        && configSuccessRun.events.some(event => event[0] === 'notify' && event[2] === '连接测试成功！数据获取正常')
+        && configSuccessRun.events.some(event => event[0] === 'notify' && event[1] === 'info' && event[2] === '连接请求已返回，尚未验证数据解析或入库结果')
         && configFailedRun.result.status === 'failed'
         && configFailedRun.events.some(event => event[0] === 'notify' && event[1] === 'error' && event[2] === 'connection failed')
         && configUnsupportedRun.result.status === 'unsupported'
@@ -3215,7 +3233,10 @@ try {
       setOnlineDataResult: value => csvImportEvents.push(`online:${value?.row_count ?? 'none'}`),
       requestSave: async body => {
         csvFlowRequestBody = body;
-        return { code: 200, data: { saved_count: 1, row_count: 1 } };
+        return {
+          code: 200,
+          data: { saved_count: 1, row_count: 1, persistence_status: 'readback_verified', readback_verified: true },
+        };
       },
       refreshOnlineHistory: async () => csvImportEvents.push('refresh'),
     });
@@ -3330,6 +3351,8 @@ try {
         display_hotels: [{ poiId: 'poi-1', hotelName: 'Demo' }],
         display_summary: { total: 1 },
         display_hotel_count: 1,
+        persistence_status: 'readback_verified',
+        readback_verified: true,
       },
     });
     const failedEntry = buildMeituanBatchFetchResultEntry(tasks[1], { code: 500, message: 'upstream failed' });
@@ -3390,6 +3413,8 @@ try {
             display_hotels: [{ poiId: body.poi_id, rankType: body.rank_type }],
             display_summary: { rankType: body.rank_type },
             display_hotel_count: 1,
+            persistence_status: 'readback_verified',
+            readback_verified: true,
           },
         };
       },
@@ -3672,7 +3697,11 @@ try {
       setOnlineDataResult: value => { browserOnlinePayload = value; },
       requestCapture: async body => {
         browserRequestedBody = body;
-        return { code: 200, message: 'capture ok', data: { saved_count: 9, rows: [{ id: 1 }] } };
+        return {
+          code: 200,
+          message: 'capture ok',
+          data: { saved_count: 9, rows: [{ id: 1 }], persistence_status: 'readback_verified', readback_verified: true },
+        };
       },
       refreshOnlineHistory: async () => browserEvents.push('history'),
       refreshPlatformProfileStatus: async params => browserEvents.push(`profile-status:${params.silent}`),
@@ -3735,12 +3764,12 @@ try {
         && browserEvents.includes('history')
         && browserEvents.includes('profile-status:true')
         && browserEvents.includes('data-sources')
-        && browserEvents.includes('notify:info:capture ok')
+        && browserEvents.includes('notify:success:美团 Profile 采集已入库 9 条，并完成数据库回读核验')
         && browserLoginResult.status === 'success'
         && browserLoginEvents.includes('profile-status:true')
         && !browserLoginEvents.includes('history')
         && !browserLoginEvents.includes('data-sources')
-        && browserLoginEvents.some(event => event.includes('美团 Profile 登录状态已保存'))
+        && browserLoginEvents.some(event => event.includes('美团 Profile 登录请求已完成'))
         && browserFailedResult.status === 'failed'
         && browserFailedEvents[0] === 'notify:error:browser backend failed'
         && browserFailedStates.join('|') === 'running:true|fetching:true|running:false|fetching:false'
@@ -3819,7 +3848,10 @@ try {
       setOnlineDataResult: value => { payloadOnlineResult = value; },
       requestSave: async body => {
         payloadRequestedBody = body;
-        return { code: 200, data: { saved_count: 4, rows: [{ id: 1 }] } };
+        return {
+          code: 200,
+          data: { saved_count: 4, rows: [{ id: 1 }], persistence_status: 'readback_verified', readback_verified: true },
+        };
       },
       refreshOnlineHistory: async () => payloadEvents.push('history'),
     });
@@ -3862,7 +3894,7 @@ try {
         && payloadRequestedBody.payload.system_hotel_id === 70
         && payloadCaptureResult.saved_count === 4
         && payloadOnlineResult.saved_count === 4
-        && payloadEvents.includes('notify:info:保存成功，已入库 4 条')
+        && payloadEvents.includes('notify:success:美团抓取结果已入库 4 条，并完成数据库回读核验')
         && payloadEvents.includes('history')
         && payloadStates.join('|') === 'fetching:true|fetching:false'
         && payloadFailedResult.status === 'failed'
@@ -3933,7 +3965,10 @@ try {
       setLatestTrafficData: value => { trafficLatestPayload = value; },
       requestFetch: async body => {
         trafficRequestedBody = body;
-        return { code: 200, data: { data: [{ exposure: 10 }], saved_count: 6 } };
+        return {
+          code: 200,
+          data: { data: [{ exposure: 10 }], saved_count: 6, persistence_status: 'readback_verified', readback_verified: true },
+        };
       },
       refreshOnlineHistory: async () => trafficEvents.push('history'),
       getOnlineDataTab: () => 'data',
@@ -3988,7 +4023,10 @@ try {
       setFetching: value => trafficEvents.push(`delayed-fetching:${value}`),
       setOnlineDataResult: () => {},
       setLatestTrafficData: () => {},
-      requestFetch: async () => ({ code: 200, data: { data: [{ exposure: 1 }], saved_count: 1 } }),
+       requestFetch: async () => ({
+         code: 200,
+         data: { data: [{ exposure: 1 }], saved_count: 1, persistence_status: 'readback_verified', readback_verified: true },
+       }),
       refreshOnlineHistory: () => new Promise(resolve => {
         setTimeout(() => {
           delayedTrafficHistorySettled = true;
@@ -4049,7 +4087,7 @@ try {
         && trafficEvents.includes('refresh-data')
         && delayedTrafficFlowResult.status === 'success'
         && delayedTrafficReturnedBeforeHistory === true
-        && trafficEvents.some(event => event === 'notify:info:获取成功！已保存 6 条流量数据')
+        && trafficEvents.some(event => event === 'notify:success:美团流量数据已入库 6 条，并完成数据库回读核验')
         && acceptedTrafficResult.status === 'accepted'
         && acceptedTrafficRequestedBody.async === false
         && acceptedTrafficRequestedBody.background === false
@@ -4133,7 +4171,10 @@ try {
       setOnlineDataResult: value => { orderOnlinePayload = value; },
       requestFetch: async body => {
         orderRequestedBody = body;
-        return { code: 200, data: { saved_count: 4, row_count: 6 } };
+        return {
+          code: 200,
+          data: { saved_count: 4, row_count: 6, persistence_status: 'readback_verified', readback_verified: true },
+        };
       },
       refreshOnlineHistory: async () => orderEvents.push('history'),
     });
@@ -4222,7 +4263,7 @@ try {
         && orderOnlinePayload.row_count === 6
         && orderStates.join('|') === 'fetching:true|fetching:false'
         && orderEvents.includes('history')
-        && orderEvents.some(event => event === 'notify:success:订单数据获取成功，已入库 4 条')
+        && orderEvents.some(event => event === 'notify:success:美团订单数据已入库 4 条，并完成数据库回读核验')
         && acceptedOrderResult.status === 'accepted'
         && acceptedOrderRequestedBody.async === false
         && acceptedOrderRequestedBody.background === false
@@ -4311,7 +4352,10 @@ try {
       setOnlineDataResult: value => { adsOnlinePayload = value; },
       requestFetch: async body => {
         adsRequestedBody = body;
-        return { code: 200, data: { saved_count: 5, row_count: 7 } };
+        return {
+          code: 200,
+          data: { saved_count: 5, row_count: 7, persistence_status: 'readback_verified', readback_verified: true },
+        };
       },
       refreshOnlineHistory: async () => adsEvents.push('history'),
     });
@@ -4402,7 +4446,7 @@ try {
         && adsOnlinePayload.row_count === 7
         && adsStates.join('|') === 'fetching:true|fetching:false'
         && adsEvents.includes('history')
-        && adsEvents.some(event => event === 'notify:success:广告数据获取成功，已入库 5 条')
+        && adsEvents.some(event => event === 'notify:success:美团广告数据已入库 5 条，并完成数据库回读核验')
         && acceptedAdsResult.status === 'accepted'
         && acceptedAdsRequestedBody.async === false
         && acceptedAdsRequestedBody.background === false
@@ -4608,8 +4652,8 @@ try {
         && generateRequestBody?.platform_hotel_id === 'platform-40'
         && generateRequestBody?.model_key === 'deepseek-chat'
         && generateEvents.some(event => event.type === 'fetch' && event.selectedHotel?.hotel_id === '40')
-        && generateEvents.some(event => event.type === 'notify' && event.level === 'warning' && event.message.includes('继续使用已入库数据生成诊断'))
-        && generateEvents.some(event => event.type === 'notify' && event.message === 'OTA诊断已生成'),
+        && generateEvents.some(event => event.type === 'notify' && event.level === 'warning' && event.message.includes('诊断仅使用数据库中已有且可验证的数据'))
+        && generateEvents.some(event => event.type === 'notify' && event.message === 'OTA诊断结果已生成'),
       detail: 'runOtaDiagnosisGenerateFlow success sample',
     });
 
@@ -4733,8 +4777,8 @@ try {
       ok: closureCards.length === 5
         && closureCards[0]?.key === 'data_evidence_input'
         && closureCards[0]?.status === 'blocked'
-        && loopSteps.map(step => step.title).join(' -> ') === 'OTA数据 -> 收益分析 -> AI决策 -> 运营管理 -> 投资决策'
-        && loopSteps[4]?.status === 'blocked_by_operation_closure'
+        && loopSteps.map(step => step.title).join(' -> ') === 'OTA数据 -> 收益分析 -> AI决策 -> 运营管理 -> 效果复盘'
+        && loopSteps[4]?.status === 'blocked_by_data'
         && actionRows[0]?.status === 'blocked_by_missing_ota_data'
         && actionRows[0]?.missingText.includes('同日 OTA 入库数据')
         && dataGapRows[0]?.code === 'ota_same_period_source_rows_missing'
@@ -5218,7 +5262,15 @@ try {
       hotels: meituanHotels,
       requestAnalysis: async body => {
         meituanFlowRequestBody = body;
-        return { code: 200, data: { report: '<section>美团报告</section>', summary: '美团汇总' } };
+        return {
+          code: 200,
+          data: {
+            report: '<section>美团报告</section>',
+            summary: '美团汇总',
+            trust_status: 'unverified_client_preview',
+            decision_use: { revenue_analysis: false, ai_decision_support: false },
+          },
+        };
       },
       notify: (message, level) => meituanFlowEvents.push(`notify:${level || 'info'}:${message}`),
       setAnalyzing: value => meituanFlowStates.push(`analyzing:${value}`),
@@ -5384,7 +5436,7 @@ try {
       label: 'AI analysis static builds Meituan hotel selections and request bodies',
       ok: meituanHotels.length === 2
         && meituanHotels[0].poiId === 'm1'
-        && meituanHotels[0].roomNights === '2'
+        && meituanHotels[0].roomNights === 2
         && meituanSelectedData.length === 1
         && meituanMissingSelection.status === 'missing_selection'
         && meituanMissingSelection.message === '请先选择要分析的酒店'
@@ -5394,7 +5446,7 @@ try {
         && meituanValidStart.selectedData.length === 1
         && meituanRequestBody.total_hotels === 1
         && meituanRequestBody.source === 'meituan'
-        && meituanRequestBody.include_suggestions === true
+        && meituanRequestBody.include_suggestions === false
         && meituanHistory.hotel_count === 3
         && meituanHistory.hotel_names === 'Meituan One、Meituan Extra A、Meituan Extra B'
         && meituanHistory.summary === 'Meituan summary',
@@ -5412,7 +5464,7 @@ try {
         && meituanFlowHistory[0].report === 'safe:<section>美团报告</section>'
         && meituanFlowHistory[9].id === 'old-8'
         && meituanFlowStates.join('|') === 'analyzing:true|analyzing:false'
-        && meituanFlowEvents.join('|') === 'notify:info:AI正在分析数据，请稍候...|notify:info:AI分析完成！'
+        && meituanFlowEvents.join('|') === 'notify:info:正在生成未验证竞对数据预览，请稍候...|notify:warning:未验证竞对数据预览已生成'
         && meituanFailedResult.status === 'failed'
         && meituanFailedResultHtml === ''
         && meituanFailedEvents.includes('notify:error:backend failed')
@@ -6229,6 +6281,8 @@ try {
             display_summary: { status: 'ok' },
             qunar_visitor_quality: { ready: true, status: 'ready', row_count: 1, visitor_total: 12 },
             saved_count: 4,
+            persistence_status: 'readback_verified',
+            readback_verified: true,
             fetched_at: '2026-06-10 14:00:00',
           },
         };
@@ -6778,6 +6832,8 @@ try {
             code: 200,
             data: {
               saved_count: 3,
+              persistence_status: 'readback_verified',
+              readback_verified: true,
               decoded_data: [{ decoded: true }],
               traffic_rows: [{ row_id: 'traffic-flow-1' }],
               display_traffic_rows: [{ date: '2026-06-01', compareType: 'self' }],
@@ -6972,7 +7028,8 @@ try {
         && latestModel.displayTrafficRows.length === 1
         && latestModel.trafficDisplaySummary.status === 'ok'
         && latestModel.hasReview === true
-        && latestModel.reviewResult.saved_count === 2
+        && latestModel.reviewResult.saved_count === 0
+        && latestModel.reviewResult.readback_verified === false
         && latestModel.onlineResult.source === 'latest'
         && emptyLatestModel.metadata.status === 'missing'
         && emptyLatestModel.hasAnySnapshot === false
@@ -7021,7 +7078,7 @@ try {
         && trafficFlowSuccess.states.join('|') === 'fetching,true|fetching,false'
         && trafficFlowSuccess.events.some(event => event[0] === 'history')
         && trafficFlowSuccess.events.some(event => event[0] === 'refresh-data')
-        && trafficFlowSuccess.events.some(event => event[0] === 'notify' && event[1] === 'success' && event[2].includes('获取成功，已保存 3 条流量数据'))
+        && trafficFlowSuccess.events.some(event => event[0] === 'notify' && event[1] === 'success' && event[2] === '携程流量数据已入库 3 条，并完成数据库回读核验')
         && trafficFlowAccepted.result.status === 'accepted'
         && trafficFlowAccepted.trafficRequestBody.async === false
         && trafficFlowAccepted.trafficRequestBody.background === false
@@ -7034,7 +7091,7 @@ try {
         && trafficFlowAccepted.events.some(event => event[0] === 'refresh-data')
         && trafficFlowAccepted.states.join('|') === 'fetching,true|fetching,false'
         && trafficFlowEmpty.result.status === 'empty'
-        && trafficFlowEmpty.events.some(event => event[0] === 'notify' && event[1] === 'warning' && event[2].includes('当前日期范围暂无流量数据'))
+        && trafficFlowEmpty.events.some(event => event[0] === 'notify' && event[1] === 'warning' && event[2].includes('未解析到可保存记录'))
         && !trafficFlowEmpty.events.some(event => event[0] === 'history')
         && trafficFlowFailure.result.status === 'failed'
         && trafficFlowFailure.events.some(event => event[0] === 'failure' && event[1] === 'upstream traffic failed')
@@ -7273,7 +7330,7 @@ try {
     checks.push({
       file: 'public/ctrip-static.js',
       label: 'Ctrip Cookie API flow keeps not-ready, failure, exception, and missing states explicit',
-      ok: cookieNotReadyResult.status === 'success'
+      ok: cookieNotReadyResult.status === 'not_ready'
         && cookieNotReadyEvents[0] === 'notify:warning:cookie insufficient'
         && cookieFailureResult.status === 'error_response'
         && cookieFailureResultPayload.identity_check.message === 'hotel mismatch'
