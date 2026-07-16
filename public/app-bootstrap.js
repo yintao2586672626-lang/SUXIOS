@@ -252,12 +252,16 @@
             }
         };
         const updateSubmit = () => {
+            const loadingState = loading ? '1' : '0';
             submit.disabled = loading || !username.value.trim() || (!password.value && !hasBrowserAutofill(password));
             submit.classList.toggle('is-loading', loading);
             submit.setAttribute('aria-busy', loading ? 'true' : 'false');
-            submit.innerHTML = loading
-                ? '<i class="fas fa-spinner fa-spin"></i><span>登录中...</span>'
-                : '<i class="fas fa-sign-in-alt"></i><span>进入决策中心</span>';
+            if (submit.dataset.suxiLoading !== loadingState) {
+                submit.dataset.suxiLoading = loadingState;
+                submit.innerHTML = loading
+                    ? '<i class="fas fa-spinner fa-spin"></i><span>登录中...</span>'
+                    : '<i class="fas fa-sign-in-alt"></i><span>进入决策中心</span>';
+            }
         };
         const handleInput = () => {
             setError('');
@@ -374,6 +378,7 @@
             }
         });
         updateSubmit();
+        form.dataset.suxiLoginReady = '1';
         scheduleLoginAutofillSync();
     };
 

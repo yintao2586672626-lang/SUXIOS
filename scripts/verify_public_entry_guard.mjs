@@ -13,6 +13,7 @@ import {
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const indexPath = path.join(repoRoot, 'public/index.html');
+const appBootstrapPath = path.join(repoRoot, 'public/app-bootstrap.js');
 const appMainPath = path.join(repoRoot, 'public/app-main.js');
 const appMainRuntimePath = path.join(repoRoot, 'public/app-main.min.js');
 const appTemplatePath = path.join(repoRoot, 'resources/frontend/app-template.html');
@@ -103,6 +104,7 @@ if (!fs.existsSync(indexPath)) {
   const runtimeAssetReference = (assetName) => runtimeAssetReferences.find(
     (reference) => stripFrontendAssetQuery(reference) === assetName,
   ) || '';
+  const appBootstrapContent = fs.existsSync(appBootstrapPath) ? fs.readFileSync(appBootstrapPath, 'utf8') : '';
   const appMainContent = fs.existsSync(appMainPath) ? fs.readFileSync(appMainPath, 'utf8') : '';
   const appMainRuntimeContent = fs.existsSync(appMainRuntimePath) ? fs.readFileSync(appMainRuntimePath, 'utf8') : '';
   const appTemplateContent = fs.existsSync(appTemplatePath) ? fs.readFileSync(appTemplatePath, 'utf8') : '';
@@ -157,6 +159,9 @@ if (!fs.existsSync(indexPath)) {
   if (!appMainContent) {
     failures.push('public/app-main.js is missing or empty.');
   }
+  if (!appBootstrapContent) {
+    failures.push('public/app-bootstrap.js is missing or empty.');
+  }
   if (!appMainRuntimeContent) {
     failures.push('public/app-main.min.js is missing or empty.');
   }
@@ -187,6 +192,25 @@ if (!fs.existsSync(indexPath)) {
   const appMainReference = runtimeAssetReference('app-main.min.js');
   if (!appMainReference.includes(`h${appMainHash}`)) {
     failures.push('public/index.html must use the current public/app-main.min.js content hash in its immutable cache version.');
+  }
+  const appBootstrapHash = appBootstrapContent
+    ? crypto.createHash('sha256').update(appBootstrapContent).digest('hex').slice(0, 10)
+    : '';
+  const appBootstrapReference = deferredAssetReferences.find(
+    (reference) => stripFrontendAssetQuery(reference) === 'app-bootstrap.js',
+  ) || '';
+  if (!appBootstrapReference.includes(`h${appBootstrapHash}`)) {
+    failures.push('public/index.html must use the current public/app-bootstrap.js content hash in its immutable cache version.');
+  }
+  const loginSubmitBindingOffset = appBootstrapContent.indexOf("form.addEventListener('submit'");
+  const loginReadyOffset = appBootstrapContent.indexOf("form.dataset.suxiLoginReady = '1';");
+  if (appBootstrapContent && (loginSubmitBindingOffset < 0 || loginReadyOffset <= loginSubmitBindingOffset)) {
+    failures.push('public/app-bootstrap.js must expose the login-ready marker after binding the submit handler.');
+  }
+  if (appBootstrapContent
+    && (!appBootstrapContent.includes('if (submit.dataset.suxiLoading !== loadingState) {')
+      || !appBootstrapContent.includes('submit.dataset.suxiLoading = loadingState;'))) {
+    failures.push('public/app-bootstrap.js must not replace login button contents during unchanged autofill-state polling.');
   }
   if (runtimeAssetPaths[0] !== 'vue.runtime.global.prod.js'
     || runtimeAssetPaths.at(-2) !== 'app-render.min.js'

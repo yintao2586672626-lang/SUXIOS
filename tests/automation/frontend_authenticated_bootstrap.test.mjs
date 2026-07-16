@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import test from 'node:test';
 import {
@@ -20,6 +21,9 @@ test('public login shell defers the authenticated application asset chain', () =
   assert(assets.includes('meituan-static.js'));
   assert(assets.includes('data-health-static.js'));
   assert.match(index, /<script defer src="app-bootstrap\.js\?v=[^"]+"[^>]*><\/script>/);
+  const versionHash = index.match(/app-bootstrap\.js\?v=[^"']*-h([a-f0-9]{10})/)?.[1];
+  const contentHash = crypto.createHash('sha256').update(bootstrap).digest('hex').slice(0, 10);
+  assert.equal(versionHash, contentHash, 'public login bootstrap URL must follow its current content hash');
   assert.doesNotMatch(index, /<script defer src="(?:vue\.runtime|ctrip-static|meituan-static|data-health-static|app-render|min\.js|app-main)/);
 });
 
@@ -30,6 +34,13 @@ test('login bootstrap preserves the existing auth contract without persisting pa
   assert.match(bootstrap, /remembered_username/);
   assert.doesNotMatch(bootstrap, /setItem\([^\n]*password/i);
   assert.match(bootstrap, /await loadAuthenticatedApp\(\)/);
+  const submitBindingOffset = bootstrap.indexOf("form.addEventListener('submit'");
+  const readyOffset = bootstrap.indexOf("form.dataset.suxiLoginReady = '1'");
+  assert(submitBindingOffset >= 0 && readyOffset > submitBindingOffset, 'login-ready marker must follow submit binding');
+  const loadingGuardOffset = bootstrap.indexOf('if (submit.dataset.suxiLoading !== loadingState) {');
+  const loadingMarkupOffset = bootstrap.indexOf('submit.innerHTML = loading', loadingGuardOffset);
+  const loadingGuardEnd = bootstrap.indexOf('\n            }', loadingMarkupOffset);
+  assert(loadingGuardOffset >= 0 && loadingMarkupOffset > loadingGuardOffset && loadingMarkupOffset < loadingGuardEnd);
 });
 
 test('authenticated startup downloads independent helpers in parallel behind explicit runtime and entry barriers', () => {
