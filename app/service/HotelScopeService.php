@@ -157,6 +157,7 @@ class HotelScopeService
         if ($this->tableColumnExists('user_hotel_permissions', 'status')) {
             $query->whereIn('uhp.status', ['active', '1', 1]);
         }
+        $this->applyPermissionExpiryScope($query, 'uhp');
 
         $viewColumn = $this->firstExistingPermissionColumn(['can_view', 'can_view_online_data']);
         if ($viewColumn !== '') {
@@ -227,9 +228,23 @@ class HotelScopeService
         if ($this->tableColumnExists('user_hotel_permissions', 'status')) {
             $query->whereIn('status', ['active', '1', 1]);
         }
+        $this->applyPermissionExpiryScope($query);
 
         $record = $query->find();
         return is_array($record) ? $record : null;
+    }
+
+    private function applyPermissionExpiryScope($query, string $alias = ''): void
+    {
+        if (!$this->tableColumnExists('user_hotel_permissions', 'expires_at')) {
+            return;
+        }
+
+        $field = ($alias !== '' ? $alias . '.' : '') . 'expires_at';
+        $now = date('Y-m-d H:i:s');
+        $query->where(static function ($expiryQuery) use ($field, $now): void {
+            $expiryQuery->whereNull($field)->whereOr($field, '>', $now);
+        });
     }
 
     /**
