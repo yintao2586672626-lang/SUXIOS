@@ -320,6 +320,7 @@ Route::group('api/online-data', function () {
     Route::get('/collection-reliability', 'OnlineData/collectionReliability');
     Route::get('/daily-workbench', 'OnlineData/dailyWorkbench');
     Route::get('/manual-fetch-evidence', 'OnlineData/manualFetchEvidence');
+    Route::get('/manual-fetch-task-status', 'OnlineData/manualFetchTaskStatus');
     Route::get('/daily-workbench-patrols', 'OnlineData/dailyWorkbenchPatrols');
     Route::get('/daily-workbench-patrols/report', 'OnlineData/dailyWorkbenchPatrolReport');
     Route::post('/daily-workbench-patrols/run', 'OnlineData/runDailyWorkbenchPatrol');

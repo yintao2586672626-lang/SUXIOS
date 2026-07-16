@@ -401,6 +401,39 @@ trait OnlineDataManualFetchConcern
         return in_array(strtolower(trim($value)), ['1', 'true', 'yes', 'on'], true);
     }
 
+    public function manualFetchTaskStatus(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_view_online_data');
+
+        $taskId = trim((string)$this->request->get('task_id', ''));
+        if ($taskId === '') {
+            return $this->error('缺少手动获取任务 ID', 400);
+        }
+
+        $service = new ManualOnlineFetchTaskService();
+        $task = $service->readTaskStatus($taskId);
+        if ($task === []) {
+            return $this->error('未找到手动获取任务', 404);
+        }
+
+        $hotelId = (int)($task['hotel_id'] ?? 0);
+        if ($hotelId <= 0 || !$this->currentUserCanViewOnlineDataHotel($hotelId)) {
+            return $this->error('无权查看该酒店手动获取任务', 403);
+        }
+
+        $requestedBy = (int)($task['user_id'] ?? 0);
+        $currentUserId = (int)($this->currentUser->id ?? 0);
+        $isSuperAdmin = $this->currentUser
+            && method_exists($this->currentUser, 'isSuperAdmin')
+            && $this->currentUser->isSuperAdmin();
+        if (!$isSuperAdmin && ($requestedBy <= 0 || $requestedBy !== $currentUserId)) {
+            return $this->error('无权查看其他用户提交的手动获取任务', 403);
+        }
+
+        return $this->success($service->publicTaskStatus($task), '手动获取任务状态已读取');
+    }
+
     public function fetchCtrip(): Response
     {
         $this->checkPermission();
