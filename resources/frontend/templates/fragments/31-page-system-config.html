@@ -99,20 +99,6 @@
                                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     <div class="bg-gray-50 rounded-xl p-4 flex items-center justify-between">
                                         <div class="flex items-center gap-3">
-                                            <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                                                <i class="fas fa-user-plus text-blue-600"></i>
-                                            </div>
-                                            <div>
-                                                <div class="font-medium text-gray-800">用户注册</div>
-                                                <div class="text-xs text-gray-500">允许新用户注册</div>
-                                            </div>
-                                        </div>
-                                        <span :class="systemConfig.enable_registration === '1' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'" class="px-2 py-1 rounded text-xs font-medium">
-                                            {{ systemConfig.enable_registration === '1' ? '已启用' : '已禁用' }}
-                                        </span>
-                                    </div>
-                                    <div class="bg-gray-50 rounded-xl p-4 flex items-center justify-between">
-                                        <div class="flex items-center gap-3">
                                             <div class="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
                                                 <i class="fas fa-clipboard-list text-purple-600"></i>
                                             </div>
@@ -152,8 +138,8 @@
                             <div class="p-6">
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div class="bg-gray-50 rounded-xl p-4 text-center">
-                                        <div class="text-2xl font-bold text-green-600">{{ systemConfig.session_timeout || 1440 }}分钟</div>
-                                        <div class="text-sm text-gray-500 mt-1">会话超时</div>
+                                        <div class="text-2xl font-bold text-green-600">固定 72 小时</div>
+                                        <div class="text-sm text-gray-500 mt-1">登录与鉴权统一策略</div>
                                     </div>
                                     <div class="bg-gray-50 rounded-xl p-4 text-center">
                                         <div class="text-2xl font-bold text-purple-600">{{ systemConfig.password_min_length || 6 }}位</div>

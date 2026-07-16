@@ -698,27 +698,6 @@ window.SUXI_SYSTEM_STATIC = (() => {
         storage?.removeItem?.(rememberedUsernameStorageKey);
         storage?.removeItem?.(legacyRememberedPasswordStorageKey);
     };
-    const createRegisterForm = () => ({
-        username: '',
-        realname: '',
-        password: '',
-        confirm_password: '',
-    });
-    const buildRegisterRequestPayload = (form = {}) => ({
-        username: String(form.username || '').trim(),
-        realname: String(form.realname || '').trim(),
-        password: String(form.password || ''),
-        confirm_password: String(form.confirm_password || ''),
-    });
-    const validateRegisterRequestPayload = (payload = {}) => {
-        if (!payload.username || !payload.password || !payload.confirm_password) {
-            return '请填写用户名、密码和确认密码';
-        }
-        if (payload.password !== payload.confirm_password) {
-            return '两次输入的密码不一致';
-        }
-        return '';
-    };
     const createHotelForm = ({ hotel = null, operatorName = '', code = '', parsedDescription = {} } = {}) => {
         if (hotel) {
             return {
@@ -1220,6 +1199,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         favicon_url: '',
         system_description: '授权OTA数据驱动的经营诊断、AI建议与动作复盘系统',
         system_keywords: '酒店管理,收益分析,数据分析',
+        login_support_contact: '请联系贵司宿析OS系统管理员',
         menu_hotel_name: '酒店管理',
         menu_users_name: '用户管理',
         menu_compass_name: '罗盘',
@@ -1230,7 +1210,6 @@ window.SUXI_SYSTEM_STATIC = (() => {
         time_format: 'H:i:s',
         page_size_options: '10,20,50,100',
         default_page_size: '20',
-        enable_registration: '0',
         enable_login_log: '1',
         enable_operation_log: '1',
         enable_data_backup: '1',
@@ -1240,7 +1219,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         wechat_mini_secret: '',
         complaint_mini_page: 'pages/complaint/index',
         complaint_mini_use_scene: '1',
-        session_timeout: '1440',
+        session_timeout: '4320',
         password_min_length: '6',
         password_require_special: '0',
         notify_email_enabled: '0',
@@ -2045,9 +2024,6 @@ window.SUXI_SYSTEM_STATIC = (() => {
         buildLoginRequestPayload,
         validateLoginRequestPayload,
         applyRememberedLoginAccount,
-        createRegisterForm,
-        buildRegisterRequestPayload,
-        validateRegisterRequestPayload,
         createHotelForm,
         normalizeHotelIdentityName,
         buildHotelSavePayload,

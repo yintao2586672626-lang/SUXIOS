@@ -1,6 +1,12 @@
 import crypto from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { minify } from 'terser';
+import { readFrontendAssetVersion } from './frontend_asset_version.mjs';
+import {
+  requireUniqueFrontendRuntimeAssetReference,
+  resolveFrontendRuntimeAssetReferences,
+  stripFrontendAssetQuery,
+} from './frontend_authenticated_assets.mjs';
 
 export const FRONTEND_ENTRY_MINIFY_OPTIONS = Object.freeze({
   ecma: 2020,
@@ -38,23 +44,31 @@ export async function inspectFrontendEntryBuild({ source, artifact, html }) {
   const sourceGzipBytes = gzipSync(source, { level: 1 }).length;
   const artifactGzipBytes = gzipSync(artifact, { level: 1 }).length;
   const artifactHash = crypto.createHash('sha256').update(artifact).digest('hex').slice(0, 10);
-  const deferredScripts = [...String(html || '').matchAll(/<script\s+defer\s+src="([^"]+)"[^>]*><\/script>/g)]
-    .map((match) => match[1].split('?')[0]);
   const failures = [];
+  let runtimeAssetReferences = [];
+  let appMainVersion = null;
+  try {
+    runtimeAssetReferences = resolveFrontendRuntimeAssetReferences(html);
+    requireUniqueFrontendRuntimeAssetReference(html, 'app-main.min.js');
+    appMainVersion = readFrontendAssetVersion(html, 'app-main.min.js');
+  } catch (error) {
+    failures.push(error.message);
+  }
+  const runtimeAssets = runtimeAssetReferences.map(stripFrontendAssetQuery);
 
   if (artifact !== rebuilt) failures.push('public/app-main.min.js is stale or was not generated with the pinned build contract.');
   if (!(artifactBytes < sourceBytes * 0.7)) failures.push('The runtime entry must remain below 70% of the canonical source size.');
   if (!(artifactGzipBytes < sourceGzipBytes * 0.8)) failures.push('The gzipped runtime entry must remain below 80% of the canonical source size.');
-  if (!new RegExp(`<script defer src="app-main\\.min\\.js\\?v=[^"]*-h${artifactHash}"`).test(html)) {
+  if (!appMainVersion || appMainVersion.hash !== artifactHash) {
     failures.push('public/index.html must reference the current minified entry content hash.');
   }
-  if (/<script\s+defer\s+src="app-main\.js\?/.test(html)) {
+  if (runtimeAssets.includes('app-main.js')) {
     failures.push('public/index.html must not load the canonical unminified source at runtime.');
   }
-  if (deferredScripts[0] !== 'vue.runtime.global.prod.js'
-    || deferredScripts.at(-2) !== 'app-render.min.js'
-    || deferredScripts.at(-1) !== 'app-main.min.js') {
-    failures.push('The deferred startup chain must keep runtime Vue first, the render before app-main, and app-main last.');
+  if (runtimeAssets[0] !== 'vue.runtime.global.prod.js'
+    || runtimeAssets.at(-2) !== 'app-render.min.js'
+    || runtimeAssets.at(-1) !== 'app-main.min.js') {
+    failures.push('The authenticated startup chain must keep runtime Vue first, the render before app-main, and app-main last.');
   }
   try {
     new Function(artifact);

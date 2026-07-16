@@ -1182,7 +1182,7 @@
                                             <i class="fas fa-info-circle mr-2"></i>美团配置管理
                                         </h4>
                                         <p class="text-sm text-yellow-700">
-                                            保存美团 eBooking 的 Cookie/API 辅助配置，方便临时排障或补数。建议定期更新以保证有效性。
+                                            保存美团 eBooking 的 Cookie/API 辅助配置，方便临时排障或补数。通常只需在 Cookie 失效时更新，其余门店信息编辑时会自动保留。
                                         </p>
                                     </div>
 
@@ -1197,10 +1197,10 @@
                                             </div>
                                         </div>
                                         <div class="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2 text-sm mb-4">
-                                            保存门槛：只需临时 Cookie/API 辅助内容。平台接口标识和门店标识可后补；名称由系统按关联酒店自动生成，酒店房量和竞争圈房量不是获取凭证。
+                                            新配置只需临时 Cookie/API 辅助内容；编辑已有配置时，留空即保留原 Cookie。平台接口标识、门店标识和房量会继续保留，无需重复填写。
                                         </div>
                                         <div class="mb-4 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">
-                                            保存成功只表示配置已保存；完成授权登录并验证当前门店后，才会标记为“验证成功，当前使用”。旧配置不会阻碍新配置保存。
+                                            保存只表示 Cookie/API 已安全写入；系统成功采集并确认门店匹配后，才会标记为“验证成功，当前使用”。
                                         </div>
                                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                             <div class="md:col-span-2">
@@ -1219,21 +1219,24 @@
                                                 <input v-model="meituanConfigForm.poi_id" type="text" class="w-full px-3 py-2 border rounded-lg" placeholder="门店ID">
                                             </div>
                                             <div>
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">酒店房量（可选，非获取凭证）</label>
-                                                <input v-model="meituanConfigForm.hotel_room_count" type="number" class="w-full px-3 py-2 border rounded-lg" placeholder="酒店房间数量">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">酒店总房量（采集优先，可选补充）</label>
+                                                <input v-model="meituanConfigForm.hotel_room_count" type="number" min="1" class="w-full px-3 py-2 border rounded-lg" placeholder="平台未返回时可补充">
                                             </div>
                                             <div>
-                                                <label class="block text-sm font-medium text-gray-700 mb-1">竞争圈总房量（可选，非获取凭证）</label>
-                                                <input v-model="meituanConfigForm.competitor_room_count" type="number" class="w-full px-3 py-2 border rounded-lg" placeholder="竞争圈总房间数量">
+                                                <label class="block text-sm font-medium text-gray-700 mb-1">竞争圈总房量（采集优先，可选补充）</label>
+                                                <input v-model="meituanConfigForm.competitor_room_count" type="number" min="1" class="w-full px-3 py-2 border rounded-lg" placeholder="平台未返回时可补充">
                                             </div>
                                         </div>
+                                        <p class="mt-2 text-xs leading-5 text-gray-500">
+                                            房量优先取自美团页面或接口；若平台本次未返回，可人工补充。留空会显示待补，不会按 0 参与分析。
+                                        </p>
                                         <div class="mt-3">
                                             <label class="block text-sm font-medium text-gray-700 mb-1">
                                                 临时 Cookie/API 辅助内容
                                                 <span v-if="!meituanConfigForm.id || !meituanConfigForm.has_cookies" class="text-red-500">*</span>
-                                                <span v-else="" class="text-xs font-normal text-gray-500">（留空则保留现有授权）</span>
+                                                <span v-else="" class="text-xs font-normal text-gray-500">（留空保留已保存内容）</span>
                                             </label>
-                                            <textarea v-model="meituanConfigForm.cookies" rows="3" class="w-full px-3 py-2 border rounded-lg font-mono text-xs" placeholder="从美团ebooking页面获取的临时 Cookie/API 辅助内容"></textarea>
+                                            <textarea v-model="meituanConfigForm.cookies" rows="3" class="w-full px-3 py-2 border rounded-lg font-mono text-xs" :placeholder="meituanConfigForm.id &amp;&amp; meituanConfigForm.has_cookies ? '仅 Cookie 失效时粘贴新内容；留空不会覆盖' : '从美团 eBooking 页面获取临时 Cookie/API 辅助内容'"></textarea>
                                         </div>
                                         <div class="flex gap-2 mt-4">
                                             <button @click="saveMeituanConfigItem" :disabled="meituanConfigSaving" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60">
@@ -1308,7 +1311,7 @@
                                                                 'ml-2 px-2 py-0.5 rounded-full border text-xs',
                                                                 config.configuration_verified === true ? 'bg-green-50 border-green-200 text-green-700' : (config.configuration_saved === true ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-red-50 border-red-200 text-red-700')
                                                             ]">
-                                                                {{ config.verification_status_label || (config.configuration_verified === true ? '验证成功，当前使用' : '已保存，待授权验证') }}
+                                                                {{ config.verification_status_label || (config.configuration_verified === true ? '验证成功，当前使用' : 'Cookie 已保存，待采集验证') }}
                                                             </span>
                                                         </div>
                                                         <div class="text-sm text-gray-500 space-y-1">
@@ -1325,11 +1328,11 @@
                                                                 <span>{{ config.poi_id }}</span>
                                                             </div>
                                                             <div v-if="config.hotel_room_count" class="flex items-center text-gray-400">
-                                                                <span class="w-24">酒店房量（人工维护）:</span>
+                                                                <span class="w-24">酒店总房量:</span>
                                                                 <span>{{ config.hotel_room_count }}</span>
                                                             </div>
                                                             <div v-if="config.competitor_room_count" class="flex items-center text-gray-400">
-                                                                <span class="w-24">竞争圈总房量（人工维护）:</span>
+                                                                <span class="w-24">竞争圈总房量:</span>
                                                                 <span>{{ config.competitor_room_count }}</span>
                                                             </div>
                                                             <div class="flex items-center text-gray-400">
@@ -1337,7 +1340,7 @@
                                                                 <span>{{ config.update_time || config.created_at }}</span>
                                                             </div>
                                                             <div v-if="Number(config.history_count || 0) &gt; 0" class="text-amber-600">
-                                                                已折叠 {{ config.history_count }} 条历史配置；{{ config.configuration_verified === true ? 'Profile 验证成功' : '凭据已保存，仍待授权与门店验证' }}
+                                                                已折叠 {{ config.history_count }} 条历史配置；{{ config.configuration_verified === true ? '采集验证成功' : 'Cookie 已保存，仍待采集与门店匹配验证' }}
                                                             </div>
                                                         </div>
                                                     </div>

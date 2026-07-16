@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { PurgeCSS } from 'purgecss';
+import { readFrontendAssetVersion } from './frontend_asset_version.mjs';
 
 const TAILWIND_DYNAMIC_PREFIX = '(?:bg|text|border|ring|shadow|from|via|to|divide|placeholder|stroke|fill|grid-cols|col-span|row-span|w|h|p[trblxy]?|m[trblxy]?|gap|space-[xy]|rounded|opacity|z|top|right|bottom|left|inset|translate-[xy]|scale(?:-[xy])?|rotate|skew-[xy])';
 const TAILWIND_TOKEN_PATTERN = /[A-Za-z0-9_!./:[\]%-]+/g;
@@ -121,6 +122,12 @@ export async function inspectTailwindRuntimeBuild(repoRoot) {
   const sourceGzipBytes = gzipSync(source, { level: 6 }).length;
   const artifactGzipBytes = gzipSync(artifact, { level: 6 }).length;
   const failures = [];
+  let tailwindVersion = null;
+  try {
+    tailwindVersion = readFrontendAssetVersion(html, 'tailwind.min.css');
+  } catch (error) {
+    failures.push(error.message);
+  }
 
   if (artifact !== rebuilt) failures.push('public/tailwind.min.css is stale or does not match the pinned PurgeCSS build.');
   if (dynamicConstructions.length) failures.push('Runtime source contains unresolved dynamic Tailwind class construction.');
@@ -128,7 +135,7 @@ export async function inspectTailwindRuntimeBuild(repoRoot) {
   if (!(artifactBytes < sourceBytes * 0.25)) failures.push('The runtime Tailwind artifact must stay below 25% of the full source size.');
   if (!(artifactGzipBytes < sourceGzipBytes * 0.25)) failures.push('The gzipped Tailwind runtime artifact must stay below 25% of the full source size.');
   if (!artifact.startsWith('/*! tailwindcss v2.2.19')) failures.push('The Tailwind license/version banner must be preserved.');
-  if (!new RegExp(`<link href="tailwind\\.min\\.css\\?v=[^"]*-h${artifactHash}" rel="stylesheet">`).test(html)) {
+  if (!tailwindVersion || tailwindVersion.hash !== artifactHash) {
     failures.push('public/index.html must reference the current Tailwind runtime content hash.');
   }
   if (/tailwind\.full\.css/.test(html)) failures.push('public/index.html must not load the full rollback stylesheet.');

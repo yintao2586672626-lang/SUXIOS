@@ -4,17 +4,26 @@ import path from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { compile } from '@vue/compiler-dom';
 import { minify } from 'terser';
+import { readFrontendAssetVersion } from './frontend_asset_version.mjs';
+import {
+  requireUniqueFrontendRuntimeAssetReference,
+  resolveFrontendRuntimeAssetReferences,
+  stripFrontendAssetQuery,
+} from './frontend_authenticated_assets.mjs';
 import { withFrontendTemplateLock } from './frontend_template_lock.mjs';
 import { loadFrontendTemplateSource } from './frontend_template_source.mjs';
 
 const EMPTY_V_IF_ANCHOR_SOURCE = '_createCommentVNode("v-if", true)';
 const EMPTY_V_IF_ANCHOR_RUNTIME = '_createCommentVNode("", true)';
+const FRONTEND_RENDER_RAW_MAX_BYTES = 1_350_000;
+const FRONTEND_RENDER_GZIP_MAX_BYTES = 230_000;
+const FRONTEND_RENDER_TO_TEMPLATE_MAX_RATIO = 0.66;
 
 export const FRONTEND_TEMPLATE_MINIFY_OPTIONS = Object.freeze({
   ecma: 2020,
   module: false,
   toplevel: false,
-  compress: Object.freeze({ defaults: true, passes: 2 }),
+  compress: Object.freeze({ defaults: true, passes: 2, booleans_as_integers: true }),
   mangle: Object.freeze({ safari10: true, toplevel: false }),
   format: Object.freeze({
     ascii_only: false,
@@ -54,7 +63,7 @@ export async function buildFrontendTemplateRender(template) {
     structuredClone(FRONTEND_TEMPLATE_MINIFY_OPTIONS)
   );
   if (!result.code) throw new Error('Terser returned an empty frontend render artifact.');
-  return `${result.code}\n`;
+  return result.code;
 }
 
 const readText = (file) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '');
@@ -123,19 +132,46 @@ async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
   if (/src="vue\.global\.prod\.js/.test(html)) failures.push('public/index.html must not load the compiler-enabled Vue build.');
   if (!/render:\s*requireSuxiAppRender\(\)/.test(appMain)) failures.push('public/app-main.js must attach the precompiled root render.');
 
+  let runtimeAssetReferences = [];
+  let renderVersion = null;
+  let runtimeVueVersion = null;
+  try {
+    runtimeAssetReferences = resolveFrontendRuntimeAssetReferences(html);
+    requireUniqueFrontendRuntimeAssetReference(html, 'app-render.min.js');
+    requireUniqueFrontendRuntimeAssetReference(html, 'vue.runtime.global.prod.js');
+    renderVersion = readFrontendAssetVersion(html, 'app-render.min.js');
+    runtimeVueVersion = readFrontendAssetVersion(html, 'vue.runtime.global.prod.js');
+  } catch (error) {
+    failures.push(error.message);
+  }
+  const runtimeAssets = runtimeAssetReferences.map(stripFrontendAssetQuery);
   const renderHash = artifact ? crypto.createHash('sha256').update(artifact).digest('hex').slice(0, 10) : '';
-  if (renderHash && !new RegExp(`<script defer src="app-render\\.min\\.js\\?v=[^"]*-h${renderHash}"`).test(html)) {
+  const runtimeVueHash = runtimeVue ? crypto.createHash('sha256').update(runtimeVue).digest('hex').slice(0, 10) : '';
+  if (renderHash && renderVersion?.hash !== renderHash) {
     failures.push('public/index.html must reference the current precompiled render content hash.');
   }
-  const deferredScripts = [...html.matchAll(/<script\s+defer\s+src="([^"]+)"[^>]*><\/script>/g)]
-    .map((match) => match[1].split('?')[0]);
-  if (deferredScripts[0] !== 'vue.runtime.global.prod.js'
-    || deferredScripts.at(-2) !== 'app-render.min.js'
-    || deferredScripts.at(-1) !== 'app-main.min.js') {
-    failures.push('Deferred startup order must be runtime Vue -> helpers -> precompiled render -> app entry.');
+  if (runtimeVueHash && runtimeVueVersion?.hash !== runtimeVueHash) {
+    failures.push('public/index.html must reference the current runtime-only Vue content hash.');
   }
-  if (artifact && Buffer.byteLength(artifact) >= 1_300_000) failures.push('The precompiled render artifact exceeded the 1.3 MB raw ceiling.');
-  if (artifact && gzipSync(artifact, { level: 6 }).length >= 225_000) failures.push('The precompiled render artifact exceeded the 225 KB gzip ceiling.');
+  if (runtimeAssets[0] !== 'vue.runtime.global.prod.js'
+    || runtimeAssets.at(-2) !== 'app-render.min.js'
+    || runtimeAssets.at(-1) !== 'app-main.min.js') {
+    failures.push('Authenticated startup order must be runtime Vue -> helpers -> precompiled render -> app entry.');
+  }
+  const renderBytes = Buffer.byteLength(artifact);
+  const renderGzipBytes = artifact ? gzipSync(artifact, { level: 6 }).length : 0;
+  const renderToTemplateRatio = templateSnapshotBuffer.length > 0
+    ? renderBytes / templateSnapshotBuffer.length
+    : 0;
+  if (artifact && renderBytes >= FRONTEND_RENDER_RAW_MAX_BYTES) {
+    failures.push('The precompiled render artifact exceeded the 1.35 MB raw ceiling.');
+  }
+  if (artifact && renderGzipBytes >= FRONTEND_RENDER_GZIP_MAX_BYTES) {
+    failures.push('The precompiled render artifact exceeded the 230 KB gzip ceiling.');
+  }
+  if (artifact && renderToTemplateRatio >= FRONTEND_RENDER_TO_TEMPLATE_MAX_RATIO) {
+    failures.push('The precompiled render artifact exceeded 66% of the canonical template size.');
+  }
   if (runtimeVue && compilerVue && !(Buffer.byteLength(runtimeVue) < Buffer.byteLength(compilerVue) * 0.75)) {
     failures.push('The runtime-only Vue artifact must remain materially smaller than the compiler build.');
   }
@@ -151,9 +187,11 @@ async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
         : '',
       template_snapshot_matches: templateSnapshotMatches,
       template_snapshot_pin_matches: templateSnapshotPinMatches,
-      render_bytes: Buffer.byteLength(artifact),
-      render_gzip_bytes: artifact ? gzipSync(artifact, { level: 6 }).length : 0,
+      render_bytes: renderBytes,
+      render_gzip_bytes: renderGzipBytes,
+      render_to_template_ratio: renderToTemplateRatio,
       render_hash: renderHash,
+      runtime_vue_hash: runtimeVueHash,
       runtime_vue_bytes: Buffer.byteLength(runtimeVue),
       runtime_vue_gzip_bytes: runtimeVue ? gzipSync(runtimeVue, { level: 6 }).length : 0,
       compiler_vue_bytes: Buffer.byteLength(compilerVue),

@@ -22,13 +22,6 @@
                 </section>
 
                 <div class="login-card rounded-2xl p-10 w-full max-w-md relative">
-                    <div data-locale-switch="" class="locale-switch login-locale-switch">
-                        <label>{{ aiModelConfigText('global.languageLabel') }}</label>
-                        <select :value="currentLocale" @change="switchLocale($event.target.value)">
-                            <option v-for="option in languageOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                        </select>
-                    </div>
-
                     <!-- Logo 和标题 -->
                     <div class="login-card-head text-center mb-8">
                         <div class="login-logo login-logo-brand inline-flex items-center justify-center w-20 h-20 rounded-xl mb-5 shadow-lg">
@@ -42,49 +35,52 @@
                     </div>
 
                 <!-- 登录表单 -->
-                <form v-if="!registerMode" @submit.prevent="handleLogin" class="space-y-5">
+                <form @submit.prevent="handleLogin" @focusin="scheduleLoginAutofillSync" class="space-y-5">
                     <!-- 用户名输入 -->
                     <div class="input-group">
-                        <label class="input-label block text-sm font-medium mb-2">
+                        <label for="login-username" class="input-label block text-sm font-medium mb-2">
                             <i class="fas fa-user mr-2"></i>用户名
                         </label>
                         <div class="relative">
                             <i class="fas fa-at input-icon-prefix"></i>
-                            <input v-model="loginForm.username" @input="loginError = ''" type="text" name="username" autocomplete="username" data-testid="login-username" class="input-field w-full" placeholder="请输入用户名" required="">
+                            <input id="login-username" v-model="loginForm.username" @input="handleLoginFieldInput" @change="handleLoginFieldInput" type="text" name="username" autocomplete="username" data-testid="login-username" class="input-field w-full" placeholder="请输入用户名" :aria-invalid="loginError ? 'true' : 'false'" :aria-describedby="loginError ? 'login-error' : null" required="">
                         </div>
                     </div>
 
                     <!-- 密码输入 -->
                     <div class="input-group">
-                        <label class="input-label block text-sm font-medium mb-2">
+                        <label for="login-password" class="input-label block text-sm font-medium mb-2">
                             <i class="fas fa-key mr-2"></i>密码
                         </label>
                         <div class="relative">
                             <i class="fas fa-lock input-icon-prefix"></i>
-                            <input v-model="loginForm.password" @input="loginError = ''" :type="showPassword ? 'text' : 'password'" name="password" autocomplete="current-password" data-testid="login-password" class="input-field w-full" style="padding-right: 3.5rem;" placeholder="请输入密码" required="">
-                            <button type="button" @click="showPassword = !showPassword" data-testid="login-toggle-password" class="password-toggle absolute" style="right: 0.75rem; top: 50%; transform: translateY(-50%);">
-                                <i :class="showPassword ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
+                            <input id="login-password" v-model="loginForm.password" @input="handleLoginFieldInput" @change="handleLoginFieldInput" @keydown="handleLoginPasswordKeyEvent" @keyup="handleLoginPasswordKeyEvent" @blur="clearLoginPasswordCapsLock" :type="showPassword ? 'text' : 'password'" name="password" autocomplete="current-password" data-testid="login-password" class="input-field w-full" style="padding-right: 3.5rem;" placeholder="请输入密码" :aria-invalid="loginError ? 'true' : 'false'" :aria-describedby="loginError ? (passwordCapsLockOn ? 'login-error login-caps-lock' : 'login-error') : (passwordCapsLockOn ? 'login-caps-lock' : null)" required="">
+                            <button type="button" @click="showPassword = !showPassword" data-testid="login-toggle-password" class="password-toggle absolute" style="right: 0.75rem; top: 50%; transform: translateY(-50%);" :aria-label="showPassword ? '隐藏密码' : '显示密码'" :title="showPassword ? '隐藏密码' : '显示密码'" :aria-pressed="showPassword ? 'true' : 'false'" aria-controls="login-password">
+                                <i :class="showPassword ? 'fas fa-eye-slash' : 'fas fa-eye'" aria-hidden="true"></i>
                             </button>
                         </div>
+                        <p v-if="passwordCapsLockOn" id="login-caps-lock" class="login-caps-lock" role="status" aria-live="polite">
+                            <i class="fas fa-arrow-up" aria-hidden="true"></i>
+                            <span>大写锁定已开启，请注意密码大小写</span>
+                        </p>
                     </div>
 
                     <!-- 错误提示 -->
-                    <div v-if="loginError" class="login-error flex items-center gap-3">
-                        <i class="fas fa-exclamation-circle"></i>
+                    <div v-if="loginError" id="login-error" class="login-error flex items-center gap-3" role="alert" aria-live="assertive" aria-atomic="true">
+                        <i class="fas fa-exclamation-circle" aria-hidden="true"></i>
                         <span>{{ loginError }}</span>
                     </div>
 
                     <!-- 记住选项 -->
-                    <div class="flex items-center justify-between text-sm">
+                    <div class="flex items-center text-sm">
                         <label class="flex items-center text-slate-400 cursor-pointer hover:text-slate-200 transition">
                             <input type="checkbox" v-model="rememberAccount" class="remember-checkbox mr-3">
                             <span>记住账号</span>
                         </label>
-                        <button type="button" @click.prevent="forgotPassword" class="text-slate-500 text-xs hover:text-purple-300 transition">忘记密码</button>
                     </div>
 
                     <!-- 登录按钮 -->
-                    <button type="submit" :disabled="loading || !loginForm.username || !loginForm.password" data-testid="login-submit" class="btn-login w-full py-3.5 text-base flex items-center justify-center gap-2">
+                    <button type="submit" :disabled="loading || !loginForm.username || !loginForm.password" :class="{ 'is-loading': loading }" :aria-busy="loading ? 'true' : 'false'" data-testid="login-submit" class="btn-login w-full py-3.5 text-base flex items-center justify-center gap-2">
                         <template v-if="loading">
                             <i class="fas fa-spinner fa-spin"></i>
                             <span>登录中...</span>
@@ -96,89 +92,54 @@
                     </button>
                 </form>
 
-                <form v-else="" @submit.prevent="handleRegister" class="space-y-5">
-                    <div class="rounded-lg border border-amber-300/30 bg-amber-400/10 px-4 py-3 text-xs leading-relaxed text-amber-100 flex items-start gap-3">
-                        <i class="fas fa-shield-alt mt-0.5"></i>
-                        <span>注册后需超级管理员审核启用，审核通过后才能登录。</span>
-                    </div>
-
-                    <div class="input-group">
-                        <label class="input-label block text-sm font-medium mb-2">
-                            <i class="fas fa-user-plus mr-2"></i>注册账号
-                        </label>
-                        <div class="relative">
-                            <i class="fas fa-at input-icon-prefix"></i>
-                            <input v-model="registerForm.username" @input="registerError = ''; registerSuccess = ''" type="text" name="register_username" autocomplete="username" data-testid="register-username" class="input-field w-full" placeholder="3-50 位字母、数字或下划线" required="">
-                        </div>
-                    </div>
-
-                    <div class="input-group">
-                        <label class="input-label block text-sm font-medium mb-2">
-                            <i class="fas fa-id-card mr-2"></i>姓名
-                        </label>
-                        <div class="relative">
-                            <i class="fas fa-signature input-icon-prefix"></i>
-                            <input v-model="registerForm.realname" @input="registerError = ''; registerSuccess = ''" type="text" name="register_realname" autocomplete="name" data-testid="register-realname" class="input-field w-full" placeholder="可选，默认使用用户名">
-                        </div>
-                    </div>
-
-                    <div class="input-group">
-                        <label class="input-label block text-sm font-medium mb-2">
-                            <i class="fas fa-key mr-2"></i>密码
-                        </label>
-                        <div class="relative">
-                            <i class="fas fa-lock input-icon-prefix"></i>
-                            <input v-model="registerForm.password" @input="registerError = ''; registerSuccess = ''" type="password" name="register_password" autocomplete="new-password" data-testid="register-password" class="input-field w-full" placeholder="至少 6 位" required="">
-                        </div>
-                    </div>
-
-                    <div class="input-group">
-                        <label class="input-label block text-sm font-medium mb-2">
-                            <i class="fas fa-check-circle mr-2"></i>确认密码
-                        </label>
-                        <div class="relative">
-                            <i class="fas fa-lock input-icon-prefix"></i>
-                            <input v-model="registerForm.confirm_password" @input="registerError = ''; registerSuccess = ''" type="password" name="register_confirm_password" autocomplete="new-password" data-testid="register-confirm-password" class="input-field w-full" placeholder="再次输入密码" required="">
-                        </div>
-                    </div>
-
-                    <div v-if="registerError" class="login-error flex items-center gap-3">
-                        <i class="fas fa-exclamation-circle"></i>
-                        <span>{{ registerError }}</span>
-                    </div>
-
-                    <div v-if="registerSuccess" class="rounded-lg px-4 py-3 bg-green-50 text-green-700 text-sm flex items-center gap-3">
-                        <i class="fas fa-check-circle"></i>
-                        <span>{{ registerSuccess }}</span>
-                    </div>
-
-                    <button type="submit" :disabled="registerLoading || !registerForm.username || !registerForm.password || !registerForm.confirm_password" data-testid="register-submit" class="btn-login w-full py-3.5 text-base flex items-center justify-center gap-2">
-                        <template v-if="registerLoading">
-                            <i class="fas fa-spinner fa-spin"></i>
-                            <span>注册中...</span>
-                        </template>
-                        <template v-else="">
-                            <i class="fas fa-user-plus"></i>
-                            <span>提交注册申请</span>
-                        </template>
-                    </button>
-                </form>
-
-                <div class="mt-5 text-center text-sm">
-                    <button v-if="!registerMode" type="button" @click="openRegisterForm" data-testid="open-register" class="text-blue-300 hover:text-blue-100 transition">
-                        没有账号？注册
-                    </button>
-                    <button v-else="" type="button" @click="closeRegisterForm" data-testid="close-register" class="text-blue-300 hover:text-blue-100 transition">
-                        已有账号？返回登录
-                    </button>
-                </div>
-
                     <div class="login-card-foot">
-                        <button type="button" @click="forgotPassword" class="director-entry-link">
-                            联系管理员开通或找回账号
+                        <button type="button" @click="openLoginSupport" data-testid="login-support-open" class="director-entry-link" aria-haspopup="dialog" :aria-expanded="loginSupportOpen ? 'true' : 'false'">
+                            账号登录遇到问题？联系管理员
                         </button>
                     </div>
                 </div>
+            </div>
+
+            <footer class="login-public-footer" aria-label="登录页使用说明">
+                <span>宿析OS · 酒店经营决策系统</span>
+                <span aria-hidden="true">·</span>
+                <span>仅限授权用户使用</span>
+                <span aria-hidden="true">·</span>
+                <span>请勿共享密码、验证码或 Cookie</span>
+            </footer>
+
+            <div v-if="loginSupportOpen" class="login-support-backdrop" @click.self="closeLoginSupport">
+                <section data-testid="login-support-dialog" class="login-support-dialog" role="dialog" aria-modal="true" aria-labelledby="login-support-title" aria-describedby="login-support-description" tabindex="-1" @keydown="handleLoginSupportKeydown">
+                    <div class="login-support-head">
+                        <div>
+                            <p class="login-support-kicker">账号协助</p>
+                            <h2 id="login-support-title">联系管理员</h2>
+                        </div>
+                        <button type="button" @click="closeLoginSupport" class="login-support-close" aria-label="关闭联系管理员弹窗">
+                            <i class="fas fa-times" aria-hidden="true"></i>
+                        </button>
+                    </div>
+                    <p id="login-support-description" class="login-support-description">开通账号或处理登录问题，请通过以下方式联系管理员。</p>
+                    <div class="login-support-contact" aria-live="polite" aria-atomic="true">
+                        <div v-if="loginSupportLoading" class="login-support-state">
+                            <i class="fas fa-spinner fa-spin" aria-hidden="true"></i>
+                            <span>正在获取联系方式...</span>
+                        </div>
+                        <div v-else-if="loginSupportError" class="login-support-state is-error" role="alert">
+                            <span>{{ loginSupportError }}</span>
+                            <button type="button" @click="loadLoginSupportContact">重试</button>
+                        </div>
+                        <p v-else class="login-support-value">{{ loginSupportContact }}</p>
+                    </div>
+                    <p class="login-support-safety"><i class="fas fa-shield-alt" aria-hidden="true"></i> 请勿发送密码、验证码或浏览器 Cookie。</p>
+                    <div class="login-support-actions">
+                        <button type="button" @click="closeLoginSupport" class="login-support-secondary">关闭</button>
+                        <button type="button" @click="copyLoginSupportContact" :disabled="loginSupportLoading || !!loginSupportError || !loginSupportContact" data-testid="login-support-copy" class="login-support-primary">
+                            <i class="fas fa-copy" aria-hidden="true"></i>
+                            <span>复制联系方式</span>
+                        </button>
+                    </div>
+                </section>
             </div>
         </div>
 
@@ -367,8 +328,8 @@
                                 <i class="fas fa-exclamation-triangle"></i>
                             </span>
                             <div class="min-w-0">
-                                <div class="text-sm font-semibold text-red-900">{{ strongOtaReminderCount }} 个门店账号登录已失效或待重新验证</div>
-                                <div class="mt-1 text-xs leading-5 text-red-700">已定向提醒门店提交人；已读或清空不能解除，重新登录并验证成功后自动消失。</div>
+                                <div class="text-sm font-semibold text-red-900">{{ strongOtaReminderCount }} 项 OTA Cookie 状态需处理</div>
+                                <div class="mt-1 text-xs leading-5 text-red-700">Cookie 可能已失效，相关数据可能暂时无法获取；更新并验证后可恢复采集。</div>
                             </div>
                         </div>
                         <button type="button" @click="showStrongOtaReminder" class="shrink-0 rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-800">
@@ -377,63 +338,52 @@
                     </section>
                 </div>
 
-                <div v-if="strongOtaReminderOpen &amp;&amp; strongOtaReminderCount" @click.self="strongOtaReminderCanDefer ? deferStrongOtaReminder() : null" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-3 sm:p-4" data-testid="ota-auth-strong-reminder-modal" role="dialog" aria-modal="true" aria-labelledby="ota-auth-strong-reminder-title">
-                    <section class="flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-red-200 bg-white shadow-2xl" style="max-height: calc(100vh - 1.5rem);">
+                <div v-if="strongOtaReminderOpen &amp;&amp; strongOtaReminderCount" @click.self="deferStrongOtaReminder" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-3 sm:p-4" data-testid="ota-auth-strong-reminder-modal" role="dialog" aria-modal="true" aria-labelledby="ota-auth-strong-reminder-title">
+                    <section @pointerdown="restartStrongOtaReminderAutoDismissCountdown" @keydown="restartStrongOtaReminderAutoDismissCountdown" @wheel.passive="restartStrongOtaReminderAutoDismissCountdown" class="ota-auth-reminder-panel flex w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-red-200 bg-white shadow-2xl" style="max-height: calc(100vh - 2rem);">
                         <div class="shrink-0 border-b border-red-100 bg-red-50 px-5 py-4">
                             <div class="flex items-start gap-3">
                                 <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-700 text-base text-white">
                                     <i class="fas fa-user-lock"></i>
                                 </span>
                                 <div class="min-w-0 flex-1">
-                                    <div class="text-xs font-semibold uppercase tracking-wider text-red-600">OTA 授权信息待补全</div>
-                                    <h2 id="ota-auth-strong-reminder-title" class="mt-0.5 text-lg font-bold text-slate-900">部分门店当前可能无法正常采集</h2>
-                                    <p class="mt-1 text-xs leading-5 text-slate-600">补全浏览器 Profile 或 Cookie/API 授权并完成验证后，可恢复正常采集。</p>
+                                    <div class="text-xs font-semibold uppercase tracking-wider text-red-600">OTA Cookie 状态提醒</div>
+                                    <h2 id="ota-auth-strong-reminder-title" class="mt-0.5 text-lg font-bold text-slate-900">部分账号 Cookie 可能已失效</h2>
+                                    <p class="mt-1 text-xs leading-5 text-slate-600">{{ strongOtaReminderCount }} 项 Cookie 状态需处理，失效后可能暂时无法获取 OTA 数据；可选择门店更新 Cookie。</p>
                                 </div>
-                                <button type="button" @click="deferStrongOtaReminder" :disabled="!strongOtaReminderCanDefer" data-testid="ota-auth-strong-reminder-close" :aria-label="strongOtaReminderCanDefer ? '关闭提醒' : (strongOtaReminderDeferSecondsRemaining + ' 秒后可关闭')" :title="strongOtaReminderCanDefer ? '关闭提醒，下次登录再提醒' : (strongOtaReminderDeferSecondsRemaining + ' 秒后可关闭')" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-red-200 bg-white text-sm font-semibold text-slate-600 transition hover:bg-red-100 hover:text-red-800 disabled:cursor-wait disabled:bg-red-50 disabled:text-red-400">
-                                    <i v-if="strongOtaReminderCanDefer" class="fas fa-times" aria-hidden="true"></i>
-                                    <span v-else>{{ strongOtaReminderDeferSecondsRemaining }}</span>
+                                <button type="button" @click="deferStrongOtaReminder" data-testid="ota-auth-strong-reminder-close" aria-label="关闭弹窗，顶部提醒仍保留" title="关闭弹窗，顶部提醒仍保留" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-red-200 bg-white text-sm font-semibold text-slate-600 transition hover:bg-red-100 hover:text-red-800">
+                                    <i class="fas fa-times" aria-hidden="true"></i>
                                 </button>
                             </div>
                         </div>
-                        <div class="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-5 py-3.5" data-testid="ota-auth-strong-reminder-list">
-                            <article v-for="item in strongOtaReminderItems" :key="item.reminder_key" class="rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5">
-                                <div class="flex items-start gap-3">
+                        <div class="ota-auth-reminder-grid min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="ota-auth-strong-reminder-list">
+                            <article v-for="item in strongOtaReminderItems" :key="item.reminder_key" class="ota-auth-reminder-card flex min-w-0 flex-col rounded-xl border border-slate-200 bg-white px-3.5 py-3 shadow-sm transition-colors">
+                                <div class="flex min-w-0 items-start gap-3">
                                     <div class="min-w-0 flex-1">
                                         <div class="flex flex-wrap items-center gap-2">
-                                            <span class="text-sm font-semibold text-slate-900">{{ item.hotel_name || ('门店 ' + item.hotel_id) }}</span>
-                                            <span class="rounded-full border border-red-200 bg-white px-2 py-0.5 text-[11px] font-medium text-red-700">{{ item.platform === 'ctrip' ? '携程' : (item.platform === 'meituan' ? '美团' : 'OTA') }}</span>
+                                            <span class="truncate text-sm font-semibold text-slate-900" :title="item.hotel_name || ('门店 ' + item.hotel_id)">{{ item.hotel_name || ('门店 ' + item.hotel_id) }}</span>
+                                            <span class="shrink-0 rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700">{{ item.platform === 'ctrip' ? '携程' : (item.platform === 'meituan' ? '美团' : 'OTA') }}</span>
                                         </div>
-                                        <div class="mt-1.5 flex min-w-0 items-center gap-1.5 overflow-hidden text-xs" data-testid="ota-auth-authorization-source">
-                                            <span class="shrink-0 font-medium text-red-800">{{ item.title }}</span>
-                                            <span class="shrink-0 text-slate-300">·</span>
-                                            <span class="shrink-0 font-semibold" :class="item.authorization_source_state === 'exact' ? 'text-red-700' : 'text-amber-700'">{{ item.authorization_source_state === 'exact' ? '已定位' : '待确认' }}</span>
-                                            <span class="shrink-0 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700">{{ item.authorization_source_type === 'profile' ? 'Profile' : (item.authorization_source_type === 'cookie_api' ? 'Cookie/API' : (item.authorization_source_type === 'mixed' ? '多个候选' : '待识别')) }}</span>
-                                            <span class="min-w-0 flex-1 truncate text-slate-600" :title="item.authorization_source_label || '暂未识别具体授权来源'">{{ item.authorization_source_label || '暂未识别具体授权来源' }}</span>
+                                        <div class="mt-1.5 flex min-w-0 items-center gap-1.5 text-xs text-red-800">
+                                            <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" aria-hidden="true"></span>
+                                            <span class="truncate font-medium">Cookie 可能已失效</span>
                                         </div>
-                                        <details class="mt-1 text-[11px] text-slate-500">
-                                            <summary class="w-fit cursor-pointer select-none hover:text-slate-700">查看详情</summary>
-                                            <div class="mt-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 leading-5 text-slate-600">
-                                                <div>{{ item.detail }}</div>
-                                                <div v-if="item.authorization_source_note" class="mt-1">{{ item.authorization_source_note }}</div>
-                                            </div>
-                                        </details>
                                     </div>
-                                    <button type="button" @click="openStrongOtaReminderItem(item)" aria-label="重新登录并验证" class="shrink-0 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800">
-                                        重新验证
+                                    <button type="button" @click="openStrongOtaReminderItem(item)" aria-label="更新 Cookie 并验证" class="shrink-0 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800">
+                                        更新 Cookie
                                     </button>
                                 </div>
                             </article>
                         </div>
                         <div class="shrink-0 flex flex-col gap-2.5 border-t border-slate-100 bg-slate-50 px-5 py-3 sm:flex-row sm:items-center sm:justify-between" data-testid="ota-auth-strong-reminder-footer">
-                            <span class="text-xs leading-5 text-slate-500">
-                                <template v-if="strongOtaReminderCanDefer">请选择提醒时间，顶部状态条仍会保留。</template>
-                                <template v-else>{{ strongOtaReminderDeferSecondsRemaining }} 秒后可选择提醒时间。</template>
+                            <span class="ota-auth-reminder-footer-note flex max-w-md items-start gap-2 text-xs leading-5 text-slate-500" data-testid="ota-auth-auto-dismiss-countdown" aria-live="polite" aria-atomic="true">
+                                <i class="fas fa-info-circle mt-0.5 shrink-0 text-slate-400" aria-hidden="true"></i>
+                                <span>未操作将在 {{ strongOtaReminderAutoDismissSecondsRemaining }} 秒后自动关闭，顶部提醒仍会保留。</span>
                             </span>
                             <div class="flex flex-col gap-2 sm:flex-row">
-                                <button type="button" @click="snoozeStrongOtaReminder24Hours" :disabled="!strongOtaReminderCanDefer" data-testid="ota-auth-strong-reminder-snooze-24h" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 disabled:hover:bg-slate-100">
+                                <button type="button" @click="snoozeStrongOtaReminder24Hours" data-testid="ota-auth-strong-reminder-snooze-24h" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">
                                     {{ strongOtaReminderSnoozeHours }} 小时内不再弹窗
                                 </button>
-                                <button type="button" @click="deferStrongOtaReminder" :disabled="!strongOtaReminderCanDefer" data-testid="ota-auth-strong-reminder-defer" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 disabled:hover:bg-slate-100">
+                                <button type="button" @click="deferStrongOtaReminder" data-testid="ota-auth-strong-reminder-defer" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100">
                                     下次登录再提醒
                                 </button>
                             </div>

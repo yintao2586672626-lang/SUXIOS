@@ -51,6 +51,11 @@
                             <label class="block text-sm font-medium text-gray-700 mb-1">系统关键词</label>
                             <input v-model="systemConfigForm.system_keywords" type="text" placeholder="多个关键词用逗号分隔" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         </div>
+                        <div>
+                            <label for="login-support-contact" class="block text-sm font-medium text-gray-700 mb-1">登录页管理员联系方式</label>
+                            <input id="login-support-contact" v-model="systemConfigForm.login_support_contact" type="text" maxlength="120" placeholder="例如：企业微信：宿析OS客服" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <p class="mt-1 text-xs text-gray-500">请填写企业微信、客服电话等组织联系方式；该字段会在未登录页面公开，避免填写个人联系方式。</p>
+                        </div>
                     </div>
 
                     <!-- 菜单配置 -->
@@ -135,8 +140,9 @@
                     <div v-if="activeConfigGroup === 'security'" class="space-y-4">
                         <div class="grid grid-cols-2 gap-4">
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">会话超时时间(分钟)</label>
-                                <input v-model="systemConfigForm.session_timeout" type="number" min="30" max="1440" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">会话有效期</label>
+                                <div class="w-full px-4 py-2 border border-gray-200 bg-gray-50 rounded-lg text-gray-800">固定 72 小时（4320 分钟）</div>
+                                <p class="mt-1 text-xs text-gray-500">登录令牌与鉴权中间件采用同一固定策略，不支持在线修改。</p>
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">密码最小长度</label>

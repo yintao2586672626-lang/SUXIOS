@@ -120,7 +120,7 @@
                 <div class="p-4 border-b flex justify-between items-center sticky top-0 bg-white">
                     <div>
                         <h3 class="text-lg font-semibold">{{ knowledgeCenterSelectedUnit?.name || '知识片段' }}</h3>
-                        <p class="text-sm text-gray-500">{{ knowledgeCenterChunks.length }} 个经验片段</p>
+                        <p class="text-sm text-gray-500">{{ knowledgeCenterVisibleChunks.length }} 个匹配片段<span v-if="knowledgeCenterVisibleChunks.length !== knowledgeCenterChunks.length">（共 {{ knowledgeCenterChunks.length }} 个）</span></p>
                     </div>
                     <button @click="showKnowledgeCenterChunksModal = false" class="text-gray-500 hover:text-gray-700">
                         <i class="fas fa-times"></i>
@@ -128,13 +128,36 @@
                 </div>
                 <div class="p-4 grid grid-cols-1 lg:grid-cols-3 gap-4 overflow-hidden">
                     <div class="lg:col-span-2 space-y-3 max-h-[68vh] overflow-y-auto pr-1">
-                        <div v-for="chunk in knowledgeCenterChunks" :key="chunk.chunk_id" class="border border-gray-100 rounded-lg p-4">
+                        <div v-for="chunk in knowledgeCenterVisibleChunks" :key="chunk.chunk_id" class="border border-gray-100 rounded-lg p-4">
                             <div class="flex items-center justify-between mb-2">
                                 <span class="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-xs font-medium">{{ chunk.type || 'manual' }}</span>
                                 <span class="text-xs text-gray-400">#{{ chunk.chunk_id }} · {{ chunk.created_at || '-' }}</span>
                             </div>
                             <template v-for="view in [knowledgeChunkView(chunk)]" :key="'chunk-view-' + chunk.chunk_id">
+                                <h4 v-if="view.title" class="text-base font-semibold text-gray-900 mb-2">{{ view.title }}</h4>
                                 <div v-if="view.summary" class="text-sm text-gray-700 leading-6">{{ view.summary }}</div>
+                                <div v-if="view.sopFields.length" class="mt-3 space-y-2">
+                                    <div v-for="field in view.sopFields" :key="field.label + field.value" class="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-sm leading-6">
+                                        <div class="font-semibold text-gray-700">{{ field.label || '内容' }}</div>
+                                        <div class="mt-1 whitespace-pre-wrap text-gray-700">{{ field.value || '未填写' }}</div>
+                                    </div>
+                                </div>
+                                <div v-if="view.steps.length || view.acceptanceCriteria.length" class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div v-if="view.steps.length" class="rounded-lg border border-emerald-100 bg-emerald-50 p-3">
+                                        <div class="text-xs font-semibold text-emerald-800 mb-1">执行步骤</div>
+                                        <ol class="space-y-1 text-xs leading-5 text-emerald-900"><li v-for="(item, index) in view.steps" :key="item">{{ index + 1 }}. {{ item }}</li></ol>
+                                    </div>
+                                    <div v-if="view.acceptanceCriteria.length" class="rounded-lg border border-amber-100 bg-amber-50 p-3">
+                                        <div class="text-xs font-semibold text-amber-800 mb-1">验收条件</div>
+                                        <ul class="space-y-1 text-xs leading-5 text-amber-900"><li v-for="item in view.acceptanceCriteria" :key="item">- {{ item }}</li></ul>
+                                    </div>
+                                </div>
+                                <div v-if="view.worksheetHeaders.length" class="mt-3 overflow-x-auto rounded-lg border border-gray-200">
+                                    <table class="min-w-full text-xs">
+                                        <thead class="bg-gray-50"><tr><th v-for="header in view.worksheetHeaders" :key="header" class="px-3 py-2 text-left font-semibold text-gray-600">{{ header }}</th></tr></thead>
+                                        <tbody><tr v-for="(row, rowIndex) in view.worksheetRows" :key="rowIndex" class="border-t border-gray-100"><td v-for="(cell, cellIndex) in row" :key="cellIndex" class="px-3 py-2 text-gray-700">{{ cell || '待填写' }}</td></tr></tbody>
+                                    </table>
+                                </div>
                                 <div v-if="view.profileRows.length" class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
                                     <div v-for="row in view.profileRows" :key="row.label" class="rounded border border-gray-100 bg-gray-50 px-3 py-2 text-xs">
                                         <span class="text-gray-500">{{ row.label }}：</span>
@@ -164,6 +187,15 @@
                                 <div v-if="view.metaRows.length" class="mt-3 flex flex-wrap gap-2">
                                     <span v-for="row in view.metaRows" :key="row.label" class="px-2 py-1 rounded bg-slate-50 text-slate-600 text-xs">{{ row.label }}：{{ row.value }}</span>
                                 </div>
+                                <div v-if="view.taskTemplate" class="mt-3 rounded-lg border border-blue-100 bg-blue-50 p-3">
+                                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                                        <div>
+                                            <div class="text-sm font-semibold text-blue-900">可生成运营任务草稿</div>
+                                            <div class="text-xs text-blue-700 mt-1">带入步骤、验收条件、来源版本与7天截止日期；仍需人工审批。</div>
+                                        </div>
+                                        <button type="button" @click="createKnowledgeSopTask(chunk)" class="px-3 py-2 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700 whitespace-nowrap">转运营任务</button>
+                                    </div>
+                                </div>
                                 <details v-if="view.rawText" class="mt-3 rounded-lg border border-gray-100 bg-gray-50">
                                     <summary class="cursor-pointer px-3 py-2 text-xs font-medium text-gray-600">查看原文</summary>
                                     <pre class="px-3 pb-3 text-xs text-gray-700 whitespace-pre-wrap max-h-48 overflow-y-auto">{{ view.rawText }}</pre>
@@ -174,9 +206,9 @@
                                 </details>
                             </template>
                         </div>
-                        <div v-if="knowledgeCenterChunks.length === 0" class="border border-dashed border-gray-200 rounded-lg p-8 text-center text-gray-500">暂无经验片段</div>
+                        <div v-if="knowledgeCenterVisibleChunks.length === 0" class="border border-dashed border-gray-200 rounded-lg p-8 text-center text-gray-500">当前筛选条件下暂无匹配片段</div>
                     </div>
-                    <form @submit.prevent="saveKnowledgeChunk" class="border border-gray-100 rounded-lg p-4 space-y-4 h-fit">
+                    <form v-if="knowledgeCenterSelectedUnit?.can_edit !== false" @submit.prevent="saveKnowledgeChunk" class="border border-gray-100 rounded-lg p-4 space-y-4 h-fit">
                         <h4 class="font-semibold text-gray-800">新增经验片段</h4>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">类型</label>
@@ -188,7 +220,10 @@
                         </div>
                         <button type="submit" class="w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">写入片段</button>
                     </form>
+                    <div v-else class="border border-blue-100 bg-blue-50 rounded-lg p-4 h-fit text-sm text-blue-800">
+                        <div class="font-semibold">系统参考知识（只读）</div>
+                        <p class="mt-2 leading-6">可检索、查看并用于生成运营任务；来源版本由系统维护，避免门店误改公共模板。</p>
+                    </div>
                 </div>
             </div>
         </div>
-

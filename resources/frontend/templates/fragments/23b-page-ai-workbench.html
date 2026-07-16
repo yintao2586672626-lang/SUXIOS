@@ -181,10 +181,10 @@
                                                 <div class="dual-ota-card-head">
                                                     <div>
                                                         <h2>{{ dualOtaDashboard.lossChain.title }}</h2>
-                                                        <p>{{ dualOtaDashboard.lossChain.subtitle }}</p>
+                                                        <p>{{ dualOtaLossChainSubtitle }}</p>
                                                     </div>
                                                 </div>
-                                                <div class="dual-ota-loss-chain">
+                                                <div class="dual-ota-loss-chain" :style="{ '--dual-ota-loss-columns': dualOtaActiveLossNodes.length || 1 }">
                                                     <button v-for="node in dualOtaActiveLossNodes" :key="node.id" type="button" :class="['dual-ota-loss-node', dualOtaSeverityClass(node.severity), dualOtaSelectedLossNodeId === node.id ? 'is-selected' : '']" @click="setDualOtaLossNode(node.id)" :title="node.note || ''">
                                                         <span class="dual-ota-node-label">{{ node.label }}</span>
                                                         <strong>{{ node.value }}</strong>

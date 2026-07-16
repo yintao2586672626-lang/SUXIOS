@@ -6,6 +6,10 @@ import { fileURLToPath } from 'node:url';
 import { inspectFrontendEntryBuild } from './lib/frontend_entry_build.mjs';
 import { inspectTailwindRuntimeBuild } from './lib/frontend_tailwind_build.mjs';
 import { inspectFrontendTemplateBuild } from './lib/frontend_template_build.mjs';
+import {
+  extractAuthenticatedAssetReferences,
+  stripFrontendAssetQuery,
+} from './lib/frontend_authenticated_assets.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const indexPath = path.join(repoRoot, 'public/index.html');
@@ -84,6 +88,21 @@ if (!fs.existsSync(indexPath)) {
 } else {
   const stat = fs.statSync(indexPath);
   const htmlContent = fs.readFileSync(indexPath, 'utf8');
+  let authenticatedAssetReferences = [];
+  try {
+    authenticatedAssetReferences = extractAuthenticatedAssetReferences(htmlContent);
+  } catch (error) {
+    failures.push(error.message);
+  }
+  const deferredAssetReferences = [...htmlContent.matchAll(/<script\s+defer\s+src="([^"]+)"[^>]*><\/script>/g)]
+    .map((match) => match[1]);
+  const runtimeAssetReferences = authenticatedAssetReferences.length
+    ? authenticatedAssetReferences
+    : deferredAssetReferences;
+  const runtimeAssetPaths = runtimeAssetReferences.map(stripFrontendAssetQuery);
+  const runtimeAssetReference = (assetName) => runtimeAssetReferences.find(
+    (reference) => stripFrontendAssetQuery(reference) === assetName,
+  ) || '';
   const appMainContent = fs.existsSync(appMainPath) ? fs.readFileSync(appMainPath, 'utf8') : '';
   const appMainRuntimeContent = fs.existsSync(appMainRuntimePath) ? fs.readFileSync(appMainRuntimePath, 'utf8') : '';
   const appTemplateContent = fs.existsSync(appTemplatePath) ? fs.readFileSync(appTemplatePath, 'utf8') : '';
@@ -96,6 +115,7 @@ if (!fs.existsSync(indexPath)) {
   let content = `${htmlContent}\n${appTemplateSemanticContent}\n${appMainContent}`;
   const systemStaticContent = fs.existsSync(systemStaticPath) ? fs.readFileSync(systemStaticPath, 'utf8') : '';
   const revenueAiStaticContent = fs.existsSync(revenueAiStaticPath) ? fs.readFileSync(revenueAiStaticPath, 'utf8') : '';
+  const revenueAiStaticHash = crypto.createHash('sha256').update(revenueAiStaticContent).digest('hex').slice(0, 10);
   const revenueAiServicePath = path.join(repoRoot, 'app/service/RevenueAiOverviewService.php');
   const revenueAiServiceContent = fs.existsSync(revenueAiServicePath) ? fs.readFileSync(revenueAiServicePath, 'utf8') : '';
   const operationStaticContent = fs.existsSync(operationStaticPath) ? fs.readFileSync(operationStaticPath, 'utf8') : '';
@@ -161,22 +181,20 @@ if (!fs.existsSync(indexPath)) {
   failures.push(...tailwindBuildInspection.failures);
   const templateBuildInspection = await inspectFrontendTemplateBuild(repoRoot);
   failures.push(...templateBuildInspection.failures);
-  const appMainReference = htmlContent.match(/<script\s+defer\s+src="app-main\.min\.js\?v=[^"]*-h([a-f0-9]{10})"[^>]*><\/script>/);
   const appMainHash = appMainRuntimeContent
     ? crypto.createHash('sha256').update(appMainRuntimeContent).digest('hex').slice(0, 10)
     : '';
-  if (!appMainReference || appMainReference[1] !== appMainHash) {
+  const appMainReference = runtimeAssetReference('app-main.min.js');
+  if (!appMainReference.includes(`h${appMainHash}`)) {
     failures.push('public/index.html must use the current public/app-main.min.js content hash in its immutable cache version.');
   }
-  const deferredScripts = [...htmlContent.matchAll(/<script\s+defer\s+src="([^"]+)"[^>]*><\/script>/g)]
-    .map((match) => match[1].split('?')[0]);
-  if (deferredScripts[0] !== 'vue.runtime.global.prod.js'
-    || deferredScripts.at(-2) !== 'app-render.min.js'
-    || deferredScripts.at(-1) !== 'app-main.min.js') {
-    failures.push('public/index.html must keep runtime Vue first, the precompiled render before app-main, and app-main last.');
+  if (runtimeAssetPaths[0] !== 'vue.runtime.global.prod.js'
+    || runtimeAssetPaths.at(-2) !== 'app-render.min.js'
+    || runtimeAssetPaths.at(-1) !== 'app-main.min.js') {
+    failures.push('public/index.html must keep runtime Vue first, the precompiled render before app-main, and app-main last in the authenticated asset chain.');
   }
 
-if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/.test(content)
+if (!runtimeAssetPaths.includes('system-static.js')
     || !systemStaticContent.includes('const getHotelCodeNumber = (code) => {')
     || !systemStaticContent.includes('const formatHotelCode = (num) =>')
     || !systemStaticContent.includes('const normalizeOtaConfigHotelName = (value = \'\') =>')
@@ -206,24 +224,21 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
     }
   }
 
-  const ctripStaticVersionMatch = htmlContent.match(/<script\s+(?:defer\s+)?src="ctrip-static\.js\?v=([^"]+)"/);
+  const ctripStaticVersion = runtimeAssetReference('ctrip-static.js').split('?')[1] || '';
   const ctripStaticHash = ctripStaticContent
     ? crypto.createHash('sha256').update(ctripStaticContent).digest('hex').slice(0, 10)
     : '';
-  const meituanStaticVersionMatch = htmlContent.match(/<script\s+(?:defer\s+)?src="meituan-static\.js\?v=([^"]+)"/);
+  const meituanStaticVersion = runtimeAssetReference('meituan-static.js').split('?')[1] || '';
   const meituanStaticHash = meituanStaticContent
     ? crypto.createHash('sha256').update(meituanStaticContent).digest('hex').slice(0, 10)
     : '';
-  const dataHealthStaticVersionMatch = htmlContent.match(/<script\s+(?:defer\s+)?src="data-health-static\.js\?v=([^"]+)"/);
+  const dataHealthStaticVersion = runtimeAssetReference('data-health-static.js').split('?')[1] || '';
   const dataHealthStaticHash = dataHealthStaticContent
     ? crypto.createHash('sha256').update(dataHealthStaticContent).digest('hex').slice(0, 10)
     : '';
-  if (!ctripStaticVersionMatch
-    || !ctripStaticVersionMatch[1].includes(`h${ctripStaticHash}`)
-    || !meituanStaticVersionMatch
-    || !meituanStaticVersionMatch[1].includes(`h${meituanStaticHash}`)
-    || !dataHealthStaticVersionMatch
-    || !dataHealthStaticVersionMatch[1].includes(`h${dataHealthStaticHash}`)) {
+  if (!ctripStaticVersion.includes(`h${ctripStaticHash}`)
+    || !meituanStaticVersion.includes(`h${meituanStaticHash}`)
+    || !dataHealthStaticVersion.includes(`h${dataHealthStaticHash}`)) {
     failures.push('public/index.html must keep static helper cache versions aligned with changed helper files.');
   }
   try {
@@ -350,9 +365,10 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
     || !content.includes("{{ u?.realname || u?.username || '-' }}")) {
     failures.push('public/index.html operation-log user filter must render invalid or partial user rows safely.');
   }
-  if (!/<script\s+(?:defer\s+)?src=["']vue\.runtime\.global\.prod\.js\?v=[^"']+["'][^>]*><\/script>/.test(htmlContent)
-    || !/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/.test(htmlContent)) {
-    failures.push('public/index.html must version core Vue/system static scripts so P0 entry fixes are not hidden by stale browser cache.');
+  const vueRuntimeReference = runtimeAssetReference('vue.runtime.global.prod.js');
+  const systemStaticReference = runtimeAssetReference('system-static.js');
+  if (!vueRuntimeReference.includes('?v=') || !systemStaticReference.includes('?v=')) {
+    failures.push('public/index.html must version core Vue/system static assets so P0 entry fixes are not hidden by stale browser cache.');
   }
 
   if (/\/assets\/index-[A-Za-z0-9_-]+\.(?:js|css)/.test(content)) {
@@ -361,10 +377,9 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
 
   const tailwindMatch = htmlContent.match(/<link\s+href=["']tailwind\.min\.css\?v=[^"']+["']\s+rel=["']stylesheet["']>/);
   const tailwindOffset = tailwindMatch ? tailwindMatch.index : -1;
-  const vueScriptMatch = htmlContent.match(/<script\s+(?:defer\s+)?src=["']vue\.runtime\.global\.prod\.js(?:\?v=[^"']+)?["']/);
-  const vueScriptOffset = vueScriptMatch ? vueScriptMatch.index : -1;
+  const vueScriptOffset = vueRuntimeReference ? htmlContent.indexOf(vueRuntimeReference) : -1;
   if (tailwindOffset < 0 || vueScriptOffset < 0 || tailwindOffset > vueScriptOffset) {
-    failures.push('public/index.html must discover core stylesheets before synchronous Vue/static scripts.');
+    failures.push('public/index.html must discover core stylesheets before the authenticated Vue/static asset chain.');
   }
   const loginBgPreloadOffset = content.indexOf("const loginBackgroundPreload = 'images/login-hotel-lobby-bg.avif';");
   if (/<link\s+rel=["']preload["']\s+href=["']images\/login-hotel-lobby-bg\.avif["']\s+as=["']image["']\s+type=["']image\/avif["']\s+fetchpriority=["']high["']/.test(content)) {
@@ -440,8 +455,36 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
   } catch (error) {
     failures.push(`public/system-static.js navigation guard could not evaluate menu definitions: ${error.message}`);
   }
-  if (!content.includes('revenue-ai-static.js?v=20260715-truthful-not-loaded-h29ec697779')
-    || !revenueAiStaticContent.includes('window.SUXI_REVENUE_AI_STATIC')
+  if (/<script[^>]+src=["']revenue-ai-static\.js(?:\?[^"']*)?["']/.test(htmlContent)
+    || !content.includes("const revenueAiStaticScript = 'revenue-ai-static.js';")
+    || !content.includes(`const revenueAiStaticVersion = '20260715-truthful-not-loaded-h${revenueAiStaticHash}';`)
+    || !content.includes('const loadRevenueAiStatic = () => {')
+    || !content.includes('if (revenueAiStaticLoadPromise) {')
+    || !content.includes('revenueAiStaticLoadPromise = null;')
+    || !content.includes('const ensureRevenueAiStaticReady = async () => {')
+    || !content.includes('revenueAiStaticRevision.value += 1;')
+    || !content.includes("buildRevenueAiGapSummary: () => ({ status: 'not_loaded', total: null")
+    || !content.includes("status: 'not_loaded',\n                    statusText: '未加载'")
+    || !content.includes("runPageLoadOnce(newPage, 'revenue-ai-static', () => ensureRevenueAiStaticReady());")
+    || !content.includes('await ensureRevenueAiStaticReady();\n                        return loadAiDailyReport();')
+    || !content.includes('homeSecondaryPanelsReady.value = true;\n                    void ensureRevenueAiStaticReady()')) {
+    failures.push('Revenue AI static helpers must stay out of the startup chain and load through a versioned, retryable, page-gated loader with truthful not-loaded fallbacks.');
+  }
+  if (!content.includes('// AI_DAILY_REPORT_TASK_HELPERS_START')
+    || !content.includes('const pollAiDailyReportGenerationTask = async ({')
+    || !content.includes("status === 'blocked' || status === 'partial'")
+    || !content.includes("kind: 'limited'")
+    || !content.includes('background: true,')
+    || !content.includes('`/ai-daily-reports/tasks/${encodeURIComponent(taskId)}`')
+    || !content.includes('const readAiDailyReportById = async (reportId, expectedHotelId) => {')
+    || !content.includes('`/ai-daily-reports/${normalizedReportId}`')
+    || !content.includes('pollResult.task.resultReportId')
+    || !content.includes('AI经营日报回读酒店范围不一致')
+    || !content.includes('if (!responseTaskId) {')
+    || /aiDailyReport\.value = res\.data \|\| null;\s*showToast\('AI经营日报已生成'\)/.test(content)) {
+    failures.push('AI daily report generation must use a hotel-scoped background task, truthful terminal states, exact result_report_id readback, and a guarded legacy sync response path.');
+  }
+  if (!revenueAiStaticContent.includes('window.SUXI_REVENUE_AI_STATIC')
     || !revenueAiStaticContent.includes('buildRevenueAiBusinessClosure')
     || !revenueAiStaticContent.includes('buildRevenueAiGapRows')
     || !revenueAiStaticContent.includes('buildRevenueAiMetricCards')
@@ -1520,21 +1563,41 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
     || returnToMeituanRankingAfterConfigSaveSource.includes("String(hotelId || '').trim()")) {
     failures.push('public/index.html Meituan ranking return target state must stay in public/meituan-static.js.');
   }
-  const saveMeituanConfigItemSource = content.slice(
-    content.indexOf('const saveMeituanConfigItem = async () => {'),
-    content.indexOf('const useMeituanConfig')
+  const saveMeituanConfigItemSource = appMainContent.slice(
+    appMainContent.indexOf('const saveMeituanConfigItem = async () => {'),
+    appMainContent.indexOf('const useMeituanConfig')
   );
-  if (!content.includes("const resolveMeituanConfigSaveCookieState = requireMeituanStatic('resolveMeituanConfigSaveCookieState');")
+  const meituanStaticFallbackSource = appMainContent.slice(
+    appMainContent.indexOf('const meituanStaticFallbackFor = (key) => {'),
+    appMainContent.indexOf('const requireMeituanStatic = (key) => {')
+  );
+  const meituanConfigSaveGateIndex = saveMeituanConfigItemSource.indexOf('if (!helperAvailability.available) {');
+  const meituanConfigSaveRequestIndex = saveMeituanConfigItemSource.indexOf("request('/online-data/save-meituan-config-item', {");
+  if (!appMainContent.includes('const meituanConfigSaveHelperKeys = Object.freeze([')
+    || !appMainContent.includes('const resolveMeituanStaticHelperAvailability = (keys = []) => {')
+    || !saveMeituanConfigItemSource.includes('const helperAvailability = resolveMeituanStaticHelperAvailability(meituanConfigSaveHelperKeys);')
+    || !saveMeituanConfigItemSource.includes('本次未发送请求')
+    || meituanConfigSaveGateIndex < 0
+    || meituanConfigSaveRequestIndex < 0
+    || meituanConfigSaveGateIndex > meituanConfigSaveRequestIndex
+    || meituanStaticFallbackSource.includes("if (key === 'resolveMeituanConfigSaveCookieState')")
+    || meituanStaticFallbackSource.includes("if (key === 'buildMeituanConfigAutoName')")
+    || meituanStaticFallbackSource.includes("if (key === 'buildMeituanConfigSaveRequestBody')")
+    || meituanStaticFallbackSource.includes("if (key === 'buildMeituanConfigSaveSuccessState')")
+    || meituanStaticFallbackSource.includes("if (key === 'buildMeituanConfigSaveFailureState')")) {
+    failures.push('public/app-main.js must block Meituan config writes when required meituan-static.js helpers are unavailable.');
+  }
+  if (!appMainContent.includes("const resolveMeituanConfigSaveCookieState = requireMeituanStatic('resolveMeituanConfigSaveCookieState');")
     || !meituanStaticContent.includes("const resolveMeituanConfigSaveCookieState = (cookies = '', options = {}) => {")
     || !saveMeituanConfigItemSource.includes('const cookieState = resolveMeituanConfigSaveCookieState(meituanConfigForm.value.cookies, {')
-    || !saveMeituanConfigItemSource.includes("String(meituanConfigForm.value.credential_status || '') === 'ready'")
+    || saveMeituanConfigItemSource.includes('credential_status')
     || !saveMeituanConfigItemSource.includes('showToast(cookieState.message, cookieState.level);')
     || !saveMeituanConfigItemSource.includes('cookies: cookieState.cookies,')
     || saveMeituanConfigItemSource.includes("String(meituanConfigForm.value.cookies || '').trim()")
     || saveMeituanConfigItemSource.includes("showToast('请输入临时 Cookie/API 辅助内容', 'error')")) {
-    failures.push('public/index.html Meituan config-save Cookie state must stay in public/meituan-static.js.');
+    failures.push('public/app-main.js Meituan config-save Cookie state must stay in public/meituan-static.js.');
   }
-  if (!content.includes("const resolveMeituanConfigSaveRequestHotelId = requireMeituanStatic('resolveMeituanConfigSaveRequestHotelId');")
+  if (!appMainContent.includes("const resolveMeituanConfigSaveRequestHotelId = requireMeituanStatic('resolveMeituanConfigSaveRequestHotelId');")
     || !meituanStaticContent.includes('const resolveMeituanConfigSaveRequestHotelId = ({')
     || !saveMeituanConfigItemSource.includes('const requestHotelId = resolveMeituanConfigSaveRequestHotelId({')
     || !saveMeituanConfigItemSource.includes('formHotelId: meituanConfigForm.value.hotel_id,')
@@ -1542,12 +1605,12 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
     || !saveMeituanConfigItemSource.includes('filterHotelId: onlineDataFilter.value.hotel_id,')
     || !saveMeituanConfigItemSource.includes('userHotelId: user.value?.hotel_id,')
     || saveMeituanConfigItemSource.includes('const requestHotelId = String(')) {
-    failures.push('public/index.html Meituan config-save request hotel id selection must stay in public/meituan-static.js.');
+    failures.push('public/app-main.js Meituan config-save request hotel id selection must stay in public/meituan-static.js.');
   }
-  if (!content.includes("const buildMeituanConfigSaveSuccessState = requireMeituanStatic('buildMeituanConfigSaveSuccessState');")
-    || !content.includes("const buildMeituanConfigSaveFailureState = requireMeituanStatic('buildMeituanConfigSaveFailureState');")
-    || content.includes("const resolveSavedMeituanConfigHotelId = requireMeituanStatic('resolveSavedMeituanConfigHotelId');")
-    || content.includes("const resolveMeituanConfigSaveToastLevel = requireMeituanStatic('resolveMeituanConfigSaveToastLevel');")
+  if (!appMainContent.includes("const buildMeituanConfigSaveSuccessState = requireMeituanStatic('buildMeituanConfigSaveSuccessState');")
+    || !appMainContent.includes("const buildMeituanConfigSaveFailureState = requireMeituanStatic('buildMeituanConfigSaveFailureState');")
+    || appMainContent.includes("const resolveSavedMeituanConfigHotelId = requireMeituanStatic('resolveSavedMeituanConfigHotelId');")
+    || appMainContent.includes("const resolveMeituanConfigSaveToastLevel = requireMeituanStatic('resolveMeituanConfigSaveToastLevel');")
     || !meituanStaticContent.includes('const buildMeituanConfigSaveSuccessState = ({')
     || !meituanStaticContent.includes('const buildMeituanConfigSaveFailureState = ({')
     || !saveMeituanConfigItemSource.includes('const saveSuccessState = buildMeituanConfigSaveSuccessState({')
@@ -1566,7 +1629,7 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
     || saveMeituanConfigItemSource.includes('meituanConfigForm.value = createEmptyMeituanConfigForm();')
     || saveMeituanConfigItemSource.includes("showToast(res.message || '保存失败', 'error')")
     || saveMeituanConfigItemSource.includes("showToast('保存失败: ' + e.message, 'error')")) {
-    failures.push('public/index.html Meituan config-save success state must stay in public/meituan-static.js.');
+    failures.push('public/app-main.js Meituan config-save success state must stay in public/meituan-static.js.');
   }
   const useMeituanConfigSource = content.slice(
     content.indexOf('const useMeituanConfig = async (config) => {'),
@@ -2178,13 +2241,17 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
     || !content.includes('applyRememberedLoginAccount({')) {
     failures.push('public/index.html must use system-static.js helpers for login form defaults, cached auth, pagination, payloads, validation, and remembered-account storage.');
   }
-  if (!content.includes("requireAppSystemStatic('createRegisterForm')")
-    || !content.includes("requireAppSystemStatic('buildRegisterRequestPayload')")
-    || !content.includes("requireAppSystemStatic('validateRegisterRequestPayload')")
-    || !content.includes('const registerForm = ref(createRegisterForm());')
-    || !content.includes('const payload = buildRegisterRequestPayload(registerForm.value);')
-    || !content.includes('const validationError = validateRegisterRequestPayload(payload);')) {
-    failures.push('public/index.html must use system-static.js helpers for self-registration form defaults, payloads, and validation.');
+  if (content.includes("requireAppSystemStatic('createRegisterForm')")
+    || content.includes("request('/auth/register'")
+    || content.includes('const registerMode = ref(')
+    || content.includes('const registerForm = ref(')) {
+    failures.push('public/index.html must not ship public self-registration state, helpers, or requests.');
+  }
+  if (!content.includes('const syncLoginFormFromDom = () => {')
+    || !content.includes("window.addEventListener('pageshow', scheduleLoginAutofillSync);")
+    || !content.includes("const res = await requestWithTimeout('/auth/login-support', {}, 8000, '获取联系方式超时，请稍后重试');")
+    || content.includes("alert('请在微信里联系")) {
+    failures.push('public/index.html must reconcile browser autofill and use the single in-page login-support flow.');
   }
   if (!systemStaticContent.includes('const createHotelForm = ({ hotel = null, operatorName = \'\', code = \'\', parsedDescription = {} } = {}) =>')
     || !systemStaticContent.includes('const buildHotelSavePayload = ({ form = {}, normalizedCode = \'\', operatorName = \'\', description = \'\' } = {}) => ({')
@@ -2207,10 +2274,10 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
     || !systemStaticContent.includes('const applyRememberedLoginAccount = ({ storage, username = \'\', remember = false } = {}) => {')) {
     failures.push('public/system-static.js must own login form defaults, cached auth, pagination, payload normalization, validation, and remembered-account storage policy.');
   }
-  if (!systemStaticContent.includes('const createRegisterForm = () => ({')
-    || !systemStaticContent.includes('const buildRegisterRequestPayload = (form = {}) => ({')
-    || !systemStaticContent.includes('const validateRegisterRequestPayload = (payload = {}) => {')) {
-    failures.push('public/system-static.js must own self-registration form defaults, payload normalization, and validation.');
+  if (systemStaticContent.includes('const createRegisterForm = () => ({')
+    || systemStaticContent.includes('buildRegisterRequestPayload')
+    || systemStaticContent.includes('validateRegisterRequestPayload')) {
+    failures.push('public/system-static.js must not retain self-registration helpers.');
   }
   if (content.includes("hotelForm.value = { id: null, name: '', code: getNextHotelCode()")
     || content.includes('name: hotelForm.value.name.trim(),\n                    code: normalizedCode,')
@@ -2223,8 +2290,7 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
     || content.includes("body: JSON.stringify({\n                            username: loginForm.value.username")) {
     failures.push('public/index.html must not re-inline login remembered-account storage or login payload normalization.');
   }
-  if (content.includes("const username = String(registerForm.value.username || '').trim();")
-    || content.includes("body: JSON.stringify({\n                            username,")) {
+  if (content.includes("const username = String(registerForm.value.username || '').trim();")) {
     failures.push('public/index.html must not re-inline self-registration payload normalization.');
   }
   if (content.includes('successCount = Number(res.data?.success_count')
@@ -2510,7 +2576,7 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
     || !content.includes("const formatOnlineHistoryHotelOption = requireDataHealthStatic('formatOnlineHistoryHotelOption');")
     || !content.includes("const formatOnlineHistoryRaw = requireDataHealthStatic('formatOnlineHistoryRaw');")
     || !content.includes("const buildHotelDataDashboardRequests = requireDataHealthStatic('buildHotelDataDashboardRequests');")
-    || !dataHealthStaticVersionMatch
+    || !dataHealthStaticVersion
     || !onlineHistorySource.includes('const params = buildOnlineHistoryQueryParams({')
     || !hotelDashboardSource.includes('const requests = buildHotelDataDashboardRequests({ selectedHotelId });')
     || hotelDashboardSource.includes('const accountParams = new URLSearchParams();')

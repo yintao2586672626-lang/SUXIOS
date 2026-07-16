@@ -333,7 +333,7 @@ window.SUXI_USER_ADMIN_STATIC = (() => {
             key: 'status',
             label: '账号状态',
             level: String(status) === '1' ? 'success' : 'warning',
-            text: String(status) === '1' ? '保存后账号可登录' : '保存后仍为待审核/暂停，用户暂不能登录',
+            text: String(status) === '1' ? '保存后账号可登录' : '保存后账号保持停用，用户暂不能登录',
         });
         return rows;
     };
@@ -354,7 +354,7 @@ window.SUXI_USER_ADMIN_STATIC = (() => {
     };
 
     const userIssueLoginStatusText = (status) => (
-        String(status) === '1' ? '正常，可登录' : '待审核/暂停，暂不能登录'
+        String(status) === '1' ? '正常，可登录' : '已停用，暂不能登录'
     );
 
     const userIssueStatusFromProfile = (profile = {}, blocker = '') => {

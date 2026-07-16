@@ -16,6 +16,9 @@
                                     </div>
                                 </div>
                             </div>
+                            <div v-if="!revenueAiStaticReady" data-testid="revenue-ai-static-agent-status" class="border-b border-slate-200 bg-slate-50 px-5 py-3 text-sm text-slate-600">
+                                {{ revenueAiStaticLoading ? 'Revenue AI 展示工具正在按需加载…' : (revenueAiStaticError || 'Revenue AI 展示工具尚未加载；OTA 诊断与其他工具仍可使用。') }}
+                            </div>
                             <div class="px-5 pt-4 bg-white border-b border-gray-100">
                                 <div class="flex flex-wrap gap-2">
                                     <button v-for="tab in agentTabs" :key="tab.key" @click="switchAgentTab(tab.key)" :class="['inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium border transition',

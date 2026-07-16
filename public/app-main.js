@@ -131,9 +131,6 @@
     const buildLoginRequestPayload = requireAppSystemStatic('buildLoginRequestPayload');
     const validateLoginRequestPayload = requireAppSystemStatic('validateLoginRequestPayload');
     const applyRememberedLoginAccount = requireAppSystemStatic('applyRememberedLoginAccount');
-    const createRegisterForm = requireAppSystemStatic('createRegisterForm');
-    const buildRegisterRequestPayload = requireAppSystemStatic('buildRegisterRequestPayload');
-    const validateRegisterRequestPayload = requireAppSystemStatic('validateRegisterRequestPayload');
     const rolePermissionList = requireUserAdminStatic('rolePermissionList');
     const roleIssueProfile = requireUserAdminStatic('roleIssueProfile');
     const rolePermissionTags = requireUserAdminStatic('rolePermissionTags');
@@ -275,6 +272,166 @@
         `,
     };
 
+    // AI_DAILY_REPORT_TASK_HELPERS_START
+    const aiDailyReportTaskPositiveInteger = (value) => {
+        const number = Number(value ?? 0);
+        return Number.isInteger(number) && number > 0 ? number : null;
+    };
+    const aiDailyReportModelIsLimited = (modelStatus = '') => {
+        const status = String(modelStatus || '').trim().toLowerCase();
+        return status === 'blocked'
+            || status.startsWith('blocked_')
+            || status.includes('data_quality')
+            || status === 'partial'
+            || status === 'failed'
+            || status === 'invalid_output';
+    };
+    const normalizeAiDailyReportGenerationTask = (payload = {}, expectedHotelId = null, expectedTaskId = '') => {
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+            throw new Error('AI日报任务响应格式无效');
+        }
+        const taskId = String(payload.task_id ?? payload.taskId ?? '').trim();
+        if (!taskId) throw new Error('AI日报任务响应缺少 task_id');
+
+        const hotelId = aiDailyReportTaskPositiveInteger(payload.hotel_id ?? payload.hotelId);
+        const normalizedExpectedHotelId = aiDailyReportTaskPositiveInteger(expectedHotelId);
+        if (!hotelId) throw new Error('AI日报任务响应缺少有效 hotel_id');
+        if (normalizedExpectedHotelId && hotelId !== normalizedExpectedHotelId) {
+            throw new Error('AI日报任务酒店范围不一致');
+        }
+
+        const normalizedExpectedTaskId = String(expectedTaskId || '').trim();
+        if (normalizedExpectedTaskId && taskId !== normalizedExpectedTaskId) {
+            throw new Error('AI日报任务标识不一致');
+        }
+
+        const rawProgress = Number(payload.progress_percent ?? payload.progressPercent);
+        const progressPercent = Number.isFinite(rawProgress)
+            ? Math.min(100, Math.max(0, Math.round(rawProgress)))
+            : null;
+        const status = String(payload.status || '').trim().toLowerCase() || 'unknown';
+        const stage = String(payload.stage || '').trim().toLowerCase() || status;
+        const resultReportId = aiDailyReportTaskPositiveInteger(payload.result_report_id ?? payload.resultReportId);
+
+        return {
+            taskId,
+            hotelId,
+            reportDate: String(payload.report_date ?? payload.reportDate ?? '').trim(),
+            status,
+            stage,
+            progressPercent,
+            resultReportId,
+            modelStatus: String(payload.model_status ?? payload.modelStatus ?? '').trim().toLowerCase(),
+            cacheHit: payload.cache_hit === true || payload.cacheHit === true,
+            deduplicated: payload.deduplicated === true,
+            errorCode: String(payload.error_code ?? payload.errorCode ?? '').trim(),
+            errorMessage: String(payload.error_message ?? payload.errorMessage ?? '').trim(),
+            done: payload.done === true,
+            createdAt: String(payload.created_at ?? payload.createdAt ?? '').trim(),
+            startedAt: String(payload.started_at ?? payload.startedAt ?? '').trim(),
+            finishedAt: String(payload.finished_at ?? payload.finishedAt ?? '').trim(),
+            updatedAt: String(payload.updated_at ?? payload.updatedAt ?? '').trim(),
+        };
+    };
+    const formatAiDailyReportGenerationStage = (task = {}) => {
+        const status = String(task.status || '').trim().toLowerCase();
+        const stage = String(task.stage || '').trim().toLowerCase();
+        if (status === 'failed') return '生成失败';
+        if (status === 'blocked') return task.resultReportId ? '规则报告已生成，AI增强受阻' : '生成已阻断';
+        if (status === 'partial') return task.resultReportId ? '规则报告部分完成' : '生成部分完成';
+        if (status === 'succeeded' && (stage === 'completed_with_data_gap' || aiDailyReportModelIsLimited(task.modelStatus))) {
+            return '规则报告已生成，数据质量受限';
+        }
+        if (status === 'succeeded') return '生成完成';
+        if (status === 'running' || stage === 'generating') return '正在生成日报';
+        if (status === 'queued' || stage === 'queued') return '任务排队中';
+        return stage && stage !== 'unknown' ? `任务阶段：${stage}` : '等待任务状态';
+    };
+    const resolveAiDailyReportGenerationOutcome = (task = {}) => {
+        const status = String(task.status || '').trim().toLowerCase();
+        const stage = String(task.stage || '').trim().toLowerCase();
+        const hasReport = aiDailyReportTaskPositiveInteger(task.resultReportId) !== null;
+        const fallbackError = task.errorMessage || 'AI经营日报生成失败，请稍后重试';
+
+        if (status === 'failed') {
+            return { kind: 'failed', limited: false, message: fallbackError };
+        }
+        if (status === 'blocked' || status === 'partial') {
+            if (!hasReport) {
+                return {
+                    kind: 'failed',
+                    limited: true,
+                    message: task.errorMessage || (status === 'blocked'
+                        ? 'AI日报生成被阻断，且没有可回读的规则报告'
+                        : 'AI日报仅部分完成，且没有可回读的规则报告'),
+                };
+            }
+            return {
+                kind: 'limited',
+                limited: true,
+                message: task.errorMessage || (status === 'blocked'
+                    ? '规则报告已生成，但AI增强被数据质量闸门阻断'
+                    : '规则报告已生成，但任务仅部分完成'),
+            };
+        }
+        if (status === 'succeeded') {
+            if (!hasReport) {
+                return { kind: 'failed', limited: false, message: 'AI日报任务已结束，但未返回可回读的报告ID' };
+            }
+            const limited = stage === 'completed_with_data_gap' || aiDailyReportModelIsLimited(task.modelStatus);
+            return {
+                kind: limited ? 'limited' : 'succeeded',
+                limited,
+                message: limited ? '规则报告已生成，但AI增强受数据质量限制' : '',
+            };
+        }
+        if (task.done === true) {
+            return {
+                kind: 'failed',
+                limited: false,
+                message: task.errorMessage || `AI日报任务以未知终态结束：${status || 'unknown'}`,
+            };
+        }
+        return { kind: 'pending', limited: false, message: '' };
+    };
+    const pollAiDailyReportGenerationTask = async ({
+        taskId,
+        expectedHotelId,
+        initialTask = null,
+        requestTask,
+        wait,
+        intervalMs = 1200,
+        maxAttempts = 150,
+        onProgress = () => {},
+        isCurrent = () => true,
+    } = {}) => {
+        const normalizedTaskId = String(taskId || '').trim();
+        if (!normalizedTaskId || typeof requestTask !== 'function' || typeof wait !== 'function') {
+            throw new Error('AI日报任务轮询参数无效');
+        }
+        const attempts = Math.max(1, Number(maxAttempts) || 1);
+        let pendingInitialTask = initialTask;
+        for (let attempt = 0; attempt < attempts; attempt += 1) {
+            if (!isCurrent()) return { task: null, outcome: { kind: 'cancelled', limited: false, message: '' } };
+            let taskPayload = pendingInitialTask;
+            pendingInitialTask = null;
+            if (!taskPayload) {
+                const response = await requestTask(normalizedTaskId);
+                if (!response || response.code !== 200) {
+                    throw new Error(response?.message || 'AI日报任务状态查询失败');
+                }
+                taskPayload = response.data;
+            }
+            const task = normalizeAiDailyReportGenerationTask(taskPayload, expectedHotelId, normalizedTaskId);
+            onProgress(task);
+            const outcome = resolveAiDailyReportGenerationOutcome(task);
+            if (outcome.kind !== 'pending') return { task, outcome };
+            if (attempt + 1 < attempts) await wait(intervalMs);
+        }
+        throw new Error('AI日报生成仍在后台执行，等待超时后可刷新页面查看最新结果');
+    };
+    // AI_DAILY_REPORT_TASK_HELPERS_END
+
     let recoverSuxiRuntimeError = null;
     const suxiApp = createApp({
         render: requireSuxiAppRender(),
@@ -356,6 +513,10 @@
             };
             const applyAuthContext = (context = {}) => {
                 if (!context || typeof context !== 'object') return;
+                const hasContextKey = (...keys) => keys.some(key => Object.prototype.hasOwnProperty.call(context, key));
+                const hasHotelContext = hasContextKey('hotelId', 'hotel_id', 'system_hotel_id');
+                const hasTenantContext = hasContextKey('tenantId', 'tenant_id');
+                const hasHotelNameContext = hasContextKey('currentHotelName', 'current_hotel_name', 'hotel_name');
                 const normalizedHotelId = context.hotelId ?? context.hotel_id ?? context.system_hotel_id ?? null;
                 const normalizedTenantId = context.tenantId ?? context.tenant_id ?? null;
                 const normalizedPlatform = context.platform ?? context.currentPlatform ?? context.current_platform ?? undefined;
@@ -363,15 +524,17 @@
                 const normalizedTokenStatus = context.tokenStatus ?? context.token_status ?? undefined;
                 const normalizedPermissionStatus = context.permissionStatus ?? context.permission_status ?? undefined;
                 const normalizedFetchPermissionStatus = context.fetchPermissionStatus ?? context.fetch_permission_status ?? undefined;
+                const nextPermissionStatus = normalizedPermissionStatus || authContext.value.permissionStatus || 'unknown';
+                const denied = nextPermissionStatus === 'denied';
                 authContext.value = {
                     ...authContext.value,
                     ...context,
-                    hotelId: normalizedHotelId || authContext.value.hotelId || null,
-                    tenantId: normalizedTenantId || authContext.value.tenantId || null,
-                    currentHotelName: normalizedHotelName || authContext.value.currentHotelName || '',
+                    hotelId: denied ? null : (hasHotelContext ? (normalizedHotelId || null) : (authContext.value.hotelId || null)),
+                    tenantId: denied ? null : (hasTenantContext ? (normalizedTenantId || null) : (authContext.value.tenantId || null)),
+                    currentHotelName: denied ? '' : (hasHotelNameContext ? normalizedHotelName : (authContext.value.currentHotelName || '')),
                     tokenStatus: normalizedTokenStatus || authContext.value.tokenStatus || (token.value ? 'valid' : 'missing'),
                     platform: normalizedPlatform || authContext.value.platform || 'unknown',
-                    permissionStatus: normalizedPermissionStatus || authContext.value.permissionStatus || 'unknown',
+                    permissionStatus: nextPermissionStatus,
                     fetchPermissionStatus: normalizedFetchPermissionStatus || authContext.value.fetchPermissionStatus || 'unknown',
                 };
             };
@@ -409,6 +572,8 @@
             };
             const currentBusinessRequestContext = (overrides = {}) => {
                 const context = { ...(authContext.value || {}), ...(overrides || {}) };
+                const permissionStatus = String(context.permissionStatus || context.permission_status || '').toLowerCase();
+                if (permissionStatus !== 'allowed') return {};
                 const hotelId = context.hotelId || context.hotel_id || context.system_hotel_id || user.value?.hotel_id || '';
                 const tenantId = context.tenantId || context.tenant_id || '';
                 const platform = String(context.platform || '').toLowerCase();
@@ -619,6 +784,7 @@
             const investmentDecisionLoading = ref(false);
             const investmentDecisionOverview = ref(null);
             const showPassword = ref(false);
+            const passwordCapsLockOn = ref(false);
             const persistSidebarCollapsedPreference = () => {
                 persistSidebarCollapsedPreferenceStatic(sidebarCollapsed.value, localStorage);
             };
@@ -632,17 +798,17 @@
             // 登录表单 - 仅记住账号，避免在 localStorage 持久化密码
             const rememberedLogin = getRememberedLoginAccount(localStorage);
             const loginForm = ref(rememberedLogin.form);
-            const registerMode = ref(false);
-            const registerLoading = ref(false);
-            const registerError = ref('');
-            const registerSuccess = ref('');
-            const registerForm = ref(createRegisterForm());
             const rememberAccount = ref(rememberedLogin.remember);
+            const loginSupportOpen = ref(false);
+            const loginSupportLoading = ref(false);
+            const loginSupportError = ref('');
+            const loginSupportContact = ref('');
 
             // 系统配置
             const systemConfig = ref({
                 system_name: '宿析OS',
                 logo_url: '',
+                login_support_contact: '请联系贵司宿析OS系统管理员',
                 menu_hotel_name: '酒店管理',
                 menu_users_name: '用户管理',
                 wechat_mini_appid: '',
@@ -1240,6 +1406,82 @@
             const emptyCtripBusinessSummary = () => ({ status: 'empty', metrics: {}, cards: [] });
             const ctripHotelsList = ref([]); // 携程完整酒店列表
             const ctripBusinessSummary = ref(emptyCtripBusinessSummary());
+            const ctripPublicProfilePayload = ref(null);
+            const ctripPublicProfiles = ref([]);
+            const ctripPublicProfileLoading = ref(false);
+            const ctripPublicProfileSaving = ref(false);
+            const ctripPublicProfileRefreshing = ref(false);
+            const ctripPublicProfileError = ref('');
+            const ctripPublicProfileForm = ref({ ota_hotel_id: '', role: 'competitor' });
+            let ctripPublicProfileRequestSeq = 0;
+            let ctripPublicProfileMutationSeq = 0;
+            const ctripPublicProfileOwnBinding = computed(() => {
+                const binding = ctripPublicProfilePayload.value?.binding;
+                return binding && typeof binding === 'object' ? binding : null;
+            });
+            const ctripPublicProfilesSorted = computed(() => {
+                const rows = Array.isArray(ctripPublicProfiles.value) ? [...ctripPublicProfiles.value] : [];
+                return rows.sort((left, right) => {
+                    const leftRole = String(left?.role || '').toLowerCase();
+                    const rightRole = String(right?.role || '').toLowerCase();
+                    if (leftRole !== rightRole) return leftRole === 'self' ? -1 : 1;
+                    return String(left?.fields?.name || left?.entity_name || left?.ota_hotel_id || '')
+                        .localeCompare(String(right?.fields?.name || right?.entity_name || right?.ota_hotel_id || ''), 'zh-CN');
+                });
+            });
+            const ctripPublicProfileSummary = computed(() => {
+                const rows = ctripPublicProfilesSorted.value;
+                return {
+                    total: rows.length,
+                    self: rows.filter(row => String(row?.role || '') === 'self').length,
+                    competitors: rows.filter(row => String(row?.role || '') === 'competitor').length,
+                    failed: rows.filter(row => String(row?.capture_status || '') === 'collection_failed').length,
+                };
+            });
+            const ctripCompetitiveLocalDate = (offsetDays = 0) => {
+                const date = new Date();
+                date.setHours(12, 0, 0, 0);
+                date.setDate(date.getDate() + Number(offsetDays || 0));
+                const pad = value => String(value).padStart(2, '0');
+                return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+            };
+            const ctripCompetitiveOperationsPayload = ref(null);
+            const ctripCompetitiveOperationsLoading = ref(false);
+            const ctripCompetitiveOperationsError = ref('');
+            const ctripCompetitiveOperationsRange = ref({
+                start_date: ctripCompetitiveLocalDate(-29),
+                end_date: ctripCompetitiveLocalDate(0),
+            });
+            let ctripCompetitiveOperationsRequestSeq = 0;
+            const ctripCompetitiveOperationsCoverage = computed(() => (
+                ctripCompetitiveOperationsPayload.value?.data_coverage || {}
+            ));
+            const ctripCompetitiveOperationsComparison = computed(() => (
+                ctripCompetitiveOperationsPayload.value?.business_comparison || {}
+            ));
+            const ctripCompetitiveOperationsFunnel = computed(() => (
+                ctripCompetitiveOperationsPayload.value?.traffic_funnel_comparison || {}
+            ));
+            const ctripCompetitiveOperationsAnomalies = computed(() => {
+                const items = ctripCompetitiveOperationsPayload.value?.anomaly_diagnosis?.items;
+                return Array.isArray(items) ? items : [];
+            });
+            const ctripCompetitiveOperationsStatusText = (status) => ({
+                available: '证据可用',
+                partial: '部分证据可用',
+                unverified: '证据未验证',
+                data_missing: '暂无竞争圈数据',
+            }[String(status || '').toLowerCase()] || '状态未确认');
+            const ctripCompetitiveOperationsStatusClass = (status) => ({
+                available: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+                partial: 'border-amber-200 bg-amber-50 text-amber-700',
+                unverified: 'border-orange-200 bg-orange-50 text-orange-700',
+                data_missing: 'border-slate-200 bg-slate-50 text-slate-600',
+            }[String(status || '').toLowerCase()] || 'border-slate-200 bg-slate-50 text-slate-600');
+            const ctripCompetitiveAnomalyClass = (severity) => ({
+                high: 'border-red-200 bg-red-50 text-red-800',
+                medium: 'border-amber-200 bg-amber-50 text-amber-800',
+            }[String(severity || '').toLowerCase()] || 'border-blue-200 bg-blue-50 text-blue-800');
             const ctripBusinessSummaryCards = computed(() => {
                 const cards = ctripBusinessSummary.value?.cards;
                 return Array.isArray(cards) ? cards : [];
@@ -1505,6 +1747,18 @@
                 : {};
             const missingMeituanStaticHelpers = [];
             window.SUXI_MISSING_MEITUAN_STATIC_HELPERS = missingMeituanStaticHelpers;
+            const meituanConfigSaveHelperKeys = Object.freeze([
+                'resolveMeituanConfigSaveCookieState',
+                'buildMeituanConfigAutoName',
+                'buildMeituanConfigSaveRequestBody',
+                'resolveMeituanConfigSaveRequestHotelId',
+                'buildMeituanConfigSaveSuccessState',
+                'buildMeituanConfigSaveFailureState',
+            ]);
+            const resolveMeituanStaticHelperAvailability = (keys = []) => {
+                const missing = keys.filter((key) => typeof meituanStatic[key] !== 'function');
+                return { available: missing.length === 0, missing };
+            };
             const meituanStaticUnavailableResult = (key) => ({
                 status: 'static_helper_missing',
                 missing_helper: key,
@@ -1527,14 +1781,6 @@
                 if (key === 'buildMeituanConfigDeleteUrl') return (id = '') => `/online-data/delete-meituan-config?id=${encodeURIComponent(String(id ?? '').trim())}`;
                 if (key === 'buildMeituanConfigDeleteSuccessState') return (id = '') => ({ toastMessage: '删除成功', toastLevel: 'success', clearConfigDetailId: id, shouldReloadConfigList: true, reloadOptions: {} });
                 if (key === 'buildMeituanConfigDeleteFailureState') return ({ response = null, error = null } = {}) => ({ toastMessage: error ? `删除失败: ${error?.message || '未知错误'}` : (response?.message || '删除失败'), toastLevel: 'error' });
-                if (key === 'buildMeituanConfigAutoName') return (form = {}) => String(form?.name || '').trim() || '美团配置';
-                if (key === 'resolveMeituanConfigSaveCookieState') return (cookies = '', options = {}) => {
-                    const value = String(cookies || '').trim();
-                    if (value) return { canSave: true, cookies: value, message: '', level: '' };
-                    if (options.keepExisting === true) return { canSave: true, cookies: '', keepExisting: true, message: '', level: '' };
-                    return { canSave: false, cookies: '', message: '请输入临时 Cookie/API 辅助内容', level: 'error' };
-                };
-                if (key === 'buildMeituanConfigSaveRequestBody') return ({ form = {}, requestHotelId = '', name = '', cookies = '' } = {}) => ({ id: form?.id ?? null, name: String(name || '').trim(), hotel_id: String(requestHotelId || '').trim(), partner_id: form?.partner_id || '', poi_id: form?.poi_id || '', hotel_room_count: form?.hotel_room_count || '', competitor_room_count: form?.competitor_room_count || '', ...(String(cookies || '').trim() ? { cookies: String(cookies || '').trim() } : {}) });
                 if (key === 'resolveMeituanExecutionConfigId') return (config = null) => String(config?.config_id || config?.id || '').trim();
                 if (key === 'buildMeituanRankingFormPatchFromConfig') return (config = {}, fallbackHotelId = '') => ({ hotelId: config?.hotel_id || config?.system_hotel_id || fallbackHotelId || '', partnerId: config?.partner_id || '', poiId: config?.poi_id || '', hotelRoomCount: config?.hotel_room_count || '', competitorRoomCount: config?.competitor_room_count || '' });
                 if (key === 'buildMeituanConfigUseState') return ({ config = {}, fallbackHotelId = '' } = {}) => ({ formPatch: { hotelId: config?.hotel_id || config?.system_hotel_id || fallbackHotelId || '', partnerId: config?.partner_id || '', poiId: config?.poi_id || '', hotelRoomCount: config?.hotel_room_count || '', competitorRoomCount: config?.competitor_room_count || '' }, toastMessage: `已应用配置: ${config?.name || ''}`, targetTab: 'meituan-ranking' });
@@ -1542,14 +1788,6 @@
                 if (key === 'buildMeituanConfigEditState') return ({ config = {} } = {}) => ({ form: { id: config?.id ?? null, name: config?.name || '', hotel_id: config?.hotel_id || config?.system_hotel_id || '', partner_id: config?.partner_id || '', poi_id: config?.poi_id || '', cookies: '', hotel_room_count: config?.hotel_room_count || '', competitor_room_count: config?.competitor_room_count || '' } });
                 if (key === 'buildMeituanBookmarkletSuccessState') return (response = {}) => ({ bookmarklet: response?.data?.bookmarklet || '', toastMessage: response?.data?.message || '旧版美团 Cookie 书签已禁用', toastLevel: 'warning' });
                 if (key === 'buildMeituanBookmarkletFailureState') return ({ error = null } = {}) => ({ toastMessage: `生成失败: ${error?.message || '未知错误'}`, toastLevel: 'error' });
-                if (key === 'resolveSavedMeituanConfigHotelId') return ({ responseData = {}, requestBody = {}, fallbackHotelId = '' } = {}) => String(responseData?.hotel_id || responseData?.system_hotel_id || requestBody?.hotel_id || fallbackHotelId || '').trim();
-                if (key === 'resolveMeituanConfigSaveToastLevel') return () => 'warning';
-                if (key === 'buildMeituanConfigSaveSuccessState') return ({ response = {}, requestBody = {}, fallbackHotelId = '', form = {} } = {}) => {
-                    const responseData = response?.data || {};
-                    const savedHotelId = String(responseData?.hotel_id || responseData?.system_hotel_id || requestBody?.hotel_id || fallbackHotelId || '').trim();
-                    return { savedHotelId, toastMessage: response?.message || '配置保存成功', toastLevel: 'warning', clearConfigDetailId: form?.id ?? null, resetForm: { id: null, name: '', hotel_id: '', partner_id: '', poi_id: '', cookies: '', hotel_room_count: '', competitor_room_count: '' }, shouldReturnToRanking: !!savedHotelId, shouldReloadConfigList: !savedHotelId };
-                };
-                if (key === 'buildMeituanConfigSaveFailureState') return ({ response = null, error = null } = {}) => ({ toastMessage: error ? `保存失败: ${error?.message || '未知错误'}` : (response?.message || '保存失败'), toastLevel: 'error' });
                 if (key === 'findMeituanConfigForHotel') return () => null;
                 if (key === 'resolveMeituanConfigStatus') return () => ({ hasConfig: false, configured: false, name: '', missingFields: [], missingText: '' });
                 if (key === 'isMeituanExecutionConfigReady') return (config = null) => Boolean(config && (config.config_id || config.id) && config.has_cookies === true && String(config.credential_status || '') === 'ready');
@@ -2726,6 +2964,7 @@
             const strongOtaReminderOpen = ref(false);
             const strongOtaReminderSessionStorageKey = 'suxios_ota_auth_reminder_session_deferred_v1';
             const strongOtaReminderSnoozedUntilStorageKey = 'suxios_ota_auth_reminder_snoozed_until_v1';
+            const strongOtaReminderGlobalSnoozeKey = '__all__';
             const loadStrongOtaReminderSessionKeys = () => {
                 try {
                     const parsed = JSON.parse(sessionStorage.getItem(strongOtaReminderSessionStorageKey) || '[]');
@@ -2749,7 +2988,16 @@
             const loadStrongOtaReminderSnoozedUntil = () => {
                 try {
                     const parsed = JSON.parse(localStorage.getItem(strongOtaReminderSnoozedUntilStorageKey) || '{}');
-                    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+                    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+                    const activeEntries = Object.entries(parsed)
+                        .filter(([key, expiresAt]) => key && Number(expiresAt) > Date.now());
+                    const normalized = Object.fromEntries(activeEntries);
+                    if (!normalized[strongOtaReminderGlobalSnoozeKey] && activeEntries.length > 0) {
+                        normalized[strongOtaReminderGlobalSnoozeKey] = Math.max(
+                            ...activeEntries.map(([, expiresAt]) => Number(expiresAt))
+                        );
+                    }
+                    return normalized;
                 } catch (error) {
                     return {};
                 }
@@ -2769,11 +3017,10 @@
             };
             const strongOtaReminderDeferredKeys = ref(loadStrongOtaReminderSessionKeys());
             const strongOtaReminderSnoozedUntil = ref(loadStrongOtaReminderSnoozedUntil());
-            const strongOtaReminderMinimumVisibleSeconds = 3;
+            const strongOtaReminderAutoDismissSeconds = 5;
             const strongOtaReminderSnoozeHours = 24;
-            const strongOtaReminderDeferSecondsRemaining = ref(0);
-            const strongOtaReminderCanDefer = computed(() => strongOtaReminderDeferSecondsRemaining.value <= 0);
-            let strongOtaReminderAttentionTimer = null;
+            const strongOtaReminderAutoDismissSecondsRemaining = ref(0);
+            let strongOtaReminderAutoDismissTimer = null;
             const globalNotificationPollIntervalMs = ref(120000);
             const globalNotificationReadStorageKey = 'suxios_global_notification_read_ids_v1';
             const globalNotificationHiddenStorageKey = 'suxios_global_notification_hidden_ids_v1';
@@ -2868,35 +3115,51 @@
             };
             const strongOtaReminderItems = computed(() => globalNotificationBackendItems.value.filter(isStrongOtaReminder));
             const strongOtaReminderCount = computed(() => strongOtaReminderItems.value.length);
-            const stopStrongOtaReminderAttentionTimer = (reset = false) => {
-                if (strongOtaReminderAttentionTimer) {
-                    clearInterval(strongOtaReminderAttentionTimer);
-                    strongOtaReminderAttentionTimer = null;
+            const stopStrongOtaReminderAutoDismissTimer = (reset = false) => {
+                if (strongOtaReminderAutoDismissTimer) {
+                    clearInterval(strongOtaReminderAutoDismissTimer);
+                    strongOtaReminderAutoDismissTimer = null;
                 }
                 if (reset) {
-                    strongOtaReminderDeferSecondsRemaining.value = 0;
+                    strongOtaReminderAutoDismissSecondsRemaining.value = 0;
                 }
             };
-            const startStrongOtaReminderAttentionWindow = () => {
-                stopStrongOtaReminderAttentionTimer();
-                const deadline = Date.now() + strongOtaReminderMinimumVisibleSeconds * 1000;
-                strongOtaReminderDeferSecondsRemaining.value = strongOtaReminderMinimumVisibleSeconds;
-                strongOtaReminderAttentionTimer = setInterval(() => {
-                    strongOtaReminderDeferSecondsRemaining.value = Math.max(
+            const startStrongOtaReminderAutoDismissCountdown = () => {
+                stopStrongOtaReminderAutoDismissTimer();
+                const deadline = Date.now() + strongOtaReminderAutoDismissSeconds * 1000;
+                strongOtaReminderAutoDismissSecondsRemaining.value = strongOtaReminderAutoDismissSeconds;
+                strongOtaReminderAutoDismissTimer = setInterval(() => {
+                    strongOtaReminderAutoDismissSecondsRemaining.value = Math.max(
                         0,
                         Math.ceil((deadline - Date.now()) / 1000)
                     );
-                    if (strongOtaReminderDeferSecondsRemaining.value <= 0) {
-                        stopStrongOtaReminderAttentionTimer();
+                    if (strongOtaReminderAutoDismissSecondsRemaining.value <= 0) {
+                        stopStrongOtaReminderAutoDismissTimer(true);
+                        deferStrongOtaReminder();
                     }
                 }, 250);
             };
+            const restartStrongOtaReminderAutoDismissCountdown = () => {
+                if (!strongOtaReminderOpen.value) return;
+                startStrongOtaReminderAutoDismissCountdown();
+            };
             const openStrongOtaReminderAttentionModal = () => {
                 if (!strongOtaReminderOpen.value) {
-                    startStrongOtaReminderAttentionWindow();
+                    startStrongOtaReminderAutoDismissCountdown();
                 }
                 strongOtaReminderOpen.value = true;
             };
+            const resetStrongOtaReminderSessionState = () => {
+                strongOtaReminderOpen.value = false;
+                strongOtaReminderDeferredKeys.value = [];
+                saveStrongOtaReminderSessionKeys([]);
+                stopStrongOtaReminderAutoDismissTimer(true);
+            };
+            watch(isLoggedIn, (loggedIn) => {
+                if (!loggedIn) {
+                    resetStrongOtaReminderSessionState();
+                }
+            }, { immediate: true });
             const syncStrongOtaReminderVisibility = () => {
                 const currentKeys = new Set(strongOtaReminderItems.value.map(item => item.reminder_key));
                 strongOtaReminderDeferredKeys.value = strongOtaReminderDeferredKeys.value.filter(key => currentKeys.has(key));
@@ -2904,12 +3167,19 @@
                 const now = Date.now();
                 strongOtaReminderSnoozedUntil.value = Object.fromEntries(
                     Object.entries(strongOtaReminderSnoozedUntil.value)
-                        .filter(([key, expiresAt]) => currentKeys.has(key) && Number(expiresAt) > now)
+                        .filter(([key, expiresAt]) => (
+                            key === strongOtaReminderGlobalSnoozeKey || currentKeys.has(key)
+                        ) && Number(expiresAt) > now)
                 );
                 saveStrongOtaReminderSnoozedUntil(strongOtaReminderSnoozedUntil.value);
                 if (!currentKeys.size) {
                     strongOtaReminderOpen.value = false;
-                    stopStrongOtaReminderAttentionTimer(true);
+                    stopStrongOtaReminderAutoDismissTimer(true);
+                    return;
+                }
+                if (Number(strongOtaReminderSnoozedUntil.value[strongOtaReminderGlobalSnoozeKey] || 0) > now) {
+                    strongOtaReminderOpen.value = false;
+                    stopStrongOtaReminderAutoDismissTimer(true);
                     return;
                 }
                 const hasUnsnoozedReminder = strongOtaReminderItems.value.some((item) => {
@@ -2921,7 +3191,7 @@
                     openStrongOtaReminderAttentionModal();
                 } else {
                     strongOtaReminderOpen.value = false;
-                    stopStrongOtaReminderAttentionTimer(true);
+                    stopStrongOtaReminderAutoDismissTimer(true);
                 }
             };
             const loadBackendGlobalNotifications = async () => {
@@ -3142,25 +3412,24 @@
                 }
             };
             const deferStrongOtaReminder = () => {
-                if (!strongOtaReminderCanDefer.value) return;
                 strongOtaReminderDeferredKeys.value = Array.from(new Set([
                     ...strongOtaReminderDeferredKeys.value,
                     ...strongOtaReminderItems.value.map(item => item.reminder_key),
                 ]));
                 saveStrongOtaReminderSessionKeys(strongOtaReminderDeferredKeys.value);
                 strongOtaReminderOpen.value = false;
-                stopStrongOtaReminderAttentionTimer(true);
+                stopStrongOtaReminderAutoDismissTimer(true);
             };
             const snoozeStrongOtaReminder24Hours = () => {
-                if (!strongOtaReminderCanDefer.value) return;
                 const expiresAt = Date.now() + strongOtaReminderSnoozeHours * 60 * 60 * 1000;
                 strongOtaReminderSnoozedUntil.value = {
                     ...strongOtaReminderSnoozedUntil.value,
+                    [strongOtaReminderGlobalSnoozeKey]: expiresAt,
                     ...Object.fromEntries(strongOtaReminderItems.value.map(item => [item.reminder_key, expiresAt])),
                 };
                 saveStrongOtaReminderSnoozedUntil(strongOtaReminderSnoozedUntil.value);
                 strongOtaReminderOpen.value = false;
-                stopStrongOtaReminderAttentionTimer(true);
+                stopStrongOtaReminderAutoDismissTimer(true);
             };
             const openStrongOtaReminderItem = async (item) => {
                 if (!item) return;
@@ -3173,7 +3442,7 @@
                     filterReportHotel.value = hotelId;
                 }
                 strongOtaReminderOpen.value = false;
-                stopStrongOtaReminderAttentionTimer(true);
+                stopStrongOtaReminderAutoDismissTimer(true);
                 const hotel = [...hotels.value, ...permittedHotels.value]
                     .find(row => String(row?.id || '') === hotelId);
                 if (hotel && ['ctrip', 'meituan'].includes(platform) && canManageOwnHotels()) {
@@ -3714,6 +3983,14 @@
                 const scenarios = dualOtaDashboard.value.lossChain?.scenarios || {};
                 const platformScenario = scenarios[dualOtaEffectivePlatform.value] || {};
                 return platformScenario[dualOtaSelectedRange.value] || dualOtaDashboard.value.lossChain?.nodes || [];
+            });
+            const dualOtaLossChainSubtitle = computed(() => {
+                const labels = dualOtaActiveLossNodes.value.map(node => String(node?.label || '').trim()).filter(Boolean);
+                const chain = labels.join(' → ') || dualOtaDashboard.value.lossChain?.subtitle || '字段链未返回';
+                const scope = dualOtaEffectivePlatform.value || 'combined';
+                if (scope === 'ctrip') return `${chain} · 携程曝光字段未返回`;
+                if (scope === 'combined') return `${chain} · 曝光/浏览仅来自美团`;
+                return chain;
             });
             const dualOtaSelectedLossExplanation = computed(() => {
                 const currentExplanation = dualOtaCurrentLossExplanation(dualOtaSelectedLossNodeId.value);
@@ -4598,8 +4875,7 @@
                 const meituanViews = meituanRow ? dualOtaObservedNumber(meituanRow.views) : null;
                 if (scope === 'ctrip') {
                     return [
-                        dualOtaLossNode('exposure', '携程访客', ctripVisitors, '当前门店携程访客字段'),
-                        dualOtaLossNode('browse', '浏览', null, '携程当前快照未返回浏览字段'),
+                        dualOtaLossNode('detailVisitors', '访客', ctripVisitors, '携程 APP 详情页访客量字段 totalDetailNum'),
                         dualOtaLossNode('paidOrders', '订单', ctripOrders, '当前门店携程订单'),
                         dualOtaLossNode('roomNights', '间夜', ctripQuantity, '当前门店携程间夜'),
                         dualOtaLossNode('revenue', '收入', ctripRevenue, '当前门店携程销售额'),
@@ -4622,6 +4898,12 @@
                     dualOtaLossNode('revenue', '收入', dualOtaSumObservedValues([ctripRevenue, meituanRevenue]), '仅在携程与美团收入均返回时合计'),
                 ];
             };
+            watch(dualOtaActiveLossNodes, (nodes) => {
+                const rows = Array.isArray(nodes) ? nodes : [];
+                if (!rows.some(node => node.id === dualOtaSelectedLossNodeId.value)) {
+                    dualOtaSelectedLossNodeId.value = rows[0]?.id || '';
+                }
+            }, { immediate: true });
             dualOtaCurrentLossExplanation = (nodeId = '') => {
                 const node = dualOtaCurrentLossNodes().find(item => item.id === nodeId) || null;
                 if (!node) return null;
@@ -4761,7 +5043,7 @@
                     return false;
                 }
                 if (!hasMeituanFetchConfigByHotelId(hotelId)) {
-                    if (!silent) showToast('未绑定美团账户，无法自动抓取美团数据', 'warning');
+                    if (!silent) showToast('该门店未配置美团 Cookie/API，无法发起本次补采', 'warning');
                     return false;
                 }
                 if (!dualOtaMarkWorkbenchFetchAttempted('meituan', hotelId, range)) {
@@ -4992,15 +5274,21 @@
             };
             const scheduleHomeSecondaryPanelsReady = (delayMs = HOME_SECONDARY_PANEL_DELAY_MS) => {
                 clearHomeSecondaryPanelsReadyTimer();
-                if (currentPage.value !== 'compass') {
+                if (!isCompassDataPage()) {
                     homeSecondaryPanelsReady.value = false;
                     return;
                 }
                 homeSecondaryPanelsReadyTimer = setTimeout(() => {
                     homeSecondaryPanelsReadyTimer = null;
-                    if (currentPage.value === 'compass') {
-                        homeSecondaryPanelsReady.value = true;
-                    }
+                    if (!token.value || !isCompassDataPage()) return;
+                    homeSecondaryPanelsReady.value = true;
+                    void ensureRevenueAiStaticReady()
+                        .then(() => (isCompassDataPage() ? loadRevenueAiOverview() : null))
+                        .catch((error) => {
+                            if (isCompassDataPage()) {
+                                revenueAiOverviewError.value = error?.message || 'Revenue AI 展示工具加载失败';
+                            }
+                        });
                 }, Math.max(0, Number(delayMs) || HOME_SECONDARY_PANEL_DELAY_MS));
             };
             const holidayOperationCountdown = computed(() => {
@@ -5425,15 +5713,204 @@
             const revenueAiReviewActionLoading = ref({});
             const revenueAiExecutionFocus = ref(null);
             let revenueAiOverviewRequestSeq = 0;
-            const revenueAiStatic = window.SUXI_REVENUE_AI_STATIC;
-            if (!revenueAiStatic || typeof revenueAiStatic !== 'object') {
-                throw new Error('缺少 Revenue AI 静态展示工具：revenue-ai-static.js 未加载');
-            }
-            const requireRevenueAiStatic = (key) => {
-                if (!Object.prototype.hasOwnProperty.call(revenueAiStatic, key)) {
-                    throw new Error(`缺少 Revenue AI 静态展示工具项：${key}`);
+            const revenueAiStaticScript = 'revenue-ai-static.js';
+            const revenueAiStaticVersion = '20260715-truthful-not-loaded-h29ec697779';
+            const revenueAiStaticNotLoadedText = 'Revenue AI 展示工具尚未加载';
+            const revenueAiStaticNotLoadedClass = 'border-slate-200 bg-slate-100 text-slate-600';
+            const revenueAiStaticReady = ref(!!window.SUXI_REVENUE_AI_STATIC);
+            const revenueAiStaticLoading = ref(false);
+            const revenueAiStaticError = ref('');
+            const revenueAiStaticRevision = ref(0);
+            let revenueAiStaticLoadPromise = null;
+            const revenueAiStaticFallbacks = Object.freeze({
+                revenueAiStatusClass: () => revenueAiStaticNotLoadedClass,
+                revenueAiStatusLabel: () => '未加载',
+                revenueAiSeverityClass: () => revenueAiStaticNotLoadedClass,
+                resolveRevenueAiBusinessDate: () => '',
+                resolveRevenueAiOverviewRequest: () => ({ shouldLoad: false, status: 'not_loaded', endpoint: '', reason: 'static_not_loaded' }),
+                resolveRevenueAiOverviewResponse: () => ({ overview: null, errorMessage: revenueAiStaticNotLoadedText, status: 'not_loaded' }),
+                buildRevenueAiBusinessClosure: () => ({
+                    status: 'not_loaded',
+                    statusLabel: '未加载',
+                    className: revenueAiStaticNotLoadedClass,
+                    scopeText: 'Revenue AI 未加载',
+                    summary: revenueAiStaticNotLoadedText,
+                    nextAction: '等待展示工具加载后再读取 AI 判断。',
+                    summaryChips: [],
+                    rows: [],
+                    missingRows: [],
+                    anomalyRows: [],
+                }),
+                buildRevenueAiMetricCards: () => [],
+                buildRevenueAiGapRows: () => [],
+                buildRevenueAiGapSummary: () => ({ status: 'not_loaded', total: null, high: null, medium: null, low: null }),
+                resolveRevenueAiGapTarget: () => ({ status: 'not_loaded', targetTab: '', message: revenueAiStaticNotLoadedText }),
+                resolveRevenueAiDecisionBasisNavigation: () => ({ status: 'not_loaded', targetPage: '', nextAction: revenueAiStaticNotLoadedText }),
+                buildRevenueAiStatusRows: () => [],
+                buildRevenueAiSignalRows: () => [],
+                buildRevenueAiActionRows: () => [],
+                buildRevenueAiEvidenceWorkbenchRows: () => [],
+                buildRevenueAiEvidenceWorkbenchSummary: () => ({
+                    status: 'not_loaded',
+                    statusLabel: '未加载',
+                    className: revenueAiStaticNotLoadedClass,
+                    detailText: revenueAiStaticNotLoadedText,
+                    total: null,
+                }),
+                buildRevenueAiPricingGenerationPreflightSummary: () => ({
+                    visible: false,
+                    status: 'not_loaded',
+                    statusLabel: '未加载',
+                    className: revenueAiStaticNotLoadedClass,
+                    detailText: revenueAiStaticNotLoadedText,
+                    targetHotelIds: [],
+                    candidateSkipReasons: [],
+                    candidateDataGaps: [],
+                    hotelChecks: [],
+                    requiredInputs: [],
+                }),
+                buildRevenueAiPricingGateRows: () => [],
+                buildRevenueAiAgentActivitySummary: () => ({
+                    status: 'not_loaded',
+                    statusLabel: '未加载',
+                    className: revenueAiStaticNotLoadedClass,
+                    label: 'Revenue AI',
+                    dateBasisLabel: '未加载',
+                    display: '未加载',
+                    nextAction: revenueAiStaticNotLoadedText,
+                }),
+                buildRevenueAiAgentActivityRows: () => [],
+                buildRevenueAiExecutionSummary: () => ({
+                    status: 'not_loaded',
+                    statusLabel: '未加载',
+                    className: revenueAiStaticNotLoadedClass,
+                    display: '未加载',
+                    dateBasisLabel: '未加载',
+                    processStatusLabel: '未加载',
+                    processClassName: revenueAiStaticNotLoadedClass,
+                    processDisplay: '未加载',
+                    processReasonText: revenueAiStaticNotLoadedText,
+                    effectReviewStatusLabel: '未加载',
+                    effectReviewClassName: revenueAiStaticNotLoadedClass,
+                    effectReviewDisplay: '未加载',
+                    effectReviewInputDisplay: '未加载',
+                    effectReviewReasonText: revenueAiStaticNotLoadedText,
+                    nextAction: revenueAiStaticNotLoadedText,
+                }),
+                buildRevenueAiExecutionRows: () => [],
+                buildRevenueAiEffectReviewRows: () => [],
+                aiDailyReportActionSources: () => '来源未加载',
+                aiDailyReportEvidenceTarget: () => ({ status: 'not_loaded', label: revenueAiStaticNotLoadedText, page: '' }),
+                aiDailyReportActionIsInvestigationOnly: () => true,
+                aiDailyReportActionBlockedText: () => revenueAiStaticNotLoadedText,
+                aiDailyReportActionStatusText: () => '未加载',
+                aiDailyReportActionButtonText: () => '等待加载',
+                buildAiDailyReportBlockingRows: () => [],
+                summarizeAiDailyReportBlockingRows: () => ({ status: 'not_loaded', total: null, detail: revenueAiStaticNotLoadedText, gateText: revenueAiStaticNotLoadedText }),
+                buildAiDailyReportEvidenceRows: () => [],
+                buildAiDailyFactGate: () => ({
+                    status: 'not_loaded',
+                    statusText: '未加载',
+                    statusClass: revenueAiStaticNotLoadedClass,
+                    scopeText: revenueAiStaticNotLoadedText,
+                    errorText: revenueAiStaticNotLoadedText,
+                    chain: [],
+                    platformRows: [],
+                    targetDate: '',
+                    configuredCount: null,
+                    readyCount: null,
+                    fieldGapCount: null,
+                    sourceRefs: [],
+                    generatedAt: '',
+                }),
+                resolveRevenueAiExecutionAction: () => ({ action: 'not_loaded', level: 'warning', message: revenueAiStaticNotLoadedText }),
+                isRevenueAiReviewActionLoadingState: () => false,
+                buildRevenueAiReviewActionLoadingState: ({ state = {} } = {}) => ({ ...state }),
+                resolveRevenueAiReviewActionDraft: () => ({ status: 'not_loaded', errorMessage: revenueAiStaticNotLoadedText }),
+                validateRevenueAiApprovedPrice: () => ({ ok: false, message: revenueAiStaticNotLoadedText }),
+                buildRevenueAiReviewConfirmText: () => '',
+                buildRevenueAiReviewRequestBody: () => ({}),
+                buildRevenueAiExecutionIntentOpenRow: () => ({ status: 'not_loaded', message: revenueAiStaticNotLoadedText }),
+                resolveRevenueAiReviewNavigation: () => ({ status: 'not_loaded', targetPage: '', message: revenueAiStaticNotLoadedText }),
+                buildRevenueAiReviewNavigationState: () => ({ status: 'not_loaded', currentPage: '', agentTab: '', revenueAgentTab: '' }),
+                buildRevenueAiPriceSuggestionGenerateResult: () => ({
+                    visible: true,
+                    status: 'not_loaded',
+                    statusLabel: '未加载',
+                    className: revenueAiStaticNotLoadedClass,
+                    title: 'Revenue AI 展示工具未加载',
+                    detailText: revenueAiStaticNotLoadedText,
+                    createdCount: null,
+                    skippedItems: [],
+                }),
+            });
+            const loadRevenueAiStatic = () => {
+                const currentStatic = window.SUXI_REVENUE_AI_STATIC;
+                if (currentStatic && typeof currentStatic === 'object') {
+                    return Promise.resolve(currentStatic);
                 }
-                return revenueAiStatic[key];
+                if (revenueAiStaticLoadPromise) {
+                    return revenueAiStaticLoadPromise;
+                }
+                revenueAiStaticLoadPromise = new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = `${revenueAiStaticScript}?v=${revenueAiStaticVersion}`;
+                    script.async = true;
+                    script.dataset.suxiRevenueAiStatic = '1';
+                    script.onload = () => {
+                        script.dataset.loaded = '1';
+                        const loadedStatic = window.SUXI_REVENUE_AI_STATIC;
+                        if (loadedStatic && typeof loadedStatic === 'object') {
+                            resolve(loadedStatic);
+                            return;
+                        }
+                        reject(new Error('Revenue AI 展示工具加载完成但未注册'));
+                    };
+                    script.onerror = () => reject(new Error('Revenue AI 展示工具加载失败'));
+                    document.head.appendChild(script);
+                }).catch((error) => {
+                    revenueAiStaticLoadPromise = null;
+                    document.querySelector('script[data-suxi-revenue-ai-static="1"]:not([data-loaded="1"])')?.remove();
+                    throw error;
+                });
+                return revenueAiStaticLoadPromise;
+            };
+            const ensureRevenueAiStaticReady = async () => {
+                if (revenueAiStaticReady.value && window.SUXI_REVENUE_AI_STATIC) {
+                    return window.SUXI_REVENUE_AI_STATIC;
+                }
+                revenueAiStaticLoading.value = true;
+                revenueAiStaticError.value = '';
+                try {
+                    const loadedStatic = await loadRevenueAiStatic();
+                    const missingKeys = Object.keys(revenueAiStaticFallbacks)
+                        .filter((key) => typeof loadedStatic?.[key] !== 'function');
+                    if (missingKeys.length) {
+                        throw new Error(`Revenue AI 展示工具缺少接口：${missingKeys.join('、')}`);
+                    }
+                    if (!revenueAiStaticReady.value) {
+                        revenueAiStaticReady.value = true;
+                        revenueAiStaticRevision.value += 1;
+                    }
+                    return loadedStatic;
+                } catch (error) {
+                    revenueAiStaticReady.value = false;
+                    revenueAiStaticError.value = error?.message || 'Revenue AI 展示工具加载失败';
+                    throw error;
+                } finally {
+                    revenueAiStaticLoading.value = false;
+                }
+            };
+            const requireRevenueAiStatic = (key) => {
+                const fallback = revenueAiStaticFallbacks[key];
+                if (typeof fallback !== 'function') {
+                    throw new Error(`缺少 Revenue AI 未加载占位工具项：${key}`);
+                }
+                return (...args) => {
+                    revenueAiStaticRevision.value;
+                    const loadedHelper = window.SUXI_REVENUE_AI_STATIC?.[key];
+                    return typeof loadedHelper === 'function' ? loadedHelper(...args) : fallback(...args);
+                };
             };
             const revenueAiStatusClass = requireRevenueAiStatic('revenueAiStatusClass');
             const revenueAiStatusLabel = requireRevenueAiStatic('revenueAiStatusLabel');
@@ -6228,6 +6705,11 @@
                 }
             };
             const openRevenueAiGap = (row = {}) => {
+                if (!revenueAiStaticReady.value) {
+                    void ensureRevenueAiStaticReady().catch(() => null);
+                    showToast(revenueAiStaticError.value || revenueAiStaticNotLoadedText, 'warning');
+                    return;
+                }
                 const { targetTab } = revenueAiResolveGapTarget(row);
                 openOnlineDataEntryTab(targetTab, { force: true });
             };
@@ -6235,6 +6717,7 @@
                 openRevenueAiGap(card);
             };
             const openRevenueAiDecisionBasis = async (basis = {}) => {
+                await ensureRevenueAiStaticReady();
                 const navigation = revenueAiResolveDecisionBasisNavigation(basis);
                 if (navigation.targetPage === 'online-data') {
                     openOnlineDataEntryTab(navigation.targetTab || 'data-health', { force: true });
@@ -6285,6 +6768,7 @@
             };
             const revenueAiResolveExecutionAction = requireRevenueAiStatic('resolveRevenueAiExecutionAction');
             const openRevenueAiExecutionItem = async (row = {}) => {
+                await ensureRevenueAiStaticReady();
                 const action = revenueAiResolveExecutionAction({
                     row,
                     fallbackHotelId: revenueAiOverview.value?.hotel_id || filterReportHotel.value || 0,
@@ -6355,6 +6839,7 @@
                 });
             };
             const submitRevenueAiReviewAction = async (item = {}, action = '') => {
+                await ensureRevenueAiStaticReady();
                 const draft = revenueAiResolveReviewActionDraft({ item, action });
                 if (!draft.ok) {
                     showToast(draft.message || '定价建议审核动作不可用', draft.level || 'error');
@@ -6445,6 +6930,7 @@
                 }
             };
             const openRevenueAiReviewItem = async (item = {}) => {
+                await ensureRevenueAiStaticReady();
                 const navigation = revenueAiResolveReviewNavigation({
                     item,
                     isSuperAdmin: user.value?.is_super_admin === true,
@@ -10175,6 +10661,17 @@
                         return loadLatestCtripData({ silent: true, hydrateDisplay: true });
                     }, 140);
                 }
+                if (tab === 'ctrip-public-profiles') {
+                    deferUiTask(async () => {
+                        if (currentPage.value !== 'ctrip-ebooking' || onlineDataTab.value !== 'ctrip-public-profiles') return null;
+                        await ensureCtripPublicProfileHotelSelected();
+                        if (currentPage.value !== 'ctrip-ebooking' || onlineDataTab.value !== 'ctrip-public-profiles') return null;
+                        return Promise.all([
+                            loadCtripPublicProfiles(),
+                            loadCtripCompetitiveOperations(),
+                        ]);
+                    }, 100);
+                }
                 if (tab === 'ctrip-traffic') {
                     deferUiTask(() => {
                         if (currentPage.value !== 'ctrip-ebooking' || onlineDataTab.value !== 'ctrip-traffic') return null;
@@ -10511,6 +11008,7 @@
                     ]));
                 }
                 if (newPage === 'agent-center') {
+                    runPageLoadOnce(newPage, 'revenue-ai-static', () => ensureRevenueAiStaticReady());
                     runPageLoadOnce(newPage, 'platform-configs', () => Promise.allSettled([
                         loadCtripConfigList(),
                         loadMeituanConfigList(),
@@ -10588,7 +11086,10 @@
                     });
                 }
                 if (newPage === 'ai-daily-report') {
-                    runPageLoadOnce(newPage, 'main', () => loadAiDailyReport());
+                    runPageLoadOnce(newPage, 'main', async () => {
+                        await ensureRevenueAiStaticReady();
+                        return loadAiDailyReport();
+                    });
                 }
                 if (newPage === 'ops-track') {
                     runPageLoadOnce(newPage, 'main', async () => {
@@ -11241,7 +11742,10 @@
             const knowledgeCenterUnits = ref([]);
             const knowledgeCenterLoading = ref(false);
             const knowledgeCenterViewMode = ref('table');
-            const knowledgeCenterFilter = ref({ keyword: '', status: '', tag: '', source: '' });
+            const knowledgeCenterFilter = ref({
+                keyword: '', status: '', tag: '', source: '',
+                module: '', role: '', scene: '', platform: '', evidence_level: '', version: '',
+            });
             const knowledgeCenterPagination = ref({ total: 0, page: 1, page_size: 10, total_page: 1 });
             const showKnowledgeCenterUnitModal = ref(false);
             const showKnowledgeCenterChunksModal = ref(false);
@@ -11555,7 +12059,13 @@
                     knowledgeCenterFilter.value.keyword ||
                     knowledgeCenterFilter.value.status ||
                     knowledgeCenterFilter.value.tag ||
-                    knowledgeCenterFilter.value.source
+                    knowledgeCenterFilter.value.source ||
+                    knowledgeCenterFilter.value.module ||
+                    knowledgeCenterFilter.value.role ||
+                    knowledgeCenterFilter.value.scene ||
+                    knowledgeCenterFilter.value.platform ||
+                    knowledgeCenterFilter.value.evidence_level ||
+                    knowledgeCenterFilter.value.version
                 );
             });
 
@@ -11599,7 +12109,7 @@
             const hotelUserAuthorizationError = ref('');
             const showUserStatusConfirmModal = ref(false);
             const userStatusConfirmTarget = ref(null);
-            const userStatusConfirmAction = ref('approve');
+            const userStatusConfirmAction = ref('activate');
             const userStatusConfirmLoading = ref(false);
             const userStatusConfirmError = ref('');
             const showUserDeleteModal = ref(false);
@@ -11833,6 +12343,7 @@
             });
             const getSystemConfigDefaults = requireSystemStatic('getSystemConfigDefaults');
             const systemConfigForm = ref(getSystemConfigDefaults());
+            let systemConfigFormBaseline = null;
 
             // 配置分组
             const activeConfigGroup = ref('basic');
@@ -11855,7 +12366,6 @@
 
             // 功能开关
             const featureSwitches = ref([
-                { key: 'enable_registration', label: '启用用户注册', description: '允许新用户自行注册账号' },
                 { key: 'enable_login_log', label: '启用登录日志', description: '记录用户登录和登出操作' },
                 { key: 'enable_operation_log', label: '启用操作日志', description: '记录用户的各类操作行为' },
                 { key: 'enable_data_backup', label: '启用数据备份', description: '允许进行数据备份和恢复' },
@@ -12105,7 +12615,7 @@
                     return '该账号未分配门店，先补门店范围后再发送说明。';
                 }
                 if (String(u?.status) !== '1') {
-                    return '账号仍为待审核/暂停，先审核通过后再对外发送。';
+                    return '账号当前已停用，先启用后再对外发送。';
                 }
                 return '';
             };
@@ -12643,11 +13153,283 @@
 
                     return data;
                 } catch (error) {
-                    console.error('API请求失败:', requestUrl, error);
+                    if (error?.name !== 'AbortError') {
+                        console.error('API请求失败:', requestUrl, error);
+                    }
                     throw error;
                 }
             };
             const apiRequest = request;
+
+            const normalizeCtripPublicHotelIdInput = (value) => {
+                const raw = String(value || '').trim();
+                if (/^[1-9][0-9]{0,19}$/.test(raw)) return raw;
+                try {
+                    const parsed = new URL(raw);
+                    const hostname = String(parsed.hostname || '').toLowerCase();
+                    const match = String(parsed.pathname || '').match(/^\/hotels\/([1-9][0-9]{0,19})\.html\/?$/);
+                    return hostname === 'hotels.ctrip.com' && match ? match[1] : '';
+                } catch (error) {
+                    return '';
+                }
+            };
+            const applyCtripPublicProfilePayload = (payload) => {
+                const data = payload && typeof payload === 'object' ? payload : {};
+                ctripPublicProfilePayload.value = data;
+                ctripPublicProfiles.value = Array.isArray(data.profiles) ? data.profiles : [];
+                if (!String(ctripPublicProfileForm.value.ota_hotel_id || '').trim()) {
+                    ctripPublicProfileForm.value.role = data?.binding?.status === 'bound' ? 'competitor' : 'self';
+                }
+            };
+            const ctripPublicProfileRoleText = (role) => String(role || '').toLowerCase() === 'self' ? '本店' : '竞品';
+            const ctripPublicProfileStatusText = (status) => ({
+                available: '资料可用',
+                partial: '部分补全',
+                collection_failed: '本次采集失败',
+            }[String(status || '').toLowerCase()] || '状态未确认');
+            const ctripPublicProfileStatusClass = (status) => ({
+                available: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+                partial: 'border-amber-200 bg-amber-50 text-amber-700',
+                collection_failed: 'border-red-200 bg-red-50 text-red-700',
+            }[String(status || '').toLowerCase()] || 'border-slate-200 bg-slate-50 text-slate-600');
+            const ctripPublicProfileDisplayName = (profile = {}) => String(
+                profile?.fields?.name || profile?.entity_name || profile?.known_name || `携程酒店 ${profile?.ota_hotel_id || ''}`
+            ).trim();
+            const ctripPublicProfileSourceUrl = (profile = {}) => {
+                const hotelId = normalizeCtripPublicHotelIdInput(profile?.ota_hotel_id);
+                return hotelId ? `https://hotels.ctrip.com/hotels/${hotelId}.html` : '';
+            };
+            const ctripPublicProfileGradeText = (profile = {}) => {
+                const fields = profile?.fields && typeof profile.fields === 'object' ? profile.fields : {};
+                if (fields.grade_label) return String(fields.grade_label);
+                if (fields.star_level != null) return `${fields.star_level} 星`;
+                if (fields.diamond_level != null) return `${fields.diamond_level} 钻`;
+                return '未获取';
+            };
+            const ctripPublicProfileFacilityCount = (profile = {}) => {
+                const fields = profile?.fields && typeof profile.fields === 'object' ? profile.fields : {};
+                if (Number.isFinite(Number(fields.facility_total_count)) && Number(fields.facility_total_count) > 0) {
+                    return Number(fields.facility_total_count);
+                }
+                return Array.isArray(fields.facilities) ? fields.facilities.length : 0;
+            };
+            const ctripPublicProfileCompletenessText = (profile = {}) => {
+                const statuses = profile?.field_statuses && typeof profile.field_statuses === 'object'
+                    ? Object.values(profile.field_statuses)
+                    : [];
+                if (!statuses.length) return '未返回字段状态';
+                const available = statuses.filter(status => String(status) !== 'missing').length;
+                return `${available}/${statuses.length} 个字段有值`;
+            };
+            const ctripPublicProfileFacilities = (profile = {}) => {
+                const facilities = Array.isArray(profile?.fields?.facilities) ? profile.fields.facilities : [];
+                return facilities.filter(item => String(item || '').trim()).slice(0, 8);
+            };
+            const ctripPublicProfileHighlights = (profile = {}) => {
+                const highlights = Array.isArray(profile?.fields?.highlights) ? profile.fields.highlights : [];
+                return highlights.filter(item => String(item || '').trim()).slice(0, 6);
+            };
+            const ctripPublicProfileMissingFieldsText = (profile = {}) => {
+                const labels = {
+                    name: '名称', address: '地址', platform_grade: '星钻级', rating: '评分', facilities: '设施',
+                    opening_year: '开业年份', renovation_year: '装修年份', room_count: '客房总数', policies: '政策',
+                    nearby_places: '周边', gallery_images: '图片', description: '简介',
+                };
+                const missing = Array.isArray(profile?.missing_fields) ? profile.missing_fields : [];
+                if (!missing.length) return '';
+                const names = missing.slice(0, 5).map(key => labels[key] || key);
+                return `仍缺：${names.join('、')}${missing.length > names.length ? ` 等 ${missing.length} 项` : ''}`;
+            };
+            const ensureCtripPublicProfileHotelSelected = async () => {
+                if (!ctripPublicProfileHotelOptions.value.length) {
+                    await loadHotels({ cacheMs: HOTEL_LIST_CACHE_TTL_MS });
+                }
+                const options = ctripPublicProfileHotelOptions.value;
+                const selected = String(selectedCtripHotelId.value || '').trim();
+                if (selected && options.some(item => String(item?.id || '') === selected)) return selected;
+                const primaryId = String(user.value?.hotel_id || '').trim();
+                const fallback = options.find(item => String(item?.id || '') === primaryId) || options[0] || null;
+                selectedCtripHotelId.value = fallback ? String(fallback.id || '') : '';
+                return String(selectedCtripHotelId.value || '');
+            };
+            const loadCtripPublicProfiles = async (options = {}) => {
+                const systemHotelId = String(options.systemHotelId || selectedCtripHotelId.value || '').trim();
+                const requestSeq = ++ctripPublicProfileRequestSeq;
+                if (!systemHotelId) {
+                    ctripPublicProfilePayload.value = null;
+                    ctripPublicProfiles.value = [];
+                    ctripPublicProfileError.value = '';
+                    return null;
+                }
+                ctripPublicProfileLoading.value = true;
+                ctripPublicProfileError.value = '';
+                try {
+                    const res = await request(`/online-data/ctrip/public-profiles?system_hotel_id=${encodeURIComponent(systemHotelId)}`, {
+                        businessContext: { hotelId: systemHotelId, platform: 'ctrip' },
+                    });
+                    if (requestSeq !== ctripPublicProfileRequestSeq || systemHotelId !== String(selectedCtripHotelId.value || '')) return null;
+                    if (res?.code !== 200 || !res?.data || !Array.isArray(res.data.profiles)) {
+                        throw new Error(res?.message || '携程公开档案返回格式不完整');
+                    }
+                    applyCtripPublicProfilePayload(res.data);
+                    return res.data;
+                } catch (error) {
+                    if (requestSeq !== ctripPublicProfileRequestSeq) return null;
+                    ctripPublicProfilePayload.value = null;
+                    ctripPublicProfiles.value = [];
+                    ctripPublicProfileError.value = String(error?.message || '携程公开档案加载失败');
+                    if (options.silent !== true) showToast(ctripPublicProfileError.value, 'error');
+                    return null;
+                } finally {
+                    if (requestSeq === ctripPublicProfileRequestSeq) ctripPublicProfileLoading.value = false;
+                }
+            };
+            const loadCtripCompetitiveOperations = async (options = {}) => {
+                const systemHotelId = String(options.systemHotelId || selectedCtripHotelId.value || '').trim();
+                const requestSeq = ++ctripCompetitiveOperationsRequestSeq;
+                if (!systemHotelId) {
+                    ctripCompetitiveOperationsPayload.value = null;
+                    ctripCompetitiveOperationsError.value = '';
+                    return null;
+                }
+                const startDate = String(ctripCompetitiveOperationsRange.value.start_date || '').trim();
+                const endDate = String(ctripCompetitiveOperationsRange.value.end_date || '').trim();
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate) || startDate > endDate) {
+                    ctripCompetitiveOperationsPayload.value = null;
+                    ctripCompetitiveOperationsError.value = '请选择正确的竞争运营日期范围';
+                    if (options.silent !== true) showToast(ctripCompetitiveOperationsError.value, 'warning');
+                    return null;
+                }
+                ctripCompetitiveOperationsLoading.value = true;
+                ctripCompetitiveOperationsError.value = '';
+                try {
+                    const res = await request(
+                        `/online-data/ctrip/competitive-operations?system_hotel_id=${encodeURIComponent(systemHotelId)}&start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`,
+                        { businessContext: { hotelId: systemHotelId, platform: 'ctrip' } }
+                    );
+                    if (requestSeq !== ctripCompetitiveOperationsRequestSeq
+                        || systemHotelId !== String(selectedCtripHotelId.value || '')
+                    ) return null;
+                    if (res?.code !== 200 || !res?.data || typeof res.data !== 'object') {
+                        throw new Error(res?.message || '携程竞争圈经营视图返回格式不完整');
+                    }
+                    ctripCompetitiveOperationsPayload.value = res.data;
+                    return res.data;
+                } catch (error) {
+                    if (requestSeq !== ctripCompetitiveOperationsRequestSeq) return null;
+                    ctripCompetitiveOperationsPayload.value = null;
+                    ctripCompetitiveOperationsError.value = String(error?.message || '携程竞争圈经营视图读取失败');
+                    if (options.silent !== true) showToast(ctripCompetitiveOperationsError.value, 'error');
+                    return null;
+                } finally {
+                    if (requestSeq === ctripCompetitiveOperationsRequestSeq) {
+                        ctripCompetitiveOperationsLoading.value = false;
+                    }
+                }
+            };
+            const handleCtripPublicProfileHotelChange = async () => {
+                ctripPublicProfileMutationSeq++;
+                ctripPublicProfileForm.value.ota_hotel_id = '';
+                ctripPublicProfileError.value = '';
+                ctripCompetitiveOperationsError.value = '';
+                return Promise.all([
+                    loadCtripPublicProfiles(),
+                    loadCtripCompetitiveOperations(),
+                ]);
+            };
+            const addCtripPublicProfileById = async () => {
+                const systemHotelId = String(selectedCtripHotelId.value || '').trim();
+                if (!systemHotelId) {
+                    showToast('请先选择系统门店', 'warning');
+                    return null;
+                }
+                const otaHotelId = normalizeCtripPublicHotelIdInput(ctripPublicProfileForm.value.ota_hotel_id);
+                if (!otaHotelId) {
+                    showToast('请输入正确的携程公开酒店ID，或完整公开酒店页链接', 'warning');
+                    return null;
+                }
+                const role = String(ctripPublicProfileForm.value.role || 'competitor') === 'self' ? 'self' : 'competitor';
+                const currentOwnId = normalizeCtripPublicHotelIdInput(ctripPublicProfileOwnBinding.value?.ota_hotel_id);
+                let replace = false;
+                if (role === 'self' && currentOwnId && currentOwnId !== otaHotelId) {
+                    replace = window.confirm(`本店当前绑定携程ID ${currentOwnId}，确认替换为 ${otaHotelId} 吗？`);
+                    if (!replace) return null;
+                }
+                const mutationSeq = ++ctripPublicProfileMutationSeq;
+                ctripPublicProfileSaving.value = true;
+                ctripPublicProfileError.value = '';
+                try {
+                    const res = await request('/online-data/ctrip/public-profiles/add', {
+                        method: 'POST',
+                        businessContext: { hotelId: systemHotelId, platform: 'ctrip' },
+                        body: JSON.stringify({
+                            system_hotel_id: Number(systemHotelId),
+                            ota_hotel_id: otaHotelId,
+                            role,
+                            replace,
+                        }),
+                    });
+                    if (res?.code !== 200 || !res?.data || !Array.isArray(res.data.profiles)) {
+                        throw new Error(res?.message || '携程酒店ID添加结果不完整');
+                    }
+                    if (mutationSeq !== ctripPublicProfileMutationSeq
+                        || systemHotelId !== String(selectedCtripHotelId.value || '')
+                    ) return null;
+                    applyCtripPublicProfilePayload(res.data);
+                    ctripPublicProfileForm.value.ota_hotel_id = '';
+                    ctripPublicProfileForm.value.role = res.data?.binding?.status === 'bound' ? 'competitor' : 'self';
+                    await loadCtripCompetitiveOperations({ silent: true });
+                    showToast(
+                        res.message || '携程酒店ID已添加',
+                        res.data.status === 'binding_saved_collection_failed' ? 'warning' : 'success'
+                    );
+                    return res.data;
+                } catch (error) {
+                    if (mutationSeq !== ctripPublicProfileMutationSeq
+                        || systemHotelId !== String(selectedCtripHotelId.value || '')
+                    ) return null;
+                    ctripPublicProfileError.value = String(error?.message || '携程酒店ID添加失败');
+                    showToast(ctripPublicProfileError.value, 'error');
+                    return null;
+                } finally {
+                    ctripPublicProfileSaving.value = false;
+                }
+            };
+            const refreshCtripPublicProfiles = async () => {
+                const systemHotelId = String(selectedCtripHotelId.value || '').trim();
+                if (!systemHotelId) {
+                    showToast('请先选择系统门店', 'warning');
+                    return null;
+                }
+                const mutationSeq = ++ctripPublicProfileMutationSeq;
+                ctripPublicProfileRefreshing.value = true;
+                ctripPublicProfileError.value = '';
+                try {
+                    const res = await request('/online-data/ctrip/public-profiles/sync', {
+                        method: 'POST',
+                        businessContext: { hotelId: systemHotelId, platform: 'ctrip' },
+                        body: JSON.stringify({ system_hotel_id: Number(systemHotelId), scope: 'all', limit: 30, force: true }),
+                    });
+                    if (res?.code !== 200) throw new Error(res?.message || '携程公开档案更新失败');
+                    if (mutationSeq !== ctripPublicProfileMutationSeq
+                        || systemHotelId !== String(selectedCtripHotelId.value || '')
+                    ) return null;
+                    await loadCtripPublicProfiles({ silent: true });
+                    await loadCtripCompetitiveOperations({ silent: true });
+                    showToast(res.message || '携程公开档案已更新', res.data?.status === 'partial' ? 'warning' : 'success');
+                    return res.data;
+                } catch (error) {
+                    if (mutationSeq !== ctripPublicProfileMutationSeq
+                        || systemHotelId !== String(selectedCtripHotelId.value || '')
+                    ) return null;
+                    ctripPublicProfileError.value = String(error?.message || '携程公开档案更新失败');
+                    await loadCtripPublicProfiles({ silent: true });
+                    showToast(ctripPublicProfileError.value, 'error');
+                    return null;
+                } finally {
+                    ctripPublicProfileRefreshing.value = false;
+                }
+            };
 
             let ctripSearchOpportunityRequestSeq = 0;
             const loadCtripSearchOpportunity = async (options = {}) => {
@@ -15001,6 +15783,18 @@
                 report_date: operationYesterday,
                 use_llm: true,
             });
+            const aiDailyReportJudgmentForm = ref({
+                target_type: 'overall',
+                target_key: '',
+                decision: 'accepted',
+                comment: '',
+                correction: '',
+            });
+            const aiDailyReportJudgmentSaving = ref(false);
+            const aiDailyReportAudience = ref('owner');
+            const aiDailyReportGenerationTask = ref(null);
+            const aiDailyReportGenerationTaskPolling = ref(false);
+            let aiDailyReportGenerationRequestSeq = 0;
             const operationLoading = ref({
                 fullData: false,
                 rootCause: false,
@@ -15269,6 +16063,60 @@
                     blocked_reason: '建议结构不完整',
                 };
             }).filter(Boolean);
+            const aiDailyReportGenerationOutcome = computed(() => aiDailyReportGenerationTask.value
+                ? resolveAiDailyReportGenerationOutcome(aiDailyReportGenerationTask.value)
+                : { kind: 'idle', limited: false, message: '' });
+            const aiDailyReportGenerationProgress = computed(() => {
+                const value = aiDailyReportGenerationTask.value?.progressPercent;
+                return Number.isFinite(value) ? value : null;
+            });
+            const aiDailyReportGenerationRunning = computed(() => aiDailyReportGenerationTaskPolling.value
+                && aiDailyReportGenerationOutcome.value.kind === 'pending');
+            const aiDailyReportGenerationStageText = computed(() => {
+                const task = aiDailyReportGenerationTask.value;
+                if (!task) return '';
+                if (task.readbackStatus === 'failed') return '任务已结束，报告回读验证失败';
+                if (task.readbackStatus === 'reading') return '任务已结束，正在回读报告';
+                if (task.readbackStatus === 'verified') {
+                    return aiDailyReportGenerationOutcome.value.limited
+                        ? '规则报告已回读，AI增强受限'
+                        : '日报已生成并回读验证';
+                }
+                return formatAiDailyReportGenerationStage(task);
+            });
+            const aiDailyReportGenerationStatusClass = computed(() => {
+                const task = aiDailyReportGenerationTask.value;
+                if (!task) return 'border-slate-200 bg-slate-50 text-slate-600';
+                if (task.clientError || task.readbackStatus === 'failed' || aiDailyReportGenerationOutcome.value.kind === 'failed') {
+                    return 'border-red-200 bg-red-50 text-red-700';
+                }
+                if (task.readbackStatus === 'verified' && aiDailyReportGenerationOutcome.value.limited) {
+                    return 'border-amber-200 bg-amber-50 text-amber-800';
+                }
+                if (task.readbackStatus === 'verified') return 'border-green-200 bg-green-50 text-green-700';
+                return 'border-blue-200 bg-blue-50 text-blue-700';
+            });
+            const aiDailyReportGenerationDetailText = computed(() => {
+                const task = aiDailyReportGenerationTask.value;
+                if (!task) return '';
+                if (task.clientError) return task.clientError;
+                if (task.readbackStatus === 'failed') {
+                    return operationError.value.aiDailyReport || '任务已结束，但精确报告回读未通过验证。';
+                }
+                if (aiDailyReportGenerationOutcome.value.kind === 'failed') {
+                    return aiDailyReportGenerationOutcome.value.message;
+                }
+                if (task.readbackStatus === 'verified' && aiDailyReportGenerationOutcome.value.limited) {
+                    return aiDailyReportGenerationOutcome.value.message || '规则报告可用，但AI增强未形成完整经营结论。';
+                }
+                if (task.readbackStatus === 'reading') return '正在按 result_report_id 回读，并核对报告ID与酒店范围。';
+                return task.errorMessage || '后台任务执行期间可查看真实阶段与进度。';
+            });
+            const aiDailyReportAiExplanation = computed(() => String(aiDailyReport.value?.ai_explanation || '').trim());
+            const aiDailyReportAiInterpretation = computed(() => {
+                const value = aiDailyReport.value?.ai_interpretation || aiDailyReport.value?.result_layers?.ai_assistance;
+                return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+            });
             const aiDailyReportMetricCards = computed(() => {
                 const metrics = aiDailyReportObjectList(aiDailyReport.value?.yesterday_result?.metrics);
                 return metrics.filter(item => item && item.value !== null && item.value !== undefined).slice(0, 10);
@@ -15279,7 +16127,29 @@
             const aiDailyReportCompetitorChanges = computed(() => aiDailyReportObjectList(aiDailyReport.value?.competitor_changes, 'label'));
             const aiDailyReportSourceCount = computed(() => aiDailyReportList(aiDailyReport.value?.source_refs).length);
             const aiDailyReportTransferableCount = computed(() => aiDailyReportActions.value.filter(action => action && !action.execution_intent_id && action.can_create_execution_intent !== false).length);
-            const aiDailyReportReadiness = computed(() => aiDailyReport.value?.report_readiness || null);
+            const aiDailyReportResultReadiness = computed(() => aiDailyReport.value?.result_readiness || aiDailyReport.value?.result_status || null);
+            const aiDailyReportWorkflowReadiness = computed(() => aiDailyReport.value?.workflow_readiness || aiDailyReport.value?.workflow_status || aiDailyReport.value?.report_readiness || null);
+            const aiDailyReportReadiness = computed(() => aiDailyReportWorkflowReadiness.value);
+            const aiDailyReportResultContract = computed(() => aiDailyReport.value?.result_contract || {});
+            const aiDailyReportResultLayers = computed(() => aiDailyReport.value?.result_layers || {});
+            const aiDailyReportHumanJudgments = computed(() => aiDailyReportObjectList(aiDailyReport.value?.human_judgments || aiDailyReportResultLayers.value?.human_judgments));
+            const aiDailyReportConfidenceText = computed(() => ({
+                high: '较高',
+                medium: '中等',
+                low: '较低',
+                not_assessed: '未评估',
+                unavailable: '不可评估',
+            }[String(aiDailyReportAiInterpretation.value?.confidence || '')] || '未评估'));
+            const aiDailyReportLayerCards = computed(() => {
+                const layers = aiDailyReportResultLayers.value || {};
+                return [
+                    { key: 'source', label: '来源事实', value: aiDailyReportObjectList(layers.source_facts).length, hint: '原始测得或来源指标' },
+                    { key: 'derived', label: '派生指标', value: aiDailyReportObjectList(layers.derived_metrics).length, hint: '上游分析指标，保留口径' },
+                    { key: 'signal', label: '待关注信号', value: aiDailyReportObjectList(layers.anomaly_signals).length, hint: '有参考才判定异常' },
+                    { key: 'ai', label: 'AI辅助', value: aiDailyReportAiInterpretation.value?.status === 'available' ? '已生成' : '未形成', hint: `置信 ${aiDailyReportConfidenceText.value}` },
+                    { key: 'human', label: '人工判断', value: aiDailyReportHumanJudgments.value.length, hint: '仅作用于本酒店本报告' },
+                ];
+            });
             const aiDailyFactGate = computed(() => revenueAiBuildDailyFactGate(aiDailyFactGateState.value));
             const aiDailyReportReadinessCards = computed(() => {
                 const readiness = aiDailyReportReadiness.value || {};
@@ -15335,14 +16205,14 @@
                 const report = aiDailyReport.value;
                 if (!report) return '未生成';
                 if (report.generation_mode === 'llm' && report.model_status === 'ok') return 'AI已生成';
-                if (report.model_status === 'failed') return '模型失败，规则版已生成';
+                if (aiDailyReportModelIsLimited(report.model_status)) return '数据或模型受限，规则版仅供核验';
                 return '规则版已生成';
             });
             const aiDailyReportModelClass = computed(() => {
                 const report = aiDailyReport.value;
                 if (!report) return 'bg-gray-100 text-gray-500';
                 if (report.generation_mode === 'llm' && report.model_status === 'ok') return 'bg-green-50 text-green-700';
-                if (report.model_status === 'failed') return 'bg-amber-50 text-amber-700';
+                if (aiDailyReportModelIsLimited(report.model_status)) return 'bg-amber-50 text-amber-700';
                 return 'bg-blue-50 text-blue-700';
             });
             const aiDailyReportMetricValue = (metric) => {
@@ -15371,12 +16241,153 @@
                 await createAiDailyExecutionIntent(action, index);
             };
             const aiDailyReportReadinessClass = (stage) => {
+                if (stage === 'available') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                if (stage === 'partial') return 'bg-blue-50 text-blue-700 border-blue-200';
+                if (['unavailable', 'unverified'].includes(stage)) return 'bg-rose-50 text-rose-700 border-rose-200';
                 if (['daily_loop_closed', 'action_closed_loop'].includes(stage)) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
                 if (['partial_roi_ready', 'reviewed_no_roi', 'evidence_pending_review'].includes(stage)) return 'bg-blue-50 text-blue-700 border-blue-200';
                 if (['executed_missing_evidence', 'execution_in_progress', 'pending_execution_transfer', 'approved_pending_execution', 'intent_pending_approval', 'pending_transfer'].includes(stage)) return 'bg-amber-50 text-amber-700 border-amber-200';
                 if (['data_recheck_required', 'blocked', 'blocked_by_data_gap', 'rejected', 'failed'].includes(stage)) return 'bg-rose-50 text-rose-700 border-rose-200';
                 if (stage === 'investigation_only') return 'bg-slate-100 text-slate-700 border-slate-200';
                 return 'bg-gray-50 text-gray-600 border-gray-200';
+            };
+            const aiDailyReportReferenceText = (item = {}) => {
+                const basis = item?.reference_basis && typeof item.reference_basis === 'object'
+                    ? item.reference_basis
+                    : {};
+                if (basis.status !== 'available') {
+                    return basis.note || '未提供同口径参考；当前仅作为待关注信号，不判定为已证实异常。';
+                }
+                const details = basis.details && typeof basis.details === 'object'
+                    ? Object.entries(basis.details)
+                        .slice(0, 3)
+                        .map(([key, value]) => `${key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`)
+                        .join(' / ')
+                    : '';
+                return `参考依据：${basis.type || '已声明参考'}${details ? ` / ${details}` : ''}`;
+            };
+            const aiDailyReportJudgmentTargetText = (value) => ({
+                overall: '整份结果',
+                ai_interpretation: 'AI辅助解读',
+                anomaly_signal: '待关注信号',
+                reference_set: '参考依据',
+                report_usefulness: '结果是否有用',
+            }[String(value || '')] || '整份结果');
+            const aiDailyReportJudgmentDecisionText = (value) => ({
+                accepted: '接受',
+                rejected: '驳回',
+                corrected: '修正',
+                needs_more_evidence: '需补证据',
+            }[String(value || '')] || '待判断');
+            const buildAiDailyReportSharePackage = (audience = 'owner') => {
+                const report = aiDailyReport.value || {};
+                const contract = aiDailyReportResultContract.value || {};
+                const common = {
+                    package_version: 'ai_daily_share.v1',
+                    audience,
+                    report_date: report.report_date || '',
+                    summary: report.summary || '',
+                    result_status: aiDailyReportResultReadiness.value || {},
+                    result_contract: contract,
+                    ai_boundary: aiDailyReportAiInterpretation.value?.boundary || 'AI辅助解读，不替代酒店老板或行业专家判断。',
+                    generated_from_result_version: contract.result_version || '',
+                    trial_validation: report.trial_validation || {},
+                };
+                if (audience === 'expert') {
+                    return {
+                        ...common,
+                        result_layers: aiDailyReportResultLayers.value,
+                        source_refs: aiDailyReportObjectList(report.source_refs),
+                        competitor_changes: aiDailyReportCompetitorChanges.value,
+                        data_gaps: aiDailyReportDataGaps.value,
+                        workflow_gaps: aiDailyReportObjectList(report.workflow_gaps),
+                        workflow_status: aiDailyReportWorkflowReadiness.value || {},
+                        human_judgments: aiDailyReportHumanJudgments.value,
+                    };
+                }
+                if (audience === 'training') {
+                    const sanitizeMetric = (item = {}) => ({
+                        key: item.key || '', label: item.label || '', value: item.value ?? null,
+                        unit: item.unit || '', data_status: item.data_status || '', result_layer: item.result_layer || '',
+                    });
+                    return {
+                        ...common,
+                        report_date: '',
+                        case_id: String(contract.result_version || 'unversioned').slice(0, 12),
+                        anonymization: '已移除酒店ID、来源行标识、精确日期、操作者和人工判断记录。',
+                        result_contract: {
+                            contract_version: contract.contract_version || '',
+                            metric_version: contract.metric_version || '',
+                            reference_version: contract.reference_version || '',
+                            boundary: contract.boundary || '',
+                        },
+                        source_facts: aiDailyReportObjectList(aiDailyReportResultLayers.value?.source_facts).map(sanitizeMetric),
+                        derived_metrics: aiDailyReportObjectList(aiDailyReportResultLayers.value?.derived_metrics).map(sanitizeMetric),
+                        anomaly_signals: aiDailyReportAbnormalMetrics.value.map(item => ({
+                            type: item.type || '', label: item.label || '', level: item.level || '',
+                            evidence: item.evidence || '', signal_status: item.signal_status || '',
+                            reference_status: item.reference_basis?.status || 'missing',
+                        })),
+                        ai_assistance: aiDailyReportAiInterpretation.value,
+                        data_gaps: aiDailyReportDataGaps.value.map(gap => ({ code: gap.code || '', message: gap.message || '' })),
+                    };
+                }
+                return {
+                    ...common,
+                    key_metrics: aiDailyReportMetricCards.value.slice(0, 6),
+                    key_signals: aiDailyReportAbnormalMetrics.value.slice(0, 3),
+                    data_gaps: aiDailyReportDataGaps.value,
+                    ai_assistance: aiDailyReportAiInterpretation.value,
+                    latest_human_judgment: aiDailyReportHumanJudgments.value.slice(-1)[0] || null,
+                };
+            };
+            const downloadAiDailyReportPackage = () => {
+                if (!aiDailyReport.value) return;
+                const audience = String(aiDailyReportAudience.value || 'owner');
+                const payload = buildAiDailyReportSharePackage(audience);
+                const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `suxios-ai-daily-${audience}-${aiDailyReport.value.report_date || 'result'}.json`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+                showToast('结果交付件已生成', 'success');
+            };
+            const submitAiDailyReportJudgment = async () => {
+                const reportId = Number(aiDailyReport.value?.id || 0);
+                if (!reportId || aiDailyReportJudgmentSaving.value) return;
+                const form = aiDailyReportJudgmentForm.value || {};
+                if (['rejected', 'corrected', 'needs_more_evidence'].includes(form.decision)
+                    && !String(form.comment || '').trim()
+                    && !String(form.correction || '').trim()) {
+                    showToast('请填写判断理由或修正意见', 'warning');
+                    return;
+                }
+                aiDailyReportJudgmentSaving.value = true;
+                try {
+                    const res = await apiRequest(`/ai-daily-reports/${reportId}/human-judgments`, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            target_type: form.target_type,
+                            target_key: String(form.target_key || '').trim(),
+                            decision: form.decision,
+                            comment: String(form.comment || '').trim(),
+                            correction: String(form.correction || '').trim(),
+                        }),
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '人工判断保存失败');
+                    aiDailyReport.value = res.data || aiDailyReport.value;
+                    aiDailyReportJudgmentForm.value.comment = '';
+                    aiDailyReportJudgmentForm.value.correction = '';
+                    showToast('人工判断已保存并回读', 'success');
+                } catch (error) {
+                    showToast(operationErrorMessage(error, '人工判断保存失败'), 'error');
+                } finally {
+                    aiDailyReportJudgmentSaving.value = false;
+                }
             };
             const aiDailyReportGapActionText = (gap) => {
                 return aiDailyReportEvidenceTarget(gap).label;
@@ -15769,6 +16780,7 @@
 
             let aiDailyFactGateRequestSeq = 0;
             const loadAiDailyFactGate = async (options = {}) => {
+                await ensureRevenueAiStaticReady();
                 const requestSeq = ++aiDailyFactGateRequestSeq;
                 const explicitHotelId = String(options?.hotelId || '').trim();
                 const hotelId = explicitHotelId || normalizeOperationHotelSelection(aiDailyReportForm, {
@@ -15837,7 +16849,11 @@
 
             let aiDailyReportRequestSeq = 0;
             const loadAiDailyReport = async () => {
-                await ensureOperationStaticReady();
+                if (aiDailyReportGenerationTaskPolling.value) return;
+                await Promise.all([
+                    ensureOperationStaticReady(),
+                    ensureRevenueAiStaticReady(),
+                ]);
                 const requestSeq = ++aiDailyReportRequestSeq;
                 operationLoading.value.aiDailyReport = true;
                 operationError.value.aiDailyReport = '';
@@ -15873,35 +16889,153 @@
                 }
             };
 
+            const validateAiDailyReportReadback = (payload, expectedReportId, expectedHotelId) => {
+                const report = payload?.report && typeof payload.report === 'object' ? payload.report : payload;
+                if (!report || typeof report !== 'object' || Array.isArray(report)) {
+                    throw new Error('AI经营日报回读响应格式无效');
+                }
+                const reportId = aiDailyReportTaskPositiveInteger(report.id);
+                const hotelId = aiDailyReportTaskPositiveInteger(report.hotel_id);
+                const normalizedExpectedReportId = aiDailyReportTaskPositiveInteger(expectedReportId);
+                const normalizedExpectedHotelId = aiDailyReportTaskPositiveInteger(expectedHotelId);
+                if (!reportId || (normalizedExpectedReportId && reportId !== normalizedExpectedReportId)) {
+                    throw new Error('AI经营日报回读资源ID不一致');
+                }
+                if (!hotelId || (normalizedExpectedHotelId && hotelId !== normalizedExpectedHotelId)) {
+                    throw new Error('AI经营日报回读酒店范围不一致');
+                }
+                return report;
+            };
+
+            const readAiDailyReportById = async (reportId, expectedHotelId) => {
+                const normalizedReportId = aiDailyReportTaskPositiveInteger(reportId);
+                if (!normalizedReportId) throw new Error('AI经营日报任务未返回有效报告ID');
+                const res = await apiRequest(`/ai-daily-reports/${normalizedReportId}`);
+                if (res.code !== 200) throw new Error(res.message || 'AI经营日报精确回读失败');
+                return validateAiDailyReportReadback(res.data, normalizedReportId, expectedHotelId);
+            };
+
             const generateAiDailyReport = async () => {
+                const requestSeq = ++aiDailyReportGenerationRequestSeq;
                 operationLoading.value.aiDailyReport = true;
                 operationError.value.aiDailyReport = '';
+                aiDailyReportGenerationTaskPolling.value = false;
+                aiDailyReportGenerationTask.value = null;
                 try {
+                    await Promise.all([
+                        ensureOperationStaticReady(),
+                        ensureRevenueAiStaticReady(),
+                    ]);
                     const hotelId = normalizeOperationHotelSelection(aiDailyReportForm, {
                         requireHotel: true,
                         errorKey: 'aiDailyReport',
                         fallbackMessage: '请选择有权限的酒店',
                     });
                     if (hotelId === null) return;
+                    const expectedHotelId = aiDailyReportTaskPositiveInteger(hotelId);
+                    if (!expectedHotelId) throw new Error('请选择有权限的酒店');
+                    const reportDate = aiDailyReportForm.value.report_date || operationYesterday;
                     operationFilters.value.hotel_id = String(hotelId);
-                    void loadAiDailyFactGate({ hotelId, targetDate: aiDailyReportForm.value.report_date || operationYesterday });
+                    aiDailyReport.value = null;
+                    void loadAiDailyFactGate({ hotelId, targetDate: reportDate });
                     const res = await apiRequest('/ai-daily-reports/generate', {
                         method: 'POST',
                         body: JSON.stringify({
                             hotel_id: hotelId,
-                            report_date: aiDailyReportForm.value.report_date || operationYesterday,
+                            report_date: reportDate,
                             use_llm: aiDailyReportForm.value.use_llm,
+                            background: true,
                         }),
                     });
                     if (res.code !== 200) throw new Error(res.message || 'AI经营日报生成失败');
-                    aiDailyReport.value = res.data || null;
-                    showToast('AI经营日报已生成');
-                    await loadOperationActions();
+                    if (requestSeq !== aiDailyReportGenerationRequestSeq) return;
+
+                    const responseData = res.data || null;
+                    const responseTaskId = String(responseData?.task_id || '').trim();
+                    if (!responseTaskId) {
+                        const directReport = validateAiDailyReportReadback(
+                            responseData?.report || responseData,
+                            responseData?.report?.id || responseData?.id,
+                            expectedHotelId
+                        );
+                        aiDailyReport.value = directReport;
+                        if (aiDailyReportModelIsLimited(directReport.model_status)) {
+                            showToast('经营日报规则报告已生成；AI增强受数据质量限制，请查看缺口。', 'warning');
+                        } else {
+                            showToast('AI经营日报已生成并完成酒店范围校验', 'success');
+                        }
+                        void loadOperationActions();
+                        return;
+                    }
+
+                    const initialTask = normalizeAiDailyReportGenerationTask(responseData, expectedHotelId, responseTaskId);
+                    const initialDeduplicated = initialTask.deduplicated;
+                    const updateGenerationTask = (task, patch = {}) => {
+                        const previous = aiDailyReportGenerationTask.value;
+                        aiDailyReportGenerationTask.value = {
+                            ...task,
+                            cacheHit: task.cacheHit || previous?.cacheHit === true,
+                            deduplicated: task.deduplicated || previous?.deduplicated === true || initialDeduplicated,
+                            readbackStatus: previous?.readbackStatus || '',
+                            ...patch,
+                        };
+                    };
+                    updateGenerationTask(initialTask);
+                    aiDailyReportGenerationTaskPolling.value = true;
+
+                    const pollResult = await pollAiDailyReportGenerationTask({
+                        taskId: responseTaskId,
+                        expectedHotelId,
+                        initialTask,
+                        requestTask: (taskId) => apiRequest(`/ai-daily-reports/tasks/${encodeURIComponent(taskId)}`),
+                        wait: (delay) => new Promise(resolve => setTimeout(resolve, delay)),
+                        onProgress: (task) => {
+                            if (requestSeq === aiDailyReportGenerationRequestSeq) updateGenerationTask(task);
+                        },
+                        isCurrent: () => requestSeq === aiDailyReportGenerationRequestSeq,
+                    });
+                    if (requestSeq !== aiDailyReportGenerationRequestSeq || pollResult.outcome.kind === 'cancelled') return;
+                    updateGenerationTask(pollResult.task);
+                    if (pollResult.outcome.kind === 'failed') throw new Error(pollResult.outcome.message);
+
+                    updateGenerationTask(pollResult.task, { readbackStatus: 'reading' });
+                    const report = await readAiDailyReportById(pollResult.task.resultReportId, expectedHotelId);
+                    if (requestSeq !== aiDailyReportGenerationRequestSeq) return;
+                    const verifiedTask = {
+                        ...pollResult.task,
+                        modelStatus: pollResult.task.modelStatus || String(report.model_status || '').trim().toLowerCase(),
+                    };
+                    const verifiedOutcome = resolveAiDailyReportGenerationOutcome(verifiedTask);
+                    updateGenerationTask(verifiedTask, { readbackStatus: 'verified' });
+                    aiDailyReport.value = report;
+
+                    if (verifiedOutcome.kind === 'limited') {
+                        showToast(verifiedOutcome.message || '规则报告已生成并回读，但AI增强受限。', 'warning');
+                    } else if (verifiedOutcome.kind === 'succeeded') {
+                        showToast('AI经营日报已生成并完成精确回读验证', 'success');
+                    } else {
+                        throw new Error(verifiedOutcome.message || 'AI日报任务终态无法确认');
+                    }
+                    void loadOperationActions();
                 } catch (error) {
+                    if (requestSeq !== aiDailyReportGenerationRequestSeq) return;
                     operationError.value.aiDailyReport = operationErrorMessage(error, 'AI经营日报生成失败');
+                    if (aiDailyReportGenerationTask.value) {
+                        const currentTask = aiDailyReportGenerationTask.value;
+                        const currentOutcome = resolveAiDailyReportGenerationOutcome(currentTask);
+                        aiDailyReportGenerationTask.value = {
+                            ...currentTask,
+                            ...(currentOutcome.kind === 'succeeded' || currentOutcome.kind === 'limited'
+                                ? { readbackStatus: 'failed' }
+                                : { clientError: operationError.value.aiDailyReport }),
+                        };
+                    }
                     showToast(operationError.value.aiDailyReport, 'error');
                 } finally {
-                    operationLoading.value.aiDailyReport = false;
+                    if (requestSeq === aiDailyReportGenerationRequestSeq) {
+                        operationLoading.value.aiDailyReport = false;
+                        aiDailyReportGenerationTaskPolling.value = false;
+                    }
                 }
             };
 
@@ -17441,74 +18575,85 @@
             };
 
             // 登录
-            const resetRegisterForm = () => {
-                registerForm.value = createRegisterForm();
+            const LOGIN_AUTOFILL_SYNC_DELAYS = [0, 100, 300, 800, 1500];
+            let loginAutofillSyncTimers = [];
+            let loginSupportTriggerElement = null;
+
+            const clearLoginAutofillSyncTimers = () => {
+                loginAutofillSyncTimers.forEach(timer => clearTimeout(timer));
+                loginAutofillSyncTimers = [];
             };
 
-            const openRegisterForm = () => {
-                registerMode.value = true;
+            const syncLoginFormFromDom = () => {
+                if (isLoggedIn.value) return false;
+                const usernameInput = document.getElementById('login-username');
+                const passwordInput = document.getElementById('login-password');
+                if (!usernameInput || !passwordInput) return false;
+
+                const username = String(usernameInput.value || '');
+                const password = String(passwordInput.value || '');
+                let changed = false;
+                if (loginForm.value.username !== username) {
+                    loginForm.value.username = username;
+                    changed = true;
+                }
+                if (loginForm.value.password !== password) {
+                    loginForm.value.password = password;
+                    changed = true;
+                }
+                if (changed) loginError.value = '';
+                return changed;
+            };
+
+            const scheduleLoginAutofillSync = () => {
+                if (isLoggedIn.value) return;
+                clearLoginAutofillSyncTimers();
+                LOGIN_AUTOFILL_SYNC_DELAYS.forEach(delay => {
+                    loginAutofillSyncTimers.push(setTimeout(() => {
+                        nextTick(syncLoginFormFromDom);
+                    }, delay));
+                });
+            };
+
+            const handleLoginVisibilityChange = () => {
+                if (document.visibilityState === 'visible') scheduleLoginAutofillSync();
+            };
+
+            const handleLoginFieldInput = () => {
                 loginError.value = '';
-                registerError.value = '';
-                registerSuccess.value = '';
-                nextTick(() => {
-                    const usernameInput = document.querySelector('[data-testid="register-username"]');
-                    if (usernameInput) usernameInput.focus();
-                });
+                scheduleLoginAutofillSync();
             };
 
-            const closeRegisterForm = () => {
-                registerMode.value = false;
-                registerError.value = '';
-                registerSuccess.value = '';
-                resetRegisterForm();
-                nextTick(() => {
-                    const usernameInput = document.querySelector('[data-testid="login-username"]');
-                    if (usernameInput) usernameInput.focus();
-                });
+            const handleLoginPasswordKeyEvent = (event) => {
+                passwordCapsLockOn.value = Boolean(event?.getModifierState?.('CapsLock'));
             };
 
-            const handleRegister = async () => {
-                if (registerLoading.value) {
-                    return;
-                }
+            const clearLoginPasswordCapsLock = () => {
+                passwordCapsLockOn.value = false;
+            };
 
-                registerError.value = '';
-                registerSuccess.value = '';
+            const requestWithTimeout = async (url, options = {}, timeoutMs = 15000, timeoutMessage = '请求超时，请稍后重试') => {
+                const controller = new AbortController();
+                let timedOut = false;
+                const timeoutId = setTimeout(() => {
+                    timedOut = true;
+                    controller.abort();
+                }, timeoutMs);
 
-                const payload = buildRegisterRequestPayload(registerForm.value);
-                const validationError = validateRegisterRequestPayload(payload);
-                if (validationError) {
-                    registerError.value = validationError;
-                    return;
-                }
-
-                registerLoading.value = true;
                 try {
-                    const res = await request('/auth/register', {
-                        method: 'POST',
-                        body: JSON.stringify(payload)
+                    return await request(url, {
+                        ...options,
+                        signal: controller.signal,
                     });
-
-                    if (res.code === 200) {
-                        loginForm.value.username = payload.username;
-                        loginForm.value.password = '';
-                        registerSuccess.value = res.message || res.msg || '注册申请已提交，等待超级管理员审核启用后才能登录';
-                        resetRegisterForm();
-                        setTimeout(() => {
-                            registerMode.value = false;
-                            registerSuccess.value = '';
-                            nextTick(() => {
-                                const passwordInput = document.querySelector('[data-testid="login-password"]');
-                                if (passwordInput) passwordInput.focus();
-                            });
-                        }, 600);
-                    } else {
-                        registerError.value = res.message || res.msg || '注册失败';
-                    }
                 } catch (error) {
-                    registerError.value = error?.data?.message || error?.data?.msg || error?.message || '注册失败';
+                    if (timedOut || error?.name === 'AbortError') {
+                        const timeoutError = new Error(timeoutMessage);
+                        timeoutError.name = 'RequestTimeoutError';
+                        throw timeoutError;
+                    }
+                    throw error;
                 } finally {
-                    registerLoading.value = false;
+                    clearTimeout(timeoutId);
                 }
             };
 
@@ -17516,6 +18661,7 @@
                 if (loading.value) {
                     return;
                 }
+                syncLoginFormFromDom();
                 const payload = buildLoginRequestPayload(loginForm.value);
                 const validationError = validateLoginRequestPayload(payload);
                 if (validationError) {
@@ -17526,10 +18672,10 @@
                 loading.value = true;
                 loginError.value = '';
                 try {
-                    const res = await request('/auth/login', {
+                    const res = await requestWithTimeout('/auth/login', {
                         method: 'POST',
                         body: JSON.stringify(payload)
-                    });
+                    }, 15000, '登录请求超时，请检查网络后重试');
 
                     if (res.code === 200) {
                         loginError.value = '';
@@ -17569,10 +18715,77 @@
                 }
             };
 
-            const forgotPassword = () => {
-                alert('请联系超级管理员');
-                showToast('请联系超级管理员', 'info');
+            const loadLoginSupportContact = async () => {
+                if (loginSupportLoading.value) return;
+                loginSupportLoading.value = true;
+                loginSupportError.value = '';
+                try {
+                    const res = await requestWithTimeout('/auth/login-support', {}, 8000, '获取联系方式超时，请稍后重试');
+                    const contact = String(res?.data?.contact || '').trim();
+                    if (res?.code !== 200 || !contact) {
+                        throw new Error(res?.message || res?.msg || '暂时无法获取管理员联系方式');
+                    }
+                    loginSupportContact.value = contact;
+                } catch (error) {
+                    loginSupportContact.value = '';
+                    loginSupportError.value = error?.message || '暂时无法获取管理员联系方式，请稍后重试';
+                } finally {
+                    loginSupportLoading.value = false;
+                }
             };
+
+            const openLoginSupport = async () => {
+                loginSupportTriggerElement = document.activeElement && typeof document.activeElement.focus === 'function'
+                    ? document.activeElement
+                    : null;
+                loginSupportOpen.value = true;
+                loginSupportError.value = '';
+                nextTick(() => {
+                    document.querySelector('[data-testid="login-support-dialog"]')?.focus();
+                });
+                await loadLoginSupportContact();
+            };
+
+            const closeLoginSupport = () => {
+                loginSupportOpen.value = false;
+                const trigger = loginSupportTriggerElement;
+                loginSupportTriggerElement = null;
+                nextTick(() => trigger?.focus?.());
+            };
+
+            const handleLoginSupportKeydown = (event) => {
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    closeLoginSupport();
+                    return;
+                }
+                if (event.key !== 'Tab') return;
+                const focusable = Array.from(event.currentTarget.querySelectorAll('button:not(:disabled)'));
+                if (!focusable.length) return;
+                const first = focusable[0];
+                const last = focusable[focusable.length - 1];
+                if (event.shiftKey && document.activeElement === first) {
+                    event.preventDefault();
+                    last.focus();
+                } else if (!event.shiftKey && document.activeElement === last) {
+                    event.preventDefault();
+                    first.focus();
+                }
+            };
+
+            const copyLoginSupportContact = () => {
+                const contact = String(loginSupportContact.value || '').trim();
+                if (!contact) return;
+                copyToClipboard(contact);
+            };
+
+            watch(isLoggedIn, loggedIn => {
+                if (loggedIn) {
+                    clearLoginAutofillSyncTimers();
+                    return;
+                }
+                scheduleLoginAutofillSync();
+            });
 
             // 侧边栏折叠切换
             const toggleSidebar = () => {
@@ -17587,10 +18800,7 @@
             const handleLogout = async () => {
                 await request('/auth/logout', { method: 'POST' });
                 globalNotificationOpen.value = false;
-                strongOtaReminderOpen.value = false;
-                strongOtaReminderDeferredKeys.value = [];
-                saveStrongOtaReminderSessionKeys([]);
-                stopStrongOtaReminderAttentionTimer(true);
+                resetStrongOtaReminderSessionState();
                 clearAuthSession();
             };
 
@@ -19191,6 +20401,21 @@
                 const pool = permittedHotels.value && permittedHotels.value.length ? permittedHotels.value : hotels.value;
                 return Array.isArray(pool) ? pool : [];
             });
+            const ctripPublicProfileHotelOptions = computed(() => {
+                const seen = new Set();
+                return platformTargetHotelPool.value
+                    .map(hotel => {
+                        const id = String(hotel?.id || '').trim();
+                        if (!id || seen.has(id)) return null;
+                        seen.add(id);
+                        return {
+                            ...hotel,
+                            id,
+                            name: String(hotel?.name || hotel?.hotel_name || getHotelNameById(id) || `门店 ${id}`),
+                        };
+                    })
+                    .filter(Boolean);
+            });
 
             const platformConfigHotelId = (config = {}) => String(config.hotel_id || config.system_hotel_id || '').trim();
             const platformConfigHotelName = (config = {}, hotelId = '') => {
@@ -20128,7 +21353,10 @@
 
             const knowledgeChunkTextList = (value, limit = 4) => {
                 if (Array.isArray(value)) {
-                    return value.map(item => String(item || '').trim()).filter(Boolean).slice(0, limit);
+                    return value.flatMap(item => knowledgeChunkTextList(item, limit)).filter(Boolean).slice(0, limit);
+                }
+                if (value && typeof value === 'object') {
+                    return Object.values(value).flatMap(item => knowledgeChunkTextList(item, limit)).filter(Boolean).slice(0, limit);
                 }
                 const text = String(value || '').trim();
                 return text ? [text] : [];
@@ -20150,24 +21378,76 @@
                 const distilled = normalizeKnowledgeChunkContent(content.ai_distilled || {});
                 const sourceData = Object.keys(distilled).length > 0 ? distilled : content;
                 const rawText = String(content.raw_text || distilled.raw_text || content.text || '').trim();
+                const taskTemplate = content.task_template && typeof content.task_template === 'object'
+                    ? content.task_template
+                    : null;
+                const sopFields = (Array.isArray(content.fields) ? content.fields : [])
+                    .map(field => ({
+                        label: String(field?.label || '').trim(),
+                        value: knowledgeChunkTextList(field?.content, 20).join('；'),
+                    }))
+                    .filter(field => field.label || field.value);
+                const worksheetHeaders = knowledgeChunkTextList(content.headers, 30);
+                const worksheetRows = (Array.isArray(content.rows) ? content.rows : [])
+                    .slice(0, 30)
+                    .map(row => (Array.isArray(row) ? row : [row]).map(cell => knowledgeChunkTextList(cell, 10).join('；')));
+                const governanceBoundaries = knowledgeChunkTextList(content.governance, 12);
                 const metaRows = [
-                    { label: '类型', value: content.material_type || sourceData.material_type || chunk?.type || '' },
-                    { label: '来源', value: content.source || sourceData.source || '' },
+                    { label: '模块', value: content.module_name || '' },
+                    { label: '章节', value: content.section_title || '' },
+                    { label: '岗位', value: knowledgeChunkTextList(content.roles, 12).join('、') },
+                    { label: '场景', value: knowledgeChunkTextList(content.scenes, 12).join('、') },
+                    { label: '平台', value: knowledgeChunkTextList(content.platforms, 12).join('、') },
+                    { label: '来源版本', value: content.seed_version || '' },
+                    { label: '证据级别', value: content.evidence_level || '' },
+                    { label: '适用边界', value: content.scope || '' },
+                    { label: '来源', value: knowledgeChunkTextList(content.source_refs, 6).join('；') || content.source || sourceData.source || '' },
+                    { label: '类型', value: content.material_type || sourceData.material_type || content.content_type || chunk?.type || '' },
                     { label: '模型', value: content.model_key || sourceData.model_key || '' },
                     { label: '导入时间', value: content.imported_at || sourceData.distilled_at || '' },
                 ].filter(row => row.value);
 
                 return {
-                    summary: String(sourceData.summary || content.summary || content.text || '').trim(),
+                    title: String(content.title || content.module_name || '').trim(),
+                    summary: String(sourceData.summary || content.summary || content.module_summary || content.note || content.extra || content.text || '').trim(),
                     profileRows: knowledgeChunkProfileRows(sourceData.hotel_profile || content.hotel_profile),
                     facts: knowledgeChunkTextList(sourceData.facts || content.facts),
                     actions: knowledgeChunkTextList(sourceData.actions || content.actions),
-                    boundaries: knowledgeChunkTextList(sourceData.boundaries || content.boundaries),
+                    boundaries: [
+                        ...knowledgeChunkTextList(sourceData.boundaries || content.boundaries, 12),
+                        ...governanceBoundaries,
+                    ].filter((item, index, rows) => rows.indexOf(item) === index).slice(0, 12),
                     metaRows,
+                    sopFields,
+                    steps: knowledgeChunkTextList(taskTemplate?.steps, 20),
+                    acceptanceCriteria: knowledgeChunkTextList(taskTemplate?.acceptance_criteria, 20),
+                    worksheetHeaders,
+                    worksheetRows,
                     rawText,
                     fullJson: formatKnowledgeJson(content),
+                    taskTemplate,
+                    contentKey: String(content.content_key || '').trim(),
                 };
             };
+
+            const knowledgeChunkMatchesCurrentFilter = (chunk) => {
+                const content = normalizeKnowledgeChunkContent(chunk?.content);
+                const exact = (field, value) => String(field || '').trim().toLowerCase() === String(value || '').trim().toLowerCase();
+                const listHas = (field, value) => knowledgeChunkTextList(field, 100)
+                    .some(item => exact(item, value));
+                const filter = knowledgeCenterFilter.value || {};
+                if (filter.module && !exact(content.module_id, filter.module)) return false;
+                if (filter.role && !listHas(content.roles, filter.role)) return false;
+                if (filter.scene && !listHas(content.scenes, filter.scene)) return false;
+                if (filter.platform && !listHas(content.platforms, filter.platform)) return false;
+                if (filter.evidence_level && !exact(content.evidence_level, filter.evidence_level)) return false;
+                if (filter.version && !exact(content.seed_version, filter.version)) return false;
+                const keyword = String(filter.keyword || '').trim().toLowerCase();
+                if (keyword && !JSON.stringify(content).toLowerCase().includes(keyword)) return false;
+                return true;
+            };
+
+            const knowledgeCenterVisibleChunks = computed(() => knowledgeCenterChunks.value.filter(knowledgeChunkMatchesCurrentFilter));
 
             const parseKnowledgeContent = (raw) => {
                 const text = String(raw || '').trim();
@@ -20190,6 +21470,10 @@
                     if (knowledgeCenterFilter.value.status) params.append('status', knowledgeCenterFilter.value.status);
                     if (knowledgeCenterFilter.value.tag) params.append('tag', knowledgeCenterFilter.value.tag.trim());
                     if (knowledgeCenterFilter.value.source) params.append('source', knowledgeCenterFilter.value.source.trim());
+                    for (const key of ['module', 'role', 'scene', 'platform', 'evidence_level', 'version']) {
+                        const value = String(knowledgeCenterFilter.value[key] || '').trim();
+                        if (value) params.append(key, value);
+                    }
 
                     const res = await request(`/knowledge/list?${params.toString()}`);
                     if (res.code === 0) {
@@ -20226,7 +21510,10 @@
             };
 
             const resetKnowledgeCenterFilter = () => {
-                knowledgeCenterFilter.value = { keyword: '', status: '', tag: '', source: '' };
+                knowledgeCenterFilter.value = {
+                    keyword: '', status: '', tag: '', source: '',
+                    module: '', role: '', scene: '', platform: '', evidence_level: '', version: '',
+                };
                 reloadKnowledgeCenter();
             };
 
@@ -20368,14 +21655,48 @@
                 }
             };
 
+            const createKnowledgeSopTask = async (chunk) => {
+                const unitId = Number(knowledgeCenterSelectedUnit.value?.unit_id || 0);
+                const chunkId = Number(chunk?.chunk_id || 0);
+                const hotelId = Number(defaultKnowledgeCenterHotelId() || 0);
+                if (!unitId || !chunkId) {
+                    showToast('SOP卡片标识缺失，无法生成任务', 'error');
+                    return;
+                }
+                if (!hotelId) {
+                    showToast('请先选择或配置当前门店', 'warning');
+                    return;
+                }
+                const due = new Date();
+                due.setDate(due.getDate() + 7);
+                try {
+                    const res = await request(`/knowledge/${unitId}/chunks/${chunkId}/execution-intent`, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            hotel_id: hotelId,
+                            platform: String(knowledgeCenterFilter.value.platform || 'ota'),
+                            due_at: due.toISOString().slice(0, 10),
+                        }),
+                    });
+                    if (res.code === 0) {
+                        const intentId = Number(res.data?.execution_intent?.id || 0);
+                        showToast(intentId ? `任务草稿已生成 #${intentId}，请到运营管理审批` : '任务草稿已生成，请到运营管理审批');
+                        return;
+                    }
+                    showToast(res.msg || 'SOP任务草稿生成失败', 'error');
+                } catch (error) {
+                    showToast(error.message || 'SOP任务草稿生成失败', 'error');
+                }
+            };
+
             const isAllKnowledgeCenterPageSelected = computed(() => {
-                const ids = knowledgeCenterUnits.value.map(unit => String(unit.unit_id)).filter(Boolean);
+                const ids = knowledgeCenterUnits.value.filter(unit => unit?.can_edit !== false).map(unit => String(unit.unit_id)).filter(Boolean);
                 return ids.length > 0 && ids.every(id => selectedKnowledgeCenterUnitIds.value.includes(id));
             });
 
             const toggleSelectAllKnowledgeCenterUnits = (checked) => {
                 selectedKnowledgeCenterUnitIds.value = checked
-                    ? knowledgeCenterUnits.value.map(unit => String(unit.unit_id)).filter(Boolean)
+                    ? knowledgeCenterUnits.value.filter(unit => unit?.can_edit !== false).map(unit => String(unit.unit_id)).filter(Boolean)
                     : [];
             };
 
@@ -24047,6 +25368,7 @@
             };
 
             const loadPriceSuggestionWorkbench = async () => {
+                await ensureRevenueAiStaticReady();
                 await Promise.allSettled([
                     loadRoomTypes(),
                     loadDemandForecasts(),
@@ -24263,6 +25585,7 @@
             };
 
             const loadRevenueAnalysisBundle = async () => {
+                await ensureRevenueAiStaticReady();
                 await Promise.allSettled([
                     loadRevenueAiOverview(),
                     loadRevenueAnalysis(),
@@ -24282,6 +25605,7 @@
                     return;
                 }
                 if (tabKey === 'revenue') {
+                    await ensureRevenueAiStaticReady();
                     await loadRevenueAnalysisBundle();
                     return;
                 }
@@ -24710,6 +26034,14 @@
             };
 
             const loadRevenueAiOverview = async () => {
+                if (!token.value) return null;
+                try {
+                    await ensureRevenueAiStaticReady();
+                } catch (error) {
+                    revenueAiOverview.value = null;
+                    revenueAiOverviewError.value = error?.message || 'Revenue AI 展示工具加载失败';
+                    return null;
+                }
                 const overviewRequest = revenueAiResolveOverviewRequest({
                     hasToken: !!token.value,
                     currentPage: isCompassDataPage() ? 'compass' : currentPage.value,
@@ -24758,12 +26090,10 @@
                 }
                 compassLoading.value = true;
                 try {
-                    const revenueAiOverviewLoad = loadRevenueAiOverview();
                     const params = new URLSearchParams();
                     if (compassHotelId) params.append('hotel_id', compassHotelId);
                     const suffix = params.toString() ? `?${params.toString()}` : '';
                     const res = await request(`/compass${suffix}`);
-                    await revenueAiOverviewLoad;
                     if (!isCurrentRequest()) return null;
                     if (res.code === 200) {
                         compassLayout.value = mergeStoredHomeQuickLayout(res.data.layout || compassLayout.value);
@@ -24783,6 +26113,7 @@
                     deferUiTask(async () => {
                         if (!isCurrentRequest()) return null;
                         const compassBackgroundJobs = [
+                            () => (revenueAiStaticReady.value ? loadRevenueAiOverview() : null),
                             () => loadHolidayRevenueCountdown(),
                             () => loadMacroSignals(),
                             () => loadHomeTemporalInsights(),
@@ -27656,14 +28987,20 @@
 
             const saveMeituanConfigItem = async () => {
                 if (meituanConfigSaving.value) return;
+                const helperAvailability = resolveMeituanStaticHelperAvailability(meituanConfigSaveHelperKeys);
+                if (!helperAvailability.available) {
+                    const message = '美团配置保存组件未完整加载，本次未发送请求，请刷新页面后重试。';
+                    console.warn('[meituan-static]', message, helperAvailability.missing);
+                    showToast(message, 'error');
+                    return;
+                }
                 if (!String(meituanConfigForm.value.hotel_id || '').trim()) {
                     showToast('请选择关联门店', 'error');
                     return;
                 }
                 const cookieState = resolveMeituanConfigSaveCookieState(meituanConfigForm.value.cookies, {
                     keepExisting: Boolean(meituanConfigForm.value.id)
-                        && meituanConfigForm.value.has_cookies === true
-                        && String(meituanConfigForm.value.credential_status || '') === 'ready',
+                        && meituanConfigForm.value.has_cookies === true,
                 });
                 if (!cookieState.canSave) {
                     showToast(cookieState.message, cookieState.level);
@@ -28947,20 +30284,20 @@
                 return target.realname || target.username || `用户 #${target.id || '-'}`;
             });
             const userStatusConfirmTitle = computed(() => (
-                userStatusConfirmAction.value === 'approve' ? '审核通过账号' : '暂停账号'
+                userStatusConfirmAction.value === 'activate' ? '启用账号' : '停用账号'
             ));
             const userStatusConfirmDescription = computed(() => (
-                userStatusConfirmAction.value === 'approve'
-                    ? '通过后该账号状态变为正常，可以登录系统。'
-                    : '暂停后该账号不能再登录系统，后续可重新审核通过。'
+                userStatusConfirmAction.value === 'activate'
+                    ? '启用后该账号状态变为正常，可以登录系统。'
+                    : '停用后该账号不能再登录系统，后续可重新启用。'
             ));
             const userStatusConfirmPrimaryText = computed(() => (
-                userStatusConfirmAction.value === 'approve' ? '确认审核通过' : '确认暂停'
+                userStatusConfirmAction.value === 'activate' ? '确认启用' : '确认停用'
             ));
 
             const openUserStatusConfirm = (u, action) => {
                 if (!user.value?.is_super_admin) {
-                    showToast('只有超级管理员可以审核或暂停账号', 'error');
+                    showToast('只有超级管理员可以启用或停用账号', 'error');
                     return;
                 }
                 if (!u || !u.id) return;
@@ -28969,7 +30306,7 @@
                     return;
                 }
                 userStatusConfirmTarget.value = u;
-                userStatusConfirmAction.value = action === 'deactivate' ? 'deactivate' : 'approve';
+                userStatusConfirmAction.value = action === 'deactivate' ? 'deactivate' : 'activate';
                 userStatusConfirmError.value = '';
                 showUserStatusConfirmModal.value = true;
             };
@@ -28984,8 +30321,8 @@
             const confirmUserStatusChange = async () => {
                 const target = userStatusConfirmTarget.value;
                 if (!target || !target.id) return;
-                const isApprove = userStatusConfirmAction.value === 'approve';
-                const nextStatus = isApprove ? 1 : 0;
+                const isActivate = userStatusConfirmAction.value === 'activate';
+                const nextStatus = isActivate ? 1 : 0;
                 userStatusConfirmLoading.value = true;
                 userStatusConfirmError.value = '';
                 try {
@@ -28994,22 +30331,22 @@
                         body: JSON.stringify({ status: nextStatus }),
                     });
                     if (res.code === 200) {
-                        showToast(isApprove ? '审核通过，账号已启用' : '账号已暂停');
+                        showToast(isActivate ? '账号已启用' : '账号已停用');
                         showUserStatusConfirmModal.value = false;
                         userStatusConfirmTarget.value = null;
                         await loadUsers();
                     } else {
-                        userStatusConfirmError.value = res.message || res.msg || (isApprove ? '审核失败' : '停用失败');
+                        userStatusConfirmError.value = res.message || res.msg || (isActivate ? '启用失败' : '停用失败');
                     }
                 } catch (err) {
-                    console.error(isApprove ? '审核用户失败:' : '暂停用户失败:', err);
+                    console.error(isActivate ? '启用用户失败:' : '停用用户失败:', err);
                     userStatusConfirmError.value = err.message || '网络错误，请重试';
                 } finally {
                     userStatusConfirmLoading.value = false;
                 }
             };
 
-            const approveUser = (u) => openUserStatusConfirm(u, 'approve');
+            const activateUser = (u) => openUserStatusConfirm(u, 'activate');
             const deactivateUser = (u) => openUserStatusConfirm(u, 'deactivate');
 
             const formatUserDeleteReferences = (references = []) => {
@@ -29217,22 +30554,26 @@
                     return;
                 }
 
-                // 确保系统配置数据已加载
-                if (!systemConfig.value || Object.keys(systemConfig.value).length === 0) {
-                    debugLog('Loading system config...');
-                    await loadSystemConfig();
+                try {
+                    debugLog('Loading full system config...');
+                    const res = await request('/system-config', { withBusinessContext: false });
+                    if (res.code !== 200 || !res.data || typeof res.data !== 'object' || Array.isArray(res.data)) {
+                        throw new Error(res.message || '系统配置读取失败');
+                    }
+                    systemConfig.value = { ...systemConfig.value, ...res.data };
+                    systemConfigForm.value = {
+                        ...getSystemConfigDefaults(),
+                        ...res.data,
+                    };
+                    systemConfigFormBaseline = { ...systemConfigForm.value };
+                    debugLog('systemConfigForm:', systemConfigForm.value);
+                    showSystemConfigModal.value = true;
+                    debugLog('showSystemConfigModal set to:', showSystemConfigModal.value);
+                } catch (error) {
+                    systemConfigFormBaseline = null;
+                    showSystemConfigModal.value = false;
+                    showToast('系统配置读取失败，未打开编辑窗口：' + (error.message || '网络错误'), 'error');
                 }
-
-                debugLog('systemConfig:', systemConfig.value);
-
-                systemConfigForm.value = {
-                    ...getSystemConfigDefaults(),
-                    ...systemConfig.value
-                };
-
-                debugLog('systemConfigForm:', systemConfigForm.value);
-                showSystemConfigModal.value = true;
-                debugLog('showSystemConfigModal set to:', showSystemConfigModal.value);
             };
 
             const saveSystemConfig = async () => {
@@ -29249,19 +30590,33 @@
                     showToast('系统名称不能为空', 'error');
                     return;
                 }
+                if (!systemConfigFormBaseline) {
+                    showToast('尚未完成系统配置全量回读，已禁止保存', 'error');
+                    return;
+                }
 
                 try {
+                    const changedConfig = Object.fromEntries(Object.entries(systemConfigForm.value).filter(([key, value]) => (
+                        String(value ?? '') !== String(systemConfigFormBaseline[key] ?? '')
+                    )));
+                    if (Object.keys(changedConfig).length === 0) {
+                        showToast('配置未发生变化', 'info');
+                        showSystemConfigModal.value = false;
+                        systemConfigFormBaseline = null;
+                        return;
+                    }
                     showToast('正在保存配置...', 'info');
                     const res = await request('/system-config', {
                         method: 'PUT',
-                        body: JSON.stringify(systemConfigForm.value)
+                        body: JSON.stringify(changedConfig)
                     });
                     debugLog('save response:', res);
 
                     if (res.code === 200) {
-                        systemConfig.value = { ...systemConfig.value, ...res.data };
+                        systemConfig.value = { ...systemConfig.value, ...changedConfig, ...(res.data || {}) };
                         showToast('配置保存成功！');
                         showSystemConfigModal.value = false;
+                        systemConfigFormBaseline = null;
                     } else {
                         showToast(res.message || '保存失败', 'error');
                     }
@@ -29406,6 +30761,10 @@
             onMounted(() => {
                 syncSidebarForViewport();
                 window.addEventListener('resize', syncSidebarForViewport);
+                window.addEventListener('pageshow', scheduleLoginAutofillSync);
+                window.addEventListener('focus', scheduleLoginAutofillSync);
+                document.addEventListener('visibilitychange', handleLoginVisibilityChange);
+                scheduleLoginAutofillSync();
                 updateCurrentTime();
                 currentTimeTimer = setInterval(updateCurrentTime, 1000);
                 globalNotificationRefreshTimer = setInterval(() => {
@@ -29454,6 +30813,10 @@
 
             onUnmounted(() => {
                 window.removeEventListener('resize', syncSidebarForViewport);
+                window.removeEventListener('pageshow', scheduleLoginAutofillSync);
+                window.removeEventListener('focus', scheduleLoginAutofillSync);
+                document.removeEventListener('visibilitychange', handleLoginVisibilityChange);
+                clearLoginAutofillSyncTimers();
                 if (currentTimeTimer) {
                     clearInterval(currentTimeTimer);
                     currentTimeTimer = null;
@@ -29478,7 +30841,7 @@
                     clearInterval(globalNotificationRefreshTimer);
                     globalNotificationRefreshTimer = null;
                 }
-                stopStrongOtaReminderAttentionTimer(true);
+                stopStrongOtaReminderAutoDismissTimer(true);
             });
 
             const aiProject = ref({
@@ -31065,9 +32428,11 @@
                 operationSourceBrief, operationDecisionCards,
                 operationUnreadCount, filteredOperationAlerts, loadOperationFullData, analyzeOperationRootCause, loadOperationAlerts,
                 markOperationAlertsRead, simulateOperationStrategy, createOperationAction, loadOperationActions, finishOperationAction,
-                aiDailyReport, aiDailyReportForm, aiDailyFactGate, aiDailyFactGateLoading, loadAiDailyFactGate, aiDailyReportMetricCards, aiDailyReportActions, aiDailyReportDataGaps, aiDailyReportAbnormalMetrics, aiDailyReportCompetitorChanges, aiDailyReportSourceCount, aiDailyReportTransferableCount, aiDailyReportReadiness, aiDailyReportReadinessCards, aiDailyReportBlockingRows, aiDailyReportBlockingSummary, aiDailyReportEvidenceRows,
+                aiDailyReport, aiDailyReportForm, aiDailyFactGate, aiDailyFactGateLoading, loadAiDailyFactGate, aiDailyReportAiExplanation, aiDailyReportAiInterpretation, aiDailyReportMetricCards, aiDailyReportActions, aiDailyReportDataGaps, aiDailyReportAbnormalMetrics, aiDailyReportCompetitorChanges, aiDailyReportSourceCount, aiDailyReportTransferableCount, aiDailyReportResultReadiness, aiDailyReportWorkflowReadiness, aiDailyReportReadiness, aiDailyReportResultContract, aiDailyReportResultLayers, aiDailyReportHumanJudgments, aiDailyReportConfidenceText, aiDailyReportLayerCards, aiDailyReportReadinessCards, aiDailyReportBlockingRows, aiDailyReportBlockingSummary, aiDailyReportEvidenceRows,
+                aiDailyReportGenerationTask, aiDailyReportGenerationTaskPolling, aiDailyReportGenerationOutcome, aiDailyReportGenerationProgress, aiDailyReportGenerationRunning, aiDailyReportGenerationStageText, aiDailyReportGenerationStatusClass, aiDailyReportGenerationDetailText,
                 aiDailyReportModelText, aiDailyReportModelClass, aiDailyReportMetricValue, aiDailyReportActionSources, aiDailyReportActionIsInvestigationOnly, aiDailyReportActionStatusText, aiDailyReportActionStatusClass, aiDailyReportActionBlockedText, aiDailyReportActionButtonText,
-                aiDailyReportReadinessClass, aiDailyReportGapActionText, goAiDailyReportDataGap, openAiDailyReportEvidenceTarget,
+                aiDailyReportReadinessClass, aiDailyReportReferenceText, aiDailyReportJudgmentTargetText, aiDailyReportJudgmentDecisionText, aiDailyReportGapActionText, goAiDailyReportDataGap, openAiDailyReportEvidenceTarget,
+                aiDailyReportJudgmentForm, aiDailyReportJudgmentSaving, aiDailyReportAudience, submitAiDailyReportJudgment, downloadAiDailyReportPackage,
                 loadAiDailyReport, generateAiDailyReport, createAiDailyExecutionIntent, handleAiDailyReportActionPrimary,
                 operationValue, operationMoney, operationPercent, operationDataStatusText, operationProblemLevelLabel, operationAlertLevelLabel,
                 operationAlertStatusLabel, operationAlertLevelClass, operationAlertSuggestion, operationRiskLevelLabel, operationStrategyTypeLabel,
@@ -31088,9 +32453,9 @@
                 homeObservation, homeTrendCards, homeTrendRanges, homeTrendRange, homeTrendMetrics, homeTrendMetric, homeTrendLoading, homeTrendCustomRange, homeTrendHasSamples, homeTrendInterpretation, homeTrendEmptyState,
                 homeTemporalLoading, homeTemporalGenerating, homeTemporalError, homeTemporalData, homeTemporalSelectedHotelId, homeTemporalCards, homeTemporalReview,
                 homeBoardTrendRanges, homeTrendRangeLabel, homeDecisionSummaryRows, homeExecutiveAnswer, homeMinimalWorkbench, homeAiWorkbenchPrimaryMetric, homeAiWorkbenchSecondaryMetrics, homeAiWorkbenchReadySummary, homeOperatingResultCards, homeCausalChainNodes, homeCompetitorSummaryCards, homeBoardActionRows,
-                dualOtaDashboard, dualOtaSelectedPlatform, dualOtaSelectedRange, dualOtaCompareEnabled, dualOtaSelectedStoreScope, dualOtaEffectiveStoreScope, dualOtaEffectivePlatform, dualOtaSelectedLossNodeId, dualOtaSelectedAnomalyRank, dualOtaActionItems, dualOtaReviewMemory, dualOtaExpandedMemoryId, dualOtaLastRecordText, dualOtaHasConnectedPlatforms, dualOtaActiveLossNodes, dualOtaSelectedLossExplanation, dualOtaSelectedAnomaly, dualOtaSystemOverviewGroups, dualOtaPlatformRevenueTitle, dualOtaPlatformRevenueSubtitle, dualOtaPlatformRevenuePlatforms, dualOtaPlatformRevenueHasContribution,
+                dualOtaDashboard, dualOtaSelectedPlatform, dualOtaSelectedRange, dualOtaCompareEnabled, dualOtaSelectedStoreScope, dualOtaEffectiveStoreScope, dualOtaEffectivePlatform, dualOtaSelectedLossNodeId, dualOtaSelectedAnomalyRank, dualOtaActionItems, dualOtaReviewMemory, dualOtaExpandedMemoryId, dualOtaLastRecordText, dualOtaHasConnectedPlatforms, dualOtaActiveLossNodes, dualOtaLossChainSubtitle, dualOtaSelectedLossExplanation, dualOtaSelectedAnomaly, dualOtaSystemOverviewGroups, dualOtaPlatformRevenueTitle, dualOtaPlatformRevenueSubtitle, dualOtaPlatformRevenuePlatforms, dualOtaPlatformRevenueHasContribution,
                 dualOtaConnectionClass, dualOtaConnectionPlatformValue, switchDualOtaConnection, setDualOtaPlatform, setDualOtaRange, setDualOtaStoreScope, dualOtaMetricComparisonText, toggleDualOtaCompare, dualOtaModuleNavigationTarget, openDualOtaModule, dualOtaTrustClass, dualOtaSeverityClass, dualOtaHeatClass, dualOtaActionStatusClass, setDualOtaLossNode, setDualOtaAnomaly, syncDualOtaActionStatus, toggleDualOtaAction, copyDualOtaAdvice, openDualOtaBackendPlaceholder, recordDualOtaExecution, toggleDualOtaMemory,
-                revenueAiOverview, revenueAiOverviewLoading, revenueAiOverviewError, revenueAiBusinessClosure, revenueAiStatusRows, revenueAiMetricCards, revenueAiGapRows, revenueAiGapSummary, revenueAiSignalRows, revenueAiActionRows, revenueAiEvidenceWorkbenchRows, revenueAiEvidenceWorkbenchSummary, revenueAiPricingGateRows, revenueAiAgentActivitySummary, revenueAiAgentActivityRows, revenueAiExecutionSummary, revenueAiExecutionRows, revenueAiEffectReviewRows, revenueAiStatusClass, revenueAiStatusLabel, revenueAiSeverityClass, openRevenueAiGap, openRevenueAiMetric, openRevenueAiDecisionBasis, openRevenueAiExecutionItem, openRevenueAiReviewItem, submitRevenueAiReviewAction, isRevenueAiReviewActionLoading,
+                revenueAiStaticReady, revenueAiStaticLoading, revenueAiStaticError, revenueAiOverview, revenueAiOverviewLoading, revenueAiOverviewError, revenueAiBusinessClosure, revenueAiStatusRows, revenueAiMetricCards, revenueAiGapRows, revenueAiGapSummary, revenueAiSignalRows, revenueAiActionRows, revenueAiEvidenceWorkbenchRows, revenueAiEvidenceWorkbenchSummary, revenueAiPricingGateRows, revenueAiAgentActivitySummary, revenueAiAgentActivityRows, revenueAiExecutionSummary, revenueAiExecutionRows, revenueAiEffectReviewRows, revenueAiStatusClass, revenueAiStatusLabel, revenueAiSeverityClass, openRevenueAiGap, openRevenueAiMetric, openRevenueAiDecisionBasis, openRevenueAiExecutionItem, openRevenueAiReviewItem, submitRevenueAiReviewAction, isRevenueAiReviewActionLoading,
                 selectHomeTrendRange, selectHomeTrendMetric, loadHomeTrends,
                 macroSignalCards, macroSignalViewCards, macroSignalLoading, activeMacroSignal, macroSignalDetail, macroSignalDetailLoading, macroSignalLevelClass, loadMacroSignalDetail, closeMacroSignalDetail, homeDataSources, homeMarketForecastItems, homeMarketForecastStatus, homeMarketForecastSummaryRows, homeMarketForecastAction, holidayRevenue, holidayRevenueLoading, holidayOperationCountdown, holidayOperationStageText, holidayOperationSuggestions,
                 compassHotelOptions, dualOtaCurrentHotelOptions, dualOtaHotelOrderRows, dualOtaHotelOrderModeText, showDualOtaHotelOrderModal, openDualOtaHotelOrder, closeDualOtaHotelOrder, moveDualOtaHotelOrder, moveDualOtaHotelOrderToTop, saveDualOtaHotelOrder, resetDualOtaHotelOrder, compassLoading, compassLastSyncedAt, compassDataReadiness, homeSecondaryPanelsReady, homeClosedLoopStages, homeAiTraceRows, refreshCompassDashboard,
@@ -31101,15 +32466,15 @@
                 homeCompetitorReadiness, homeCompetitorPlatformTagText, homeCompetitorPlatformTagClass, competitorSummaryReadinessClass,
                 lifecycleLoading, lifecycleOverview, lifecycleMetricLabel, lifecycleStageTitle, lifecycleStageStatusText, lifecycleStageStatusClass, lifecycleStageBadgeClass, lifecycleOverviewStatusText, lifecycleOverviewStatusClass, loadLifecycleOverview,
                 investmentDecisionLoading, investmentDecisionOverview, investmentDecisionSummaryCards, investmentDecisionBusinessChainRows, investmentDecisionActionQueueRows, investmentDecisionSectionRows, investmentDecisionRiskRows, investmentDecisionRecordRows, investmentDecisionFormulaRows, investmentDecisionStatusText, investmentDecisionStatusClass, investmentDecisionSeverityText, investmentDecisionSeverityClass, investmentDecisionPriorityClass, investmentDecisionSourceLabel, loadInvestmentDecisionOverview,
-                isLoggedIn, loading, loginError, registerMode, registerLoading, registerError, registerSuccess, registerForm, user, token, userHasPermission, canManageOwnHotels, canMaintainOtaConfig, currentLocale, languageOptions, switchLocale, currentTime, currentDateText, currentClockText, currentTimeZoneLabel, currentPage, showPassword,
-                loginForm, rememberAccount, menuItems, visibleMenuItems, pageTitle, toast, handleMenuClick, handleNestedMenuClick,
+                isLoggedIn, loading, loginError, user, token, userHasPermission, canManageOwnHotels, canMaintainOtaConfig, currentLocale, languageOptions, switchLocale, currentTime, currentDateText, currentClockText, currentTimeZoneLabel, currentPage, showPassword, passwordCapsLockOn,
+                loginForm, rememberAccount, loginSupportOpen, loginSupportLoading, loginSupportError, loginSupportContact, menuItems, visibleMenuItems, pageTitle, toast, handleMenuClick, handleNestedMenuClick,
                 workflowFormDialog, closeWorkflowFormDialog, submitWorkflowFormDialog,
                 globalNotificationOpen, globalNotificationLoading, globalNotificationVisibleItems, globalNotificationUnreadCount, globalNotificationTotalCount,
                 globalNotificationSummaryText, toggleGlobalNotifications, refreshGlobalNotifications, openGlobalNotification,
                 markAllGlobalNotificationsRead, clearGlobalNotifications, globalNotificationSeverityDotClass, globalNotificationBadgeClass,
                 strongOtaReminderOpen, strongOtaReminderItems, strongOtaReminderCount,
-                strongOtaReminderMinimumVisibleSeconds, strongOtaReminderSnoozeHours, strongOtaReminderDeferSecondsRemaining, strongOtaReminderCanDefer,
-                showStrongOtaReminder, deferStrongOtaReminder, snoozeStrongOtaReminder24Hours, openStrongOtaReminderItem,
+                strongOtaReminderAutoDismissSeconds, strongOtaReminderSnoozeHours, strongOtaReminderAutoDismissSecondsRemaining,
+                showStrongOtaReminder, deferStrongOtaReminder, snoozeStrongOtaReminder24Hours, openStrongOtaReminderItem, restartStrongOtaReminderAutoDismissCountdown,
                 revenueResearchProducts, revenueResearchStatusClass, revenueResearchRuns, revenueResearchHotelId, revenueResearchHotelOptions, revenueResearchSteps, revenueResearchRunFor,
                 revenueResearchStepClass, revenueResearchStepIcon, revenueResearchResultStatusLabel, revenueResearchResultStatusClass, revenueResearchReadinessClass, revenueResearchMissingText,
                 revenueResearchExecutionBlockedText, revenueResearchCanCreateExecutionIntent, createRevenueResearchExecutionIntent, openRevenueResearchExecutionIntent,
@@ -31122,6 +32487,7 @@
                 searchHotel, filterHotelStatus, filterHotelAccountHealth, searchUser, filterUserRoleId, filterUserStatus, filterUserHotelId,
                 filterReportHotel,
                 knowledgeCenterUnits, knowledgeCenterLoading, knowledgeCenterViewMode, knowledgeCenterFilter, knowledgeCenterPagination, knowledgeCenterStats,
+                knowledgeCenterVisibleChunks,
                 knowledgeCenterSourceOptions, knowledgeCenterHotelOptions, knowledgeCenterIsFiltered, knowledgeImportCurrentMeta,
                 knowledgeDistillationRunning, knowledgeDistillationFullTrain, knowledgeDistillationMaxBatches, knowledgeDistillationResult, knowledgeDistillationMetricRows,
                 showKnowledgeCenterUnitModal, showKnowledgeCenterChunksModal, showKnowledgeCenterImportModal,
@@ -31131,7 +32497,7 @@
                 loadKnowledgeCenter, reloadKnowledgeCenter, changeKnowledgeCenterPage, resetKnowledgeCenterFilter,
                 filterByKnowledgeStatus, updateKnowledgeUnitStatus,
                 knowledgeCenterStatusLabel, knowledgeCenterStatusClass, knowledgeCenterReadinessClass, knowledgeCenterSourceLabel, formatKnowledgeJson, knowledgeChunkView,
-                openKnowledgeUnitModal, saveKnowledgeUnit, deleteKnowledgeUnit, refreshKnowledgeUnit, runKnowledgeDistillation, openKnowledgeChunks, saveKnowledgeChunk, openKnowledgeImportModal, setKnowledgeImportMode, importKnowledgeUnits,
+                openKnowledgeUnitModal, saveKnowledgeUnit, deleteKnowledgeUnit, refreshKnowledgeUnit, runKnowledgeDistillation, openKnowledgeChunks, saveKnowledgeChunk, createKnowledgeSopTask, openKnowledgeImportModal, setKnowledgeImportMode, importKnowledgeUnits,
                 handleKnowledgeDocumentPaste, handleKnowledgeDocumentDrop, handleKnowledgeDocumentFileSelect, openKnowledgeDocumentFilePicker, focusKnowledgeDocumentTextarea,
                 systemConfig, systemConfigForm, showSystemConfigModal,
                 activeConfigGroup, configGroups, menuConfigItems, featureSwitches,
@@ -31152,9 +32518,9 @@
                 getEmptyHotelBackgroundProfile, parseHotelDescriptionPayload, buildHotelDescriptionPayload, getHotelDescriptionProfileRows, hotelFormAccountHotel,
                 filteredHotels, filteredUsers,
                 permissionUser, userPermissions,
-                handleLogin, handleRegister, openRegisterForm, closeRegisterForm, handleLogout, forgotPassword, showToast,
+                handleLogin, handleLoginFieldInput, handleLoginPasswordKeyEvent, clearLoginPasswordCapsLock, scheduleLoginAutofillSync, handleLogout, openLoginSupport, loadLoginSupportContact, closeLoginSupport, handleLoginSupportKeydown, copyLoginSupportContact, showToast,
                 openHotelModal, openHotelManagementForOta, saveHotel, openHotelDeleteModal, closeHotelDeleteModal, confirmDeleteHotel, deactivateHotelDeleteTarget, deleteHotel, hotelDeleteIdentityText, openHotelMergeModal, closeHotelMergeModal, invalidateHotelMergePreview, previewHotelMerge, executeHotelMerge, toggleHotelStatus,
-                openUserModal, openUserAuthorization, closeHotelUserAuthorization, saveHotelUserAuthorization, openUserModalWithRole, applyUserIssueRole, applyUserRoleQuickFilter, resetUserFilters, saveUser, approveUser, deactivateUser, openUserLoginInfoModal, closeUserLoginInfoModal, confirmUserLoginInfoReset, copyLastUserIssueGuide, clearLastUserIssueGuide, closeUserStatusConfirm, confirmUserStatusChange, deleteUser, closeUserDeleteModal, confirmDeleteUser,
+                openUserModal, openUserAuthorization, closeHotelUserAuthorization, saveHotelUserAuthorization, openUserModalWithRole, applyUserIssueRole, applyUserRoleQuickFilter, resetUserFilters, saveUser, activateUser, deactivateUser, openUserLoginInfoModal, closeUserLoginInfoModal, confirmUserLoginInfoReset, copyLastUserIssueGuide, clearLastUserIssueGuide, closeUserStatusConfirm, confirmUserStatusChange, deleteUser, closeUserDeleteModal, confirmDeleteUser,
                 rolesList, allPermissions, showRoleModal, roleForm, openRoleModal, saveRole, deleteRole, togglePermission,
                 openPermissionModal, hasHotelPermission, getPermissionData, toggleHotelPermission, savePermissions,
                 openSystemConfigModal, saveSystemConfig, getMenuItemName,
@@ -31233,6 +32599,10 @@
                 fetchCtripData, fetchCtripTrafficData, fetchCtripFlowOverviewData, fetchCtripAdsData, fetchCtripComments, runCtripCommentBrowserCapture, saveCtripReviewImSession, saveCtripReviewForMatch, saveCtripOrderForMatch, lookupCtripReviewOrderMatch, bindCtripReviewOrderMatch, fetchCtripOverviewData, runCtripBrowserCapture, loadCtripDiagnosisSnapshot, ctripDiagnosisSnapshotLoading, fillCtripCookieApiCorePreset, fillDataConfigCtripCookieApiCorePreset, checkCtripProfileStatus, runCtripCookieApiCapture, validateCtripEndpointEvidence, syncCtripAdsDirectConfig, syncCtripCommentManualConfig, fetchMeituanData, fetchMeituanTrafficData, fetchMeituanOrdersData, importMeituanOrderCsvData, copyMeituanOrderCollectorScript, fetchMeituanAdsData, fetchMeituanComments, useMeituanCommentConfig, syncMeituanCommentConfigFromSelectedConfig, syncMeituanTrafficConfigFromSelectedConfig, syncMeituanOrderConfigFromSelectedConfig, syncMeituanAdsConfigFromSelectedConfig, syncMeituanBrowserCaptureFromSelectedConfig, switchMeituanCaptureTab, copyMeituanBrowserCaptureCommand, runMeituanBrowserCapture, runMeituanBrowserCaptureForSections, runMeituanBrowserCapturePreset, runMeituanBrowserProfileLoginOnly, runMeituanBrowserSupplementCapture, saveMeituanCapturedPayload, clearMeituanBrowserCapturePayload, formatCommentTime, getScoreClass, fetchCustomData, loadCookiesList, loadCookieStatus, cookieStatusClass, saveCookiesConfig, deleteCookiesConfig, useCookies, copyOnlineDataResult, downloadCtripBusinessDataImage, copyToClipboard, copyBookmarklet, saveMeituanConfig, loadMeituanConfig, triggerCookieConfigAutoFetch, triggerCookieConfigAutoFetchGroup, triggerCookieConfigAutoFetchAll,
                 // 携程配置管理
                 ctripConfigForm, ctripConfigSaving, ctripConfigList, ctripTargetHotelOptions, ctripConfigListLoading, ctripConfigListLoaded, ctripConfigListLoadFailed, selectedCtripConfigIds, ctripBookmarklet, showCtripCookieGuide, selectedCtripConfigId, selectedCtripHotelId, selectedCtripHotelConfig, selectedCtripManualCredentialState, buildCtripManualCredentialState, shouldShowCtripRankingManualAuxiliary, normalizeCtripManualAuxiliaryText, canFetchCtripManualData,
+                ctripPublicProfileHotelOptions, ctripPublicProfilePayload, ctripPublicProfiles, ctripPublicProfilesSorted, ctripPublicProfileSummary, ctripPublicProfileOwnBinding, ctripPublicProfileLoading, ctripPublicProfileSaving, ctripPublicProfileRefreshing, ctripPublicProfileError, ctripPublicProfileForm,
+                loadCtripPublicProfiles, handleCtripPublicProfileHotelChange, addCtripPublicProfileById, refreshCtripPublicProfiles, ctripPublicProfileRoleText, ctripPublicProfileStatusText, ctripPublicProfileStatusClass, ctripPublicProfileDisplayName, ctripPublicProfileSourceUrl, ctripPublicProfileGradeText, ctripPublicProfileFacilityCount, ctripPublicProfileCompletenessText, ctripPublicProfileFacilities, ctripPublicProfileHighlights, ctripPublicProfileMissingFieldsText,
+                ctripCompetitiveOperationsPayload, ctripCompetitiveOperationsLoading, ctripCompetitiveOperationsError, ctripCompetitiveOperationsRange, ctripCompetitiveOperationsCoverage, ctripCompetitiveOperationsComparison, ctripCompetitiveOperationsFunnel, ctripCompetitiveOperationsAnomalies,
+                loadCtripCompetitiveOperations, ctripCompetitiveOperationsStatusText, ctripCompetitiveOperationsStatusClass, ctripCompetitiveAnomalyClass,
                 ctripSearchOpportunityPayload, ctripSearchOpportunityLoading, ctripSearchOpportunitySaving, ctripSearchOpportunityError, ctripSearchOpportunityWindow, ctripSearchOpportunityMetric, ctripSearchOpportunityHorizon, ctripSearchOpportunitySeriesVisibility, ctripSearchOpportunityView, ctripSearchOpportunityRows, ctripSearchOpportunityVisibleRows, ctripSearchOpportunityChartRows, ctripSearchOpportunityActiveRange, ctripSearchOpportunityActiveSummary, ctripSearchOpportunityThreeDaySummary, ctripSearchOpportunitySevenDaySummary, ctripSearchOpportunityFifteenDaySummary, ctripSearchOpportunityThirtyDaySummary, ctripSearchOpportunityHorizonSummary, ctripSearchOpportunityHorizonLabel, ctripSearchOpportunityHorizonDays, ctripSearchOpportunityBarWidth, ctripSearchOpportunityAxisTicks, ctripSearchOpportunityWindowLabel, ctripSearchOpportunityStatusText, ctripSearchOpportunityStatusClass,
                 loadCtripSearchOpportunity, fetchCtripTrafficAndSearchData, handleCtripTrafficHotelChange, toggleCtripSearchOpportunitySeries, downloadCtripSearchOpportunityImage, formatCtripSearchOpportunityValue, formatCtripSearchOpportunityAxisTick, formatCtripSearchOpportunityGap, formatCtripSearchOpportunityCapturedAt, formatCtripSearchOpportunityRelativeComparison, formatCtripSearchOpportunityPercentagePointGap, ctripSearchOpportunityBarStyle, ctripSearchOpportunityTooltipStyle, ctripSearchOpportunityMetricValue,
                 ctripOverviewFetchActionLoading, ctripOverviewCoreFetchRunning,

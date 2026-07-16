@@ -48,7 +48,7 @@
                             <button type="button" @click="applyUserSummaryFilter('disabled')" :class="userSummaryCardClass('disabled')">
                                 <div class="flex items-center justify-between">
                                     <div>
-                                        <div class="text-sm text-gray-400 mb-1">待审核/暂停</div>
+                                        <div class="text-sm text-gray-400 mb-1">已停用</div>
                                         <div class="text-2xl font-bold text-amber-600">{{ userSummary.disabled }}</div>
                                     </div>
                                     <div class="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center">
@@ -103,7 +103,7 @@
                                 <select v-model="filterUserStatus" class="users-filter px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                                     <option value="">全部状态</option>
                                     <option value="1">正常</option>
-                                    <option value="0">待审核/暂停</option>
+                                    <option value="0">已停用</option>
                                 </select>
                                 <select v-model="filterUserHotelId" class="users-filter px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                                     <option value="">全部门店范围</option>
@@ -146,7 +146,7 @@
                                         </div>
                                     </div>
                                     <span :class="String(u?.status) === '1' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'" class="shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium">
-                                        {{ String(u?.status) === '1' ? '正常' : '待审核/暂停' }}
+                                        {{ String(u?.status) === '1' ? '正常' : '已停用' }}
                                     </span>
                                 </div>
                                 <div class="mt-3 grid grid-cols-1 gap-2 text-sm">
@@ -166,8 +166,8 @@
                                     </div>
                                 </div>
                                 <div v-if="user?.is_super_admin" class="mt-4 flex flex-wrap gap-2 border-t border-gray-100 pt-3">
-                                    <button v-if="String(u?.status) !== '1'" @click="approveUser(u)" class="rounded-lg bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700">审核通过</button>
-                                    <button v-if="String(u?.status) === '1' &amp;&amp; u.id !== user?.id" @click="deactivateUser(u)" class="rounded-lg bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700">暂停账户</button>
+                                    <button v-if="String(u?.status) !== '1'" @click="activateUser(u)" class="rounded-lg bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700">启用账号</button>
+                                    <button v-if="String(u?.status) === '1' &amp;&amp; u.id !== user?.id" @click="deactivateUser(u)" class="rounded-lg bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700">停用账号</button>
                                     <button v-if="isExternalIssueUser(u)" @click="copyUserBasicLoginInfo(u)" class="rounded-lg bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-700">复制账号</button>
                                     <button v-if="isExternalIssueUser(u)" @click="openUserLoginInfoModal(u)" class="rounded-lg bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700">重置密码</button>
                                     <button @click="openUserModal(u)" class="rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700">编辑</button>
@@ -220,19 +220,19 @@
                                             </td>
                                             <td class="px-6 py-4">
                                                 <span :class="String(u?.status) === '1' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium">
-                                                    {{ String(u?.status) === '1' ? '正常' : '待审核/暂停' }}
+                                                    {{ String(u?.status) === '1' ? '正常' : '已停用' }}
                                                 </span>
                                             </td>
                                             <td class="px-6 py-4 text-sm text-gray-600 whitespace-nowrap">{{ userLastLoginText(u) }}</td>
                                             <td class="px-6 py-4">
                                                 <div class="flex items-center gap-2 whitespace-nowrap">
-                                                    <button v-if="u &amp;&amp; String(u?.status) !== '1' &amp;&amp; (user?.is_super_admin)" @click="approveUser(u)" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-green-50 text-green-700 hover:bg-green-100 transition-colors text-xs font-medium" title="审核通过并启用账号">
+                                                    <button v-if="u &amp;&amp; String(u?.status) !== '1' &amp;&amp; (user?.is_super_admin)" @click="activateUser(u)" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-green-50 text-green-700 hover:bg-green-100 transition-colors text-xs font-medium" title="启用账号">
                                                         <i class="fas fa-check text-xs"></i>
-                                                        <span>审核通过</span>
+                                                        <span>启用账号</span>
                                                     </button>
-                                                    <button v-if="u &amp;&amp; String(u?.status) === '1' &amp;&amp; u.id !== user?.id &amp;&amp; (user?.is_super_admin)" @click="deactivateUser(u)" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors text-xs font-medium" title="暂停账号">
+                                                    <button v-if="u &amp;&amp; String(u?.status) === '1' &amp;&amp; u.id !== user?.id &amp;&amp; (user?.is_super_admin)" @click="deactivateUser(u)" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors text-xs font-medium" title="停用账号">
                                                         <i class="fas fa-ban text-xs"></i>
-                                                        <span>暂停账户</span>
+                                                        <span>停用账号</span>
                                                     </button>
                                                     <button v-if="u &amp;&amp; isExternalIssueUser(u) &amp;&amp; (user?.is_super_admin)" @click="copyUserBasicLoginInfo(u)" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-sky-50 text-sky-700 hover:bg-sky-100 transition-colors text-xs font-medium" title="复制登录地址和用户名，不修改密码">
                                                         <i class="fas fa-copy text-xs"></i>

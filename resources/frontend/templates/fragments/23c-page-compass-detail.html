@@ -3,6 +3,9 @@
                                         <span>完整明细</span>
                                         <span>数据依据、收益变化和后续跟进默认收起</span>
                                     </summary>
+                                    <div v-if="!revenueAiStaticReady" data-testid="revenue-ai-static-compass-status" class="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+                                        {{ revenueAiStaticLoading ? 'Revenue AI 展示工具正在按需加载…' : (revenueAiStaticError || 'Revenue AI 展示工具尚未加载，当前不展示 AI 判断。') }}
+                                    </div>
                                     <div class="mt-3 space-y-4">
                                 <details class="suxi-evidence-fold" data-testid="home-evidence-fold">
                                     <summary>
