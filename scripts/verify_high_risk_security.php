@@ -141,6 +141,8 @@ $transferMetrics = call_private($transfer, 'aggregateTransferMetrics', [[
 assert_same(1000.0, $transferMetrics['revenue'], 'daily report financials must not double count same-day OTA revenue');
 assert_same(10.0, $transferMetrics['room_nights'], 'daily report room nights must not double count same-day OTA room nights');
 assert_same(3, $transferMetrics['orders'], 'OTA orders should still enrich transfer metrics');
+assert_same(600.0, $transferMetrics['ota_channel_revenue'], 'OTA revenue must remain visible only in the channel-scoped metric');
+assert_same(6.0, $transferMetrics['ota_channel_room_nights'], 'OTA room nights must remain visible only in the channel-scoped metric');
 
 $multiHotelMetrics = call_private($transfer, 'aggregateTransferMetrics', [[
     [
@@ -162,8 +164,10 @@ $multiHotelMetrics = call_private($transfer, 'aggregateTransferMetrics', [[
         'raw_data' => '{"visitors":30}',
     ],
 ]]);
-assert_same(1600.0, $multiHotelMetrics['revenue'], 'daily report financial keys must stay hotel-scoped');
-assert_same(16.0, $multiHotelMetrics['room_nights'], 'daily report room-night keys must stay hotel-scoped');
+assert_same(1000.0, $multiHotelMetrics['revenue'], 'OTA channel revenue from another hotel must not be promoted to whole-hotel revenue');
+assert_same(10.0, $multiHotelMetrics['room_nights'], 'OTA channel room nights from another hotel must not be promoted to whole-hotel room nights');
+assert_same(600.0, $multiHotelMetrics['ota_channel_revenue'], 'cross-hotel fixture must remain explicit channel-scoped evidence');
+assert_same(6.0, $multiHotelMetrics['ota_channel_room_nights'], 'cross-hotel fixture room nights must remain explicit channel-scoped evidence');
 
 $onlineSource = file_get_contents(__DIR__ . '/../app/controller/OnlineData.php');
 foreach (glob(__DIR__ . '/../app/controller/concern/*.php') ?: [] as $concernFile) {
@@ -173,6 +177,8 @@ $authSource = file_get_contents(__DIR__ . '/../app/middleware/Auth.php');
 $authControllerSource = file_get_contents(__DIR__ . '/../app/controller/Auth.php');
 $dailyReportSource = file_get_contents(__DIR__ . '/../app/controller/DailyReport.php');
 $publicEntrySource = file_get_contents(__DIR__ . '/../public/index.html');
+$frontendLogicSource = file_get_contents(__DIR__ . '/../public/app-main.js');
+$frontendTemplateSource = file_get_contents(__DIR__ . '/../resources/frontend/app-template.html');
 $systemStaticSource = file_get_contents(__DIR__ . '/../public/system-static.js');
 $hotelControllerSource = file_get_contents(__DIR__ . '/../app/controller/Hotel.php');
 $hotelDataMergeSource = file_get_contents(__DIR__ . '/../app/service/HotelDataMergeService.php');
@@ -200,7 +206,9 @@ $otaMigrationCommandSource = file_get_contents(__DIR__ . '/../app/command/Migrat
 $otaMigrationServiceSource = file_get_contents(__DIR__ . '/../app/service/OtaCredentialMigrationService.php');
 $packageSource = file_get_contents(__DIR__ . '/../package.json');
 $competitorTaskSource = extract_method_source($competitorSource, 'task');
-$competitorReportSource = extract_method_source($competitorSource, 'report');
+$competitorReportSource = extract_method_source($competitorSource, 'report')
+    . "\n"
+    . extract_method_source($competitorSource, 'reportLegacy');
 $competitorReportTokenSource = extract_method_source($competitorSource, 'isValidReportToken');
 $competitorAuditSanitizerSource = extract_method_source($competitorSource, 'sanitizeExternalAuditText');
 $cronTriggerSource = extract_method_source($onlineSource, 'cronTrigger');
@@ -215,12 +223,12 @@ assert_true(str_contains($onlineSource, "checkActionPermission('can_fetch_online
 assert_true(str_contains($onlineSource, "checkActionPermission('can_delete_online_data')"), 'online data delete endpoints must enforce can_delete_online_data');
 assert_true(str_contains($authSource, 'enforceRateLimit'), 'authenticated APIs must enforce request rate limits');
 assert_true(str_contains($authSource, 'rate_limited'), 'rate-limited requests must be written to operation logs');
-assert_true(str_contains($authControllerSource, 'private const TOKEN_TTL_SECONDS = 86400'), 'login tokens must use a 24-hour TTL');
+assert_true(str_contains($authControllerSource, 'private const TOKEN_TTL_SECONDS = 259200'), 'login tokens must use the product-approved 72-hour TTL');
 assert_true(str_contains($authControllerSource, '$this->enforceRegistrationRateLimit()'), 'public self-registration must enforce a route-local rate limit before validation');
 assert_true(str_contains($authControllerSource, "register_rate_") && str_contains($authControllerSource, "\$ipHash = substr(sha1((string)\$this->request->ip()), 0, 16);"), 'public self-registration rate limit must be keyed by IP hash');
 assert_true(str_contains($authControllerSource, "'register_rate_limited'"), 'rate-limited self-registration attempts must be audited');
 assert_true(!str_contains($authControllerSource, "return \$this->error('用户名已存在', 409);"), 'public self-registration must not disclose username existence');
-assert_true(str_contains($authSource, 'private const TOKEN_MAX_AGE_SECONDS = 86400'), 'auth middleware must reject tokens older than 24 hours');
+assert_true(str_contains($authSource, 'private const TOKEN_MAX_AGE_SECONDS = 259200'), 'auth middleware must reject tokens older than the product-approved 72-hour limit');
 assert_true(str_contains($authSource, 'isTokenExpiredByAge'), 'auth middleware must enforce token created_at age');
 assert_true(str_contains($competitorSource, 'enforceExternalRateLimit'), 'public competitor token APIs must enforce route-local rate limits');
 assert_true(str_contains($competitorTaskSource, "enforceExternalRateLimit('task'"), 'competitor task endpoint must rate limit external devices');
@@ -274,7 +282,7 @@ assert_true(str_contains($systemConfigControllerSource, 'IMPORT_MAX_BYTES'), 'sy
 assert_true(str_contains($systemConfigControllerSource, 'validateSystemConfigImportData'), 'system config import must validate JSON shape before applying configs');
 assert_true(str_contains($systemConfigControllerSource, 'containsRedactedExportSecretPlaceholder'), 'system config import must detect redacted export placeholders before applying configs');
 assert_true(str_contains($systemConfigControllerSource, 'skipped_redacted_values'), 'system config import must report skipped redacted export placeholders');
-assert_true(str_contains($publicEntrySource, 'skipped_redacted_values'), 'system config import UI must show skipped redacted placeholder count');
+assert_true(str_contains($frontendLogicSource, 'skipped_redacted_values'), 'system config import UI must show skipped redacted placeholder count');
 assert_true(str_contains($onlineDailyPersistenceSource, 'tenantIdForSystemHotel'), 'online daily data writes must populate tenant_id when available');
 assert_true(str_contains($platformSyncSource, "'tenant_id'"), 'platform sync writes must populate tenant_id when available');
 assert_true(str_contains($loginLogSource, 'tenantIdForUser'), 'login logs must populate tenant_id for authenticated users when available');
@@ -299,8 +307,8 @@ assert_true(str_contains($hotelDataMergeSource, 'merge_then_remove_source_duplic
 assert_true(str_contains($hotelDataMergeSource, 'duplicatePermissionMergeAssignments') && str_contains($hotelDataMergeSource, 'GREATEST(COALESCE(t.'), 'hotel data merge duplicate user grants must merge permission flags');
 assert_true(!str_contains($hotelDataMergeSource, 'skip_source_duplicate_permission'), 'hotel data merge must not describe duplicate grants as simple skips');
 assert_true(str_contains($systemStaticSource, 'const createHotelMergeForm = () => ({') && str_contains($systemStaticSource, 'deactivate_source: false'), 'hotel data merge UI must not deactivate the source hotel by default');
-assert_true(str_contains($publicEntrySource, '系统门店归属和 tenant_id 会改写') && str_contains($publicEntrySource, 'OTA平台酒店ID不会改写'), 'hotel data merge UI must disclose tenant_id retargeting and OTA platform hotel id boundary');
-assert_true(str_contains($publicEntrySource, '先合并源/目标权限位') && str_contains($systemStaticSource, '合并重复授权'), 'hotel data merge UI must disclose duplicate permission merge semantics');
+assert_true(str_contains($frontendLogicSource, '系统门店归属和 tenant_id 会改写') && str_contains($frontendLogicSource, 'OTA平台酒店ID不会改写'), 'hotel data merge UI must disclose tenant_id retargeting and OTA platform hotel id boundary');
+assert_true(str_contains($frontendTemplateSource, '先合并源/目标权限位') && str_contains($systemStaticSource, '合并重复授权'), 'hotel data merge UI must disclose duplicate permission merge semantics');
 $tenantScopedTables = [
     'hotels', 'users', 'user_hotel_permissions', 'daily_reports', 'monthly_tasks', 'online_daily_data',
     'operation_logs', 'platform_data_sources', 'platform_data_sync_tasks', 'platform_data_raw_records',
