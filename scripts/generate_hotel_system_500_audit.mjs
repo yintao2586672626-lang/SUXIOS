@@ -4,8 +4,11 @@ import { fileURLToPath } from 'node:url';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDir, '..');
-const outputDir = path.join(projectRoot, 'docs', 'qa');
 const auditDate = '2026-07-14';
+const generatedAt = `${auditDate}T00:00:00+08:00`;
+const outputDir = process.env.SUXI_AUDIT_OUTPUT_DIR
+  ? path.resolve(process.env.SUXI_AUDIT_OUTPUT_DIR)
+  : path.join(projectRoot, 'docs', 'qa');
 
 const sources = [
   ['ISO/IEC 25010:2023', '软件产品质量九特性与验收模型', 'https://www.iso.org/standard/78176.html'],
@@ -1126,7 +1129,7 @@ const p0Gaps = tests.filter((test) => test.priority === 'P0' && ['部分满足',
 const generatedMeta = {
   title: '宿析OS：酒店数据管理系统 500 条测试用例与项目符合性审计',
   audit_date: auditDate,
-  generated_at: new Date().toISOString(),
+  generated_at: generatedAt,
   project: '宿析OS（SUXIOS）',
   product_scope: 'OTA 数据 → 收益分析 → AI 决策 → 运营管理 → 投资决策',
   methodology: '市场/标准基线 + 项目代码与自动化证据 + 本地运行结果；未执行项不推定通过。',

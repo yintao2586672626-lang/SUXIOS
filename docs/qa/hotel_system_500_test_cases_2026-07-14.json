@@ -2,7 +2,7 @@
   "metadata": {
     "title": "宿析OS：酒店数据管理系统 500 条测试用例与项目符合性审计",
     "audit_date": "2026-07-14",
-    "generated_at": "2026-07-14T10:50:03.224Z",
+    "generated_at": "2026-07-14T00:00:00+08:00",
     "project": "宿析OS（SUXIOS）",
     "product_scope": "OTA 数据 → 收益分析 → AI 决策 → 运营管理 → 投资决策",
     "methodology": "市场/标准基线 + 项目代码与自动化证据 + 本地运行结果；未执行项不推定通过。",
