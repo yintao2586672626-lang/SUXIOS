@@ -102,6 +102,7 @@ Route::options('api/:any', function() {
 // ==================== Auth routes ====================
 // Public auth endpoints.
 Route::post('api/auth/login', 'Auth/login');
+Route::get('api/auth/login-support', 'Auth/loginSupport');
 // Self-registration is disabled by Auth/register and kept routed for explicit 403.
 Route::post('api/auth/register', 'Auth/register');
 
@@ -177,6 +178,8 @@ Route::group('api/daily-reports', function () {
 Route::group('api/ai-daily-reports', function () {
     Route::get('/latest', 'AiDailyReport/latest');
     Route::post('/generate', 'AiDailyReport/generate');
+    Route::get('/tasks/:taskId', 'AiDailyReport/generationTask');
+    Route::post('/:id/human-judgments', 'AiDailyReport/recordHumanJudgment');
     Route::post('/:id/actions/:actionIndex/execution-intent', 'AiDailyReport/createExecutionIntent');
     Route::get('/:id', 'AiDailyReport/read');
     Route::get('/', 'AiDailyReport/index');
@@ -218,6 +221,10 @@ Route::group('api/online-data', function () {
     Route::post('/meituan/rank-candidates/commit', 'OnlineData/commitMeituanRankCandidate');
     Route::post('/meituan/display-model', 'OnlineData/meituanDisplayModel');
     Route::get('/competitor-summary', 'OnlineData/competitorSummary');
+    Route::get('/ctrip/competitive-operations', 'OnlineData/ctripCompetitiveOperations');
+    Route::get('/ctrip/public-profiles', 'OnlineData/ctripPublicProfiles');
+    Route::post('/ctrip/public-profiles/add', 'OnlineData/addCtripPublicProfile');
+    Route::post('/ctrip/public-profiles/sync', 'OnlineData/syncCtripPublicProfiles');
     Route::post('/fetch-ctrip-traffic', 'OnlineData/fetchCtripTraffic');
     Route::post('/ctrip/traffic', 'OnlineData/fetchCtripTraffic');
     Route::post('/fetch-meituan-traffic', 'OnlineData/fetchMeituanTraffic');
@@ -366,6 +373,7 @@ Route::group('api/knowledge', function () {
     Route::post('/import', 'Knowledge/importMaterials');
     Route::post('/document-text', 'Knowledge/extractDocumentText');
     Route::post('/:unit_id/add-chunk', 'Knowledge/addChunk');
+    Route::post('/:unit_id/chunks/:chunk_id/execution-intent', 'Knowledge/createExecutionIntent');
     Route::post('/:unit_id/update', 'Knowledge/update');
     Route::post('/:unit_id/status', 'Knowledge/status');
     Route::delete('/:unit_id', 'Knowledge/delete');
@@ -602,7 +610,31 @@ Route::group('api/notifications', function () {
 
 // 健康检查
 Route::get('api/health', function () {
-    return json(['status' => 'ok', 'time' => date('Y-m-d H:i:s')]);
+    $checkedAt = date('Y-m-d H:i:s');
+    try {
+        $result = \think\facade\Db::query('SELECT 1 AS ready');
+        if ((int)($result[0]['ready'] ?? 0) !== 1) {
+            throw new \RuntimeException('database readiness probe returned an invalid result');
+        }
+    } catch (\Throwable) {
+        return json([
+            'status' => 'unavailable',
+            'time' => $checkedAt,
+            'checks' => [
+                'application' => 'ok',
+                'database' => 'unavailable',
+            ],
+        ], 503);
+    }
+
+    return json([
+        'status' => 'ok',
+        'time' => $checkedAt,
+        'checks' => [
+            'application' => 'ok',
+            'database' => 'ok',
+        ],
+    ]);
 });
 // ==================== AI Agent 路由 ====================
 Route::group('api/agent', function () {

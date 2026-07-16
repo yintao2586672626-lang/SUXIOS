@@ -1453,15 +1453,37 @@ class Agent extends Base
 
             if ($unitIds) {
                 $chunkRows = Db::name('knowledge_chunks')
-                    ->field('unit_id,type,content')
+                    ->field('chunk_id,unit_id,type,content')
                     ->whereIn('unit_id', $unitIds)
-                    ->order('chunk_id', 'asc')
-                    ->limit(18)
+                    ->order('chunk_id', 'desc')
+                    ->limit(240)
                     ->select()
                     ->toArray();
+                foreach ($chunkRows as &$chunkRow) {
+                    $searchText = mb_strtolower((string)($chunkRow['type'] ?? '') . ' ' . $this->sanitizeOtaKnowledgeText($chunkRow['content'] ?? '', 6000));
+                    $score = 0;
+                    foreach ($keywords as $keywordIndex => $keyword) {
+                        $keyword = mb_strtolower(trim((string)$keyword));
+                        if ($keyword === '' || mb_stripos($searchText, $keyword) === false) {
+                            continue;
+                        }
+                        $score += $keywordIndex < 3 ? 4 : 1;
+                    }
+                    $chunkRow['_relevance_score'] = $score;
+                }
+                unset($chunkRow);
+                usort($chunkRows, static function (array $left, array $right): int {
+                    $scoreCompare = (int)($right['_relevance_score'] ?? 0) <=> (int)($left['_relevance_score'] ?? 0);
+                    return $scoreCompare !== 0
+                        ? $scoreCompare
+                        : ((int)($right['chunk_id'] ?? 0) <=> (int)($left['chunk_id'] ?? 0));
+                });
                 foreach ($chunkRows as $chunkRow) {
                     $unitId = (int)($chunkRow['unit_id'] ?? 0);
-                    if ($unitId <= 0 || count($chunksByUnit[$unitId] ?? []) >= 3) {
+                    if ($unitId <= 0
+                        || (int)($chunkRow['_relevance_score'] ?? 0) <= 0
+                        || count($chunksByUnit[$unitId] ?? []) >= 6
+                    ) {
                         continue;
                     }
                     $chunksByUnit[$unitId][] = trim($this->sanitizeOtaKnowledgeText(
@@ -2155,6 +2177,10 @@ class Agent extends Base
             'order_filling_num',
             'order_submit_num',
             'raw_data',
+            'readback_verified',
+            'readback_verified_at',
+            'validation_status',
+            'source_trace_id',
             'create_time',
             'update_time',
         ], array_keys($columns)));
@@ -2165,6 +2191,7 @@ class Agent extends Base
         $usedLatestAvailableData = false;
         $canQueryOnlineRows = !empty($fields)
             && isset($columns['data_date'])
+            && isset($columns['readback_verified'])
             && (($hotelId > 0 && isset($columns['system_hotel_id'])) || (($hotelIdRaw !== '' || $platformHotelIdRaw !== '') && isset($columns['hotel_id'])));
         if ($canQueryOnlineRows) {
             $applyOnlineScope = function ($query) use ($hotelId, $hotelIdRaw, $platformHotelIdRaw, $platform, $analysisType, $columns) {
@@ -2226,31 +2253,47 @@ class Agent extends Base
             ['id', 'hotel_id', 'report_date', 'report_data', 'occupancy_rate', 'room_count', 'guest_count', 'revenue', 'expenses', 'notes', 'create_time', 'update_time'],
             $hotelId,
             'report_date',
-            $startDate,
-            $endDate,
+            $effectiveStartDate,
+            $effectiveEndDate,
             'report_date'
         );
         $competitorPrices = $this->queryHotelDateRows(
             'competitor_price_log',
-            ['id', 'store_id', 'hotel_id', 'platform', 'city', 'price', 'fetch_time', 'create_time', 'update_time'],
+            [
+                'id', 'store_id', 'hotel_id', 'platform', 'city', 'price', 'fetch_time', 'create_time', 'update_time',
+                'ota_hotel_id', 'collected_at', 'source_method', 'source_ref', 'validation_status', 'readback_verified',
+                'failure_reason', 'check_in_date', 'check_out_date', 'nights', 'adults', 'children', 'room_type_key',
+                'ota_product_id', 'rate_plan_key', 'package_name', 'breakfast', 'cancellation_policy', 'payment_mode',
+                'tax_fee_included', 'price_basis', 'currency', 'availability', 'comparison_key',
+            ],
             $hotelId,
             'create_time',
-            $startDate . ' 00:00:00',
-            $endDate . ' 23:59:59',
+            $effectiveStartDate . ' 00:00:00',
+            $effectiveEndDate . ' 23:59:59',
             'fetch_time',
             function ($query, array $tableColumns) use ($platform): void {
                 if (isset($tableColumns['platform'])) {
                     $query->where('platform', $platform);
                 }
-            }
+            },
+            'asc',
+            0,
+            'store_id'
         );
         $competitorAnalyses = $this->queryHotelDateRows(
             'competitor_analysis',
-            ['id', 'hotel_id', 'competitor_hotel_id', 'room_type_id', 'analysis_date', 'our_price', 'competitor_price', 'price_difference', 'price_index', 'ota_platform', 'competitor_data', 'create_time', 'update_time'],
+            [
+                'id', 'hotel_id', 'competitor_hotel_id', 'room_type_id', 'analysis_date', 'our_price', 'competitor_price',
+                'price_difference', 'price_index', 'ota_platform', 'competitor_data', 'create_time', 'update_time',
+                'collected_at', 'source_method', 'source_ref', 'validation_status', 'readback_verified', 'failure_reason',
+                'check_in_date', 'check_out_date', 'nights', 'adults', 'children', 'room_type_key', 'rate_plan_key',
+                'breakfast', 'cancellation_policy', 'payment_mode', 'tax_fee_included', 'price_basis', 'currency',
+                'availability', 'comparison_key',
+            ],
             $hotelId,
             'analysis_date',
-            $startDate,
-            $endDate,
+            $effectiveStartDate,
+            $effectiveEndDate,
             'analysis_date',
             function ($query, array $tableColumns) use ($platform): void {
                 $platformCode = $this->otaPlatformCode($platform);
@@ -2264,8 +2307,8 @@ class Agent extends Base
             ['id', 'hotel_id', 'room_type_id', 'suggestion_date', 'suggestion_type', 'current_price', 'suggested_price', 'min_price', 'max_price', 'competitor_data', 'factors', 'status', 'create_time', 'update_time'],
             $hotelId,
             'suggestion_date',
-            $startDate,
-            $endDate,
+            $effectiveStartDate,
+            $effectiveEndDate,
             'suggestion_date'
         );
         $syncLogs = $this->queryHotelDateRows(
@@ -2273,8 +2316,8 @@ class Agent extends Base
             ['id', 'hotel_id', 'module', 'action', 'description', 'create_time', 'error_info'],
             $hotelId,
             'create_time',
-            $startDate . ' 00:00:00',
-            $endDate . ' 23:59:59',
+            $effectiveStartDate . ' 00:00:00',
+            $effectiveEndDate . ' 23:59:59',
             'create_time',
             function ($query, array $tableColumns): void {
                 if (isset($tableColumns['module'])) {
@@ -2301,9 +2344,35 @@ class Agent extends Base
             array_column($syncLogs, 'create_time')
         ));
 
+        $decisionEligibleOnlineRows = array_values(array_filter(
+            $onlineRows,
+            fn(array $row): bool => $this->isOtaDiagnosisDecisionEligibleRow($row)
+        ));
+        $excludedOnlineRows = array_values(array_filter(
+            $onlineRows,
+            fn(array $row): bool => !$this->isOtaDiagnosisDecisionEligibleRow($row)
+        ));
+        $excludedQualityStatuses = [];
+        foreach ($excludedOnlineRows as $row) {
+            $status = $this->otaDiagnosisRowQualityStatus($row);
+            $excludedQualityStatuses[$status] = ($excludedQualityStatuses[$status] ?? 0) + 1;
+        }
+        ksort($excludedQualityStatuses);
+
         return [
             'hotel' => $hotel ?: ['id' => $hotelIdRaw, 'name' => ''],
             'online_rows' => $onlineRows,
+            'decision_eligible_online_rows' => $decisionEligibleOnlineRows,
+            'excluded_online_rows' => $excludedOnlineRows,
+            'decision_quality' => [
+                'visible_row_count' => count($onlineRows),
+                'eligible_row_count' => count($decisionEligibleOnlineRows),
+                'excluded_row_count' => count($excludedOnlineRows),
+                'excluded_quality_statuses' => $excludedQualityStatuses,
+                'gate' => $decisionEligibleOnlineRows === []
+                    ? 'insufficient_evidence'
+                    : ($excludedOnlineRows === [] ? 'all_visible_rows_eligible' : 'eligible_rows_only'),
+            ],
             'daily_reports' => $dailyReports,
             'competitor_prices' => $competitorPrices,
             'competitor_analyses' => $competitorAnalyses,
@@ -2318,11 +2387,32 @@ class Agent extends Base
 
     private function hasOtaDiagnosisData(array $dataSet): bool
     {
-        return !empty($dataSet['online_rows'])
-            || !empty($dataSet['daily_reports'])
-            || !empty($dataSet['competitor_prices'])
-            || !empty($dataSet['competitor_analyses'])
-            || !empty($dataSet['price_suggestions']);
+        return !empty($dataSet['online_rows']);
+    }
+
+    private function isOtaDiagnosisDecisionEligibleRow(array $row): bool
+    {
+        if ((int)($row['readback_verified'] ?? 0) !== 1) {
+            return false;
+        }
+
+        return in_array($this->otaDiagnosisRowQualityStatus($row), [
+            'normal',
+            'available',
+            'ok',
+            'valid',
+            'verified',
+        ], true);
+    }
+
+    private function otaDiagnosisRowQualityStatus(array $row): string
+    {
+        if ((int)($row['readback_verified'] ?? 0) !== 1) {
+            return 'readback_unverified';
+        }
+
+        $status = strtolower(trim((string)($row['validation_status'] ?? 'unverified')));
+        return $status !== '' ? $status : 'unverified';
     }
 
     private function buildOtaDiagnosisNoDataResult(array $dataSet, string $hotelIdRaw, string $hotelName, string $platform, string $startDate, string $endDate): array
@@ -2434,7 +2524,13 @@ class Agent extends Base
 
     private function buildOtaDiagnosisResult(array $dataSet, int $hotelId, string $hotelIdRaw, string $hotelName, string $platform, string $startDate, string $endDate, string $analysisType): array
     {
-        $rows = $dataSet['online_rows'] ?? [];
+        $visibleRows = is_array($dataSet['online_rows'] ?? null) ? $dataSet['online_rows'] : [];
+        // Production queryOtaDiagnosisData always provides the gated list.
+        // Falling back to the supplied rows keeps this pure builder usable for
+        // already-gated in-memory callers and focused unit tests.
+        $rows = array_key_exists('decision_eligible_online_rows', $dataSet)
+            ? (is_array($dataSet['decision_eligible_online_rows']) ? $dataSet['decision_eligible_online_rows'] : [])
+            : $visibleRows;
         $dailyReports = $dataSet['daily_reports'] ?? [];
         $competitorPrices = $dataSet['competitor_prices'] ?? [];
         $competitorAnalyses = $dataSet['competitor_analyses'] ?? [];
@@ -2443,11 +2539,16 @@ class Agent extends Base
         $summary = $this->buildOtaDiagnosisSummary($rows, $hotelId, $hotelName, $platform, $startDate, $endDate, $analysisType);
         $totals = $summary['totals'];
         $rates = $summary['derived_rates'];
-        $avgCompetitorPrice = $this->nullableAverage(array_merge(
-            array_map('floatval', array_column($competitorPrices, 'price')),
-            array_map('floatval', array_column($competitorAnalyses, 'competitor_price'))
-        ));
-        $avgSuggestedPrice = $this->nullableAverage(array_map('floatval', array_column($priceSuggestions, 'suggested_price')));
+        // Legacy competitor price rows do not carry a complete comparison key
+        // (stay dates, room/rate plan, meal, cancellation, tax and currency).
+        // Keep them visible as reference records, but do not turn them into a
+        // price average or an automated price conclusion.
+        $comparableCompetitorPrices = $this->otaDiagnosisComparableCompetitorPrices($competitorPrices, $competitorAnalyses);
+        $avgCompetitorPrice = $this->nullableAverage($comparableCompetitorPrices);
+        $avgSuggestedPrice = $this->nullableAverage(array_values(array_filter(
+            array_column($priceSuggestions, 'suggested_price'),
+            static fn(mixed $value): bool => is_numeric($value) && (float)$value > 0
+        )));
         $dailyRevenue = $dailyReports === [] ? null : array_sum(array_map('floatval', array_column($dailyReports, 'revenue')));
         $hasTraffic = $this->hasKnownOtaDiagnosisMetric($totals, [
             'list_exposure', 'detail_visitors', 'flow_rate', 'order_visitors', 'submit_users',
@@ -2536,9 +2637,18 @@ class Agent extends Base
             $displayHotelName = $hotelName !== '' ? $hotelName : $hotelIdRaw;
         }
         $abnormal = array_values(array_unique($abnormal));
+        if ($visibleRows !== [] && $rows === []) {
+            $summary['data_gaps'][] = [
+                'code' => 'ota_rows_excluded_by_quality',
+                'message' => '已找到入库记录，但没有同时通过质量状态与保存回读门禁的证据。',
+                'scope' => 'ota_channel',
+                'blocked_conclusions' => ['经营汇总', '异常判断', '运营动作'],
+                'next_action' => '修复采集或字段校验并完成保存回读后重新诊断。',
+            ];
+        }
         $blockingDataGaps = $this->blockingOtaDiagnosisDataGaps($summary['data_gaps'] ?? []);
         $diagnosis = [
-            'summary' => sprintf('已读取%s在%s至%s的历史OTA数据，覆盖%d条OTA记录、%d条日报、%d条竞对价格记录。', $displayHotelName, $startDate, $endDate, count($rows), count($dailyReports), count($competitorPrices)),
+            'summary' => sprintf('已读取%s在%s至%s的历史OTA数据；%d条记录可用于诊断，%d条因质量或回读证据不足仅保留展示，另有%d条日报、%d条竞对价格参考记录。', $displayHotelName, $startDate, $endDate, count($rows), max(0, count($visibleRows) - count($rows)), count($dailyReports), count($competitorPrices)),
             'data_overview' => [
                 'OTA记录数: ' . count($rows),
                 '日期覆盖: ' . $summary['date_count'] . ' 天',
@@ -2551,7 +2661,7 @@ class Agent extends Base
             'exposure_analysis' => $hasTraffic ? sprintf('曝光%s，访问%s，曝光到访问率%s。', $this->formatOtaDiagnosisMetric($metrics['list_exposure']), $this->formatOtaDiagnosisMetric($metrics['detail_visitors']), $this->formatOtaDiagnosisMetric($metrics['detail_rate'], '%')) : '缺少OTA流量数据，无法判断曝光表现。',
             'visit_conversion_analysis' => $hasTraffic ? sprintf('访问%s，订单意向%s，访问到订单率%s。', $this->formatOtaDiagnosisMetric($metrics['detail_visitors']), $this->formatOtaDiagnosisMetric($metrics['order_visitors']), $this->formatOtaDiagnosisMetric($metrics['order_rate'], '%')) : '缺少访问转化数据。',
             'order_conversion_analysis' => $hasTraffic ? sprintf('订单意向%s，提交用户%s，提交率%s。', $this->formatOtaDiagnosisMetric($metrics['order_visitors']), $this->formatOtaDiagnosisMetric($metrics['submit_users']), $this->formatOtaDiagnosisMetric($metrics['submit_rate'], '%')) : '缺少订单转化数据。',
-            'price_analysis' => $avgCompetitorPrice > 0 ? sprintf('竞对均价%s，本店ADR%s，需结合房型和日期校准价差。', $avgCompetitorPrice, $this->formatOtaDiagnosisMetric($metrics['adr'])) : ($avgSuggestedPrice > 0 ? sprintf('已有%d条定价建议，建议均价%s，可结合房态和订单转化复核。', count($priceSuggestions), $avgSuggestedPrice) : '缺少价格/房态/订单相关数据，暂不能判断价格竞争力。'),
+            'price_analysis' => $avgCompetitorPrice !== null ? sprintf('同一可比条件下的竞对公开价均值%s；该值仅代表指定入住条件的OTA公开售卖价，不与全酒店ADR直接比较。', $avgCompetitorPrice) : ($avgSuggestedPrice !== null ? sprintf('已有%d条定价建议，建议均价%s；当前竞对记录缺少完整可比条件，不能据此计算价差。', count($priceSuggestions), $avgSuggestedPrice) : '缺少通过可比性门禁的价格记录，暂不能判断价格竞争力。'),
             'competitor_analysis' => $hasCompetitor ? '已有竞对或对比数据，可继续关注价格、曝光和转化差距。' : '缺少竞对数据，无法判断同商圈机会。',
             'advertising_analysis' => $hasAdvertising ? sprintf('OTA广告花费%s，归因订单金额%s，ROAS %s。', $this->formatOtaDiagnosisMetric($metrics['advertising_spend']), $this->formatOtaDiagnosisMetric($metrics['advertising_order_amount']), $this->formatOtaDiagnosisMetric($metrics['advertising_roas'])) : '缺少OTA广告数据，暂不评估投放效率。',
             'service_quality_analysis' => $hasServiceQuality ? sprintf('OTA服务质量分%s，服务评分%s。', $this->formatOtaDiagnosisMetric($metrics['avg_psi_score']), $this->formatOtaDiagnosisMetric($metrics['avg_service_score'])) : '缺少OTA服务质量数据，暂不评估服务质量对转化的影响。',
@@ -2576,6 +2686,8 @@ class Agent extends Base
                 'last_sync_time' => $dataSet['last_sync_time'] ?? '',
                 'source_counts' => [
                     'online_rows' => count($rows),
+                    'online_rows_visible' => count($visibleRows),
+                    'online_rows_excluded_from_decision' => max(0, count($visibleRows) - count($rows)),
                     'daily_reports' => count($dailyReports),
                     'competitor_prices' => count($competitorPrices),
                     'competitor_analyses' => count($competitorAnalyses),
@@ -2584,6 +2696,13 @@ class Agent extends Base
                 ],
             ],
             'metrics' => $metrics,
+            'decision_quality' => $dataSet['decision_quality'] ?? [
+                'visible_row_count' => count($visibleRows),
+                'eligible_row_count' => count($rows),
+                'excluded_row_count' => max(0, count($visibleRows) - count($rows)),
+                'excluded_quality_statuses' => [],
+                'gate' => $rows === [] ? 'insufficient_evidence' : 'eligible_rows_only',
+            ],
             'diagnosis' => $diagnosis,
             'diagnosis_sections' => $this->buildOtaDiagnosisSections($diagnosis, array_values(array_unique($missingSections))),
             'missing_sections' => array_values(array_unique($missingSections)),
@@ -2740,13 +2859,22 @@ class Agent extends Base
             'tags' => ['summary'],
             'label' => '本次诊断聚合指标',
             'metrics' => $this->buildOtaEvidenceMetricPreview($metrics),
+            'quality_status' => (string)($dataSet['decision_quality']['gate'] ?? 'unknown'),
+            'decision_eligible' => false,
         ]];
 
-        foreach (array_slice($dataSet['online_rows'] ?? [], 0, 20) as $row) {
+        $eligibleRows = array_key_exists('decision_eligible_online_rows', $dataSet)
+            ? (is_array($dataSet['decision_eligible_online_rows']) ? $dataSet['decision_eligible_online_rows'] : [])
+            : (is_array($dataSet['online_rows'] ?? null) ? $dataSet['online_rows'] : []);
+        usort($eligibleRows, static function (array $left, array $right): int {
+            $dateCompare = strcmp((string)($right['data_date'] ?? ''), (string)($left['data_date'] ?? ''));
+            return $dateCompare !== 0 ? $dateCompare : ((int)($right['id'] ?? 0) <=> (int)($left['id'] ?? 0));
+        });
+        foreach (array_slice($eligibleRows, 0, 20) as $row) {
             if (!is_array($row)) {
                 continue;
             }
-            $sources[] = [
+            $sources[] = array_merge([
                 'ref' => 'online_daily_data#' . (string)($row['id'] ?? ''),
                 'table' => 'online_daily_data',
                 'record_id' => $row['id'] ?? null,
@@ -2754,7 +2882,25 @@ class Agent extends Base
                 'tags' => $this->buildOtaEvidenceTags('online_daily_data', $row),
                 'label' => trim(implode(' ', array_filter([(string)($row['source'] ?? ''), (string)($row['data_type'] ?? ''), (string)($row['compare_type'] ?? '')]))),
                 'metrics' => $this->buildOtaEvidenceMetricPreview($row),
-            ];
+                'decision_eligible' => true,
+            ], $this->buildOtaDiagnosisEvidenceMetadata($row));
+        }
+
+        foreach (array_slice(is_array($dataSet['excluded_online_rows'] ?? null) ? $dataSet['excluded_online_rows'] : [], 0, 10) as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $sources[] = array_merge([
+                'ref' => 'online_daily_data_excluded#' . (string)($row['id'] ?? ''),
+                'table' => 'online_daily_data',
+                'record_id' => $row['id'] ?? null,
+                'date' => (string)($row['data_date'] ?? ''),
+                'tags' => ['excluded_from_decision', 'quality_gap', 'ota_channel'],
+                'label' => '不可用于诊断的入库记录（仅展示质量状态）',
+                'metrics' => [],
+                'excluded_from_decision' => true,
+                'decision_eligible' => false,
+            ], $this->buildOtaDiagnosisEvidenceMetadata($row));
         }
 
         foreach (array_slice($dataSet['daily_reports'] ?? [], 0, 10) as $row) {
@@ -2769,6 +2915,8 @@ class Agent extends Base
                 'tags' => ['daily', 'revenue'],
                 'label' => '日报经营数据',
                 'metrics' => $this->buildOtaEvidenceMetricPreview($row),
+                'quality_status' => 'internal_persisted_report',
+                'decision_eligible' => true,
             ];
         }
 
@@ -2776,30 +2924,40 @@ class Agent extends Base
             if (!is_array($row)) {
                 continue;
             }
-            $sources[] = [
+            $comparisonKey = $this->otaDiagnosisCompetitorComparisonKey($row);
+            $eligible = $comparisonKey !== '';
+            $sources[] = array_merge([
                 'ref' => 'competitor_price_log#' . (string)($row['id'] ?? ''),
                 'table' => 'competitor_price_log',
                 'record_id' => $row['id'] ?? null,
                 'date' => (string)($row['fetch_time'] ?? $row['create_time'] ?? ''),
-                'tags' => ['competitor', 'price'],
+                'tags' => $eligible ? ['competitor', 'price'] : ['excluded_from_decision', 'quality_gap', 'competitor_reference'],
                 'label' => (string)($row['platform'] ?? 'competitor_price'),
-                'metrics' => $this->buildOtaEvidenceMetricPreview($row),
-            ];
+                'metrics' => $eligible ? $this->buildOtaEvidenceMetricPreview($row) : [],
+                'decision_eligible' => $eligible,
+                'excluded_from_decision' => !$eligible,
+                'comparison_key' => $comparisonKey,
+            ], $this->buildOtaDiagnosisEvidenceMetadata($row));
         }
 
         foreach (array_slice($dataSet['competitor_analyses'] ?? [], 0, 10) as $row) {
             if (!is_array($row)) {
                 continue;
             }
-            $sources[] = [
+            $comparisonKey = $this->otaDiagnosisCompetitorComparisonKey($row);
+            $eligible = $comparisonKey !== '';
+            $sources[] = array_merge([
                 'ref' => 'competitor_analysis#' . (string)($row['id'] ?? ''),
                 'table' => 'competitor_analysis',
                 'record_id' => $row['id'] ?? null,
                 'date' => (string)($row['analysis_date'] ?? ''),
-                'tags' => ['competitor', 'price'],
+                'tags' => $eligible ? ['competitor', 'price'] : ['excluded_from_decision', 'quality_gap', 'competitor_reference'],
                 'label' => '竞对价格分析',
-                'metrics' => $this->buildOtaEvidenceMetricPreview($row),
-            ];
+                'metrics' => $eligible ? $this->buildOtaEvidenceMetricPreview($row) : [],
+                'decision_eligible' => $eligible,
+                'excluded_from_decision' => !$eligible,
+                'comparison_key' => $comparisonKey,
+            ], $this->buildOtaDiagnosisEvidenceMetadata($row));
         }
 
         foreach (array_slice($dataSet['price_suggestions'] ?? [], 0, 10) as $row) {
@@ -2814,6 +2972,8 @@ class Agent extends Base
                 'tags' => ['price', 'suggestion'],
                 'label' => '收益价格建议',
                 'metrics' => $this->buildOtaEvidenceMetricPreview($row),
+                'quality_status' => 'derived_suggestion',
+                'decision_eligible' => false,
             ];
         }
 
@@ -2829,10 +2989,69 @@ class Agent extends Base
                 'tags' => ['sync_log', 'collection'],
                 'label' => (string)($row['action'] ?? 'online_data_log'),
                 'metrics' => $this->buildOtaEvidenceMetricPreview($row),
+                'quality_status' => 'process_log_only',
+                'decision_eligible' => false,
             ];
         }
 
         return array_values(array_filter($sources, static fn(array $source): bool => (string)($source['ref'] ?? '') !== '#'));
+    }
+
+    /** @return array<string,mixed> */
+    private function buildOtaDiagnosisEvidenceMetadata(array $row): array
+    {
+        $raw = [];
+        if (is_array($row['raw_data'] ?? null)) {
+            $raw = $row['raw_data'];
+        } elseif (is_string($row['raw_data'] ?? null) && trim((string)$row['raw_data']) !== '') {
+            $decoded = json_decode((string)$row['raw_data'], true);
+            $raw = is_array($decoded) ? $decoded : [];
+        }
+        $captureMeta = is_array($raw['capture_meta'] ?? null)
+            ? $raw['capture_meta']
+            : (is_array($raw['captureMeta'] ?? null) ? $raw['captureMeta'] : []);
+        $firstText = static function (array $values): string {
+            foreach ($values as $value) {
+                if (is_scalar($value) && trim((string)$value) !== '') {
+                    return trim((string)$value);
+                }
+            }
+            return '';
+        };
+
+        return [
+            'platform' => strtolower(trim((string)($row['source'] ?? $row['platform'] ?? ''))),
+            'platform_hotel_id' => trim((string)($row['hotel_id'] ?? '')),
+            'quality_status' => $this->otaDiagnosisRowQualityStatus($row),
+            'readback_verified' => (int)($row['readback_verified'] ?? 0) === 1,
+            'readback_verified_at' => (string)($row['readback_verified_at'] ?? ''),
+            'source_trace_id' => trim((string)($row['source_trace_id'] ?? '')),
+            'captured_at' => $firstText([
+                $row['collected_at'] ?? null,
+                $captureMeta['captured_at'] ?? null,
+                $captureMeta['collected_at'] ?? null,
+                $row['create_time'] ?? null,
+                $row['update_time'] ?? null,
+            ]),
+            'source_method' => $firstText([
+                $row['source_method'] ?? null,
+                $captureMeta['source_method'] ?? null,
+                $captureMeta['method'] ?? null,
+                $raw['source_method'] ?? null,
+            ]),
+            'source_url' => $firstText([
+                $row['source_url'] ?? null,
+                $row['source_ref'] ?? null,
+                $captureMeta['source_url'] ?? null,
+                $captureMeta['page_url'] ?? null,
+                $raw['source_url'] ?? null,
+            ]),
+            'evidence_asset_ref' => $firstText([
+                $row['evidence_asset_ref'] ?? null,
+                $captureMeta['evidence_asset_ref'] ?? null,
+                $captureMeta['screenshot_ref'] ?? null,
+            ]),
+        ];
     }
 
     private function buildOtaDiagnosisSections(array $diagnosis, array $missingSections): array
@@ -3024,7 +3243,7 @@ class Agent extends Base
             if (!is_array($source)) {
                 continue;
             }
-            if ((string)($source['table'] ?? '') === 'derived') {
+            if (($source['decision_eligible'] ?? false) !== true) {
                 continue;
             }
             foreach ((array)($source['tags'] ?? []) as $tag) {
@@ -3064,7 +3283,7 @@ class Agent extends Base
             if (!is_array($source)) {
                 continue;
             }
-            if ((string)($source['table'] ?? '') !== 'derived') {
+            if (($source['decision_eligible'] ?? false) === true) {
                 return true;
             }
         }
@@ -3271,48 +3490,100 @@ class Agent extends Base
             (string)($dateRange['end_date'] ?? '')
         );
         $level = $decisionStatus === 'blocked_by_data' ? AgentLog::LEVEL_WARNING : AgentLog::LEVEL_INFO;
-        $log = AgentLog::record(
+        Db::transaction(function () use (
+            &$result,
             $resolvedHotelId,
-            AgentLog::AGENT_TYPE_REVENUE,
-            'ota_diagnosis',
+            $platform,
             $message,
             $level,
-            [
+            $dateRange,
+            $requestedDateRange,
+            $decisionStatus
+        ): void {
+            $log = AgentLog::record(
+                $resolvedHotelId,
+                AgentLog::AGENT_TYPE_REVENUE,
+                'ota_diagnosis',
+                $message,
+                $level,
+                [
+                    'schema_version' => 1,
+                    'record_type' => 'ota_diagnosis',
+                    'platform' => strtolower($platform),
+                    'date_range' => $dateRange,
+                    'decision_status' => $decisionStatus,
+                ],
+                (int)($this->currentUser->id ?? 0)
+            );
+
+            $logId = (int)$log->id;
+            $result['record_status'] = 'active';
+            $result['saved_record'] = [
+                'saved' => false,
+                'readback_verified' => false,
+                'id' => $logId,
+                'saved_at' => (string)($log->create_time ?? date('Y-m-d H:i:s')),
+                'storage' => 'agent_logs.context_data',
+                'action' => 'ota_diagnosis',
+            ];
+            $context = [
                 'schema_version' => 1,
                 'record_type' => 'ota_diagnosis',
+                'record_status' => 'active',
                 'platform' => strtolower($platform),
                 'date_range' => $dateRange,
+                'requested_date_range' => $requestedDateRange,
                 'decision_status' => $decisionStatus,
-            ],
-            (int)($this->currentUser->id ?? 0)
-        );
+                'diagnosis_result' => $this->buildOtaDiagnosisSnapshot($result),
+            ];
+            $log->context_data = $context;
+            $log->save();
 
-        $savedAt = (string)($log->create_time ?? date('Y-m-d H:i:s'));
-        $result['record_status'] = 'active';
-        $result['saved_record'] = [
-            'saved' => true,
-            'id' => (int)$log->id,
-            'saved_at' => $savedAt,
-            'storage' => 'agent_logs.context_data',
-            'action' => 'ota_diagnosis',
-        ];
-        $result['saved_record']['superseded_prior_count'] = $this->supersedePriorOtaDiagnosisRecords(
-            $resolvedHotelId,
-            strtolower($platform),
-            $requestedDateRange,
-            (int)$log->id
-        );
-        $log->context_data = [
-            'schema_version' => 1,
-            'record_type' => 'ota_diagnosis',
-            'record_status' => 'active',
-            'platform' => strtolower($platform),
-            'date_range' => $dateRange,
-            'requested_date_range' => $requestedDateRange,
-            'decision_status' => $decisionStatus,
-            'diagnosis_result' => $this->buildOtaDiagnosisSnapshot($result),
-        ];
-        $log->save();
+            $stored = AgentLog::where('id', $logId)
+                ->where('hotel_id', $resolvedHotelId)
+                ->where('action', 'ota_diagnosis')
+                ->find();
+            $storedContext = $stored?->context_data ?? [];
+            if (is_string($storedContext)) {
+                $decoded = json_decode($storedContext, true);
+                $storedContext = is_array($decoded) ? $decoded : [];
+            }
+            if (!is_array($storedContext)
+                || (int)($storedContext['schema_version'] ?? 0) !== 1
+                || (string)($storedContext['record_status'] ?? '') !== 'active'
+                || strtolower((string)($storedContext['platform'] ?? '')) !== strtolower($platform)
+                || $this->normalizeOtaDiagnosisScopeDateRange((array)($storedContext['requested_date_range'] ?? [])) !== $requestedDateRange
+                || !is_array($storedContext['diagnosis_result']['evidence_sources'] ?? null)
+            ) {
+                throw new \RuntimeException('OTA diagnosis save readback verification failed');
+            }
+
+            $supersededCount = $this->supersedePriorOtaDiagnosisRecords(
+                $resolvedHotelId,
+                strtolower($platform),
+                $requestedDateRange,
+                $logId
+            );
+            $result['saved_record']['saved'] = true;
+            $result['saved_record']['readback_verified'] = true;
+            $result['saved_record']['readback_verified_at'] = date('Y-m-d H:i:s');
+            $result['saved_record']['superseded_prior_count'] = $supersededCount;
+            $context['diagnosis_result'] = $this->buildOtaDiagnosisSnapshot($result);
+            $log->context_data = $context;
+            $log->save();
+
+            $verified = AgentLog::where('id', $logId)->where('hotel_id', $resolvedHotelId)->find();
+            $verifiedContext = $verified?->context_data ?? [];
+            if (is_string($verifiedContext)) {
+                $decoded = json_decode($verifiedContext, true);
+                $verifiedContext = is_array($decoded) ? $decoded : [];
+            }
+            if (($verifiedContext['diagnosis_result']['saved_record']['saved'] ?? false) !== true
+                || ($verifiedContext['diagnosis_result']['saved_record']['readback_verified'] ?? false) !== true
+            ) {
+                throw new \RuntimeException('OTA diagnosis final readback verification failed');
+            }
+        });
 
         return $result;
     }
@@ -3707,6 +3978,9 @@ class Agent extends Base
 
         $refs = [];
         foreach ($evidenceSources as $source) {
+            if (($source['decision_eligible'] ?? false) !== true) {
+                continue;
+            }
             $sourceTags = is_array($source['tags'] ?? null) ? $source['tags'] : [];
             if (empty(array_intersect($wantedTags, $sourceTags))) {
                 continue;
@@ -3722,6 +3996,9 @@ class Agent extends Base
 
         if (empty($refs)) {
             foreach ($evidenceSources as $source) {
+                if (($source['decision_eligible'] ?? false) !== true) {
+                    continue;
+                }
                 $ref = (string)($source['ref'] ?? '');
                 if ($ref !== '' && !in_array($ref, $refs, true)) {
                     $refs[] = $ref;
@@ -3797,18 +4074,19 @@ class Agent extends Base
         string $orderBy,
         ?callable $extraFilter = null,
         string $orderDirection = 'asc',
-        int $limit = 0
+        int $limit = 0,
+        string $hotelScopeColumn = 'hotel_id'
     ): array {
         if ($hotelId <= 0) {
             return [];
         }
 
         $columns = $this->tableColumns($table);
-        if (empty($columns) || !isset($columns['hotel_id']) || !isset($columns[$dateColumn])) {
+        if (empty($columns) || !isset($columns[$hotelScopeColumn]) || !isset($columns[$dateColumn])) {
             return [];
         }
 
-        $selectedFields = array_values(array_unique(array_merge($fields, ['hotel_id', $dateColumn])));
+        $selectedFields = array_values(array_unique(array_merge($fields, [$hotelScopeColumn, $dateColumn])));
         $selectedFields = array_values(array_intersect($selectedFields, array_keys($columns)));
         if (empty($selectedFields)) {
             return [];
@@ -3816,7 +4094,7 @@ class Agent extends Base
 
         $query = Db::name($table)
             ->field(implode(',', $selectedFields))
-            ->where('hotel_id', $hotelId)
+            ->where($hotelScopeColumn, $hotelId)
             ->where($dateColumn, '>=', $startDate)
             ->where($dateColumn, '<=', $endDate);
 
@@ -4368,6 +4646,100 @@ class Agent extends Base
     private function nullableAverage(array $values): ?float
     {
         return $values === [] ? null : $this->average($values);
+    }
+
+    /**
+     * Return prices from the latest single, fully comparable public-rate key.
+     * Legacy rows intentionally fail this gate instead of being coerced to 0.
+     *
+     * @param array<int,array<string,mixed>> $priceRows
+     * @param array<int,array<string,mixed>> $analysisRows
+     * @return array<int,float>
+     */
+    private function otaDiagnosisComparableCompetitorPrices(array $priceRows, array $analysisRows): array
+    {
+        $groups = [];
+        foreach (array_merge($priceRows, $analysisRows) as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $key = $this->otaDiagnosisCompetitorComparisonKey($row);
+            if ($key === '') {
+                continue;
+            }
+            $price = $row['price'] ?? $row['competitor_price'] ?? null;
+            $capturedAt = trim((string)($row['collected_at'] ?? $row['fetch_time'] ?? $row['create_time'] ?? ''));
+            $groups[$key]['prices'][] = (float)$price;
+            if ($capturedAt !== '' && strcmp($capturedAt, (string)($groups[$key]['latest'] ?? '')) > 0) {
+                $groups[$key]['latest'] = $capturedAt;
+            }
+        }
+
+        if ($groups === []) {
+            return [];
+        }
+        uasort($groups, static fn(array $left, array $right): int => strcmp((string)($right['latest'] ?? ''), (string)($left['latest'] ?? '')));
+        $latestGroup = reset($groups);
+        return is_array($latestGroup['prices'] ?? null) ? array_values($latestGroup['prices']) : [];
+    }
+
+    private function otaDiagnosisCompetitorComparisonKey(array $row): string
+    {
+        if ((int)($row['readback_verified'] ?? 0) !== 1
+            || !in_array(strtolower(trim((string)($row['validation_status'] ?? ''))), ['normal', 'available', 'ok', 'valid', 'verified'], true)
+            || !in_array(strtolower(trim((string)($row['availability'] ?? ''))), ['available', 'bookable'], true)
+        ) {
+            return '';
+        }
+
+        $price = $row['price'] ?? $row['competitor_price'] ?? null;
+        if (!is_numeric($price) || (float)$price <= 0) {
+            return '';
+        }
+
+        $requiredStrings = [
+            'platform', 'check_in_date', 'check_out_date', 'room_type_key', 'rate_plan_key',
+            'breakfast', 'cancellation_policy', 'payment_mode', 'price_basis', 'currency',
+            'source_method', 'source_ref',
+        ];
+        foreach ($requiredStrings as $field) {
+            $value = $field === 'platform'
+                ? ($row['platform'] ?? $row['ota_platform'] ?? null)
+                : ($row[$field] ?? null);
+            if (trim((string)$value) === '') {
+                return '';
+            }
+        }
+
+        $capturedAt = trim((string)($row['collected_at'] ?? $row['fetch_time'] ?? $row['create_time'] ?? ''));
+        if ($capturedAt === '' || strtotime($capturedAt) === false) {
+            return '';
+        }
+        $checkIn = trim((string)($row['check_in_date'] ?? ''));
+        $checkOut = trim((string)($row['check_out_date'] ?? ''));
+        if (strtotime($checkIn) === false || strtotime($checkOut) === false || strtotime($checkOut) <= strtotime($checkIn)) {
+            return '';
+        }
+        if (!array_key_exists('tax_fee_included', $row)
+            || !is_numeric($row['adults'] ?? null)
+            || (int)$row['adults'] <= 0
+            || !is_numeric($row['children'] ?? null)
+            || (int)$row['children'] < 0
+        ) {
+            return '';
+        }
+
+        $keyFields = [
+            'check_in_date', 'check_out_date', 'room_type_key', 'rate_plan_key', 'breakfast',
+            'cancellation_policy', 'payment_mode', 'tax_fee_included', 'price_basis', 'currency',
+            'adults', 'children',
+        ];
+        $keyParts = [strtolower(trim((string)($row['platform'] ?? $row['ota_platform'] ?? '')))];
+        foreach ($keyFields as $field) {
+            $keyParts[] = strtolower(trim((string)$row[$field]));
+        }
+
+        return hash('sha256', implode('|', $keyParts));
     }
 
     private function percentRate(float $numerator, float $denominator): float

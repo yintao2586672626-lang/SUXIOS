@@ -138,6 +138,17 @@ C:\xampp\mysql\bin\mysql.exe -u root hotelx < database/init_full.sql
 
 `database/hotel_admin_mysql.sql` 是可提交的基础 dump；`database/init_full.sql` 会继续加载登录日志、投诉表和所有迁移，覆盖当前代码使用的表与字段。
 
+CI 会在 MariaDB 10.11（项目当前 MySQL 兼容方言）中运行 `npm run verify:mysql-fresh-concurrency`：创建随机 `*_e2e` 临时库、执行全量初始化、把扩张幂等迁移再执行两次，并用 8 个独立 PHP 进程验证只生成 1 条执行意图。该命令必须显式设置 `SUXI_CI_MYSQL_VERIFY=1`，结束后会删除临时库。
+
+手动 OTA 后台任务默认保留 7 天。可先预览、再清理过期终态和孤儿任务目录：
+
+```powershell
+C:\xampp\php\php.exe think online-data:cleanup-manual-fetch-tasks --dry-run
+C:\xampp\php\php.exe think online-data:cleanup-manual-fetch-tasks
+```
+
+`queued/running` 任务不会直接删除；超过执行时限后会先原子转成 `timeout`，再从该时刻计算保留期。状态默认使用 `database` 驱动，使用同一数据库的多节点可共享任务状态；`file` 仅用于本机兼容或测试。配置未实现的 driver 会明确失败，不会静默回退到节点本地文件。若未来需要独立任务调度与背压，再迁移到共享队列。
+
 ## 配置
 
 复制环境变量模板：
