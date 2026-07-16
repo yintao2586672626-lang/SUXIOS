@@ -354,6 +354,7 @@ function summarizeTrafficEvidenceDiagnostics(trafficEvidence, summary = {}) {
 }
 
 function runImporterDryRun(target, scanOptions) {
+  const nextVerifierCommand = `npm.cmd run verify:p0-ota-field-loop -- --date=${scanOptions.date} --platform=${target.platform} --system-hotel-id=${target.systemHotelId}`;
   const child = spawnSync(phpBinary, [
     importer,
     `--platform=${target.platform}`,
@@ -379,6 +380,7 @@ function runImporterDryRun(target, scanOptions) {
       exit_code: Number(child.status ?? 0),
       issue_codes: ['importer_invalid_json'],
       required_fixes: [requiredFixForIssue('importer_invalid_json')],
+      next_verifier_command: nextVerifierCommand,
       stderr: String(child.stderr || '').trim(),
       json_error: error.message,
     };
@@ -399,7 +401,7 @@ function runImporterDryRun(target, scanOptions) {
     p0_completion_status: String(parsed.p0_completion_status || ''),
     issue_codes: issueCodes,
     required_fixes: issueCodes.map(requiredFixForIssue),
-    next_verifier_command: String(parsed.next_verifier_command || ''),
+    next_verifier_command: String(parsed.next_verifier_command || nextVerifierCommand),
   };
 }
 
