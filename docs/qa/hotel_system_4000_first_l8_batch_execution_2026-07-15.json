@@ -1,0 +1,1110 @@
+{
+  "schema_version": 1,
+  "audit_date": "2026-07-15",
+  "batch": "first",
+  "generated_at": "2026-07-16T10:08:32.836Z",
+  "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=first",
+  "source_matrix": "docs/qa/hotel_system_4000_diagnostic_cases_2026-07-15.jsonl",
+  "execution_ledger": "docs/qa/hotel_system_4000_execution_evidence_2026-07-15.json",
+  "execution_boundary": {
+    "automated_scope": "Each case is independently executed with one PHPUnit --filter invocation and must parse as exactly one test.",
+    "status_policy": "Successful automated cases are partial; assertion failures are fail; process, zero/multiple tests, errors, skips, incomplete tests, risky tests, warnings, and parse failures are blocked.",
+    "not_covered": [
+      "complete HTTP flow",
+      "database persistence/readback",
+      "UI flow",
+      "real OTA collection"
+    ],
+    "no_suite_propagation": true
+  },
+  "totals": {
+    "requested_cases": 24,
+    "independently_invoked_cases": 24,
+    "exactly_one_test": 24,
+    "statuses": {
+      "partial": 24
+    }
+  },
+  "cases": [
+    {
+      "case_id": "DX-1153",
+      "base_case_id": "TC-145",
+      "scenario_signature": "sha256:dd60eba6fdf6b7c9024c87f869f8cbf2ea171cb2123295db4a39b87b8a1ad0bd",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "complete",
+        "freshness": "fresh",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/PlatformDataSyncPreflightL8Test.php",
+      "filter": "testTc145L8PreflightAndSyncBoundaries@DX-1153 authorized complete fresh success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc145L8PreflightAndSyncBoundaries@DX-1153 authorized complete fresh success",
+          "tests/PlatformDataSyncPreflightL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc145L8PreflightAndSyncBoundaries@DX-1153 authorized complete fresh success\" tests/PlatformDataSyncPreflightL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:26.962Z",
+      "finished_at": "2026-07-16T10:08:27.386Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 31,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.186, Memory: 12.00 MB\r\n\r\nOK (1 test, 31 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1154",
+      "base_case_id": "TC-145",
+      "scenario_signature": "sha256:c7280da7e0b4d29b46c08f045b5d2a7f8104ccc7abf701b0aba2008aff9e05cb",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "complete",
+        "freshness": "stale",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/PlatformDataSyncPreflightL8Test.php",
+      "filter": "testTc145L8PreflightAndSyncBoundaries@DX-1154 authorized complete stale failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc145L8PreflightAndSyncBoundaries@DX-1154 authorized complete stale failure",
+          "tests/PlatformDataSyncPreflightL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc145L8PreflightAndSyncBoundaries@DX-1154 authorized complete stale failure\" tests/PlatformDataSyncPreflightL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:27.387Z",
+      "finished_at": "2026-07-16T10:08:27.724Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 21,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.155, Memory: 12.00 MB\r\n\r\nOK (1 test, 21 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1155",
+      "base_case_id": "TC-145",
+      "scenario_signature": "sha256:cbe064a150e11d5d8663bec8db96549f2039e2a8e90251ad6fa7437816ce3fcc",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "missing_required",
+        "freshness": "fresh",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/PlatformDataSyncPreflightL8Test.php",
+      "filter": "testTc145L8PreflightAndSyncBoundaries@DX-1155 authorized missing fresh failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc145L8PreflightAndSyncBoundaries@DX-1155 authorized missing fresh failure",
+          "tests/PlatformDataSyncPreflightL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc145L8PreflightAndSyncBoundaries@DX-1155 authorized missing fresh failure\" tests/PlatformDataSyncPreflightL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:27.724Z",
+      "finished_at": "2026-07-16T10:08:28.058Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 21,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.173, Memory: 12.00 MB\r\n\r\nOK (1 test, 21 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1156",
+      "base_case_id": "TC-145",
+      "scenario_signature": "sha256:1d03cda85da5da9c13954c101b7082aceef931f5528ecb0f59fe4f321d14090a",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "missing_required",
+        "freshness": "stale",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/PlatformDataSyncPreflightL8Test.php",
+      "filter": "testTc145L8PreflightAndSyncBoundaries@DX-1156 authorized missing stale success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc145L8PreflightAndSyncBoundaries@DX-1156 authorized missing stale success",
+          "tests/PlatformDataSyncPreflightL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc145L8PreflightAndSyncBoundaries@DX-1156 authorized missing stale success\" tests/PlatformDataSyncPreflightL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:28.058Z",
+      "finished_at": "2026-07-16T10:08:28.409Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 33,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.191, Memory: 12.00 MB\r\n\r\nOK (1 test, 33 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1157",
+      "base_case_id": "TC-145",
+      "scenario_signature": "sha256:b9f5accb9c30da382d9d858251fdce53df52feeaf87fb4e868b8ddb29266def9",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "complete",
+        "freshness": "fresh",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/PlatformDataSyncPreflightL8Test.php",
+      "filter": "testTc145L8PreflightAndSyncBoundaries@DX-1157 restricted complete fresh failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc145L8PreflightAndSyncBoundaries@DX-1157 restricted complete fresh failure",
+          "tests/PlatformDataSyncPreflightL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc145L8PreflightAndSyncBoundaries@DX-1157 restricted complete fresh failure\" tests/PlatformDataSyncPreflightL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:28.410Z",
+      "finished_at": "2026-07-16T10:08:28.731Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.134, Memory: 12.00 MB\r\n\r\nOK (1 test, 13 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1158",
+      "base_case_id": "TC-145",
+      "scenario_signature": "sha256:897a50c4ba13b579637119c9890a4e6f48df571a4357e01deed18356f0cbb050",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "complete",
+        "freshness": "stale",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/PlatformDataSyncPreflightL8Test.php",
+      "filter": "testTc145L8PreflightAndSyncBoundaries@DX-1158 restricted complete stale success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc145L8PreflightAndSyncBoundaries@DX-1158 restricted complete stale success",
+          "tests/PlatformDataSyncPreflightL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc145L8PreflightAndSyncBoundaries@DX-1158 restricted complete stale success\" tests/PlatformDataSyncPreflightL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:28.731Z",
+      "finished_at": "2026-07-16T10:08:29.077Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.153, Memory: 12.00 MB\r\n\r\nOK (1 test, 13 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1159",
+      "base_case_id": "TC-145",
+      "scenario_signature": "sha256:a446fceee2fe7fe5618419df7662c08ebe47da9503dae32d303ba94a6b6abf55",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "missing_required",
+        "freshness": "fresh",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/PlatformDataSyncPreflightL8Test.php",
+      "filter": "testTc145L8PreflightAndSyncBoundaries@DX-1159 restricted missing fresh success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc145L8PreflightAndSyncBoundaries@DX-1159 restricted missing fresh success",
+          "tests/PlatformDataSyncPreflightL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc145L8PreflightAndSyncBoundaries@DX-1159 restricted missing fresh success\" tests/PlatformDataSyncPreflightL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:29.077Z",
+      "finished_at": "2026-07-16T10:08:29.539Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.204, Memory: 12.00 MB\r\n\r\nOK (1 test, 13 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1160",
+      "base_case_id": "TC-145",
+      "scenario_signature": "sha256:3717543533f8edb0a42843853e116da2f5d0c68de8ca96b357e3c7bfaa9d32e2",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "missing_required",
+        "freshness": "stale",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/PlatformDataSyncPreflightL8Test.php",
+      "filter": "testTc145L8PreflightAndSyncBoundaries@DX-1160 restricted missing stale failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc145L8PreflightAndSyncBoundaries@DX-1160 restricted missing stale failure",
+          "tests/PlatformDataSyncPreflightL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc145L8PreflightAndSyncBoundaries@DX-1160 restricted missing stale failure\" tests/PlatformDataSyncPreflightL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:29.539Z",
+      "finished_at": "2026-07-16T10:08:29.899Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 13,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.150, Memory: 12.00 MB\r\n\r\nOK (1 test, 13 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1249",
+      "base_case_id": "TC-157",
+      "scenario_signature": "sha256:a104c63e73c6042373cc04004813eea656ad9c83ba2d2a8f116e551a39458c55",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "complete",
+        "freshness": "fresh",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/OtaCollectionQualityStateL8Test.php",
+      "filter": "testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1249 authorized complete fresh success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1249 authorized complete fresh success",
+          "tests/OtaCollectionQualityStateL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1249 authorized complete fresh success\" tests/OtaCollectionQualityStateL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:29.899Z",
+      "finished_at": "2026-07-16T10:08:30.106Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.011, Memory: 8.00 MB\r\n\r\nOK (1 test, 10 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1250",
+      "base_case_id": "TC-157",
+      "scenario_signature": "sha256:ac8d0725b32b61147defb135c0fd2ee5eb42472b266d592a1faa39c5d54486fe",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "complete",
+        "freshness": "stale",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/OtaCollectionQualityStateL8Test.php",
+      "filter": "testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1250 authorized complete stale failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1250 authorized complete stale failure",
+          "tests/OtaCollectionQualityStateL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1250 authorized complete stale failure\" tests/OtaCollectionQualityStateL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:30.106Z",
+      "finished_at": "2026-07-16T10:08:30.282Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.009, Memory: 8.00 MB\r\n\r\nOK (1 test, 10 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1251",
+      "base_case_id": "TC-157",
+      "scenario_signature": "sha256:d858f6c4fb63ecfa3abd61ada22ae3fb81b23780b10c30da8244724c323fbd05",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "missing_required",
+        "freshness": "fresh",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/OtaCollectionQualityStateL8Test.php",
+      "filter": "testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1251 authorized missing fresh failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1251 authorized missing fresh failure",
+          "tests/OtaCollectionQualityStateL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1251 authorized missing fresh failure\" tests/OtaCollectionQualityStateL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:30.282Z",
+      "finished_at": "2026-07-16T10:08:30.459Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.012, Memory: 8.00 MB\r\n\r\nOK (1 test, 10 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1252",
+      "base_case_id": "TC-157",
+      "scenario_signature": "sha256:15faeab204bab05c219c6b3dca957a80bf9526882f0f07694426b8439f389806",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "missing_required",
+        "freshness": "stale",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/OtaCollectionQualityStateL8Test.php",
+      "filter": "testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1252 authorized missing stale success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1252 authorized missing stale success",
+          "tests/OtaCollectionQualityStateL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1252 authorized missing stale success\" tests/OtaCollectionQualityStateL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:30.460Z",
+      "finished_at": "2026-07-16T10:08:30.666Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.010, Memory: 8.00 MB\r\n\r\nOK (1 test, 10 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1253",
+      "base_case_id": "TC-157",
+      "scenario_signature": "sha256:539d43420860f1d83820040f1571cd0041020e91dd53f0597d643dd205c38c92",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "complete",
+        "freshness": "fresh",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/OtaCollectionQualityStateL8Test.php",
+      "filter": "testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1253 restricted complete fresh failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1253 restricted complete fresh failure",
+          "tests/OtaCollectionQualityStateL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1253 restricted complete fresh failure\" tests/OtaCollectionQualityStateL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:30.667Z",
+      "finished_at": "2026-07-16T10:08:30.871Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.010, Memory: 8.00 MB\r\n\r\nOK (1 test, 10 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1254",
+      "base_case_id": "TC-157",
+      "scenario_signature": "sha256:9322c93c04fc7ef53fedf2a3b92e9536dee43aed66d131fe243ef4e89b86b3a3",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "complete",
+        "freshness": "stale",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/OtaCollectionQualityStateL8Test.php",
+      "filter": "testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1254 restricted complete stale success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1254 restricted complete stale success",
+          "tests/OtaCollectionQualityStateL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1254 restricted complete stale success\" tests/OtaCollectionQualityStateL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:30.871Z",
+      "finished_at": "2026-07-16T10:08:31.056Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.012, Memory: 8.00 MB\r\n\r\nOK (1 test, 10 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1255",
+      "base_case_id": "TC-157",
+      "scenario_signature": "sha256:fea7357202a9d3f77e94968312759ae09048ad063c5a3d9da5d9620197e5a0a1",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "missing_required",
+        "freshness": "fresh",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/OtaCollectionQualityStateL8Test.php",
+      "filter": "testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1255 restricted missing fresh success",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1255 restricted missing fresh success",
+          "tests/OtaCollectionQualityStateL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1255 restricted missing fresh success\" tests/OtaCollectionQualityStateL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:31.056Z",
+      "finished_at": "2026-07-16T10:08:31.239Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.012, Memory: 8.00 MB\r\n\r\nOK (1 test, 10 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1256",
+      "base_case_id": "TC-157",
+      "scenario_signature": "sha256:3eee4f66bcc3d72e087d42b4da1a9aa4775c02f15fc85302e6a295616d61d13f",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "missing_required",
+        "freshness": "stale",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/OtaCollectionQualityStateL8Test.php",
+      "filter": "testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1256 restricted missing stale failure",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1256 restricted missing stale failure",
+          "tests/OtaCollectionQualityStateL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc157L8VariantAppliesAllFourFactorsWithoutClaimingHttpAuthorization@DX-1256 restricted missing stale failure\" tests/OtaCollectionQualityStateL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:31.239Z",
+      "finished_at": "2026-07-16T10:08:31.406Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.009, Memory: 8.00 MB\r\n\r\nOK (1 test, 10 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1689",
+      "base_case_id": "TC-212",
+      "scenario_signature": "sha256:2f0674d9f7c96b903ece223a3ec70428bb5a9826be4420473946f73214614274",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "complete",
+        "freshness": "fresh",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc212OtaChannelScopeL8Test.php",
+      "filter": "testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1689",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1689",
+          "tests/Tc212OtaChannelScopeL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1689\" tests/Tc212OtaChannelScopeL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:31.407Z",
+      "finished_at": "2026-07-16T10:08:31.565Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 23,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.011, Memory: 8.00 MB\r\n\r\nOK (1 test, 23 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1690",
+      "base_case_id": "TC-212",
+      "scenario_signature": "sha256:6bc7eec2336d132225f3b3ae100d507e4fdd979fce04c83efeb1b61f513f9074",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "complete",
+        "freshness": "stale",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc212OtaChannelScopeL8Test.php",
+      "filter": "testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1690",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1690",
+          "tests/Tc212OtaChannelScopeL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1690\" tests/Tc212OtaChannelScopeL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:31.565Z",
+      "finished_at": "2026-07-16T10:08:31.719Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 24,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.012, Memory: 8.00 MB\r\n\r\nOK (1 test, 24 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1691",
+      "base_case_id": "TC-212",
+      "scenario_signature": "sha256:0dd26c09671f2754714e01b14c52019e7cd43f660db814c5ee8f194ff98fa371",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "missing_required",
+        "freshness": "fresh",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc212OtaChannelScopeL8Test.php",
+      "filter": "testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1691",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1691",
+          "tests/Tc212OtaChannelScopeL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1691\" tests/Tc212OtaChannelScopeL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:31.719Z",
+      "finished_at": "2026-07-16T10:08:31.894Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 25,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.015, Memory: 8.00 MB\r\n\r\nOK (1 test, 25 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1692",
+      "base_case_id": "TC-212",
+      "scenario_signature": "sha256:6157af29faeca0de14bd68700c2c9a41015cb66513afc08275ebf9ecefc55ddc",
+      "factors": {
+        "actor_scope": "authorized",
+        "data_completeness": "missing_required",
+        "freshness": "stale",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc212OtaChannelScopeL8Test.php",
+      "filter": "testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1692",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1692",
+          "tests/Tc212OtaChannelScopeL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1692\" tests/Tc212OtaChannelScopeL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:31.894Z",
+      "finished_at": "2026-07-16T10:08:32.105Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 24,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.023, Memory: 8.00 MB\r\n\r\nOK (1 test, 24 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1693",
+      "base_case_id": "TC-212",
+      "scenario_signature": "sha256:a6cbb755ff997941831c1219ba42a8e3c92d59fdeb9b679a5814057b968465cf",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "complete",
+        "freshness": "fresh",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc212OtaChannelScopeL8Test.php",
+      "filter": "testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1693",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1693",
+          "tests/Tc212OtaChannelScopeL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1693\" tests/Tc212OtaChannelScopeL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:32.105Z",
+      "finished_at": "2026-07-16T10:08:32.297Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 24,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.014, Memory: 8.00 MB\r\n\r\nOK (1 test, 24 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1694",
+      "base_case_id": "TC-212",
+      "scenario_signature": "sha256:d0be43dc83596f691d5926a33a593fdda8a5428633f69fc8624e4cf69c4b3b46",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "complete",
+        "freshness": "stale",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc212OtaChannelScopeL8Test.php",
+      "filter": "testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1694",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1694",
+          "tests/Tc212OtaChannelScopeL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1694\" tests/Tc212OtaChannelScopeL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:32.297Z",
+      "finished_at": "2026-07-16T10:08:32.495Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 23,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.019, Memory: 8.00 MB\r\n\r\nOK (1 test, 23 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1695",
+      "base_case_id": "TC-212",
+      "scenario_signature": "sha256:996d8da6244ae5714adcff1c5db282aea7462981ee969560c1df924d89a94538",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "missing_required",
+        "freshness": "fresh",
+        "upstream_state": "success"
+      },
+      "test_file": "tests/Tc212OtaChannelScopeL8Test.php",
+      "filter": "testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1695",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1695",
+          "tests/Tc212OtaChannelScopeL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1695\" tests/Tc212OtaChannelScopeL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:32.496Z",
+      "finished_at": "2026-07-16T10:08:32.674Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 24,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.016, Memory: 8.00 MB\r\n\r\nOK (1 test, 24 assertions)\r\n",
+      "stderr": ""
+    },
+    {
+      "case_id": "DX-1696",
+      "base_case_id": "TC-212",
+      "scenario_signature": "sha256:aa9178b306f55d5433dadd1aae45a9c37d66bf2bdfa38e999758b4fa55eb39a6",
+      "factors": {
+        "actor_scope": "restricted",
+        "data_completeness": "missing_required",
+        "freshness": "stale",
+        "upstream_state": "failure"
+      },
+      "test_file": "tests/Tc212OtaChannelScopeL8Test.php",
+      "filter": "testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1696",
+      "command": {
+        "executable": "php.exe",
+        "args": [
+          "vendor/bin/phpunit",
+          "--colors=never",
+          "--filter",
+          "testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1696",
+          "tests/Tc212OtaChannelScopeL8Test.php"
+        ],
+        "display": "php.exe vendor/bin/phpunit --colors=never --filter \"testTc212KeepsRevenueMetricsInsideTheOtaChannelBoundary@DX-1696\" tests/Tc212OtaChannelScopeL8Test.php"
+      },
+      "started_at": "2026-07-16T10:08:32.674Z",
+      "finished_at": "2026-07-16T10:08:32.836Z",
+      "exit_code": 0,
+      "signal": null,
+      "spawn_error": null,
+      "phpunit": {
+        "parsed": true,
+        "tests": 1,
+        "assertions": 25,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "incomplete": 0,
+        "risky": 0,
+        "warnings": 0
+      },
+      "test_count_exactly_one": true,
+      "status": "partial",
+      "classification_reason": "phpunit_exactly_one_test_passed_automated_scope_only",
+      "stdout": "PHPUnit 11.5.55 by Sebastian Bergmann and contributors.\r\n\r\nRuntime:       PHP 8.2.12\nConfiguration: <project>/phpunit.xml\n\r\n.                                                                   1 / 1 (100%)\r\n\r\nTime: 00:00.013, Memory: 8.00 MB\r\n\r\nOK (1 test, 25 assertions)\r\n",
+      "stderr": ""
+    }
+  ]
+}
