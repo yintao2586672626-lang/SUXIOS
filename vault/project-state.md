@@ -1,11 +1,11 @@
 # SUXIOS Project State Vault
 
-Updated: 2026-06-28 Asia/Shanghai
+Updated: 2026-07-16 Asia/Shanghai
 
 ## Current Verified State
 
 - Main repo root: `HOTEL/`.
-- Current branch observed this run: `codex/save-project-20260531`.
+- Current branch observed this run: `agent/fix-daily-review-gates`.
 - Workspace closing on 2026-06-06 Asia/Shanghai is grouped into OTA capture, data health, OTA revenue smoke verification, and reusable context assets.
 - Main product chain: OTA data from Ctrip/Meituan -> revenue analysis -> AI decisions -> operations management -> investment decisions.
 - Current priority skill focus: Ctrip response -> field -> table closure.
@@ -28,6 +28,60 @@ Updated: 2026-06-28 Asia/Shanghai
 - Recent Ctrip work moved beyond pure login blocking into captured endpoint evidence, response-only endpoints, gap lists, field selection, and table planning.
 - Remaining Ctrip gaps must stay explicit; do not replace missing values with `0` or fallback success.
 - Every field must keep Ctrip OTA channel scope unless whole-hotel source evidence exists.
+
+## 2026-07-15 Verified: 敦煌漠蓝新 Ctrip Evidence and Correction Closure
+
+- Hotel scope: `hotels.id = 80`, `敦煌漠蓝新`; conclusions below are Ctrip OTA-channel scope, not whole-hotel financial truth.
+- Canonical verified Ctrip operating record: `online_daily_data#17652`, business date `2026-07-15`, revenue `5939`, room nights `7`, orders `11`, ADR `848.43`; it is `realtime_snapshot / is_final=0` and must be labeled `current_day_process / 当日过程快照`, not a day-end result.
+- OCC and RevPAR remain missing because no verified sellable-room denominator exists for this record; they must not be displayed as zero.
+- `online_daily_data#43491` is not this hotel's Ctrip traffic: it is `hotel_id=-1`, `platform=Qunar`, `compare_type=competitor_avg`; it is excluded from the hotel's diagnosis, report sources, and execution evidence.
+- AI daily report `#4` references only `online_daily_data#17652`; exposure and visitors remain missing `null`, and the specific gap is `本店携程漏斗缺失` rather than a generic empty-data claim.
+- The incorrect internal execution chain is preserved and corrected: intent `54` is `rejected`; task `28` has `result_status=failed`; action `477` is failed; evidence `36` is `data_scope_correction` with `ota_write_performed=false`. Original audit evidence was not deleted.
+- Two narrow period-semantics migrations corrected `367` rows in total (`87` for hotel `80`) without changing business/source fingerprints or `update_time`; both migrations have row-level SQL backups and SHA256 checks recorded in the overnight workboard.
+- No unattended OTA dispatcher is registered on this machine. `Daily Workbench Patrol` is read-only; `SUXIOS Local Stack Autostart` is now `Ready` with `LastTaskResult=0`, but no `2026-07-16` next-day effect or ROI evidence exists. The unattended OTA-to-effect loop is therefore still incomplete.
+- The execution evidence and effect review flows now use in-page forms because native prompt dialogs were not operable in the in-app browser.
+
+## 2026-07-15 Verified: Security Monitoring and Account Login Activity
+
+- Security monitoring remains super-administrator-only and read-only. It did not change passwords, ban accounts, punish users, or widen IP visibility.
+- Account activity definitions: active means at least one successful `action=login` event in the selected 1/7/30-day window; failed logins and logout/register/refresh do not count. Enabled custom super administrators covered by `User::isSuperAdmin()` are excluded from employee activity.
+- Account activity uses uncapped database-grouped login-only evidence rather than the 10,000-row risk-event sample. If grouped evidence is unavailable, completeness fails closed instead of claiming a complete activity result.
+- Verified real summaries (enabled/active/inactive/never successful): today `26/7/19/4`; 7 days `26/20/6/4`; 30 days `26/20/6/4`. All three windows have `complete=true`, complete coverage, no source errors, and no IP key in account lists.
+- Focused closure passed PHPUnit `29/29` with `167` assertions, Node `3/3`, and Playwright `1/1`; a normal account received API `403`, an isolated custom super administrator received API/page `200`, and temporary users/roles/hotels/login logs were cleaned to zero.
+- Thirty-day evidence remains observational: VIP006 had `505` rate-limit events; VIP002 had `192` protected-access rejections; VIP002/004/005/008 have historical successful Ctrip configuration deletions and VIP004 also has a historical forced hotel deletion. This evidence does not itself prove malicious intent.
+- All `2,837` observed IP values are loopback `127.0.0.1/::1`; real client addresses are unavailable until trusted proxy forwarding is configured.
+
+## 2026-07-15 Verified: Seventh-Batch Isolated Evals
+
+- The seventh batch ran only from `evals/seventh-batch/`: `24` unique cases and `112` assertions, with zero locked/shared production files touched and zero matches in default PHPUnit discovery.
+- TC-104 credential-ciphertext tamper produced `8` green direct results but remains evidence status `partial`.
+- The initial TC-387 CORS origin restriction run produced `8` red results because `app/middleware/Cors.php` still sent `Access-Control-Allow-Origin: *` without an allowlist; this finding is superseded by the 2026-07-16 closure below.
+- The initial TC-404 external dependency timeout run produced `8` red results because `LlmClient.php` accepted an unbounded `999s` timeout and lacked explicit retryable-timeout/final-failure semantics; this finding is superseded by the 2026-07-16 closure below.
+- These were verified production gaps at discovery time and were subsequently fixed and re-verified in the local worktree.
+
+## 2026-07-15 Verified: Central Regression Baseline
+
+- Full backend verification passed: PHPUnit `1570/1570`, `15530` assertions.
+- Full Node automation passed: `539/539`. Stale Ctrip/Meituan UI contracts now explicitly prevent raw, interface-level, or troubleshooting data from being re-exposed; production UI was not restored.
+- Frontend template, entry build, Tailwind runtime, and public-entry guards all passed. Final hashes: Tailwind `1ae7dced37`, Render `e5d6a1a498`, App Main `2ca0d6b672`; `public/index.html` references match them.
+- Local health returned HTTP `200`. A fresh isolated security-page Playwright run passed `1/1`, including 1/7/30-day switching, and temporary user/role/login-log residue was zero.
+
+## 2026-07-16 Verified: Daily Closure and Regression Baseline
+
+- Yesterday-review scope covered all five 2026-07-15 commits (`133637f`, `d9a3125`, `8c060c9`, `0c6fe15`, `a7e262a`) plus the former `284`-file dirty snapshot (`206` tracked changes and `78` untracked files). That snapshot is now split into more than 40 reviewable local topic commits across OTA, operations, diagnosis, frontend, tests, and closure documentation. Nothing was pushed.
+- The previously red CORS and external-timeout gaps are closed in the local worktree: CORS now uses an allowlist, and LLM timeout/retry handling is bounded. `SecurityRecoveryEvals` passed `32` tests / `179` assertions, and `scripts/verify_high_risk_security.php` passed.
+- Strategy simulation can no longer create an execution intent when the verified historical baseline is insufficient. The API returns `execution_intent=null` and `execution_intent_status=blocked_by_insufficient_baseline`; executable `rule_scenario` results retain the existing manual-approval path. Expansion execution intents now also persist a database-level idempotency key with a unique index; creation locks the source expansion row and replays the existing intent after a unique-key race.
+- Online-data correction history is now a permission-gated, in-app closure: list, empty/error states, pagination, exact restore confirmation, restore write, ledger readback, and restored-data readback are implemented and browser-verified. The backend MySQL restore path now treats `insertGetId` as an integer before readback.
+- Scheduled OTA collection now uses one shared CLI/HTTP policy with bounded catch-up and retry semantics. Missing the exact configured minute no longer drops the run; partial/failed collection never writes the completed marker; retry cooldown/exhaustion remains visible; and incomplete CLI/HTTP dispatches return non-success status. This is software readiness only: no real OTA collection was triggered, and no OTA dispatcher task was registered or enabled on this machine.
+- Isolated browser E2E defaults to dedicated database `hotelx_e2e` and app port `18080`. Database override, shared-current-database use, and remote test database use each require explicit environment gates; accepted test names must end in `_test`, `_testing`, or `_e2e`. The final `4/4` run cleaned all isolated rows to zero and did not select, migrate, or write `hotelx`.
+- A fresh `hotelx_e2e` initialization produced `82` tables. The expansion idempotency migration was applied twice and remained exactly one `idempotency_key` column plus one unique index. Eight separate PHP processes creating the same hotel/source intent converged on one intent ID and one database row; the validation row was removed.
+- Manual Ctrip/Meituan fetches now expose scoped background task status and poll queued/running/terminal readback in the frontend. Mixed accepted and immediate-failure batches remain truthful, malformed task IDs are rejected, and public status payloads do not expose credentials or submitting user IDs.
+- Full backend verification passed `1700/1700` tests with `16592` assertions. Full Node automation passed `573/573` across `88` files. P0 guards passed, including `1733` Revenue AI closure checks and `2226` E2E contract checks.
+- Frontend source/template/build artifacts are synchronized. Current content hashes: render `ddc79dfbad`, app-main `d92b8b5c88`, Tailwind `72130868ce`, system static `b8931c46a3`, Ctrip static `a505c8d046`, Meituan static `1431b5a835`, and data-health static `5e74a27739`; public entry, production hygiene, display boundary, protected core, high-risk security, non-security review, and `git diff --check` passed.
+- Phase-1 navigation remains frozen to the four approved top-level groups. A review-time attempt to expose project AI pages was caught by the P0/product-scope guards and removed; the backend routes remain frozen for later activation rather than being presented as currently available functionality.
+- The canonical 4000-case evidence ledger currently contains `144` `partial` variants and `3856` `not_executed` variants. P0 coverage is `144/2688`, leaving `2544` pending; the gap-first subset is `64/600`, leaving `536` pending. These counts are evidence backlog, not 3856 confirmed product defects.
+- Local health returned HTTP `200` after the final regression. `SUXIOS Local Stack Autostart` is `Ready` with `LastTaskResult=0`.
+- External evidence remains open: real authorized Ctrip and Meituan collection, real Ctrip pricing inputs, production deployment/attestation, real client IP forwarding through a trusted proxy, and next-day effect/ROI evidence. Hotel/account authorization decisions and missing OTA/PMS denominators also remain external inputs. These must not be represented as locally completed.
 
 ## 2026-06-09 Save: Tiancheng Ctrip Patrol Report
 
