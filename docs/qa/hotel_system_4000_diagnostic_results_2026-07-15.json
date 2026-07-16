@@ -23,7 +23,8 @@
       "not_applicable": 208
     },
     "variant_execution_statuses": {
-      "not_executed": 4000
+      "not_executed": 3856,
+      "partial": 144
     },
     "execution_types": {
       "automated_integration": 2720,
@@ -35,7 +36,8 @@
       "automated_or_runtime_evidence": 2720,
       "static_or_contract_evidence": 904,
       "manual_or_external_evidence": 376
-    }
+    },
+    "execution_evidence_records": 144
   },
   "factor_model": {
     "factors": [
@@ -117,9 +119,9 @@
         "not_applicable": 0
       },
       "variant_execution_statuses": {
-        "not_executed": 200,
+        "not_executed": 192,
         "pass": 0,
-        "partial": 0,
+        "partial": 8,
         "fail": 0,
         "blocked": 0,
         "not_applicable": 0
@@ -197,9 +199,9 @@
         "not_applicable": 0
       },
       "variant_execution_statuses": {
-        "not_executed": 200,
+        "not_executed": 192,
         "pass": 0,
-        "partial": 0,
+        "partial": 8,
         "fail": 0,
         "blocked": 0,
         "not_applicable": 0
@@ -217,9 +219,9 @@
         "not_applicable": 0
       },
       "variant_execution_statuses": {
-        "not_executed": 200,
+        "not_executed": 192,
         "pass": 0,
-        "partial": 0,
+        "partial": 8,
         "fail": 0,
         "blocked": 0,
         "not_applicable": 0
@@ -237,9 +239,9 @@
         "not_applicable": 0
       },
       "variant_execution_statuses": {
-        "not_executed": 200,
+        "not_executed": 192,
         "pass": 0,
-        "partial": 0,
+        "partial": 8,
         "fail": 0,
         "blocked": 0,
         "not_applicable": 0
@@ -257,9 +259,9 @@
         "not_applicable": 0
       },
       "variant_execution_statuses": {
-        "not_executed": 200,
+        "not_executed": 192,
         "pass": 0,
-        "partial": 0,
+        "partial": 8,
         "fail": 0,
         "blocked": 0,
         "not_applicable": 0
@@ -277,9 +279,9 @@
         "not_applicable": 0
       },
       "variant_execution_statuses": {
-        "not_executed": 200,
+        "not_executed": 192,
         "pass": 0,
-        "partial": 0,
+        "partial": 8,
         "fail": 0,
         "blocked": 0,
         "not_applicable": 0
@@ -297,9 +299,9 @@
         "not_applicable": 0
       },
       "variant_execution_statuses": {
-        "not_executed": 200,
+        "not_executed": 192,
         "pass": 0,
-        "partial": 0,
+        "partial": 8,
         "fail": 0,
         "blocked": 0,
         "not_applicable": 0
@@ -317,9 +319,9 @@
         "not_applicable": 0
       },
       "variant_execution_statuses": {
-        "not_executed": 200,
+        "not_executed": 184,
         "pass": 0,
-        "partial": 0,
+        "partial": 16,
         "fail": 0,
         "blocked": 0,
         "not_applicable": 0
@@ -337,9 +339,9 @@
         "not_applicable": 0
       },
       "variant_execution_statuses": {
-        "not_executed": 200,
+        "not_executed": 160,
         "pass": 0,
-        "partial": 0,
+        "partial": 40,
         "fail": 0,
         "blocked": 0,
         "not_applicable": 0
@@ -357,9 +359,9 @@
         "not_applicable": 0
       },
       "variant_execution_statuses": {
-        "not_executed": 200,
+        "not_executed": 184,
         "pass": 0,
-        "partial": 0,
+        "partial": 16,
         "fail": 0,
         "blocked": 0,
         "not_applicable": 0
@@ -417,9 +419,9 @@
         "not_applicable": 8
       },
       "variant_execution_statuses": {
-        "not_executed": 200,
+        "not_executed": 192,
         "pass": 0,
-        "partial": 0,
+        "partial": 8,
         "fail": 0,
         "blocked": 0,
         "not_applicable": 0
@@ -437,9 +439,9 @@
         "not_applicable": 0
       },
       "variant_execution_statuses": {
-        "not_executed": 200,
+        "not_executed": 192,
         "pass": 0,
-        "partial": 0,
+        "partial": 8,
         "fail": 0,
         "blocked": 0,
         "not_applicable": 0
@@ -605,7 +607,8 @@
   ],
   "execution_boundary": {
     "matrix_validation": "4,000 条用例定义均已执行结构校验；ID 连续唯一、语义签名唯一、必填字段完整、领域配额正确、每个核心场景 8 个变体完整且两两覆盖无缺口。",
-    "variant_execution": "当前 4,000 条 L8 变体均为 not_executed；只有保存该权限/完整性/新鲜度/上游状态组合的直接证据后，才能更新为 pass、partial、fail、blocked 或 not_applicable。",
+    "variant_execution": "L8 变体默认 not_executed；只有执行证据账本同时匹配 case_id、scenario_signature、执行状态和证据引用后，才能更新为 pass、partial、fail、blocked 或 not_applicable。",
+    "execution_evidence_ledger": "docs/qa/hotel_system_4000_execution_evidence_2026-07-15.json",
     "base_assessment": "base_assessment_result 来自 500 条基线资产，只用于排期与上下文参考，不是 L8 变体执行结果。"
   }
 }
