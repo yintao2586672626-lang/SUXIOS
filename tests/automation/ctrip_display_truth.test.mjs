@@ -21,24 +21,25 @@ const loadCtripStaticApi = () => {
   return context.window.SUXI_CTRIP_STATIC;
 };
 
-test('Ctrip business tabs use customer-facing names and keep diagnostics out of the default view', () => {
+test('Ctrip business tabs use customer-facing names and do not expose raw diagnostics', () => {
   const flowPanel = sliceBetween(page, "onlineDataTab === 'ctrip-flow-overview'", '<!-- 流量数据获取 -->');
   const profileOpenTag = page.match(/<div[^>]*v-if="onlineDataTab === 'ctrip-fetch-settings'"[^>]*>/)?.[0] || '';
 
   assert.match(page, />\s*流量概览\s*<\/button>/);
   assert.match(page, />\s*入库记录\s*<\/button>/);
   assert.doesNotMatch(flowPanel, /目标页面：https:\/\/ebooking\.ctrip\.com/);
-  assert.match(flowPanel, /user\?\.is_super_admin &amp;&amp; showRawData &amp;&amp; ctripFlowOverviewResult\.captured_counts/);
-  assert.match(flowPanel, /user\?\.is_super_admin &amp;&amp; showRawData &amp;&amp; ctripFlowOverviewInterfaceRows\.length/);
+  assert.doesNotMatch(flowPanel, /showRawData|ctripFlowOverviewResult\.captured_counts|ctripFlowOverviewInterfaceRows\.length/);
+  assert.doesNotMatch(flowPanel, /接口命中明细|复制排障数据|JSON\.stringify\(ctripFlowOverviewResult/);
   assert.match(profileOpenTag, /ctrip-fetch-settings/);
   assert.doesNotMatch(profileOpenTag, /is_super_admin/);
 });
 
 test('Ctrip result state never presents an exception as a green success', async () => {
   const flowPanel = sliceBetween(page, "onlineDataTab === 'ctrip-flow-overview'", '<!-- 流量数据获取 -->');
-  assert.match(flowPanel, /ctripFlowOverviewResult\.error \? 'border-red-200 bg-red-50' : 'border-green-200 bg-green-50'/);
-  assert.match(flowPanel, /v-if="ctripFlowOverviewResult\.error"[\s\S]*获取失败/);
-  assert.match(flowPanel, /<template v-else="">[\s\S]*获取成功/);
+  assert.match(flowPanel, /otaFetchResultView\(ctripFlowOverviewResult\)\.panelClass/);
+  assert.match(flowPanel, /otaFetchResultView\(ctripFlowOverviewResult\)\.title/);
+  assert.match(flowPanel, /otaFetchResultView\(ctripFlowOverviewResult\)\.detail/);
+  assert.doesNotMatch(flowPanel, /获取成功[\s\S]*已保存 \{\{ ctripFlowOverviewResult\.saved_count/);
 
   const api = loadCtripStaticApi();
   let visibleResult = null;
@@ -56,6 +57,23 @@ test('Ctrip result state never presents an exception as a green success', async 
 
   assert.equal(outcome.status, 'exception');
   assert.equal(visibleResult.error, '授权已失效');
+  assert.equal(visibleResult.ui_flow_status, 'exception');
+});
+
+test('Ctrip overview uses a visible business date and refuses an empty date', async () => {
+  const api = loadCtripStaticApi();
+  assert.match(api.createCtripOverviewForm().dataDate, /^\d{4}-\d{2}-\d{2}$/);
+
+  let requestCount = 0;
+  const outcome = await api.runCtripOverviewFetchFlow({
+    getSystemHotelId: () => 7,
+    getActiveCtripConfig: () => ({ id: 11, has_cookies: true, credential_status: 'ready' }),
+    getForm: () => ({ requestUrls: 'https://ebooking.ctrip.com/api/example', dataDate: '' }),
+    requestFetch: async () => { requestCount += 1; return { code: 200 }; },
+  });
+
+  assert.equal(outcome.status, 'missing_data_date');
+  assert.equal(requestCount, 0);
 });
 
 test('Ctrip tables distinguish real zero from a missing value', () => {

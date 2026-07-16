@@ -251,7 +251,7 @@ test('Ctrip overview one-click core capture stays on overview and supplemental f
     '<div v-if="collectionReliabilityLoading"'
   );
   assert.ok(quickActions.length > 0, 'overview quick fetch actions must exist');
-  assert.match(quickActions, /一键抓取/);
+  assert.match(quickActions, /一键采集/);
   assert.match(dataHealthOverviewSource, /抓取竞争/);
   assert.match(dataHealthOverviewSource, /抓取经营/);
   assert.match(dataHealthOverviewSource, /抓取流量/);
@@ -503,7 +503,8 @@ test('Platform account badge treats browser profile login timeout as login expir
   assert.match(systemStatic, /data_source_id: profileSource\?\.id \|\| undefined/);
   assert.doesNotMatch(systemStatic, /data_source_id: profileSource\?\.id \|\| source\?\.id \|\| undefined/);
   assert.match(autoFetchStatic, /status === 'syncing_after_login' \|\| sync\?\.status === 'running'/);
-  assert.match(autoFetchStatic, /登录后同步完成，目标日已入库/);
+  assert.match(autoFetchStatic, /登录后同步已入库.*数据库回读核验/);
+  assert.match(autoFetchStatic, /尚未确认数据库回读/);
   assert.match(accountRowBuilder, /loginExpired[\s\S]*\? 'login_expired'/);
   assert.match(accountRowBuilder, /effectiveReady[\s\S]*renewal_warning[\s\S]*profile_reusable/);
   assert.match(accountRowWrapper, /buildHotelPlatformBindingRowsStatic/);
@@ -743,8 +744,18 @@ test('Ctrip capture coverage panel hides raw diagnostic field names', () => {
   );
 });
 
-test('Ctrip flow overview interface misses show actionable reasons', () => {
-  assert.match(ctripPage, /说明 \/ 未命中原因/);
+test('Ctrip flow overview hides technical interface misses while retaining internal reason classification', () => {
+  const flowOverview = sliceBetween(
+    ctripPage,
+    "<div v-if=\"onlineDataTab === 'ctrip-flow-overview'\">",
+    "<div v-if=\"onlineDataTab === 'ctrip-traffic'\">",
+  );
+
+  assert.ok(flowOverview.length > 0, 'Ctrip flow overview panel must exist');
+  assert.doesNotMatch(
+    flowOverview,
+    /说明 \/ 未命中原因|接口命中明细|复制排障数据|JSON\.stringify\(ctripFlowOverviewResult/,
+  );
   assert.match(ctripStatic, /const buildCtripOverviewMetricCards = /);
   assert.match(ctripStatic, /const buildCtripOverviewTopRankTables = /);
   assert.match(ctripStatic, /const buildCtripFlowOverviewMetricCards = /);
@@ -760,7 +771,7 @@ test('Ctrip flow overview interface misses show actionable reasons', () => {
   assert.match(html, /requireCtripStatic\('buildCtripFlowOverviewMetricCards'\)/);
   assert.match(html, /requireCtripStatic\('buildCtripSortedHotelRows'\)/);
   assert.match(html, /requireCtripStatic\('buildCtripFlowOverviewInterfaceRows'\)/);
-  assert.match(html, /row\.reasonText/);
+  assert.doesNotMatch(flowOverview, /row\.reasonText/);
   assert.doesNotMatch(html, /const normalizeCtripTopRankItems = /);
   assert.doesNotMatch(html, /const field = ctripSortField\.value;/);
   assert.doesNotMatch(html, /本次未从响应 URL 中命中该接口/);

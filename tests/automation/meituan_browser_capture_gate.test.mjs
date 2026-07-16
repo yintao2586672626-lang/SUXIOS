@@ -19,6 +19,16 @@ test('capture normalizer applies traffic-card parsing only to traffic and date e
   assert.match(source, /runMeituanOrderInteractionPlan/);
   assert.match(source, /runMeituanReviewInteractionPlan/);
   assert.match(source, /\['data', 'results'\]/);
+  assert.match(source, /meituan_orders_purchase_date_query/);
+  assert.match(source, /payload\.responses = payload\.responses\.filter/);
+  assert.match(source, /requestQueryEvidence/);
+  assert.match(source, /waitForPendingResponseCaptures/);
+  assert.match(source, /inputValue\(\)/);
+  assert.match(source, /collectMeituanOrderDomAggregate/);
+  assert.match(source, /meituan_orders_target_date_summary/);
+  assert.match(source, /compare_type: 'self'/);
+  assert.match(source, /is_self: true/);
+  assert.doesNotMatch(source, /dom:orders:target_date_summary'[\s\S]{0,500}_dom_text/);
 });
 
 test('drops untargeted event summaries while keeping target-date review evidence', () => {
@@ -58,7 +68,17 @@ test('fails when a requested Meituan section has neither rows nor an authoritati
 test('passes only after every requested Meituan section has rows', () => {
   const gate = evaluateMeituanCaptureGate({
     auth_status: { ok: true },
-    responses: [{ row_count: 4 }],
+    responses: [
+      { section: 'traffic', status: 200, row_count: 1 },
+      {
+        section: 'orders',
+        status: 200,
+        row_count: 1,
+        resource_type: 'xhr',
+        content_type: 'application/json',
+        data: { code: 0, data: { orderList: [{ orderId: 'hashed-in-production' }] } },
+      },
+    ],
     traffic: [{ exposure_count: 100 }],
     orders: [{ order_id: 'hashed-in-production' }],
     ads: [{ spend: 10 }],
@@ -74,7 +94,7 @@ test('accepts an authoritative successful zero-row response without discarding o
     auth_status: { ok: true },
     responses: [
       { section: 'traffic', status: 200, row_count: 1 },
-      { section: 'orders', status: 200, row_count: 0 },
+      { section: 'orders', status: 200, row_count: 0, data: { code: 0, data: { orderList: [] } } },
       { section: 'reviews', status: 200, row_count: 0 },
     ],
     traffic: [{ exposure_count: 100 }],
@@ -86,6 +106,123 @@ test('accepts an authoritative successful zero-row response without discarding o
   assert.equal(gate.section_statuses.orders, 'empty_confirmed');
   assert.equal(gate.section_statuses.reviews, 'empty_confirmed');
   assert.equal(gate.section_statuses.traffic, 'captured');
+});
+
+test('accepts Meituan code 10000 all-zero order summary only with target-date query evidence', () => {
+  const response = {
+    section: 'orders',
+    status: 200,
+    row_count: 0,
+    data: {
+      code: 10000,
+      error: null,
+      data: {
+        orderNumWithType: { 5: 0, 10: 0, 20: 0 },
+        orderMarkTypes: [],
+      },
+    },
+  };
+  const staleResponseWithClickEvidence = evaluateMeituanCaptureGate({
+    auth_status: { ok: true },
+    section_evidence: {
+      orders: {
+        status: 'target_date_queried',
+        target_date: '2026-07-14',
+        evidence_source: 'page.form_readback',
+        marker: 'meituan_orders_purchase_date_query',
+        query_epoch: 2,
+      },
+    },
+    responses: [{ ...response, query_epoch: 1, query_target_date: '2026-07-14', query_date_source: 'page.orders.purchase_date_input.readback' }],
+    orders: [],
+  }, ['orders'], { targetDate: '2026-07-14' });
+  assert.equal(staleResponseWithClickEvidence.status, 'fail');
+  assert.equal(staleResponseWithClickEvidence.section_statuses.orders, 'not_captured');
+
+  const withDateEvidence = evaluateMeituanCaptureGate({
+    auth_status: { ok: true },
+    section_evidence: {
+      orders: {
+        status: 'target_date_queried',
+        target_date: '2026-07-14',
+        evidence_source: 'page.form_readback',
+        marker: 'meituan_orders_purchase_date_query',
+        query_epoch: 2,
+      },
+    },
+    responses: [{ ...response, query_epoch: 2, query_target_date: '2026-07-14', query_date_source: 'page.orders.purchase_date_input.readback' }],
+    orders: [],
+  }, ['orders'], { targetDate: '2026-07-14' });
+  assert.equal(withDateEvidence.status, 'pass');
+  assert.equal(withDateEvidence.section_statuses.orders, 'empty_confirmed');
+});
+
+test('does not confirm an empty order day when Meituan summary counts are positive but rows were not parsed', () => {
+  const gate = evaluateMeituanCaptureGate({
+    auth_status: { ok: true },
+    section_evidence: {
+      orders: {
+        status: 'target_date_queried',
+        target_date: '2026-07-14',
+        evidence_source: 'page.form_readback',
+        marker: 'meituan_orders_purchase_date_query',
+        query_epoch: 3,
+      },
+    },
+    responses: [{
+      section: 'orders',
+      status: 200,
+      row_count: 0,
+      query_epoch: 3,
+      query_target_date: '2026-07-14',
+      query_date_source: 'page.orders.purchase_date_input.readback',
+      data: { code: 10000, error: null, data: { orderNumWithType: { 20: 1 } } },
+    }],
+    orders: [],
+  }, ['orders'], { targetDate: '2026-07-14' });
+
+  assert.equal(gate.status, 'fail');
+  assert.equal(gate.section_statuses.orders, 'not_captured');
+});
+
+test('accepts only a privacy-safe target-date DOM order aggregate with matching visible purchase dates', () => {
+  const base = {
+    auth_status: { ok: true },
+    section_evidence: {
+      orders: {
+        status: 'target_date_queried',
+        target_date: '2026-07-14',
+        evidence_source: 'page.form_readback',
+        marker: 'meituan_orders_purchase_date_query',
+        query_epoch: 4,
+      },
+    },
+    responses: [{ section: 'traffic', status: 200, row_count: 0 }],
+  };
+  const row = {
+    order_count: 6,
+    orders: 6,
+    visible_order_date_count: 6,
+    visible_order_dates_match_target: true,
+    dataDate: '2026-07-14',
+    date_source: 'page.orders.purchase_date_input.readback',
+    compare_type: 'self',
+    is_self: true,
+    query_epoch: 4,
+    page_summary_marker: 'meituan_orders_target_date_summary',
+    _capture_source: 'dom:orders:target_date_summary',
+    _source_path: 'dom.orders.target_date_summary',
+  };
+  const gate = evaluateMeituanCaptureGate({ ...base, orders: [row] }, ['orders'], { targetDate: '2026-07-14' });
+  assert.equal(gate.status, 'pass');
+  assert.equal(gate.section_statuses.orders, 'captured');
+
+  const mismatchedVisibleDates = evaluateMeituanCaptureGate({
+    ...base,
+    orders: [{ ...row, visible_order_date_count: 5 }],
+  }, ['orders'], { targetDate: '2026-07-14' });
+  assert.equal(mismatchedVisibleDates.status, 'fail');
+  assert.equal(mismatchedVisibleDates.section_statuses.orders, 'not_captured');
 });
 
 test('accepts an explicitly detected Meituan ads onboarding page as not applicable', () => {
@@ -102,7 +239,7 @@ test('accepts an explicitly detected Meituan ads onboarding page as not applicab
     responses: [
       { section: 'reviews', status: 200, row_count: 1 },
       { section: 'traffic', status: 200, row_count: 0 },
-      { section: 'orders', status: 200, row_count: 0 },
+      { section: 'orders', status: 200, row_count: 0, data: { code: 0, data: { orderCount: 0 } } },
     ],
     traffic: [],
     orders: [],
@@ -144,6 +281,25 @@ test('does not treat an HTTP 200 platform-error body as an authoritative empty r
       status: 200,
       row_count: 0,
       data: { code: 500, message: 'platform rejected request' },
+    }],
+    orders: [],
+  }, ['orders']);
+
+  assert.equal(gate.status, 'fail');
+  assert.equal(gate.section_statuses.orders, 'not_captured');
+  assert.equal(gate.failed_check_ids.includes('section_orders_not_captured'), true);
+});
+
+test('does not treat an HTTP 200 Meituan order iframe HTML document as authoritative empty', () => {
+  const gate = evaluateMeituanCaptureGate({
+    auth_status: { ok: true },
+    responses: [{
+      section: 'orders',
+      status: 200,
+      row_count: 0,
+      resource_type: 'document',
+      content_type: 'text/html; charset=utf-8',
+      data: { _raw_text: '<!doctype html><html><body>order iframe</body></html>' },
     }],
     orders: [],
   }, ['orders']);

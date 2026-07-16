@@ -6,6 +6,7 @@ const read = (file) => readFileSync(file, 'utf8');
 const sourcePage = read('resources/frontend/templates/fragments/15a-page-ops-source.html');
 const analysisPage = read('resources/frontend/templates/fragments/15b-page-ops-analysis.html');
 const insightPage = read('resources/frontend/templates/fragments/15c-page-ops-insight.html');
+const trackPage = read('resources/frontend/templates/fragments/17-page-ops-track.html');
 const researchPage = read('resources/frontend/templates/fragments/19-page-revenue-research-center.html');
 const appMain = read('public/app-main.js');
 const routes = read('route/app.php');
@@ -74,4 +75,41 @@ test('revenue research execution bridge creates only an intent then opens ops-tr
   const openBridge = appMain.slice(openStart, openEnd);
   assert.match(openBridge, /currentPage\.value = 'ops-track'/);
   assert.match(openBridge, /await loadOperationActions\(\)/);
+});
+
+test('AI daily report keeps execution tracking on the selected hotel', () => {
+  const start = appMain.indexOf('const loadAiDailyReport = async');
+  const end = appMain.indexOf('const loadOperationActions = async', start);
+  const bridge = appMain.slice(start, end);
+  assert.match(bridge, /operationFilters\.value\.hotel_id = String\(hotelId\)/);
+  assert.match(bridge, /reportHotelId/);
+  assert.match(bridge, /operationFilters\.value\.hotel_id = reportHotelId/);
+});
+
+test('non-price execution evidence can be saved without fabricating revenue or ROI', () => {
+  const start = appMain.indexOf('const recordOperationExecutionEvidence = async');
+  const end = appMain.indexOf('const recordOperationRoiEvidence = async', start);
+  const evidenceFlow = appMain.slice(start, end);
+  assert.match(evidenceFlow, /operationEvidenceModalOpen\.value = true/);
+  assert.match(evidenceFlow, /evidence_type: 'manual_operation_execution'/);
+  assert.match(evidenceFlow, /effect_status: 'pending_observation'/);
+  assert.match(evidenceFlow, /evidence_boundary: 'local_manual_evidence_no_ota_write'/);
+  assert.match(evidenceFlow, /不自动生成收入或ROI/);
+  assert.match(trackPage, /data-testid="operation-evidence-modal"/);
+  assert.match(trackPage, /已完成运营动作（效果待观察）/);
+  assert.match(trackPage, /未观察到的收入、成本和 ROI 保持为空/);
+  assert.match(trackPage, /submitOperationExecutionEvidence/);
+});
+
+test('effect review uses an in-page form and preserves the observing state when evidence is pending', () => {
+  assert.match(trackPage, /data-testid="operation-review-modal"/);
+  assert.match(trackPage, /没有次日同口径数据时请选择“继续观察”/);
+  assert.match(trackPage, /<option value="observing">继续观察<\/option>/);
+  assert.match(trackPage, /submitOperationExecutionReview/);
+
+  const start = appMain.indexOf('const reviewOperationExecutionTask = async');
+  const end = appMain.indexOf('const finishOperationAction = async', start);
+  const reviewFlow = appMain.slice(start, end);
+  assert.match(reviewFlow, /operationReviewModalOpen\.value = true/);
+  assert.match(reviewFlow, /result_summary: resultSummary \|\| '继续观察，等待次日收益或ROI证据'/);
 });

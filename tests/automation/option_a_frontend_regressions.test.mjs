@@ -87,6 +87,18 @@ test('Ctrip latest-snapshot and dual-OTA refresh guards reject stale A-to-B resp
   assert.match(workbenchRefresh, /await loadCompetitorSummary[\s\S]*if \(!isCurrentRequest\(\)\) return null;[\s\S]*dualOtaEnsureMeituanWorkbenchData/);
 });
 
+test('Ctrip current data page keeps target-date truth separate from stored history', () => {
+  const latestApply = sliceBetween(appMain, 'const applyLatestCtripSnapshot', 'const shouldHydrateLatestCtripDisplay');
+  assert.match(latestApply, /if \(hydrateDisplay && !snapshotModel\.hasRank\) \{\s*clearCtripRankingDisplayState\(\);/);
+  assert.match(latestApply, /else if \(hydrateDisplay\) \{\s*useCtripTrafficDisplayRows\(\[\], null, \[\], null\);/);
+  assert.match(latestApply, /else if \(hydrateDisplay\) \{\s*ctripCommentResult\.value = null;/);
+  assert.match(latestApply, /return currentPage\.value === 'ctrip-ebooking' \? 'yesterday' : '';/);
+
+  const latestStatus = sliceBetween(appMain, 'const ctripLatestSnapshotText', '// 美团配置管理');
+  assert.match(latestStatus, /目标日期 \$\{targetDate\} 未采集；当前页不回填历史数据。历史记录请到“入库记录”查询。/);
+  assert.doesNotMatch(latestStatus, /已展示最近已抓取快照/);
+});
+
 test('dual-OTA current hotel and connection state use verified system bindings only', () => {
   const api = loadWindowApi(dualOtaStaticSource, 'SUXI_DUAL_OTA_HOME', 'public/dual-ota-home-static.js');
   const rows = [
@@ -217,4 +229,16 @@ test('draft checkbox restoration can change a checked field back to false', () =
 
   assert.equal(field.checked, false);
   assert.deepEqual(events, ['input', 'change']);
+});
+
+test('frontend fallbacks keep missing risk and forecast metrics unknown instead of zero or low-risk', () => {
+  const openingFallbacks = sliceBetween(appMain, 'let buildOpeningOverviewCards', 'const ensureOperationStaticReady');
+  assert.match(openingFallbacks, /let openingRiskText = \(\) => '待评估'/);
+  assert.doesNotMatch(openingFallbacks, /let openingRiskText = \(\) => '低风险'/);
+
+  const researchForecastCards = sliceBetween(appMain, 'const revenueResearchForecastCards', 'const runRevenueResearchProduct');
+  assert.match(researchForecastCards, /const hasMetric =/);
+  assert.match(researchForecastCards, /: '—'/);
+  assert.doesNotMatch(researchForecastCards, /forecast(?:7|30)\.(?:revenue|adr) \|\| 0/);
+  assert.doesNotMatch(researchForecastCards, /forecast\.trend_percent \|\| 0/);
 });

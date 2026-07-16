@@ -77,7 +77,7 @@ test('Revenue AI static helper exposes the required display contract', () => {
     assert.equal(typeof helpers[key], 'function', `${key} must be exported`);
   }
   assert.equal(helpers.revenueAiStatusLabel('ok'), '正常');
-  assert.equal(helpers.revenueAiStatusLabel('not_loaded'), '未接入');
+  assert.equal(helpers.revenueAiStatusLabel('not_loaded'), '未加载');
   assert.equal(helpers.revenueAiStatusLabel('not_calculable'), '不可计算');
   assert.equal(helpers.revenueAiStatusLabel('unverified'), '未验证');
   assert.equal(helpers.revenueAiStatusLabel('missing'), '缺失');
@@ -96,7 +96,7 @@ test('Revenue AI static helper exposes the required display contract', () => {
 });
 
 test('Revenue AI entry cache-busts the business closure helper contract', () => {
-  assert.match(indexHtml, /<script defer src="revenue-ai-static\.js\?v=20260710-ai-daily-fact-gate-investigation"><\/script>/);
+  assert.match(indexHtml, /<script defer src="revenue-ai-static\.js\?v=20260715-truthful-not-loaded-h29ec697779"><\/script>/);
   assert.match(html, /requireRevenueAiStatic\('buildRevenueAiBusinessClosure'\)/);
   assert.match(html, /data-testid="revenue-ai-pricing-generation-preflight"/);
   assert.match(html, /data-testid="agent-pricing-generation-preflight-summary"/);
@@ -532,7 +532,7 @@ test('Revenue AI metric cards keep missing data explicit and scoped', () => {
   const unloadedCards = helpers.buildRevenueAiMetricCards();
   assert.equal(unloadedCards.length, 5);
   assert.ok(unloadedCards.every((card) => card.display === '--'));
-  assert.ok(unloadedCards.every((card) => card.statusLabel === '未接入'));
+  assert.ok(unloadedCards.every((card) => card.statusLabel === '未加载'));
   assert.ok(unloadedCards.every((card) => card.scopeLabel === 'OTA渠道口径'));
 
   const cards = helpers.buildRevenueAiMetricCards({
@@ -551,7 +551,7 @@ test('Revenue AI metric cards keep missing data explicit and scoped', () => {
           display: '--',
           status: 'not_calculable',
           reason: 'available_room_nights_missing',
-          scope: 'hotel_required',
+          scope: 'ota_channel',
           date_basis: 'data_date',
         },
       },
@@ -564,8 +564,8 @@ test('Revenue AI metric cards keep missing data explicit and scoped', () => {
   assert.equal(revenue.scopeLabel, 'OTA渠道口径');
   assert.equal(revpar.display, '--');
   assert.equal(revpar.statusLabel, '不可计算');
-  assert.equal(revpar.scopeLabel, '需全酒店口径');
-  assert.match(revpar.reasonText, /暂缺可信全酒店可售房数据/);
+  assert.equal(revpar.scopeLabel, 'OTA渠道口径');
+  assert.match(revpar.reasonText, /暂缺可信 OTA 渠道可售房晚分母/);
 
   const emptyConfirmedCards = helpers.buildRevenueAiMetricCards({
     overview: {
@@ -741,7 +741,7 @@ test('Revenue AI readonly actions never fabricate pricing recommendations', () =
             { key: 'floor_price', label: '最低保护价', status: 'blocked', severity: 'high', reason: 'floor_price_missing', display_reason: '暂缺最低保护价。', next_action: '补齐最低保护价。', target_page: 'online-data', target_tab: 'data-health', target_platform: 'hotel' },
             { key: 'demand_signal_7d', label: '未来 7 天需求信号', status: 'blocked', severity: 'medium', reason: 'demand_forecasts_not_loaded', display_reason: '未来 7 天需求预测尚未读取。' },
             { key: 'manual_review_workflow', label: '人工审核工作流', status: 'blocked', severity: 'high', reason: 'manual_review_workflow_not_connected', display_reason: '暂未接入人工审核工作流。' },
-            { key: 'revpar_denominator', label: '全酒店可售房晚', status: 'blocked', severity: 'medium', reason: 'available_room_nights_missing', display_reason: '暂缺可信全酒店可售房晚数据。' },
+            { key: 'revpar_denominator', label: 'OTA渠道可售房晚分母', status: 'blocked', severity: 'medium', reason: 'available_room_nights_missing', display_reason: '暂缺可信 OTA 渠道可售房晚分母，不能计算或外推全酒店 RevPAR。' },
           ],
         },
         manual_review_required: true,
@@ -1260,7 +1260,7 @@ test('Revenue AI action rows expose pricing generation preflight without OTA wri
   assert.equal(rows[0].pricingGenerationPreflightSummary.autoWriteOta, false);
 });
 
-test('Revenue AI static helpers label operator-skipped pricing preflight explicitly', () => {
+test('Revenue AI static helpers normalize unverified legacy operator-skip state to a blocked input gap', () => {
   const overview = {
     pricing_generation_preflight: {
       status: 'skipped_by_operator_policy',
@@ -1287,12 +1287,12 @@ test('Revenue AI static helpers label operator-skipped pricing preflight explici
 
   const summary = helpers.buildRevenueAiPricingGenerationPreflightSummary({ overview });
   assert.equal(summary.visible, true);
-  assert.equal(summary.status, 'skipped_by_operator_policy');
-  assert.equal(summary.statusLabel, '已暂时跳过');
-  assert.match(summary.reasonText, /暂时跳过/);
+  assert.equal(summary.status, 'blocked');
+  assert.equal(summary.statusLabel, '生成受阻');
+  assert.match(summary.reasonText, /缺少可核验的操作者、确认时间和持久化记录/);
   assert.equal(summary.canGeneratePendingSuggestions, false);
   assert.equal(summary.autoWriteOta, false);
-  assert.equal(summary.requiredInputs[0].status, 'skipped_by_operator_policy');
+  assert.equal(summary.requiredInputs[0].status, 'missing_or_blocked');
 });
 
 test('Revenue AI generate result exposes blocked Ctrip-only preconditions', () => {
@@ -1374,7 +1374,7 @@ test('Revenue AI generate result exposes blocked Ctrip-only preconditions', () =
 test('Revenue AI pricing gate rows expose blockers without suggestions', () => {
   const unloaded = helpers.buildRevenueAiPricingGateRows();
   assert.equal(unloaded.length, 1);
-  assert.equal(unloaded[0].statusLabel, '未接入');
+  assert.equal(unloaded[0].statusLabel, '未加载');
   assert.match(unloaded[0].reasonText, /总览接口尚未返回/);
 
   const rows = helpers.buildRevenueAiPricingGateRows({
@@ -1412,7 +1412,7 @@ test('Revenue AI pricing gate rows expose blockers without suggestions', () => {
 
 test('Revenue AI agent activity helpers expose readonly logs without success fallback', () => {
   const unloadedSummary = helpers.buildRevenueAiAgentActivitySummary();
-  assert.equal(unloadedSummary.statusLabel, '未接入');
+  assert.equal(unloadedSummary.statusLabel, '未加载');
   assert.equal(unloadedSummary.display, '--');
   assert.match(unloadedSummary.reasonText, /总览接口尚未返回/);
 
@@ -1476,7 +1476,7 @@ test('Revenue AI agent activity helpers expose readonly logs without success fal
 
 test('Revenue AI execution helpers keep process and effect review separate', () => {
   const unloaded = helpers.buildRevenueAiExecutionSummary();
-  assert.equal(unloaded.statusLabel, '未接入');
+  assert.equal(unloaded.statusLabel, '未加载');
   assert.equal(unloaded.display, '--');
   assert.equal(unloaded.readOnly, true);
   assert.equal(unloaded.autoWriteOta, false);

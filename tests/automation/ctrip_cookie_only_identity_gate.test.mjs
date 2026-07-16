@@ -29,8 +29,9 @@ test('Ctrip manual fetch uses a vault locator and keeps inferred hotel identity 
 
   const identityBody = validator[0];
   assert.match(identityBody, /platform_hotel_id_incomplete/);
-  assert.match(identityBody, /'ok' => true,[\s\S]{0,120}'warning' => true/);
-  assert.match(identityBody, /数据仍按当前选择门店归属并继续入库/);
+  assert.match(identityBody, /returned_current_hotel_id_missing/);
+  assert.match(identityBody, /'ok' => false,[\s\S]{0,180}'status' => 'platform_hotel_id_incomplete'/);
+  assert.match(identityBody, /本次未入库/);
   assert.match(identityBody, /captured_platform_hotel_id_ambiguous/);
   assert.match(identityBody, /findCtripSystemHotelMatchesByPlatformIds\(\$capturedIds\)/);
   assert.match(identityBody, /findCtripPlatformHotelIdConflicts\(\$capturedIds, \$systemHotelId\)/);

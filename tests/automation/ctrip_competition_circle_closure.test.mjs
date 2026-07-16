@@ -78,7 +78,7 @@ test('Ctrip AI tab hydrates the latest usable competition circle snapshot', () =
   const history = fs.readFileSync(path.join(root, 'app/controller/concern/OnlineDataHistoryConcern.php'), 'utf8');
 
   assert.match(html, /context\.source === 'ctrip'[\s\S]{0,160}await loadLatestCtripData\(\{ silent: true, hydrateDisplay: true \}\)/);
-  assert.match(html, /const aiAnalysisStaticVersion = '20260711-ctrip-competition-circle-v1'/);
+  assert.match(html, /const aiAnalysisStaticVersion = '20260715-unverified-preview-hd13ecd982e'/);
   assert.match(html, /script\.src = aiAnalysisStaticScript \+ '\?v=' \+ aiAnalysisStaticVersion/);
   assert.match(html, /v-if="ctripLatestLoading"[\s\S]{0,300}正在读取当前门店最近一批竞争圈数据[\s\S]{0,300}v-else-if="aiAnalysisHotelList\.length === 0"/);
   assert.match(history, /\$section === 'rank'\s*&&\s*\(empty\(\$displayHotels\)\s*\|\|\s*!\$this->ctripBusinessDisplayHotelsHaveTraffic\(\$displayHotels\)\)/);

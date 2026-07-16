@@ -43,7 +43,7 @@ test('manual one-click fetch is the first online data surface and keeps diagnost
   assert.doesNotMatch(onlinePage, /优先处理动作/);
   assert.match(onlinePage, /完整诊断/);
   assert.match(onlinePage, /账号级驾驶舱/);
-  assert.match(onlinePage, /单店酒店数据画像/);
+  assert.match(onlinePage, /单店 OTA 数据画像/);
   assert.match(onlinePage, /数据源状态 \/ 证据链/);
   assert.match(onlinePage, /dataHealthDetailPanelsReady && dataHealthFullDiagnosticsLoaded/);
   assert.match(onlinePage, /data-health-full-diagnostics-detail/);

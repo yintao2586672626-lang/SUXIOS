@@ -203,6 +203,7 @@ test('Meituan flow forecast keeps forecast rows separate from actual traffic', (
 
   assert.equal(rows.length, 1);
   assert.equal(rows[0].data_type, 'traffic_forecast');
+  assert.equal(rows[0].data_period, 'next_30_days');
   assert.equal(rows[0].forecast_type, '2');
   assert.equal(rows[0].dataDate, '2026-07-01');
   assert.equal(rows[0].date_source, 'row.dateTime');

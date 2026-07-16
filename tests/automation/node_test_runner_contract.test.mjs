@@ -15,6 +15,7 @@ test('Node automation runner discovers nested test files and forces serial execu
   mkdirSync(nested);
   writeFileSync(path.join(root, 'z.test.mjs'), '', 'utf8');
   writeFileSync(path.join(root, 'ignore.mjs'), '', 'utf8');
+  writeFileSync(path.join(root, 'temporal-axis.spec.js'), '', 'utf8');
   writeFileSync(path.join(nested, 'a.test.mjs'), '', 'utf8');
 
   try {

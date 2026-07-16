@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash, webcrypto } from 'node:crypto';
 import fs from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
@@ -8,7 +9,8 @@ const html = readFrontendContractSource();
 const hotelController = fs.readFileSync(new URL('../../app/controller/Hotel.php', import.meta.url), 'utf8');
 const otaConfigConcern = fs.readFileSync(new URL('../../app/controller/concern/OtaConfigConcern.php', import.meta.url), 'utf8');
 const userAdminStatic = fs.readFileSync(new URL('../../public/user-admin-static.js', import.meta.url), 'utf8');
-const userAdminSandbox = { window: {} };
+const userAdminStaticHash = createHash('sha256').update(userAdminStatic).digest('hex').slice(0, 10);
+const userAdminSandbox = { window: {}, crypto: webcrypto };
 vm.runInNewContext(`${userAdminStatic}\nthis.__userAdminStatic = window.SUXI_USER_ADMIN_STATIC;`, userAdminSandbox);
 const userAdminStaticApi = userAdminSandbox.__userAdminStatic;
 
@@ -109,7 +111,7 @@ test('employee management has a mobile card view and unambiguous hotel option la
   assert.match(html, /const hotelSelectOptionText = \(hotel = \{\}\) =>/);
 });
 
-test('new employee credentials use the next VIP username and fixed password 666666', () => {
+test('new employee credentials use the next VIP username and a random strong temporary password', () => {
   assert.equal(userAdminStaticApi.nextVipUsername([]), 'VIP001');
   assert.equal(userAdminStaticApi.nextVipUsername([
     { username: 'admin' },
@@ -118,14 +120,18 @@ test('new employee credentials use the next VIP username and fixed password 6666
     { username: 'VIP12345' },
     { username: 'VIP-demo' },
   ]), 'VIP12346');
-  assert.equal(userAdminStaticApi.defaultIssuedPassword(), '666666');
-  assert.match(html, /user-admin-static\.js\?v=20260711-vip-credential-helper-export-v2/);
+  const firstPassword = userAdminStaticApi.defaultIssuedPassword();
+  const secondPassword = userAdminStaticApi.defaultIssuedPassword();
+  assert.match(firstPassword, /^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}$/);
+  assert.notEqual(firstPassword, secondPassword);
+  assert.match(html, new RegExp(`user-admin-static\\.js\\?v=[^"']*h${userAdminStaticHash}`));
 
   const openUserModal = sliceFrom('const openUserModal = (u = null) => {', '\n\n            const openUserModalWithRole');
   assert.match(openUserModal, /username: nextVipUsername\(users\.value\)/);
   assert.match(openUserModal, /password: defaultIssuedPassword\(\)/);
   assert.match(html, /data-testid="new-user-password"/);
-  assert.match(html, /默认密码固定为 666666/);
+  assert.match(html, /生成随机临时密码/);
+  assert.doesNotMatch(html, /默认密码固定为 666666/);
   assert.doesNotMatch(html, /换一组6位数字/);
 });
 
@@ -187,9 +193,9 @@ test('existing user login actions separate non-destructive copy from password re
   assert.match(loginInfoFlow, /用户名：/);
   assert.match(loginInfoFlow, /密码：/);
   assert.match(loginInfoFlow, /copyToClipboard\(text\)/);
-  assert.match(loginInfoFlow, /issuedPassword !== defaultIssuedPassword\(\)/);
+  assert.match(loginInfoFlow, /issuedPassword\.length < 12/);
   assert.doesNotMatch(html, /换一组6位数字/);
-  assert.match(html, /重置为 666666 并复制登录信息/);
+  assert.match(html, /生成临时密码并复制登录信息/);
   assert.doesNotMatch(loginInfoFlow, /u\?\.password|target\?\.password/);
 });
 

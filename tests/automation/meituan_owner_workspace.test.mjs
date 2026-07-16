@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import test from 'node:test';
 
 const template = fs.readFileSync(new URL('../../resources/frontend/app-template.html', import.meta.url), 'utf8');
+const appMain = fs.readFileSync(new URL('../../public/app-main.js', import.meta.url), 'utf8');
 
 function sliceBetween(source, start, end) {
   const startIndex = source.indexOf(start);
@@ -51,7 +52,7 @@ test('Meituan ranking keeps the official freshness notice without extra realtime
   assert.doesNotMatch(template, /“今日实时”是美团页面筛选名称，不代表秒级实时/);
 });
 
-test('competition-circle action and stored-data actions are truthful for hotel owners', () => {
+test('competition-circle and stored-data actions remain truthful without exposing raw debug tools', () => {
   const ranking = sliceBetween(
     template,
     "<div v-if=\"onlineDataTab === 'meituan-ranking'\">",
@@ -60,12 +61,12 @@ test('competition-circle action and stored-data actions are truthful for hotel o
   const storedData = sliceBetween(
     template,
     "<div v-if=\"onlineDataTab === 'meituan-download'\">",
-    '<!-- AI智能分析模块 - 弹窗 -->',
+    '<!-- 未验证竞对数据预览 - 弹窗 -->',
   );
 
   assert.match(ranking, /aria-label="更新竞争圈"/);
-  assert.match(ranking, /data-testid="meituan-ranking-advanced-tools"/);
-  assert.match(ranking, /v-if="user\?\.is_super_admin"/);
+  assert.doesNotMatch(ranking, /data-testid="meituan-ranking-advanced-tools"/);
+  assert.doesNotMatch(ranking, /查看原始结果|复制排障数据|JSON\.stringify\(onlineDataResult/);
   assert.match(storedData, /同行榜单明细/);
   assert.match(storedData, /卡片统计仅对应当前筛选的当前页/);
   assert.match(storedData, /@click="queryMeituanStoredData"/);
@@ -75,4 +76,28 @@ test('competition-circle action and stored-data actions are truthful for hotel o
   assert.match(storedData, /v-if="user\?\.is_super_admin"[^>]*@click="deleteOnlineDataItem\(item\.id\)"/);
   assert.match(template, /更新美团竞争圈/);
   assert.doesNotMatch(template, />一键获取美团</);
+});
+
+test('Meituan stored data entry resets cross-platform dates and keeps manual queries editable', () => {
+  const applyStoredFilter = sliceBetween(
+    appMain,
+    'const applyMeituanStoredDataFilter = (tab, options = {}) => {',
+    'const queryMeituanStoredData = async () => {',
+  );
+  const switchToStoredData = sliceBetween(
+    appMain,
+    'const switchToMeituanDownloadCenter = () => {',
+    'const openMeituanStoredDataTab = (tab) => {',
+  );
+  const queryStoredData = sliceBetween(
+    appMain,
+    'const queryMeituanStoredData = async () => {',
+    'let downloadCenterTabLoadSeq = 0;',
+  );
+
+  assert.match(applyStoredFilter, /if \(options\.resetDates === true\) \{/);
+  assert.match(applyStoredFilter, /onlineDataFilter\.value\.start_date = formatDate\(thirtyDaysAgo\);/);
+  assert.match(applyStoredFilter, /onlineDataFilter\.value\.end_date = formatDate\(today\);/);
+  assert.match(switchToStoredData, /resetPage: true, resetDates: true/);
+  assert.doesNotMatch(queryStoredData, /resetDates: true/);
 });

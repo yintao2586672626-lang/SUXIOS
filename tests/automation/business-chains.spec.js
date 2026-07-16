@@ -19,8 +19,7 @@ const {
 const config = getConfig();
 const suiteOutput = createSuiteOutput('business-chains');
 const { outputDir, screenshotDir } = suiteOutput;
-const apiRequestTimeout = Number(process.env.E2E_API_REQUEST_TIMEOUT_MS || 15000);
-const e2eFallbackModelKey = 'codex_missing_model_e2e';
+const apiRequestTimeout = Number(process.env.E2E_API_REQUEST_TIMEOUT_MS || 30000);
 const results = [];
 const apiEvents = [];
 const pageEvents = [];
@@ -176,36 +175,31 @@ async function createApi(request) {
 }
 
 async function resolveHotelContext(api) {
-  const info = await api.get('/api/auth/info', { label: 'auth info' });
-  const permitted = Array.isArray(info.permitted_hotels) ? info.permitted_hotels : [];
-  let hotel = permitted[0] || null;
-  const cleanup = [];
-
-  if (!hotel && info.is_super_admin) {
-    const suffix = Date.now().toString().slice(-8);
-    const created = await api.post('/api/hotels/', {
-      name: `codex_chain_hotel_${suffix}`,
-      code: `CHAIN${suffix}`,
-      address: '上海市浦东新区链路测试路',
-      contact_person: 'Codex',
-      contact_phone: '13000000000',
-      status: 1,
-    }, { label: 'create chain hotel' });
-    hotel = { id: created.id, name: created.name || `codex_chain_hotel_${suffix}` };
-    cleanup.push(() => api.delete(`/api/hotels/${created.id}`, { label: 'cleanup chain hotel' }).catch(() => null));
+  const expectedHotelId = Number(config.hotelId || 0);
+  const expectedHotelName = String(config.hotelName || '');
+  const objectPrefix = String(config.objectPrefix || '');
+  if (!/^codex_e2e_[a-z0-9_]+$/.test(objectPrefix)
+    || expectedHotelId <= 0
+    || expectedHotelName !== `${objectPrefix}_hotel`) {
+    const error = new Error('Business-chain E2E requires an isolated codex_e2e_ hotel context');
+    error.category = 'test-data-invalid';
+    throw error;
   }
 
-  const hotelId = Number(hotel?.id || info.hotel_id || 0);
-  if (!hotelId) {
-    const error = new Error('No enabled hotel is available for business-chain assertions');
+  const info = await api.get('/api/auth/info', { label: 'auth info' });
+  const permitted = Array.isArray(info.permitted_hotels) ? info.permitted_hotels : [];
+  const hotel = permitted.find((item) => Number(item?.id || 0) === expectedHotelId) || null;
+  if (!hotel || String(hotel.name || '') !== expectedHotelName) {
+    const error = new Error('Isolated E2E hotel is not available to the temporary test user');
     error.category = 'test-data-invalid';
     throw error;
   }
 
   return {
-    hotelId,
-    hotelName: hotel?.name || info.hotel_name || `酒店${hotelId}`,
-    cleanup,
+    hotelId: expectedHotelId,
+    hotelName: expectedHotelName,
+    objectPrefix,
+    cleanup: [],
   };
 }
 
@@ -280,12 +274,32 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
     page,
     request,
     'ota-operation',
-    [MODULE.DATA_SOURCE, MODULE.ROOT_CAUSE, MODULE.POLICY_SIMULATION, MODULE.EFFECT_TRACKING],
+    [MODULE.DATA_TRUST, MODULE.REVENUE_DIAGNOSIS, MODULE.AI_DAILY_REPORT, MODULE.EXECUTION_TRACKING],
     async ({ api, hotelContext, cleanups }) => {
       const dataDate = '2026-05-17';
-      const suffix = Date.now().toString().slice(-8);
-      const otaHotelId = `OTA_CHAIN_${suffix}`;
-      const actionTitle = `codex_chain_action_${suffix}`;
+      const baselineDate = '2026-05-16';
+      const otaHotelId = `${hotelContext.objectPrefix}_ota`;
+
+      const baselineSave = await api.post('/api/online-data/save-daily-data', {
+        system_hotel_id: hotelContext.hotelId,
+        data_date: baselineDate,
+        data: [{
+          hotelId: otaHotelId,
+          hotelName: hotelContext.hotelName,
+          dataDate: baselineDate,
+          amount: 150000,
+          quantity: 360,
+          bookOrderNum: 150,
+          commentScore: 4.8,
+          qunarCommentScore: 4.7,
+          exposure: 40000,
+          visitors: 8000,
+          views: 10000,
+          totalDetailNum: 10000,
+          qunarDetailVisitors: 8000,
+        }],
+      }, { label: 'OTA baseline daily import' });
+      expect(baselineSave.saved_count).toBeGreaterThan(0);
 
       const save = await api.post('/api/online-data/save-daily-data', {
         system_hotel_id: hotelContext.hotelId,
@@ -328,9 +342,10 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
         params: { hotel_id: hotelContext.hotelId, date: dataDate },
         label: 'operation full data reads OTA',
       });
-      expect(fullData.ota.data_status).toBe('ok');
-      expect(Number(fullData.ota.orders)).toBeGreaterThanOrEqual(120);
-      expect(Number(fullData.ota.exposure)).toBeGreaterThanOrEqual(10000);
+      expect(fullData.summary.data_status).toBe('ok');
+      expect(Number(fullData.summary.revenue)).toBeGreaterThanOrEqual(120000);
+      expect(fullData.ota.data_status).not.toBe('ok');
+      expect(Number(fullData.ota.exposure)).toBe(0);
 
       const rootCause = await api.post('/api/operation/root-cause', {
         hotel_id: hotelContext.hotelId,
@@ -341,32 +356,162 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
 
       const strategy = await api.post('/api/operation/strategy-simulation', {
         hotel_id: hotelContext.hotelId,
+        platform: 'ctrip',
         strategy_type: 'promotion',
         discount_rate: 8,
         start_date: dataDate,
         end_date: '2026-05-24',
+        create_execution_order: true,
       }, { label: 'operation strategy suggestion' });
-      expect(strategy.simulated).toBe(true);
+      expect(strategy.simulated).toBe(false);
+      expect(strategy.status).toBe('insufficient_data');
       expect(strategy.forecast).toBeTruthy();
+      expect(strategy.execution_intent).toBeNull();
+      expect(strategy.execution_intent_status).toBe('blocked_by_insufficient_baseline');
 
-      const action = await api.post('/api/operation/actions', {
+      const report = await api.post('/api/ai-daily-reports/generate', {
         hotel_id: hotelContext.hotelId,
-        action_title: actionTitle,
-        action_type: 'promotion',
-        start_date: dataDate,
-        end_date: '2026-05-24',
-        target_metric: 'orders',
-        target_change_rate: 8,
-        remark: 'business chain regression',
-      }, { label: 'operation action create' });
-      expect(Number(action.id)).toBeGreaterThan(0);
-      cleanups.push(() => api.post(`/api/operation/actions/${action.id}/finish`, {}, { label: 'finish operation action' }).catch(() => null));
+        report_date: dataDate,
+        use_llm: false,
+      }, { label: 'AI daily report generation' });
+      expect(Number(report.id)).toBeGreaterThan(0);
+      expect(report.generation_mode).toBe('rule');
+      expect(report.model_status).toBe('not_requested');
+      const blockedActions = report.recommended_actions || [];
+      expect(blockedActions.length).toBeGreaterThan(0);
+      expect(blockedActions.every((item) => item?.can_create_execution_intent === false)).toBe(true);
+      expect(blockedActions.every((item) => String(item?.blocked_reason || '').trim() !== '')).toBe(true);
+
+      const intent = await api.post('/api/operation/execution-intents', {
+        hotel_id: hotelContext.hotelId,
+        source_module: 'e2e_manual_workflow',
+        source_record_id: report.id,
+        platform: 'internal',
+        object_type: 'campaign',
+        action_type: 'isolated_workflow_validation',
+        date_start: dataDate,
+        date_end: dataDate,
+        target_value: {
+          campaign_type: 'isolated_workflow_validation',
+          target_metric: 'orders',
+        },
+        evidence: {
+          source_policy: 'isolated_e2e_manual_evidence_no_ota_write',
+          report_id: report.id,
+          reviewer_decision: 'workflow_validation_only',
+        },
+        expected_metric: 'orders',
+        expected_delta: 0,
+        risk_level: 'low',
+      }, { label: 'manual workflow intent after explicit review' });
+      expect(Number(intent.id)).toBeGreaterThan(0);
+      expect(intent.source_module).toBe('e2e_manual_workflow');
+      expect(intent.status).toBe('pending_approval');
+      expect(intent.tasks || []).toHaveLength(0);
+
+      const approved = await api.post(`/api/operation/execution-intents/${intent.id}/approve`, {
+        approved: true,
+        remark: `${hotelContext.objectPrefix}_manual_approval`,
+      }, { label: 'human approval creates execution task' });
+      expect(approved.status).toBe('approved');
+      const task = (approved.tasks || [])[0] || {};
+      expect(Number(task.id)).toBeGreaterThan(0);
+      expect(task.status).toBe('pending_execute');
+
+      const executed = await api.post(`/api/operation/execution-tasks/${task.id}/execute`, {
+        status: 'executed',
+        evidence_type: 'manual_finance',
+        evidence: {
+          before: { revenue: 120000, scope: 'ota_channel' },
+          after: { revenue: 132000, cost: 3000, scope: 'ota_channel' },
+          platform_response: {
+            mode: 'manual',
+            scope: 'ota_channel_manual_execution',
+            evidence_boundary: 'local_manual_evidence_no_ota_write',
+          },
+          remark: `${hotelContext.objectPrefix}_execution_evidence`,
+        },
+      }, { label: 'manual execution evidence' });
+      expect(executed.status).toBe('executed');
+      expect(Number(executed.evidence_summary?.count || 0), JSON.stringify(executed)).toBeGreaterThan(0);
+
+      const reviewed = await api.post(`/api/operation/execution-tasks/${task.id}/review`, {
+        result_status: 'success',
+        result_summary: `${hotelContext.objectPrefix}_manual_effect_review`,
+      }, { label: 'manual effect review' });
+      expect(reviewed.result_status).toBe('success');
 
       const tracking = await api.get('/api/operation/action-tracking', {
         params: { hotel_id: hotelContext.hotelId },
-        label: 'operation action tracking reads action',
+        label: 'operation action tracking reads executed task',
       });
-      expect((tracking.actions || []).some((item) => item.id === action.id || item.action_title === actionTitle)).toBe(true);
+      expect((tracking.actions || []).some((item) => Number(item.id) === Number(executed.action_track_id))).toBe(true);
+
+      const flow = await api.get('/api/operation/execution-flow', {
+        params: { hotel_id: hotelContext.hotelId },
+        label: 'execution flow readback',
+      });
+      const flowItem = (flow.list || []).find((item) => Number(item.id) === Number(intent.id));
+      expect(flowItem).toBeTruthy();
+      expect(flowItem.recommendation.source_module).toBe('e2e_manual_workflow');
+      expect(flowItem.approval.status).toBe('approved');
+      expect(flowItem.execution.status).toBe('executed');
+      expect(Number(flowItem.evidence_summary?.count || 0)).toBeGreaterThan(0);
+      expect(flowItem.review.status).toBe('success');
+      expect(flowItem.roi.status).toBe('ready');
+      expect(Number(flowItem.roi.incremental_revenue)).toBe(12000);
+      expect(Number(flowItem.roi.cost)).toBe(3000);
+      expect(Number(flowItem.roi.profit)).toBe(9000);
+      expect(Number(flowItem.roi.value)).toBe(300);
+
+      const reportReadback = await api.get(`/api/ai-daily-reports/${report.id}`, {
+        label: 'AI daily report readback',
+      });
+      const actionReadback = reportReadback.recommended_actions || [];
+      expect(actionReadback.length).toBeGreaterThan(0);
+      expect(actionReadback.every((item) => item?.can_create_execution_intent === false)).toBe(true);
+      expect(actionReadback.some((item) => Number(item?.execution_intent_id || 0) > 0)).toBe(false);
+
+      const deletedForRestore = await api.post('/api/online-data/delete-data', {
+        id: row.id,
+        reason: `${hotelContext.objectPrefix}_ledger_restore_check`,
+      }, { label: 'delete OTA row into correction ledger' });
+      const correctionLedgerId = Number(deletedForRestore.ledger_id || 0);
+      expect(correctionLedgerId).toBeGreaterThan(0);
+
+      await goModule(page, MODULE.DATA_TRUST);
+      await page.getByRole('button', { name: '记录与下载' }).click();
+      await page.getByTestId('online-data-correction-ledger-toggle').click();
+      const correctionLedgerRow = page.getByTestId(`online-data-correction-ledger-row-${correctionLedgerId}`);
+      await expect(correctionLedgerRow).toBeVisible({ timeout: 5000 });
+      await expect(correctionLedgerRow).toContainText('可恢复');
+      await page.getByTestId(`online-data-correction-ledger-restore-${correctionLedgerId}`).click();
+      const restoreDialog = page.getByTestId('workflow-form-dialog');
+      await expect(restoreDialog).toBeVisible();
+      await restoreDialog.getByRole('textbox').fill(`恢复 ${correctionLedgerId}`);
+      await restoreDialog.getByRole('button', { name: '确认恢复' }).click();
+      await expect(correctionLedgerRow).toContainText('已恢复', { timeout: 5000 });
+
+      const ledgerReadback = await api.get('/api/online-data/correction-ledger', {
+        params: { page: 1, page_size: 100 },
+        label: 'correction ledger restore readback',
+      });
+      const restoredLedger = (ledgerReadback.list || []).find((item) => Number(item.id) === correctionLedgerId);
+      expect(restoredLedger).toBeTruthy();
+      expect(restoredLedger.can_restore).toBe(false);
+      expect(String(restoredLedger.restored_at || '')).not.toBe('');
+
+      const restoredData = await api.get('/api/online-data/daily-data-list', {
+        params: { hotel_id: otaHotelId, start_date: dataDate, end_date: dataDate, page_size: 5 },
+        label: 'restored OTA row readback',
+      });
+      expect((restoredData.list || []).some((item) => Number(item.id) === Number(row.id))).toBe(true);
+
+      await goModule(page, MODULE.AI_DAILY_REPORT);
+      await goModule(page, MODULE.EXECUTION_TRACKING);
+      const closedLoopRow = page.getByTestId('page-ops-track').locator('tbody tr').filter({ hasText: '1 条' }).first();
+      await expect(closedLoopRow).toBeVisible({ timeout: 5000 });
+      await expect(closedLoopRow).toContainText('300');
 
       return [
         '页面展示正确',
@@ -374,6 +519,7 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
         'OTA数据已保存',
         '收益分析和运营模块读取上游数据',
         '策略动作可回显到效果追踪',
+        '更正账本删除恢复完成回读',
       ];
     },
   );
@@ -384,10 +530,10 @@ test('business chain: market evaluation to transfer decision dashboard', async (
     page,
     request,
     'market-transfer',
-    [MODULE.MARKET_EVALUATION, MODULE.BENCHMARK, MODULE.ASSET_PRICING, MODULE.TIMING, MODULE.DATA_DASHBOARD],
+    [MODULE.AI_WORKBENCH, MODULE.EXECUTION_TRACKING],
     async ({ api, hotelContext, cleanups }) => {
-      const suffix = Date.now().toString().slice(-8);
-      const projectName = `codex_chain_market_${suffix}`;
+      const projectName = `${hotelContext.objectPrefix}_market`;
+      const e2eFallbackModelKey = `${hotelContext.objectPrefix}_missing_model`;
 
       const market = await api.post('/api/expansion/market-evaluation', {
         project_name: projectName,
@@ -500,13 +646,14 @@ test('business chain: strategy, quant simulation, feasibility report, and invest
     page,
     request,
     'investment-decision',
-    [MODULE.STRATEGY, MODULE.SIMULATION, MODULE.FEASIBILITY],
-    async ({ api, cleanups }) => {
-      const suffix = Date.now().toString().slice(-8);
-      const projectName = `codex_chain_investment_${suffix}`;
+    [MODULE.AI_WORKBENCH, MODULE.EXECUTION_TRACKING],
+    async ({ api, hotelContext, cleanups }) => {
+      const projectName = `${hotelContext.objectPrefix}_investment`;
+      const e2eFallbackModelKey = `${hotelContext.objectPrefix}_missing_model`;
 
       const strategy = await api.post('/api/strategy/simulate', {
         project_name: projectName,
+        model_key: e2eFallbackModelKey,
         city: '上海',
         district: '浦东新区',
         address: '世纪大道链路测试物业',

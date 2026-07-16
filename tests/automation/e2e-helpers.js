@@ -4,6 +4,13 @@ const { expect } = require('@playwright/test');
 const { Parser } = require('@json2csv/plainjs');
 
 const MODULE = Object.freeze({
+  AI_WORKBENCH: '\u4eca\u65e5\u7ecf\u8425\u770b\u677f',
+  REVENUE_DIAGNOSIS: '\u6536\u76ca\u8bca\u65ad',
+  DATA_TRUST: '\u6570\u636e\u53ef\u4fe1\u5ea6',
+  AI_DAILY_REPORT: 'AI\u7ecf\u8425\u65e5\u62a5',
+  EXECUTION_TRACKING: '\u6267\u884c\u8ddf\u8e2a',
+  ADVANCED_AI: '\u9ad8\u7ea7AI\u5de5\u5177\u7bb1',
+  HOTEL_MANAGEMENT: '\u95e8\u5e97\u7ba1\u7406',
   STRATEGY: '\u667a\u7565\u00b7\u6218\u7565\u63a8\u6f14',
   SIMULATION: '\u667a\u7b97\u00b7\u91cf\u5316\u6a21\u62df',
   FEASIBILITY: '\u667a\u7b56\u00b7\u53ef\u884c\u6027\u62a5\u544a',
@@ -22,9 +29,20 @@ const MODULE = Object.freeze({
   DATA_DASHBOARD: '\u667a\u51b3\u00b7\u6570\u636e\u770b\u677f',
 });
 
-const MODULES = Object.values(MODULE);
+const MODULES = [
+  MODULE.AI_WORKBENCH,
+  MODULE.REVENUE_DIAGNOSIS,
+  MODULE.DATA_TRUST,
+  MODULE.AI_DAILY_REPORT,
+  MODULE.EXECUTION_TRACKING,
+  MODULE.HOTEL_MANAGEMENT,
+];
 
 const GROUP = Object.freeze({
+  BUSINESS_LOOP: '\u7ecf\u8425\u95ed\u73af',
+  OTA_DATA: 'OTA\u6570\u636e',
+  OPERATION_EXECUTION: '\u8fd0\u8425\u6267\u884c',
+  MORE: '\u5f85\u5f00\u53d1...',
   PROJECT_BUILD: '\u7b79\u5efa\u7ba1\u7406',
   OPENING: '\u5f00\u4e1a\u7ba1\u7406',
   OPERATION: '\u8fd0\u8425\u7ba1\u7406',
@@ -32,10 +50,15 @@ const GROUP = Object.freeze({
   TRANSFER: '\u8f6c\u8ba9\u7ba1\u7406',
 });
 
-const GROUPS = Object.values(GROUP);
-const PROJECT_MENU = '\u9879\u76eeAI\u7ba1\u7406';
+const GROUPS = [GROUP.BUSINESS_LOOP, GROUP.OTA_DATA, GROUP.OPERATION_EXECUTION, GROUP.MORE];
+const PROJECT_MENU = '';
 
 const MODULE_GROUPS = {
+  [MODULE.REVENUE_DIAGNOSIS]: GROUP.BUSINESS_LOOP,
+  [MODULE.DATA_TRUST]: GROUP.OTA_DATA,
+  [MODULE.AI_DAILY_REPORT]: GROUP.OPERATION_EXECUTION,
+  [MODULE.EXECUTION_TRACKING]: GROUP.OPERATION_EXECUTION,
+  [MODULE.ADVANCED_AI]: GROUP.MORE,
   [MODULE.STRATEGY]: GROUP.PROJECT_BUILD,
   [MODULE.SIMULATION]: GROUP.PROJECT_BUILD,
   [MODULE.FEASIBILITY]: GROUP.PROJECT_BUILD,
@@ -55,6 +78,13 @@ const MODULE_GROUPS = {
 };
 
 const MODULE_PATHS = {
+  [MODULE.AI_WORKBENCH]: 'ai-workbench',
+  [MODULE.REVENUE_DIAGNOSIS]: 'revenue-research-center',
+  [MODULE.DATA_TRUST]: 'online-data',
+  [MODULE.AI_DAILY_REPORT]: 'ai-daily-report',
+  [MODULE.EXECUTION_TRACKING]: 'ops-track',
+  [MODULE.ADVANCED_AI]: 'agent-center',
+  [MODULE.HOTEL_MANAGEMENT]: 'hotels',
   [MODULE.STRATEGY]: 'ai-strategy',
   [MODULE.SIMULATION]: 'ai-simulation',
   [MODULE.FEASIBILITY]: 'ai-feasibility',
@@ -73,7 +103,16 @@ const MODULE_PATHS = {
   [MODULE.DATA_DASHBOARD]: 'decision-board',
 };
 
+const MODULE_NAV_TEST_IDS = {
+  [MODULE.AI_WORKBENCH]: 'nav-lean-ai-workbench',
+  [MODULE.HOTEL_MANAGEMENT]: 'nav-lean-hotel-management',
+};
+
 const GROUP_PATHS = {
+  [GROUP.BUSINESS_LOOP]: 'lean-business-loop',
+  [GROUP.OTA_DATA]: 'lean-ota-data',
+  [GROUP.OPERATION_EXECUTION]: 'lean-operation',
+  [GROUP.MORE]: 'lean-more',
   [GROUP.PROJECT_BUILD]: 'ai-construction',
   [GROUP.OPENING]: 'ai-opening',
   [GROUP.OPERATION]: 'ai-ops',
@@ -90,10 +129,19 @@ const DETAIL_API_PATTERNS = [
 ];
 
 function getConfig() {
+  const username = String(process.env.E2E_USERNAME || '').trim();
+  const password = String(process.env.E2E_PASSWORD || '');
+  if (!username || !password) {
+    throw new Error('E2E_USERNAME and E2E_PASSWORD are required; use an isolated E2E runner or provide explicit test credentials');
+  }
+
   return {
     baseURL: process.env.E2E_BASE_URL || 'http://localhost:8080/',
-    username: process.env.E2E_USERNAME || 'admin',
-    password: process.env.E2E_PASSWORD || 'admin123',
+    username,
+    password,
+    hotelId: Number(process.env.E2E_HOTEL_ID || 0),
+    hotelName: String(process.env.E2E_HOTEL_NAME || '').trim(),
+    objectPrefix: String(process.env.E2E_OBJECT_PREFIX || '').trim(),
   };
 }
 
@@ -147,7 +195,7 @@ function modulePath(mod) {
 }
 
 function testIdForModule(mod) {
-  return `nav-${modulePath(mod)}`;
+  return MODULE_NAV_TEST_IDS[mod] || `nav-${modulePath(mod)}`;
 }
 
 function pageTestIdForModule(mod) {
@@ -350,29 +398,8 @@ async function expandModuleMenus(page, targetModule) {
   ];
   if (await firstVisibleLocator(targetLocators)) return nav;
 
-  let hasVisibleGroup = false;
-  for (const group of GROUPS) {
-    const groupTestId = `nav-${GROUP_PATHS[group] || normalizeTestIdSegment(group)}`;
-    const item = await firstVisibleLocator([
-      page.getByTestId(groupTestId),
-      nav.getByText(group, { exact: true }),
-    ]);
-    if (item) {
-      hasVisibleGroup = true;
-      break;
-    }
-  }
-
-  const menu = await firstVisibleLocator([
-    page.getByTestId('nav-project-ai-management'),
-    nav.getByText(PROJECT_MENU, { exact: true }),
-  ]);
-  if (!hasVisibleGroup && menu) {
-    await menu.click({ timeout: 3000 });
-  }
-
-  if (!(await firstVisibleLocator(targetLocators))) {
-    const group = MODULE_GROUPS[targetModule];
+  const group = MODULE_GROUPS[targetModule];
+  if (group) {
     const groupTestId = `nav-${GROUP_PATHS[group] || normalizeTestIdSegment(group)}`;
     const item = await firstVisibleLocator([
       page.getByTestId(groupTestId),
@@ -380,6 +407,7 @@ async function expandModuleMenus(page, targetModule) {
     ]);
     if (item) {
       await item.click({ timeout: 3000 });
+      await page.waitForTimeout(50);
     }
   }
 
@@ -394,8 +422,8 @@ async function goModule(page, mod) {
   ]);
   expect(navItem, `nav item not found: ${mod}`).toBeTruthy();
   await navItem.click({ timeout: 3000 });
-  await expect(page.getByTestId(pageTestIdForModule(mod)).or(page.locator('main')).first()).toBeVisible({ timeout: 5000 });
-  await expect(page.locator('main')).toContainText(mod, { timeout: 5000 });
+  await expect(page.getByTestId(pageTestIdForModule(mod))).toBeVisible({ timeout: 5000 });
+  await expect(page.getByTestId('app-main')).toHaveAttribute('data-current-page', modulePath(mod), { timeout: 5000 });
 }
 
 async function waitForApiOrState(page, action, options = {}) {

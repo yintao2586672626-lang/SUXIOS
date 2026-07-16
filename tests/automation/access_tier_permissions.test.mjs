@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import vm from 'node:vm';
@@ -9,6 +10,7 @@ const read = (path) => readFileSync(resolve(root, path), 'utf8');
 
 const systemStatic = read('public/system-static.js');
 const userAdminStatic = read('public/user-admin-static.js');
+const userAdminStaticHash = createHash('sha256').update(userAdminStatic).digest('hex').slice(0, 10);
 const indexHtml = readFrontendContractSource();
 const hotelAccountSummary = indexHtml.slice(
   indexHtml.indexOf('data-testid="hotel-account-summary-table"'),
@@ -60,6 +62,8 @@ const systemStaticSandbox = { window: {}, console, setTimeout, clearTimeout };
 vm.runInNewContext(systemStatic, systemStaticSandbox, { filename: 'public/system-static.js' });
 const systemStaticApi = systemStaticSandbox.window.SUXI_SYSTEM_STATIC;
 assert.equal(typeof systemStaticApi.hotelMergeFlowState, 'function', 'hotel merge UI must expose a testable step-state helper');
+assert.equal(systemStaticApi.isSimulationStaticPage('market-evaluation'), true, '市场评估页必须加载扩张历史筛选所依赖的模拟静态模块');
+assert.equal(systemStaticApi.isSimulationStaticPage('market-eval'), true, '市场评估兼容路由必须加载扩张历史筛选所依赖的模拟静态模块');
 const hotelMergeSelectState = systemStaticApi.hotelMergeFlowState({
   form: { source_hotel_id: '', target_hotel_id: '', confirmation_text: '' },
 });
@@ -173,6 +177,11 @@ assert.equal(
 );
 
 assert.match(indexHtml, /const canManageOwnHotels = \(\) =>/, '前端必须提供统一门店管理权限判断');
+assert.match(
+  indexHtml,
+  /user\.value\?\.is_super_admin && \['ai-model-config', 'agent-center', 'knowledge-center'\]\.includes\(newPage\)/,
+  '仅超级管理员页面可以主动加载全局 AI 模型配置，项目经理页面不得触发越权请求'
+);
 assert.match(indexHtml, /v-if="canManageOwnHotels\(\)"/, '门店管理按钮必须使用 canManageOwnHotels()');
 assert.match(indexHtml, /openHotelManualFetchConfig\(hotel, 'ctrip'\)"[\s\S]{0,180}>手动配置<\/button>/, '门店管理账号必须能在携程卡片打开手动配置入口');
 assert.match(indexHtml, /openHotelManualFetchConfig\(hotel, 'meituan'\)"[\s\S]{0,180}>手动配置<\/button>/, '门店管理账号必须能在美团卡片打开手动配置入口');
@@ -232,7 +241,7 @@ assert.doesNotMatch(indexHtml, /applyHotelQuickFilter\('competitor', '1'\)/, 'co
 assert.doesNotMatch(indexHtml, /美团竞对 \{\{ hotelCompetitorReadiness\(hotel\)\.label \}\}/, 'competitor readiness should not appear in the store identity cell');
 assert.match(indexHtml, /const hotelCompetitorActionMeta = \(hotel = \{\}\) => \{[\s\S]*openHomeQuickEntry\(\{ page: 'meituan-ebooking', tab: 'meituan-ranking' \}\)/, 'competitor readiness should remain reachable through the next-action flow');
 assert.match(indexHtml, /@click="refreshHotelBindingPanelLight\(\)"/, 'top-level status refresh should use the guarded light refresh path');
-assert.match(indexHtml, /当前统计已完成数据校验/, 'hotel management should identify the last complete verified snapshot');
+assert.match(indexHtml, /门店与平台状态已读取 · 不代表平台来源数据已核验/, 'hotel management should distinguish a successful status read from platform-source verification');
 assert.match(indexHtml, /<template v-if="hotelManagementSnapshotReady">[\s\S]*全部门店/, 'hotel KPIs must remain hidden until a complete verified snapshot is ready');
 assert.match(indexHtml, /const loadHotelManagementSnapshot = async \(options = \{\}\) => \{[\s\S]*hotelManagementFailureLabels[\s\S]*当前指标尚未验证，不展示统计结果/, 'hotel refresh must surface partial failures instead of presenting unverified metrics as success');
 assert.match(indexHtml, /受控操作[\s\S]*深度刷新[\s\S]*数据迁移[\s\S]*用户授权/, 'migration and authorization actions should be grouped as controlled admin operations');
@@ -374,7 +383,7 @@ assert.match(rolePermissionCardsSlice, /内测用户[\s\S]*可信内测方/, 'ro
 assert.match(rolePermissionCardsSlice, /普通用户[\s\S]*必须分配门店/, 'role permission cards must name normal external users and their hotel-scope requirement');
 assert.doesNotMatch(rolePermissionCardsSlice, />门店管理员<\/div>|>店员<\/div>/, 'role permission cards must not keep ambiguous legacy role labels for external issuance');
 assert.match(indexHtml, /const roleIssueGuideCards = computed\(\(\) =>/, 'user management must expose beta/normal role issue guide cards');
-assert.match(indexHtml, /user-admin-static\.js\?v=20260711-vip-credential-helper/, 'user admin issue helpers must load as a dedicated static bundle');
+assert.match(indexHtml, new RegExp(`user-admin-static\\.js\\?v=[^"']*h${userAdminStaticHash}`), 'user admin issue helpers must load as a content-versioned dedicated static bundle');
 assert.match(indexHtml, /const requireUserAdminStatic = \(key\) =>/, 'index must require user admin static helpers explicitly');
 assert.match(userAdminStatic, /window\.SUXI_USER_ADMIN_STATIC = \(\(\) =>/, 'user admin static helpers must expose a stable bundle namespace');
 assert.match(userAdminStatic, /handoffType:\s*'内测发放'/, 'beta issue profile must expose an explicit handoff type');

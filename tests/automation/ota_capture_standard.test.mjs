@@ -125,6 +125,22 @@ test('classifies OTA JSON responses by platform and section', () => {
   });
   assert.equal(asset.capture, false);
   assert.equal(asset.reason, 'non_business_resource');
+
+  const orderIframeDocument = classifyOtaResponse('meituan', 'https://eb.meituan.com/ebooking/order-eb/index.html#/checkin', {
+    status: 200,
+    resourceType: 'document',
+    contentType: 'text/html; charset=utf-8',
+  });
+  assert.equal(orderIframeDocument.capture, false);
+  assert.equal(orderIframeDocument.reason, 'order_json_xhr_required');
+
+  const orderListJson = classifyOtaResponse('meituan', 'https://eb.meituan.com/api/v1/ebooking/orders/list', {
+    status: 200,
+    resourceType: 'xhr',
+    contentType: 'application/json; charset=utf-8',
+  });
+  assert.equal(orderListJson.capture, true);
+  assert.equal(orderListJson.section, 'orders');
 });
 
 test('extracts request date evidence only when the request proves one target date', () => {
