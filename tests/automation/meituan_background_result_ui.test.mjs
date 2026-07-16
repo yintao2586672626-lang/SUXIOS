@@ -36,8 +36,8 @@ test('Meituan ranking fetch uses a vault locator in direct mode and keeps truthf
   assert.match(taskBuilder, /system_hotel_id: form\.hotelId/);
   assert.doesNotMatch(taskBuilder, /\b(?:cookies?|auth_data|authorization|token|spidertoken|mtgsig|headers)\s*:/i);
   assert.match(fetchFlow, /await Promise\.all\(fetchTasks\.map\(async \(task, index\) => \{/);
-  assert.match(fetchFlow, /const requestBody = \{ \.\.\.task\.body, async: false, background: false \};/);
-  assert.doesNotMatch(fetchFlow, /const requestBody = \{ \.\.\.task\.body, async: true, background: true \};/);
+  assert.match(fetchFlow, /background = false/);
+  assert.match(fetchFlow, /const requestBody = \{ \.\.\.task\.body, async: background === true, background: background === true \};/);
   assert.doesNotMatch(fetchFlow, /setHotelsList\(\[\]\);/);
   assert.doesNotMatch(pendingSetup, /setBusinessSummary\(getEmptyBusinessSummary\(\)\);/);
   assert.match(failedBranch, /setBusinessSummary\(getEmptyBusinessSummary\(\)\);/);
@@ -75,7 +75,7 @@ test('Meituan ranking fetch uses a vault locator in direct mode and keeps truthf
 });
 
 test('Meituan ranking production flow commits deferred candidates through the authenticated endpoint', () => {
-  const productionFlow = sliceFrom(html, 'const fetchMeituanData = async () => {', 'const useCtripTrafficDisplayRows');
+  const productionFlow = sliceFrom(html, 'const fetchMeituanData = async (options = {}) => {', 'const useCtripTrafficDisplayRows');
 
   assert.match(
     productionFlow,
@@ -84,7 +84,7 @@ test('Meituan ranking production flow commits deferred candidates through the au
 });
 
 test('Meituan production flow invalidates stale runs when the hotel changes', () => {
-  const productionFlow = sliceFrom(html, 'const fetchMeituanData = async () => {', 'const useCtripTrafficDisplayRows');
+  const productionFlow = sliceFrom(html, 'const fetchMeituanData = async (options = {}) => {', 'const useCtripTrafficDisplayRows');
   const hotelWatcher = sliceFrom(html, 'watch(() => meituanForm.value.hotelId, () => {', 'watch(() => meituanForm.value.dateRanges');
 
   assert.match(html, /let meituanFetchRunToken = 0;/);

@@ -395,7 +395,7 @@ test('Ctrip config UI requires and echoes room-count fields', () => {
 });
 
 test('Ctrip manual execution uses platform authorization and legacy Cookie storage stays disabled', () => {
-  const fetchCtripData = sliceFrom('const fetchCtripData = async () => {', 'const fetchMeituanData = async () => {');
+  const fetchCtripData = sliceFrom('const fetchCtripData = async (options = {}) => {', 'const fetchMeituanData = async (options = {}) => {');
   const fetchCtripTrafficData = sliceFrom('const fetchCtripTrafficData = async () => {', 'const fetchCtripComments = async () => {');
   const ctripManualFetchConfigGuard = sliceFrom('const ctripManualFetchConfigProofPending = () => {', '\n\n            const saveCtripConfig');
   const canFetchCtripManualDataSource = sliceFrom('const canFetchCtripManualData = () => {', '\n\n            const resolveCtripManualFetchConfig');
@@ -535,7 +535,8 @@ test('Ctrip manual execution uses platform authorization and legacy Cookie stora
   assert.match(ctripStatic, /const activeConfig = selectedCtripHotelId \? getActiveCtripConfig\(\) : null;/);
   assert.match(ctripStatic, /const configId = temporaryCookieQuery \? '' : resolveCtripExecutionConfigId\(activeConfig\);/);
   assert.match(ctripStatic, /const requestForm = form;/);
-  assert.match(ctripStatic, /const requestBody = requestContext\.temporaryCookieQuery\s*\? \{ \.\.\.requestContext\.requestBody \}\s*:\s*\{ \.\.\.requestContext\.requestBody, async: false, background: false \};/);
+  assert.match(ctripStatic, /background = false/);
+  assert.match(ctripStatic, /const requestBody = requestContext\.temporaryCookieQuery\s*\? \{ \.\.\.requestContext\.requestBody \}\s*:\s*\{ \.\.\.requestContext\.requestBody, async: background === true, background: background === true \};/);
   assert.match(ctripStatic, /const requestContext = buildCtripFetchRequestContext\(\{/);
   assert.match(ctripStatic, /const nodeId = String\(form\.nodeId \|\| ''\)\.trim\(\)/);
   assert.match(html, /requireCtripStatic\('runCtripTrafficFetchFlow'\)/);
@@ -629,7 +630,7 @@ test('Meituan daily fetch keeps the advanced Profile panel out of the ranking pa
 
 test('Meituan ranking uses selected hotel config without exposing temporary fields', () => {
   const rankingPanel = sliceFrom('<div v-if="onlineDataTab === \'meituan-ranking\'">', '<!-- 获取结果显示 -->');
-  const fetchMeituanData = sliceFrom('const fetchMeituanData = async () => {', 'const useCtripTrafficDisplayRows');
+  const fetchMeituanData = sliceFrom('const fetchMeituanData = async (options = {}) => {', 'const useCtripTrafficDisplayRows');
   const meituanFetchFlow = meituanStatic.slice(
     meituanStatic.indexOf('const runMeituanBatchFetchFlow = async ({'),
     meituanStatic.indexOf('const useMeituanDisplayModel')
@@ -3461,7 +3462,7 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
   const handleMenuClick = sliceFrom('const handleMenuClick = (item) => {', '\n\n            const isStillOnRequestPage');
   const scheduleMeituanEbookingDeferredStartupRefresh = sliceFrom('const scheduleMeituanEbookingDeferredStartupRefresh = () => {', '\n            const scheduleDefaultDashboardDeferredRefresh');
   const openMeituanManualTab = sliceFrom('const openMeituanManualTab = (tab) => {', '\n            let dataLoadTimer');
-  const fetchMeituanData = sliceFrom('const fetchMeituanData = async () => {', '\n\n            const useCtripTrafficDisplayRows');
+  const fetchMeituanData = sliceFrom('const fetchMeituanData = async (options = {}) => {', '\n\n            const useCtripTrafficDisplayRows');
   const meituanManualFetchConfigGuard = sliceFrom('const meituanManualFetchConfigProofPending = () => {', '\n\n            let manualOnlineFetchConfigReadyPromise');
   const resolveMeituanManualDefaultHotelId = sliceFrom('const resolveMeituanManualDefaultHotelId = () => {', '\n            const ensureMeituanManualHotelSelected');
   const ensureMeituanManualHotelSelected = sliceFrom('const ensureMeituanManualHotelSelected = () => {', '\n            const scheduleMeituanEbookingDeferredStartupRefresh');
