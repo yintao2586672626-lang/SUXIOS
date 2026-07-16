@@ -30,7 +30,7 @@ class TransferDecision extends Base
 
             return $this->success($this->service->buildSourcePayload($hotelIds, $hotelId, $date));
         } catch (Throwable $e) {
-            return $this->error($this->safeErrorMessage($e, '获取转让真实数据失败'), 400);
+            return $this->error($this->safeErrorMessage($e, '获取转让测算来源数据失败'), 400);
         }
     }
 
@@ -44,9 +44,12 @@ class TransferDecision extends Base
             unset($input['snapshot']);
 
             $result = $this->service->calculateAssetPricing($input);
+            if (($result['status'] ?? '') === 'insufficient_data') {
+                return $this->success($result, '输入校验完成；关键字段缺失，未生成估值。');
+            }
             $result['record_id'] = $this->service->saveRecord('pricing', $input, $result, $snapshot, $recordHotelId, (int)($this->currentUser->id ?? 0));
             $result['decision_readiness'] = $this->service->buildDecisionReadiness('pricing', $input, $result, $snapshot, $recordHotelId);
-            return $this->success($result, '资产定价计算成功');
+            return $this->success($result, '情景估值已生成；请查看数据来源、假设与尽调要求。');
         } catch (InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 422);
         } catch (Throwable $e) {
@@ -64,9 +67,12 @@ class TransferDecision extends Base
             unset($input['snapshot']);
 
             $result = $this->service->calculateTransferTiming($input);
+            if (($result['status'] ?? '') === 'insufficient_data') {
+                return $this->success($result, '输入校验完成；关键趋势缺失，未生成时机评分。');
+            }
             $result['record_id'] = $this->service->saveRecord('timing', $input, $result, $snapshot, $recordHotelId, (int)($this->currentUser->id ?? 0));
             $result['decision_readiness'] = $this->service->buildDecisionReadiness('timing', $input, $result, $snapshot, $recordHotelId);
-            return $this->success($result, '时机推演计算成功');
+            return $this->success($result, '规则时机情景已生成；结论仍需数据核验与人工尽调。');
         } catch (InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 422);
         } catch (Throwable $e) {
@@ -92,7 +98,7 @@ class TransferDecision extends Base
             $result = $this->service->buildTransferDashboard($dashboardInput['pricing'], $dashboardInput['timing'], $dashboardInput['metrics']);
             $result['record_id'] = $this->service->saveRecord('dashboard', $dashboardInput, $result, $snapshot, $recordHotelId, (int)($this->currentUser->id ?? 0));
             $result['decision_readiness'] = $this->service->buildDecisionReadiness('dashboard', $dashboardInput, $result, $snapshot, $recordHotelId);
-            return $this->success($result, '数据看板生成成功');
+            return $this->success($result, '转让决策汇总已生成；是否可决策以证据门禁状态为准。');
         } catch (InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 422);
         } catch (Throwable $e) {
