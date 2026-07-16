@@ -312,6 +312,8 @@ Route::group('api/online-data', function () {
     Route::post('/update-data', 'OnlineData/updateData');
     Route::post('/delete-data', 'OnlineData/deleteData');
     Route::delete('/delete-data', 'OnlineData/deleteData');
+    Route::get('/correction-ledger', 'OnlineData/correctionLedger');
+    Route::post('/restore-data', 'OnlineData/restoreData');
     Route::get('/cookie-status', 'OnlineData/cookieStatus');
     Route::get('/public-endpoint-security', 'OnlineData/publicEndpointSecurity');
     Route::get('/release-evidence-status', 'OnlineData/releaseEvidenceStatus');
@@ -429,6 +431,12 @@ Route::group('api/macro-signals', function () {
     Route::get('/external', 'MacroSignal/external');
 })->middleware(\app\middleware\Auth::class);
 
+// ==================== Unified past / present / future API ====================
+Route::group('api/temporal-insights', function () {
+    Route::get('/overview', 'TemporalInsight/overview');
+    Route::post('/forecasts', 'TemporalInsight/generateForecast');
+})->middleware(\app\middleware\Auth::class);
+
 // ==================== 全生命周期真实数据 API ====================
 Route::group('api/lifecycle', function () {
     Route::get('/overview', 'Lifecycle/overview');
@@ -466,6 +474,8 @@ Route::group('api/operation', function () {
     Route::post('/execution-tasks/:id/review', 'OperationManagement/reviewExecutionTask');
     Route::get('/closure-overview', 'OperationManagement/closureOverview');
     Route::get('/execution-flow', 'OperationManagement/executionFlow');
+    Route::get('/execution-intents/:id', 'OperationManagement/readExecutionIntent');
+    Route::get('/execution-tasks/:id', 'OperationManagement/readExecutionTask');
     Route::get('/execution-intents', 'OperationManagement/executionIntents');
     Route::post('/execution-intents', 'OperationManagement/createExecutionIntent');
     Route::post('/actions/:id/finish', 'OperationManagement/finishAction');
@@ -577,6 +587,7 @@ Route::group('api/operation-logs', function () {
     Route::get('/', 'OperationLogController/index');
     Route::get('/stats', 'OperationLogController/stats');
     Route::get('/high-risk-summary', 'OperationLogController/highRiskSummary');
+    Route::get('/security-overview', 'OperationLogController/securityOverview');
     Route::get('/:id', 'OperationLogController/detail');
 })->middleware(\app\middleware\Auth::class);
 
@@ -598,6 +609,7 @@ Route::group('api/agent', function () {
     Route::get('/overview', 'Agent/overview');
     Route::post('/test-llm', 'Agent/testLlm');
     Route::post('/ota-diagnosis', 'Agent/otaDiagnosis');
+    Route::post('/ota-diagnoses/:id/actions/:actionIndex/execution-intent', 'Agent/createOtaDiagnosisExecutionIntent');
     Route::post('/analyze-captured-ota-data', 'Agent/analyzeCapturedOtaData');
     Route::post('/summarize-captured-ota-analysis', 'Agent/summarizeCapturedOtaAnalysis');
 
