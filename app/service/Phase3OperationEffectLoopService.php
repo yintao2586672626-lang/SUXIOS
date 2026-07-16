@@ -9,6 +9,7 @@ final class Phase3OperationEffectLoopService
 {
     private const DEFAULT_LIMIT = 100;
     private const MAX_LIMIT = 300;
+    private const MAX_METRIC_WINDOW_ROWS = 2000;
     private const LEDGER_DIR = 'phase3_operation_effect_loop';
     private const SOP_LEDGER_FILE = 'sops.json';
     private const REPLICATION_LEDGER_FILE = 'replication_plans.json';
@@ -183,9 +184,18 @@ final class Phase3OperationEffectLoopService
             static fn(array $action): int => (int)($action['hotel_id'] ?? 0),
             $actions
         ))));
+        $platformsByHotel = [];
+        foreach ($actions as $action) {
+            $hotelId = (int)($action['hotel_id'] ?? 0);
+            $platform = $this->normalizeEffectPlatform((string)($action['platform'] ?? ''));
+            if ($hotelId > 0 && $platform !== '') {
+                $platformsByHotel[$hotelId][$platform] = true;
+            }
+        }
+        $platformsByHotel = array_map(static fn(array $platforms): array => array_keys($platforms), $platformsByHotel);
         $metricWindow = is_array($options['metric_window'] ?? null)
             ? $options['metric_window']
-            : $this->loadOtaMetricWindow($targetDate, $hotelIds);
+            : $this->loadOtaMetricWindow($targetDate, $hotelIds, $platformsByHotel);
         $similarIndex = $this->buildSimilarIndex($actions);
 
         $loopRows = [];
@@ -253,6 +263,9 @@ final class Phase3OperationEffectLoopService
                 'target_date' => $targetDate,
                 'previous_date' => (string)($metricWindow['previous_date'] ?? $this->previousDate($targetDate)),
                 'data_gaps' => array_values(array_filter((array)($metricWindow['data_gaps'] ?? []))),
+                'truncated' => ($metricWindow['truncated'] ?? false) === true,
+                'record_limit' => (int)($metricWindow['record_limit'] ?? self::MAX_METRIC_WINDOW_ROWS),
+                'records_scanned' => (int)($metricWindow['records_scanned'] ?? 0),
                 'source_policy' => 'read_existing_online_daily_data_only_without_raw_data',
             ],
             'boundaries' => [
@@ -669,7 +682,7 @@ final class Phase3OperationEffectLoopService
         return 'phase3_' . $prefix . '_' . date('YmdHis') . '_' . substr(sha1($seed . microtime(true) . random_int(1, PHP_INT_MAX)), 0, 8);
     }
 
-    private function loadOtaMetricWindow(string $targetDate, array $hotelIds): array
+    private function loadOtaMetricWindow(string $targetDate, array $hotelIds, array $platformsByHotel = []): array
     {
         $previousDate = $this->previousDate($targetDate);
         if ($hotelIds === []) {
@@ -694,7 +707,7 @@ final class Phase3OperationEffectLoopService
             }
 
             $columns = $this->tableColumns('online_daily_data');
-            $required = ['hotel_id', 'data_date'];
+            $required = ['system_hotel_id', 'data_date'];
             foreach ($required as $field) {
                 if (!in_array($field, $columns, true)) {
                     return [
@@ -708,10 +721,21 @@ final class Phase3OperationEffectLoopService
             }
 
             $select = array_values(array_intersect([
+                'id',
+                'system_hotel_id',
                 'hotel_id',
                 'data_date',
                 'source',
+                'platform',
                 'data_type',
+                'dimension',
+                'compare_type',
+                'validation_status',
+                'data_period',
+                'snapshot_time',
+                'is_final',
+                'update_time',
+                'create_time',
                 'amount',
                 'quantity',
                 'book_order_num',
@@ -726,9 +750,9 @@ final class Phase3OperationEffectLoopService
 
             $records = Db::name('online_daily_data')
                 ->field($select)
-                ->whereIn('hotel_id', $hotelIds)
+                ->whereIn('system_hotel_id', $hotelIds)
                 ->whereIn('data_date', [$targetDate, $previousDate])
-                ->limit(2000)
+                ->limit(self::MAX_METRIC_WINDOW_ROWS + 1)
                 ->select()
                 ->toArray();
         } catch (\Throwable $e) {
@@ -742,15 +766,42 @@ final class Phase3OperationEffectLoopService
             ];
         }
 
-        $byHotel = [];
-        foreach ($hotelIds as $hotelId) {
-            $byHotel[(int)$hotelId] = $this->missingMetricWindow($targetDate);
+        $truncated = count($records) > self::MAX_METRIC_WINDOW_ROWS;
+        if ($truncated) {
+            $records = array_slice($records, 0, self::MAX_METRIC_WINDOW_ROWS);
         }
+        $recordsScanned = count($records);
+        $selectedRecords = [];
         foreach ($records as $record) {
             if (!is_array($record)) {
                 continue;
             }
-            $hotelId = (int)($record['hotel_id'] ?? 0);
+            $systemHotelId = (int)($record['system_hotel_id'] ?? 0);
+            $allowedPlatforms = is_array($platformsByHotel[$systemHotelId] ?? null)
+                ? $platformsByHotel[$systemHotelId]
+                : [];
+            $role = $this->effectMetricRecordRole($record, $allowedPlatforms);
+            if ($systemHotelId <= 0 || $role === '') {
+                continue;
+            }
+            $date = (string)($record['data_date'] ?? '');
+            $channel = $this->normalizeEffectPlatform((string)($record['source'] ?? $record['platform'] ?? ''));
+            $key = $systemHotelId . '|' . $date . '|' . $channel . '|' . $role;
+            $current = $selectedRecords[$key] ?? null;
+            if (!is_array($current) || $this->preferEffectMetricRecord($record, $current, $role)) {
+                $selectedRecords[$key] = $record;
+            }
+        }
+
+        $byHotel = [];
+        foreach ($hotelIds as $hotelId) {
+            $byHotel[(int)$hotelId] = $this->missingMetricWindow($targetDate);
+        }
+        foreach ($selectedRecords as $record) {
+            if (!is_array($record)) {
+                continue;
+            }
+            $hotelId = (int)($record['system_hotel_id'] ?? 0);
             $date = (string)($record['data_date'] ?? '');
             if ($hotelId <= 0 || !in_array($date, [$targetDate, $previousDate], true)) {
                 continue;
@@ -775,9 +826,15 @@ final class Phase3OperationEffectLoopService
             }
             $current = is_array($window['current'] ?? null) ? $window['current'] : [];
             $previous = is_array($window['previous'] ?? null) ? $window['previous'] : [];
-            $byHotel[$hotelId]['status'] = $missingDates === [] ? 'ready' : 'metric_window_missing';
+            $byHotel[$hotelId]['status'] = $truncated
+                ? 'metric_window_truncated'
+                : ($missingDates === [] ? 'ready' : 'metric_window_missing');
             $byHotel[$hotelId]['missing_dates'] = $missingDates;
-            $byHotel[$hotelId]['data_gaps'] = $missingDates === [] ? [] : ['metric_window_missing'];
+            $byHotel[$hotelId]['data_gaps'] = array_values(array_unique(array_merge(
+                $missingDates === [] ? [] : ['metric_window_missing'],
+                $truncated ? ['metric_window_truncated'] : []
+            )));
+            $byHotel[$hotelId]['truncated'] = $truncated;
             $byHotel[$hotelId]['delta'] = $this->metricDelta($current, $previous);
         }
 
@@ -789,12 +846,127 @@ final class Phase3OperationEffectLoopService
         }
 
         return [
-            'status' => $missingCount === 0 ? 'ready' : 'partial',
+            'status' => $missingCount === 0 && !$truncated ? 'ready' : 'partial',
             'target_date' => $targetDate,
             'previous_date' => $previousDate,
             'by_hotel' => $byHotel,
-            'data_gaps' => $missingCount === 0 ? [] : ['metric_window_missing'],
+            'data_gaps' => array_values(array_unique(array_merge(
+                $missingCount === 0 ? [] : ['metric_window_missing'],
+                $truncated ? ['metric_window_truncated'] : []
+            ))),
+            'truncated' => $truncated,
+            'record_limit' => self::MAX_METRIC_WINDOW_ROWS,
+            'records_scanned' => $recordsScanned,
         ];
+    }
+
+    /** @param array<string, mixed> $record @param array<int, string> $allowedPlatforms */
+    private function effectMetricRecordRole(array $record, array $allowedPlatforms = []): string
+    {
+        $validationStatus = strtolower(trim((string)($record['validation_status'] ?? '')));
+        if (!in_array($validationStatus, ['available', 'verified', 'success', 'complete', 'completed'], true)) {
+            return '';
+        }
+        $compareType = strtolower(trim((string)($record['compare_type'] ?? '')));
+        if ($compareType !== '' && $compareType !== 'self') {
+            return '';
+        }
+        $otaHotelId = trim((string)($record['hotel_id'] ?? ''));
+        if ($otaHotelId !== '' && is_numeric($otaHotelId) && (float)$otaHotelId <= 0) {
+            return '';
+        }
+
+        $source = $this->normalizeEffectPlatform((string)($record['source'] ?? ''));
+        $platform = $this->normalizeEffectPlatform((string)($record['platform'] ?? ''));
+        $knownPlatforms = ['ctrip', 'meituan', 'qunar'];
+        $channel = $source !== '' ? $source : $platform;
+        if (!in_array($channel, $knownPlatforms, true)) {
+            return '';
+        }
+        if (in_array($source, $knownPlatforms, true)
+            && in_array($platform, $knownPlatforms, true)
+            && $source !== $platform
+        ) {
+            return '';
+        }
+        if ($allowedPlatforms !== [] && !in_array($source !== '' ? $source : $platform, $allowedPlatforms, true)) {
+            return '';
+        }
+
+        $dataDate = substr(trim((string)($record['data_date'] ?? '')), 0, 10);
+        $period = strtolower(trim((string)($record['data_period'] ?? '')));
+        if ($dataDate === ''
+            || $dataDate > date('Y-m-d')
+            || $period !== 'historical_daily'
+            || !array_key_exists('is_final', $record)
+            || (int)$record['is_final'] !== 1
+        ) {
+            return '';
+        }
+
+        $dataType = strtolower(trim((string)($record['data_type'] ?? '')));
+        $dimension = trim((string)($record['dimension'] ?? ''));
+        if (in_array($dataType, ['business', 'business_overview', 'overview', 'operation', 'order', 'orders'], true) && $dimension === '') {
+            return 'operating';
+        }
+        if (!in_array($dataType, ['traffic', 'flow', 'traffic_flow', 'traffic_overview'], true)) {
+            return '';
+        }
+        $endpointId = '';
+        if (preg_match('/^catalog:[^:]+:([^:]+)/', $dimension, $matches) === 1) {
+            $endpointId = (string)($matches[1] ?? '');
+        }
+        if ($endpointId !== '' && !in_array($endpointId, ['business_flow_transform', 'traffic_flow_transform'], true)) {
+            return '';
+        }
+        return 'flow';
+    }
+
+    /** @param array<string, mixed> $candidate @param array<string, mixed> $current */
+    private function preferEffectMetricRecord(array $candidate, array $current, string $role): bool
+    {
+        $fields = $role === 'operating'
+            ? ['amount', 'quantity', 'book_order_num']
+            : ['list_exposure', 'detail_exposure', 'order_filling_num', 'order_submit_num'];
+        $rank = static function (array $record) use ($fields): int {
+            $score = 0;
+            foreach ($fields as $field) {
+                if (is_numeric($record[$field] ?? null) && (float)$record[$field] > 0) {
+                    $score += 10;
+                }
+            }
+            return $score;
+        };
+        $candidateRank = $rank($candidate);
+        $currentRank = $rank($current);
+        if ($candidateRank !== $currentRank) {
+            return $candidateRank > $currentRank;
+        }
+        $timestamp = static function (array $record): int {
+            foreach (['snapshot_time', 'update_time', 'create_time'] as $field) {
+                $value = trim((string)($record[$field] ?? ''));
+                if ($value !== '' && ($time = strtotime($value)) !== false) {
+                    return $time;
+                }
+            }
+            return 0;
+        };
+        $candidateTime = $timestamp($candidate);
+        $currentTime = $timestamp($current);
+        return $candidateTime !== $currentTime
+            ? $candidateTime > $currentTime
+            : (int)($candidate['id'] ?? 0) > (int)($current['id'] ?? 0);
+    }
+
+    private function normalizeEffectPlatform(string $value): string
+    {
+        $value = strtolower(trim($value));
+        return match ($value) {
+            '携程', 'trip', 'trip.com', 'ebooking' => 'ctrip',
+            '美团', 'meituan hotel' => 'meituan',
+            '去哪儿', 'qunar.com' => 'qunar',
+            default => $value,
+        };
     }
 
     private function mergeMetricAggregate(array $aggregate, array $record): array

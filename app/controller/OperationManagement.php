@@ -26,7 +26,7 @@ class OperationManagement extends Base
 
             return $this->success($this->service->fullData($hotelIds, $hotelId, $date));
         } catch (Throwable $e) {
-            return $this->error($this->safeErrorMessage($e, '获取全维数据失败'), 400);
+            return $this->error($this->safeErrorMessage($e, '获取运营数据汇总失败'), 400);
         }
     }
 
@@ -40,7 +40,7 @@ class OperationManagement extends Base
 
             return $this->success($this->service->rootCause($hotelIds, $hotelId, $date, $problemType));
         } catch (Throwable $e) {
-            return $this->error($this->safeErrorMessage($e, '根因定位失败'), $this->operationThrowableStatus($e));
+            return $this->error($this->safeErrorMessage($e, '可能影响因素分析失败'), $this->operationThrowableStatus($e));
         }
     }
 
@@ -92,12 +92,18 @@ class OperationManagement extends Base
 
             $result = $this->service->strategySimulation($hotelIds, $hotelId, $input);
             if (!empty($input['create_execution_order'])) {
-                $result['execution_intent'] = $this->service->createExecutionIntent(
-                    $hotelIds,
-                    $hotelId ?: ($hotelIds[0] ?? null),
-                    $this->buildStrategyExecutionIntentInput($input, $result, $strategyType, $hotelId ?: ($hotelIds[0] ?? 0)),
-                    (int)($this->currentUser->id ?? 0)
-                );
+                if (!$this->canCreateStrategyExecutionIntent($result)) {
+                    $result['execution_intent'] = null;
+                    $result['execution_intent_status'] = 'blocked_by_insufficient_baseline';
+                    $result['execution_intent_blocked_reason'] = '缺少已核验历史基线，未创建执行意图。';
+                } else {
+                    $result['execution_intent'] = $this->service->createExecutionIntent(
+                        $hotelIds,
+                        $hotelId ?: ($hotelIds[0] ?? null),
+                        $this->buildStrategyExecutionIntentInput($input, $result, $strategyType, $hotelId ?: ($hotelIds[0] ?? 0)),
+                        (int)($this->currentUser->id ?? 0)
+                    );
+                }
             }
 
             return $this->success($result);
@@ -168,6 +174,32 @@ class OperationManagement extends Base
             return $this->success($this->service->executionIntents($hotelIds, $hotelId, $this->request->get()));
         } catch (Throwable $e) {
             return $this->error($this->safeErrorMessage($e, 'execution intents query failed'), $this->operationThrowableStatus($e));
+        }
+    }
+
+    public function readExecutionIntent(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('execution intent id is invalid', 422);
+            }
+            [$hotelIds] = $this->resolveHotelScope();
+            return $this->success($this->service->readExecutionIntent($id, $hotelIds));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, 'execution intent query failed'), $this->operationThrowableStatus($e));
+        }
+    }
+
+    public function readExecutionTask(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('execution task id is invalid', 422);
+            }
+            [$hotelIds] = $this->resolveHotelScope();
+            return $this->success($this->service->readExecutionTask($id, $hotelIds));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, 'execution task query failed'), $this->operationThrowableStatus($e));
         }
     }
 
@@ -383,8 +415,14 @@ class OperationManagement extends Base
             ],
             'expected_metric' => (string)($input['target_metric'] ?? 'orders'),
             'expected_delta' => (float)($input['target_change_rate'] ?? 0),
-            'risk_level' => (string)($result['risk']['level'] ?? 'medium'),
+            'risk_level' => (string)($result['risk']['level'] ?? 'unknown'),
         ];
+    }
+
+    private function canCreateStrategyExecutionIntent(array $result): bool
+    {
+        return ($result['simulated'] ?? false) === true
+            && ($result['status'] ?? '') === 'rule_scenario';
     }
 
     private function operationThrowableStatus(Throwable $e): int
@@ -396,8 +434,11 @@ class OperationManagement extends Base
         if (in_array($message, ['暂无可访问酒店', '无权查看该酒店数据'], true)) {
             return 403;
         }
+        if (str_contains(strtolower($message), 'not found')) {
+            return 404;
+        }
         if ($e instanceof \InvalidArgumentException) {
-            return 400;
+            return 422;
         }
 
         return 500;
@@ -407,6 +448,11 @@ class OperationManagement extends Base
     {
         $message = trim($e->getMessage());
         if ($message !== '' && preg_match('/[\x{4e00}-\x{9fff}]/u', $message) === 1) {
+            return $message;
+        }
+        if ($e instanceof \InvalidArgumentException
+            || ($e instanceof \RuntimeException && str_contains(strtolower($message), 'not found'))
+        ) {
             return $message;
         }
 

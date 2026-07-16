@@ -1,5 +1,6 @@
 CREATE TABLE IF NOT EXISTS `operation_execution_intents` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `idempotency_key` VARCHAR(191) DEFAULT NULL COMMENT 'nullable request identity; currently used by expansion execution linkage',
   `source_module` VARCHAR(80) NOT NULL DEFAULT '' COMMENT 'source module: root_cause/strategy_simulation/ai/manual',
   `source_record_id` BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'source record id',
   `hotel_id` INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'hotel id',
@@ -24,6 +25,7 @@ CREATE TABLE IF NOT EXISTS `operation_execution_intents` (
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `deleted_at` DATETIME DEFAULT NULL,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_operation_exec_intent_idempotency` (`idempotency_key`),
   KEY `idx_operation_exec_intent_hotel_status` (`hotel_id`, `status`),
   KEY `idx_operation_exec_intent_object` (`platform`, `object_type`, `action_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='operation execution intent table';
