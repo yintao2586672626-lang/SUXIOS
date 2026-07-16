@@ -36,6 +36,7 @@ final class ManualOnlineFetchTaskService
         $body['background_task'] = true;
 
         $inputPath = $dir . DIRECTORY_SEPARATOR . 'input.json';
+        $authorizationEnv = $this->authorizationEnvName($taskId);
         $task = [
             'task_id' => $taskId,
             'hotel_id' => $hotelId,
@@ -45,12 +46,17 @@ final class ManualOnlineFetchTaskService
             'end_date' => $endDate,
             'api_url' => (string)($context['api_url'] ?? ''),
             'authorization' => $authorization,
+            'authorization_env' => $authorizationEnv,
             'body' => $body,
             'input' => $inputPath,
             'log' => $dir . DIRECTORY_SEPARATOR . 'launcher.log',
             'created_at' => date('Y-m-d H:i:s'),
         ];
-        if (file_put_contents($inputPath, json_encode($task, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)) === false) {
+        $persistedTask = $task;
+        unset($persistedTask['authorization']);
+        $encodedTask = json_encode($persistedTask, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+        if (!is_string($encodedTask) || file_put_contents($inputPath, $encodedTask) === false) {
+            $this->cleanupLaunchArtifacts($inputPath, $taskId);
             return [];
         }
 
@@ -63,58 +69,127 @@ final class ManualOnlineFetchTaskService
         $phpBinary = $this->resolvePhpCliBinary();
         $thinkPath = $projectRoot . DIRECTORY_SEPARATOR . 'think';
         $inputPath = (string)($task['input'] ?? '');
+        $taskId = trim((string)($task['task_id'] ?? ''));
+        $authorization = trim((string)($task['authorization'] ?? ''));
+        $authorizationEnv = trim((string)($task['authorization_env'] ?? ''));
         if ($phpBinary === '' || !is_file($thinkPath) || !is_file($inputPath)) {
+            $this->cleanupLaunchArtifacts($inputPath, $taskId);
             return false;
         }
 
         $dir = dirname($inputPath);
-        $taskId = (string)($task['task_id'] ?? '');
-        if ($taskId === '') {
+        if (!$this->isValidTaskId($taskId)
+            || $authorization === ''
+            || preg_match('/^SUXI_MANUAL_FETCH_AUTH_[A-F0-9]{24}$/', $authorizationEnv) !== 1
+        ) {
+            $this->cleanupLaunchArtifacts($inputPath, $taskId);
             return false;
         }
 
-        if (DIRECTORY_SEPARATOR === '\\') {
-            $batPath = $dir . DIRECTORY_SEPARATOR . $taskId . '.bat';
-            $inputFile = basename($inputPath);
-            $lines = [
-                '@echo off',
-                'setlocal',
-                'set "TASK_DIR=%~dp0"',
-                'pushd "%TASK_DIR%..\..\.." || exit /b 1',
-                $this->quoteWindowsBatchArg($phpBinary)
-                    . ' "%CD%\think"'
-                    . ' "' . self::COMMAND_NAME . '"'
-                    . ' "--task-id=' . $taskId . '"'
+        $previousAuthorization = getenv($authorizationEnv);
+        if (!putenv($authorizationEnv . '=' . $authorization)) {
+            $this->cleanupLaunchArtifacts($inputPath, $taskId);
+            return false;
+        }
+
+        try {
+            if (DIRECTORY_SEPARATOR === '\\') {
+                $batPath = $dir . DIRECTORY_SEPARATOR . $taskId . '.bat';
+                $inputFile = basename($inputPath);
+                $lines = [
+                    '@echo off',
+                    'setlocal',
+                    'set "TASK_DIR=%~dp0"',
+                    'pushd "%TASK_DIR%..\..\.." || exit /b 1',
+                    $this->quoteWindowsBatchArg($phpBinary)
+                        . ' "%CD%\think"'
+                        . ' "' . self::COMMAND_NAME . '"'
+                        . ' "--task-id=' . $taskId . '"'
                     . ' "--input=%TASK_DIR%' . $inputFile . '"'
                     . ' >> "%TASK_DIR%launcher.log" 2>&1',
-                'set "EXIT_CODE=%ERRORLEVEL%"',
-                'popd',
-                'exit /b %EXIT_CODE%',
-            ];
-            if (file_put_contents($batPath, implode(PHP_EOL, $lines) . PHP_EOL) === false) {
+                    'set "EXIT_CODE=%ERRORLEVEL%"',
+                    'if exist "%TASK_DIR%' . $inputFile . '" del /f /q "%TASK_DIR%' . $inputFile . '"',
+                    'popd',
+                    'exit /b %EXIT_CODE%',
+                ];
+                if (file_put_contents($batPath, implode(PHP_EOL, $lines) . PHP_EOL) === false) {
+                    $this->cleanupLaunchArtifacts($inputPath, $taskId);
+                    return false;
+                }
+                $launched = $this->launchWindowsBatchFile($batPath);
+                if (!$launched) {
+                    $this->cleanupLaunchArtifacts($inputPath, $taskId);
+                }
+                return $launched;
+            }
+
+            $shellPath = $dir . DIRECTORY_SEPARATOR . $taskId . '.sh';
+            $command = 'cd ' . escapeshellarg($projectRoot)
+                . ' && ' . escapeshellarg($phpBinary)
+                . ' ' . escapeshellarg($thinkPath)
+                . ' ' . self::COMMAND_NAME
+                . ' --task-id=' . escapeshellarg($taskId)
+                . ' --input=' . escapeshellarg($inputPath)
+                . ' >> ' . escapeshellarg((string)($task['log'] ?? '')) . ' 2>&1';
+            $shellScript = "#!/bin/sh\n"
+                . $command . "\n"
+                . 'exit_code=$?' . "\n"
+                . 'rm -f -- ' . escapeshellarg($inputPath) . "\n"
+                . 'exit $exit_code' . "\n";
+            if (file_put_contents($shellPath, $shellScript) === false) {
+                $this->cleanupLaunchArtifacts($inputPath, $taskId);
                 return false;
             }
-            return $this->launchWindowsBatchFile($batPath);
+            @chmod($shellPath, 0755);
+            $handle = @popen('sh ' . escapeshellarg($shellPath) . ' >/dev/null 2>&1 &', 'r');
+            if (!is_resource($handle)) {
+                $this->cleanupLaunchArtifacts($inputPath, $taskId);
+                return false;
+            }
+            pclose($handle);
+            return true;
+        } finally {
+            if ($previousAuthorization === false) {
+                putenv($authorizationEnv);
+            } else {
+                putenv($authorizationEnv . '=' . $previousAuthorization);
+            }
+        }
+    }
+
+    private function authorizationEnvName(string $taskId): string
+    {
+        return 'SUXI_MANUAL_FETCH_AUTH_' . strtoupper(substr(hash('sha256', $taskId), 0, 24));
+    }
+
+    private function isValidTaskId(string $taskId): bool
+    {
+        return preg_match('/^manual_[a-z0-9_]+_fetch_\d+_\d{14}_[a-f0-9]{8}$/', $taskId) === 1;
+    }
+
+    private function cleanupLaunchArtifacts(string $inputPath, string $taskId): void
+    {
+        if ($inputPath === '' || basename($inputPath) !== 'input.json') {
+            return;
         }
 
-        $shellPath = $dir . DIRECTORY_SEPARATOR . $taskId . '.sh';
-        $command = 'cd ' . escapeshellarg($projectRoot)
-            . ' && ' . escapeshellarg($phpBinary)
-            . ' ' . escapeshellarg($thinkPath)
-            . ' ' . self::COMMAND_NAME
-            . ' --task-id=' . escapeshellarg($taskId)
-            . ' --input=' . escapeshellarg($inputPath)
-            . ' >> ' . escapeshellarg((string)($task['log'] ?? '')) . ' 2>&1';
-        if (file_put_contents($shellPath, "#!/bin/sh\n" . $command . "\n") === false) {
-            return false;
+        $taskRoot = realpath($this->projectRoot() . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'manual_fetch_tasks');
+        $dir = realpath(dirname($inputPath));
+        if ($taskRoot === false
+            || $dir === false
+            || !str_starts_with($dir, rtrim($taskRoot, "\\/") . DIRECTORY_SEPARATOR)
+        ) {
+            return;
         }
-        @chmod($shellPath, 0755);
-        $handle = @popen('sh ' . escapeshellarg($shellPath) . ' >/dev/null 2>&1 &', 'r');
-        if (!is_resource($handle)) {
-            return false;
+
+        @unlink($dir . DIRECTORY_SEPARATOR . 'input.json');
+        if ($this->isValidTaskId($taskId)) {
+            @unlink($dir . DIRECTORY_SEPARATOR . $taskId . '.bat');
+            @unlink($dir . DIRECTORY_SEPARATOR . $taskId . '.sh');
         }
-        pclose($handle);
-        return true;
+        if ((glob($dir . DIRECTORY_SEPARATOR . '*') ?: []) === []) {
+            @rmdir($dir);
+        }
     }
 
     private function normalizePlatform(string $platform): string

@@ -28,8 +28,11 @@ class ManualFetchOnlineDataOnce extends Command
             return 1;
         }
 
-        $task = json_decode((string)file_get_contents($inputPath), true);
-        @unlink($inputPath);
+        try {
+            $task = json_decode((string)file_get_contents($inputPath), true);
+        } finally {
+            @unlink($inputPath);
+        }
         if (!is_array($task)) {
             $output->writeln('Task input is not valid JSON.');
             return 1;
@@ -37,7 +40,7 @@ class ManualFetchOnlineDataOnce extends Command
 
         $hotelId = (int)($task['hotel_id'] ?? 0);
         $apiUrl = trim((string)($task['api_url'] ?? ''));
-        $authorization = trim((string)($task['authorization'] ?? ''));
+        $authorization = $this->resolveAuthorization($task);
         $body = is_array($task['body'] ?? null) ? $task['body'] : [];
         if ($hotelId <= 0 || $apiUrl === '' || $authorization === '') {
             $message = 'background manual fetch task missing hotel, api_url or authorization';
@@ -51,6 +54,7 @@ class ManualFetchOnlineDataOnce extends Command
         $body['task_id'] = $taskId;
 
         $result = $this->postJson($apiUrl, $authorization, $body, (int)($task['timeout_seconds'] ?? 3600));
+        $authorization = '';
         if (!$result['success']) {
             $message = (string)($result['message'] ?? 'background manual fetch request failed');
             $this->recordFailure($task, $message);
@@ -60,6 +64,21 @@ class ManualFetchOnlineDataOnce extends Command
 
         $output->writeln('Manual fetch task finished.');
         return 0;
+    }
+
+    private function resolveAuthorization(array $task): string
+    {
+        $authorizationEnv = trim((string)($task['authorization_env'] ?? ''));
+        if (preg_match('/^SUXI_MANUAL_FETCH_AUTH_[A-F0-9]{24}$/', $authorizationEnv) === 1) {
+            $authorization = getenv($authorizationEnv);
+            putenv($authorizationEnv);
+            if (is_string($authorization) && trim($authorization) !== '') {
+                return trim($authorization);
+            }
+        }
+
+        // Compatibility for an already-created legacy task. New tasks never persist this field.
+        return trim((string)($task['authorization'] ?? ''));
     }
 
     private function postJson(string $url, string $authorization, array $body, int $timeoutSeconds): array

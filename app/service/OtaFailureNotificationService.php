@@ -167,10 +167,10 @@ final class OtaFailureNotificationService
             if ($success || $this->isNonFailureSkip($result)) {
                 continue;
             }
-            $items[] = [
+            $items[] = array_merge([
                 'platform' => $platform,
                 'reason_code' => $this->failureReason($result),
-            ];
+            ], $this->authorizationSourceFields($result));
         }
 
         if ($items === []) {
@@ -187,10 +187,10 @@ final class OtaFailureNotificationService
                     : [$platform];
             }
             foreach ($platforms as $platform) {
-                $items[] = [
+                $items[] = array_merge([
                     'platform' => $platform,
                     'reason_code' => $this->failureReason($event),
-                ];
+                ], $this->authorizationSourceFields($event));
             }
         }
 
@@ -211,6 +211,10 @@ final class OtaFailureNotificationService
         $actorUserId = $this->positiveInt($event['actor_user_id'] ?? $event['user_id'] ?? null);
         $dataDate = $this->safeDataDate($event['data_date'] ?? null);
         $recipient = $this->resolveRecipient($hotelId, $platform);
+        $authorizationSource = array_replace(
+            $this->authorizationSourceFields($event),
+            $this->authorizationSourceFields($failure)
+        );
 
         if ($recipient === null) {
             $this->auditDeliveryGap(
@@ -257,7 +261,7 @@ final class OtaFailureNotificationService
                 'title' => $this->notificationTitle($platform, $reasonCode),
                 'message' => $this->notificationMessage($platform, $reasonCode, $dataDate),
                 'action_type' => 'fetch',
-                'action_payload' => [
+                'action_payload' => array_merge([
                     'target_page' => 'online-data',
                     'target_tab' => 'data-health',
                     'action_label' => $this->actionLabel($reasonCode),
@@ -266,7 +270,7 @@ final class OtaFailureNotificationService
                     'requires_resolution' => $requiresResolution ? '1' : '0',
                     'reminder_level' => $requiresResolution ? 'strong' : 'normal',
                     'resolution_rule' => $requiresResolution ? 'verified_same_platform_session_or_capture' : '',
-                ],
+                ], $authorizationSource),
                 'source_module' => 'ota_failure_notifier',
                 'source_key' => implode(':', [
                     'ota_collection_failure',
@@ -563,6 +567,84 @@ final class OtaFailureNotificationService
     private function configHotelId(array $item): ?int
     {
         return $this->positiveInt($item['system_hotel_id'] ?? $item['hotel_id'] ?? null);
+    }
+
+    /** @param array<string, mixed> $event @return array<string, mixed> */
+    private function authorizationSourceFields(array $event): array
+    {
+        $label = '';
+        foreach ([
+            'authorization_source_label',
+            'data_source_name',
+            'source_name',
+            'config_name',
+            'account_alias',
+            'profile_alias',
+        ] as $field) {
+            $label = $this->safeAuthorizationSourceLabel($event[$field] ?? null);
+            if ($label !== '') {
+                break;
+            }
+        }
+
+        $dataSourceId = $this->positiveInt($event['data_source_id'] ?? $event['source_id'] ?? null);
+        if ($label === '' && $dataSourceId !== null) {
+            $label = '数据源 #' . $dataSourceId;
+        }
+        if ($label === '') {
+            return [];
+        }
+
+        $rawType = strtolower(trim((string)(
+            $event['authorization_source_type']
+            ?? $event['ingestion_method']
+            ?? $event['source_method']
+            ?? $event['collection_mode']
+            ?? ''
+        )));
+        $type = match ($rawType) {
+            'browser_profile', 'profile_browser', 'profile' => 'profile',
+            'manual_cookie_api', 'cookie_api', 'cookie', 'credential' => 'cookie_api',
+            default => 'authorization',
+        };
+
+        $fields = [
+            'authorization_source_label' => $label,
+            'authorization_source_type' => $type,
+            'authorization_source_state' => 'exact',
+            'authorization_source_note' => '本次失败已记录到该授权来源。',
+        ];
+        if ($dataSourceId !== null) {
+            $fields['data_source_id'] = $dataSourceId;
+        }
+        return $fields;
+    }
+
+    private function safeAuthorizationSourceLabel(mixed $value): string
+    {
+        if (!is_scalar($value)) {
+            return '';
+        }
+        $label = trim((string)$value);
+        if ($label === ''
+            || preg_match('/(?:[A-Za-z]:[\\\\\/]|[\\\\\/](?:Users|home|storage)[\\\\\/])/iu', $label) === 1
+        ) {
+            return '';
+        }
+        if (preg_match('/(?:cookie|token|authorization|spidertoken|password|secret)\s*[:=]/iu', $label) === 1
+            || preg_match('/\b[A-Za-z0-9_-]{32,}\b/u', $label) === 1
+        ) {
+            return '授权来源（敏感值已隐藏）';
+        }
+        $label = preg_replace(
+            '/(cookie|token|authorization|spidertoken|password|secret)\s*[:=]\s*[^;\s,]+/iu',
+            '$1=****',
+            $label
+        ) ?? '';
+        $label = preg_replace('/(1[3-9]\d)\d{4}(\d{4})/u', '$1****$2', $label) ?? '';
+        $label = preg_replace('/\b\d{8,}\b/u', '[编号已隐藏]', $label) ?? '';
+        $label = preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $label) ?? '';
+        return mb_substr(trim($label), 0, 100);
     }
 
     /** @param array<string, mixed> $event */

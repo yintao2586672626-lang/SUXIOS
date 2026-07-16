@@ -89,6 +89,10 @@ const payload = {
   capture_gate: null,
 };
 const observedOrderFlowRequestUrls = new Set();
+const pendingResponseCaptures = new Set();
+const requestQueryEvidence = new WeakMap();
+let activeOrderQueryEvidence = null;
+let orderQueryEpoch = 0;
 
 const browser = await launchOtaPersistentContext(storageDir, args);
 payload.cookie_injection = await injectBrowserCookies(browser, args, 'meituan');
@@ -140,6 +144,7 @@ try {
     }
   }
 
+  await waitForPendingResponseCaptures(page);
   Object.assign(payload, filterMeituanCumulativeRowsByTargetDate(payload, defaultDataDate));
   if (wantsSection('order_flow')) {
     payload.order_flow = filterMeituanOrderFlowRowsByPeriod(payload.order_flow, dataPeriod);
@@ -426,16 +431,59 @@ async function runMeituanOrderInteractionPlan(page) {
   }
   await dateInput.fill(`${defaultDataDate} - ${defaultDataDate}`);
   await dateInput.press('Tab').catch(() => null);
-  results.push({ action: 'set_purchase_date', changed: true, target_date: defaultDataDate });
+  const selectedDateValue = await dateInput.inputValue().catch(() => '');
+  const selectedDates = String(selectedDateValue || '').match(/\d{4}-\d{2}-\d{2}/g) || [];
+  const targetDateApplied = selectedDates.length >= 2
+    && selectedDates.slice(0, 2).every(value => value === defaultDataDate);
+  if (!targetDateApplied) {
+    results.push({
+      action: 'set_purchase_date',
+      changed: false,
+      target_date: defaultDataDate,
+      skipped: 'purchase_date_value_not_applied',
+    });
+    return results;
+  }
+  results.push({ action: 'set_purchase_date', changed: true, target_date: defaultDataDate, verified_by: 'input_value_readback' });
 
   const query = frame.getByRole('button', { name: '\u67e5\u8be2', exact: true }).first();
   const queryVisible = await query.isVisible({ timeout: 2000 }).catch(() => false);
+  let queryClicked = false;
   if (queryVisible) {
-    await query.click();
-    await page.waitForLoadState('networkidle', { timeout: 12000 }).catch(() => null);
-    await frame.waitForTimeout(1800);
+    await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => null);
+    await waitForPendingResponseCaptures(page);
+    const queryEpoch = ++orderQueryEpoch;
+    activeOrderQueryEvidence = {
+      query_epoch: queryEpoch,
+      query_target_date: defaultDataDate,
+      query_date_source: 'page.orders.purchase_date_input.readback',
+    };
+    payload.responses = payload.responses.filter(item => String(item?.section || '').trim().toLowerCase() !== 'orders');
+    payload.orders = [];
+    try {
+      await query.click();
+      queryClicked = true;
+      await page.waitForLoadState('networkidle', { timeout: 12000 }).catch(() => null);
+      await frame.waitForTimeout(1800);
+      await waitForPendingResponseCaptures(page);
+    } finally {
+      activeOrderQueryEvidence = null;
+    }
+    if (queryClicked) {
+      payload.section_evidence.orders = {
+        status: 'target_date_queried',
+        target_date: defaultDataDate,
+        evidence_source: 'page.form_readback',
+        marker: 'meituan_orders_purchase_date_query',
+        query_epoch: queryEpoch,
+        response_count: payload.responses.filter(item => (
+          String(item?.section || '').trim().toLowerCase() === 'orders'
+          && Number(item?.query_epoch || 0) === queryEpoch
+        )).length,
+      };
+    }
   }
-  results.push({ action: 'query_target_date_orders', clicked: queryVisible, target_date: defaultDataDate });
+  results.push({ action: 'query_target_date_orders', clicked: queryClicked, target_date: defaultDataDate });
   return results;
 }
 
@@ -591,9 +639,22 @@ async function dismissMeituanOverlays(page) {
 }
 
 function registerResponseCapture(page, target) {
-  page.on('response', async response => {
+  page.on('request', request => {
+    if (activeOrderQueryEvidence) {
+      requestQueryEvidence.set(request, { ...activeOrderQueryEvidence });
+    }
+  });
+  page.on('response', response => {
+    const task = captureMeituanResponse(response, target);
+    pendingResponseCaptures.add(task);
+    void task.finally(() => pendingResponseCaptures.delete(task)).catch(() => null);
+  });
+}
+
+async function captureMeituanResponse(response, target) {
     const url = response.url();
     const request = response.request();
+    const queryEvidence = requestQueryEvidence.get(request) || null;
     const requestPayload = request?.postData?.() || '';
     const requestDateEvidence = extractOtaRequestDateEvidence({ url, payload: requestPayload });
     const contentType = response.headers()['content-type'] || '';
@@ -617,7 +678,14 @@ function registerResponseCapture(page, target) {
       body = parseResponseBody(text, contentType);
     } catch (error) {
       const responseEvidence = buildOtaCaptureEvidence('meituan', { url, section, captureSource: `xhr:${section}` });
-      target.responses.push({ url_hash: responseEvidence.source_url_hash || '', source_trace_id: responseEvidence.source_trace_id || '', section, status, error: error.message });
+      target.responses.push({
+        url_hash: responseEvidence.source_url_hash || '',
+        source_trace_id: responseEvidence.source_trace_id || '',
+        section,
+        status,
+        error: error.message,
+        ...(queryEvidence || {}),
+      });
       return;
     }
 
@@ -639,6 +707,7 @@ function registerResponseCapture(page, target) {
       rank_type: supplementalMeta.rankType,
       forecast_type: supplementalMeta.forecastType,
       data: safeBody,
+      ...(queryEvidence || {}),
     });
     if (!Array.isArray(target[targetPayloadKey])) {
       target[targetPayloadKey] = [];
@@ -651,7 +720,21 @@ function registerResponseCapture(page, target) {
         captureSource: row._capture_source || `xhr:${section}`,
       });
     }));
-  });
+}
+
+async function waitForPendingResponseCaptures(page) {
+  let idleRounds = 0;
+  for (let round = 0; round < 10; round += 1) {
+    await page.waitForTimeout(100).catch(() => null);
+    const pending = Array.from(pendingResponseCaptures);
+    if (pending.length === 0) {
+      idleRounds += 1;
+      if (idleRounds >= 2) return;
+      continue;
+    }
+    idleRounds = 0;
+    await Promise.allSettled(pending);
+  }
 }
 
 function normalizeCaptureSections(value) {
@@ -1021,6 +1104,7 @@ async function collectDomFallback(page, target, section) {
     return;
   }
   if (section === 'orders') {
+    await collectMeituanOrderDomAggregate(page, target);
     return;
   }
   const rows = await page.evaluate(sectionName => {
@@ -1082,6 +1166,63 @@ async function collectDomFallback(page, target, section) {
   });
   target[section].push(...capturedRows);
   appendDomCaptureEvidenceResponses(target, capturedRows, section);
+}
+
+async function collectMeituanOrderDomAggregate(page, target) {
+  const evidence = target?.section_evidence?.orders;
+  const targetDate = String(evidence?.target_date || '').trim();
+  const queryEpoch = Number(evidence?.query_epoch || 0);
+  if (
+    evidence?.status !== 'target_date_queried'
+    || evidence?.evidence_source !== 'page.form_readback'
+    || evidence?.marker !== 'meituan_orders_purchase_date_query'
+    || !/^\d{4}-\d{2}-\d{2}$/.test(targetDate)
+    || !Number.isInteger(queryEpoch)
+    || queryEpoch <= 0
+  ) {
+    return;
+  }
+
+  const frame = page.frames().find(item => /\/order-eb\//i.test(item.url()));
+  if (!frame) return;
+  const summary = await frame.evaluate(expectedDate => {
+    const text = (document.body?.innerText || document.body?.textContent || '').replace(/\s+/g, ' ');
+    const totalMatch = text.match(/\u5171\s*([\d,]+)\s*\u4e2a\u8ba2\u5355/);
+    if (!totalMatch) return null;
+    const orderCount = Number(String(totalMatch[1] || '').replace(/,/g, ''));
+    if (!Number.isInteger(orderCount) || orderCount < 0) return null;
+    const purchaseDates = Array.from(text.matchAll(/\u8d2d\u4e70\u65f6\u95f4[\uff1a:]\s*(\d{4}-\d{2}-\d{2})/g), match => match[1]);
+    if (purchaseDates.length !== orderCount || purchaseDates.some(value => value !== expectedDate)) {
+      return null;
+    }
+    return {
+      order_count: orderCount,
+      visible_order_date_count: purchaseDates.length,
+      visible_order_dates_match_target: true,
+    };
+  }, targetDate).catch(() => null);
+  if (!summary) return;
+
+  let row = {
+    ...summary,
+    orders: summary.order_count,
+    dataDate: targetDate,
+    date_source: 'page.orders.purchase_date_input.readback',
+    compare_type: 'self',
+    is_self: true,
+    query_epoch: queryEpoch,
+    page_summary_marker: 'meituan_orders_target_date_summary',
+    _capture_source: 'dom:orders:target_date_summary',
+    _source_path: 'dom.orders.target_date_summary',
+  };
+  row = withMeituanPlatformIdentifier(row);
+  row = attachOtaCaptureEvidence(row, 'meituan', {
+    url: frame.url(),
+    section: 'orders',
+    captureSource: row._capture_source,
+  });
+  target.orders.push(row);
+  appendDomCaptureEvidenceResponses(target, [row], 'orders');
 }
 
 function hasTrafficRowDate(row) {

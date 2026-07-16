@@ -302,6 +302,7 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
             'business_count' => $this->countPayloadSections($payload, ['businessData', 'business_data', 'business', 'overview']),
             'peer_rank_count' => $this->countPayloadSections($payload, ['peerRank', 'peer_rank', 'rankings', 'competitorRank']),
             'flow_analysis_count' => $this->countPayloadSections($payload, ['flowAnalysis', 'flow_analysis', 'trafficAnalysis', 'traffic_analysis']),
+            'order_flow_count' => $this->countPayloadSections($payload, ['order_flow', 'orderFlow', 'orderFlowRows', 'order_flow_rows']),
             'search_keyword_count' => $this->countPayloadSections($payload, ['searchKeywords', 'search_keywords', 'keywords']),
             'traffic_forecast_count' => $this->countPayloadSections($payload, ['trafficForecast', 'traffic_forecast', 'flowForecast', 'flow_forecast']),
             'room_type_count' => $this->countPayloadSections($payload, ['roomTypes', 'room_types', 'products']),
@@ -330,6 +331,7 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
             ['data_type' => 'peer_rank', 'keys' => ['peerRank', 'peer_rank', 'competitorRank', 'rankings', 'ranking']],
             ['data_type' => 'traffic_analysis', 'keys' => ['flowAnalysis', 'flow_analysis', 'trafficAnalysis', 'traffic_analysis']],
             ['data_type' => 'traffic', 'keys' => ['flowData', 'flow_data', 'traffic', 'flow']],
+            ['data_type' => 'order_flow', 'keys' => ['order_flow', 'orderFlow', 'orderFlowRows', 'order_flow_rows']],
             ['data_type' => 'search_keyword', 'keys' => ['searchKeywords', 'search_keywords', 'searchKeyWords', 'keywords']],
             ['data_type' => 'traffic_forecast', 'keys' => ['trafficForecast', 'traffic_forecast', 'flowForecast', 'flow_forecast']],
             ['data_type' => 'room_type', 'keys' => ['roomTypes', 'room_types', 'products', 'roomType']],
@@ -341,7 +343,7 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         foreach ($sectionGroups as $sectionGroup) {
             $dataType = (string)$sectionGroup['data_type'];
             $sectionRows = $this->payloadRowsForKeys($payload, $sectionGroup['keys']);
-            if ($forcedDataType !== '' && in_array($dataType, ['business', 'peer_rank', 'traffic', 'search_keyword', 'room_type'], true)) {
+            if ($forcedDataType !== '' && in_array($dataType, ['business', 'peer_rank', 'traffic', 'order_flow', 'search_keyword', 'room_type'], true)) {
                 $dataType = $forcedDataType;
             }
             foreach ($sectionRows as $row) {
@@ -416,7 +418,7 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
     private function forcedResourceDataType(array $source, array $payload): string
     {
         $sourceType = $this->normalizeResourceDataType((string)($source['data_type'] ?? ''));
-        if (in_array($sourceType, ['peer_rank', 'search_keyword', 'room_type'], true)) {
+        if (in_array($sourceType, ['peer_rank', 'order_flow', 'search_keyword', 'room_type'], true)) {
             return $sourceType;
         }
 
@@ -426,7 +428,7 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
             return '';
         }
         $sectionType = $this->normalizeResourceDataType($sectionText);
-        if (in_array($sectionType, ['business', 'peer_rank', 'traffic', 'search_keyword', 'room_type'], true)) {
+        if (in_array($sectionType, ['business', 'peer_rank', 'traffic', 'order_flow', 'search_keyword', 'room_type'], true)) {
             return $sectionType;
         }
 
@@ -452,6 +454,9 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
         if (in_array($value, ['traffic_analysis', 'trafficanalysis', 'flow_analysis', 'flowanalysis'], true)) {
             return 'traffic_analysis';
+        }
+        if (in_array($value, ['order_flow', 'orderflow', 'order_loss', 'orderloss', 'loss_order', 'lossorder'], true)) {
+            return 'order_flow';
         }
         if (in_array($value, ['traffic_forecast', 'trafficforecast', 'flow_forecast', 'flowforecast', 'forecast'], true)) {
             return 'traffic_forecast';

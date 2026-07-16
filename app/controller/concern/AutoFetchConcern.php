@@ -11,6 +11,7 @@ use app\service\OtaProfileSessionProofService;
 use app\service\OtaFailureNotificationService;
 use app\service\PlatformProfileBindingReadinessService;
 use app\service\PlatformDataSyncService;
+use app\service\ScheduledAutoFetchPolicy;
 use think\Response;
 use think\facade\Db;
 
@@ -415,6 +416,18 @@ trait AutoFetchConcern
             'message' => $message,
         ];
         $dataPeriod = $this->normalizeOnlineDailyDataPeriod($details['data_period'] ?? $details['dataPeriod'] ?? '');
+        $slotId = trim((string)($details['slot_id'] ?? ''));
+        $normalizePlatforms = static function (mixed $platforms): array {
+            if (!is_array($platforms)) {
+                return [];
+            }
+            return array_values(array_unique(array_filter(array_map(
+                static fn(mixed $platform): string => strtolower(trim((string)$platform)),
+                $platforms
+            ), static fn(string $platform): bool => in_array($platform, ['ctrip', 'meituan'], true))));
+        };
+        $failedPlatforms = $normalizePlatforms($details['failed_platforms'] ?? []);
+        $successfulPlatforms = $normalizePlatforms($details['successful_platforms'] ?? []);
         $statusCode = trim((string)($details['status'] ?? ($success ? 'success' : 'failed')));
         if ($statusCode !== '') {
             $runRecord['status'] = $statusCode;
@@ -422,6 +435,11 @@ trait AutoFetchConcern
         if ($dataPeriod !== '') {
             $runRecord['data_period'] = $dataPeriod;
         }
+        if ($slotId !== '') {
+            $runRecord['slot_id'] = $slotId;
+        }
+        $runRecord['failed_platforms'] = $failedPlatforms;
+        $runRecord['successful_platforms'] = $successfulPlatforms;
         if (array_key_exists('saved_count', $details)) {
             $runRecord['saved_count'] = (int)$details['saved_count'];
         }
@@ -439,6 +457,11 @@ trait AutoFetchConcern
             $runRecord['ctrip_section_concurrency'] = $this->normalizeCtripSectionConcurrency($details['ctrip_section_concurrency']);
             $status['ctrip_section_concurrency'] = $runRecord['ctrip_section_concurrency'];
         }
+        foreach (['attempts', 'max_attempts', 'next_retry_at', 'retry_exhausted'] as $retryField) {
+            if (array_key_exists($retryField, $details)) {
+                $runRecord[$retryField] = $details[$retryField];
+            }
+        }
 
         $status['last_run_time'] = $runAt;
         $status['last_data_date'] = $dataDate;
@@ -451,6 +474,11 @@ trait AutoFetchConcern
         if ($dataPeriod !== '') {
             $status['last_result']['data_period'] = $dataPeriod;
         }
+        if ($slotId !== '') {
+            $status['last_result']['slot_id'] = $slotId;
+        }
+        $status['last_result']['failed_platforms'] = $failedPlatforms;
+        $status['last_result']['successful_platforms'] = $successfulPlatforms;
         if (array_key_exists('saved_count', $details)) {
             $status['last_result']['saved_count'] = (int)$details['saved_count'];
         }
@@ -468,6 +496,11 @@ trait AutoFetchConcern
         if (array_key_exists('ctrip_section_concurrency', $details)) {
             $status['last_result']['ctrip_section_concurrency'] = $this->normalizeCtripSectionConcurrency($details['ctrip_section_concurrency']);
         }
+        foreach (['attempts', 'max_attempts', 'next_retry_at', 'retry_exhausted'] as $retryField) {
+            if (array_key_exists($retryField, $details)) {
+                $status['last_result'][$retryField] = $details[$retryField];
+            }
+        }
 
         $recentRuns = $status['recent_runs'] ?? [];
         $recentRuns = is_array($recentRuns) ? $recentRuns : [];
@@ -476,15 +509,36 @@ trait AutoFetchConcern
 
         $failedRecords = $status['failed_records'] ?? [];
         $failedRecords = is_array($failedRecords) ? $failedRecords : [];
-        $failedRecords = array_values(array_filter($failedRecords, function ($item) use ($dataDate) {
-            return (string)($item['data_date'] ?? '') !== $dataDate;
+        $failedRecords = array_values(array_filter($failedRecords, function ($item) use ($dataDate, $dataPeriod, $slotId) {
+            if ($slotId !== '' && trim((string)($item['slot_id'] ?? '')) !== '') {
+                return trim((string)$item['slot_id']) !== $slotId;
+            }
+            if ((string)($item['data_date'] ?? '') !== $dataDate) {
+                return true;
+            }
+            $itemPeriod = $this->normalizeOnlineDailyDataPeriod($item['data_period'] ?? '');
+            return $dataPeriod !== '' && $itemPeriod !== '' && $itemPeriod !== $dataPeriod;
         }));
         if (!$success && !in_array($statusCode, ['running', 'queued'], true)) {
-            array_unshift($failedRecords, [
+            $failedRecord = [
                 'data_date' => $dataDate,
                 'last_failed_at' => $runAt,
                 'message' => $message,
-            ]);
+            ];
+            if ($dataPeriod !== '') {
+                $failedRecord['data_period'] = $dataPeriod;
+            }
+            if ($slotId !== '') {
+                $failedRecord['slot_id'] = $slotId;
+            }
+            $failedRecord['failed_platforms'] = $failedPlatforms;
+            $failedRecord['successful_platforms'] = $successfulPlatforms;
+            foreach (['attempts', 'max_attempts', 'next_retry_at', 'retry_exhausted'] as $retryField) {
+                if (array_key_exists($retryField, $details)) {
+                    $failedRecord[$retryField] = $details[$retryField];
+                }
+            }
+            array_unshift($failedRecords, $failedRecord);
         }
         $status['failed_records'] = array_slice($failedRecords, 0, 30);
 
@@ -3897,12 +3951,10 @@ trait AutoFetchConcern
             return json(['code' => 401, 'message' => 'Unauthorized'], 401);
         }
 
-        $currentTime = date('H:i');
-        $currentMinute = (int)date('i');
-        $currentHour = date('H');
-        $today = date('Y-m-d');
-        $yesterday = date('Y-m-d', strtotime('-1 day'));
+        $now = new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
+        $schedulePolicy = new ScheduledAutoFetchPolicy();
         $results = [];
+        $hasIncompleteDueRun = false;
 
         // 获取所有酒店
         $hotels = Db::name('hotels')->where('status', 1)->select()->toArray();
@@ -3928,86 +3980,130 @@ trait AutoFetchConcern
                 'ctrip_section_concurrency' => $status['ctrip_section_concurrency'] ?? 3,
             ];
 
-            $dueRuns = [];
-            if (!empty($status['historical_enabled']) && $currentTime === (string)$status['historical_schedule_time']) {
-                $dueRuns[] = [
-                    'period' => 'historical_daily',
-                    'data_date' => $yesterday,
-                    'executed_key' => "online_data_historical_executed_{$hotelId}_{$yesterday}",
-                    'executed_message' => '历史固定数据今天已执行',
-                ];
-            }
             $realtimeIntervalHours = (int)($status['realtime_schedule_interval_hours'] ?? $status['schedule_interval_hours'] ?? 2);
-            if (!empty($status['realtime_enabled'])
-                && $currentMinute === (int)$status['realtime_schedule_minute']
-                && $this->isRealtimeAutoFetchHourDue((int)$currentHour, $realtimeIntervalHours)
-            ) {
-                $dueRuns[] = [
-                    'period' => 'realtime_snapshot',
-                    'data_date' => $today,
-                    'executed_key' => "online_data_realtime_executed_{$hotelId}_{$today}_{$currentHour}",
-                    'executed_message' => "实时快照本 {$realtimeIntervalHours} 小时窗口已执行",
-                ];
-            }
+            $retryMaxAttempts = $schedulePolicy->normalizeMaxAttempts($status['retry_max_attempts'] ?? 3);
+            $retryDelayMinutes = $schedulePolicy->normalizeDelayMinutes($status['retry_delay_minutes'] ?? 5);
+            $dueRuns = $schedulePolicy->dueRuns((int)$hotelId, $status, $now);
             if (empty($dueRuns)) {
                 continue;
             }
 
             $lockKey = "online_data_profile_lock_{$hotelId}";
-            $ranLockedTask = false;
             foreach ($dueRuns as $run) {
                 if (cache($run['executed_key'])) {
-                    $results[] = ['hotel_id' => $hotelId, 'hotel_name' => $hotel['name'], 'data_period' => $run['period'], 'status' => 'skipped', 'message' => $run['executed_message']];
+                    $results[] = ['hotel_id' => $hotelId, 'hotel_name' => $hotel['name'], 'data_period' => $run['period'], 'slot_id' => $run['slot_id'], 'status' => 'skipped', 'message' => $run['executed_message']];
                     continue;
                 }
-                if ($ranLockedTask || cache($lockKey)) {
-                    $results[] = ['hotel_id' => $hotelId, 'hotel_name' => $hotel['name'], 'data_period' => $run['period'], 'status' => 'skipped_locked', 'message' => '同一 Profile 已有采集任务运行，本次跳过'];
-                    continue;
-                }
-
-                cache($lockKey, true, 7200);
-                $ranLockedTask = true;
-                try {
-                    $result = $this->executeAutoFetch($hotelId, $run['data_date'], array_merge($baseOptions, [
-                        'data_period' => $run['period'],
-                        'snapshot_time' => date('Y-m-d H:i:s'),
-                    ]));
+                $retryState = cache($run['retry_key']) ?: [];
+                $retryState = is_array($retryState) ? $retryState : [];
+                if (!$schedulePolicy->retryDue($retryState, $retryMaxAttempts, $now)) {
+                    $hasIncompleteDueRun = true;
+                    $retryExhausted = (int)($retryState['attempts'] ?? 0) >= $retryMaxAttempts;
                     $results[] = [
                         'hotel_id' => $hotelId,
                         'hotel_name' => $hotel['name'],
                         'data_period' => $run['period'],
-                        'status' => $result['success'] ? 'success' : 'failed',
-                        'message' => $result['message']
+                        'slot_id' => $run['slot_id'],
+                        'status' => $retryExhausted ? 'retry_exhausted' : 'retry_cooldown',
+                        'message' => $retryExhausted ? '自动重试次数已用尽，需人工检查配置' : '等待下一次自动重试',
+                        'next_retry_at' => $retryState['next_retry_at'] ?? null,
+                    ];
+                    continue;
+                }
+                if (cache($lockKey)) {
+                    $results[] = ['hotel_id' => $hotelId, 'hotel_name' => $hotel['name'], 'data_period' => $run['period'], 'slot_id' => $run['slot_id'], 'status' => 'skipped_locked', 'message' => '同一 Profile 已有采集任务运行，本次跳过'];
+                    $hasIncompleteDueRun = true;
+                    continue;
+                }
+
+                cache($lockKey, true, 7200);
+                try {
+                    try {
+                        $result = $this->executeAutoFetch($hotelId, $run['data_date'], array_merge($baseOptions, [
+                            'data_period' => $run['period'],
+                            'snapshot_time' => date('Y-m-d H:i:s'),
+                        ]));
+                    } catch (\Throwable $e) {
+                        \think\facade\Log::error('Cron OTA collection execution failed', [
+                            'hotel_id' => $hotelId,
+                            'data_period' => $run['period'],
+                            'exception_type' => get_debug_type($e),
+                        ]);
+                        $result = [
+                            'success' => false,
+                            'message' => 'scheduled_fetch_exception:' . get_debug_type($e),
+                            'saved_count' => 0,
+                            'platform_results' => [],
+                            'failed_platforms' => ['ctrip', 'meituan'],
+                        ];
+                    }
+                    $outcome = $schedulePolicy->classifyOutcome($result);
+                    $retryDetails = $outcome['complete']
+                        ? [
+                            'attempts' => (int)($retryState['attempts'] ?? 0) + 1,
+                            'max_attempts' => $retryMaxAttempts,
+                            'next_retry_at' => null,
+                            'retry_exhausted' => false,
+                        ]
+                        : $schedulePolicy->nextRetryState(
+                            $retryState,
+                            $retryMaxAttempts,
+                            $retryDelayMinutes,
+                            $now,
+                            $outcome['status'],
+                            (string)($result['message'] ?? '')
+                        );
+                    $results[] = [
+                        'hotel_id' => $hotelId,
+                        'hotel_name' => $hotel['name'],
+                        'data_period' => $run['period'],
+                        'slot_id' => $run['slot_id'],
+                        'status' => $outcome['status'],
+                        'message' => $result['message'],
+                        'saved_count' => $outcome['saved_count'],
+                        'next_retry_at' => $retryDetails['next_retry_at'],
                     ];
 
-                    $this->updateFetchStatus($hotelId, (bool)$result['success'], (string)$result['message'], $run['data_date'], [
-                        'saved_count' => (int)($result['saved_count'] ?? 0),
+                    $this->updateFetchStatus($hotelId, $outcome['complete'], (string)$result['message'], $run['data_date'], [
+                        'status' => $outcome['status'],
+                        'saved_count' => $outcome['saved_count'],
                         'auto_fetch_mode' => $result['auto_fetch_mode'] ?? null,
                         'platform_results' => $result['platform_results'] ?? [],
                         'data_period' => $run['period'],
+                        'slot_id' => $run['slot_id'],
+                        'failed_platforms' => $outcome['failed_platforms'],
+                        'successful_platforms' => $outcome['successful_platforms'],
                         'timing' => $result['timing'] ?? [],
                         'ctrip_section_concurrency' => $result['ctrip_section_concurrency'] ?? $baseOptions['ctrip_section_concurrency'] ?? 3,
+                        ...$retryDetails,
                     ]);
-                    $this->recordAutoFetchNotification($hotelId, (bool)$result['success'], (string)$result['message'], $run['data_date'], [
-                        'saved_count' => (int)($result['saved_count'] ?? 0),
+                    $this->recordAutoFetchNotification($hotelId, $outcome['complete'], (string)$result['message'], $run['data_date'], [
+                        'saved_count' => $outcome['saved_count'],
                         'auto_fetch_mode' => $result['auto_fetch_mode'] ?? null,
                         'platform_results' => $result['platform_results'] ?? [],
                         'data_period' => $run['period'],
                     ], 'scheduled_auto_fetch');
-                    cache($run['executed_key'], true, 86400);
+                    if ($outcome['complete']) {
+                        cache($run['executed_key'], true, 86400);
+                        \think\facade\Cache::delete($run['retry_key']);
+                    } else {
+                        cache($run['retry_key'], $retryDetails, 86400 * 2);
+                        $hasIncompleteDueRun = true;
+                    }
                 } finally {
                     \think\facade\Cache::delete($lockKey);
                 }
             }
         }
 
+        $responseCode = $hasIncompleteDueRun ? 503 : 200;
         return json([
-            'code' => 200,
-            'message' => 'ok',
+            'code' => $responseCode,
+            'message' => $hasIncompleteDueRun ? 'scheduled_collection_incomplete' : 'ok',
             'time' => date('Y-m-d H:i:s'),
             'executed' => count($results),
             'results' => $results
-        ]);
+        ], $responseCode);
     }
 
     /**
@@ -5320,10 +5416,11 @@ trait AutoFetchConcern
         return array_merge([
             'success' => $savedCount > 0,
             'message' => $savedCount > 0
-                ? "Profile 真实采集入库 {$savedCount} 条（" . implode('，', $detailParts) . "）" . ($captureGateWarning !== null ? '；字段覆盖率未达阈值，已保留诊断告警' : '')
-                : 'Profile 真实采集未解析到可入库数据',
+                ? "Profile 真实采集已确认 {$savedCount} 次数据库写入（" . implode('，', $detailParts) . "）" . ($captureGateWarning !== null ? '；字段覆盖率未达阈值，已保留诊断告警' : '')
+                : ($rowCount > 0 ? 'Profile 已解析到业务行，但数据库回读未通过' : 'Profile 真实采集未解析到可入库数据'),
             'saved_count' => $savedCount,
             'row_count' => $rowCount,
+            'persistence_status' => $savedCount > 0 ? 'readback_verified' : ($rowCount > 0 ? 'readback_not_verified' : 'no_parsed_rows'),
         ], $this->buildCtripCaptureFactRowCountPayload($capturedCounts, $savedCount, $rowCount), [
             'captured_counts' => $capturedCounts,
             'diagnosis_summary' => $this->buildCtripCaptureDiagnosisSummary($payload),
@@ -5456,10 +5553,10 @@ trait AutoFetchConcern
 
         if ($expectedIds !== [] && $capturedIds !== [] && array_intersect($expectedIds, $capturedIds) === []) {
             return [
-                'ok' => true,
+                'ok' => false,
                 'status' => 'configured_platform_hotel_id_mismatch',
                 'warning' => true,
-                'message' => '携程返回酒店ID与已保存配置不一致；本次仍按当前选择门店归属并继续处理。请核对配置ID：' . implode('、', $expectedIds) . '；返回ID：' . implode('、', $capturedIds),
+                'message' => '携程数据已获取，但返回酒店ID与当前门店配置不一致，本次未入库。请核对配置ID：' . implode('、', $expectedIds) . '；返回ID：' . implode('、', $capturedIds),
                 'target_system_hotel_id' => $systemHotelId,
                 'target_hotel_name' => $targetHotelName,
                 'captured_hotel_ids' => $capturedIds,
@@ -6385,11 +6482,17 @@ trait AutoFetchConcern
         }
         $rows = $this->uniqueMeituanCapturedRowsForPersistence($rows);
         $savedCount = empty($rows) ? 0 : $this->saveMeituanCapturedDailyRows($rows);
+        $rowCount = count($rows);
+        $readbackVerified = $rowCount > 0 && $savedCount === $rowCount;
 
         return [
-            'success' => $savedCount > 0,
-            'message' => $savedCount > 0 ? "浏览器采集保存 {$savedCount} 条" : '浏览器采集未解析到指定日期数据',
+            'success' => $readbackVerified,
+            'message' => $readbackVerified
+                ? "浏览器采集已解析并回读确认 {$savedCount} 条"
+                : ($rowCount > 0 ? "浏览器采集解析 {$rowCount} 条，但仅回读确认 {$savedCount} 条" : '浏览器采集未解析到指定日期数据'),
             'saved_count' => $savedCount,
+            'row_count' => $rowCount,
+            'persistence_status' => $readbackVerified ? 'readback_verified' : ($rowCount > 0 ? 'readback_not_verified' : 'no_parsed_rows'),
             'persistence_gate' => $persistenceGate,
         ];
     }

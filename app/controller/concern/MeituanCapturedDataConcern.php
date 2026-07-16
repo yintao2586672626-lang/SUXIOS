@@ -310,7 +310,7 @@ trait MeituanCapturedDataConcern
             'search_keyword' => ['keyword', 'searchKeyword', 'searchWord', 'itemList', 'keywords'],
             'traffic_forecast' => ['forecast_type', 'forecastType', 'current', 'peerAvg', 'dateTime'],
             'ads' => ['cureShops', 'exposure_count', 'click_count', 'adId', 'campaignId'],
-            'orders' => ['order_id', 'orderId', 'orderNo', 'order_no', 'orderStatus', 'order_status', 'total_amount', 'totalAmount', 'buyTime', 'checkIn', 'checkOut', 'basePrice', 'bottomPrice'],
+            'orders' => ['order_id_hash', 'order_no_hash', 'booking_id_hash', 'order_id', 'orderId', 'orderNo', 'order_no', 'orderStatus', 'order_status', 'total_amount', 'totalAmount', 'orderCount', 'roomNights', 'buyTime', 'checkIn', 'checkOut', 'basePrice', 'bottomPrice'],
             default => [],
         };
         foreach ($keys as $key) {
@@ -513,9 +513,13 @@ trait MeituanCapturedDataConcern
 
         return $this->baseMeituanCapturedRow($factSource, $context, [
             'data_date' => $periodEnd,
-            'amount' => $amount !== null ? round($amount, 2) : null,
-            'quantity' => $rowType === 'summary' && $roomNights !== null ? max(0, (int)$roomNights) : null,
-            'book_order_num' => $orderCount !== null ? max(0, (int)$orderCount) : null,
+            // Order-flow values describe diverted/inflow demand, not this hotel's
+            // realised revenue, room nights or orders. Keep them in raw_data and
+            // the dedicated ETL fact so generic operating aggregators cannot
+            // silently treat them as hotel performance.
+            'amount' => null,
+            'quantity' => null,
+            'book_order_num' => null,
             'comment_score' => 0,
             'data_value' => $ratio,
             'data_type' => 'order_flow',
@@ -763,6 +767,7 @@ trait MeituanCapturedDataConcern
     private function normalizeMeituanCapturedOrderRow(array $item, array $context): ?array
     {
         $orderId = (string)$this->firstMeituanValue($item, ['order_id', 'orderId', 'orderNo', 'order_no', 'orderNumber', 'order_number', 'bookingNo', 'booking_no', 'bookingNumber', 'id'], '');
+        $orderIdHash = $this->meituanCapturedOrderIdentifierHash($item);
         $status = (string)$this->firstMeituanValue($item, ['order_status', 'orderStatus', 'status'], 'unknown');
         $amount = $this->nullableNumberFromKeys($item, ['total_amount', 'totalAmount', 'amount', 'payAmount', 'pay_amount']);
         $basePrice = $this->nullableNumberFromKeys($item, ['base_price', 'basePrice', 'bottom_price', 'bottomPrice', 'price', '底价', '底价(元)']);
@@ -770,20 +775,32 @@ trait MeituanCapturedDataConcern
         $roomCount = $roomCountValue !== null ? max(0, (int)$roomCountValue) : null;
         $nightsValue = $this->nullableNumberFromKeys($item, ['nights', 'night_count', 'nightCount']);
         $nights = $nightsValue !== null ? max(0, (int)$nightsValue) : null;
+        $roomNightsValue = $this->nullableNumberFromKeys($item, ['room_nights', 'roomNights', 'quantity']);
+        $roomNights = $roomNightsValue !== null ? max(0, (int)$roomNightsValue) : null;
+        $orderCountValue = $this->nullableNumberFromKeys($item, ['order_count', 'orderCount', 'book_order_num', 'bookOrderNum', 'orders']);
+        $orderCount = $orderCountValue !== null ? max(0, (int)$orderCountValue) : null;
         if ($nights === null) {
             $calculatedNights = $this->calculateMeituanOrderNights($item);
             $nights = $calculatedNights > 0 ? $calculatedNights : null;
         }
 
-        if ($orderId === '' && ($amount === null || $amount <= 0)) {
+        $aggregateOnly = $orderId === '' && $orderIdHash === '' && ($orderCount !== null || $roomNights !== null);
+        if ($orderId === '' && $orderIdHash === '' && !$aggregateOnly && ($amount === null || $amount <= 0)) {
             return null;
         }
 
-        $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['order_time', 'orderTime', 'createTime', 'buyTime', 'purchase_time', 'purchaseTime', '购买时间', 'check_in_date', 'checkInDate', 'checkIn'], ''))
+        $dataDate = $this->normalizeOnlineDataDate($this->firstMeituanValue($item, ['order_time', 'orderTime', 'createTime', 'buyTime', 'purchase_time', 'purchaseTime', '购买时间', 'check_in_date', 'checkInDate', 'checkIn', 'data_date', 'dataDate', 'statDate', 'date'], ''))
             ?: ($context['default_data_date'] ?? date('Y-m-d'));
-        $identity = $orderId !== ''
-            ? $this->hashOnlineOrderIdentifier($orderId)
-            : hash('sha256', 'ota_order_fallback|' . json_encode($item, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
+        if ($orderIdHash !== '') {
+            $identity = $orderIdHash;
+        } elseif ($orderId !== '') {
+            $identity = $this->hashOnlineOrderIdentifier($orderId);
+        } elseif ($aggregateOnly) {
+            $sourcePath = trim((string)$this->firstMeituanValue($item, ['_source_path', 'source_path', 'sourcePath'], 'daily_summary'));
+            $identity = hash('sha256', 'ota_order_aggregate|' . $status . '|' . ($sourcePath !== '' ? $sourcePath : 'daily_summary'));
+        } else {
+            $identity = hash('sha256', 'ota_order_fallback|' . json_encode($item, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE));
+        }
         $avgPrice = $this->nullableNumberFromKeys($item, ['avg_price', 'avgPrice']);
         if (($avgPrice === null || $avgPrice <= 0) && $basePrice !== null && $basePrice > 0) {
             $avgPrice = $basePrice;
@@ -791,21 +808,35 @@ trait MeituanCapturedDataConcern
             $avgPrice = round($amount / ($roomCount * $nights), 2);
         }
 
-        $orderCountValue = $this->nullableNumberFromKeys($item, ['order_count', 'orderCount']);
-        $orderCount = $orderCountValue !== null ? max(0, (int)$orderCountValue) : null;
+        $quantity = $roomCount !== null && $roomCount > 0 && $nights !== null && $nights > 0
+            ? $roomCount * $nights
+            : $roomNights;
 
         return $this->baseMeituanCapturedRow($item, $context, [
             'data_date' => $dataDate,
             'amount' => $amount !== null ? round($amount, 2) : null,
-            'quantity' => $roomCount !== null && $roomCount > 0 && $nights !== null && $nights > 0 ? $roomCount * $nights : null,
+            'quantity' => $quantity,
             'book_order_num' => $orderCount,
             'comment_score' => 0,
             'data_value' => $avgPrice,
             'data_type' => 'order',
-            'dimension' => 'order:' . $status . ':' . $identity,
+            'dimension' => $aggregateOnly
+                ? 'order:aggregate:' . $identity
+                : 'order:' . $status . ':' . $identity,
             'platform' => 'Meituan',
             'compare_type' => 'self',
         ]);
+    }
+
+    private function meituanCapturedOrderIdentifierHash(array $item): string
+    {
+        foreach (['order_id_hash', 'order_no_hash', 'booking_id_hash'] as $key) {
+            $value = strtolower(trim((string)($item[$key] ?? '')));
+            if (preg_match('/^[a-f0-9]{64}$/D', $value) === 1) {
+                return $value;
+            }
+        }
+        return '';
     }
 
     private function baseMeituanCapturedRow(array $item, array $context, array $fields): array
@@ -928,6 +959,14 @@ trait MeituanCapturedDataConcern
      */
     private function appendRedactedOnlineOrderField(array &$target, string $key, mixed $value, bool $orderContext): void
     {
+        $normalizedKey = strtolower($key);
+        if (in_array($normalizedKey, ['order_id_hash', 'order_no_hash', 'booking_id_hash'], true)) {
+            $hash = strtolower(trim((string)$value));
+            if (preg_match('/^[a-f0-9]{64}$/D', $hash) === 1) {
+                $target[$normalizedKey] = $hash;
+            }
+            return;
+        }
         if ($this->isOnlineOrderIdKey($key, $orderContext)) {
             $text = trim((string)$value);
             if ($text !== '') {

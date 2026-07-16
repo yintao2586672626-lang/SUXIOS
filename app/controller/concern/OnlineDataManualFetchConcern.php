@@ -662,14 +662,14 @@ trait OnlineDataManualFetchConcern
                         'display_summary' => $displaySummary,
                         'save_status' => 'blocked',
                     ], $this->buildCtripPersistenceState(true, 0, true));
-                    $responseCode = 200;
+                    $responseCode = 422;
                     return json([
                         'code' => $responseCode,
                         'message' => (string)($identityCheck['message'] ?? '携程返回酒店身份未能自动匹配本系统门店，已获取但未入库。'),
                         'data' => array_merge([
                             'reason' => (string)($identityCheck['status'] ?? 'ctrip_hotel_identity_blocked'),
                         ], $payload),
-                    ]);
+                    ], $responseCode);
                 }
             }
 
@@ -899,7 +899,8 @@ trait OnlineDataManualFetchConcern
     /** @return array{code:int,http_status:int,save_status:string,message:string} */
     private function buildCtripManualFetchPersistenceOutcome(bool $autoSave, array $persistenceState): array
     {
-        if ($autoSave && ($persistenceState['persistence_status'] ?? '') === 'readback_failed') {
+        $status = (string)($persistenceState['persistence_status'] ?? '');
+        if ($autoSave && $status === 'readback_failed') {
             return [
                 'code' => 500,
                 'http_status' => 500,
@@ -907,7 +908,80 @@ trait OnlineDataManualFetchConcern
                 'message' => '携程数据已获取，但数据库回读校验失败，未确认入库；本次结果仅作当前页面参考。',
             ];
         }
+        if ($autoSave && $status === 'not_persisted') {
+            return [
+                'code' => 422,
+                'http_status' => 422,
+                'save_status' => 'not_persisted',
+                'message' => '携程接口已返回，但本次没有可入库记录；未执行保存，请核对目标日期、接口字段和门店身份。',
+            ];
+        }
+        if ($autoSave && $status === 'blocked') {
+            return [
+                'code' => 422,
+                'http_status' => 422,
+                'save_status' => 'blocked',
+                'message' => '携程数据已获取，但保存条件未通过；本次未入库。',
+            ];
+        }
         return ['code' => 200, 'http_status' => 200, 'save_status' => '', 'message' => ''];
+    }
+
+    /**
+     * Count the current request rows that can be read back from the traffic
+     * table. Matching the stored raw row avoids treating an unrelated historic
+     * row in the same date range as proof of this write.
+     */
+    private function countCtripTrafficReadbackRows(
+        array $trafficRows,
+        int $systemHotelId,
+        string $source,
+        string $platform,
+        string $startDate,
+        string $endDate
+    ): int {
+        if ($trafficRows === [] || $systemHotelId <= 0) {
+            return 0;
+        }
+
+        $expectedHashes = [];
+        foreach ($trafficRows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $encoded = json_encode($row, JSON_UNESCAPED_UNICODE);
+            if (is_string($encoded)) {
+                $expectedHashes[hash('sha256', $encoded)] = true;
+            }
+        }
+        if ($expectedHashes === []) {
+            return 0;
+        }
+
+        $query = Db::name('online_daily_data')
+            ->field('raw_data')
+            ->where('system_hotel_id', $systemHotelId)
+            ->where('source', strtolower($source))
+            ->where('data_type', 'traffic')
+            ->whereBetween('data_date', [$startDate, $endDate]);
+        $columns = $this->getOnlineDailyDataColumns();
+        if (isset($columns['platform'])) {
+            $query->where('platform', $platform);
+        }
+
+        $matched = [];
+        foreach ($query->select()->toArray() as $storedRow) {
+            $rawData = (string)($storedRow['raw_data'] ?? '');
+            if ($rawData === '') {
+                continue;
+            }
+            $hash = hash('sha256', $rawData);
+            if (isset($expectedHashes[$hash])) {
+                $matched[$hash] = true;
+            }
+        }
+
+        return count($matched);
     }
 
     /**
@@ -1143,10 +1217,10 @@ trait OnlineDataManualFetchConcern
 
         if ($capturedIds === []) {
             return [
-                'ok' => true,
-                'status' => 'cookie_only_returned_current_hotel_id_missing',
+                'ok' => false,
+                'status' => 'returned_current_hotel_id_missing',
                 'warning' => true,
-                'message' => '携程返回数据未识别到当前酒店身份，已按当前选择门店继续入库。',
+                'message' => '携程数据已获取，但返回内容未识别到可核验的酒店ID，本次未入库。请确认 Cookie 对应门店并核对携程酒店ID后重试。',
                 'target_system_hotel_id' => $systemHotelId,
                 'target_hotel_name' => $targetHotelName,
                 'captured_hotel_ids' => [],
@@ -1171,10 +1245,10 @@ trait OnlineDataManualFetchConcern
 
         if ($expectedIds !== [] && array_intersect($expectedIds, $capturedIds) === []) {
             return [
-                'ok' => true,
+                'ok' => false,
                 'status' => 'configured_platform_hotel_id_mismatch',
                 'warning' => true,
-                'message' => '携程返回酒店ID与已保存配置不一致；本次仍按当前选择门店归属并继续入库。请核对配置ID：' . implode('、', $expectedIds) . '；返回ID：' . implode('、', $capturedIds),
+                'message' => '携程数据已获取，但返回酒店ID与当前门店配置不一致，本次未入库。请核对配置ID：' . implode('、', $expectedIds) . '；返回ID：' . implode('、', $capturedIds),
                 'target_system_hotel_id' => $systemHotelId,
                 'target_hotel_name' => $targetHotelName,
                 'captured_hotel_ids' => $capturedIds,
@@ -1210,10 +1284,10 @@ trait OnlineDataManualFetchConcern
 
         if ($capturedIds === []) {
             return [
-                'ok' => true,
+                'ok' => false,
                 'status' => 'platform_hotel_id_incomplete',
                 'warning' => true,
-                'message' => '当前门店未维护携程平台酒店ID，本次返回也未识别到本店ID；数据仍按当前选择门店归属并继续入库，请后续补齐ID以便核验。',
+                'message' => '携程数据已获取，但当前门店未维护携程酒店ID，返回内容也未识别到可核验ID，本次未入库。请补齐并核对携程酒店ID后重试。',
                 'target_system_hotel_id' => $systemHotelId,
                 'target_hotel_name' => $targetHotelName,
                 'captured_hotel_ids' => [],
@@ -2811,12 +2885,30 @@ trait OnlineDataManualFetchConcern
                     $expectedPlatformHotelId
                 );
             }
+            $processedCount = count(array_filter($trafficRows, 'is_array'));
+            $readbackCount = $autoSave
+                ? $this->countCtripTrafficReadbackRows(
+                    $trafficRows,
+                    $systemHotelId,
+                    strtolower($platform),
+                    $platform,
+                    $startDate,
+                    $endDate
+                )
+                : 0;
+            $persistenceState = $this->buildCtripPersistenceState(
+                $autoSave,
+                $processedCount,
+                false,
+                $readbackCount,
+                $autoSave && $processedCount > 0 && $readbackCount === $processedCount
+            );
             if ($this->isTruthyRequestValue($requestData['background_task'] ?? false) && $systemHotelId) {
                 $displayDataDate = $startDate === $endDate ? $startDate : $startDate . ' 至 ' . $endDate;
-                $this->recordAutoFetchNotification((int)$systemHotelId, true, '携程流量手动获取完成', $displayDataDate, [
-                    'saved_count' => $savedCount,
+                $this->recordAutoFetchNotification((int)$systemHotelId, $persistenceState['persisted'], '携程流量手动获取', $displayDataDate, [
+                    'saved_count' => $persistenceState['saved_count'],
                     'platform_results' => [
-                        ['platform' => strtolower($platform), 'success' => true, 'saved_count' => $savedCount],
+                        ['platform' => strtolower($platform), 'success' => $persistenceState['persisted'], 'saved_count' => $persistenceState['saved_count']],
                     ],
                 ], 'manual_fetch');
             }
@@ -2824,7 +2916,7 @@ trait OnlineDataManualFetchConcern
 
             OperationLog::record('online_data', 'fetch_ctrip_traffic', '获取携程流量数据', $this->currentUser->id, $systemHotelId);
 
-            return $this->success([
+            $responsePayload = [
                 'data' => $responseData,
                 'decoded_data' => $responseData,
                 'traffic_rows' => $trafficRows,
@@ -2832,13 +2924,33 @@ trait OnlineDataManualFetchConcern
                 'display_traffic_summary' => $displayTrafficSummary,
                 'raw_response' => $result['raw_response'],
                 'http_code' => $result['http_code'],
-                'saved_count' => $savedCount,
+                'write_count' => $savedCount,
+                'saved_count' => $persistenceState['saved_count'],
+                'processed_count' => $persistenceState['processed_count'],
+                'readback_count' => $persistenceState['readback_count'],
+                'readback_verified' => $persistenceState['readback_verified'],
+                'persistence_status' => $persistenceState['persistence_status'],
+                'persisted' => $persistenceState['persisted'],
                 'platform' => $platform,
                 'request_start_date' => $startDate,
                 'request_end_date' => $endDate,
                 'request_url' => $requestUrl,
                 'derived_analysis' => $derivedAnalysis,
-            ]);
+            ];
+            if ($autoSave && !$persistenceState['persisted']) {
+                return $this->error(
+                    $persistenceState['persistence_status'] === 'readback_failed'
+                        ? '携程流量数据已获取，但数据库回读不完整，未确认入库。'
+                        : '携程流量接口已返回，但本次没有可回读的入库记录。',
+                    $persistenceState['persistence_status'] === 'readback_failed' ? 500 : 422,
+                    $responsePayload
+                );
+            }
+
+            return $this->success(
+                $responsePayload,
+                $autoSave ? '携程流量已获取并通过入库回读' : '携程流量已获取，仅当前页面展示，未入库'
+            );
         } catch (\InvalidArgumentException) {
             return $this->error('携程流量业务参数无效', 400);
         } catch (\Throwable $e) {
@@ -2988,27 +3100,42 @@ trait OnlineDataManualFetchConcern
             if ($autoSave) {
                 $savedCount = $this->saveCtripCapturedAdRows($rows);
             }
+            $processedCount = count(array_filter($rows, 'is_array'));
+            $readbackCount = $autoSave ? $this->countCtripCapturedAdRowsReadback($rows) : 0;
+            $persistenceState = $this->buildCtripPersistenceState(
+                $autoSave,
+                $processedCount,
+                false,
+                $readbackCount,
+                $autoSave && $processedCount > 0 && $readbackCount === $processedCount
+            );
             if ($this->isTruthyRequestValue($requestData['background_task'] ?? false) && $systemHotelId) {
                 $displayDataDate = $startDate === $endDate ? $startDate : $startDate . ' 至 ' . $endDate;
-                $this->recordAutoFetchNotification((int)$systemHotelId, true, '携程广告手动获取完成', $displayDataDate, [
-                    'saved_count' => $savedCount,
+                $this->recordAutoFetchNotification((int)$systemHotelId, $persistenceState['persisted'], '携程广告手动获取', $displayDataDate, [
+                    'saved_count' => $persistenceState['saved_count'],
                     'platform_results' => [
-                        ['platform' => 'ctrip', 'success' => true, 'saved_count' => $savedCount],
+                        ['platform' => 'ctrip', 'success' => $persistenceState['persisted'], 'saved_count' => $persistenceState['saved_count']],
                     ],
                 ], 'manual_fetch');
             }
 
             if ($this->currentUser && isset($this->currentUser->id)) {
-                OperationLog::record('online_data', 'fetch_ctrip_ads', "获取携程广告数据: {$savedCount}条", $this->currentUser->id, $systemHotelId);
+                OperationLog::record('online_data', 'fetch_ctrip_ads', "获取携程广告数据，回读确认: {$readbackCount}条", $this->currentUser->id, $systemHotelId);
             }
 
-            return $this->success([
+            $responsePayload = [
                 'data' => $ads,
                 'rows' => $rows,
                 'metrics' => $this->summarizeCtripAdRows($rows),
                 'total' => count($ads),
                 'row_count' => count($rows),
-                'saved_count' => $savedCount,
+                'write_count' => $savedCount,
+                'saved_count' => $persistenceState['saved_count'],
+                'processed_count' => $persistenceState['processed_count'],
+                'readback_count' => $persistenceState['readback_count'],
+                'readback_verified' => $persistenceState['readback_verified'],
+                'persistence_status' => $persistenceState['persistence_status'],
+                'persisted' => $persistenceState['persisted'],
                 'decoded_data' => $responseData,
                 'raw_response' => $result['raw_response'],
                 'http_code' => $result['http_code'],
@@ -3017,7 +3144,21 @@ trait OnlineDataManualFetchConcern
                 'request_payload' => $payload,
                 'request_start_date' => $startDate,
                 'request_end_date' => $endDate,
-            ], '获取成功');
+            ];
+            if ($autoSave && !$persistenceState['persisted']) {
+                return $this->error(
+                    $persistenceState['persistence_status'] === 'readback_failed'
+                        ? '携程广告数据已获取，但数据库回读不完整，未确认入库。'
+                        : '携程广告接口已返回，但本次没有可回读的入库记录。',
+                    $persistenceState['persistence_status'] === 'readback_failed' ? 500 : 422,
+                    $responsePayload
+                );
+            }
+
+            return $this->success(
+                $responsePayload,
+                $autoSave ? '携程广告已获取并通过入库回读' : '携程广告已获取，仅当前页面展示，未入库'
+            );
         } catch (\InvalidArgumentException) {
             return $this->error('携程广告业务参数无效', 400);
         } catch (\Throwable $e) {

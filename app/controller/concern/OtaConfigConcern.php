@@ -2199,11 +2199,6 @@ trait OtaConfigConcern
         return false;
     }
 
-    private function getCurrentUserPermittedHotelIdSet(): array
-    {
-        return $this->getPermittedHotelIdSetForUser($this->currentUser);
-    }
-
     private function getPermittedHotelIdSetForUser($user): array
     {
         if (!$user || !method_exists($user, 'getPermittedHotelIds')) {

@@ -13,6 +13,8 @@ class CompetitorApi extends Base
 {
     private const TASK_TOKEN_ENV = 'COMPETITOR_TASK_TOKEN';
     private const REPORT_TOKEN_ENV = 'COMPETITOR_REPORT_TOKEN';
+    private const TASK_ASSIGNMENT_TTL_SECONDS = 7200;
+    private const COMPLETED_REPORT_TTL_SECONDS = 7200;
     private const SCREENSHOT_MAX_BYTES = 2 * 1024 * 1024;
     private const SCREENSHOT_MAX_BASE64_CHARS = 2796404;
     private const SCREENSHOT_MAX_WIDTH = 8000;
@@ -23,6 +25,9 @@ class CompetitorApi extends Base
         'image/png' => 'png',
         'image/webp' => 'webp',
     ];
+
+    /** @var array<string, int> */
+    private array $taskLockDepth = [];
 
     public function task(): Response
     {
@@ -61,12 +66,28 @@ class CompetitorApi extends Base
             ]);
             return $this->apiError('参数不完整', 400);
         }
+        if (!in_array($platform, CompetitorHotel::platformCodes(), true)) {
+            OperationLog::record('competitor', 'task_denied', '竞对任务领取失败: 平台不受支持', null, null, 'unsupported_platform', [
+                'audit_type' => 'operation',
+                'device_id' => $this->sanitizeExternalAuditText($deviceId),
+                'platform' => $this->sanitizeExternalAuditText($platform),
+            ]);
+            return $this->apiError('平台不受支持', 400);
+        }
 
         $now = date('Y-m-d H:i:s');
         $oneHourAgo = date('Y-m-d H:i:s', strtotime('-1 hour'));
 
         // 更新设备在线时间
         $device = CompetitorDevice::where('device_id', $deviceId)->find();
+        if ($device && (int)$device->status !== 1) {
+            OperationLog::record('competitor', 'task_denied', '竞对任务领取失败: 设备已停用', null, null, 'device_disabled', [
+                'audit_type' => 'operation',
+                'device_id' => $this->sanitizeExternalAuditText($deviceId),
+                'platform' => $this->sanitizeExternalAuditText($platform),
+            ]);
+            return $this->apiError('设备已停用', 403);
+        }
         if (!$device) {
             $device = new CompetitorDevice();
             $device->device_id = $deviceId;
@@ -99,6 +120,41 @@ class CompetitorApi extends Base
             ];
         }, $list);
 
+        // Claim each task before returning it. A task owned by another active
+        // device is skipped, so concurrent pollers never receive the same job.
+        $data = array_values(array_filter($data, function (array $item) use ($deviceId): bool {
+            return $this->rememberTaskAssignment(
+                $deviceId,
+                (string)($item['platform'] ?? ''),
+                (int)($item['store_id'] ?? 0),
+                (int)($item['hotel_id'] ?? 0)
+            );
+        }));
+
+        $rememberedAssignments = [];
+        foreach ($data as $item) {
+            $storeId = (int)($item['store_id'] ?? 0);
+            $hotelId = (int)($item['hotel_id'] ?? 0);
+            $itemPlatform = (string)($item['platform'] ?? '');
+            if (!$this->rememberTaskAssignment($deviceId, $itemPlatform, $storeId, $hotelId)) {
+                foreach ($rememberedAssignments as $assignment) {
+                    cache($this->taskAssignmentCacheKey(
+                        $deviceId,
+                        (string)$assignment['platform'],
+                        (int)$assignment['store_id'],
+                        (int)$assignment['hotel_id']
+                    ), null);
+                }
+                OperationLog::record('competitor', 'task_denied', '竞对任务领取失败: 无法保存设备任务归属', null, null, 'task_assignment_unavailable', [
+                    'audit_type' => 'operation',
+                    'device_id' => $this->sanitizeExternalAuditText($deviceId),
+                    'platform' => $this->sanitizeExternalAuditText($platform),
+                ]);
+                return $this->apiError('任务归属暂不可用，请稍后重试', 503);
+            }
+            $rememberedAssignments[] = $item;
+        }
+
         OperationLog::record('competitor', 'task', '领取竞对采集任务: ' . count($data) . '条', null, null, null, [
             'audit_type' => 'acquisition',
             'device_id' => $this->sanitizeExternalAuditText($deviceId),
@@ -110,6 +166,23 @@ class CompetitorApi extends Base
     }
 
     public function report(): Response
+    {
+        $storeId = (int)$this->request->post('store_id', 0);
+        $hotelId = (int)$this->request->post('hotel_id', 0);
+        $platform = (string)$this->request->post('platform', '');
+        if ($storeId <= 0 || $hotelId <= 0 || trim($platform) === '') {
+            return $this->reportLegacy();
+        }
+
+        return $this->withTaskAssignmentLock(
+            $platform,
+            $storeId,
+            $hotelId,
+            fn(): Response => $this->reportLegacy()
+        );
+    }
+
+    private function reportLegacy(): Response
     {
         $storeId = (int)$this->request->post('store_id', 0);
         $hotelId = (int)$this->request->post('hotel_id', 0);
@@ -153,6 +226,17 @@ class CompetitorApi extends Base
             return $this->apiError('参数不完整', 400);
         }
 
+        $device = CompetitorDevice::where('device_id', $deviceId)->find();
+        if (!$device || (int)$device->status !== 1) {
+            OperationLog::record('competitor', 'report_denied', '竞对价格上报失败: 设备未登记或已停用', null, $hotelId, 'device_not_active', [
+                'audit_type' => 'operation',
+                'device_id' => $this->sanitizeExternalAuditText($deviceId),
+                'platform' => $this->sanitizeExternalAuditText($platform),
+                'store_id' => $storeId,
+            ]);
+            return $this->apiError('设备未登记或已停用，请先领取任务', 403);
+        }
+
         $target = CompetitorHotel::where('id', $hotelId)
             ->where('store_id', $storeId)
             ->where('platform', $platform)
@@ -181,6 +265,29 @@ class CompetitorApi extends Base
             return $this->apiError('未识别到有效竞对价格', 400);
         }
 
+        $reportFingerprint = $this->reportFingerprint($deviceId, $platform, $storeId, $hotelId, $price, $base64);
+        if (!$this->hasTaskAssignment($deviceId, $platform, $storeId, $hotelId)) {
+            $completedReport = $this->completedReport($deviceId, $platform, $storeId, $hotelId, $reportFingerprint);
+            if ($completedReport !== null) {
+                return json([
+                    'code' => 200,
+                    'message' => 'ok',
+                    'data' => [
+                        'id' => (int)$completedReport['id'],
+                        'idempotent_replay' => true,
+                    ],
+                ]);
+            }
+
+            OperationLog::record('competitor', 'report_denied', '竞对价格上报失败: 设备未领取该任务或任务已过期', null, $hotelId, 'task_assignment_missing', [
+                'audit_type' => 'operation',
+                'device_id' => $this->sanitizeExternalAuditText($deviceId),
+                'platform' => $this->sanitizeExternalAuditText($platform),
+                'store_id' => $storeId,
+            ]);
+            return $this->apiError('该任务未由当前设备领取或已过期，请重新领取任务', 403);
+        }
+
         $screenshotPath = '';
         if ($base64 !== '') {
             try {
@@ -197,24 +304,45 @@ class CompetitorApi extends Base
             }
         }
 
-        $log = new CompetitorPriceLog();
-        $log->tenant_id = (int)($target->tenant_id ?? $target->store_id ?? 0);
-        $log->store_id = $storeId;
-        $log->hotel_id = $hotelId;
-        $log->platform = $platform;
-        $log->city = $city;
-        $log->price = $price;
-        $log->screenshot = $screenshotPath;
-        $log->device_id = $deviceId;
-        $log->fetch_time = date('Y-m-d H:i:s');
-        $log->save();
+        if (!$this->consumeTaskAssignment($deviceId, $platform, $storeId, $hotelId)) {
+            $this->removeSavedScreenshot($screenshotPath);
+            $completedReport = $this->completedReport($deviceId, $platform, $storeId, $hotelId, $reportFingerprint);
+            if ($completedReport !== null) {
+                return json([
+                    'code' => 200,
+                    'message' => 'ok',
+                    'data' => [
+                        'id' => (int)$completedReport['id'],
+                        'idempotent_replay' => true,
+                    ],
+                ]);
+            }
+            return $this->apiError('该任务正在处理或已完成，请勿重复上报', 409);
+        }
+
+        try {
+            $log = new CompetitorPriceLog();
+            $log->tenant_id = (int)($target->tenant_id ?? $target->store_id ?? 0);
+            $log->store_id = $storeId;
+            $log->hotel_id = $hotelId;
+            $log->platform = $platform;
+            $log->city = $city;
+            $log->price = $price;
+            $log->screenshot = $screenshotPath;
+            $log->device_id = $deviceId;
+            $log->fetch_time = date('Y-m-d H:i:s');
+            $log->save();
+        } catch (\Throwable $e) {
+            $this->rememberTaskAssignment($deviceId, $platform, $storeId, $hotelId);
+            $this->removeSavedScreenshot($screenshotPath);
+            throw $e;
+        }
+
+        $this->rememberCompletedReport($deviceId, $platform, $storeId, $hotelId, $reportFingerprint, (int)$log->id);
 
         // 更新设备在线时间
-        $device = CompetitorDevice::where('device_id', $deviceId)->find();
-        if ($device) {
-            $device->last_time = date('Y-m-d H:i:s');
-            $device->save();
-        }
+        $device->last_time = date('Y-m-d H:i:s');
+        $device->save();
 
         OperationLog::record('competitor', 'report', '上报竞对价格: ' . $hotelId, null, $hotelId, null, [
             'audit_type' => 'operation',
@@ -253,6 +381,205 @@ class CompetitorApi extends Base
     private function getTaskToken(): string
     {
         return trim((string)env(self::TASK_TOKEN_ENV, ''));
+    }
+
+    private function taskAssignmentCacheKey(string $deviceId, string $platform, int $storeId, int $hotelId): string
+    {
+        return 'competitor_task_assignment_' . $this->hashScopeValues([
+            trim($deviceId),
+            trim($platform),
+            (string)$storeId,
+            (string)$hotelId,
+        ]);
+    }
+
+    private function taskOwnershipCacheKey(string $platform, int $storeId, int $hotelId): string
+    {
+        return 'competitor_task_owner_' . $this->hashScopeValues([
+            trim($platform),
+            (string)$storeId,
+            (string)$hotelId,
+        ]);
+    }
+
+    private function completedReportCacheKey(string $deviceId, string $platform, int $storeId, int $hotelId): string
+    {
+        return $this->taskAssignmentCacheKey($deviceId, $platform, $storeId, $hotelId) . '_completed';
+    }
+
+    private function rememberTaskAssignment(string $deviceId, string $platform, int $storeId, int $hotelId): bool
+    {
+        if ($deviceId === '' || $platform === '' || $storeId <= 0 || $hotelId <= 0) {
+            return false;
+        }
+
+        return $this->withTaskAssignmentLock($platform, $storeId, $hotelId, function () use ($deviceId, $platform, $storeId, $hotelId): bool {
+            $ownerKey = $this->taskOwnershipCacheKey($platform, $storeId, $hotelId);
+            $owner = cache($ownerKey);
+            if (is_array($owner)
+                && !hash_equals((string)($owner['device_id'] ?? ''), $deviceId)
+            ) {
+                return false;
+            }
+
+            $assignment = [
+                'device_id' => $deviceId,
+                'platform' => $platform,
+                'store_id' => $storeId,
+                'hotel_id' => $hotelId,
+                'issued_at' => time(),
+            ];
+            if (!cache($ownerKey, $assignment, self::TASK_ASSIGNMENT_TTL_SECONDS)) {
+                return false;
+            }
+            $stored = cache(
+                $this->taskAssignmentCacheKey($deviceId, $platform, $storeId, $hotelId),
+                $assignment,
+                self::TASK_ASSIGNMENT_TTL_SECONDS
+            );
+            if (!$stored) {
+                cache($ownerKey, null);
+                return false;
+            }
+            cache($this->completedReportCacheKey($deviceId, $platform, $storeId, $hotelId), null);
+            return true;
+        });
+    }
+
+    private function hasTaskAssignment(string $deviceId, string $platform, int $storeId, int $hotelId): bool
+    {
+        $assignment = cache($this->taskAssignmentCacheKey($deviceId, $platform, $storeId, $hotelId));
+        $owner = cache($this->taskOwnershipCacheKey($platform, $storeId, $hotelId));
+
+        return is_array($assignment)
+            && is_array($owner)
+            && hash_equals((string)($assignment['device_id'] ?? ''), $deviceId)
+            && hash_equals((string)($owner['device_id'] ?? ''), $deviceId)
+            && hash_equals((string)($assignment['platform'] ?? ''), $platform)
+            && (int)($assignment['store_id'] ?? 0) === $storeId
+            && (int)($assignment['hotel_id'] ?? 0) === $hotelId;
+    }
+
+    private function consumeTaskAssignment(string $deviceId, string $platform, int $storeId, int $hotelId): bool
+    {
+        return $this->withTaskAssignmentLock($platform, $storeId, $hotelId, function () use ($deviceId, $platform, $storeId, $hotelId): bool {
+            if (!$this->hasTaskAssignment($deviceId, $platform, $storeId, $hotelId)) {
+                return false;
+            }
+            $assignmentDeleted = (bool)cache(
+                $this->taskAssignmentCacheKey($deviceId, $platform, $storeId, $hotelId),
+                null
+            );
+            $ownerDeleted = (bool)cache($this->taskOwnershipCacheKey($platform, $storeId, $hotelId), null);
+            return $assignmentDeleted && $ownerDeleted;
+        });
+    }
+
+    private function withTaskAssignmentLock(string $platform, int $storeId, int $hotelId, callable $callback): mixed
+    {
+        $lockKey = $this->hashScopeValues([trim($platform), (string)$storeId, (string)$hotelId]);
+        if (($this->taskLockDepth[$lockKey] ?? 0) > 0) {
+            return $callback();
+        }
+
+        $dir = rtrim(runtime_path(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'competitor-task-locks';
+        if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
+            throw new \RuntimeException('competitor task lock directory is unavailable');
+        }
+        $handle = fopen($dir . DIRECTORY_SEPARATOR . $lockKey . '.lock', 'c+');
+        if ($handle === false || !flock($handle, LOCK_EX)) {
+            if (is_resource($handle)) {
+                fclose($handle);
+            }
+            throw new \RuntimeException('competitor task lock is unavailable');
+        }
+
+        $this->taskLockDepth[$lockKey] = 1;
+        try {
+            return $callback();
+        } finally {
+            unset($this->taskLockDepth[$lockKey]);
+            flock($handle, LOCK_UN);
+            fclose($handle);
+        }
+    }
+
+    private function reportFingerprint(
+        string $deviceId,
+        string $platform,
+        int $storeId,
+        int $hotelId,
+        float $price,
+        string $base64
+    ): string {
+        return $this->hashScopeValues([
+            $deviceId,
+            $platform,
+            (string)$storeId,
+            (string)$hotelId,
+            number_format($price, 2, '.', ''),
+            $base64 === '' ? '' : hash('sha256', $base64),
+        ]);
+    }
+
+    /** @param array<int, string> $values */
+    private function hashScopeValues(array $values): string
+    {
+        $payload = '';
+        foreach ($values as $value) {
+            $payload .= strlen($value) . ':' . $value . ';';
+        }
+
+        return hash('sha256', $payload);
+    }
+
+    private function rememberCompletedReport(
+        string $deviceId,
+        string $platform,
+        int $storeId,
+        int $hotelId,
+        string $fingerprint,
+        int $logId
+    ): void {
+        cache($this->completedReportCacheKey($deviceId, $platform, $storeId, $hotelId), [
+            'fingerprint' => $fingerprint,
+            'id' => $logId,
+            'completed_at' => time(),
+        ], self::COMPLETED_REPORT_TTL_SECONDS);
+    }
+
+    /** @return array{fingerprint: string, id: int, completed_at: int}|null */
+    private function completedReport(
+        string $deviceId,
+        string $platform,
+        int $storeId,
+        int $hotelId,
+        string $fingerprint
+    ): ?array {
+        $completed = cache($this->completedReportCacheKey($deviceId, $platform, $storeId, $hotelId));
+        if (!is_array($completed)
+            || (int)($completed['id'] ?? 0) <= 0
+            || !hash_equals((string)($completed['fingerprint'] ?? ''), $fingerprint)) {
+            return null;
+        }
+
+        return [
+            'fingerprint' => (string)$completed['fingerprint'],
+            'id' => (int)$completed['id'],
+            'completed_at' => (int)($completed['completed_at'] ?? 0),
+        ];
+    }
+
+    private function removeSavedScreenshot(string $relativePath): void
+    {
+        if ($relativePath === '' || !str_starts_with($relativePath, 'runtime/upload/price/')) {
+            return;
+        }
+
+        $absolutePath = root_path() . str_replace('/', DIRECTORY_SEPARATOR, $relativePath);
+        if (is_file($absolutePath)) {
+            @unlink($absolutePath);
+        }
     }
 
     private function apiError(string $message, int $status): Response

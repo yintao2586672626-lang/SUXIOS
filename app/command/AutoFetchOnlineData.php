@@ -6,6 +6,7 @@ namespace app\command;
 use app\service\PlatformDataSyncService;
 use app\service\OtaCredentialVault;
 use app\service\OtaFailureNotificationService;
+use app\service\ScheduledAutoFetchPolicy;
 use think\console\Command;
 use think\console\Input;
 use think\console\Output;
@@ -30,12 +31,9 @@ class AutoFetchOnlineData extends Command
     {
         $output->writeln('[' . date('Y-m-d H:i:s') . '] Start online data auto-fetch schedule check.');
 
-        $currentTime = date('H:i');
-        $currentMinute = (int)date('i');
-        $currentHour = date('H');
-        $today = date('Y-m-d');
-        $yesterday = date('Y-m-d', strtotime('-1 day'));
+        $now = new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
         $hotels = Db::name('hotels')->where('status', 1)->select()->toArray();
+        $hasIncompleteDueRun = false;
 
         foreach ($hotels as $hotel) {
             $hotelId = (int)$hotel['id'];
@@ -46,30 +44,10 @@ class AutoFetchOnlineData extends Command
                 continue;
             }
 
-            $historicalTime = $this->normalizeFetchScheduleTime((string)($status['historical_schedule_time'] ?? $status['schedule_time'] ?? '10:00')) ?? '10:00';
-            $realtimeMinute = $this->normalizeAutoFetchScheduleMinute($status['realtime_schedule_minute'] ?? $status['schedule_minute'] ?? 5);
-            $realtimeMinute = $realtimeMinute === null ? 5 : $realtimeMinute;
             $realtimeIntervalHours = $this->normalizeRealtimeScheduleIntervalHours($status['realtime_schedule_interval_hours'] ?? $status['realtime_interval_hours'] ?? $status['schedule_interval_hours'] ?? 2);
-            $historicalEnabled = array_key_exists('historical_enabled', $status) ? $this->truthy($status['historical_enabled']) : true;
-            $realtimeEnabled = array_key_exists('realtime_enabled', $status) ? $this->truthy($status['realtime_enabled']) : true;
-
-            $dueRuns = [];
-            if ($historicalEnabled && $currentTime === $historicalTime) {
-                $dueRuns[] = [
-                    'period' => 'historical_daily',
-                    'data_date' => $yesterday,
-                    'executed_key' => "online_data_historical_executed_{$hotelId}_{$yesterday}",
-                    'label' => 'historical',
-                ];
-            }
-            if ($realtimeEnabled && $currentMinute === $realtimeMinute && $this->isRealtimeScheduleHourDue((int)$currentHour, $realtimeIntervalHours)) {
-                $dueRuns[] = [
-                    'period' => 'realtime_snapshot',
-                    'data_date' => $today,
-                    'executed_key' => "online_data_realtime_executed_{$hotelId}_{$today}_{$currentHour}",
-                    'label' => 'realtime',
-                ];
-            }
+            $retryMaxAttempts = $this->normalizeScheduleRetryMaxAttempts($status['retry_max_attempts'] ?? 3);
+            $retryDelayMinutes = $this->normalizeScheduleRetryDelayMinutes($status['retry_delay_minutes'] ?? 5);
+            $dueRuns = $this->buildDueRuns($hotelId, $status, $now);
             if (empty($dueRuns)) {
                 continue;
             }
@@ -77,19 +55,30 @@ class AutoFetchOnlineData extends Command
             $browserHeadless = array_key_exists('browser_headless', $status) ? $this->truthy($status['browser_headless']) : true;
             $ctripSectionConcurrency = $this->normalizeCtripSectionConcurrency($status['ctrip_section_concurrency'] ?? $status['ctripSectionConcurrency'] ?? 3);
             $lockKey = "online_data_profile_lock_{$hotelId}";
-            $ranLockedTask = false;
             foreach ($dueRuns as $run) {
                 if (Cache::get($run['executed_key'])) {
                     $output->writeln("Hotel {$hotelName} {$run['label']} already executed, skipped.");
                     continue;
                 }
-                if ($ranLockedTask || Cache::get($lockKey)) {
+                $retryState = Cache::get($run['retry_key'], []);
+                $retryState = is_array($retryState) ? $retryState : [];
+                if (!$this->isScheduleRetryDue($retryState, $retryMaxAttempts, $now)) {
+                    $hasIncompleteDueRun = true;
+                    $reason = ((int)($retryState['attempts'] ?? 0) >= $retryMaxAttempts)
+                        ? 'retry exhausted'
+                        : 'retry cooldown';
+                    $output->writeln("Hotel {$hotelName} {$run['label']} {$reason}, skipped.");
+                    continue;
+                }
+                if (Cache::get($lockKey)) {
                     $message = 'skipped_locked: same Profile is already running another capture task';
                     $output->writeln("Hotel {$hotelName} {$run['label']} {$message}.");
                     $this->updateStatus($hotelId, false, $message, $run['data_date'], [
                         'status' => 'skipped_locked',
                         'data_period' => $run['period'],
+                        'slot_id' => $run['slot_id'],
                     ]);
+                    $hasIncompleteDueRun = true;
                     continue;
                 }
 
@@ -100,31 +89,72 @@ class AutoFetchOnlineData extends Command
                     'data_date' => $run['data_date'],
                     'started_at' => $snapshotTime,
                 ], 7200);
-                $ranLockedTask = true;
                 try {
-                    $result = $this->fetchDataForHotel(
-                        $hotelId,
-                        $run['data_date'],
-                        $browserHeadless,
-                        $run['period'],
-                        $snapshotTime,
-                        $ctripSectionConcurrency,
-                        (string)($status['ctrip_config_id'] ?? ''),
-                        (string)($status['ctrip_request_url'] ?? ''),
-                        (string)($status['ctrip_node_id'] ?? '')
-                    );
-                    $this->updateStatus($hotelId, !empty($result['success']), (string)($result['message'] ?? ''), $run['data_date'], [
-                        'status' => !empty($result['success']) ? 'success' : 'failed',
-                        'saved_count' => (int)($result['saved_count'] ?? 0),
+                    try {
+                        $result = $this->fetchDataForHotel(
+                            $hotelId,
+                            $run['data_date'],
+                            $browserHeadless,
+                            $run['period'],
+                            $snapshotTime,
+                            $ctripSectionConcurrency,
+                            (string)($status['ctrip_config_id'] ?? ''),
+                            (string)($status['ctrip_request_url'] ?? ''),
+                            (string)($status['ctrip_node_id'] ?? '')
+                        );
+                    } catch (\Throwable $e) {
+                        Log::error('Scheduled OTA collection execution failed', [
+                            'hotel_id' => $hotelId,
+                            'data_period' => $run['period'],
+                            'exception_type' => get_debug_type($e),
+                        ]);
+                        $result = [
+                            'success' => false,
+                            'message' => 'scheduled_fetch_exception:' . get_debug_type($e),
+                            'saved_count' => 0,
+                            'failed_platforms' => ['ctrip', 'meituan'],
+                            'successful_platforms' => [],
+                        ];
+                    }
+
+                    $outcome = $this->classifyScheduledRunOutcome($result);
+                    $retryDetails = $outcome['complete']
+                        ? [
+                            'attempts' => (int)($retryState['attempts'] ?? 0) + 1,
+                            'max_attempts' => $retryMaxAttempts,
+                            'next_retry_at' => null,
+                            'retry_exhausted' => false,
+                        ]
+                        : $this->buildScheduleRetryState(
+                            $retryState,
+                            $retryMaxAttempts,
+                            $retryDelayMinutes,
+                            $now,
+                            $outcome['status'],
+                            (string)($result['message'] ?? '')
+                        );
+
+                    $this->updateStatus($hotelId, $outcome['complete'], (string)($result['message'] ?? ''), $run['data_date'], [
+                        'status' => $outcome['status'],
+                        'saved_count' => $outcome['saved_count'],
                         'data_period' => $run['period'],
+                        'slot_id' => $run['slot_id'],
                         'timing' => is_array($result['timing'] ?? null) ? $result['timing'] : [],
                         'ctrip_section_concurrency' => $result['ctrip_section_concurrency'] ?? $ctripSectionConcurrency,
                         'realtime_schedule_interval_hours' => $realtimeIntervalHours,
-                        'failed_platforms' => $result['failed_platforms'] ?? [],
-                        'successful_platforms' => $result['successful_platforms'] ?? [],
+                        'failed_platforms' => $outcome['failed_platforms'],
+                        'successful_platforms' => $outcome['successful_platforms'],
+                        ...$retryDetails,
                     ]);
-                    $output->writeln("Hotel {$hotelName} {$run['label']} " . (!empty($result['success']) ? 'success' : 'failed') . ': ' . (string)($result['message'] ?? '-'));
-                    Cache::set($run['executed_key'], true, 86400);
+                    $output->writeln("Hotel {$hotelName} {$run['label']} {$outcome['status']}: " . (string)($result['message'] ?? '-'));
+
+                    if ($outcome['complete']) {
+                        Cache::set($run['executed_key'], true, 86400);
+                        Cache::delete($run['retry_key']);
+                    } else {
+                        Cache::set($run['retry_key'], $retryDetails, 86400 * 2);
+                        $hasIncompleteDueRun = true;
+                    }
                 } finally {
                     Cache::delete($lockKey);
                 }
@@ -132,7 +162,7 @@ class AutoFetchOnlineData extends Command
         }
 
         $output->writeln('[' . date('Y-m-d H:i:s') . '] Online data auto-fetch schedule check finished.');
-        return 0;
+        return $hasIncompleteDueRun ? 1 : 0;
     }
 
     private function fetchDataForHotel(
@@ -385,6 +415,63 @@ class AutoFetchOnlineData extends Command
             'platform' => 'ctrip',
             'config_id' => $configId,
         ];
+    }
+
+    /**
+     * Build the current dispatch window without requiring an exact minute hit.
+     * Historical collection remains due for the rest of the day; realtime
+     * collection remains due until the end of its scheduled hour.
+     *
+     * @return array<int, array{slot_id: string, period: string, data_date: string, executed_key: string, retry_key: string, label: string, executed_message: string}>
+     */
+    private function buildDueRuns(int $hotelId, array $status, \DateTimeImmutable $now): array
+    {
+        return (new ScheduledAutoFetchPolicy())->dueRuns($hotelId, $status, $now);
+    }
+
+    /**
+     * A scheduled run is complete only when at least one row was read back and
+     * no platform remains failed. Partial writes remain retryable and visible.
+     *
+     * @return array{complete: bool, status: string, saved_count: int, failed_platforms: array<int, string>, successful_platforms: array<int, string>}
+     */
+    private function classifyScheduledRunOutcome(array $result): array
+    {
+        return (new ScheduledAutoFetchPolicy())->classifyOutcome($result);
+    }
+
+    private function normalizeScheduleRetryMaxAttempts(mixed $value): int
+    {
+        return (new ScheduledAutoFetchPolicy())->normalizeMaxAttempts($value);
+    }
+
+    private function normalizeScheduleRetryDelayMinutes(mixed $value): int
+    {
+        return (new ScheduledAutoFetchPolicy())->normalizeDelayMinutes($value);
+    }
+
+    private function isScheduleRetryDue(array $retryState, int $maxAttempts, \DateTimeImmutable $now): bool
+    {
+        return (new ScheduledAutoFetchPolicy())->retryDue($retryState, $maxAttempts, $now);
+    }
+
+    /** @return array{attempts: int, max_attempts: int, next_retry_at: ?string, retry_exhausted: bool, last_status: string, last_message: string} */
+    private function buildScheduleRetryState(
+        array $currentState,
+        int $maxAttempts,
+        int $baseDelayMinutes,
+        \DateTimeImmutable $now,
+        string $status,
+        string $message
+    ): array {
+        return (new ScheduledAutoFetchPolicy())->nextRetryState(
+            $currentState,
+            $maxAttempts,
+            $baseDelayMinutes,
+            $now,
+            $status,
+            $message
+        );
     }
 
     private function normalizeFetchScheduleTime(string $scheduleTime): ?string
@@ -724,6 +811,9 @@ class AutoFetchOnlineData extends Command
         ];
         $statusCode = (string)($details['status'] ?? ($success ? 'success' : 'failed'));
         $dataPeriod = $this->normalizeOnlineDailyDataPeriod($details['data_period'] ?? $details['dataPeriod'] ?? '');
+        $slotId = trim((string)($details['slot_id'] ?? ''));
+        $failedPlatforms = $this->normalizeFailedPlatforms($details['failed_platforms'] ?? []);
+        $successfulPlatforms = $this->normalizeFailedPlatforms($details['successful_platforms'] ?? []);
         $timing = is_array($details['timing'] ?? null) ? $this->normalizeTiming($details['timing']) : [];
         if ($statusCode !== '') {
             $runRecord['status'] = $statusCode;
@@ -731,6 +821,11 @@ class AutoFetchOnlineData extends Command
         if ($dataPeriod !== '') {
             $runRecord['data_period'] = $dataPeriod;
         }
+        if ($slotId !== '') {
+            $runRecord['slot_id'] = $slotId;
+        }
+        $runRecord['failed_platforms'] = $failedPlatforms;
+        $runRecord['successful_platforms'] = $successfulPlatforms;
         if (array_key_exists('saved_count', $details)) {
             $runRecord['saved_count'] = (int)$details['saved_count'];
         }
@@ -746,6 +841,11 @@ class AutoFetchOnlineData extends Command
             $status['realtime_schedule_interval_hours'] = $runRecord['realtime_schedule_interval_hours'];
             $status['schedule_interval_hours'] = $runRecord['realtime_schedule_interval_hours'];
         }
+        foreach (['attempts', 'max_attempts', 'next_retry_at', 'retry_exhausted'] as $retryField) {
+            if (array_key_exists($retryField, $details)) {
+                $runRecord[$retryField] = $details[$retryField];
+            }
+        }
 
         $status['last_run_time'] = $runAt;
         $status['last_data_date'] = $dataDate;
@@ -753,6 +853,11 @@ class AutoFetchOnlineData extends Command
         if ($dataPeriod !== '') {
             $status['last_result']['data_period'] = $dataPeriod;
         }
+        if ($slotId !== '') {
+            $status['last_result']['slot_id'] = $slotId;
+        }
+        $status['last_result']['failed_platforms'] = $failedPlatforms;
+        $status['last_result']['successful_platforms'] = $successfulPlatforms;
         if (array_key_exists('saved_count', $details)) {
             $status['last_result']['saved_count'] = (int)$details['saved_count'];
         }
@@ -765,6 +870,11 @@ class AutoFetchOnlineData extends Command
         if (array_key_exists('realtime_schedule_interval_hours', $details)) {
             $status['last_result']['realtime_schedule_interval_hours'] = $this->normalizeRealtimeScheduleIntervalHours($details['realtime_schedule_interval_hours']);
         }
+        foreach (['attempts', 'max_attempts', 'next_retry_at', 'retry_exhausted'] as $retryField) {
+            if (array_key_exists($retryField, $details)) {
+                $status['last_result'][$retryField] = $details[$retryField];
+            }
+        }
 
         $recentRuns = $status['recent_runs'] ?? [];
         $recentRuns = is_array($recentRuns) ? $recentRuns : [];
@@ -773,22 +883,43 @@ class AutoFetchOnlineData extends Command
 
         $failedRecords = $status['failed_records'] ?? [];
         $failedRecords = is_array($failedRecords) ? $failedRecords : [];
-        $failedRecords = array_values(array_filter($failedRecords, function ($item) use ($dataDate) {
-            return (string)($item['data_date'] ?? '') !== $dataDate;
-        }));
-        if (!$success && $statusCode !== 'skipped_locked') {
-            array_unshift($failedRecords, [
-                'data_date' => $dataDate,
-                'last_failed_at' => $runAt,
-                'message' => $message,
-            ]);
+        if ($statusCode !== 'skipped_locked') {
+            $failedRecords = array_values(array_filter($failedRecords, function ($item) use ($dataDate, $dataPeriod, $slotId) {
+                if ($slotId !== '' && trim((string)($item['slot_id'] ?? '')) !== '') {
+                    return trim((string)$item['slot_id']) !== $slotId;
+                }
+                if ((string)($item['data_date'] ?? '') !== $dataDate) {
+                    return true;
+                }
+                $itemPeriod = $this->normalizeOnlineDailyDataPeriod($item['data_period'] ?? '');
+                return $dataPeriod !== '' && $itemPeriod !== '' && $itemPeriod !== $dataPeriod;
+            }));
+            if (!$success) {
+                $failedRecord = [
+                    'data_date' => $dataDate,
+                    'last_failed_at' => $runAt,
+                    'message' => $message,
+                ];
+                if ($dataPeriod !== '') {
+                    $failedRecord['data_period'] = $dataPeriod;
+                }
+                if ($slotId !== '') {
+                    $failedRecord['slot_id'] = $slotId;
+                }
+                $failedRecord['failed_platforms'] = $failedPlatforms;
+                $failedRecord['successful_platforms'] = $successfulPlatforms;
+                foreach (['attempts', 'max_attempts', 'next_retry_at', 'retry_exhausted'] as $retryField) {
+                    if (array_key_exists($retryField, $details)) {
+                        $failedRecord[$retryField] = $details[$retryField];
+                    }
+                }
+                array_unshift($failedRecords, $failedRecord);
+            }
+            $status['failed_records'] = array_slice($failedRecords, 0, 30);
         }
-        $status['failed_records'] = array_slice($failedRecords, 0, 30);
 
         Cache::set($statusKey, $status, 86400 * 30);
 
-        $failedPlatforms = $this->normalizeFailedPlatforms($details['failed_platforms'] ?? []);
-        $successfulPlatforms = $this->normalizeFailedPlatforms($details['successful_platforms'] ?? []);
         if ((!$success || $failedPlatforms !== [] || $successfulPlatforms !== []) && $statusCode !== 'skipped_locked') {
             try {
                 (new OtaFailureNotificationService())->recordCollectionOutcome([

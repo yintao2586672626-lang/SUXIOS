@@ -518,6 +518,11 @@ final class PlatformDataSyncService
             return [];
         }
 
+        $collectionStatus = strtolower(trim((string)($payload['collection_status'] ?? $payload['collectionStatus'] ?? '')));
+        if (in_array($collectionStatus, ['failed', 'failure', 'collection_failed', 'request_failed', 'auth_failed'], true)) {
+            return [];
+        }
+
         $tenantId = $this->resolveSourceTenantId($source);
         $normalized = [];
         foreach ($rows as $row) {
@@ -556,6 +561,10 @@ final class PlatformDataSyncService
             if ($this->isCommentDataType($dataType) && !$this->isReviewCollectionAllowed($source, $payload, $dataType)) {
                 continue;
             }
+            $reviewValidationFlags = $dataType === 'review'
+                ? $this->reviewValidationFlags($row, $payload, $date, $collectionStatus)
+                : [];
+            $reviewValidationStatus = $this->reviewValidationStatus($reviewValidationFlags);
             $periodMeta = $this->resolveDataPeriodMetadata($row, $payload, $source, $date);
             $traceId = trim((string)($row['source_trace_id'] ?? ''));
             if ($traceId === '' || ($periodMeta['data_period'] === 'realtime_snapshot' && $periodMeta['snapshot_bucket'] !== '')) {
@@ -609,7 +618,7 @@ final class PlatformDataSyncService
                 'tenant_id' => $tenantId,
                 'data_value' => $this->dataValue($row, $dataType, $preserveMissingMetrics),
                 'source' => $platform,
-                'dimension' => $this->stringValue($row, ['dimension', 'dim_name', '_dimName']) ?: ($dataType === 'review' ? $this->reviewDimensionValue($row) : ''),
+                'dimension' => $this->stringValue($row, ['dimension', 'dim_name', '_dimName']) ?: ($dataType === 'review' ? $this->reviewDimensionValue($sanitizedRow) : ''),
                 'data_type' => $dataType,
                 'platform' => $this->stringValue($row, ['platform']) ?: $platform,
                 'compare_type' => $normalizedCompareType,
@@ -618,8 +627,8 @@ final class PlatformDataSyncService
                 'flow_rate' => $this->flowRateValue($row, $dataType, $preserveMissingMetrics),
                 'order_filling_num' => $this->integerMetricValue($row, ['order_filling_num', 'orderFillingNum', 'orderVisitors', 'clickCount', 'clicks'], $preserveMissingMetrics),
                 'order_submit_num' => $this->integerMetricValue($row, ['mt_pay_orders', 'pay_orders', 'payOrders', 'payOrderCnt', 'pay_order_cnt', 'payOrderCount', 'pay_order_count', 'order_submit_num', 'orderSubmitNum', 'bookings', 'bookingCount', 'orderCount', 'orderQuantity', 'orderNum', 'orders'], $preserveMissingMetrics),
-                'validation_status' => 'normal',
-                'validation_flags' => json_encode([], JSON_UNESCAPED_UNICODE),
+                'validation_status' => $reviewValidationStatus,
+                'validation_flags' => json_encode($reviewValidationFlags, JSON_UNESCAPED_UNICODE),
                 'data_source_id' => isset($source['id']) ? (int)$source['id'] : null,
                 'sync_task_id' => $syncTaskId,
                 'ingestion_method' => (string)($source['ingestion_method'] ?? 'manual'),
@@ -1557,13 +1566,44 @@ final class PlatformDataSyncService
             $rows = $this->normalizeRowsFromPayload(is_array($payload) ? $payload : [], $source, $taskId);
             $timing['normalize_elapsed_ms'] = $this->elapsedMilliseconds($phaseStartedAt);
             $phaseStartedAt = microtime(true);
-            $saved = $this->saveNormalizedRows($rows);
+            $saveReceipt = $this->saveNormalizedRows($rows);
+            $saved = (int)$saveReceipt['saved_count'];
+            $payload['_save_receipt'] = $saveReceipt;
             $timing['daily_rows_save_elapsed_ms'] = $this->elapsedMilliseconds($phaseStartedAt);
 
+            if (($saveReceipt['readback_verified'] ?? false) !== true) {
+                $message = (string)($saveReceipt['failure_reason'] ?? 'normalized_rows_readback_mismatch_rolled_back');
+                $payload['sync_diagnostics'] = $this->buildSyncDiagnostics(
+                    $rows,
+                    0,
+                    $source,
+                    $options,
+                    $payload,
+                    'failed',
+                    $message
+                );
+                return $this->finishTask(
+                    $taskId,
+                    $source,
+                    'failed',
+                    $message,
+                    count($rows),
+                    0,
+                    $payload,
+                    $timing,
+                    $syncStartedAt
+                );
+            }
+
             $confirmedEmpty = $this->isAuthoritativeEmptySyncPayload($payload);
-            $status = ($saved > 0 || $confirmedEmpty) ? 'success' : 'partial_success';
+            $status = (($saved > 0 && !empty($saveReceipt['readback_verified'])) || $confirmedEmpty) ? 'success' : 'partial_success';
             $message = $saved > 0
-                ? 'Platform data synchronized.'
+                ? sprintf(
+                    'Platform data synchronized: %d inserted, %d updated, %d read back.',
+                    (int)$saveReceipt['inserted_count'],
+                    (int)$saveReceipt['updated_count'],
+                    (int)$saveReceipt['readback_count']
+                )
                 : ($confirmedEmpty ? 'platform_returned_authoritative_empty' : 'No business rows were found in payload.');
             $diagnostics = $this->buildSyncDiagnostics($rows, $saved, $source, $options, $payload, $status, $message);
             if ((string)($diagnostics['p0_status'] ?? '') !== 'ready' && !empty($diagnostics['requires_target_date_traffic'])) {
@@ -1718,6 +1758,15 @@ final class PlatformDataSyncService
         $safe = [
             'normalized_count' => max(0, (int)($stats['normalized_count'] ?? 0)),
             'saved_count' => max(0, (int)($stats['saved_count'] ?? 0)),
+            'attempted_count' => max(0, (int)($stats['attempted_count'] ?? 0)),
+            'inserted_count' => max(0, (int)($stats['inserted_count'] ?? 0)),
+            'updated_count' => max(0, (int)($stats['updated_count'] ?? 0)),
+            'readback_count' => max(0, (int)($stats['readback_count'] ?? 0)),
+            'readback_verified' => ($stats['readback_verified'] ?? false) === true,
+            'rolled_back' => ($stats['rolled_back'] ?? false) === true,
+            'failure_reason' => mb_substr(trim((string)($stats['failure_reason'] ?? '')), 0, 120),
+            'predecessor_task_id' => max(0, (int)($stats['predecessor_task_id'] ?? 0)),
+            'recovery_context_status' => mb_substr(trim((string)($stats['recovery_context_status'] ?? '')), 0, 120),
             'payload_keys' => $this->sanitizeSyncTaskPayloadKeys($stats['payload_keys'] ?? []),
         ];
 
@@ -3122,27 +3171,94 @@ final class PlatformDataSyncService
 
     private function createTask(array $source, $user, string $triggerType): int
     {
-        $now = date('Y-m-d H:i:s');
-        $data = [
-            'data_source_id' => (int)$source['id'],
-            'system_hotel_id' => (int)($source['system_hotel_id'] ?? 0) ?: null,
-            'platform' => (string)$source['platform'],
-            'data_type' => (string)$source['data_type'],
-            'ingestion_method' => (string)$source['ingestion_method'],
-            'trigger_type' => $triggerType,
-            'status' => 'running',
-            'attempt_count' => 1,
-            'max_attempts' => 3,
-            'started_at' => $now,
-            'requested_by' => (int)($user->id ?? 0) ?: null,
-            'create_time' => $now,
-            'update_time' => $now,
-        ];
-        if (isset($this->tableColumns('platform_data_sync_tasks')['tenant_id'])) {
-            $data['tenant_id'] = (int)($source['tenant_id'] ?? 0) ?: null;
-        }
+        return Db::transaction(function () use ($source, $user, $triggerType): int {
+            $now = date('Y-m-d H:i:s');
+            $predecessor = Db::name('platform_data_sync_tasks')
+                ->where('data_source_id', (int)$source['id'])
+                ->whereIn('status', self::ACTIVE_SYNC_TASK_STATUSES)
+                ->order('id', 'desc')
+                ->lock(true)
+                ->find();
+            $predecessorId = 0;
+            $attemptCount = 1;
+            $recoveryContextStatus = '';
 
-        return (int)Db::name('platform_data_sync_tasks')->insertGetId($data);
+            if (is_array($predecessor)) {
+                $predecessorId = (int)($predecessor['id'] ?? 0);
+                $predecessorStats = $this->decodeConfig($predecessor['stats_json'] ?? []);
+                $hasRecoveryContext = $this->syncTaskHasRecoveryContext($predecessorStats);
+                if (!self::isStaleRunningSyncTask($predecessor)) {
+                    $message = 'data source sync task is already active';
+                    if (!$hasRecoveryContext) {
+                        $message .= '; recovery_context missing (checkpoint unavailable)';
+                    }
+                    throw new RuntimeException($message, 409);
+                }
+
+                $recoveryContextStatus = $hasRecoveryContext
+                    ? 'recovery_context_available'
+                    : 'missing recovery_context/checkpoint';
+                $predecessorStats['recovery_context_status'] = $recoveryContextStatus;
+                $predecessorStats['interrupted_at'] = $now;
+                $affected = (int)Db::name('platform_data_sync_tasks')
+                    ->where('id', $predecessorId)
+                    ->whereIn('status', self::ACTIVE_SYNC_TASK_STATUSES)
+                    ->update([
+                        'status' => 'failed',
+                        'finished_at' => $now,
+                        'message' => 'stale active sync interrupted before recovered retry',
+                        'stats_json' => json_encode($predecessorStats, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                        'update_time' => $now,
+                    ]);
+                if ($affected !== 1) {
+                    throw new RuntimeException('stale sync predecessor could not be made terminal before retry', 409);
+                }
+                $attemptCount = max(1, (int)($predecessor['attempt_count'] ?? 1)) + 1;
+            }
+
+            $taskStats = [];
+            if ($predecessorId > 0) {
+                $taskStats = [
+                    'predecessor_task_id' => $predecessorId,
+                    'recovery_context_status' => $recoveryContextStatus,
+                ];
+            }
+            $data = [
+                'data_source_id' => (int)$source['id'],
+                'system_hotel_id' => (int)($source['system_hotel_id'] ?? 0) ?: null,
+                'platform' => (string)$source['platform'],
+                'data_type' => (string)$source['data_type'],
+                'ingestion_method' => (string)$source['ingestion_method'],
+                'trigger_type' => $triggerType,
+                'status' => 'running',
+                'attempt_count' => $attemptCount,
+                'max_attempts' => max(3, $attemptCount),
+                'started_at' => $now,
+                'requested_by' => (int)($user->id ?? 0) ?: null,
+                'stats_json' => $taskStats === []
+                    ? null
+                    : json_encode($taskStats, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'create_time' => $now,
+                'update_time' => $now,
+            ];
+            if (isset($this->tableColumns('platform_data_sync_tasks')['tenant_id'])) {
+                $data['tenant_id'] = (int)($source['tenant_id'] ?? 0) ?: null;
+            }
+
+            return (int)Db::name('platform_data_sync_tasks')->insertGetId($data);
+        });
+    }
+
+    /** @param array<string, mixed> $stats */
+    private function syncTaskHasRecoveryContext(array $stats): bool
+    {
+        foreach (['recovery_context', 'checkpoint'] as $key) {
+            $value = $stats[$key] ?? null;
+            if ((is_array($value) && $value !== []) || (is_string($value) && trim($value) !== '')) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function finishTask(int $taskId, array $source, string $status, string $message, int $normalizedCount, int $savedCount, array $payload, array $timing = [], ?float $syncStartedAt = null): array
@@ -3155,11 +3271,26 @@ final class PlatformDataSyncService
             is_array($payload['sync_diagnostics'] ?? null) ? $payload['sync_diagnostics'] : [],
             $status
         );
+        $existingTask = Db::name('platform_data_sync_tasks')->where('id', $taskId)->find();
+        $existingTaskStats = is_array($existingTask)
+            ? $this->decodeConfig($existingTask['stats_json'] ?? [])
+            : [];
         $stats = [
             'normalized_count' => $normalizedCount,
             'saved_count' => $savedCount,
             'payload_keys' => array_slice(array_keys($payload), 0, 30),
         ];
+        foreach (['predecessor_task_id', 'recovery_context_status'] as $recoveryKey) {
+            if (array_key_exists($recoveryKey, $existingTaskStats)) {
+                $stats[$recoveryKey] = $existingTaskStats[$recoveryKey];
+            }
+        }
+        $saveReceipt = is_array($payload['_save_receipt'] ?? null) ? $payload['_save_receipt'] : [];
+        foreach (['attempted_count', 'inserted_count', 'updated_count', 'readback_count', 'readback_verified', 'rolled_back', 'failure_reason'] as $receiptKey) {
+            if (array_key_exists($receiptKey, $saveReceipt)) {
+                $stats[$receiptKey] = $saveReceipt[$receiptKey];
+            }
+        }
         if ($safeDiagnostics !== []) {
             $stats['sync_diagnostics'] = $safeDiagnostics;
         }
@@ -3216,6 +3347,14 @@ final class PlatformDataSyncService
             'message' => $safeMessage,
             'normalized_count' => $normalizedCount,
             'saved_count' => $savedCount,
+            'inserted_count' => (int)($stats['inserted_count'] ?? 0),
+            'updated_count' => (int)($stats['updated_count'] ?? 0),
+            'readback_count' => (int)($stats['readback_count'] ?? 0),
+            'readback_verified' => ($stats['readback_verified'] ?? false) === true,
+            'rolled_back' => ($stats['rolled_back'] ?? false) === true,
+            'failure_reason' => (string)($stats['failure_reason'] ?? ''),
+            'predecessor_task_id' => (int)($stats['predecessor_task_id'] ?? 0),
+            'recovery_context_status' => (string)($stats['recovery_context_status'] ?? ''),
             'next_retry_at' => $nextRetryAt,
             'timing' => $timing,
             'sync_diagnostics' => $safeDiagnostics !== [] ? $safeDiagnostics : null,
@@ -3850,65 +3989,191 @@ final class PlatformDataSyncService
 
     /**
      * @param array<int, array<string, mixed>> $rows
+     * @return array{attempted_count:int,saved_count:int,inserted_count:int,updated_count:int,readback_count:int,readback_verified:bool,row_ids:array<int,int>}
      */
-    private function saveNormalizedRows(array $rows): int
+    private function saveNormalizedRows(array $rows): array
     {
         if (empty($rows)) {
-            return 0;
+            return [
+                'attempted_count' => 0,
+                'saved_count' => 0,
+                'inserted_count' => 0,
+                'updated_count' => 0,
+                'readback_count' => 0,
+                'readback_verified' => true,
+                'row_ids' => [],
+            ];
         }
 
-        $columns = $this->tableColumns('online_daily_data');
-        $saved = 0;
-        foreach ($rows as $row) {
-            $data = array_intersect_key($row, $columns);
-            if (empty($data)) {
+        $failureReceipt = null;
+        try {
+            return Db::transaction(function () use ($rows, &$failureReceipt): array {
+                $columns = $this->tableColumns('online_daily_data');
+                $attempted = count($rows);
+                $inserted = 0;
+                $updated = 0;
+                $readback = 0;
+                $rowIds = [];
+                foreach ($rows as $row) {
+                    $data = array_intersect_key($row, $columns);
+                    if ($data === []) {
+                        $failureReceipt = $this->normalizedRowsRollbackReceipt($attempted, 'normalized_row_has_no_persistable_columns');
+                        throw new RuntimeException('normalized_row_has_no_persistable_columns');
+                    }
+
+                    $existing = $this->findNormalizedRowByCompleteIdentity($row, $columns);
+                    if (is_array($existing)) {
+                        $rowId = (int)($existing['id'] ?? 0);
+                        if (isset($columns['update_time'])) {
+                            $data['update_time'] = date('Y-m-d H:i:s');
+                        }
+                        Db::name('online_daily_data')->where('id', $rowId)->update($data);
+                        $updated++;
+                    } else {
+                        if (isset($columns['create_time'])) {
+                            $data['create_time'] = date('Y-m-d H:i:s');
+                        }
+                        if (isset($columns['update_time'])) {
+                            $data['update_time'] = date('Y-m-d H:i:s');
+                        }
+                        $rowId = (int)Db::name('online_daily_data')->insertGetId($data);
+                        if ($rowId > 0) {
+                            $inserted++;
+                        }
+                    }
+
+                    if ($rowId <= 0 || !$this->normalizedRowReadbackMatches($rowId, $data, $columns)) {
+                        $failureReceipt = $this->normalizedRowsRollbackReceipt(
+                            $attempted,
+                            'normalized_rows_readback_mismatch_rolled_back'
+                        );
+                        throw new RuntimeException('normalized_rows_readback_mismatch_rolled_back');
+                    }
+                    $readback++;
+                    $rowIds[] = $rowId;
+                }
+
+                return [
+                    'attempted_count' => $attempted,
+                    'saved_count' => $readback,
+                    'inserted_count' => $inserted,
+                    'updated_count' => $updated,
+                    'readback_count' => $readback,
+                    'readback_verified' => $attempted === $readback,
+                    'rolled_back' => false,
+                    'failure_reason' => '',
+                    'row_ids' => array_slice($rowIds, 0, 50),
+                ];
+            });
+        } catch (RuntimeException $e) {
+            if (is_array($failureReceipt)) {
+                return $failureReceipt;
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, bool> $columns
+     * @return array<string, mixed>|null
+     */
+    private function findNormalizedRowByCompleteIdentity(array $row, array $columns): ?array
+    {
+        $identityFields = [
+            'tenant_id', 'system_hotel_id', 'data_source_id', 'source', 'platform',
+            'hotel_id', 'data_type', 'data_date', 'data_period', 'snapshot_bucket',
+            'dimension', 'compare_type',
+        ];
+        $applyIdentity = static function ($query) use ($row, $columns, $identityFields): void {
+            foreach ($identityFields as $field) {
+                if (!isset($columns[$field]) || !array_key_exists($field, $row)) {
+                    continue;
+                }
+                if ($row[$field] === null) {
+                    $query->whereNull($field);
+                } else {
+                    $query->where($field, $row[$field]);
+                }
+            }
+        };
+
+        $traceId = trim((string)($row['source_trace_id'] ?? ''));
+        if ($traceId !== '' && isset($columns['source_trace_id'])) {
+            $traceQuery = Db::name('online_daily_data')->where('source_trace_id', $traceId);
+            $applyIdentity($traceQuery);
+            $existing = $traceQuery->find();
+            if (is_array($existing)) {
+                return $existing;
+            }
+        }
+
+        $query = Db::name('online_daily_data');
+        $applyIdentity($query);
+        $existing = $query->find();
+        return is_array($existing) ? $existing : null;
+    }
+
+    /** @return array<string, mixed> */
+    private function normalizedRowsRollbackReceipt(int $attempted, string $reason): array
+    {
+        return [
+            'attempted_count' => max(0, $attempted),
+            'saved_count' => 0,
+            'inserted_count' => 0,
+            'updated_count' => 0,
+            'readback_count' => 0,
+            'readback_verified' => false,
+            'rolled_back' => true,
+            'failure_reason' => $reason,
+            'row_ids' => [],
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $expected
+     * @param array<string, bool> $columns
+     */
+    private function normalizedRowReadbackMatches(int $rowId, array $expected, array $columns): bool
+    {
+        $stored = Db::name('online_daily_data')->where('id', $rowId)->find();
+        if (!is_array($stored)) {
+            return false;
+        }
+        foreach ($expected as $field => $expectedValue) {
+            if (!isset($columns[$field]) || in_array($field, ['id'], true)) {
                 continue;
             }
-            $existing = null;
-            $rowDataPeriod = (string)($row['data_period'] ?? 'historical_daily');
-            $rowSnapshotBucket = (string)($row['snapshot_bucket'] ?? '');
-            if (($row['source_trace_id'] ?? '') !== '' && isset($columns['source_trace_id']) && !($rowDataPeriod === 'realtime_snapshot' && $rowSnapshotBucket !== '')) {
-                $existing = Db::name('online_daily_data')->where('source_trace_id', (string)$row['source_trace_id'])->find();
+            $storedValue = $stored[$field] ?? null;
+            if (!$this->normalizedStoredValueMatches($storedValue, $expectedValue)) {
+                return false;
             }
-            if (!$existing) {
-                $query = Db::name('online_daily_data')
-                    ->where('data_date', $row['data_date'])
-                    ->where('source', $row['source'])
-                    ->where('data_type', $row['data_type']);
-                if (isset($columns['data_period'])) {
-                    $query->where('data_period', $rowDataPeriod);
-                }
-                if ($rowDataPeriod === 'realtime_snapshot' && isset($columns['snapshot_bucket'])) {
-                    $query->where('snapshot_bucket', $rowSnapshotBucket);
-                }
-                if (!empty($row['system_hotel_id']) && isset($columns['system_hotel_id'])) {
-                    $query->where('system_hotel_id', (int)$row['system_hotel_id']);
-                }
-                if (($row['hotel_id'] ?? '') !== '' && isset($columns['hotel_id'])) {
-                    $query->where('hotel_id', (string)$row['hotel_id']);
-                }
-                if (($row['dimension'] ?? '') !== '' && isset($columns['dimension'])) {
-                    $query->where('dimension', (string)$row['dimension']);
-                }
-                $existing = $query->find();
-            }
-            if ($existing) {
-                if (isset($columns['update_time'])) {
-                    $data['update_time'] = date('Y-m-d H:i:s');
-                }
-                Db::name('online_daily_data')->where('id', (int)$existing['id'])->update($data);
-            } else {
-                if (isset($columns['create_time'])) {
-                    $data['create_time'] = date('Y-m-d H:i:s');
-                }
-                if (isset($columns['update_time'])) {
-                    $data['update_time'] = date('Y-m-d H:i:s');
-                }
-                Db::name('online_daily_data')->insert($data);
-            }
-            $saved++;
         }
-        return $saved;
+        return true;
+    }
+
+    private function normalizedStoredValueMatches(mixed $stored, mixed $expected): bool
+    {
+        if ($expected === null) {
+            return $stored === null;
+        }
+        if (is_int($expected)) {
+            return is_numeric($stored) && (int)$stored === $expected;
+        }
+        if (is_float($expected)) {
+            return is_numeric($stored) && abs((float)$stored - $expected) <= 0.005;
+        }
+        if (is_bool($expected)) {
+            return (bool)$stored === $expected;
+        }
+        if (is_string($expected) && ($expected !== '') && in_array($expected[0], ['{', '['], true)) {
+            $expectedJson = json_decode($expected, true);
+            $storedJson = is_string($stored) ? json_decode($stored, true) : null;
+            if (is_array($expectedJson) && is_array($storedJson)) {
+                return $storedJson == $expectedJson;
+            }
+        }
+        return (string)$stored === (string)$expected;
     }
 
     /**
@@ -4236,9 +4501,13 @@ final class PlatformDataSyncService
      */
     private function sanitizeReviewPayloadForStorage(array $payload, bool $allowSummary = false): array
     {
-        $sanitized = $this->removeReviewPrivateFields($this->sanitizePayloadForStorage($payload, 'review'));
+        $privateValues = $this->reviewPrivateScalarValues($payload);
+        $sanitized = $this->removeReviewPrivateFields(
+            $this->sanitizePayloadForStorage($payload, 'review'),
+            $privateValues
+        );
         if ($allowSummary) {
-            $summary = $this->reviewSummaryText($payload);
+            $summary = $this->reviewSummaryText($payload, $privateValues);
             if ($summary !== '') {
                 $sanitized['review_summary'] = $summary;
             }
@@ -4250,7 +4519,7 @@ final class PlatformDataSyncService
      * @param array<string, mixed> $node
      * @return array<string, mixed>
      */
-    private function removeReviewPrivateFields(array $node): array
+    private function removeReviewPrivateFields(array $node, array $privateValues = []): array
     {
         $clean = [];
         foreach ($node as $key => $value) {
@@ -4258,7 +4527,9 @@ final class PlatformDataSyncService
             if ($this->isReviewPrivateKey($keyText)) {
                 continue;
             }
-            $clean[$key] = is_array($value) ? $this->sanitizeReviewArray($value) : $value;
+            $clean[$key] = is_array($value)
+                ? $this->sanitizeReviewArray($value, $privateValues)
+                : (is_string($value) ? $this->sanitizeReviewScalar($value, $privateValues) : $value);
         }
         return $clean;
     }
@@ -4267,7 +4538,7 @@ final class PlatformDataSyncService
      * @param array<mixed> $value
      * @return array<mixed>
      */
-    private function sanitizeReviewArray(array $value): array
+    private function sanitizeReviewArray(array $value, array $privateValues = []): array
     {
         $clean = [];
         foreach ($value as $key => $item) {
@@ -4275,30 +4546,122 @@ final class PlatformDataSyncService
             if ($this->isReviewPrivateKey($keyText)) {
                 continue;
             }
-            $clean[$key] = is_array($item) ? $this->sanitizeReviewArray($item) : $item;
+            $clean[$key] = is_array($item)
+                ? $this->sanitizeReviewArray($item, $privateValues)
+                : (is_string($item) ? $this->sanitizeReviewScalar($item, $privateValues) : $item);
         }
         return $clean;
     }
 
     private function isReviewPrivateKey(string $key): bool
     {
-        return preg_match('/content|commentContent|comment_text|review_text|review[_-]?id|comment[_-]?id|reply|guest|customer|userName|username|nick|phone|mobile|tel|certificate|idcard|id_card|identity|openid|avatar|order[_-]?(id|no|number)|room(type|name)|photo|image|pic/i', $key) === 1;
+        return preg_match('/content|commentContent|comment_text|review_text|reviewer|review[_-]?id|comment[_-]?id|reply|guest|customer|userName|username|nick|phone|mobile|tel|email|certificate|idcard|id_card|identity|openid|avatar|order[_-]?(id|no|number)|room(type|name)|photo|image|pic/i', $key) === 1;
     }
 
     /**
      * @param array<string, mixed> $payload
      */
-    private function reviewSummaryText(array $payload): string
+    private function reviewSummaryText(array $payload, array $privateValues = []): string
     {
         $text = $this->stringValue($payload, ['review_summary', 'summary', 'content', 'commentContent', 'comment_text', 'review_text']);
         if ($text === '') {
             return '';
         }
-        $text = preg_replace('/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i', '[redacted]', $text) ?? $text;
-        $text = preg_replace('/\b1[3-9]\d{9}\b/', '[redacted]', $text) ?? $text;
-        $text = preg_replace('/\b\d{6,}\b/', '[redacted]', $text) ?? $text;
+        $text = $this->sanitizeReviewScalar($text, $privateValues);
         $text = trim(preg_replace('/\s+/', ' ', $text) ?? $text);
         return mb_substr($text, 0, 120);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    private function reviewPrivateScalarValues(array $node): array
+    {
+        $values = [];
+        foreach ($node as $key => $value) {
+            if (is_array($value)) {
+                $values = array_merge($values, $this->reviewPrivateScalarValues($value));
+                continue;
+            }
+            if (!$this->isReviewIdentityKey((string)$key) || !is_scalar($value)) {
+                continue;
+            }
+            $text = trim((string)$value);
+            if ($text !== '') {
+                $values[] = $text;
+            }
+        }
+        $values = array_values(array_unique($values));
+        usort($values, static fn(string $left, string $right): int => mb_strlen($right) <=> mb_strlen($left));
+        return $values;
+    }
+
+    private function isReviewIdentityKey(string $key): bool
+    {
+        return preg_match('/reviewer|guest|customer|user[_-]?name|username|nick|phone|mobile|tel|email|certificate|idcard|id_card|identity|openid|order[_-]?(id|no|number)/i', $key) === 1;
+    }
+
+    /** @param array<int, string> $privateValues */
+    private function sanitizeReviewScalar(string $value, array $privateValues = []): string
+    {
+        $sanitized = $value;
+        foreach ($privateValues as $privateValue) {
+            if ($privateValue !== '') {
+                $sanitized = str_ireplace($privateValue, '[redacted]', $sanitized);
+            }
+        }
+        $sanitized = preg_replace('/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i', '[redacted]', $sanitized) ?? $sanitized;
+        $sanitized = preg_replace('/(?<!\d)(?:\+?86[\s-]*)?1[3-9](?:[\s-]*\d){9}(?!\d)/', '[redacted]', $sanitized) ?? $sanitized;
+        $sanitized = preg_replace('/(?<!\d)\d{17}[\dXx](?!\d)/', '[redacted]', $sanitized) ?? $sanitized;
+        $sanitized = preg_replace('/\b\d{6,}\b/', '[redacted]', $sanitized) ?? $sanitized;
+        return trim($sanitized);
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $payload
+     * @return array<int, string>
+     */
+    private function reviewValidationFlags(array $row, array $payload, string $dataDate, string $collectionStatus): array
+    {
+        $flags = [];
+        $score = $this->nullableNumericValue($row, [
+            'comment_score',
+            'commentScore',
+            'score',
+            'star',
+            'rating',
+            'rate',
+            'totalScore',
+            'overallScore',
+        ]);
+        if ($score === null) {
+            $flags[] = 'field_missing:comment_score';
+        }
+
+        $targetDate = $this->normalizeDate($payload['target_date'] ?? $payload['targetDate'] ?? null);
+        if ($targetDate !== null && $dataDate !== $targetDate) {
+            $flags[] = 'data_date_stale:' . $dataDate;
+        }
+        if ($collectionStatus === 'stale') {
+            $flags[] = 'collection_status:stale';
+        }
+        return $flags;
+    }
+
+    /** @param array<int, string> $flags */
+    private function reviewValidationStatus(array $flags): string
+    {
+        if ($flags === []) {
+            return 'normal';
+        }
+        $hasStale = count(array_filter($flags, static fn(string $flag): bool => str_contains($flag, 'stale'))) > 0;
+        $hasMissing = count(array_filter($flags, static fn(string $flag): bool => str_starts_with($flag, 'field_missing:'))) > 0;
+        if ($hasStale && $hasMissing) {
+            return 'quarantined';
+        }
+        return $hasStale ? 'stale' : 'incomplete';
     }
 
     /**
@@ -4897,6 +5260,20 @@ final class PlatformDataSyncService
             $period = $this->looksLikeRealtimeRow($row, $payload, $source, $date) ? 'realtime_snapshot' : 'historical_daily';
         }
 
+        $dataType = $this->normalizeDataType((string)(
+            $row['data_type']
+            ?? $row['dataType']
+            ?? $payload['data_type']
+            ?? $payload['dataType']
+            ?? $source['data_type']
+            ?? ''
+        ));
+        if ($dataType === 'traffic_forecast') {
+            $period = 'next_30_days';
+        } elseif ($date === date('Y-m-d') && $period === 'historical_daily') {
+            $period = 'realtime_snapshot';
+        }
+
         $snapshotTime = null;
         $snapshotBucket = '';
         if ($period === 'realtime_snapshot') {
@@ -4911,7 +5288,7 @@ final class PlatformDataSyncService
                 ?? $payload['capturedAt']
                 ?? null
             ) ?? date('Y-m-d H:i:s');
-            $snapshotBucket = date('YmdH', strtotime($snapshotTime) ?: time());
+            $snapshotBucket = date('YmdHi', strtotime($snapshotTime) ?: time());
         }
 
         return [

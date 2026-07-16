@@ -210,7 +210,7 @@ trait PlatformDataSourceConcern
             $service = new PlatformDataSyncService();
             $result = $service->syncDataSource($this->currentUser, (int)$id, $this->requestData());
             OperationLog::record('online_data', 'sync_data_source', '同步平台数据源ID: ' . $id . '，状态: ' . $result['status'], $this->currentUser->id, null);
-            return $this->success($result, '同步任务已完成');
+            return $this->platformDataTaskResponse($result, '同步');
         } catch (\RuntimeException $e) {
             return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
         } catch (\Throwable $e) {
@@ -232,12 +232,39 @@ trait PlatformDataSourceConcern
             }
             $result = $service->importRows($this->currentUser, $payload);
             OperationLog::record('online_data', 'import_data_source_rows', '导入平台数据，状态: ' . $result['status'], $this->currentUser->id, null);
-            return $this->success($result, '导入任务已完成');
+            return $this->platformDataTaskResponse($result, '导入');
         } catch (\RuntimeException $e) {
             return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
         } catch (\Throwable $e) {
             return $this->error('导入数据失败: ' . $e->getMessage(), 500);
         }
+    }
+
+    /**
+     * Only a service result explicitly marked success may be exposed as an API
+     * success. Partial or failed tasks keep their diagnostic payload, while the
+     * non-200 response prevents the UI from announcing a completed write.
+     */
+    private function platformDataTaskResponse(array $result, string $action): Response
+    {
+        $status = strtolower(trim((string)($result['status'] ?? 'unknown')));
+        if ($status === 'success') {
+            return $this->success($result, $action . '已完成并通过业务校验');
+        }
+
+        if ($status === 'partial_success') {
+            return json([
+                'code' => 422,
+                'message' => $action . '仅部分完成，未确认完整入库；请查看任务状态、数据缺口和回读结果。',
+                'data' => $result,
+            ], 422);
+        }
+
+        return json([
+            'code' => 500,
+            'message' => $action . '失败；请查看任务状态和失败原因。',
+            'data' => $result,
+        ], 500);
     }
 
     public function importBrowserAssistCapture(): Response
@@ -249,8 +276,8 @@ trait PlatformDataSourceConcern
             $payload = $this->browserAssistCaptureRequestData();
             $service = new OtaBrowserAssistImportService();
             $result = $service->importCapture($this->currentUser, $payload);
-            OperationLog::record('online_data', 'import_browser_assist_capture', '导入浏览器辅助采集数据，分包: ' . $result['package_count'] . '，入库: ' . $result['saved_count'], $this->currentUser->id, null);
-            return $this->success($result, '浏览器辅助采集导入完成');
+            OperationLog::record('online_data', 'import_browser_assist_capture', '导入浏览器辅助采集数据，状态: ' . ($result['status'] ?? 'unknown') . '，分包: ' . $result['package_count'] . '，已确认入库: ' . $result['saved_count'], $this->currentUser->id, null);
+            return $this->platformDataTaskResponse($result, '浏览器辅助采集导入');
         } catch (\RuntimeException $e) {
             return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
         } catch (\Throwable $e) {

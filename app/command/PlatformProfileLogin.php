@@ -346,13 +346,22 @@ class PlatformProfileLogin extends Command
             $sections = 'traffic';
         }
 
+        $dataDate = $this->profileLoginSyncTargetDate($request);
+        $dataPeriod = trim((string)($request['data_period'] ?? $request['dataPeriod'] ?? ''));
+        if ($dataPeriod === '') {
+            $dataPeriod = $dataDate >= date('Y-m-d') ? 'realtime_snapshot' : 'historical_daily';
+        }
+        $snapshotTime = $dataPeriod === 'realtime_snapshot'
+            ? (trim((string)($request['snapshot_time'] ?? $request['snapshotTime'] ?? '')) ?: date('Y-m-d H:i:s'))
+            : '';
+
         return [
             'trigger_type' => 'profile_login_after_login',
-            'data_date' => $this->profileLoginSyncTargetDate($request),
+            'data_date' => $dataDate,
             'capture_sections' => $sections,
             'sections' => $sectionList,
-            'data_period' => trim((string)($request['data_period'] ?? $request['dataPeriod'] ?? 'historical_daily')) ?: 'historical_daily',
-            'snapshot_time' => trim((string)($request['snapshot_time'] ?? $request['snapshotTime'] ?? '')) ?: date('Y-m-d H:i:s'),
+            'data_period' => $dataPeriod,
+            'snapshot_time' => $snapshotTime,
             'interactive_browser' => false,
         ];
     }

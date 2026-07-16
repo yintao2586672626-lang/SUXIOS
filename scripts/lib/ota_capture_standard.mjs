@@ -346,6 +346,17 @@ export function classifyOtaResponse(platform, url, meta = {}) {
     return { capture: false, platform: platformKey, section: '', reason: 'non_business_resource' };
   }
 
+  if (platformKey === 'meituan' && isMeituanOrderResponseUrl(value)) {
+    if (!['xhr', 'fetch'].includes(resourceType) || !contentType.includes('json')) {
+      return {
+        capture: false,
+        platform: platformKey,
+        section: 'orders',
+        reason: 'order_json_xhr_required',
+      };
+    }
+  }
+
   const rules = PLATFORM_CONFIGS[platformKey].responseRules;
   for (const rule of PLATFORM_CONFIGS[platformKey].blockedResponseRules || []) {
     if (rule.keywords.some((keyword) => value.includes(keyword))) {
@@ -377,6 +388,11 @@ export function classifyOtaResponse(platform, url, meta = {}) {
   }
 
   return { capture: false, platform: platformKey, section: '', reason: 'unmatched_url' };
+}
+
+function isMeituanOrderResponseUrl(value) {
+  return ['/orders/list', '/order/unhandled/count', '/order-eb/']
+    .some(keyword => String(value || '').includes(keyword));
 }
 
 function standardSectionName(dataType) {

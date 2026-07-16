@@ -36,6 +36,7 @@ class OtaStandardEtlService
         $peerRankFacts = [];
         $trafficAnalysisFacts = [];
         $trafficForecastFacts = [];
+        $orderFlowFacts = [];
         $commentFacts = [];
         $rejectedRows = $semanticRejectedRows;
 
@@ -110,8 +111,21 @@ class OtaStandardEtlService
                 $trafficForecastFacts[] = $this->trafficForecastFact($row, $raw, $hotelKey, $source, $date);
                 continue;
             }
+            if ($dataType === 'order_flow') {
+                $orderFlowFacts[] = $this->orderFlowFact($row, $raw, $hotelKey, $source, $date);
+                continue;
+            }
             if ($dataType === 'review') {
                 $commentFacts[] = $this->commentFact($row, $raw, $hotelKey, $source, $date);
+                continue;
+            }
+            if (!$this->isSelfRevenueFact($row, $raw, $dataType)) {
+                $rejectedRows[] = [
+                    'index' => $index,
+                    'reason' => 'non_self_competitor_scope',
+                    'data_type' => $dataType,
+                    'compare_type' => strtolower($this->firstText($row, $raw, ['compare_type', 'compareType'])),
+                ];
                 continue;
             }
             $dailyFacts[] = $this->dailyFact($row, $raw, $hotelKey, $source, $date, $dataType);
@@ -125,6 +139,7 @@ class OtaStandardEtlService
             + count($peerRankFacts)
             + count($trafficAnalysisFacts)
             + count($trafficForecastFacts)
+            + count($orderFlowFacts)
             + count($commentFacts);
         return [
             'status' => $acceptedCount > 0 ? 'ready' : 'empty',
@@ -138,6 +153,7 @@ class OtaStandardEtlService
             'fact_ota_peer_rank' => $peerRankFacts,
             'fact_ota_traffic_analysis' => $trafficAnalysisFacts,
             'fact_ota_traffic_forecast' => $trafficForecastFacts,
+            'fact_ota_order_flow' => $orderFlowFacts,
             'fact_ota_comment' => $commentFacts,
             'data_quality' => [
                 'source_input_rows' => $inputRowCount,
@@ -340,9 +356,36 @@ class OtaStandardEtlService
             $query->where('data_date', '<=', $endDate);
         }
 
-        $limit = (int)($filters['limit'] ?? 1000);
-        $limit = max(1, min(5000, $limit));
-        return $query->order('data_date', 'desc')->order('id', 'desc')->limit($limit)->select()->toArray();
+        $pageSize = (int)($filters['limit'] ?? 1000);
+        $pageSize = max(1, min(5000, $pageSize));
+        $maxRows = (int)($filters['max_rows'] ?? 100000);
+        $maxRows = max($pageSize, min(250000, $maxRows));
+        $rows = [];
+        $offset = 0;
+        while (true) {
+            $batch = (clone $query)
+                ->order('data_date', 'desc')
+                ->order('id', 'desc')
+                ->limit($offset, $pageSize)
+                ->select()
+                ->toArray();
+            if ($batch === []) {
+                break;
+            }
+            if (count($rows) + count($batch) > $maxRows) {
+                throw new RuntimeException(
+                    'OTA dataset exceeds the safe row window; narrow the hotel/date/platform scope instead of using truncated metrics.',
+                    422
+                );
+            }
+            $rows = array_merge($rows, $batch);
+            if (count($batch) < $pageSize) {
+                break;
+            }
+            $offset += $pageSize;
+        }
+
+        return $rows;
     }
 
     /**
@@ -845,6 +888,41 @@ class OtaStandardEtlService
     }
 
     /**
+     * Order-flow rows describe demand moving to or from peers. They remain
+     * queryable evidence but must never share the realised-revenue fact grain.
+     *
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     * @return array<string, mixed>
+     */
+    private function orderFlowFact(array $row, array $raw, string $hotelKey, string $source, string $date): array
+    {
+        $detail = $this->rawDetail($raw);
+        $orderCount = $this->nullableNumber($row, $detail, ['order_count', 'orderCount', 'lossTotalCnt', 'lossOrderCount']);
+
+        return [
+            'date_key' => $date,
+            'hotel_key' => $hotelKey,
+            'platform_key' => $source,
+            'dimension' => (string)($row['dimension'] ?? $detail['dimension'] ?? 'order_flow'),
+            'metric_scope' => 'ota_channel_order_flow',
+            'calculation_basis' => 'ota_order_flow_non_revenue_fact',
+            'direction' => strtolower($this->firstText($row, $detail, ['order_flow_direction', 'orderFlowDirection', 'direction'])),
+            'row_type' => strtolower($this->firstText($row, $detail, ['order_flow_row_type', 'orderFlowRowType', 'row_type', 'rowType'])),
+            'period' => strtolower($this->firstText($row, $detail, ['order_flow_period', 'orderFlowPeriod', 'period'])),
+            'period_start' => $this->dateValue($this->firstText($row, $detail, ['period_start', 'periodStart', 'start_date', 'startDate'])),
+            'period_end' => $this->dateValue($this->firstText($row, $detail, ['period_end', 'periodEnd', 'end_date', 'endDate'])),
+            'compare_type' => strtolower((string)($row['compare_type'] ?? $detail['compare_type'] ?? '')),
+            'flow_order_count' => $orderCount !== null ? max(0, (int)round($orderCount)) : null,
+            'flow_room_nights' => $this->nullableNumber($row, $detail, ['room_nights', 'roomNights', 'lossTotalPayRoomNight']),
+            'flow_amount' => $this->nullableNumber($row, $detail, ['amount', 'lossTotalPayAmount', 'lossSinglePayAmount']),
+            'flow_ratio' => $this->nullablePercent($row, $detail, ['order_ratio', 'orderRatio', 'lossOrderRatio', 'data_value', 'dataValue']),
+            'raw_data' => $raw,
+            'source_trace' => $this->rowTrace($row, $hotelKey, $source, 'order_flow', $date),
+        ];
+    }
+
+    /**
      * @param array<string, mixed> $row
      * @param array<string, mixed> $raw
      * @return array<string, mixed>
@@ -888,11 +966,29 @@ class OtaStandardEtlService
         }
 
         $validationStatus = strtolower(trim((string)($row['validation_status'] ?? '')));
-        if ($validationStatus === 'abnormal') {
-            $failureReasons[] = 'validation_status_abnormal';
+        if (in_array($validationStatus, ['abnormal', 'invalid', 'failed', 'unverified', 'mismatched', 'mismatch'], true)) {
+            $failureReasons[] = 'validation_status_' . $validationStatus;
             foreach ($this->validationFlagReasons($row['validation_flags'] ?? []) as $reason) {
                 $failureReasons[] = $reason;
             }
+        } else {
+            foreach ($this->blockingValidationFlagReasons($row['validation_flags'] ?? []) as $reason) {
+                $failureReasons[] = $reason;
+            }
+        }
+
+        $sourceTraceId = $this->sourceTraceId($row);
+        $dataSourceId = (int)($row['data_source_id'] ?? 0);
+        $syncTaskId = (int)($row['sync_task_id'] ?? 0);
+        if ($sourceTraceId === '' && $dataSourceId <= 0 && $syncTaskId <= 0) {
+            $failureReasons[] = 'provenance_missing';
+        }
+        if ((int)($row['system_hotel_id'] ?? 0) <= 0) {
+            $failureReasons[] = 'system_hotel_id_missing';
+        }
+        if ($this->isManualIngestion($row)
+            && !in_array($validationStatus, ['verified', 'valid', 'confirmed', 'approved', 'passed', 'success'], true)) {
+            $failureReasons[] = 'manual_override_unverified';
         }
 
         foreach (['error_info', 'failure_reason', 'failed_reason'] as $field) {
@@ -905,7 +1001,7 @@ class OtaStandardEtlService
         return [
             'table' => 'online_daily_data',
             'row_id' => array_key_exists('id', $row) ? (is_numeric($row['id']) ? (int)$row['id'] : (string)$row['id']) : null,
-            'source_trace_id' => $this->sourceTraceId($row),
+            'source_trace_id' => $sourceTraceId,
             'data_source_id' => $row['data_source_id'] ?? null,
             'sync_task_id' => $row['sync_task_id'] ?? null,
             'ingestion_method' => (string)($row['ingestion_method'] ?? ''),
@@ -932,15 +1028,72 @@ class OtaStandardEtlService
 
         $reasons = [];
         foreach ($decoded as $flag) {
-            if (!is_array($flag)) {
-                continue;
-            }
-            $code = trim((string)($flag['code'] ?? $flag['field'] ?? ''));
+            $code = is_array($flag)
+                ? trim((string)($flag['code'] ?? $flag['field'] ?? ''))
+                : trim((string)$flag);
             if ($code !== '') {
                 $reasons[] = 'validation:' . $code;
             }
         }
         return $reasons;
+    }
+
+    /** @return array<int, string> */
+    private function blockingValidationFlagReasons(mixed $flags): array
+    {
+        $blockingFragments = ['mismatch', 'wrong_hotel', 'binding', 'unverified', 'provenance', 'permission_denied', 'collection_failed', 'parse_failed'];
+        return array_values(array_filter(
+            $this->validationFlagReasons($flags),
+            static function (string $reason) use ($blockingFragments): bool {
+                $normalized = strtolower($reason);
+                foreach ($blockingFragments as $fragment) {
+                    if (str_contains($normalized, $fragment)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        ));
+    }
+
+    /** @param array<string, mixed> $row */
+    private function isManualIngestion(array $row): bool
+    {
+        $values = [
+            (string)($row['ingestion_method'] ?? ''),
+            (string)($row['source'] ?? ''),
+        ];
+        foreach ($values as $value) {
+            $normalized = strtolower(trim($value));
+            if ($normalized !== '' && (str_contains($normalized, 'manual') || str_contains($normalized, 'override'))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Competitor/peer rows can support comparison, but they must never become
+     * the hotel's own daily revenue fact.
+     *
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     */
+    private function isSelfRevenueFact(array $row, array $raw, string $dataType): bool
+    {
+        if (in_array($dataType, ['competitor', 'competitor_avg', 'competition', 'peer'], true)) {
+            return false;
+        }
+
+        $compareType = strtolower($this->firstText($row, $raw, ['compare_type', 'compareType']));
+        if ($compareType !== '' && !in_array($compareType, ['self', 'own', 'ours', 'target_hotel'], true)) {
+            return false;
+        }
+
+        $dimension = strtolower($this->firstText($row, $raw, ['dimension', 'dimName', '_dimName']));
+        return !str_contains($dimension, 'competitor')
+            && !str_contains($dimension, 'competition_circle_hotel')
+            && !str_contains($dimension, 'peer_hotel');
     }
 
     /**

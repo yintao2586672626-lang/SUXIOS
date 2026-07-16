@@ -247,6 +247,7 @@ export function normalizeMeituanTrafficForecastRows(value, options = {}) {
   const rows = details.map((item, index) => decorateSupplementalRow({
     ...item,
     data_type: 'traffic_forecast',
+    data_period: 'next_30_days',
     forecast_type: forecastType,
     dimension: forecastType ? `flow_forecast_${forecastType}` : 'flow_forecast',
     data_value: item.current ?? item.value ?? null,
@@ -260,6 +261,7 @@ export function normalizeMeituanTrafficForecastRows(value, options = {}) {
   return [decorateSupplementalRow({
     ...(value && typeof value === 'object' && !Array.isArray(value) ? value : { value }),
     data_type: 'traffic_forecast',
+    data_period: 'next_30_days',
     forecast_type: forecastType,
     dimension: forecastType ? `flow_forecast_${forecastType}` : 'flow_forecast',
   }, 'traffic_forecast', '$', options)];

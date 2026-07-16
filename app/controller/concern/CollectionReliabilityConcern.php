@@ -867,6 +867,8 @@ trait CollectionReliabilityConcern
                 'actor_user_id' => (int)($this->currentUser->id ?? 0),
                 'platform' => $alertPlatform,
                 'reason_code' => 'login_expired',
+                'authorization_source_type' => 'cookie_api',
+                'authorization_source_label' => $alertName,
                 'data_date' => date('Y-m-d'),
                 'success' => false,
                 'saved_count' => 0,

@@ -558,6 +558,7 @@ trait OnlineDataRequestConcern
         $responsePayload = [
             'saved_count' => $savedCount,
             'row_count' => count($rows),
+            'persistence_status' => $savedCount === count($rows) ? 'readback_verified' : 'readback_not_verified',
             'auth_status' => $payload['auth_status'] ?? null,
             'capture_gate' => $gate,
             'counts' => $this->summarizeMeituanCapturedRows($rows),
@@ -585,7 +586,15 @@ trait OnlineDataRequestConcern
             $responsePayload['data_source_binding'] = ['status' => 'failed', 'message' => $dataSourceBindingError];
         }
 
-        return $this->success($responsePayload, $savedCount > 0 ? '美团浏览器抓取完成并已入库' : '美团浏览器抓取完成，但未解析到可入库数据');
+        if ($savedCount !== count($rows)) {
+            return json([
+                'code' => 500,
+                'message' => '美团浏览器已解析到业务行，但数据库完整回读未通过；本次不标记为入库成功。',
+                'data' => $responsePayload,
+            ], 500);
+        }
+
+        return $this->success($responsePayload, '美团浏览器抓取完成并已确认入库');
     }
 
     // Direct Ctrip comment-detail browser capture is disabled.
@@ -621,7 +630,7 @@ trait OnlineDataRequestConcern
 
         $dataDate = $this->normalizeOnlineDataDate($requestData['data_date'] ?? $requestData['dataDate'] ?? '');
         if ($dataDate === '') {
-            $dataDate = date('Y-m-d', strtotime('-1 day'));
+            return $this->error('请选择本次采集数据对应的业务日期；系统不会为空日期自动代填。', 422);
         }
 
         $hotelId = BrowserProfileCaptureRequestService::resolveCtripHotelId($requestData);
@@ -868,7 +877,17 @@ trait OnlineDataRequestConcern
             $responsePayload['data_source_binding'] = ['status' => 'failed', 'message' => $dataSourceBindingError];
         }
 
-        return $this->success($responsePayload, $savedCount > 0 ? '携程浏览器 Profile 采集完成并已入库' : '携程浏览器 Profile 采集完成，但未解析到可入库数据');
+        if ($rowCount > 0 && $savedCount <= 0) {
+            $responsePayload['persistence_status'] = 'readback_not_verified';
+            return json([
+                'code' => 500,
+                'message' => '携程浏览器 Profile 已解析到数据，但未确认数据库入库；请检查回读结果后重试。',
+                'data' => $responsePayload,
+            ], 500);
+        }
+
+        $responsePayload['persistence_status'] = $savedCount > 0 ? 'readback_verified' : 'no_parsed_rows';
+        return $this->success($responsePayload, $savedCount > 0 ? '携程浏览器 Profile 采集完成并已确认入库' : '携程浏览器 Profile 采集完成，但未解析到可入库数据');
     }
 
     public function validateCtripEndpointEvidence(): Response
@@ -1527,14 +1546,25 @@ trait OnlineDataRequestConcern
                 );
             }
 
-            return $this->success([
+            $capturedRowCount = (int)($capturedCounts['business'] ?? 0)
+                + (int)($capturedCounts['traffic'] ?? 0)
+                + (int)($capturedCounts['standard_rows'] ?? 0);
+            $savedCount = (int)($saveResult['saved_count'] ?? 0);
+            $saveStatus = $saveBlockedIdentity !== null
+                ? 'blocked'
+                : (!$autoSave
+                    ? 'skipped'
+                    : ($capturedRowCount === 0
+                        ? 'no_parsed_rows'
+                        : ($savedCount > 0 ? 'readback_verified' : 'readback_not_verified')));
+            $responsePayload = [
                 'status' => $readiness['status'],
                 'is_ready' => $readiness['is_ready'],
                 'next_action' => $readiness['next_action'],
                 'warning' => $readiness['warning'],
                 'auth_status' => $payload['auth_status'] ?? null,
-                'saved_count' => (int)($saveResult['saved_count'] ?? 0),
-                'row_count' => (int)$capturedCounts['standard_rows'],
+                'saved_count' => $savedCount,
+                'row_count' => $capturedRowCount,
                 'counts' => [
                     'business' => (int)($saveResult['business_saved'] ?? 0),
                     'traffic' => (int)($saveResult['traffic_saved'] ?? 0),
@@ -1543,7 +1573,8 @@ trait OnlineDataRequestConcern
                 'captured_counts' => $capturedCounts,
                 'diagnosis_summary' => $this->buildCtripCaptureDiagnosisSummary($payload),
                 'identity_check' => $saveBlockedIdentity ?? $identityCheck,
-                'save_status' => $saveBlockedIdentity !== null ? 'blocked' : ($autoSave ? 'saved_or_empty' : 'skipped'),
+                'save_status' => $saveStatus,
+                'persistence_status' => $saveStatus,
                 'standard_data_type_counts' => $capturedCounts['standard_by_data_type'],
                 'standard_section_counts' => $capturedCounts['standard_by_section'],
                 'request_count' => count($prepared['config']['endpoints'] ?? []),
@@ -1551,7 +1582,17 @@ trait OnlineDataRequestConcern
                 'responses' => array_slice(is_array($payload['responses'] ?? null) ? $payload['responses'] : [], 0, 20),
                 'error_count' => count(is_array($payload['errors'] ?? null) ? $payload['errors'] : []),
                 'output' => $prepared['output_path'],
-            ], $readiness['is_ready'] ? '携程 Cookie API 采集完成' : '携程 Cookie API 未达到诊断就绪');
+            ];
+
+            if ($autoSave && $saveBlockedIdentity === null && $capturedRowCount > 0 && $savedCount <= 0) {
+                return json([
+                    'code' => 500,
+                    'message' => '携程 Cookie API 已解析到数据，但数据库回读未通过；本次不标记为入库成功。',
+                    'data' => $responsePayload,
+                ], 500);
+            }
+
+            return $this->success($responsePayload, $readiness['is_ready'] ? '携程 Cookie API 采集完成并已确认入库' : '携程 Cookie API 未达到诊断就绪');
         } catch (\InvalidArgumentException) {
             return $this->error('携程 Cookie API 业务参数无效', 400);
         } catch (\Throwable $e) {
@@ -1893,11 +1934,12 @@ trait OnlineDataRequestConcern
             );
         }
 
-        return $this->success([
+        $responsePayload = [
             'data' => $overviewRows,
             'total' => count($overviewRows),
             'saved_count' => $savedCount,
             'row_count' => count($overviewRows),
+            'persistence_status' => $savedCount > 0 ? 'readback_verified' : (count($overviewRows) > 0 ? 'readback_not_verified' : 'no_parsed_rows'),
             'counts' => ['overview' => count($overviewRows)],
             'metrics' => $this->summarizeCtripOverviewRows($overviewRows),
             'payload_counts' => [
@@ -1908,7 +1950,17 @@ trait OnlineDataRequestConcern
             'xhr_urls' => $executionEvidence['xhr_urls'],
             'responses' => $executionEvidence['responses'],
             'errors' => $errors,
-        ], $savedCount > 0 ? '携程今日概况获取完成并已入库' : '携程今日概况获取完成，但未解析到可入库概况数据');
+        ];
+
+        if (count($overviewRows) > 0 && $savedCount <= 0) {
+            return json([
+                'code' => 500,
+                'message' => '携程今日概况已解析到数据，但数据库回读未通过；本次不标记为入库成功。',
+                'data' => $responsePayload,
+            ], 500);
+        }
+
+        return $this->success($responsePayload, $savedCount > 0 ? '携程今日概况获取完成并已确认入库' : '携程今日概况获取完成，但未解析到可入库概况数据');
     }
 
     public function fetchCustom(): Response

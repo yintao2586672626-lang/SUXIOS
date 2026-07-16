@@ -265,6 +265,12 @@ class OtaInsightAnalysisService
         }
 
         $priority = (float)$roas < 1 ? 'P0' : ((float)$roas < 3 ? 'P1' : 'P2');
+        $dataGaps = [];
+        foreach (['order_amount', 'bookings', 'room_nights', 'impressions', 'clicks'] as $field) {
+            if (!array_key_exists($field, $advertising) || $advertising[$field] === null) {
+                $dataGaps[] = 'advertising_' . $field . '_missing';
+            }
+        }
         return $this->module(
             'advertising_efficiency',
             $priority === 'P2' ? 'available' : 'watch',
@@ -273,15 +279,16 @@ class OtaInsightAnalysisService
             'Compare ROAS, booking count, and click conversion before increasing or reducing OTA ad budget.',
             [
                 'spend' => (float)$spend,
-                'order_amount' => (float)($advertising['order_amount'] ?? 0),
-                'bookings' => (int)($advertising['bookings'] ?? 0),
-                'room_nights' => (float)($advertising['room_nights'] ?? 0),
-                'impressions' => (int)($advertising['impressions'] ?? 0),
-                'clicks' => (int)($advertising['clicks'] ?? 0),
+                'order_amount' => isset($advertising['order_amount']) ? (float)$advertising['order_amount'] : null,
+                'bookings' => isset($advertising['bookings']) ? (int)$advertising['bookings'] : null,
+                'room_nights' => isset($advertising['room_nights']) ? (float)$advertising['room_nights'] : null,
+                'impressions' => isset($advertising['impressions']) ? (int)$advertising['impressions'] : null,
+                'clicks' => isset($advertising['clicks']) ? (int)$advertising['clicks'] : null,
                 'avg_ctr' => $advertising['avg_ctr'] ?? null,
                 'avg_cvr' => $advertising['avg_cvr'] ?? null,
                 'roas' => (float)$roas,
-            ]
+            ],
+            $dataGaps
         );
     }
 
@@ -309,6 +316,9 @@ class OtaInsightAnalysisService
 
         $score = $psiScore ?? $serviceScore;
         $priority = (float)$score < 70 ? 'P0' : ((float)$score < 85 ? 'P1' : 'P2');
+        $dataGaps = (!array_key_exists('hotel_collect', $quality) || $quality['hotel_collect'] === null)
+            ? ['service_quality_hotel_collect_missing']
+            : [];
         return $this->module(
             'service_quality',
             $priority === 'P2' ? 'available' : 'watch',
@@ -320,8 +330,9 @@ class OtaInsightAnalysisService
                 'avg_service_score' => $serviceScore,
                 'avg_im_score' => $quality['avg_im_score'] ?? null,
                 'avg_reply_rate' => $quality['avg_reply_rate'] ?? null,
-                'hotel_collect' => (int)($quality['hotel_collect'] ?? 0),
-            ]
+                'hotel_collect' => isset($quality['hotel_collect']) ? (int)$quality['hotel_collect'] : null,
+            ],
+            $dataGaps
         );
     }
 
@@ -329,7 +340,7 @@ class OtaInsightAnalysisService
      * @param array<string, mixed> $metrics
      * @return array<string, mixed>
      */
-    private function module(string $key, string $status, string $priority, string $summary, string $action, array $metrics = []): array
+    private function module(string $key, string $status, string $priority, string $summary, string $action, array $metrics = [], array $dataGaps = []): array
     {
         return [
             'key' => $key,
@@ -338,6 +349,7 @@ class OtaInsightAnalysisService
             'summary' => $summary,
             'recommended_action' => $action,
             'metrics' => $metrics,
+            'data_gaps' => array_values(array_unique($dataGaps)),
         ];
     }
 
