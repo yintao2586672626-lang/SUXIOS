@@ -134,7 +134,7 @@ includesAll('docs/revenue_ai_core_scope_priority.md', 'core slimming scope basel
 ]);
 
 includesAll('public/index.html', 'Today operating workbench homepage shell', [
-  '今日经营工作台',
+  '今日经营看板',
   "const currentPage = ref('compass')",
   'loadRevenueAiOverview',
   'revenueAiOverview',

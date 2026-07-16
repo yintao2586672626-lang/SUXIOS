@@ -26,7 +26,11 @@ function excludesAll(file, label, source, needles) {
 const service = read('app/service/InvestmentDecisionSupportService.php');
 const controller = read('app/controller/InvestmentDecision.php');
 const route = read('route/app.php');
-const frontend = read('public/index.html');
+const frontend = [
+  read('public/index.html'),
+  read('resources/frontend/app-template.html'),
+  read('public/app-main.js'),
+].join('\n');
 const systemStatic = read('public/system-static.js');
 const homeStatic = read('public/home-static.js');
 const packageJson = read('package.json');
