@@ -14,6 +14,7 @@ class LlmClient
     private const DEFAULT_MAX_RETRIES = 2;
     private const DEFAULT_RETRY_BASE_DELAY_MS = 250;
     private const DEFAULT_RETRY_MAX_DELAY_MS = 2000;
+    private const MAX_TRANSPORT_TIMEOUT_SECONDS = 60;
 
     public function chat(string $prompt, string $modelKey = 'deepseek_v4_default', array $meta = [], array $options = []): array
     {
@@ -50,6 +51,9 @@ class LlmClient
             'max_retries' => (int)$transport['max_retries'],
             'retryable' => (bool)$transport['retryable'],
             'retry_reason' => (string)$transport['retry_reason'],
+            'retry_exhausted' => (bool)($transport['retry_exhausted'] ?? false),
+            'terminal_failure' => (bool)($transport['terminal_failure'] ?? false),
+            'failure_state' => (string)($transport['failure_state'] ?? ''),
         ];
         if ($response === false) {
             $message = $this->sanitize((string)($transport['error'] ?? 'Network request failed'));
@@ -57,6 +61,9 @@ class LlmClient
                 'ok' => false,
                 'message' => $message,
                 'code' => 500,
+                'retryable' => (bool)$transport['retryable'],
+                'terminal_failure' => (bool)($transport['terminal_failure'] ?? true),
+                'failure_state' => (string)($transport['failure_state'] ?? 'retry_exhausted'),
                 'data' => $this->debug('network_error', $config, $statusCode, $message, $prompt, '', $message, array_merge($meta, $retryMeta), strlen($payloadJson)),
             ], $governance, $config, $prompt, '', 'failed', 'network_error', $message, $statusCode, strlen($payloadJson), $startedAt, false);
         }
@@ -390,6 +397,9 @@ class LlmClient
             'max_retries' => $maxRetries,
             'retryable' => false,
             'retry_reason' => '',
+            'retry_exhausted' => false,
+            'terminal_failure' => false,
+            'failure_state' => 'none',
         ];
 
         do {
@@ -401,6 +411,20 @@ class LlmClient
             $last['max_retries'] = $maxRetries;
 
             if ($retryReason === '' || $attempt >= $maxRetries) {
+                $failed = $last['response'] === false || (int)$last['http_status'] >= 400;
+                $last['retry_exhausted'] = $retryReason !== '' && $attempt >= $maxRetries;
+                $last['terminal_failure'] = $failed;
+                $last['failure_state'] = !$failed
+                    ? 'none'
+                    : ($last['retryable']
+                        ? ($last['retry_exhausted'] ? 'retry_exhausted' : 'retryable_failure')
+                        : 'terminal_non_retryable');
+                if ($last['response'] === false) {
+                    $last['error'] = $this->actionableTransportError(
+                        (string)($last['error'] ?? ''),
+                        (bool)$last['retry_exhausted']
+                    );
+                }
                 return $last;
             }
 
@@ -419,17 +443,27 @@ class LlmClient
                     'Authorization: Bearer ' . $config['api_key'],
                 ]),
                 'content' => $payloadJson,
-                'timeout' => (int)($options['timeout'] ?? 45),
+                'timeout' => $this->transportTimeoutSeconds($options),
                 'ignore_errors' => true,
             ],
         ]);
 
-        $response = @file_get_contents($url, false, $context);
+        $transportErrors = [];
+        set_error_handler(static function (int $severity, string $message) use (&$transportErrors): bool {
+            $transportErrors[] = $message;
+            return true;
+        });
+        try {
+            $response = file_get_contents($url, false, $context);
+        } finally {
+            restore_error_handler();
+        }
         $statusCode = $this->httpStatus($http_response_header ?? []);
         $error = '';
         if ($response === false) {
-            $lastError = error_get_last();
-            $error = $this->sanitize((string)($lastError['message'] ?? 'Network request failed'));
+            $error = $this->sanitize(
+                $transportErrors !== [] ? implode('; ', $transportErrors) : 'Network request failed'
+            );
         }
 
         return [
@@ -437,6 +471,22 @@ class LlmClient
             'http_status' => $statusCode,
             'error' => $error,
         ];
+    }
+
+    private function transportTimeoutSeconds(array $options): int
+    {
+        $timeout = array_key_exists('timeout', $options) ? (int)$options['timeout'] : 45;
+        return max(1, min(self::MAX_TRANSPORT_TIMEOUT_SECONDS, $timeout));
+    }
+
+    private function actionableTransportError(string $error, bool $retryExhausted): string
+    {
+        $isTimeout = preg_match('/timed?\s*out|timeout/i', $error) === 1;
+        $failure = $isTimeout ? 'LLM transport timeout' : 'LLM transport failed';
+        if ($retryExhausted) {
+            return $failure . '; retries exhausted for this request. Retry later.';
+        }
+        return $failure . '. Retry later.';
     }
 
     private function retryReason(mixed $response, int $statusCode): string
@@ -858,6 +908,9 @@ class LlmClient
                 'max_retries' => (int)($meta['max_retries'] ?? 0),
                 'retryable' => (bool)($meta['retryable'] ?? false),
                 'retry_reason' => (string)($meta['retry_reason'] ?? ''),
+                'retry_exhausted' => (bool)($meta['retry_exhausted'] ?? false),
+                'terminal_failure' => (bool)($meta['terminal_failure'] ?? false),
+                'failure_state' => (string)($meta['failure_state'] ?? ''),
             ],
         ];
     }
