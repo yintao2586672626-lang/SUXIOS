@@ -2,7 +2,7 @@
                         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
                             <div>
                                 <h3 class="font-bold text-gray-800">转让历史记录</h3>
-                                <p class="text-xs text-gray-500 mt-1">保存资产定价、时机推演、数据看板的输入、结果与真实数据快照。</p>
+                                <p class="text-xs text-gray-500 mt-1">保存资产定价、时机推演、数据看板的输入、测算结果与来源快照；快照质量以其来源状态为准。</p>
                             </div>
                             <button @click="loadTransferRecords" :disabled="transferRecordsLoading" class="px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-60">
                                 <i :class="transferRecordsLoading ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt'" class="mr-1"></i>

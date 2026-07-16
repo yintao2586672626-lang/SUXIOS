@@ -1,7 +1,7 @@
                                 <details v-if="currentPage === 'compass'" class="suxi-evidence-fold" data-testid="home-full-detail-fold">
                                     <summary>
                                         <span>完整明细</span>
-                                        <span>数据依据、收益闭环和动作审核默认收起</span>
+                                        <span>数据依据、收益变化和后续跟进默认收起</span>
                                     </summary>
                                     <div class="mt-3 space-y-4">
                                 <details class="suxi-evidence-fold" data-testid="home-evidence-fold">
@@ -109,7 +109,7 @@
                                         </div>
                                         <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
                                             <div class="flex items-center justify-between gap-2">
-                                                <span class="text-xs font-semibold text-slate-700">异常判断</span>
+                                                <span class="text-xs font-semibold text-slate-700">变化提示</span>
                                                 <span class="text-[11px] text-slate-500">{{ revenueAiBusinessClosure.anomalyRows.length }}项</span>
                                             </div>
                                             <div v-if="revenueAiBusinessClosure.anomalyRows.length" class="mt-2 space-y-1.5">
@@ -118,7 +118,7 @@
                                                     <div class="mt-0.5 line-clamp-2 text-[11px] leading-4 text-slate-500" :title="item.detail">{{ item.detail }}</div>
                                                 </div>
                                             </div>
-                                            <div v-else="" class="mt-2 text-xs text-slate-500">当前未命中收益计算异常；投决仍受全酒店口径边界限制。</div>
+                                            <div v-else="" class="mt-2 text-xs text-slate-500">当前未返回需特别关注的收益变化；投决仍受全酒店口径边界限制。</div>
                                         </div>
                                     </div>
                                 </div>
@@ -126,7 +126,7 @@
                                 <details class="suxi-evidence-fold suxi-work-fold" data-testid="revenue-ai-gap-closure-fold">
                                     <summary>
                                         <span>数据缺口闭环</span>
-                                        <span>{{ revenueAiGapSummary.total &gt; 0 ? `${revenueAiGapSummary.total} 项待处理` : '暂无阻塞缺口' }}</span>
+                                        <span>{{ revenueAiGapSummary.total &gt; 0 ? `${revenueAiGapSummary.total} 项待处理` : '未返回阻塞缺口' }}</span>
                                     </summary>
                                 <div class="mt-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm" data-testid="revenue-ai-gap-closure">
                                     <div class="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
@@ -135,7 +135,7 @@
                                             <div class="mt-1 text-xs text-slate-500">缺字段、登录失效、接口未命中和数据过期直接指向数据健康面板。</div>
                                         </div>
                                         <span :class="['w-fit rounded-full border px-2 py-0.5 text-xs whitespace-nowrap', revenueAiGapSummary.total &gt; 0 ? revenueAiStatusClass(revenueAiGapSummary.high &gt; 0 ? 'failed' : 'partial') : revenueAiStatusClass('ok')]">
-                                            {{ revenueAiGapSummary.total &gt; 0 ? `${revenueAiGapSummary.total} 项待处理` : '暂无阻塞缺口' }}
+                                            {{ revenueAiGapSummary.total &gt; 0 ? `${revenueAiGapSummary.total} 项待处理` : '未返回阻塞缺口' }}
                                         </span>
                                     </div>
                                     <div v-if="revenueAiGapRows.length" class="grid grid-cols-1 gap-2 lg:grid-cols-2">
@@ -160,7 +160,7 @@
                                         </button>
                                     </div>
                                     <div v-else="" class="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-700">
-                                        当前 Revenue AI 总览未返回阻塞缺口，仍以 OTA 渠道口径为准。
+                                        当前收益分析总览未返回阻塞缺口，仍以 OTA 渠道口径为准。
                                     </div>
                                 </div>
                                 </details>
@@ -186,7 +186,7 @@
                                         <div class="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5" data-testid="revenue-ai-evidence-workbench">
                                             <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                                                 <div class="min-w-0">
-                                                    <div class="text-sm font-semibold text-slate-900">AI 证据工作台</div>
+                                                <div class="text-sm font-semibold text-slate-900">模型或规则证据工作台</div>
                                                     <div class="mt-1 text-xs text-slate-500 leading-5" :title="revenueAiEvidenceWorkbenchSummary.detailText">{{ revenueAiEvidenceWorkbenchSummary.detailText }}</div>
                                                 </div>
                                                 <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-xs whitespace-nowrap', revenueAiEvidenceWorkbenchSummary.className]">{{ revenueAiEvidenceWorkbenchSummary.statusLabel }}</span>
@@ -240,7 +240,7 @@
                                                 </div>
                                                 <div v-if="action.resolutionPlanVisible" class="mt-2 rounded-lg border border-amber-100 bg-amber-50 px-2 py-1.5" data-testid="revenue-ai-resolution-plan">
                                                     <div class="flex items-center justify-between gap-2">
-                                                        <span class="truncate text-[11px] font-semibold text-amber-800" :title="action.resolutionPlanSummary?.display">{{ action.resolutionPlanSummary?.display || 'AI决策补证' }}</span>
+                                                            <span class="truncate text-[11px] font-semibold text-amber-800" :title="action.resolutionPlanSummary?.display">{{ action.resolutionPlanSummary?.display || '决策补证' }}</span>
                                                         <span :class="['shrink-0 rounded-full border px-1.5 py-0.5 text-[11px] whitespace-nowrap', action.resolutionPlanSummary?.className]">{{ action.resolutionPlanSummary?.statusLabel || '补证状态' }}</span>
                                                     </div>
                                                     <div v-if="action.resolutionPlanItems?.length" class="mt-1 space-y-1">
@@ -355,7 +355,7 @@
                                     <div class="border-b border-slate-100 bg-gradient-to-r from-white via-slate-50 to-white px-3 py-3 sm:px-4">
                                         <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                                             <div class="min-w-0">
-                                                <div class="text-[11px] font-semibold tracking-[0.12em] text-slate-400">REVENUE AI BOARD</div>
+                                        <div class="text-[11px] font-semibold tracking-[0.12em] text-slate-400">REVENUE DECISION BOARD</div>
                                                 <h3 class="mt-1 text-lg font-bold text-gray-900 leading-tight">收益管理最小工作台</h3>
                                             </div>
                                             <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
@@ -410,9 +410,10 @@
                                         <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3 shadow-sm">
                                             <div class="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                                                 <div>
-                                                    <div class="text-sm font-semibold text-slate-900">经营因果链</div>
+                                                    <div class="text-sm font-semibold text-slate-900">经营证据链</div>
+                                                    <div class="mt-1 text-xs text-slate-500">仅核对各环节字段是否返回，不代表已证明因果关系。</div>
                                                 </div>
-                                                <span class="w-fit rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">{{ homeMarketForecastStatus }}</span>
+                                                <span class="w-fit rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">逐项核对</span>
                                             </div>
                                             <div class="grid grid-cols-2 gap-2 lg:grid-cols-5">
                                                 <div v-for="node in homeCausalChainNodes" :key="node.key" :class="node.ready ? 'rounded-xl border border-slate-200 bg-white px-3 py-2.5' : 'rounded-xl border border-slate-200 bg-slate-100 px-3 py-2.5'">
@@ -423,8 +424,8 @@
                                                         </span>
                                                     </div>
                                                     <div :class="node.ready ? 'mt-2 text-base sm:text-lg font-bold text-slate-900' : 'mt-2 text-base sm:text-lg font-bold text-slate-500'">{{ node.value }}</div>
-                                                    <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
-                                                        <span :class="node.ready ? 'block h-full rounded-full bg-green-500' : 'block h-full rounded-full bg-slate-400'" :style="{ width: node.ready ? '72%' : '18%' }"></span>
+                                                    <div :class="node.ready ? 'mt-2 w-fit rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700' : 'mt-2 w-fit rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700'">
+                                                        {{ node.ready ? '已返回' : '未返回 · 待补证' }}
                                                     </div>
                                                 </div>
                                             </div>
@@ -545,7 +546,7 @@
                                     <div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                                         <div class="min-w-0">
                                             <div class="text-base font-bold text-gray-900">按这个顺序完成今天的经营动作</div>
-                                            <div class="mt-1 text-xs text-slate-500">先确认 OTA 数据，再看收益结果、AI 建议、执行进度和投决沉淀。</div>
+                                            <div class="mt-1 text-xs text-slate-500">先确认 OTA 数据，再看收益结果、模型或规则建议、执行进度和投决沉淀。</div>
                                         </div>
                                         <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs leading-5 text-slate-600">
                                             当前状态：{{ compassDataReadiness.summaryText }} · {{ homeMarketForecastStatus }}
@@ -571,7 +572,7 @@
                                     <div class="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
                                         <div class="mb-3 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                                             <div>
-                                                <div class="text-sm font-semibold text-slate-900">AI建议为什么这么来</div>
+                                                <div class="text-sm font-semibold text-slate-900">建议依据与来源</div>
                                                 <div class="mt-1 text-xs text-slate-500">这里检查输入证据、动作生成和人工确认，避免把缺数据误当成结论。</div>
                                             </div>
                                         </div>

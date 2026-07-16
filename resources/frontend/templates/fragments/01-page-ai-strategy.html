@@ -106,8 +106,9 @@
                                         <h3 class="font-bold text-gray-800 mb-4">竞争与定位判断</h3>
                                         <div class="space-y-3">
                                             <div>
-                                                <label class="block text-xs text-gray-500 mb-1">周边竞品数量</label>
-                                                <input type="number" v-model.number="aiProject.competitor_count" data-testid="field-strategy-competitor-count" readonly="" class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-700 cursor-not-allowed focus:ring-2 focus:ring-blue-500 outline-none">
+                                                <label class="block text-xs text-gray-500 mb-1">周边竞品数量（人工录入，可留空）</label>
+                                                <input type="number" min="0" v-model.number="aiProject.competitor_count" data-testid="field-strategy-competitor-count" class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="未核验时请留空">
+                                                <p class="mt-1 text-[11px] text-gray-400">仅代表人工录入的情景参数，不代表系统已抓取周边全部竞品。</p>
                                             </div>
                                             <div>
                                                 <label class="block text-xs text-gray-500 mb-1">目标酒店档次</label>
@@ -126,7 +127,7 @@
                             <div class="xl:col-span-5 space-y-5">
                                 <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                                     <div class="flex items-center justify-between mb-4">
-                                        <h3 class="font-bold text-gray-800">AI赋能战略推演结果</h3>
+                                        <h3 class="font-bold text-gray-800">战略推演结果（模型或规则）</h3>
                                         <div v-if="aiStrategyResult" class="flex items-center gap-2">
                                             <span v-if="aiStrategyResult.ai_evaluation" :class="['px-2 py-1 rounded text-xs border', aiStrategyResult.ai_evaluation.source === 'llm' ? 'bg-cyan-50 text-cyan-700 border-cyan-100' : 'bg-gray-50 text-gray-600 border-gray-100']">{{ strategyAiSourceLabel }}</span>
                                             <span class="px-2 py-1 rounded text-xs border bg-slate-50 text-slate-600 border-slate-200">{{ strategyFreshnessLabel }}</span>
@@ -136,6 +137,11 @@
                                     <div v-if="aiStrategyResult" class="space-y-5">
                                         <div v-if="strategyDataNotice" class="rounded-lg border border-amber-100 bg-amber-50 text-amber-700 text-xs px-3 py-2">
                                             {{ strategyDataNotice }}
+                                        </div>
+                                        <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+                                            <div class="font-semibold text-slate-800">规则情景分（非真实市场热度、成功率或经营预测）</div>
+                                            <div class="mt-1">{{ aiStrategyResult.score_semantics || '该分数仅用于比较当前录入情景，不形成投资结论。' }}</div>
+                                            <div v-if="aiStrategyResult.decision_ready === false && aiStrategyResult.data_gaps?.length" class="mt-1 text-amber-700">待补证：{{ aiStrategyResult.data_gaps.slice(0, 6).join('、') }}</div>
                                         </div>
                                         <div v-if="strategyCurrentReadiness" class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
                                             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
@@ -159,7 +165,7 @@
                                         </div>
                                         <div v-if="aiStrategyResult.ai_evaluation" class="border-l-4 border-cyan-400 bg-cyan-50/60 px-3 py-2 text-sm text-slate-700">
                                             <div class="flex items-center justify-between gap-3 mb-1">
-                                                <div class="font-semibold text-cyan-900">AI推演结论</div>
+                                                <div class="font-semibold text-cyan-900">模型推演结论</div>
                                                 <span class="text-xs text-cyan-700">{{ strategyAiSourceLabel }}</span>
                                             </div>
                                             <p v-if="aiStrategyResult.ai_evaluation.summary" class="text-xs text-slate-600">{{ aiStrategyResult.ai_evaluation.summary }}</p>
@@ -179,8 +185,8 @@
                                             </div>
                                         </div>
                                         <div class="rounded-xl p-5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
-                                            <div class="text-sm text-blue-100">项目适配评分</div>
-                                            <div class="text-4xl font-bold mt-1">【{{ aiStrategyResult.total_score }}】</div>
+                                            <div class="text-sm text-blue-100">规则情景适配分</div>
+                                            <div class="text-4xl font-bold mt-1">{{ aiStrategyResult.total_score ?? '—' }}</div>
                                             <div class="mt-2 text-sm">{{ aiStrategyResult.strategy_conclusion }}</div>
                                         </div>
                                         <div class="grid grid-cols-2 gap-3">
@@ -211,7 +217,7 @@
                                     </div>
                                     <div v-else="" class="py-16 text-center text-gray-400">
                                         <i class="fas fa-route text-4xl mb-3 opacity-50"></i>
-                                        <p>录入项目参数后生成AI赋能战略推演结果</p>
+                                        <p>录入项目参数后生成模型或规则推演结果</p>
                                     </div>
                                 </div>
 
@@ -224,7 +230,7 @@
                                         <div v-for="record in aiStrategyRecords" :key="record.id" class="py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                                             <div>
                                                 <div class="font-medium text-gray-900">{{ record.project_name || '战略推演项目' }}</div>
-                                                <div class="text-xs text-gray-500 mt-1">{{ record.city || '-' }}{{ record.district ? ' · ' + record.district : '' }} · 评分 {{ record.total_score || 0 }} · {{ record.created_at || '-' }}</div>
+                                                <div class="text-xs text-gray-500 mt-1">{{ record.city || '-' }}{{ record.district ? ' · ' + record.district : '' }} · 规则推演分 {{ record.total_score ?? '—' }} · {{ record.created_at || '-' }}</div>
                                             </div>
                                             <div class="flex items-center gap-2">
                                                 <span :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(record.risk_level)]">{{ record.risk_level || '-' }}</span>

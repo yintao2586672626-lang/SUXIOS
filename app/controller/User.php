@@ -14,7 +14,6 @@ use think\facade\Db;
 
 class User extends Base
 {
-    private const ISSUED_DEFAULT_PASSWORD = '666666';
     private array $tableColumnCache = [];
     private array $tenantColumnCache = [];
 
@@ -359,9 +358,7 @@ class User extends Base
             'role_id.require' => '请选择角色',
         ]);
 
-        $passwordError = $this->isIssuedDefaultPassword((string)$data['password'])
-            ? null
-            : $this->validatePasswordPolicy((string)$data['password'], '密码');
+        $passwordError = $this->validatePasswordPolicy((string)$data['password'], '密码');
         if ($passwordError) {
             return $this->error($passwordError);
         }
@@ -485,11 +482,7 @@ class User extends Base
         }
 
         if (!empty($data['password'])) {
-            $canUseIssuedDefault = $this->currentUser->isSuperAdmin()
-                && $this->isIssuedDefaultPassword((string)$data['password']);
-            $passwordError = $canUseIssuedDefault
-                ? null
-                : $this->validatePasswordPolicy((string)$data['password'], '密码');
+            $passwordError = $this->validatePasswordPolicy((string)$data['password'], '密码');
             if ($passwordError) {
                 return $this->error($passwordError);
             }
@@ -655,11 +648,6 @@ class User extends Base
         }
 
         return null;
-    }
-
-    private function isIssuedDefaultPassword(string $password): bool
-    {
-        return hash_equals(self::ISSUED_DEFAULT_PASSWORD, $password);
     }
 
     private function canEditUserUsername(UserModel $targetUser): bool

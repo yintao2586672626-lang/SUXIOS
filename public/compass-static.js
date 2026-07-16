@@ -133,7 +133,7 @@ window.SUXI_COMPASS_STATIC = (() => {
     const homeQuickEntryDefinitions = [
         { key: 'online-data', title: '数据是否可用', desc: '看授权、采集、字段缺口', page: 'online-data', tab: 'data-health', icon: 'fas fa-cloud-download-alt', permission: 'can_view_online_data' },
         { key: 'operation-diagnosis', title: '今天经营结果', desc: '收入、订单、转化总览', page: 'ops-source', icon: 'fas fa-search' },
-        { key: 'operation-root-cause', title: '为什么变差/变好', desc: '定位获客和收入原因', page: 'ops-analysis', icon: 'fas fa-microscope' },
+        { key: 'operation-root-cause', title: '为什么变差/变好', desc: '核对获客和收入的可能影响因素与证据', page: 'ops-analysis', icon: 'fas fa-microscope' },
         { key: 'operation-alerts', title: '今天要处理什么', desc: '风险、预警和动作建议', page: 'ops-insight', icon: 'fas fa-bell' },
         { key: 'strategy-simulation', title: '试算运营策略', desc: '调价、促销、投放影响', page: 'ops-plan', icon: 'fas fa-lightbulb' },
         { key: 'action-tracking', title: '执行进度和效果', desc: '跟踪执行与ROI复盘', page: 'ops-track', icon: 'fas fa-play-circle' },

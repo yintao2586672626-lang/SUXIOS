@@ -1,12 +1,12 @@
-                    <div v-if="currentPage === 'online-data'">
+                    <div v-if="currentPage === 'online-data'" class="online-data-page">
                         <div class="rounded-xl border border-gray-200 bg-gray-50 shadow-sm overflow-hidden">
                             <div class="px-5 py-4 border-b border-gray-200 bg-white">
-                                <h3 class="text-base font-semibold text-gray-900">平台数据手动获取</h3>
-                                <p class="mt-1 text-xs leading-5 text-gray-500">手动触发携程/美团已配置门店数据获取并入库；自动采集在“配置：自动采集”独立维护。</p>
+                                <h3 class="text-base font-semibold text-gray-900">OTA 渠道数据获取与记录</h3>
+                                <p class="mt-1 text-xs leading-5 text-gray-500">支持携程/美团采集或导入并记录；这里只代表 OTA 渠道，不等同于全酒店经营口径。</p>
                             </div>
                             <div class="p-4 sm:p-6">
                                 <!-- Tabs -->
-                                <div class="flex flex-wrap gap-2 border-b border-gray-200 pb-3 mb-6">
+                                <div class="online-data-primary-tabs flex flex-wrap gap-2 border-b border-gray-200 pb-3 mb-6" role="navigation" aria-label="线上数据主导航">
                                     <button @click="openOnlineDataTab('data-health')" :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'data-health' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
                                         数据一键获取
                                     </button>
@@ -325,7 +325,7 @@
                                         <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4">
                                             <div>
                                                 <h4 class="text-base font-semibold text-gray-900">员工六问闭环</h4>
-                                                <div class="mt-1 text-xs text-gray-500 leading-5">只按 OTA 渠道证据判断：采集、字段可信、字段缺失、收入/流量/转化、AI 依据和下一步动作。</div>
+                                                <div class="mt-1 text-xs text-gray-500 leading-5">只按 OTA 渠道证据判断：采集、字段可信、字段缺失、收入/流量/转化、模型或规则依据和下一步动作。</div>
                                             </div>
                                             <span class="rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs text-gray-600 whitespace-nowrap">
                                                 {{ phase1EmployeeQuestionRows.filter(row =&gt; row.status === 'proved').length }} / {{ phase1EmployeeQuestionRows.length }} 已证明
@@ -552,7 +552,7 @@
                                         </div>
                                         <div v-if="phase1EmployeeAiEvidenceSummary" data-testid="phase1-employee-ai-evidence-summary" class="mb-4 rounded-lg border border-violet-100 bg-violet-50 p-3">
                                             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
-                                                <div class="text-sm font-semibold text-gray-900">AI 依据摘要</div>
+                                                        <div class="text-sm font-semibold text-gray-900">模型或规则依据摘要</div>
                                                 <div class="text-[11px] text-violet-700">只读证据来源、数据缺口和动作项</div>
                                             </div>
                                             <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -708,7 +708,7 @@
                                                 <div class="flex items-start justify-between gap-3 mb-3">
                                                     <div>
                                                         <h4 class="text-base font-semibold text-gray-900">后台高风险动作摘要</h4>
-                                                        <div class="text-xs text-gray-500 mt-1">近 7 天配置变更、批量删除、自动抓取、Agent 执行</div>
+                                                        <div class="text-xs text-gray-500 mt-1">近 7 天配置变更、批量删除、自动采集、Agent 执行</div>
                                                     </div>
                                                     <span :class="['rounded-md border px-2.5 py-1 text-xs font-medium whitespace-nowrap', dataHealthPriorityClass(dataHealthHighRiskSummary.status)]">
                                                         {{ dataHealthHighRiskSummary.text }}
@@ -845,8 +845,8 @@
                                         <div v-if="dataHealthDetailPanelsReady &amp;&amp; dataHealthFullDiagnosticsLoaded" data-testid="hotel-data-cockpit" class="rounded-xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm space-y-4">
                                             <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
                                                 <div class="max-w-3xl">
-                                                    <h4 class="text-base font-semibold text-gray-900">账号级驾驶舱</h4>
-                                                    <div class="text-xs text-gray-500 mt-1 leading-5">自动发现授权账号下门店，汇总经营、流量、转化、竞争、服务、IM、广告、客群和数据健康状态</div>
+                                                    <h4 class="text-base font-semibold text-gray-900">OTA 账号级驾驶舱</h4>
+                                                    <div class="text-xs text-gray-500 mt-1 leading-5">汇总已采集或导入的 OTA 渠道指标与数据健康状态；未命中字段保持缺失，不等同于全酒店经营事实</div>
                                                 </div>
                                                 <span :class="['inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-medium whitespace-nowrap', dashboardStateClass(dashboardAccountOverview?.summary?.sync_status || 'not_collected')]">
                                                     {{ dashboardStateText(dashboardAccountOverview?.summary?.sync_status || 'not_collected') }}
@@ -864,7 +864,7 @@
                                             </div>
                                             <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
                                                 <div class="xl:col-span-2 rounded-lg border border-gray-200 bg-white overflow-hidden">
-                                                    <div class="px-3 py-2 bg-gray-50 border-b border-gray-200 text-sm font-semibold text-gray-800">核心经营 KPI</div>
+                                                    <div class="px-3 py-2 bg-gray-50 border-b border-gray-200 text-sm font-semibold text-gray-800">OTA 渠道核心指标</div>
                                                     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
                                                         <div v-for="metric in dashboardCoreKpis" :key="metric.key" class="p-3 border-b border-gray-100 md:border-r last:border-b-0">
                                                             <div class="flex items-center justify-between gap-2">
@@ -877,7 +877,7 @@
                                                     </div>
                                                 </div>
                                                 <div class="rounded-lg border border-gray-200 bg-white overflow-hidden">
-                                                    <div class="px-3 py-2 bg-gray-50 border-b border-gray-200 text-sm font-semibold text-gray-800">风险预警 / 今日行动建议</div>
+                                                    <div class="px-3 py-2 bg-gray-50 border-b border-gray-200 text-sm font-semibold text-gray-800">OTA 风险提示 / 今日建议</div>
                                                     <div class="divide-y max-h-80 overflow-y-auto">
                                                         <div v-for="diagnosis in dashboardRiskAlerts" :key="`${diagnosis.problem}-${diagnosis.status}`" class="p-3">
                                                             <div class="flex items-start justify-between gap-2">
@@ -892,7 +892,7 @@
                                                             <div class="text-xs font-semibold text-blue-900">{{ item.title }}</div>
                                                             <div class="text-xs text-blue-700 mt-1 leading-5">{{ item.action || '-' }}</div>
                                                         </div>
-                                                        <div v-if="!dashboardRiskAlerts.length &amp;&amp; !dashboardTodayActions.length" class="p-4 text-sm text-gray-500">暂无风险预警</div>
+                                            <div v-if="!dashboardRiskAlerts.length &amp;&amp; !dashboardTodayActions.length" class="p-4 text-sm text-gray-500">当前范围未返回风险预警</div>
                                                     </div>
                                                 </div>
                                             </div>
@@ -901,8 +901,8 @@
                                         <div v-if="dataHealthDetailPanelsReady &amp;&amp; dataHealthFullDiagnosticsLoaded" data-testid="hotel-portrait-panel" class="rounded-xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm space-y-4">
                                             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                                                 <div class="max-w-3xl">
-                                                    <h4 class="text-base font-semibold text-gray-900">单店酒店数据画像</h4>
-                                                    <div class="text-xs text-gray-500 mt-1 leading-5">基础、经营、流量、转化、价格房态、竞争、点评服务、IM、广告、客群、数据健康</div>
+                                                    <h4 class="text-base font-semibold text-gray-900">单店 OTA 数据画像</h4>
+                                                    <div class="text-xs text-gray-500 mt-1 leading-5">按平台已返回字段展示流量、转化、价格房态、竞争、点评服务、IM、广告、客群与数据健康；不外推整店经营</div>
                                                 </div>
                                                 <select v-model="dashboardHotelId" @change="loadHotelDataDashboard" class="min-w-[220px] rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 shadow-sm focus:border-gray-500 focus:outline-none">
                                                     <option value="">自动选择门店</option>
@@ -943,7 +943,7 @@
                                             <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
                                                 <div class="max-w-3xl">
                                                     <h4 class="text-base font-semibold text-gray-900">数据源状态 / 证据链</h4>
-                                                    <div class="text-xs text-gray-500 mt-1 leading-5">保留原在线数据采集健康：授权、请求、字段、回放、待处理动作和携程抓取证据</div>
+                                                <div class="text-xs text-gray-500 mt-1 leading-5">保留原在线数据采集健康：授权、请求、字段、回放、待处理动作和携程采集证据</div>
                                                 </div>
                                                 <span :class="['inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-medium whitespace-nowrap', collectionHealthStatusClass(dashboardDataSources?.summary?.quality_status || collectionHealthQuality.status || 'no_data')]">
                                                     {{ collectionHealthStatusText(dashboardDataSources?.summary?.quality_status || collectionHealthQuality.status || 'no_data') }}
@@ -1157,7 +1157,7 @@
                                                 </div>
                                             </div>
                                             <div v-if="collectionHealthCtripCatalog.capture_gap_next_actions &amp;&amp; collectionHealthCtripCatalog.capture_gap_next_actions.length" class="mt-3 rounded border border-amber-100 bg-amber-50 p-2">
-                                                <div class="text-xs font-medium text-amber-800 mb-1">下一步抓取动作</div>
+                                                <div class="text-xs font-medium text-amber-800 mb-1">下一步采集动作</div>
                                                 <div v-for="action in collectionHealthCtripCatalogActionRows.slice(0, 4)" :key="`${action.action}-${action.reason}-${action.section}-${action.endpoint_id}`" class="text-xs text-amber-800 truncate" :title="action.rawText">
                                                     {{ action.actionText }}
                                                     <span v-if="action.reasonText"> · {{ action.reasonText }}</span>
@@ -1265,12 +1265,12 @@
                                 <div v-if="onlineDataTab === 'analysis'" data-testid="online-data-analysis-panel" class="space-y-5">
                                     <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                                         <div>
-                                            <h4 class="text-lg font-semibold text-gray-900">平台数据分析</h4>
-                                            <p class="text-sm text-gray-500">展示平台自动获取后的 OTA 渠道数值，不等同于全酒店经营口径。</p>
+                                            <h4 class="text-lg font-semibold text-gray-900">OTA 渠道数据分析</h4>
+                                            <p class="text-sm text-gray-500">展示采集或导入后的 OTA 渠道数值，不等同于全酒店经营口径。</p>
                                         </div>
                                         <div class="flex gap-2">
                                             <button @click="openPlatformAutoTab()" class="px-3 py-2 border rounded-lg text-sm hover:bg-gray-50">
-                                                <i class="fas fa-cloud-download-alt mr-1"></i>平台自动获取
+                                                <i class="fas fa-cloud-download-alt mr-1"></i>采集配置
                                             </button>
                                             <button @click="openOnlineDataTab('data')" class="px-3 py-2 border rounded-lg text-sm hover:bg-gray-50">
                                                 <i class="fas fa-list mr-1"></i>数据记录
@@ -1432,7 +1432,7 @@
                                         <div class="px-4 py-3 border-b flex items-center justify-between gap-3">
                                             <div>
                                                 <h5 class="font-medium text-gray-800">入库明细</h5>
-                                                <div class="text-xs text-gray-500">来自平台自动获取写入的标准数据，当前筛选共 {{ onlineAnalysisPagination.total || onlineAnalysisRows.length }} 条，当前展示 {{ onlineAnalysisRows.length }} 条样本；完整口径以汇总指标为准。</div>
+                                                <div class="text-xs text-gray-500">来自平台采集或导入的标准数据，当前筛选共 {{ onlineAnalysisPagination.total || onlineAnalysisRows.length }} 条，当前展示 {{ onlineAnalysisRows.length }} 条样本；完整口径以汇总指标为准。</div>
                                                 <div v-if="onlineAnalysisQualitySummary" class="mt-1 text-xs text-amber-700">{{ onlineDataQualityScopeText(onlineAnalysisQualitySummary) }}</div>
                                             </div>
                                             <button @click="loadOnlineAnalysisRows({ force: true })" :disabled="onlineAnalysisRowsLoading" class="px-3 py-2 text-sm border rounded-lg hover:bg-gray-50 disabled:text-gray-400">
@@ -1483,7 +1483,7 @@
                                                         <td class="px-4 py-3 text-gray-600 max-w-xs truncate" :title="item.dimension || '-'">{{ item.dimension || '-' }}</td>
                                                     </tr>
                                                     <tr v-if="!onlineAnalysisRowsLoading &amp;&amp; onlineAnalysisRows.length === 0">
-                                                        <td colspan="9" class="px-4 py-8 text-center text-gray-500">当前筛选范围暂无入库明细。请先在“平台自动获取”完成采集。</td>
+                                                        <td colspan="9" class="px-4 py-8 text-center text-gray-500">当前筛选范围暂无入库明细。请先完成平台采集或数据导入。</td>
                                                     </tr>
                                                 </tbody>
                                             </table>
@@ -1961,7 +1961,7 @@
                                                                 </td>
                                                                 <td class="px-4 py-3 text-gray-600">{{ source.platform }} / {{ source.data_type }} / {{ source.ingestion_method }}</td>
                                                                 <td class="px-4 py-3">
-                                                                    <span :class="['px-2 py-1 rounded-full text-xs', platformSourceStatusClass(source.status || source.last_sync_status)]">{{ source.status || source.last_sync_status || 'waiting_config' }}</span>
+                                                                    <span :class="['px-2 py-1 rounded-full text-xs', platformSourceStatusClass(source.status || source.last_sync_status)]">{{ platformCollectionStatusText(source.status || source.last_sync_status || 'waiting_config') }}</span>
                                                                     <div v-if="source.last_error" class="mt-1 text-xs text-red-600 max-w-xs truncate" :title="source.last_error">{{ source.last_error }}</div>
                                                                     <div v-if="platformSyncActionText(source.last_error)" class="mt-1 text-xs text-amber-700">{{ platformSyncActionText(source.last_error) }}</div>
                                                                 </td>
@@ -2106,8 +2106,8 @@
                                     <input type="hidden" v-model="ctripForm.url">
                                     <input type="hidden" v-model="ctripForm.nodeId">
                                     <div class="mb-4">
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">Cookies</label>
-                                        <textarea v-model="ctripForm.cookies" disabled="" rows="3" class="w-full px-3 py-2 border rounded-lg" placeholder="请粘贴登录后的Cookies..."></textarea>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Cookie/API 辅助内容</label>
+                                        <textarea v-model="ctripForm.cookies" disabled="" rows="3" class="w-full px-3 py-2 border rounded-lg" placeholder="凭据请前往“配置：平台账号”保存"></textarea>
                                     </div>
                                     <div class="flex gap-3">
                                         <button @click="fetchCtripData" :disabled="fetchingData" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400">
@@ -2206,7 +2206,7 @@
                                     </div>
                                     <div class="mb-4">
                                         <label class="block text-sm font-medium text-gray-700 mb-1">Cookies</label>
-                                        <textarea v-model="meituanForm.cookies" disabled="" rows="3" class="w-full px-3 py-2 border rounded-lg" placeholder="请粘贴美团后台登录后的Cookies..."></textarea>
+                                        <textarea v-model="meituanForm.cookies" disabled="" rows="3" class="w-full px-3 py-2 border rounded-lg" placeholder="凭据请前往“配置：平台账号”保存"></textarea>
                                     </div>
                                     <div class="flex gap-3 flex-wrap">
                                         <button @click="fetchMeituanData" :disabled="fetchingData" class="px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 disabled:bg-gray-400">
@@ -2262,7 +2262,7 @@
                                     </div>
                                     <div class="mb-4">
                                         <label class="block text-sm font-medium text-gray-700 mb-1">Cookies <span class="text-red-500">*</span></label>
-                                        <textarea v-model="meituanTrafficForm.cookies" disabled="" rows="3" class="w-full px-3 py-2 border rounded-lg" placeholder="请粘贴美团后台登录后的Cookies..."></textarea>
+                                        <textarea v-model="meituanTrafficForm.cookies" disabled="" rows="3" class="w-full px-3 py-2 border rounded-lg" placeholder="凭据请前往“配置：平台账号”保存"></textarea>
                                     </div>
                                     <div class="mb-4">
                                         <label class="block text-sm font-medium text-gray-700 mb-1">额外参数（JSON，可选）</label>
@@ -2358,8 +2358,9 @@ Authorization: Bearer xxx"></textarea>
                                                 <platform-auto-secondary-panels v-if="platformAutoSecondaryPanelsReady" :ctx="$root">
                                                 </platform-auto-secondary-panels>
 
-                                                                                    </div>
+                                                                                     </div>
                                     </div>
+                                </div>
                                 </div>
 
                                 <!-- 数据记录 -->
@@ -2410,10 +2411,83 @@ Authorization: Bearer xxx"></textarea>
                                         <button @click="refreshOnlineData({ force: true })" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
                                             <i class="fas fa-search mr-2"></i>查询
                                         </button>
+                                        <button v-if="canUseOnlineDataCorrectionLedger" @click="toggleOnlineDataCorrectionLedger" data-testid="online-data-correction-ledger-toggle" class="px-4 py-2 border border-[#a88a52] text-[#6f572f] rounded-lg hover:bg-[#f8f3e8]">
+                                            <i class="fas fa-history mr-2"></i>{{ onlineDataCorrectionLedgerOpen ? '收起更正记录' : '更正记录' }}
+                                        </button>
                                         <button @click="batchDeleteOnlineData" :disabled="selectedOnlineDataIds.length === 0" class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:bg-gray-300 disabled:cursor-not-allowed">
                                             <i class="fas fa-trash mr-2"></i>删除选中 ({{ selectedOnlineDataIds.length }})
                                         </button>
                                     </div>
+
+                                    <section v-if="canUseOnlineDataCorrectionLedger &amp;&amp; onlineDataCorrectionLedgerOpen" data-testid="online-data-correction-ledger-panel" class="mb-5 rounded-xl border border-[#e5dcc8] bg-[#fcfaf5] p-4">
+                                        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                            <div>
+                                                <h4 class="font-semibold text-gray-900">数据更正与恢复记录</h4>
+                                                <p class="mt-1 text-xs leading-5 text-gray-500">仅记录本地入库数据的人工更正与删除，不代表 OTA 平台数据已变化；恢复不会触发 OTA 采集或写入 OTA。</p>
+                                            </div>
+                                            <button @click="loadOnlineDataCorrectionLedger({ page: onlineDataCorrectionLedgerPagination.page })" :disabled="onlineDataCorrectionLedgerLoading" class="shrink-0 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50">
+                                                <i :class="['fas fa-sync-alt mr-1.5', onlineDataCorrectionLedgerLoading ? 'fa-spin' : '']"></i>刷新
+                                            </button>
+                                        </div>
+
+                                        <div v-if="onlineDataCorrectionLedgerError" data-testid="online-data-correction-ledger-error" class="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                                            {{ onlineDataCorrectionLedgerError }}
+                                        </div>
+                                        <div v-else-if="onlineDataCorrectionLedgerLoading" class="mt-4 py-8 text-center text-sm text-gray-500">
+                                            <i class="fas fa-spinner fa-spin mr-2"></i>正在读取更正记录…
+                                        </div>
+                                        <div v-else-if="onlineDataCorrectionLedgerList.length === 0" data-testid="online-data-correction-ledger-empty" class="mt-4 rounded-lg border border-dashed border-gray-200 bg-white py-8 text-center text-sm text-gray-500">
+                                            暂无更正或删除记录
+                                        </div>
+                                        <div v-else class="mt-4 overflow-x-auto rounded-lg border border-gray-200 bg-white">
+                                            <table class="min-w-full divide-y divide-gray-200 text-sm">
+                                                <thead class="bg-gray-50 text-xs text-gray-500">
+                                                    <tr>
+                                                        <th class="px-3 py-2.5 text-left font-medium">时间 / 账本</th>
+                                                        <th class="px-3 py-2.5 text-left font-medium">数据记录 / 酒店</th>
+                                                        <th class="px-3 py-2.5 text-left font-medium">操作与变更</th>
+                                                        <th class="px-3 py-2.5 text-left font-medium">原因 / 操作人</th>
+                                                        <th class="px-3 py-2.5 text-right font-medium">状态 / 操作</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-gray-100">
+                                                    <tr v-for="row in onlineDataCorrectionLedgerList" :key="row.id" :data-testid="'online-data-correction-ledger-row-' + row.id" class="align-top hover:bg-gray-50/70">
+                                                        <td class="px-3 py-3 whitespace-nowrap">
+                                                            <div class="text-gray-700">{{ row.created_at || '-' }}</div>
+                                                            <div class="mt-1 text-xs text-gray-400">账本 #{{ row.id }}</div>
+                                                        </td>
+                                                        <td class="px-3 py-3">
+                                                            <div class="font-medium text-gray-800">记录 #{{ row.online_data_id || '-' }}</div>
+                                                            <div class="mt-1 text-xs text-gray-500">{{ getHotelName(row.system_hotel_id) || ('酒店 #' + (row.system_hotel_id || '-')) }}</div>
+                                                        </td>
+                                                        <td class="px-3 py-3">
+                                                            <div class="font-medium text-gray-700">{{ onlineDataCorrectionLedgerOperationText(row) }}</div>
+                                                            <div class="mt-1 max-w-xs text-xs leading-5 text-gray-500">{{ onlineDataCorrectionLedgerChangedFieldsText(row) }}</div>
+                                                        </td>
+                                                        <td class="px-3 py-3">
+                                                            <div class="text-gray-700">{{ row.reason || '未填写原因' }}</div>
+                                                            <div class="mt-1 text-xs text-gray-500">操作人 #{{ row.operator_id || '-' }}</div>
+                                                        </td>
+                                                        <td class="px-3 py-3 text-right whitespace-nowrap">
+                                                            <span :class="['inline-flex rounded-full px-2 py-1 text-xs font-medium', onlineDataCorrectionLedgerStatusClass(row)]">{{ onlineDataCorrectionLedgerStatusText(row) }}</span>
+                                                            <div v-if="row.restored_at" class="mt-1 text-xs text-gray-400">{{ row.restored_at }}</div>
+                                                            <button v-if="row.can_restore === true" @click="restoreOnlineDataCorrectionLedger(row)" :data-testid="'online-data-correction-ledger-restore-' + row.id" :disabled="onlineDataCorrectionLedgerRestoringId === Number(row.id)" class="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50">
+                                                                <i :class="['fas mr-1', onlineDataCorrectionLedgerRestoringId === Number(row.id) ? 'fa-spinner fa-spin' : 'fa-undo']"></i>{{ onlineDataCorrectionLedgerRestoringId === Number(row.id) ? '恢复并回读中' : '恢复' }}
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+
+                                        <div v-if="!onlineDataCorrectionLedgerLoading &amp;&amp; !onlineDataCorrectionLedgerError &amp;&amp; onlineDataCorrectionLedgerPagination.total &gt; 0" class="mt-3 flex flex-col gap-2 text-sm text-gray-500 sm:flex-row sm:items-center sm:justify-between">
+                                            <span>共 {{ onlineDataCorrectionLedgerPagination.total }} 条，第 {{ onlineDataCorrectionLedgerPagination.page }} 页</span>
+                                            <div class="flex gap-2">
+                                                <button @click="changeOnlineDataCorrectionLedgerPage(onlineDataCorrectionLedgerPagination.page - 1)" :disabled="onlineDataCorrectionLedgerPagination.page &lt;= 1" class="rounded border border-gray-200 bg-white px-3 py-1.5 disabled:cursor-not-allowed disabled:opacity-40">上一页</button>
+                                                <button @click="changeOnlineDataCorrectionLedgerPage(onlineDataCorrectionLedgerPagination.page + 1)" :disabled="onlineDataCorrectionLedgerPagination.page * onlineDataCorrectionLedgerPagination.page_size &gt;= onlineDataCorrectionLedgerPagination.total" class="rounded border border-gray-200 bg-white px-3 py-1.5 disabled:cursor-not-allowed disabled:opacity-40">下一页</button>
+                                            </div>
+                                        </div>
+                                    </section>
 
                                 <!-- 数据表格 -->
                                 <div v-if="onlineDataSummary?.ota_channel_supplement" class="mb-4 rounded-lg border border-blue-100 bg-blue-50/60 p-4" data-testid="online-data-ota-supplement">
@@ -2503,7 +2577,7 @@ Authorization: Bearer xxx"></textarea>
                                                     </td>
                                                 </tr>
                                                 <tr v-if="onlineDataList.length === 0">
-                                                    <td colspan="12" class="px-4 py-8 text-center text-gray-500">暂无入库数据，请先在“平台自动获取”完成采集。</td>
+                                                    <td colspan="12" class="px-4 py-8 text-center text-gray-500">暂无入库数据，请先完成平台采集或数据导入。</td>
                                                 </tr>
                                             </tbody>
                                         </table>
@@ -2527,22 +2601,6 @@ Authorization: Bearer xxx"></textarea>
 
                                     <!-- 数据分析 -->
                                                                     </div>
-
-                                                                                                <!-- 展开数据 -->
-                                <div v-if="user?.is_super_admin &amp;&amp; shouldShowOnlineFetchResult &amp;&amp; onlineDataResult" class="mt-6 border-t pt-6">
-                                    <div class="flex justify-between items-center">
-                                        <button @click="showRawData = !showRawData" class="flex items-center gap-2 text-gray-700 hover:text-blue-600 transition-colors">
-                                            <i class="fas fa-chevron-right transition-transform" :class="{ 'rotate-90': showRawData }"></i>
-                                            <h4 class="font-medium">高级排障数据</h4>
-                                        </button>
-                                        <button @click="copyOnlineDataResult" class="text-blue-500 hover:text-blue-700 text-sm">
-                                            <i class="fas fa-copy mr-1"></i>复制排障数据
-                                        </button>
-                                    </div>
-                                    <div v-if="user?.is_super_admin" v-show="showRawData" class="mt-3 bg-gray-900 text-green-400 p-4 rounded-lg overflow-auto max-h-96">
-                                        <pre class="text-sm whitespace-pre-wrap">{{ JSON.stringify(onlineDataResult, null, 2) }}</pre>
-                                    </div>
-                                </div>
 
                                 <!-- 前十名酒店 -->
                                 <div v-if="shouldShowOnlineFetchResult &amp;&amp; topTenHotels.length &gt; 0" class="mt-6 border-t pt-6">

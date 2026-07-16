@@ -15,7 +15,7 @@
                     <h2 class="login-hero-lines">
                         <span>看见数据</span>
                         <span>看懂经营</span>
-                        <span>看清未来</span>
+                            <span>评估未来情景</span>
                     </h2>
                     <p class="login-hero-lead">让酒店每个关键决策，都有数据依据</p>
                     <p class="login-hero-subcopy">以数据采集、经营分析、策略推演、结果追踪为核心，帮助酒店从经验判断走向数据决策。</p>
@@ -174,30 +174,8 @@
                 </div>
 
                     <div class="login-card-foot">
-                        <button type="button" @click="openDirectorEntry" class="director-entry-link" data-testid="director-entry-trigger">
-                            专属入口
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <div v-if="directorEntryVisible" class="director-entry-overlay" @click.self="closeDirectorEntry">
-                <div class="director-entry-modal" role="dialog" aria-modal="true" aria-labelledby="director-entry-title" data-testid="director-entry-modal">
-                    <button type="button" class="director-entry-close" @click="closeDirectorEntry" aria-label="关闭">
-                        <i class="fas fa-times"></i>
-                    </button>
-                    <div class="director-entry-badge">
-                        <i class="fas fa-shield-alt"></i>
-                    </div>
-                    <p class="director-entry-kicker">答案提示</p>
-                    <h2 id="director-entry-title">归鹿宿里群里面有多少人？</h2>
-                    <p class="director-entry-copy">输入正确答案后，提示如何进入工作台。</p>
-                    <input v-model="directorEntryAnswer" @input="directorEntryError = ''" @keyup.enter="verifyDirectorEntry" data-testid="director-entry-answer" class="director-entry-input" type="password" inputmode="numeric" autocomplete="off" placeholder="请输入答案">
-                    <p v-if="directorEntryError" class="director-entry-error">{{ directorEntryError }}</p>
-                    <div class="director-entry-actions">
-                        <button type="button" class="director-entry-secondary" @click="closeDirectorEntry">取消</button>
-                        <button type="button" class="director-entry-primary" @click="verifyDirectorEntry" data-testid="director-entry-submit">
-                            验证
+                        <button type="button" @click="forgotPassword" class="director-entry-link">
+                            联系管理员开通或找回账号
                         </button>
                     </div>
                 </div>
@@ -230,8 +208,8 @@
                 <nav class="flex-1 py-4 overflow-y-auto custom-scrollbar" data-testid="app-nav">
                     <template v-for="item in visibleMenuItems" :key="item.path || item.name">
                         <!-- 第一层: 有子菜单 -->
-                        <div v-if="item.children" class="mb-1">
-                            <a @click="handleParentMenuClick(item)" :data-testid="menuTestId(item)" class="sidebar-item flex items-center justify-between px-3 py-3 cursor-pointer mx-2 transition-all" :class="{ 'active': item.children.some(c =&gt; currentPage === c.path || (c.children &amp;&amp; c.children.some(cc =&gt; currentPage === cc.path))), 'justify-center': sidebarCollapsed }">
+                        <div v-if="item.children" class="mobile-nav-group mb-1">
+                            <a @click="handleParentMenuClick(item)" @keydown.enter.prevent="handleParentMenuClick(item)" :data-testid="menuTestId(item)" :title="getMenuItemName(item)" :aria-label="getMenuItemName(item)" :aria-expanded="expandedMenus.includes(item.name) ? 'true' : 'false'" role="button" tabindex="0" class="mobile-nav-trigger sidebar-item flex items-center justify-between px-3 py-3 cursor-pointer mx-2 transition-all" :class="{ 'active': item.children.some(c =&gt; currentPage === c.path || (c.children &amp;&amp; c.children.some(cc =&gt; currentPage === cc.path))), 'justify-center': sidebarCollapsed }">
                                 <div class="flex items-center" :class="sidebarCollapsed ? 'justify-center w-full' : ''">
                                     <i :class="item.icon" class="w-5 text-center text-blue-300"></i>
                                     <span v-show="!sidebarCollapsed" class="text-sm font-medium">{{ item.name }}</span>
@@ -240,7 +218,7 @@
                             </a>
 
                             <!-- 第二层 -->
-                            <div v-show="expandedMenus.includes(item.name) &amp;&amp; !sidebarCollapsed" class="bg-black/10">
+                            <div v-show="expandedMenus.includes(item.name) &amp;&amp; !sidebarCollapsed" class="mobile-nav-submenu bg-black/10" role="menu" :aria-label="getMenuItemName(item) + '子菜单'">
                                 <template v-for="child in item.children" :key="child.path || child.name">
                                     <!-- 第二层: 有孙菜单 -->
                                     <div v-if="child.children">
@@ -253,14 +231,14 @@
                                         </a>
                                         <!-- 第三层 -->
                                         <div v-show="expandedMenus.includes(child.name)" class="bg-black/5">
-                                            <a v-for="grandChild in child.children" :key="grandChild.path" @click.stop="handleMenuClick(grandChild)" :data-testid="menuTestId(grandChild)" class="sidebar-item flex items-center px-5 py-2 cursor-pointer mx-2 pl-16 text-xs opacity-80 hover:opacity-100" :class="{ 'active': currentPage === grandChild.path }">
+                                        <a v-for="grandChild in child.children" :key="grandChild.path" @click.stop="handleMenuClick(grandChild); window.innerWidth &lt;= 640 &amp;&amp; toggleSubmenu(item.name)" :data-testid="menuTestId(grandChild)" class="sidebar-item flex items-center px-5 py-2 cursor-pointer mx-2 pl-16 text-xs opacity-80 hover:opacity-100" :class="{ 'active': currentPage === grandChild.path }">
                                                 <i :class="grandChild.icon" class="w-4 text-center mr-2 text-blue-300/60 text-[10px]"></i>
                                                 <span>{{ getMenuItemName(grandChild) }}</span>
                                             </a>
                                         </div>
                                     </div>
                                     <!-- 第二层: 普通项 -->
-                                    <a v-else="" @click.stop="handleMenuClick(child)" :data-testid="menuTestId(child)" class="sidebar-item flex items-center px-5 py-2.5 cursor-pointer mx-2 pl-10" :class="{ 'active': currentPage === child.path }">
+                                <a v-else="" @click.stop="handleMenuClick(child); window.innerWidth &lt;= 640 &amp;&amp; toggleSubmenu(item.name)" :data-testid="menuTestId(child)" class="sidebar-item flex items-center px-5 py-2.5 cursor-pointer mx-2 pl-10" :class="{ 'active': currentPage === child.path }">
                                         <i :class="child.icon" class="w-4 text-center mr-3 text-blue-300 text-xs"></i>
                                         <span class="text-sm">{{ getMenuItemName(child) }}</span>
                                     </a>
@@ -268,7 +246,7 @@
                             </div>
                         </div>
                         <!-- 普通顶层菜单项 -->
-                        <a v-else="" @click="handleMenuClick(item)" :data-testid="menuTestId(item)" class="sidebar-item flex items-center px-3 py-3 cursor-pointer mx-2 transition-all" :class="{ 'active': currentPage === item.path, 'justify-center': sidebarCollapsed }">
+                        <a v-else="" @click="handleMenuClick(item)" @keydown.enter.prevent="handleMenuClick(item)" :data-testid="menuTestId(item)" :title="getMenuItemName(item)" :aria-label="getMenuItemName(item)" role="button" tabindex="0" class="sidebar-item flex items-center px-3 py-3 cursor-pointer mx-2 transition-all" :class="{ 'active': currentPage === item.path, 'justify-center': sidebarCollapsed }">
                             <div class="flex items-center" :class="sidebarCollapsed ? 'justify-center w-full' : ''">
                                 <i :class="item.icon" class="w-5 text-center text-blue-300"></i>
                                 <span v-show="!sidebarCollapsed" class="text-sm font-medium">{{ getMenuItemName(item) }}</span>
@@ -399,45 +377,66 @@
                     </section>
                 </div>
 
-                <div v-if="strongOtaReminderOpen &amp;&amp; strongOtaReminderCount" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4" data-testid="ota-auth-strong-reminder-modal" role="dialog" aria-modal="true" aria-labelledby="ota-auth-strong-reminder-title">
-                    <section class="w-full max-w-2xl overflow-hidden rounded-2xl border border-red-200 bg-white shadow-2xl">
-                        <div class="border-b border-red-100 bg-red-50 px-6 py-5">
-                            <div class="flex items-start gap-4">
-                                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-700 text-lg text-white">
+                <div v-if="strongOtaReminderOpen &amp;&amp; strongOtaReminderCount" @click.self="strongOtaReminderCanDefer ? deferStrongOtaReminder() : null" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-3 sm:p-4" data-testid="ota-auth-strong-reminder-modal" role="dialog" aria-modal="true" aria-labelledby="ota-auth-strong-reminder-title">
+                    <section class="flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-red-200 bg-white shadow-2xl" style="max-height: calc(100vh - 1.5rem);">
+                        <div class="shrink-0 border-b border-red-100 bg-red-50 px-5 py-4">
+                            <div class="flex items-start gap-3">
+                                <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-700 text-base text-white">
                                     <i class="fas fa-user-lock"></i>
                                 </span>
-                                <div>
-                                    <div class="text-xs font-semibold uppercase tracking-wider text-red-600">必须处理的 OTA 登录提醒</div>
-                                    <h2 id="ota-auth-strong-reminder-title" class="mt-1 text-xl font-bold text-slate-900">你提交的门店账号已无法稳定采集数据</h2>
-                                    <p class="mt-2 text-sm leading-6 text-slate-600">请由账号使用者本人完成平台重新登录或授权验证。系统不会绕过验证码，也不会用旧数据代替本次采集。</p>
+                                <div class="min-w-0 flex-1">
+                                    <div class="text-xs font-semibold uppercase tracking-wider text-red-600">OTA 授权信息待补全</div>
+                                    <h2 id="ota-auth-strong-reminder-title" class="mt-0.5 text-lg font-bold text-slate-900">部分门店当前可能无法正常采集</h2>
+                                    <p class="mt-1 text-xs leading-5 text-slate-600">补全浏览器 Profile 或 Cookie/API 授权并完成验证后，可恢复正常采集。</p>
                                 </div>
+                                <button type="button" @click="deferStrongOtaReminder" :disabled="!strongOtaReminderCanDefer" data-testid="ota-auth-strong-reminder-close" :aria-label="strongOtaReminderCanDefer ? '关闭提醒' : (strongOtaReminderDeferSecondsRemaining + ' 秒后可关闭')" :title="strongOtaReminderCanDefer ? '关闭提醒，下次登录再提醒' : (strongOtaReminderDeferSecondsRemaining + ' 秒后可关闭')" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-red-200 bg-white text-sm font-semibold text-slate-600 transition hover:bg-red-100 hover:text-red-800 disabled:cursor-wait disabled:bg-red-50 disabled:text-red-400">
+                                    <i v-if="strongOtaReminderCanDefer" class="fas fa-times" aria-hidden="true"></i>
+                                    <span v-else>{{ strongOtaReminderDeferSecondsRemaining }}</span>
+                                </button>
                             </div>
                         </div>
-                        <div class="max-h-[55vh] space-y-3 overflow-y-auto px-6 py-5">
-                            <article v-for="item in strongOtaReminderItems" :key="item.reminder_key" class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
-                                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                    <div class="min-w-0">
+                        <div class="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-5 py-3.5" data-testid="ota-auth-strong-reminder-list">
+                            <article v-for="item in strongOtaReminderItems" :key="item.reminder_key" class="rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5">
+                                <div class="flex items-start gap-3">
+                                    <div class="min-w-0 flex-1">
                                         <div class="flex flex-wrap items-center gap-2">
                                             <span class="text-sm font-semibold text-slate-900">{{ item.hotel_name || ('门店 ' + item.hotel_id) }}</span>
                                             <span class="rounded-full border border-red-200 bg-white px-2 py-0.5 text-[11px] font-medium text-red-700">{{ item.platform === 'ctrip' ? '携程' : (item.platform === 'meituan' ? '美团' : 'OTA') }}</span>
                                         </div>
-                                        <div class="mt-2 text-sm font-medium text-red-800">{{ item.title }}</div>
-                                        <div class="mt-1 text-xs leading-5 text-slate-600">{{ item.detail }}</div>
+                                        <div class="mt-1.5 flex min-w-0 items-center gap-1.5 overflow-hidden text-xs" data-testid="ota-auth-authorization-source">
+                                            <span class="shrink-0 font-medium text-red-800">{{ item.title }}</span>
+                                            <span class="shrink-0 text-slate-300">·</span>
+                                            <span class="shrink-0 font-semibold" :class="item.authorization_source_state === 'exact' ? 'text-red-700' : 'text-amber-700'">{{ item.authorization_source_state === 'exact' ? '已定位' : '待确认' }}</span>
+                                            <span class="shrink-0 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700">{{ item.authorization_source_type === 'profile' ? 'Profile' : (item.authorization_source_type === 'cookie_api' ? 'Cookie/API' : (item.authorization_source_type === 'mixed' ? '多个候选' : '待识别')) }}</span>
+                                            <span class="min-w-0 flex-1 truncate text-slate-600" :title="item.authorization_source_label || '暂未识别具体授权来源'">{{ item.authorization_source_label || '暂未识别具体授权来源' }}</span>
+                                        </div>
+                                        <details class="mt-1 text-[11px] text-slate-500">
+                                            <summary class="w-fit cursor-pointer select-none hover:text-slate-700">查看详情</summary>
+                                            <div class="mt-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 leading-5 text-slate-600">
+                                                <div>{{ item.detail }}</div>
+                                                <div v-if="item.authorization_source_note" class="mt-1">{{ item.authorization_source_note }}</div>
+                                            </div>
+                                        </details>
                                     </div>
-                                    <button type="button" @click="openStrongOtaReminderItem(item)" class="shrink-0 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800">
-                                        重新登录并验证
+                                    <button type="button" @click="openStrongOtaReminderItem(item)" aria-label="重新登录并验证" class="shrink-0 whitespace-nowrap rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800">
+                                        重新验证
                                     </button>
                                 </div>
                             </article>
                         </div>
-                        <div class="flex flex-col gap-2 border-t border-slate-100 bg-slate-50 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div class="shrink-0 flex flex-col gap-2.5 border-t border-slate-100 bg-slate-50 px-5 py-3 sm:flex-row sm:items-center sm:justify-between" data-testid="ota-auth-strong-reminder-footer">
                             <span class="text-xs leading-5 text-slate-500">
-                                <template v-if="strongOtaReminderCanDefer">已完成 {{ strongOtaReminderMinimumVisibleSeconds }} 秒必要提示；暂缓后顶部红条仍保留，下次登录仍会弹出。</template>
-                                <template v-else>请先查看提醒，还需 {{ strongOtaReminderDeferSecondsRemaining }} 秒；“重新登录并验证”可立即操作。</template>
+                                <template v-if="strongOtaReminderCanDefer">请选择提醒时间，顶部状态条仍会保留。</template>
+                                <template v-else>{{ strongOtaReminderDeferSecondsRemaining }} 秒后可选择提醒时间。</template>
                             </span>
-                            <button type="button" @click="deferStrongOtaReminder" :disabled="!strongOtaReminderCanDefer" data-testid="ota-auth-strong-reminder-defer" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 disabled:hover:bg-slate-100">
-                                {{ strongOtaReminderCanDefer ? '本次登录稍后处理' : ('请先查看 ' + strongOtaReminderDeferSecondsRemaining + ' 秒') }}
-                            </button>
+                            <div class="flex flex-col gap-2 sm:flex-row">
+                                <button type="button" @click="snoozeStrongOtaReminder24Hours" :disabled="!strongOtaReminderCanDefer" data-testid="ota-auth-strong-reminder-snooze-24h" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 disabled:hover:bg-slate-100">
+                                    {{ strongOtaReminderSnoozeHours }} 小时内不再弹窗
+                                </button>
+                                <button type="button" @click="deferStrongOtaReminder" :disabled="!strongOtaReminderCanDefer" data-testid="ota-auth-strong-reminder-defer" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 disabled:hover:bg-slate-100">
+                                    下次登录再提醒
+                                </button>
+                            </div>
                         </div>
                     </section>
                 </div>

@@ -35,9 +35,9 @@
                                 </div>
                             </div>
                             <div class="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs" :class="hotelManagementLoadError ? 'border-red-200 bg-red-50 text-red-700' : (hotelManagementSnapshotReady ? 'border-emerald-100 bg-emerald-50/70 text-emerald-700' : 'border-blue-100 bg-blue-50 text-blue-700')" role="status" aria-live="polite">
-                                <span v-if="hotelManagementLoading"><i class="fas fa-circle-notch fa-spin mr-1.5"></i>{{ hotelManagementSnapshotReady ? '正在刷新门店、账号配置与平台数据源；当前继续显示上次成功数据。' : '正在读取完整门店与 OTA 账号状态，统计结果暂不展示。' }}</span>
+                                <span v-if="hotelManagementLoading"><i class="fas fa-circle-notch fa-spin mr-1.5"></i>{{ hotelManagementSnapshotReady ? '正在刷新门店、账号配置与平台数据源；当前继续显示上次成功读取的数据。' : '正在读取门店与 OTA 账号状态，统计结果暂不展示。' }}</span>
                                 <span v-else-if="hotelManagementLoadError"><i class="fas fa-exclamation-triangle mr-1.5"></i>{{ hotelManagementLoadError }}</span>
-                                <span v-else-if="hotelManagementSnapshotReady"><i class="fas fa-check-circle mr-1.5"></i>当前统计已完成数据校验<span v-if="hotelManagementLastRefreshedAt"> · {{ hotelManagementLastRefreshedAt }}</span></span>
+                                <span v-else-if="hotelManagementSnapshotReady"><i class="fas fa-check-circle mr-1.5"></i>门店与平台状态已读取 · 不代表平台来源数据已核验<span v-if="hotelManagementLastRefreshedAt"> · {{ hotelManagementLastRefreshedAt }}</span></span>
                                 <span v-else><i class="fas fa-circle-notch fa-spin mr-1.5"></i>正在准备门店状态...</span>
                                 <button v-if="hotelManagementLoadError" type="button" @click="refreshHotelBindingPanelLight()" :disabled="hotelManagementLoading" class="rounded-md border border-red-200 bg-white px-2.5 py-1 font-medium text-red-700 hover:bg-red-100 disabled:opacity-50">重试</button>
                             </div>
@@ -202,7 +202,7 @@
                                                                 <div :class="account.captureStatusClass" class="mt-1 inline-flex rounded-md border px-1.5 py-0.5">{{ account.captureStatusText }}</div>
                                                             </div>
                                                         </div>
-                                                        <div class="rounded-md border border-blue-50 bg-white/70 px-2 py-1.5 leading-5 text-gray-600">{{ hotelPlatformIssueText(account) || '当前无阻塞' }}</div>
+                                                        <div class="rounded-md border border-blue-50 bg-white/70 px-2 py-1.5 leading-5 text-gray-600">{{ hotelPlatformIssueText(account) || '状态说明未返回' }}</div>
                                                         <div class="flex items-center justify-between gap-2 text-[11px]">
                                                             <button type="button" @click="openHotelPlatformAccountAction(hotel, account)" class="truncate text-left font-medium text-blue-700 hover:text-blue-900" :title="account.nextActionText || '查看详情'">下一步：{{ account.nextActionText || '查看详情' }}</button>
                                                             <button type="button" @click="openHotelSyncLogs(hotel, account.platform)" class="font-medium text-blue-700 hover:text-blue-900">采集日志</button>
@@ -239,7 +239,7 @@
                                                                 <div :class="account.captureStatusClass" class="mt-1 inline-flex rounded-md border px-1.5 py-0.5">{{ account.captureStatusText }}</div>
                                                             </div>
                                                         </div>
-                                                        <div class="rounded-md border border-orange-50 bg-white/70 px-2 py-1.5 leading-5 text-gray-600">{{ hotelPlatformIssueText(account) || '当前无阻塞' }}</div>
+                                                        <div class="rounded-md border border-orange-50 bg-white/70 px-2 py-1.5 leading-5 text-gray-600">{{ hotelPlatformIssueText(account) || '状态说明未返回' }}</div>
                                                         <div class="flex items-center justify-between gap-2 text-[11px]">
                                                             <button type="button" @click="openHotelPlatformAccountAction(hotel, account)" class="truncate text-left font-medium text-orange-700 hover:text-orange-900" :title="account.nextActionText || '查看详情'">下一步：{{ account.nextActionText || '查看详情' }}</button>
                                                             <button type="button" @click="openHotelSyncLogs(hotel, account.platform)" class="font-medium text-orange-700 hover:text-orange-900">采集日志</button>
@@ -340,7 +340,7 @@
                                                     <div :class="account.captureStatusClass" class="mt-1 inline-flex rounded-md border px-1.5 py-0.5">{{ account.captureStatusText }}</div>
                                                 </div>
                                             </div>
-                                            <div class="mt-2 rounded-md border border-gray-100 bg-white px-2 py-1.5 text-xs leading-5 text-gray-600">{{ hotelPlatformIssueText(account) || '当前无阻塞' }}</div>
+                                            <div class="mt-2 rounded-md border border-gray-100 bg-white px-2 py-1.5 text-xs leading-5 text-gray-600">{{ hotelPlatformIssueText(account) || '状态说明未返回' }}</div>
                                             <div class="mt-2 flex items-center justify-between gap-2 text-[11px]">
                                                 <button type="button" @click="openHotelPlatformAccountAction(hotel, account)" class="truncate text-left font-medium text-blue-700 hover:text-blue-900" :title="account.nextActionText || '查看详情'">下一步：{{ account.nextActionText || '查看详情' }}</button>
                                                 <button type="button" @click="openHotelSyncLogs(hotel, account.platform)" class="font-medium text-blue-700 hover:text-blue-900">采集日志</button>

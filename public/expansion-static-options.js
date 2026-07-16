@@ -287,11 +287,11 @@ window.SUXI_EXPANSION_STATIC = (() => {
             : project.address;
     };
     const estimateStrategyCompetitorCount = (project = {}) => {
-        const tier = project.city_tier || marketEvaluationTierOfCity(project.city) || marketEvaluationDefaults.city_tier;
-        const grade = project.target_grade || '中端精选';
-        const tierCounts = strategyCompetitorCountByTierGrade[tier] || strategyCompetitorCountByTierGrade[marketEvaluationDefaults.city_tier] || {};
-        const base = tierCounts[grade] ?? tierCounts['中端精选'] ?? 0;
-        return Math.max(0, Math.round(base + (strategyCompetitorCityAdjustment[project.city] || 0)));
+        const value = project.competitor_count;
+        if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value))) {
+            return null;
+        }
+        return Math.max(0, Number(value));
     };
     const normalizeMarketEvaluationForm = (input = {}) => {
         const form = { ...marketEvaluationDefaults, ...input };
@@ -320,9 +320,23 @@ window.SUXI_EXPANSION_STATIC = (() => {
         const num = Number(value);
         return Number.isFinite(num) ? num : fallback;
     };
-    const aiRound = (value, digits = 0) => Number((Number(value) || 0).toFixed(digits));
-    const formatCurrency = (value) => `¥${Math.round(toNumber(value)).toLocaleString()}`;
-    const formatPercent = (value) => `${aiRound(toNumber(value) * 100, 1)}%`;
+    const toDisplayNumber = (value) => {
+        if (value === null || value === undefined || value === '') return null;
+        const num = Number(value);
+        return Number.isFinite(num) ? num : null;
+    };
+    const aiRound = (value, digits = 0) => {
+        const num = toDisplayNumber(value);
+        return num === null ? '--' : Number(num.toFixed(digits));
+    };
+    const formatCurrency = (value) => {
+        const num = toDisplayNumber(value);
+        return num === null ? '--' : `¥${Math.round(num).toLocaleString()}`;
+    };
+    const formatPercent = (value) => {
+        const num = toDisplayNumber(value);
+        return num === null ? '--' : `${aiRound(num * 100, 1)}%`;
+    };
     const formatFeasibilityPayback = (value) => value === null || value === undefined || value === ''
         ? '不可回本'
         : `${aiRound(value, 1)}个月`;
@@ -363,14 +377,27 @@ window.SUXI_EXPANSION_STATIC = (() => {
         const risks = Array.isArray(safeReport.risk_list) ? safeReport.risk_list : [];
         const evidence = Array.isArray(safeReport.evidence) ? safeReport.evidence : [];
         const assumptions = Array.isArray(safeReport.assumptions) ? safeReport.assumptions : [];
-        const isFallback = assumptions.some(item => String(item || '').includes('LLM报告生成失败') || String(item || '').includes('本地测算兜底'));
+        const source = String(safeReport.ai_evaluation?.source || safeReport.report_source || safeReport.source || '').trim().toLowerCase();
+        const isFallback = source === 'fallback'
+            || assumptions.some(item => String(item || '').includes('LLM报告生成失败') || String(item || '').includes('本地测算兜底'));
+        const isAiGenerated = source === 'llm' || source === 'ai';
+        const hasGeneratedReport = Boolean(
+            safeReport.conclusion_grade
+            || safeReport.conclusion_text
+            || safeReport.core_reason
+            || actions.length
+            || risks.length
+            || evidence.length
+        );
         const firstAction = actions[0] || {};
         const firstRisk = risks[0] || {};
         const sourceText = evidence.map(item => item.source || item.title).filter(Boolean).slice(0, 3).join('、');
 
         return {
             isFallback,
-            sourceLabel: isFallback ? '本地测算兜底' : 'AI模型已生成',
+            sourceLabel: isFallback
+                ? '本地测算兜底（非AI）'
+                : (isAiGenerated ? 'AI模型已生成' : (hasGeneratedReport ? '报告来源未核验' : '尚未生成')),
             headline: `${safeReport.conclusion_grade || '-'}级 · ${safeReport.conclusion_text || '等待生成结论'}`,
             conclusion: safeReport.core_reason || '生成后将汇总项目输入、智略判断、智算结果和风险动作。',
             nextAction: firstAction.title ? `${firstAction.title}：${firstAction.detail || '-'}` : '生成后输出首要执行动作',
@@ -556,12 +583,14 @@ window.SUXI_EXPANSION_STATIC = (() => {
         return 'bg-gray-50 text-gray-600 border-gray-100';
     };
     const formatMarketEvaluationScoreChange = (value) => {
-        const score = Number(value || 0);
+        const score = toDisplayNumber(value);
+        if (score === null) return '未返回';
         if (score > 0) return `+${score}`;
         return String(score);
     };
     const marketEvaluationScoreChangeClass = (value) => {
-        const score = Number(value || 0);
+        const score = toDisplayNumber(value);
+        if (score === null) return 'bg-gray-50 text-gray-600 border-gray-100';
         if (score > 0) return 'bg-emerald-50 text-emerald-700 border-emerald-100';
         if (score < 0) return 'bg-red-50 text-red-700 border-red-100';
         return 'bg-gray-50 text-gray-600 border-gray-100';
@@ -618,12 +647,12 @@ window.SUXI_EXPANSION_STATIC = (() => {
     };
     const buildMarketEvaluationScoreFormula = (result = {}) => {
         const formula = result.market_heat_score_formula || {};
-        const finalScore = Number(result.market_heat_score || 0);
+        const finalScore = toDisplayNumber(result.market_heat_score);
         return {
-            base_score: Number(formula.base_score ?? 62),
-            raw_score: Number(formula.raw_score ?? finalScore),
-            final_score: Number(formula.final_score ?? finalScore),
-            cap_rule: String(formula.cap_rule || '0-100封顶/保底')
+            base_score: toDisplayNumber(formula.base_score) ?? (finalScore === null ? null : 62),
+            raw_score: toDisplayNumber(formula.raw_score) ?? finalScore,
+            final_score: toDisplayNumber(formula.final_score) ?? finalScore,
+            cap_rule: String(formula.cap_rule || (finalScore === null ? '评分口径未返回' : '0-100封顶/保底'))
         };
     };
     const buildMarketEvaluationScoreBreakdown = (result = {}) => {
@@ -633,12 +662,13 @@ window.SUXI_EXPANSION_STATIC = (() => {
         if (rows.length) {
             return rows.map((item, index) => ({
                 label: String(item.label || `评分项${index + 1}`).trim(),
-                score_change: Number(item.score_change ?? item.delta ?? 0),
-                raw_score_after: Number(item.raw_score_after ?? 0),
+                score_change: toDisplayNumber(item.score_change ?? item.delta),
+                raw_score_after: toDisplayNumber(item.raw_score_after),
                 reason: String(item.reason || '按当前输入参与市场热度评分。').trim()
             })).filter(item => item.label && item.reason);
         }
-        const finalScore = Number(result.market_heat_score || 0);
+        const finalScore = toDisplayNumber(result.market_heat_score);
+        if (finalScore === null) return [];
         return [{
             label: '历史评分',
             score_change: finalScore,
@@ -667,7 +697,7 @@ window.SUXI_EXPANSION_STATIC = (() => {
         const source = result.ai_evaluation?.source;
         if (source === 'llm') return 'AI模型评估';
         if (source === 'fallback') return '本地兜底';
-        return 'AI评估';
+        return '来源未核验';
     };
     const buildBenchmarkModelAiRecommendations = (result = {}) => {
         const recommendations = result.ai_evaluation?.recommendations;
@@ -784,20 +814,24 @@ window.SUXI_EXPANSION_STATIC = (() => {
         return {
             ...data,
             ai_evaluation: aiEvaluation,
-            market_score: scores.market_demand?.score ?? 0,
-            competition_score: scores.competition?.score ?? 0,
-            property_score: scores.property_fit?.score ?? 0,
-            cost_score: scores.cost_pressure?.score ?? 0,
-            exit_score: scores.exit_safety?.score ?? 0,
-            recommended_model: aiEvaluation?.recommended_model || recommendation.recommended_model || '',
-            target_customer: aiEvaluation?.target_customer || recommendation.target_customer || '',
-            competition_pressure: aiEvaluation?.competition_pressure || recommendation.competition_pressure || '',
-            decision_direction: aiEvaluation?.decision_direction || recommendation.decision_direction || '智略定方向',
-            strategy_conclusion: aiEvaluation?.decision || data?.decision || recommendation.decision || ''
+            market_score: toDisplayNumber(scores.market_demand?.score),
+            competition_score: toDisplayNumber(scores.competition?.score),
+            property_score: toDisplayNumber(scores.property_fit?.score),
+            cost_score: toDisplayNumber(scores.cost_pressure?.score),
+            exit_score: toDisplayNumber(scores.exit_safety?.score),
+            recommended_model: data?.decision_ready === false ? (recommendation.recommended_model || '') : (aiEvaluation?.recommended_model || recommendation.recommended_model || ''),
+            target_customer: data?.decision_ready === false ? (recommendation.target_customer || '') : (aiEvaluation?.target_customer || recommendation.target_customer || ''),
+            competition_pressure: data?.decision_ready === false ? (recommendation.competition_pressure || '待评估') : (aiEvaluation?.competition_pressure || recommendation.competition_pressure || ''),
+            decision_direction: data?.decision_ready === false ? (recommendation.decision_direction || '补证后再决策') : (aiEvaluation?.decision_direction || recommendation.decision_direction || '智略定方向'),
+            strategy_conclusion: data?.decision_ready === false ? (data?.decision || recommendation.decision || '数据不足') : (aiEvaluation?.decision || data?.decision || recommendation.decision || '')
         };
     };
 
-    const buildStrategyPayload = (project = {}) => ({
+    const buildStrategyPayload = (project = {}) => {
+        const optionalNumber = (value) => value === null || value === undefined || value === '' || !Number.isFinite(Number(value))
+            ? null
+            : Number(value);
+        return ({
         project_name: project.project_name,
         city_tier: project.city_tier,
         city: project.city,
@@ -807,65 +841,76 @@ window.SUXI_EXPANSION_STATIC = (() => {
         room_count: toNumber(project.room_count),
         monthly_rent: toNumber(project.monthly_rent),
         decoration_budget: toNumber(project.decoration_budget),
-        lease_years: toNumber(project.lease_years),
-        rent_free_months: toNumber(project.rent_free_months),
+        lease_years: optionalNumber(project.lease_years),
+        rent_free_months: optionalNumber(project.rent_free_months),
         business_type: project.business_type,
         target_customer: project.primary_customer,
-        competitor_count: toNumber(project.competitor_count),
+        competitor_count: optionalNumber(project.competitor_count),
         target_hotel_level: project.target_grade,
-    });
+        });
+    };
 
     const buildStrategyScoreCards = (result = null) => {
         if (!result) return [];
         const scores = result.scores || {};
+        const card = (label, value, score = {}) => ({
+            label,
+            value: value ?? '未返回',
+            level: score.level || '待核验',
+            reason: score.reasons?.[0] || (value === null || value === undefined ? '评分未返回' : '评分解释未返回'),
+        });
         return [
-            { label: '市场需求', value: result.market_score, level: scores.market_demand?.level || '-', reason: scores.market_demand?.reasons?.[0] || '等待数据解释' },
-            { label: '竞争环境', value: result.competition_score, level: scores.competition?.level || '-', reason: scores.competition?.reasons?.[0] || '等待数据解释' },
-            { label: '物业适配', value: result.property_score, level: scores.property_fit?.level || '-', reason: scores.property_fit?.reasons?.[0] || '等待数据解释' },
-            { label: '成本压力', value: result.cost_score, level: scores.cost_pressure?.level || '-', reason: scores.cost_pressure?.reasons?.[0] || '等待数据解释' },
-            { label: '退出安全', value: result.exit_score, level: scores.exit_safety?.level || '-', reason: scores.exit_safety?.reasons?.[0] || '等待数据解释' }
+            card('市场需求', result.market_score, scores.market_demand),
+            card('竞争环境', result.competition_score, scores.competition),
+            card('物业适配', result.property_score, scores.property_fit),
+            card('成本压力', result.cost_score, scores.cost_pressure),
+            card('退出安全', result.exit_score, scores.exit_safety)
         ];
     };
     const strategyFreshnessLabelForSnapshot = (snapshot = null) => {
-        if (!snapshot) return '本地数据';
-        if (snapshot.ai_data_used) return 'AI已接入';
-        if (!snapshot.external_data_available) return '外部数据未接入';
+        if (!snapshot) return '数据来源未加载';
+        if (snapshot.ai_data_used === true) return 'AI数据参与';
         if (snapshot.freshness === 'realtime') return '实时数据';
         if (snapshot.freshness === 'today_cache') return '今日缓存';
-        return '本地数据';
+        if (snapshot.local_data_used === true) return '同城授权样本';
+        if (snapshot.external_data_available === false) return '外部数据未接入';
+        return '数据新鲜度未返回';
     };
     const strategyAiSourceLabelForResult = (result = null) => {
         const source = result?.ai_evaluation?.source;
         if (source === 'llm') return 'AI模型评估';
         if (source === 'fallback') return '本地兜底';
-        return 'AI状态';
+        return '来源未核验';
     };
     const strategyAiModelDisplayLabelForSnapshot = (snapshot = {}) => {
         if (snapshot.ai_model_label) return snapshot.ai_model_label;
         const modelKey = String(snapshot.ai_model_key || '').trim();
-        if (!modelKey) return 'DeepSeek + MIMO';
-        if (modelKey.includes('deepseek')) return 'DeepSeek + MIMO';
+        if (!modelKey) return '模型未返回';
+        if (modelKey.includes('deepseek') && modelKey.includes('mimo')) return 'DeepSeek + MIMO';
+        if (modelKey.includes('deepseek')) return 'DeepSeek';
         if (modelKey.includes('mimo')) return 'MIMO';
         return modelKey;
     };
-    const strategyPoiDataSourceLabelForSnapshot = (snapshot = {}, modelLabel = 'DeepSeek + MIMO') => {
+    const strategyPoiDataSourceLabelForSnapshot = (snapshot = {}, modelLabel = '模型未返回') => {
         if (snapshot.external_data_used) return '已接入';
         if (snapshot.ai_search_used) {
-            return `AI搜索（${snapshot.ai_search_provider || modelLabel || 'DeepSeek + MIMO'}）`;
+            const provider = snapshot.ai_search_provider || (modelLabel !== '模型未返回' ? modelLabel : '提供方未返回');
+            return `AI搜索（${provider}）`;
         }
         if (snapshot.ai_search_available) return 'AI搜索未完成';
         return '未接入';
     };
-    const strategyDataNoticeForSnapshot = (snapshot = null, modelLabel = 'DeepSeek + MIMO') => {
+    const strategyDataNoticeForSnapshot = (snapshot = null, modelLabel = '模型未返回') => {
         if (!snapshot) return '';
         if (snapshot.ai_data_used && snapshot.ai_search_used && !snapshot.external_data_used) {
-            return `${modelLabel} 已用于AI搜索补位；外部地图/POI接口未接入，周边客流和竞品仍需地图或实地复核。`;
+            const sourceText = modelLabel === '模型未返回' ? 'AI搜索（模型未返回）' : modelLabel;
+            return `${sourceText} 已用于搜索补位；外部地图/POI接口未接入，周边客流和竞品仍需地图或实地复核。`;
         }
         if (snapshot.ai_data_used && !snapshot.external_data_used) {
             return 'AI模型已接入；外部地图/POI未接入，周边客流和竞品仍需补充验证。';
         }
         if (!snapshot.ai_data_used && !snapshot.external_data_used) {
-            return 'AI模型未生成且外部地图/POI未接入，当前为本地数据推演。';
+            return 'AI模型未生成且外部地图/POI未接入；当前仅基于已录入条件与可用同城授权样本做规则情景推演。';
         }
         if (!snapshot.ai_data_used) {
             return 'AI模型未生成，当前保留本地规则推演。';
@@ -873,7 +918,7 @@ window.SUXI_EXPANSION_STATIC = (() => {
         return '';
     };
     const buildStrategyDataSourceRows = (snapshot = {}, {
-        modelLabel = 'DeepSeek + MIMO',
+        modelLabel = '模型未返回',
         poiDataSourceLabel = '未接入',
     } = {}) => {
         const localData = snapshot.local_data || {};
@@ -888,7 +933,7 @@ window.SUXI_EXPANSION_STATIC = (() => {
             ? '地图API未配置；AI搜索已补位，需地图/实地复核'
             : (uniqueMissing.join('、') || '无');
         return [
-            { label: '本地数据', value: snapshot.local_data_used ? (localSources.join('、') || '已使用项目输入') : '未命中' },
+            { label: '同城授权样本', value: snapshot.local_data_used ? (localSources.join('、') || '已返回') : '未返回' },
             { label: 'AI模型', value: snapshot.ai_data_used ? `已接入（${modelLabel}）` : '未生成' },
             { label: '地图/POI', value: poiDataSourceLabel },
             { label: '缺失项', value: missingValue }
@@ -896,7 +941,7 @@ window.SUXI_EXPANSION_STATIC = (() => {
     };
     const buildStrategyAiEmpowermentCards = (result = null, {
         dataSourceRows = [],
-        freshnessLabel = '本地数据',
+        freshnessLabel = '数据新鲜度未返回',
         poiDataSourceLabel = '未接入',
         dataNotice = '',
     } = {}) => {
@@ -915,9 +960,9 @@ window.SUXI_EXPANSION_STATIC = (() => {
         const firstVerify = verifyItems[0] || (snapshot.external_data_used ? '复核真实 OTA 转化与竞品点评' : '补充真实竞品、客流和 OTA 数据');
         return [
             {
-                label: '执行动作',
+                label: '建议动作',
                 value: firstAction,
-                hint: actions.length > 1 ? `另有 ${actions.length - 1} 项动作待推进` : '承接 AI 判断进入下一步执行',
+                hint: actions.length > 1 ? `另有 ${actions.length - 1} 项建议待人工审核` : '模型或规则建议，不代表已执行',
                 icon: 'fas fa-list-check'
             },
             {

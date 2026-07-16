@@ -2,12 +2,15 @@
         <div v-if="showOnlineDataEditModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
             <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4">
                 <div class="p-4 border-b flex justify-between items-center">
-                    <h3 class="text-lg font-semibold">编辑线上数据</h3>
+                    <h3 class="text-lg font-semibold">编辑 OTA 渠道数据</h3>
                     <button @click="showOnlineDataEditModal = false" class="text-gray-500 hover:text-gray-700">
                         <i class="fas fa-times"></i>
                     </button>
                 </div>
                 <form @submit.prevent="saveOnlineDataEdit" class="p-4 space-y-4">
+                    <div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-800">
+                        人工修改会保存为“未复核覆盖值”，复核前不会进入可信收益或 AI 决策；原平台来源追踪仍保留。
+                    </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">酒店名称</label>
@@ -24,17 +27,17 @@
                     </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">销售额 (元)</label>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">OTA 渠道销售额（元）</label>
                             <input v-model.number="onlineDataEditForm.amount" type="number" step="0.01" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">间夜量</label>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">OTA 渠道间夜量</label>
                             <input v-model.number="onlineDataEditForm.quantity" type="number" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
                         </div>
                     </div>
                     <div class="grid grid-cols-3 gap-4">
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">预订订单数</label>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">OTA 渠道预订订单数</label>
                             <input v-model.number="onlineDataEditForm.book_order_num" type="number" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
                         </div>
                         <div>
@@ -55,4 +58,3 @@
                 </form>
             </div>
         </div>
-

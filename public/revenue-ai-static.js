@@ -4,8 +4,8 @@
     const revenueAiStatusTone = (status) => {
         const value = String(status || '').toLowerCase();
         if (['ok', 'success', 'ready', 'reviewed', 'ready_for_manual_generation', 'pricing_generation_candidates_ready'].includes(value)) return 'ok';
-        if (['partial', 'warning', 'stale', 'not_calculable', 'missing', 'unverified', 'skipped_by_operator_policy', 'pending_review', 'pending_review_exists', 'pending_approval', 'in_progress', 'evidence_needed', 'evidence_ready', 'review_needed', 'reviewed_no_roi', 'investment_precheck_waiting_decision_record', 'waiting_decision_record_readiness', 'operation_intake_waiting_human_approval', 'operation_intake_ready_for_human_create', 'operation_intake_in_operation_flow', 'operation_intake_waiting_operation_progress'].includes(value)) return 'warning';
-        if (['failed', 'unauthorized', 'blocked', 'error', 'investment_precheck_blocked_by_operation_roi', 'blocked_by_operation_roi', 'blocked_by_p0_ota_gate', 'operation_intake_blocked_by_manual_review', 'operation_intake_blocked_by_operation_execution'].includes(value)) return 'blocked';
+        if (['partial', 'warning', 'stale', 'not_calculable', 'missing', 'unverified', 'pending_review', 'pending_review_exists', 'pending_approval', 'in_progress', 'evidence_needed', 'evidence_ready', 'review_needed', 'reviewed_no_roi', 'investment_precheck_waiting_decision_record', 'waiting_decision_record_readiness', 'operation_intake_waiting_human_approval', 'operation_intake_ready_for_human_create', 'operation_intake_in_operation_flow', 'operation_intake_waiting_operation_progress'].includes(value)) return 'warning';
+        if (['failed', 'unauthorized', 'blocked', 'error', 'skipped_by_operator_policy', 'investment_precheck_blocked_by_operation_roi', 'blocked_by_operation_roi', 'blocked_by_p0_ota_gate', 'operation_intake_blocked_by_manual_review', 'operation_intake_blocked_by_operation_execution'].includes(value)) return 'blocked';
         return 'unknown';
     };
 
@@ -39,8 +39,8 @@
         empty: '无数据',
         missing: '缺失',
         unverified: '未验证',
-        skipped_by_operator_policy: '已暂时跳过',
-        not_loaded: '未接入',
+        skipped_by_operator_policy: '缺口仍阻断',
+        not_loaded: '未加载',
         not_calculable: '不可计算',
         blocked: '待补数据',
         blocked_by_p0_ota_gate: 'P0门禁未过',
@@ -58,7 +58,7 @@
         '': '数据已命中当前口径。',
         online_daily_data_empty: '目标经营日期没有可用 OTA 入库数据。',
         source_not_loaded: '未找到对应渠道的数据源或入库状态。',
-        available_room_nights_missing: '暂缺可信全酒店可售房数据。',
+        available_room_nights_missing: '暂缺可信 OTA 渠道可售房晚分母，不能计算或外推全酒店 RevPAR。',
         adr_denominator_zero: 'OTA 间夜为 0，ADR 不可计算。',
         competitor_price_fields_missing: '暂缺竞对价格字段。',
         source_status_missing: '未找到平台数据源状态。',
@@ -99,7 +99,7 @@
         competitor_price_below_competitor_review_required: '本店均价低于竞对均价，需复核是否低于保护价后再判断调价。',
         competitor_price_aligned: '本店均价与竞对均价接近。',
         floor_price_missing: '暂缺最低保护价。',
-        missing_pricing_inputs_skipped_by_operator_policy: '已按人工策略暂时跳过抓不到的房型、保护价、需求预测和竞对样本缺口。',
+        missing_pricing_inputs_skipped_by_operator_policy: '旧记录缺少可核验的操作者、确认时间和持久化记录，按定价输入缺口阻断。',
         manual_review_workflow_not_connected: '暂未接入人工审核工作流。',
         price_suggestions_missing: '定价建议表不存在。',
         price_suggestions_required_fields_missing: '定价建议表缺少必要字段。',
@@ -194,7 +194,7 @@
         { key: 'ota_room_revenue', label: '昨日OTA房费收入' },
         { key: 'ota_room_nights', label: '昨日OTA间夜' },
         { key: 'ota_adr', label: 'OTA ADR' },
-        { key: 'ota_contribution_revpar', label: 'OTA贡献RevPAR' },
+        { key: 'ota_contribution_revpar', label: 'OTA渠道贡献RevPAR' },
         { key: 'data_completeness', label: '数据完整度' },
     ]);
 
@@ -400,7 +400,7 @@
                     key: 'overview-not-loaded',
                     stage: '接口',
                     title: '等待 Revenue AI 总览',
-                    primary: overviewLoading ? '加载中' : '未接入',
+                    primary: overviewLoading ? '加载中' : '未加载',
                     secondary: revenueAiReasonText('overview_not_loaded'),
                     statusLabel: revenueAiStatusLabel(status),
                     className: revenueAiStatusClass(status),
@@ -440,7 +440,7 @@
         const revenueAnalysisStatus = revenueAiClosureGroupStatus(metricChips);
         const summaryChips = [
             revenueAiClosureSummaryChip('calculation', '收益计算', calculationAllowed ? '允许' : '阻断', calculationAllowed ? 'ok' : 'blocked', revenueAiReasonText(revenueUse.status || (calculationAllowed ? '' : 'blocked_by_data_credibility'))),
-            revenueAiClosureSummaryChip('missing', '缺失项', `${missingRows.length}项`, missingRows.length > 0 ? 'warning' : 'ok', missingRows.length > 0 ? '继续补齐缺失项' : '关键缺失项未返回'),
+            revenueAiClosureSummaryChip('missing', '缺失项', `${missingRows.length}项`, missingRows.length > 0 ? 'warning' : 'ok', missingRows.length > 0 ? '继续补齐缺失项' : '未发现关键缺失项'),
             revenueAiClosureSummaryChip('anomaly', '异常判断', `${anomalyRows.length}项`, anomalyRows.length > 0 ? 'warning' : 'ok', anomalyRows.length > 0 ? '需人工复核' : '未命中异常'),
         ];
 
@@ -615,6 +615,12 @@
         const normalizedOverviewStatus = overviewError
             ? 'failed'
             : (overview?.data_status || (overviewLoading ? 'not_loaded' : overviewStatus || 'unknown'));
+        const readinessPercent = readiness?.percent !== null
+            && readiness?.percent !== undefined
+            && readiness?.percent !== ''
+            && Number.isFinite(Number(readiness.percent))
+            ? Math.max(0, Math.min(100, Number(readiness.percent)))
+            : null;
         return [
             {
                 key: 'hotel',
@@ -667,10 +673,12 @@
             {
                 key: 'completeness',
                 label: '数据完整度',
-                value: completeness?.display || readiness.summaryText || '--',
-                status: completeness?.status ? revenueAiStatusLabel(completeness.status) : `${Number(readiness.percent || 0)}%`,
+                value: completeness?.display || (readinessPercent === null ? '--' : (readiness.summaryText || `${readinessPercent}%`)),
+                status: completeness?.status
+                    ? revenueAiStatusLabel(completeness.status)
+                    : (readinessPercent === null ? '完整度未返回' : `${readinessPercent}%`),
                 detail: completeness?.reason ? revenueAiReasonText(completeness.reason) : (readiness.missingText || '等待核心数据状态生成。'),
-                className: revenueAiStatusClass(completeness?.status || (Number(readiness.percent || 0) >= 100 ? 'ok' : 'warning')),
+                className: revenueAiStatusClass(completeness?.status || (readinessPercent === null ? 'unknown' : (readinessPercent >= 100 ? 'ok' : 'warning'))),
             },
             {
                 key: 'overview',
@@ -878,7 +886,7 @@
     const revenueAiPricingGenerationStatusLabel = (status) => ({
         ready_for_manual_generation: '可生成待审',
         pending_review_exists: '已有待审',
-        skipped_by_operator_policy: '已暂时跳过',
+        skipped_by_operator_policy: '缺口仍阻断',
         blocked: '生成受阻',
         failed: '预检失败',
         not_loaded: '未加载',
@@ -888,7 +896,7 @@
         price_suggestion_generation_not_loaded: '调价建议生成预检尚未加载。',
         pricing_generation_hotel_scope_missing: '调价建议生成缺少目标系统酒店范围。',
         room_types_empty: '携程目标酒店暂无启用房型，不能生成待审调价建议。',
-        missing_pricing_inputs_skipped_by_operator_policy: '已按人工策略暂时跳过抓不到的房型、保护价、需求预测和竞对样本缺口。',
+        missing_pricing_inputs_skipped_by_operator_policy: '旧记录缺少可核验的操作者、确认时间和持久化记录，按定价输入缺口阻断。',
         pricing_candidate_signals_missing: '调价候选信号不足，当前不会生成待审建议。',
         pricing_generation_candidates_ready: '已存在可生成待审调价建议的只读候选。',
         price_suggestions_pending_review: '存在待人工审核调价建议。',
@@ -905,7 +913,9 @@
             return { visible: false };
         }
 
-        const status = String(preflight.status || 'unknown');
+        const rawStatus = String(preflight.status || 'unknown');
+        const legacyUnverifiedSkip = rawStatus === 'skipped_by_operator_policy';
+        const status = legacyUnverifiedSkip ? 'blocked' : rawStatus;
         const reason = String(preflight.reason || '');
         const targetFilter = preflight.target_filter && typeof preflight.target_filter === 'object'
             ? preflight.target_filter
@@ -915,7 +925,7 @@
             .map((item) => ({
                 code: String(item?.code || ''),
                 source: String(item?.source || ''),
-                status: String(item?.status || ''),
+                status: String(item?.status || '') === 'skipped_by_operator_policy' ? 'missing_or_blocked' : String(item?.status || ''),
                 nextAction: String(item?.next_action || ''),
             }))
             .filter(item => item.code)
@@ -965,7 +975,9 @@
             status,
             statusLabel: revenueAiPricingGenerationStatusLabel(status),
             className: revenueAiStatusClass(status),
-            reasonText: String(preflight.detail || '') || revenueAiPricingGenerationReasonText(reason),
+            reasonText: legacyUnverifiedSkip
+                ? revenueAiPricingGenerationReasonText('missing_pricing_inputs_skipped_by_operator_policy')
+                : (String(preflight.detail || '') || revenueAiPricingGenerationReasonText(reason)),
             nextAction: String(preflight.next_action || ''),
             detailText: detailParts.join(' · '),
             sourceScope: String(preflight.source_scope || ''),

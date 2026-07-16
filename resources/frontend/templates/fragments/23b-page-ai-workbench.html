@@ -15,6 +15,37 @@
                                         </div>
                                     </section>
 
+                                    <section data-testid="home-temporal-axis" class="dual-ota-temporal-axis">
+                                        <div class="dual-ota-temporal-head">
+                                            <div class="dual-ota-temporal-heading">
+                                                <div class="dual-ota-temporal-title">
+                                                    <span class="dual-ota-temporal-icon">时</span>
+                                                    经营时间轴
+                                                    <span v-if="homeTemporalLoading" class="dual-ota-temporal-loading">正在读取</span>
+                                                </div>
+                                                <p class="dual-ota-temporal-subtitle">过去有据，如今可察，未来按情景评估；</p>
+                                            </div>
+                                            <button type="button" @click="generateHomeTemporalForecast" :disabled="homeTemporalGenerating || !homeTemporalSelectedHotelId" class="dual-ota-temporal-action">
+                                                <i :class="homeTemporalGenerating ? 'fas fa-spinner fa-spin mr-1.5' : 'fas fa-layer-group mr-1.5'"></i>
+                                                {{ homeTemporalGenerating ? '正在形成新版本' : (homeTemporalSelectedHotelId ? '生成一版未来情景评估' : '选择单店后生成') }}
+                                            </button>
+                                        </div>
+                                        <div class="dual-ota-temporal-grid">
+                                            <article v-for="(card, index) in homeTemporalCards" :key="card.key" :class="['dual-ota-temporal-card', `is-stage-${index + 1}`]">
+                                                <div class="dual-ota-temporal-card-head">
+                                                    <span class="dual-ota-temporal-label">{{ card.label }}</span>
+                                                    <span class="dual-ota-temporal-status">{{ card.status }}</span>
+                                                </div>
+                                                <strong class="dual-ota-temporal-value">{{ card.value }}</strong>
+                                                <p class="dual-ota-temporal-detail">{{ card.detail }}</p>
+                                            </article>
+                                        </div>
+                                        <div class="dual-ota-temporal-review">
+                                            <div>{{ homeTemporalReview.title }}</div>
+                                            <p>{{ homeTemporalReview.detail }}</p>
+                                        </div>
+                                    </section>
+
                                     <div v-if="dualOtaDashboard.principle" class="dual-ota-principle" data-testid="dual-ota-design-principle">
                                         <i class="fas fa-shield-alt"></i>
                                         <span>{{ dualOtaDashboard.principle }}</span>
@@ -154,7 +185,7 @@
                                                     </div>
                                                 </div>
                                                 <div class="dual-ota-loss-chain">
-                                                    <button v-for="node in dualOtaActiveLossNodes" :key="node.id" type="button" :class="['dual-ota-loss-node', dualOtaSeverityClass(node.severity), dualOtaSelectedLossNodeId === node.id ? 'is-selected' : '']" @click="setDualOtaLossNode(node.id)" :title="dualOtaDashboard.lossChain.nodeExplanations[node.id]?.description || ''">
+                                                    <button v-for="node in dualOtaActiveLossNodes" :key="node.id" type="button" :class="['dual-ota-loss-node', dualOtaSeverityClass(node.severity), dualOtaSelectedLossNodeId === node.id ? 'is-selected' : '']" @click="setDualOtaLossNode(node.id)" :title="node.note || ''">
                                                         <span class="dual-ota-node-label">{{ node.label }}</span>
                                                         <strong>{{ node.value }}</strong>
                                                         <em>{{ node.delta }}</em>
@@ -183,9 +214,9 @@
                                         <section class="dual-ota-card dual-ota-deprioritized" data-testid="dual-ota-deprioritized-modules">
                                             <div class="dual-ota-deprioritized-list">
                                                 <template v-for="item in dualOtaDashboard.deprioritizedModules" :key="item.name">
-                                                    <button v-if="dualOtaModuleNavigationTarget(item)" type="button" class="dual-ota-deprioritized-link" :data-testid="`dual-ota-${dualOtaModuleNavigationTarget(item)}-shortcut`" :aria-label="`${item.name}，进入数据抓取页面`" @click="openDualOtaModule(item)">
+                                                <button v-if="dualOtaModuleNavigationTarget(item)" type="button" class="dual-ota-deprioritized-link" :data-testid="`dual-ota-${dualOtaModuleNavigationTarget(item)}-shortcut`" :aria-label="`${item.name}，进入数据采集页面`" @click="openDualOtaModule(item)">
                                                         <strong>{{ item.name }}</strong>
-                                                        <em>{{ item.reason || '进入抓取' }}</em>
+                                                    <em>{{ item.reason || '进入采集' }}</em>
                                                     </button>
                                                     <span v-else="">
                                                         <strong>{{ item.name }}</strong>

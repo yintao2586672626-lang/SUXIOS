@@ -3,7 +3,7 @@
                             <div class="p-5 border-b border-gray-100 bg-white">
                                 <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                                     <div>
-                                        <h2 class="text-xl font-bold text-gray-900">高级AI工具箱</h2>
+                                <h2 class="text-xl font-bold text-gray-900">高级模型与运营工具箱</h2>
                                         <p class="text-sm text-gray-500 mt-1">管理员和专项诊断使用；日常经营优先从今日经营看板、收益诊断和执行跟踪进入。</p>
                                     </div>
                                     <div class="flex items-center gap-2 text-xs text-gray-500">
@@ -113,8 +113,19 @@
                                                 <div v-if="otaDiagnosisError" class="rounded-lg border border-red-100 bg-red-50 text-red-700 px-4 py-3 text-sm">
                                                     <i class="fas fa-exclamation-triangle mr-2"></i>{{ otaDiagnosisError }}
                                                 </div>
+                                                <div v-if="otaDiagnosisResult?.record_status === 'superseded' || otaDiagnosisResult?.saved_record?.status === 'superseded'" class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                                                    <div class="font-semibold"><i class="fas fa-history mr-2"></i>历史诊断已被更新记录替代</div>
+                                                    <p class="mt-1 text-xs leading-relaxed">
+                                                        此记录仅供审计回看，不能再转入运营执行。
+                                                        <span v-if="otaDiagnosisResult?.superseded_by?.log_id || otaDiagnosisResult?.saved_record?.superseded_by_log_id">替代记录：#{{ otaDiagnosisResult?.superseded_by?.log_id || otaDiagnosisResult?.saved_record?.superseded_by_log_id }}</span>
+                                                    </p>
+                                                    <p v-if="otaDiagnosisResult?.validation_status === 'invalid_evidence'" class="mt-1 text-xs font-medium text-red-700">无效原因：核心零值缺少目标日真实经营字段证据，不能作为经营事实。</p>
+                                                </div>
                                                 <div v-if="otaDiagnosisEmpty" class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-5 text-sm text-gray-600">
-                                                    <div class="font-medium text-gray-800 mb-1">暂无该范围内的 OTA 数据</div>
+                                                    <div class="flex flex-wrap items-center gap-2 mb-1">
+                                                        <div class="font-medium text-gray-800">暂无该范围内的 OTA 数据</div>
+                                                        <span v-if="otaDiagnosisResult?.saved_record?.saved" class="rounded-full border px-2 py-0.5 text-[11px]" :class="otaDiagnosisResult?.record_status === 'superseded' ? 'border-slate-200 bg-slate-100 text-slate-600' : 'border-emerald-100 bg-emerald-50 text-emerald-700'">{{ otaDiagnosisResult?.record_status === 'superseded' ? '已替代' : '已保存' }} #{{ otaDiagnosisResult.saved_record.id }}</span>
+                                                    </div>
                                                     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                                                         <p>请先同步对应平台数据，再返回生成诊断。</p>
                                                         <button type="button" @click="currentPage = otaDiagnosisForm.platform === 'meituan' ? 'meituan-ebooking' : 'ctrip-ebooking'" class="btn-secondary text-sm">
@@ -181,16 +192,17 @@
                                                     <div class="rounded-xl border border-blue-100 bg-blue-50 p-4">
                                                         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-2">
                                                             <div class="text-sm font-semibold text-blue-900">核心结论</div>
-                                                            <span class="self-start px-2.5 py-1 rounded text-xs border" :class="otaDiagnosisPriorityClass">
-                                                                {{ otaDiagnosisPriorityText }}
-                                                            </span>
+                                                            <div class="flex flex-wrap items-center gap-2">
+                                                                <span v-if="otaDiagnosisResult?.saved_record?.saved" class="self-start rounded border px-2.5 py-1 text-xs" :class="otaDiagnosisResult?.record_status === 'superseded' ? 'border-slate-200 bg-slate-100 text-slate-600' : 'border-emerald-100 bg-emerald-50 text-emerald-700'">{{ otaDiagnosisResult?.record_status === 'superseded' ? '已替代' : '已保存' }} #{{ otaDiagnosisResult.saved_record.id }}</span>
+                                                                <span class="self-start px-2.5 py-1 rounded text-xs border" :class="otaDiagnosisPriorityClass">{{ otaDiagnosisPriorityText }}</span>
+                                                            </div>
                                                         </div>
                                                         <p class="text-sm text-blue-800 leading-relaxed">{{ otaDiagnosisResult.diagnosis?.summary || otaDiagnosisResult.core_conclusion || '-' }}</p>
                                                     </div>
                                                     <div v-if="otaDiagnosisBusinessLoopSteps.length" class="rounded-xl border border-slate-100 bg-white p-4">
                                                         <div class="flex items-center justify-between gap-3 mb-3">
                                                             <div class="font-semibold text-gray-900">业务闭环拆解</div>
-                                                            <span class="text-xs text-gray-400">OTA数据 → 收益分析 → AI决策 → 运营管理 → 投资决策</span>
+                                                            <span class="text-xs text-gray-400">OTA数据 → 收益分析 → AI决策 → 运营管理 → 效果复盘</span>
                                                         </div>
                                                         <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-2">
                                                             <div v-for="step in otaDiagnosisBusinessLoopSteps" :key="step.key" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
@@ -211,6 +223,10 @@
                                                             <div class="mt-2 text-base font-semibold text-gray-900 truncate">{{ card.value }}</div>
                                                             <div class="mt-1 text-xs text-gray-400 leading-relaxed line-clamp-2" :title="card.detail">{{ card.detail }}</div>
                                                         </div>
+                                                    </div>
+                                                    <div v-if="otaDiagnosisResult?.decision_status === 'no_action'" class="rounded-xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-800">
+                                                        <div class="font-semibold"><i class="fas fa-check-circle mr-2"></i>本次无需新增行动</div>
+                                                        <p class="mt-1 leading-relaxed">本次已覆盖且通过校验的 OTA 入库指标未触发行动阈值；仅代表本次渠道范围，系统不会创建空执行单，下一数据日继续观察。</p>
                                                     </div>
                                                     <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
                                                         <div v-for="metric in otaDiagnosisMetricCards" :key="metric.label" class="rounded-lg border border-gray-100 bg-white p-3">
@@ -275,6 +291,11 @@
                                                                     <span v-if="row.missingText &amp;&amp; row.blockedReason">；</span>
                                                                     <span v-if="row.blockedReason">{{ row.blockedReason }}</span>
                                                                 </div>
+                                                                <div v-if="row.canCreateIntent" class="mt-3 flex justify-end">
+                                                                    <button type="button" @click="createOtaDiagnosisExecutionIntent(row)" :disabled="otaDiagnosisExecutionLoading === String(row.id)" class="btn-primary text-xs disabled:opacity-50">
+                                                                        <i :class="otaDiagnosisExecutionLoading === String(row.id) ? 'fas fa-spinner fa-spin mr-1.5' : 'fas fa-arrow-right mr-1.5'"></i>{{ otaDiagnosisExecutionLoading === String(row.id) ? '转单中...' : '人工确认并转运营执行' }}
+                                                                    </button>
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -315,7 +336,7 @@
                                     <section class="space-y-3">
                                         <div class="flex items-center justify-between gap-3">
                                             <div>
-                                                <h3 class="font-semibold text-gray-900">常用AI工具</h3>
+                                            <h3 class="font-semibold text-gray-900">常用模型与运营工具</h3>
                                                 <p class="text-sm text-gray-500 mt-1">面向运营、数据分析与文案处理的外部工具入口。</p>
                                             </div>
                                             <span class="hidden sm:inline-flex text-xs text-gray-400">{{ hotelAiToolboxLinks.length }} 个入口</span>
@@ -372,7 +393,7 @@
                                                     <div class="flex items-center justify-between mb-3">
                                                         <div>
                                                             <div class="font-medium text-gray-800">自动定价</div>
-                                                            <div class="text-sm text-gray-500">开启后自动应用定价建议（需人工审批）</div>
+                                                            <div class="text-sm text-gray-500">开启后将定价建议送入人工审批；审批完成后才进入应用步骤</div>
                                                         </div>
                                                         <label class="relative inline-flex items-center cursor-pointer">
                                                             <input type="checkbox" v-model="agentConfigs.revenue.config_data.auto_pricing_enabled" class="sr-only peer" @change="saveAgentConfig('revenue')">
@@ -576,7 +597,7 @@
                                                     </select>
                                                     <input type="number" v-model.number="demandForecastForm.predicted_occupancy" class="input-field" min="0" max="100" step="1" placeholder="预测入住率%">
                                                     <input type="number" v-model.number="demandForecastForm.predicted_demand" class="input-field" min="0" step="1" placeholder="需求间夜">
-                                                    <input type="number" v-model.number="demandForecastForm.confidence_percent" class="input-field" min="0" max="100" step="1" placeholder="置信度%">
+                                                    <input type="number" v-model.number="demandForecastForm.confidence_percent" class="input-field" min="1" max="100" step="1" placeholder="人工置信度%（必填）">
                                                     <button @click="saveDemandForecastInput" :disabled="demandForecastSaving" class="rounded bg-emerald-700 px-3 py-2 text-sm text-white hover:bg-emerald-800 disabled:opacity-50">
                                                         <i :class="demandForecastSaving ? 'fas fa-spinner fa-spin' : 'fas fa-save'" class="mr-1"></i>保存预测
                                                     </button>
@@ -603,7 +624,7 @@
                                                     </select>
                                                     <input type="number" v-model.number="competitorPriceForm.our_price" class="input-field" min="0" step="1" placeholder="本店价">
                                                     <input type="number" v-model.number="competitorPriceForm.competitor_price" class="input-field" min="0" step="1" placeholder="竞品价">
-                                                    <input type="number" v-model.number="competitorPriceForm.competitor_hotel_id" class="input-field" min="0" step="1" placeholder="竞对ID/未知填0">
+                                                    <input type="number" v-model.number="competitorPriceForm.competitor_hotel_id" class="input-field" min="1" step="1" placeholder="竞对ID（未知请留空）">
                                                     <button @click="saveCompetitorPriceInput" :disabled="competitorPriceSaving" class="rounded bg-blue-700 px-3 py-2 text-sm text-white hover:bg-blue-800 disabled:opacity-50">
                                                         <i :class="competitorPriceSaving ? 'fas fa-spinner fa-spin' : 'fas fa-save'" class="mr-1"></i>保存样本
                                                     </button>
@@ -710,6 +731,9 @@
                                                 </div>
                                                 <button @click="priceSuggestionReview = null" class="text-purple-600 hover:text-purple-800 text-sm"><i class="fas fa-times mr-1"></i>关闭</button>
                                             </div>
+                                            <div v-if="!priceSuggestionReviewHasComparableSamples" class="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                                                应用前后样本不足，不计算收入、间夜或 ADR 变化。
+                                            </div>
                                             <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                                                 <div class="rounded-lg bg-white p-3 border border-purple-100">
                                                     <div class="text-gray-500">复盘周期</div>
@@ -717,21 +741,21 @@
                                                 </div>
                                                 <div class="rounded-lg bg-white p-3 border border-purple-100">
                                                     <div class="text-gray-500">收入变化</div>
-                                                    <div class="font-semibold text-gray-800">¥{{ priceSuggestionReview.delta?.amount || 0 }}</div>
+                                                    <div class="font-semibold text-gray-800">{{ priceSuggestionReviewMetricText(priceSuggestionReview.delta?.amount, '¥') }}</div>
                                                 </div>
                                                 <div class="rounded-lg bg-white p-3 border border-purple-100">
                                                     <div class="text-gray-500">间夜变化</div>
-                                                    <div class="font-semibold text-gray-800">{{ priceSuggestionReview.delta?.quantity || 0 }}</div>
+                                                    <div class="font-semibold text-gray-800">{{ priceSuggestionReviewMetricText(priceSuggestionReview.delta?.quantity) }}</div>
                                                 </div>
                                                 <div class="rounded-lg bg-white p-3 border border-purple-100">
                                                     <div class="text-gray-500">ADR变化</div>
-                                                    <div class="font-semibold text-gray-800">¥{{ priceSuggestionReview.delta?.adr || 0 }}</div>
+                                                    <div class="font-semibold text-gray-800">{{ priceSuggestionReviewMetricText(priceSuggestionReview.delta?.adr, '¥') }}</div>
                                                 </div>
                                             </div>
                                             <div class="mt-3 rounded-lg bg-white/70 border border-purple-100 p-3 text-xs text-purple-800">
                                                 <div>{{ priceSuggestionReview.scope_notice || '复盘仅基于当前可读样本。' }}</div>
                                                 <div class="mt-1 text-purple-700">
-                                                    样本：应用前 {{ priceSuggestionReview.before?.sample_count || 0 }} 条 · 应用后 {{ priceSuggestionReview.after?.sample_count || 0 }} 条 · {{ priceSuggestionReview.readiness?.next_action || '' }}
+                                                    样本：应用前 {{ priceSuggestionReviewSampleCountText(priceSuggestionReview.before?.sample_count) }} 条 · 应用后 {{ priceSuggestionReviewSampleCountText(priceSuggestionReview.after?.sample_count) }} 条 · {{ priceSuggestionReview.readiness?.next_action || '' }}
                                                 </div>
                                             </div>
                                         </div>
@@ -837,10 +861,10 @@
                                             </div>
                                             <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
                                                 <div class="text-sm text-gray-400 mb-1">本周RevPAR预测</div>
-                                                <div class="text-2xl font-bold text-gray-800">¥{{ revenueDashboard.week_revpar_forecast || 0 }}</div>
+                                                <div class="text-2xl font-bold text-gray-800">{{ revenueDashboard.week_revpar_forecast !== null &amp;&amp; revenueDashboard.week_revpar_forecast !== undefined ? '¥' + revenueDashboard.week_revpar_forecast : '—' }}</div>
                                             </div>
                                             <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-                                                <div class="text-sm text-gray-400 mb-1">预测准确率</div>
+                                                <div class="text-sm text-gray-400 mb-1">预测准确率（有结果样本）</div>
                                                 <div class="text-2xl font-bold text-blue-700">{{ revenueAccuracyText }}</div>
                                             </div>
                                             <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
@@ -858,9 +882,9 @@
                                                 <div v-if="revenueRevparRows.length" class="space-y-2">
                                                     <div v-for="row in revenueRevparRows" :key="row.date" class="grid grid-cols-4 gap-2 rounded-lg bg-gray-50 px-3 py-2 text-sm">
                                                         <div class="font-medium text-gray-800">{{ row.date }}</div>
-                                                        <div class="text-right text-gray-600">RevPAR ¥{{ row.revpar }}</div>
-                                                        <div class="text-right text-gray-600">OCC {{ row.occupancy }}%</div>
-                                                        <div class="text-right text-gray-500">置信 {{ row.confidence }}%</div>
+                                                        <div class="text-right text-gray-600">RevPAR {{ row.revpar === null ? '—' : '¥' + row.revpar }}</div>
+                                                        <div class="text-right text-gray-600">OCC {{ row.occupancy === null ? '—' : row.occupancy + '%' }}</div>
+                                                        <div class="text-right text-gray-500">置信 {{ row.confidence === null ? '—' : row.confidence + '%' }}</div>
                                                     </div>
                                                 </div>
                                                 <div v-else="" class="py-8 text-center text-gray-400">暂无RevPAR预测样本</div>
@@ -907,7 +931,7 @@
                                                         </select>
                                                         <input type="number" v-model.number="demandForecastForm.predicted_occupancy" class="input-field" min="0" max="100" step="1" placeholder="预测入住率%">
                                                         <input type="number" v-model.number="demandForecastForm.predicted_demand" class="input-field" min="0" step="1" placeholder="需求间夜">
-                                                        <input type="number" v-model.number="demandForecastForm.confidence_percent" class="input-field" min="0" max="100" step="1" placeholder="置信度%">
+                                                        <input type="number" v-model.number="demandForecastForm.confidence_percent" class="input-field" min="1" max="100" step="1" placeholder="人工置信度%（必填）">
                                                     </div>
                                                     <div class="mt-2 flex flex-wrap items-center gap-2">
                                                         <input v-model.trim="demandForecastForm.remark" class="input-field flex-1 min-w-[220px]" placeholder="预测口径备注（可选）">
@@ -930,9 +954,9 @@
                                                         <tbody class="divide-y divide-gray-100">
                                                             <tr v-for="row in demandForecasts" :key="row.id || row.forecast_date">
                                                                 <td class="px-3 py-2 font-medium text-gray-800">{{ row.forecast_date }}</td>
-                                                                <td class="px-3 py-2 text-right">{{ row.predicted_occupancy || 0 }}%</td>
-                                                                <td class="px-3 py-2 text-right">¥{{ row.predicted_revpar || 0 }}</td>
-                                                                <td class="px-3 py-2 text-right">{{ row.forecast_readiness?.confidence_percent ?? row.confidence_score ?? 0 }}%</td>
+                                                                <td class="px-3 py-2 text-right">{{ row.predicted_occupancy === null || row.predicted_occupancy === undefined ? '—' : row.predicted_occupancy + '%' }}</td>
+                                                                <td class="px-3 py-2 text-right">{{ row.predicted_revpar === null || row.predicted_revpar === undefined ? '—' : '¥' + row.predicted_revpar }}</td>
+                                                                <td class="px-3 py-2 text-right">{{ row.forecast_readiness?.confidence_percent !== null &amp;&amp; row.forecast_readiness?.confidence_percent !== undefined ? row.forecast_readiness.confidence_percent + '%' : (row.confidence_score !== null &amp;&amp; row.confidence_score !== undefined ? Math.round(Number(row.confidence_score) * (Number(row.confidence_score) &lt;= 1 ? 100 : 1)) + '%' : '—') }}</td>
                                                                 <td class="px-3 py-2">
                                                                     <span v-if="row.forecast_readiness" :title="row.forecast_readiness.notice" :class="['inline-flex rounded border px-2 py-0.5 text-xs whitespace-nowrap', revenueForecastReadinessClass(row.forecast_readiness.stage)]">
                                                                         {{ row.forecast_readiness.status_label }}
@@ -976,7 +1000,7 @@
                                                         </select>
                                                         <input type="number" v-model.number="competitorPriceForm.our_price" class="input-field" min="0" step="1" placeholder="本店价">
                                                         <input type="number" v-model.number="competitorPriceForm.competitor_price" class="input-field" min="0" step="1" placeholder="竞品价">
-                                                        <input type="number" v-model.number="competitorPriceForm.competitor_hotel_id" class="input-field" min="0" step="1" placeholder="竞对ID/未知填0">
+                                                        <input type="number" v-model.number="competitorPriceForm.competitor_hotel_id" class="input-field" min="1" step="1" placeholder="竞对ID（未知请留空）">
                                                     </div>
                                                     <div class="mt-2 flex flex-wrap items-center gap-2">
                                                         <input v-model.trim="competitorPriceForm.competitor_name" class="input-field flex-1 min-w-[220px]" placeholder="竞对名称或样本来源">
@@ -1023,7 +1047,7 @@
                                                 </div>
                                                 <div v-if="(competitorAnalysis.alerts || []).length" class="mt-4 space-y-2">
                                                     <div v-for="item in competitorAnalysis.alerts" :key="item.id || item.competitor_hotel_id" class="rounded-lg bg-orange-50 border border-orange-100 p-3 text-sm text-orange-800">
-                                                        {{ item.competitor_hotel?.hotel_name || item.competitor_hotel_id || '竞对' }} 价格波动 {{ item.price_change_percent || item.price_index || 0 }}%
+                                                        {{ competitorAlertPriceText(item) }}
                                                     </div>
                                                 </div>
                                                 <div v-else="" class="mt-4 py-4 text-center text-gray-400">暂无竞对价格预警</div>
@@ -1081,7 +1105,15 @@
                                                         }">{{ log.agent_type_name }}</span>
                                                     </td>
                                                     <td class="px-4 py-3 text-gray-600">{{ log.action }}</td>
-                                                    <td class="px-4 py-3 text-gray-800">{{ log.message }}</td>
+                                                    <td class="px-4 py-3 text-gray-800">
+                                                        <div>{{ log.message }}</div>
+                                                        <span v-if="log.action === 'ota_diagnosis' &amp;&amp; log.context_data?.record_status === 'superseded'" class="mt-1.5 inline-flex rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">
+                                                            已替代<span v-if="log.context_data?.superseded_by_log_id"> → #{{ log.context_data.superseded_by_log_id }}</span>
+                                                        </span>
+                                                        <button v-if="log.action === 'ota_diagnosis' &amp;&amp; log.context_data?.diagnosis_result" type="button" @click="openSavedOtaDiagnosis(log)" class="mt-1.5 text-xs font-medium text-blue-600 hover:text-blue-800">
+                                                            <i class="fas fa-folder-open mr-1"></i>打开保存的诊断
+                                                        </button>
+                                                    </td>
                                                     <td class="px-4 py-3 text-gray-500">{{ log.user?.realname || '-' }}</td>
                                                     <td class="px-4 py-3">
                                                         <span class="badge" :class="{

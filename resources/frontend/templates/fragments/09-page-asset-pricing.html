@@ -3,11 +3,11 @@
                             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                                 <div>
                                     <h2 class="text-2xl font-bold">智算·资产定价</h2>
-                                    <p class="text-sm text-cyan-100 mt-1">二期测算能力：测算合理转让价、利润、回收周期与接盘风险</p>
+                                    <p class="text-sm text-cyan-100 mt-1">基于人工输入的情景测算；未核验流水、租约与证照时，不构成正式估值或接盘结论</p>
                                 </div>
                                 <button @click="handleTransferPricing" :disabled="transferPricingLoading" class="bg-white/15 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-60 disabled:cursor-not-allowed">
                                     <i :class="transferPricingLoading ? 'fas fa-spinner fa-spin' : 'fas fa-calculator'"></i>
-                                    <span>{{ transferPricingLoading ? 'AI生成中...' : '计算并生成AI结果' }}</span>
+                                    <span>{{ transferPricingLoading ? '测算中...' : '运行情景测算' }}</span>
                                 </button>
                             </div>
                         </div>
@@ -52,14 +52,17 @@
 
                             <div class="xl:col-span-7 space-y-5">
                                 <div v-if="transferPricingResult" class="space-y-5">
-                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div v-if="transferPricingResult.status === 'insufficient_data'" class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                                        {{ transferPricingResult.data_notice || '关键输入缺失，未生成估值。' }}
+                                    </div>
+                                    <div v-if="transferPricingResult.status !== 'insufficient_data'" class="grid grid-cols-1 md:grid-cols-3 gap-4">
                                         <div v-for="card in transferPricingCards" :key="card.label" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
                                             <div class="text-xs text-gray-500">{{ card.label }}</div>
                                             <div :class="['text-2xl font-bold mt-2', card.className || 'text-gray-800']">{{ card.value }}</div>
                                         </div>
                                     </div>
-                                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-                                        <h3 class="font-bold text-gray-800 mb-4">估值结果</h3>
+                                    <div v-if="transferPricingResult.status !== 'insufficient_data'" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                                        <h3 class="font-bold text-gray-800 mb-4">情景估值结果</h3>
                                         <div class="overflow-x-auto">
                                             <table class="min-w-full text-sm">
                                                 <thead class="bg-gray-50 text-gray-500">
@@ -157,7 +160,7 @@
                                 </div>
                                 <div v-else="" class="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center text-gray-400">
                                     <i class="fas fa-calculator text-4xl mb-3 opacity-50"></i>
-                                    <p>录入转让参数后生成资产定价结果</p>
+                                    <p>补齐转让参数后生成情景测算结果</p>
                                 </div>
                             </div>
                         </div>

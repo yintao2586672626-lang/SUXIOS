@@ -77,7 +77,7 @@ window.SUXI_SIMULATION_STATIC = (() => {
         { key: 'ota_heat_index', label: 'OTA热度指数' },
         { key: 'traffic_radius_km', label: '采样半径（km）', step: 0.1 },
     ];
-    const collaborationStatusOptions = ['未开始', '进行中', '已完成', '风险'];
+    const collaborationStatusOptions = ['待确认', '未开始', '进行中', '已完成', '风险'];
     const expansionRecordPageTypes = {
         'market-evaluation': 'market',
         'market-eval': 'market',
@@ -87,7 +87,7 @@ window.SUXI_SIMULATION_STATIC = (() => {
     };
     const createBenchmarkModelForm = () => ({
         city: '上海',
-        business_area: '核心商务区',
+        business_area: '【示例数据】核心商务区',
         target_price_band: '220-320',
         hotel_type: '中端商务',
         target_room_count: 72,
@@ -99,16 +99,18 @@ window.SUXI_SIMULATION_STATIC = (() => {
         traffic_radius_km: 3,
     });
     const createCollaborationProject = (expectedOnlineDate = '') => ({
-        project_name: '新店扩张项目',
-        city_area: '上海核心商务区',
+        project_name: '【示例数据】新店扩张项目（不可用于真实决策）',
+        city_area: '【示例】上海核心商务区',
         current_stage: '筹建',
         owner: '项目负责人',
         expected_online_date: expectedOnlineDate,
+        source_evidence: '',
+        review_status: 'pending',
     });
     const createTransferPricingForm = () => ({
         hotel_id: '',
-        hotel_name: '城市中端精选酒店',
-        location: '上海陆家嘴商圈',
+        hotel_name: '【示例数据】城市中端精选酒店（不可用于真实决策）',
+        location: '【示例】上海陆家嘴商圈',
         room_count: 86,
         monthly_revenue: 80,
         monthly_rent: 18,
@@ -149,22 +151,21 @@ window.SUXI_SIMULATION_STATIC = (() => {
         order_count: 420,
         room_nights: 980,
     });
-    const formatDateValue = (date) => {
-        const value = date instanceof Date ? date : new Date(date);
-        const y = value.getFullYear();
-        const m = String(value.getMonth() + 1).padStart(2, '0');
-        const d = String(value.getDate()).padStart(2, '0');
-        return `${y}-${m}-${d}`;
-    };
-    const buildCollaborationTasks = (defaultOnlineDate, now = Date.now()) => [
-        { name: '市场调研', status: '已完成', owner: '投资经理', due_date: formatDateValue(new Date(now - 28 * 24 * 60 * 60 * 1000)), risk_note: '' },
-        { name: '物业评估', status: '已完成', owner: '工程经理', due_date: formatDateValue(new Date(now - 21 * 24 * 60 * 60 * 1000)), risk_note: '' },
-        { name: '合同谈判', status: '已完成', owner: '拓展负责人', due_date: formatDateValue(new Date(now - 14 * 24 * 60 * 60 * 1000)), risk_note: '' },
-        { name: '装修筹建', status: '进行中', owner: '工程经理', due_date: formatDateValue(new Date(now + 14 * 24 * 60 * 60 * 1000)), risk_note: '' },
-        { name: '证照办理', status: '进行中', owner: '行政负责人', due_date: formatDateValue(new Date(now + 21 * 24 * 60 * 60 * 1000)), risk_note: '' },
-        { name: 'OTA上线', status: '未开始', owner: '运营负责人', due_date: formatDateValue(new Date(now + 35 * 24 * 60 * 60 * 1000)), risk_note: '' },
-        { name: '运营交接', status: '未开始', owner: '店长', due_date: defaultOnlineDate, risk_note: '' },
-    ];
+    const buildCollaborationTasks = () => [
+        '市场调研',
+        '物业评估',
+        '合同谈判',
+        '装修筹建',
+        '证照办理',
+        'OTA上线',
+        '运营交接',
+    ].map(name => ({
+        name,
+        status: '待确认',
+        owner: '待分配',
+        due_date: '',
+        risk_note: '请填写真实负责人、截止时间和当前状态',
+    }));
     const transferPricingFields = [
         { key: 'hotel_name', label: '酒店名称', type: 'text', full: true },
         { key: 'location', label: '城市/商圈', type: 'text', full: true },
@@ -185,44 +186,68 @@ window.SUXI_SIMULATION_STATIC = (() => {
     ];
     const transferTimingCompareFields = [
         { key: 'current_revenue', label: '近30天营业额（万元）' },
-        { key: 'previous_revenue', label: '年度30天营业额（万元）' },
+        { key: 'previous_revenue', label: '对比期30天营业额（万元）' },
         { key: 'current_orders', label: '近30天订单量' },
-        { key: 'previous_orders', label: '年度30天订单量' },
+        { key: 'previous_orders', label: '对比期30天订单量' },
         { key: 'current_adr', label: '近30天ADR（元）' },
-        { key: 'previous_adr', label: '年度ADR（元）' },
+        { key: 'previous_adr', label: '对比期30天ADR（元）' },
         { key: 'current_occupancy_rate', label: '近30天入住率（%）' },
-        { key: 'previous_occupancy_rate', label: '年度入住率（%）' },
+        { key: 'previous_occupancy_rate', label: '对比期30天入住率（%）' },
     ];
     const transferTimingNumberFields = [
         { key: 'rating', label: '评分' },
         { key: 'holiday_days', label: '距离节假日天数' },
     ];
     const transferTimingDataFields = [
-        { key: 'exposure', label: '曝光', hint: 'OTA曝光口径，缺失时填0', min: 0 },
+        { key: 'exposure', label: '曝光', hint: 'OTA曝光口径；缺失时留空并标记未返回', min: 0 },
         { key: 'visitors', label: '访客', hint: 'OTA访客/浏览口径', min: 0 },
         { key: 'conversion_rate', label: '转化率（%）', hint: '平台展示百分比，不按小数填', min: 0, step: 0.1 },
         { key: 'order_count', label: '订单量', hint: '近30天有效订单', min: 0 },
         { key: 'room_nights', label: '间夜', hint: '近30天已售间夜', min: 0 },
     ];
     const roundTransferMetric = (value, digits = 0) => Number((Number(value) || 0).toFixed(digits));
+    const nullableTransferMetric = (value) => {
+        if (value === null || value === undefined || value === '') return null;
+        const number = Number(value);
+        return Number.isFinite(number) ? Math.max(0, number) : null;
+    };
     const buildTransferTimingDataCheck = (form = {}) => {
-        const exposure = Math.max(0, toNumberValue(form.exposure));
-        const visitors = Math.max(0, toNumberValue(form.visitors));
-        const conversionRate = Math.max(0, toNumberValue(form.conversion_rate));
-        const orderCount = Math.max(0, toNumberValue(form.order_count));
-        const roomNights = Math.max(0, toNumberValue(form.room_nights));
+        const rawMetrics = {
+            exposure: nullableTransferMetric(form.exposure),
+            visitors: nullableTransferMetric(form.visitors),
+            conversion_rate: nullableTransferMetric(form.conversion_rate),
+            order_count: nullableTransferMetric(form.order_count),
+            room_nights: nullableTransferMetric(form.room_nights),
+        };
+        const metricLabels = {
+            exposure: '曝光',
+            visitors: '访客',
+            conversion_rate: '转化率',
+            order_count: '订单',
+            room_nights: '间夜',
+        };
+        const missingMetricKeys = Object.keys(rawMetrics).filter(key => rawMetrics[key] === null);
+        const exposure = rawMetrics.exposure ?? 0;
+        const visitors = rawMetrics.visitors ?? 0;
+        const conversionRate = rawMetrics.conversion_rate ?? 0;
+        const orderCount = rawMetrics.order_count ?? 0;
+        const roomNights = rawMetrics.room_nights ?? 0;
         const derivedConversion = visitors > 0 ? roundTransferMetric((orderCount / visitors) * 100, 1) : null;
         const roomNightPerOrder = orderCount > 0 ? roundTransferMetric(roomNights / orderCount, 2) : null;
         const issues = [];
         let hasDataAnomaly = false;
-        let hasDataGap = false;
+        let hasDataGap = missingMetricKeys.length > 0;
 
-        const hasAnyMetric = [exposure, visitors, conversionRate, orderCount, roomNights].some(value => value > 0);
+        if (missingMetricKeys.length > 0) {
+            issues.push(`${missingMetricKeys.map(key => metricLabels[key]).join('、')}未返回`);
+        }
+
+        const hasAnyMetric = Object.values(rawMetrics).some(value => value !== null);
         const suspectedCollectionAnomaly = exposure === 0 && visitors === 0 && conversionRate === 0 && (orderCount > 0 || roomNights > 0);
 
         if (!hasAnyMetric) {
             hasDataGap = true;
-            issues.push('流量、转化、订单与间夜均为空，无法判断真实经营趋势');
+            issues.splice(0, issues.length, '流量、转化、订单与间夜均未返回，无法判断真实经营趋势');
         } else if (suspectedCollectionAnomaly) {
             hasDataAnomaly = true;
             issues.push('曝光、访客、转化率为0，但订单或间夜大于0');
@@ -283,9 +308,9 @@ window.SUXI_SIMULATION_STATIC = (() => {
         }
 
         return {
-            status: '数据口径正常',
+            status: '未发现明显口径冲突',
             message: '曝光、访客、转化、订单与间夜关系未发现明显冲突。',
-            suggestion: '可直接参与时机推演；如数据来自手工录入，仍建议保留原始报表备查。',
+            suggestion: '仅可用于本次本地时机推演；不等同于已验证真实数据，也不直接进入投资决策。',
             panelClass: 'bg-emerald-50 border-emerald-100',
             badgeClass: 'bg-emerald-100 text-emerald-700 border-emerald-200',
             iconClass: 'fas fa-check-circle text-emerald-500',
@@ -308,39 +333,50 @@ window.SUXI_SIMULATION_STATIC = (() => {
         const pricingReady = !!pricingResult;
         const timingReady = !!timingResult;
         const dashboardReady = !!dashboardResult;
-        const assumptionsReady = !!(pricingForm?.hotel_name || timingForm?.current_revenue);
+        const snapshotVerified = !!snapshot && snapshot.source_verified === true;
+        const exampleAssumptions = String(pricingForm?.hotel_name || '').includes('示例数据');
+        const assumptionsReady = !!(pricingForm?.hotel_name || timingForm?.current_revenue) && !exampleAssumptions;
+        const decisionReady = dashboardReady && snapshotVerified;
         return [
             {
                 key: 'facts',
                 label: '事实数据',
-                status: snapshot ? '有快照' : '待取数',
-                className: snapshot ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200',
-                detail: snapshot ? `近30天营收、ADR、入住率来自 ${sourceDate || '所选日期'} 经营快照。` : '请先绑定酒店并从真实数据带入。',
-                evidence: snapshot ? `data_status: ${snapshot.data_status || 'unknown'}` : '暂无经营快照',
+                status: snapshotVerified ? '已验证快照' : (snapshot ? '快照待核验' : '待取数'),
+                className: snapshotVerified ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200',
+                detail: snapshotVerified
+                    ? `近30天营收、ADR、入住率来自 ${sourceDate || '所选日期'} 经营快照。`
+                    : (snapshot ? '经营快照状态未通过验证，只能作为模拟输入。' : '请先绑定酒店并从可验证来源记录带入。'),
+                evidence: snapshot ? `data_status: ${snapshot.data_status || '未返回'}` : '暂无经营快照',
             },
             {
                 key: 'assumptions',
                 label: '人工假设',
-                status: assumptionsReady ? '已填写' : '待填写',
+                status: exampleAssumptions ? '示例待替换' : (assumptionsReady ? '已填写' : '待填写'),
                 className: assumptionsReady ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-amber-50 text-amber-700 border-amber-100',
-                detail: '转让价、租金、装修投入、剩余租期等仍属于人工输入假设，需要单独复核。',
+                detail: exampleAssumptions
+                    ? '当前为系统示例参数，不代表任何真实酒店，必须替换并复核后再测算。'
+                    : '转让价、租金、装修投入、剩余租期等仍属于人工输入假设，需要单独复核。',
                 evidence: '表单输入不自动等同于已验证事实。',
             },
             {
                 key: 'calculation',
                 label: '测算结果',
-                status: pricingReady || timingReady ? '已生成' : '待测算',
-                className: (pricingReady || timingReady) ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-gray-50 text-gray-500 border-gray-200',
-                detail: pricingReady && timingReady ? '资产定价和时机推演均已形成结果。' : '需分别完成资产定价和时机推演。',
+                status: pricingReady || timingReady ? (snapshotVerified ? '已生成' : '仅供模拟') : '待测算',
+                className: (pricingReady || timingReady) ? (snapshotVerified ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-amber-50 text-amber-700 border-amber-100') : 'bg-gray-50 text-gray-500 border-gray-200',
+                detail: pricingReady && timingReady
+                    ? (snapshotVerified ? '资产定价和时机推演均已形成结果。' : '结果基于示例或未验证输入，只能用于本地模拟。')
+                    : '需分别完成资产定价和时机推演。',
                 evidence: `定价 ${pricingReady ? '有' : '无'} / 时机 ${timingReady ? '有' : '无'}`,
             },
             {
                 key: 'risk',
                 label: '风险与决策',
-                status: dashboardReady ? '可汇总' : '待汇总',
-                className: dashboardReady ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200',
-                detail: dashboardReady ? '决策板已汇总估值、时机、风险点和下一步建议。' : '最终建议需在决策板汇总，不直接由单一测算替代。',
-                evidence: dashboardReady ? (dashboardResult?.final_judgement || '已生成决策看板') : '暂无最终判断',
+                status: decisionReady ? '可汇总' : (dashboardReady ? '不可进入真实决策' : '待汇总'),
+                className: decisionReady ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : (dashboardReady ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-gray-50 text-gray-500 border-gray-200'),
+                detail: decisionReady
+                    ? '决策板已汇总估值、时机、风险点和下一步建议。'
+                    : (dashboardReady ? '示例或未验证模拟结果不得作为真实投资决策结论。' : '最终建议需在决策板汇总，不直接由单一测算替代。'),
+                evidence: decisionReady ? (dashboardResult?.final_judgement || '已生成决策看板') : '缺少已验证经营快照',
             },
         ];
     };
@@ -370,7 +406,7 @@ window.SUXI_SIMULATION_STATIC = (() => {
     } = {}) => ({
         ...form,
         has_data_anomaly: Boolean(form.has_data_anomaly || dataCheck.hasDataAnomaly),
-        has_data_gap: Boolean(form.has_data_gap || dataCheck.hasDataGap),
+        has_data_gap: Boolean(form.has_data_gap || dataCheck.hasDataGap || !snapshot),
         hotel_id: hotelId || selectedHotelId || form.hotel_id || snapshot?.hotel_id || '',
         snapshot: snapshot || {},
     });
@@ -400,7 +436,7 @@ window.SUXI_SIMULATION_STATIC = (() => {
         { key: 'otherFixedCost', label: '其他固定成本' },
     ];
     const simulationCostFieldGroups = [
-        { title: '月租金', totalKey: 'monthlyRent', fields: [{ key: 'baseRentCost', label: '基础租金' }, { key: 'propertyManagementCost', label: '物业/公区费' }] },
+        { title: '预填示例：月租金', totalKey: 'monthlyRent', fields: [{ key: 'baseRentCost', label: '基础租金' }, { key: 'propertyManagementCost', label: '物业/公区费' }] },
         { title: '人工成本', totalKey: 'laborCost', fields: [{ key: 'frontDeskLaborCost', label: '前厅人工' }, { key: 'housekeepingLaborCost', label: '客房人工' }, { key: 'managementLaborCost', label: '店长/管理岗' }, { key: 'socialSecurityCost', label: '社保及福利' }] },
         { title: '水电成本', totalKey: 'utilityCost', fields: [{ key: 'electricityCost', label: '电费' }, { key: 'waterGasCost', label: '水费/燃气' }, { key: 'networkEnergyCost', label: '网络及能耗杂费' }] },
         { title: '耗品成本', totalKey: 'consumableCost', fields: [{ key: 'roomConsumableCost', label: '客房一次性用品' }, { key: 'cleaningSuppliesCost', label: '清洁用品' }, { key: 'linenReplacementCost', label: '布草洗涤/补充' }] },
@@ -413,13 +449,13 @@ window.SUXI_SIMULATION_STATIC = (() => {
         { key: 'otherOta', label: '其他OTA', shareKey: 'otherOtaRevenueShare', rateKey: 'otherOtaCommissionRate' },
     ];
     const simulationInvestmentFieldGroups = [
-        { title: '装修工程', totalKey: 'decorationInvestment', fields: [{ key: 'decorationHardCost', label: '硬装工程' }, { key: 'decorationSoftCost', label: '软装改造' }, { key: 'fireSafetyCost', label: '消防/合规' }, { key: 'signageDesignCost', label: '设计与招牌' }] },
+        { title: '预填示例：装修工程', totalKey: 'decorationInvestment', fields: [{ key: 'decorationHardCost', label: '硬装工程' }, { key: 'decorationSoftCost', label: '软装改造' }, { key: 'fireSafetyCost', label: '消防/合规' }, { key: 'signageDesignCost', label: '设计与招牌' }] },
         { title: '家具设备', totalKey: 'furnitureInvestment', fields: [{ key: 'roomFurnitureCost', label: '客房家具' }, { key: 'applianceEquipmentCost', label: '电器设备' }, { key: 'linenSuppliesCost', label: '布草及首批耗材' }, { key: 'techSystemCost', label: 'PMS/网络/门锁' }] },
         { title: '开办筹备', totalKey: 'openingCost', fields: [{ key: 'licensePermitCost', label: '证照办理' }, { key: 'openingMarketingCost', label: '开业营销' }, { key: 'recruitmentTrainingCost', label: '招聘培训' }, { key: 'openingMaterialCost', label: '开业物料' }] },
         { title: '其他及预备', totalKey: 'otherInvestment', fields: [{ key: 'contingencyCost', label: '预备费' }, { key: 'rentDepositCost', label: '押金/保证金' }, { key: 'otherProjectCost', label: '其他项目' }] },
     ];
     const simulationRoomRevenueDefinitions = [
-        { key: 'weekday', label: '平日', daysKey: 'weekdayDays', adrKey: 'weekdayAdr', occupancyKey: 'weekdayOccupancyRate' },
+        { key: 'weekday', label: '预填示例：平日', daysKey: 'weekdayDays', adrKey: 'weekdayAdr', occupancyKey: 'weekdayOccupancyRate' },
         { key: 'weekend', label: '周末', daysKey: 'weekendDays', adrKey: 'weekendAdr', occupancyKey: 'weekendOccupancyRate' },
         { key: 'holiday', label: '节假日', daysKey: 'holidayDays', adrKey: 'holidayAdr', occupancyKey: 'holidayOccupancyRate' },
     ];
@@ -449,22 +485,22 @@ window.SUXI_SIMULATION_STATIC = (() => {
     function simulationRevenueSummaryFromInput(input, result = {}) {
         return {
             totalDays: null,
-            availableRoomNights: result?.availableRoomNights ?? 0,
+            availableRoomNights: result?.availableRoomNights ?? null,
             occupiedRoomNights: result?.occupiedRoomNights ?? null,
-            roomRevenue: result?.roomRevenue ?? 0,
-            otherIncome: input?.otherIncome ?? 0,
-            monthlyRevenue: result?.monthlyRevenue ?? 0,
-            adr: input?.adr ?? 0,
-            occupancyRate: input?.occupancyRate ?? 0,
+            roomRevenue: result?.roomRevenue ?? null,
+            otherIncome: input?.otherIncome ?? null,
+            monthlyRevenue: result?.monthlyRevenue ?? null,
+            adr: input?.adr ?? null,
+            occupancyRate: input?.occupancyRate ?? null,
         };
     }
 
     function simulationCostSummaryFromInput(input, result = {}) {
         return {
             fixedMonthlyCost: null,
-            otaCommissionRate: input?.otaCommissionRate ?? 0,
-            otaCommission: result?.otaCommission ?? 0,
-            monthlyCost: result?.monthlyCost ?? 0,
+            otaCommissionRate: input?.otaCommissionRate ?? null,
+            otaCommission: result?.otaCommission ?? null,
+            monthlyCost: result?.monthlyCost ?? null,
         };
     }
 
@@ -527,12 +563,17 @@ window.SUXI_SIMULATION_STATIC = (() => {
     function simulationModelSourceLabel(analysis) {
         const source = analysis?.source;
         if (source === 'llm') return 'AI\u6a21\u578b';
-        if (source === 'fallback') return '\u672c\u5730\u515c\u5e95';
-        return '\u6a21\u578b\u89e3\u8bfb';
+        if (source === 'fallback') return '\u672c\u5730\u6a21\u62df\u515c\u5e95\uff08\u975eAI\uff0c\u4e0d\u8fdb\u5165\u771f\u5b9e\u51b3\u7b56\uff09';
+        return '\u6765\u6e90\u672a\u6838\u9a8c\uff08\u4e0d\u8fdb\u5165\u771f\u5b9e\u51b3\u7b56\uff09';
     }
 
     function generateRiskHints() {
-        return [];
+        return [{
+            title: '\u6a21\u62df\u6570\u636e\u8fb9\u754c',
+            riskLevel: '\u9700\u590d\u6838',
+            content: '\u672c\u9875\u53c2\u6570\u5c5e\u4e8e\u4eba\u5de5\u8f93\u5165\u4e0e\u672c\u5730\u6a21\u62df\uff0c\u672a\u66ff\u6362\u7684\u9884\u586b\u503c\u662f\u793a\u4f8b\u6570\u636e\uff1b\u6d4b\u7b97\u7ed3\u679c\u4e0d\u81ea\u52a8\u8fdb\u5165\u771f\u5b9e\u6295\u8d44\u51b3\u7b56\uff0c\u9700\u7528\u5df2\u6838\u9a8c\u9152\u5e97\u6570\u636e\u548c\u6765\u6e90\u8bc1\u636e\u590d\u6838\u3002',
+            className: 'bg-amber-50 border-amber-200 text-amber-800',
+        }];
     }
 
     function normalizeTextList(items) {
@@ -920,11 +961,13 @@ window.SUXI_SIMULATION_STATIC = (() => {
         if (!result) return [];
         const profit = result.profit || {};
         const valuation = result.valuation || {};
+        const monthlyNetProfit = profit.monthly_net_profit;
+        const hasMonthlyNetProfit = monthlyNetProfit !== null && monthlyNetProfit !== undefined && monthlyNetProfit !== '' && Number.isFinite(Number(monthlyNetProfit));
         return [
             {
                 label: '当前月净利润',
-                value: formatWan(profit.monthly_net_profit),
-                className: toNumber(profit.monthly_net_profit) >= 0 ? 'text-green-600' : 'text-red-600'
+                value: formatWan(monthlyNetProfit),
+                className: hasMonthlyNetProfit ? (toNumber(monthlyNetProfit) >= 0 ? 'text-green-600' : 'text-red-600') : 'text-gray-500'
             },
             { label: '年净利润', value: formatWan(profit.annual_net_profit) },
             { label: '投资回收周期', value: formatPaybackMonth(profit.payback_months) },
@@ -945,7 +988,12 @@ window.SUXI_SIMULATION_STATIC = (() => {
             { label: '合理估值', value: formatWan(valuation.reasonable_valuation) },
             { label: '乐观估值', value: formatWan(valuation.optimistic_valuation) },
             { label: '业主预期转让价', value: formatWan(valuation.expected_transfer_price) },
-            { label: '估值倍数', value: `${aiRound(valuation.valuation_multiple, 1)}个月` },
+            {
+                label: '估值倍数',
+                value: valuation.valuation_multiple === null || valuation.valuation_multiple === undefined || valuation.valuation_multiple === ''
+                    ? '--'
+                    : `${aiRound(valuation.valuation_multiple, 1)}个月`
+            },
         ];
     }
 
@@ -953,7 +1001,7 @@ window.SUXI_SIMULATION_STATIC = (() => {
         const source = analysis?.source;
         if (source === 'llm') return 'AI模型生成';
         if (source === 'fallback') return '本地兜底（非AI）';
-        return '未生成';
+        return '来源未核验';
     }
 
     function resolveTransferCurrentReadiness({ dashboardResult = null, pricingResult = null, timingResult = null } = {}) {
@@ -995,7 +1043,14 @@ window.SUXI_SIMULATION_STATIC = (() => {
             { label: '月总收入', value: formatCurrency(baseSimulation.monthlyRevenue) },
             { label: '月净现金流', value: formatCurrency(baseSimulation.monthlyNetCashflow) },
             { label: 'RevPAR', value: formatCurrency(baseSimulation.revPAR) },
-            { label: '回本周期', value: baseSimulation.paybackMonths === null ? '不可回本' : `${Math.round(baseSimulation.paybackMonths)}个月` }
+            {
+                label: '回本周期',
+                value: baseSimulation.paybackMonths === null
+                    ? '不可回本'
+                    : (baseSimulation.paybackMonths === undefined || baseSimulation.paybackMonths === '' || !Number.isFinite(Number(baseSimulation.paybackMonths))
+                        ? '--'
+                        : `${Math.round(Number(baseSimulation.paybackMonths))}个月`)
+            }
         ];
     }
 

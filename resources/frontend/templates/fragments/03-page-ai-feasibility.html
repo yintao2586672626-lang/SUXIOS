@@ -4,15 +4,15 @@
                                 <div class="min-w-0">
                                     <div class="feasibility-eyebrow">
                                         <i class="fas fa-file-contract"></i>
-                                        <span>AI筹建决策</span>
+                                        <span>筹建决策辅助</span>
                                     </div>
                                     <h2><span>智策</span><span>·可行性报告</span></h2>
-                                    <p>读取智略与智算结果，生成项目可行性报告。</p>
+                                    <p>根据当前输入、可用本地记录与规则情景测算生成报告；缺少证据的判断保持未评估。</p>
                                 </div>
                                 <div class="feasibility-actions">
                                     <button @click="handleFeasibility" :disabled="aiFeasibilityLoading" class="feasibility-action-primary">
                                         <i :class="aiFeasibilityLoading ? 'fas fa-spinner fa-spin' : 'fas fa-magic'"></i>
-                                        <span>{{ aiFeasibilityLoading ? '生成中...' : (aiFeasibilityResult ? '重新生成' : '生成报告') }}</span>
+                                        <span>{{ aiFeasibilityLoading ? '评估中...' : (aiFeasibilityResult ? '重新评估' : '保存并评估') }}</span>
                                     </button>
                                     <button @click="copyFeasibilityReport" :disabled="!aiFeasibilityResult" class="feasibility-action-secondary">
                                         <i class="fas fa-copy"></i>
@@ -38,9 +38,9 @@
                                 <div class="feasibility-section-head">
                                     <div>
                                         <h3>项目输入</h3>
-                                        <p>位置、规模、租金、装修改造与客群定位</p>
+                                        <p>位置、规模、投资成本及显式填写的预期经营假设</p>
                                     </div>
-                                    <span class="feasibility-count-badge">12项</span>
+                                    <span class="feasibility-count-badge">15项</span>
                                 </div>
                                 <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                                     <label class="feasibility-field xl:col-span-2">
@@ -77,7 +77,19 @@
                                     </label>
                                     <label class="feasibility-field">
                                         <span>转让费(元)</span>
-                                        <input type="number" v-model.number="aiProject.transfer_fee" class="input-field w-full">
+                                        <input type="number" min="0" v-model.number="aiProject.transfer_fee" placeholder="无转让费请填0" class="input-field w-full">
+                                    </label>
+                                    <label class="feasibility-field">
+                                        <span>预期开办费(元)</span>
+                                        <input type="number" min="0" v-model.number="aiProject.opening_cost" placeholder="请显式填写；无费用填0" class="input-field w-full">
+                                    </label>
+                                    <label class="feasibility-field">
+                                        <span>预期ADR(元)</span>
+                                        <input type="number" min="0.01" step="0.01" v-model.number="aiProject.adr" placeholder="不从智算演示值带入" class="input-field w-full">
+                                    </label>
+                                    <label class="feasibility-field">
+                                        <span>预期OCC(%)</span>
+                                        <input type="number" min="0.1" max="100" step="0.1" v-model.number="aiProject.occ" placeholder="例如72；须显式填写" class="input-field w-full">
                                     </label>
                                     <label class="feasibility-field">
                                         <span>租期(年)</span>
@@ -100,6 +112,9 @@
                                     <i class="fas fa-circle-exclamation"></i>
                                     <span>{{ aiFeasibilityError }}</span>
                                 </div>
+                                <p v-if="aiFeasibilityReadiness && aiFeasibilityReadiness.decision_ready !== true" class="mt-3 text-sm text-amber-700">
+                                    当前待评估：核心输入未齐时只保存已填写内容，不生成回本期或结论等级。
+                                </p>
                             </section>
 
                             <section class="feasibility-panel xl:col-span-12">
@@ -114,7 +129,7 @@
                                     <div v-for="record in aiFeasibilityRecords" :key="record.id" class="py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                                         <div>
                                             <div class="font-medium text-gray-900">{{ record.project_name || '可行性报告项目' }}</div>
-                                            <div class="text-xs text-gray-500 mt-1">{{ record.city || '-' }}{{ record.district ? ' · ' + record.district : '' }} · {{ record.conclusion_grade || '-' }}级 · {{ record.created_at || '-' }}</div>
+                                            <div class="text-xs text-gray-500 mt-1">{{ record.city || '-' }}{{ record.district ? ' · ' + record.district : '' }} · {{ record.decision_ready === true && record.conclusion_grade ? record.conclusion_grade + '级' : '待评估' }} · {{ record.created_at || '-' }}</div>
                                         </div>
                                         <div class="flex items-center gap-2">
                                             <span v-if="record.feasibility_readiness" :class="['px-2 py-1 rounded text-xs border', feasibilityReadinessBadgeClass(record.feasibility_readiness.stage)]">{{ record.feasibility_readiness.status_label }}</span>
@@ -134,7 +149,7 @@
                             <section class="feasibility-ai-result xl:col-span-12">
                                 <div class="feasibility-ai-result-head">
                                     <div>
-                                        <span>AI赋能结果</span>
+                                        <span>模型或规则结果</span>
                                         <h3>{{ feasibilityAiEmpowerment.headline }}</h3>
                                         <p>{{ feasibilityAiEmpowerment.conclusion }}</p>
                                     </div>
@@ -169,7 +184,7 @@
                                             <span>项目结论</span>
                                             <strong>{{ aiFeasibilityResult.conclusion_text }}</strong>
                                         </div>
-                                        <div :class="['feasibility-grade-large', feasibilityDecisionClass]">{{ aiFeasibilityResult.conclusion_grade || '-' }}</div>
+                                        <div :class="['feasibility-grade-large', feasibilityDecisionClass]">{{ aiFeasibilityResult.decision_ready === true && aiFeasibilityResult.conclusion_grade ? aiFeasibilityResult.conclusion_grade : '待评估' }}</div>
                                     </div>
                                     <p>{{ aiFeasibilityResult.core_reason }}</p>
                                 </section>
@@ -190,7 +205,7 @@
                                                 <option value="">选择跟踪酒店</option>
                                                 <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
                                             </select>
-                                            <button @click="createFeasibilityExecutionIntent" :disabled="aiFeasibilityExecutionLoading || !aiFeasibilityRecordId || feasibilityExecutionLinked" class="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap">
+                                            <button @click="createFeasibilityExecutionIntent" :disabled="aiFeasibilityExecutionLoading || !aiFeasibilityRecordId || feasibilityExecutionLinked || aiFeasibilityReadiness.decision_ready !== true" class="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap">
                                                 <i :class="aiFeasibilityExecutionLoading ? 'fas fa-spinner fa-spin' : 'fas fa-tasks'" class="mr-1"></i>{{ feasibilityExecutionLinked ? '已转跟踪' : '转投后跟踪' }}
                                             </button>
                                         </div>
@@ -220,7 +235,7 @@
                                         <div><span>位置</span><strong>{{ aiFeasibilityResult.summary.location }}</strong></div>
                                         <div><span>房量</span><strong>{{ aiFeasibilityResult.summary.room_count }}间</strong></div>
                                         <div><span>总投资</span><strong>{{ formatMoney(aiFeasibilityResult.summary.total_investment) }}</strong></div>
-                                        <div><span>回本周期</span><strong>{{ aiFeasibilityResult.summary.payback_months === null || aiFeasibilityResult.summary.payback_months === undefined ? '不可回本' : aiFeasibilityResult.summary.payback_months + '个月' }}</strong></div>
+                                        <div><span>回本周期</span><strong>{{ aiFeasibilityResult.decision_ready !== true ? '待评估' : (aiFeasibilityResult.summary.payback_months === null || aiFeasibilityResult.summary.payback_months === undefined ? '当前情景无可计算回本期' : aiFeasibilityResult.summary.payback_months + '个月') }}</strong></div>
                                     </div>
                                 </section>
 
@@ -244,14 +259,14 @@
                                 <div id="feasibility-report-print" class="feasibility-report">
                                     <header class="feasibility-report-header">
                                         <div>
-                                            <span>宿析OS AI筹建决策模型</span>
+                                            <span>宿析OS筹建决策模型或规则</span>
                                             <h1>{{ aiFeasibilityResult.summary.project_name }}可行性报告</h1>
                                         </div>
-                                        <div :class="['feasibility-grade-badge strong', feasibilityDecisionClass]">{{ aiFeasibilityResult.conclusion_grade || '-' }}</div>
+                                        <div :class="['feasibility-grade-badge strong', feasibilityDecisionClass]">{{ aiFeasibilityResult.decision_ready === true && aiFeasibilityResult.conclusion_grade ? aiFeasibilityResult.conclusion_grade : '待评估' }}</div>
                                     </header>
 
                                     <section class="feasibility-report-section">
-                                        <h3>AI赋能结果</h3>
+                                        <h3>模型或规则结果</h3>
                                         <div class="feasibility-ai-print-brief">
                                             <div><span>生成状态</span><strong>{{ feasibilityAiEmpowerment.sourceLabel }}</strong></div>
                                             <div><span>核心结论</span><strong>{{ feasibilityAiEmpowerment.headline }}</strong></div>
@@ -262,7 +277,7 @@
                                     <section class="feasibility-report-section">
                                         <h3>1. 项目摘要</h3>
                                         <div class="feasibility-report-callout">
-                                            <p>【项目结论】{{ aiFeasibilityResult.conclusion_grade }}级｜{{ aiFeasibilityResult.conclusion_text }}</p>
+                                            <p>【项目结论】{{ aiFeasibilityResult.decision_ready === true && aiFeasibilityResult.conclusion_grade ? aiFeasibilityResult.conclusion_grade + '级' : '待评估' }}｜{{ aiFeasibilityResult.conclusion_text }}</p>
                                             <p>【核心理由】{{ aiFeasibilityResult.core_reason }}</p>
                                         </div>
                                     </section>
@@ -282,19 +297,19 @@
                                         <div class="feasibility-market-grid">
                                             <div>
                                                 <span>市场评分</span>
-                                                <strong>{{ aiFeasibilityResult.market_judgement.market_score }}</strong>
+                                                <strong>{{ aiFeasibilityResult.market_judgement.market_score === null || aiFeasibilityResult.market_judgement.market_score === undefined ? '未评估' : aiFeasibilityResult.market_judgement.market_score }}</strong>
                                             </div>
                                             <div>
                                                 <span>竞争强度</span>
                                                 <strong>{{ aiFeasibilityResult.market_judgement.competition_level }}</strong>
                                             </div>
                                             <div>
-                                                <span>推荐模型</span>
-                                                <strong>{{ aiFeasibilityResult.market_judgement.recommended_model }}</strong>
+                                                <span>输入定位</span>
+                                                <strong>{{ aiFeasibilityResult.market_judgement.recommended_model || '未填写' }}</strong>
                                             </div>
                                             <div>
-                                                <span>目标客源</span>
-                                                <strong>{{ aiFeasibilityResult.market_judgement.target_customer }}</strong>
+                                                <span>输入客群</span>
+                                                <strong>{{ aiFeasibilityResult.market_judgement.target_customer || '未填写' }}</strong>
                                             </div>
                                         </div>
                                         <p class="feasibility-section-note">{{ aiFeasibilityResult.market_judgement.reasoning }}</p>
@@ -313,7 +328,7 @@
                                                         <th class="text-right">月净现金流</th>
                                                         <th class="text-right">回本周期</th>
                                                         <th class="text-right">租金占比</th>
-                                                        <th class="text-right">风险等级</th>
+                                                        <th class="text-right">财务规则风险</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
@@ -323,7 +338,7 @@
                                                         <td class="text-right">{{ formatPercent(row.occ) }}</td>
                                                         <td class="text-right">{{ formatCurrency(row.monthly_revenue) }}</td>
                                                         <td class="text-right">{{ formatCurrency(row.monthly_net_cashflow) }}</td>
-                                                        <td class="text-right">{{ row.payback_months === null ? '不可回本' : row.payback_months + '个月' }}</td>
+                                                        <td class="text-right">{{ row.calculation_status === 'pending_input' ? '待评估' : (row.payback_months === null || row.payback_months === undefined ? '当前情景无可计算回本期' : row.payback_months + '个月') }}</td>
                                                         <td class="text-right">{{ formatPercent(row.rent_ratio) }}</td>
                                                         <td class="text-right"><span :class="['feasibility-risk-pill', riskBadgeClass(row.risk_level)]">{{ row.risk_level }}</span></td>
                                                     </tr>
@@ -337,7 +352,7 @@
                                         <div class="feasibility-risk-list">
                                             <div v-for="risk in aiFeasibilityResult.risk_list" :key="risk.risk">
                                                 <div>
-                                                    <span :class="['feasibility-risk-pill', riskBadgeClass(risk.level)]">{{ risk.level }}风险</span>
+                                                    <span :class="['feasibility-risk-pill', riskBadgeClass(risk.level)]">{{ risk.level === '待核验' ? '待核验' : risk.level + '风险' }}</span>
                                                     <strong>{{ risk.risk }}</strong>
                                                 </div>
                                                 <p>{{ risk.reason }}</p>
@@ -356,7 +371,7 @@
                                                 </ul>
                                             </div>
                                             <div>
-                                                <strong>数据证据</strong>
+                                                <strong>证据与来源边界</strong>
                                                 <p v-for="item in aiFeasibilityResult.evidence" :key="item.title">
                                                     <span>{{ item.source }}</span> · {{ item.title }}：{{ item.summary }}
                                                 </p>

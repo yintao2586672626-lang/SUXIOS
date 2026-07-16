@@ -9,7 +9,7 @@
                                     <option value="">选择开业项目</option>
                                     <option v-for="project in openingProjects" :key="project.id" :value="project.id">{{ project.project_name }} · {{ project.hotel_name }}</option>
                                 </select>
-                                <button @click="generateOpeningTasks" :disabled="!selectedOpeningProjectId || openingLoading" class="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50"><i class="fas fa-magic mr-1"></i>AI生成清单</button>
+                                <button @click="generateOpeningTasks" :disabled="!selectedOpeningProjectId || openingLoading" class="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50"><i class="fas fa-magic mr-1"></i>生成标准清单</button>
                             </div>
                         </div>
 
@@ -61,8 +61,8 @@
                         <div v-if="selectedOpeningProjectId" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
                             <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4">
                                 <div>
-                                    <div class="font-medium text-gray-900">AI输出结果</div>
-                                    <div class="text-xs text-gray-500 mt-1">直接展示AI生成清单与开业总览返回的建议结果</div>
+                                    <div class="font-medium text-gray-900">清单与建议结果</div>
+                                    <div class="text-xs text-gray-500 mt-1">展示标准清单、规则建议与开业总览返回结果</div>
                                 </div>
                                 <span :class="openingAiOutputResult.badgeClass" class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium">
                                     <i class="fas fa-robot mr-1"></i>{{ openingAiOutputResult.badgeText }}
@@ -80,17 +80,17 @@
                             </div>
                             <div class="grid grid-cols-1 xl:grid-cols-2 gap-5 mt-5 pt-4 border-t border-gray-100">
                                 <div>
-                                    <div class="text-sm font-semibold text-gray-900 mb-3">总览AI输出</div>
+                                    <div class="text-sm font-semibold text-gray-900 mb-3">总览建议</div>
                                     <div v-if="openingAiOutputResult.overviewOutputs.length" class="space-y-2">
                                         <div v-for="item in openingAiOutputResult.overviewOutputs" :key="item" class="flex gap-2 text-sm text-gray-700 leading-relaxed">
                                             <i class="fas fa-check-circle text-blue-500 mt-0.5"></i>
                                             <span>{{ item }}</span>
                                         </div>
                                     </div>
-                                    <div v-else="" class="text-sm text-gray-400">暂无总览AI输出，请先生成清单或刷新开业总览</div>
+                                    <div v-else="" class="text-sm text-gray-400">暂无总览建议，请先生成清单或刷新开业总览</div>
                                 </div>
                                 <div>
-                                    <div class="text-sm font-semibold text-gray-900 mb-3">检查项AI输出</div>
+                                    <div class="text-sm font-semibold text-gray-900 mb-3">检查项建议</div>
                                     <div v-if="openingAiOutputResult.taskOutputs.length" class="space-y-2">
                                         <div v-for="task in openingAiOutputResult.taskOutputs" :key="task.id" class="border-b border-gray-50 pb-2 last:border-b-0 last:pb-0">
                                             <div class="flex items-start justify-between gap-3">
@@ -103,7 +103,7 @@
                                             <div class="text-sm text-gray-700 leading-relaxed mt-2">{{ task.suggestion }}</div>
                                         </div>
                                     </div>
-                                    <div v-else="" class="text-sm text-gray-400">暂无检查项AI输出</div>
+                                    <div v-else="" class="text-sm text-gray-400">暂无检查项建议</div>
                                 </div>
                             </div>
                         </div>
@@ -189,7 +189,7 @@
                                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">状态</th>
                                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">进度保存</th>
                                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">风险</th>
-                                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">AI建议 / 验收标准</th>
+                                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500">规则建议 / 验收标准</th>
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-gray-50">
@@ -239,7 +239,7 @@
                                             </td>
                                             <td class="px-4 py-4"><span :class="openingRiskClass(task.risk_level)" class="px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap">{{ openingRiskText(task.risk_level) }}</span></td>
                                             <td class="px-4 py-4 min-w-[320px]">
-                                                <div class="text-xs text-gray-500 mb-1">AI建议</div>
+                                                <div class="text-xs text-gray-500 mb-1">规则建议</div>
                                                 <div class="text-sm text-gray-700 leading-relaxed">{{ task.ai_suggestion || '-' }}</div>
                                                 <div class="text-xs text-gray-500 mt-3 mb-1">验收标准</div>
                                                 <div class="text-sm text-gray-700 leading-relaxed">{{ task.acceptance_standard || '-' }}</div>
@@ -264,4 +264,4 @@
                         </div>
                     </div>
 
-                    <!-- 运营管理：策源·全维数据 -->
+                    <!-- 运营管理：策源·多源数据核对 -->

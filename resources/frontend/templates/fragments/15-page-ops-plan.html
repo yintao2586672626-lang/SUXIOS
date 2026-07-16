@@ -43,14 +43,14 @@
                                 </div>
                             </div>
                             <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm xl:col-span-2">
-                                <h3 class="font-bold text-gray-900 mb-4">模拟结果</h3>
+                                <h3 class="font-bold text-gray-900 mb-4">规则情景结果</h3>
                                 <div v-if="operationLoading.strategy" class="p-8 text-center text-gray-500">正在模拟策略...</div>
                                 <div v-if="operationError.strategy" class="bg-red-50 border border-red-100 text-red-600 rounded-xl p-4 text-sm mb-4">{{ operationError.strategy }}</div>
                                 <template v-if="operationStrategyResult">
-                                    <div class="mb-4 rounded-lg bg-amber-50 text-amber-700 p-3 text-sm">规则模拟结果，仅供运营参考，不代表真实预测。</div>
+                                    <div class="mb-4 rounded-lg bg-amber-50 text-amber-700 p-3 text-sm">固定规则系数生成的情景结果，仅供运营排查，不是经营预测；风险未命中明确规则时显示“待评估”。</div>
                                     <div class="flex items-center justify-between mb-4">
                                         <div class="text-xl font-bold text-gray-900">{{ operationStrategyResult.strategy_name || '策略模拟' }}</div>
-                                        <span class="px-2 py-1 rounded-full bg-green-50 text-green-600 text-xs">模拟结果</span>
+                                        <span class="px-2 py-1 rounded-full bg-amber-50 text-amber-700 text-xs">规则情景</span>
                                     </div>
                                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                                         <div class="rounded-lg bg-gray-50 p-3">
@@ -58,8 +58,8 @@
                                             <div v-for="row in operationMetricRows(operationStrategyResult.baseline)" :key="row.label" class="flex justify-between text-sm py-1"><span>{{ row.label }}</span><b>{{ row.value }}</b></div>
                                         </div>
                                         <div class="rounded-lg bg-gray-50 p-3">
-                                            <div class="text-xs text-gray-500 mb-2">预估</div>
-                                            <div v-for="row in operationMetricRows(operationStrategyResult.forecast)" :key="row.label" class="flex justify-between text-sm py-1"><span>{{ row.label }}</span><b>{{ row.value }}</b></div>
+                                            <div class="text-xs text-gray-500 mb-2">规则情景（非预测）</div>
+                                            <div v-for="row in operationMetricRows(operationStrategyResult.rule_scenario || operationStrategyResult.forecast)" :key="row.label" class="flex justify-between text-sm py-1"><span>{{ row.label }}</span><b>{{ row.value }}</b></div>
                                         </div>
                                         <div class="rounded-lg bg-gray-50 p-3">
                                             <div class="text-xs text-gray-500 mb-2">影响</div>
@@ -68,7 +68,7 @@
                                     </div>
                                     <div class="rounded-lg border border-gray-100 p-4">
                                         <div class="font-semibold text-gray-900 mb-2">风险：{{ operationRiskLevelLabel(operationStrategyResult.risk?.level) }}</div>
-                                        <div class="text-sm text-gray-600">{{ operationStrategyResult.risk?.message || '暂无风险说明' }}</div>
+                                        <div class="text-sm text-gray-600">{{ operationStrategyResult.risk?.message || '风险证据未返回，待人工评估' }}</div>
                                         <div class="text-sm text-blue-600 mt-3">建议：{{ operationStrategyResult.recommendation || '暂无建议' }}</div>
                                         <div class="text-xs text-gray-400 mt-3">{{ operationStrategyResult.disclaimer || '该结果基于历史数据和规则估算，仅用于运营参考。' }}</div>
                                     </div>

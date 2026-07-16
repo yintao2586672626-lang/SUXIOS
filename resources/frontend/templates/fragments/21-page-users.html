@@ -1,6 +1,6 @@
-                    <div v-if="currentPage === 'users'">
+                    <div v-if="currentPage === 'users'" class="user-management-page">
                         <!-- 用户统计卡片 -->
-                        <div class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
+                        <div class="user-summary-grid grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
                             <button type="button" @click="applyUserSummaryFilter('total')" :class="userSummaryCardClass('total')">
                                 <div class="flex items-center justify-between">
                                     <div>
@@ -91,29 +91,29 @@
                         </div>
 
                         <!-- 员工列表工具栏 -->
-                        <div class="sticky top-2 z-20 bg-white rounded-xl p-4 shadow-sm border border-gray-100 mb-4">
+                        <div class="user-management-toolbar sticky top-2 z-20 bg-white rounded-xl p-4 shadow-sm border border-gray-100 mb-4">
                             <div class="flex flex-wrap gap-3 items-center">
-                                <div class="flex-1 min-w-[200px]">
+                                <div class="users-search flex-1 min-w-[200px]">
                                     <input v-model="searchUser" type="text" placeholder="搜索用户名或姓名..." class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                                 </div>
-                                <select v-model="filterUserRoleId" class="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <select v-model="filterUserRoleId" class="users-filter px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                                     <option value="">全部角色</option>
                                     <option v-for="r in roles" :key="r.id" :value="r.id">{{ r.display_name }}</option>
                                 </select>
-                                <select v-model="filterUserStatus" class="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <select v-model="filterUserStatus" class="users-filter px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                                     <option value="">全部状态</option>
                                     <option value="1">正常</option>
                                     <option value="0">待审核/暂停</option>
                                 </select>
-                                <select v-model="filterUserHotelId" class="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <select v-model="filterUserHotelId" class="users-filter px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                                     <option value="">全部门店范围</option>
                                     <option value="unassigned">未分配门店</option>
                                     <option v-for="h in hotels" :key="h.id" :value="String(h.id)">{{ hotelSelectOptionText(h) }}</option>
                                 </select>
-                                <button v-if="searchUser || filterUserRoleId || filterUserStatus || filterUserHotelId" @click="resetUserFilters" class="text-sm text-blue-500 hover:text-blue-700 px-3 py-2">
+                                <button v-if="searchUser || filterUserRoleId || filterUserStatus || filterUserHotelId" @click="resetUserFilters" class="users-filter-reset text-sm text-blue-500 hover:text-blue-700 px-3 py-2">
                                     重置筛选
                                 </button>
-                                <button v-if="user?.is_super_admin" @click="openUserModal()" class="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white px-5 py-2 rounded-lg text-sm font-medium transition-all shadow-md hover:shadow-lg flex items-center gap-2 ml-auto">
+                                <button v-if="user?.is_super_admin" @click="openUserModal()" class="users-primary-action bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white px-5 py-2 rounded-lg text-sm font-medium transition-all shadow-md hover:shadow-lg flex items-center gap-2 ml-auto">
                                     <i class="fas fa-plus"></i> 添加用户
                                 </button>
                             </div>
@@ -238,7 +238,7 @@
                                                         <i class="fas fa-copy text-xs"></i>
                                                         <span>复制账号</span>
                                                     </button>
-                                                    <button v-if="u &amp;&amp; isExternalIssueUser(u) &amp;&amp; (user?.is_super_admin)" @click="openUserLoginInfoModal(u)" :title="existingUserIssueGuideBlocker(u) || '将密码重置为666666并复制登录地址、用户名和密码'" :class="existingUserIssueGuideBlocker(u) ? 'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors text-xs font-medium' : 'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors text-xs font-medium'">
+                                                    <button v-if="u &amp;&amp; isExternalIssueUser(u) &amp;&amp; (user?.is_super_admin)" @click="openUserLoginInfoModal(u)" :title="existingUserIssueGuideBlocker(u) || '生成随机临时密码并复制登录地址、用户名和密码'" :class="existingUserIssueGuideBlocker(u) ? 'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors text-xs font-medium' : 'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors text-xs font-medium'">
                                                         <i class="fas fa-key text-xs"></i>
                                                         <span>重置密码</span>
                                                     </button>

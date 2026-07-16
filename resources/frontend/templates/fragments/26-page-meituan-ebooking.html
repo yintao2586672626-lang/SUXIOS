@@ -145,17 +145,6 @@
                                                         </span>
                                                     </div>
                                                 </div>
-                                                <details v-if="user?.is_super_admin" data-testid="meituan-ranking-advanced-tools" class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600">
-                                                    <summary class="cursor-pointer select-none font-medium text-gray-700">高级排障</summary>
-                                                    <div class="mt-2 flex flex-wrap gap-2 border-t border-gray-100 pt-2">
-                                                        <button @click="showRawData = !showRawData" class="px-3 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 text-sm">
-                                                            <i :class="showRawData ? 'fas fa-chevron-up' : 'fas fa-chevron-down'" class="mr-1"></i>{{ showRawData ? '收起原始结果' : '查看原始结果' }}
-                                                        </button>
-                                                        <button @click="copyToClipboard(JSON.stringify(onlineDataResult, null, 2))" class="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm">
-                                                            <i class="fas fa-copy mr-1"></i>复制排障数据
-                                                        </button>
-                                                    </div>
-                                                </details>
                                             </div>
                                             <div v-if="onlineDataResult &amp;&amp; onlineDataResult.length &gt; 0" class="text-sm">
                                                 <div v-for="(result, idx) in onlineDataResult" :key="idx" class="mb-1 p-2 bg-white rounded border-l-4" :class="result.error ? 'border-red-400 bg-red-50' : (result.savedCount ? 'border-green-400 bg-green-50' : 'border-yellow-400 bg-yellow-50')">
@@ -182,13 +171,6 @@
                                                     <span v-if="result.rankDataComplete" class="ml-2 text-xs text-blue-600">· {{ result.rankDataMode === 'self_only' ? '本次同行数值未返回，显示 -' : (result.rankDataMode === 'derived' ? '平台原值缺失，已按本店真实值和平台百分比计算' : `${result.dateRangeName}第 ${result.attemptCount} 轮原始字段完整`) }}</span>
                                                 </div>
                                             </div>
-                                        </div>
-                                    </div>
-
-                                    <!-- 原始JSON数据 -->
-                                    <div v-if="user?.is_super_admin &amp;&amp; onlineDataResult &amp;&amp; showRawData" class="mt-4">
-                                        <div class="bg-gray-900 text-green-400 p-4 rounded-lg overflow-auto max-h-96">
-                                            <pre class="text-sm font-mono whitespace-pre-wrap">{{ JSON.stringify(onlineDataResult, null, 2) }}</pre>
                                         </div>
                                     </div>
 
@@ -316,7 +298,7 @@
                                                         <div class="mt-1 text-[11px] text-slate-500">{{ hotel.circlePositionText || '-' }}</div>
                                                     </div>
                                                     <div class="flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] leading-4">
-                                                        <span :class="['rounded-full border px-1.5 py-0.5 text-[10px] leading-4', hotel.rankTrendClass || 'border-slate-200 bg-slate-50 text-slate-500']">{{ hotel.rankTrendText || '暂无变化' }}</span>
+                                                        <span :class="['rounded-full border px-1.5 py-0.5 text-[10px] leading-4', hotel.rankTrendClass || 'border-slate-200 bg-slate-50 text-slate-500']">{{ hotel.rankTrendText || '排名变化未返回' }}</span>
                                                         <span class="rounded-md bg-slate-50 px-2 py-1 text-slate-600">{{ hotel.gapToPrevText || '距前一名未返回' }}</span>
                                                         <span class="rounded-md bg-cyan-50 px-2 py-1 text-cyan-700">{{ hotel.gapToLeaderText || '距TOP1未返回' }}</span>
                                                         <span class="rounded-md bg-amber-50 px-2 py-1 text-amber-700">{{ hotel.rank30RangeText || '近30天未返回' }}</span>
@@ -359,7 +341,7 @@
                                                             <tr v-for="row in meituanTopSummaryRows" :key="row.poiId || row.hotelName" class="border-t border-slate-100">
                                                                 <td class="px-3 py-2 font-semibold text-slate-900" :title="row.hotelName">{{ row.hotelName || '-' }}</td>
                                                                 <td class="px-3 py-2 text-center text-blue-600 whitespace-nowrap">{{ row.positionText || '-' }}</td>
-                                                                <td class="px-3 py-2 text-slate-600">{{ row.gapToNextText || row.rankTrendText || '暂无差距' }}</td>
+                                                                <td class="px-3 py-2 text-slate-600">{{ row.gapToNextText || row.rankTrendText || '差距未返回' }}</td>
                                                                 <td class="px-3 py-2 text-orange-700">{{ row.platformTagText &amp;&amp; row.platformTagText !== '未返回' ? row.platformTagText : '平台未返回' }}</td>
                                                             </tr>
                                                         </tbody>
@@ -421,7 +403,7 @@
                                         </div>
                                         <div v-if="meituanForm.hotelId &amp;&amp; selectedMeituanHotelConfig" :class="['mt-4 flex items-start gap-2 rounded-xl border px-3 py-2.5 text-sm', selectedMeituanManualCredentialState.canFetch ? 'border-green-200 bg-green-50 text-green-800' : 'border-yellow-200 bg-yellow-50 text-yellow-800']">
                                             <i :class="selectedMeituanManualCredentialState.canFetch ? 'fas fa-check-circle mt-0.5 text-green-600' : 'fas fa-exclamation-circle mt-0.5 text-yellow-600'"></i>
-                                            <span>{{ selectedMeituanManualCredentialState.canFetch ? '美团授权配置已就绪，可获取真实订单流向。' : selectedMeituanManualCredentialState.detail }}</span>
+                                            <span>{{ selectedMeituanManualCredentialState.canFetch ? '美团授权配置已就绪，可尝试获取平台返回的订单流向；是否有效以本次响应和入库结果为准。' : selectedMeituanManualCredentialState.detail }}</span>
                                         </div>
                                     </div>
 
@@ -483,7 +465,7 @@
                                     <div v-else="" class="rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-16 text-center shadow-sm">
                                         <span class="mx-auto mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-gray-100 text-xl text-gray-400"><i class="fas fa-route"></i></span>
                                         <div class="font-semibold text-gray-800">当前期间暂无已保存的订单流向</div>
-                                        <p class="mx-auto mt-2 max-w-lg text-sm leading-6 text-gray-500">选择酒店和时间范围后点击“获取并保存”，系统会读取并展示美团真实的流失与流入结果。</p>
+                                        <p class="mx-auto mt-2 max-w-lg text-sm leading-6 text-gray-500">选择酒店和时间范围后点击“获取并保存”，系统会尝试读取平台结果；仅在接口返回并成功保存后展示对应流失与流入数据。</p>
                                     </div>
                                 </div>
 
@@ -681,8 +663,14 @@
                                                 <i class="fas fa-external-link-alt mr-2"></i>打开订单页
                                             </button>
                                         </div>
-                                        <div v-if="meituanOrderResult" class="mt-4 bg-blue-50 border border-blue-200 rounded p-3 text-sm text-blue-800">
-                                            已保存 {{ meituanOrderResult.saved_count || 0 }} 条，解析 {{ meituanOrderResult.row_count || 0 }} 条。
+                                        <div v-if="meituanOrderResult" :class="['mt-4 border rounded p-3 text-sm', otaFetchResultView(meituanOrderResult).panelClass, otaFetchResultView(meituanOrderResult).textClass]">
+                                            <div class="flex items-start gap-2">
+                                                <i :class="[otaFetchResultView(meituanOrderResult).iconClass, 'mt-0.5']"></i>
+                                                <div>
+                                                    <div class="font-medium">{{ otaFetchResultView(meituanOrderResult).title }}</div>
+                                                    <div class="mt-1">{{ otaFetchResultView(meituanOrderResult).detail }}</div>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -776,8 +764,14 @@
                                                 <i class="fas fa-external-link-alt mr-2"></i>打开推广通
                                             </button>
                                         </div>
-                                        <div v-if="meituanAdsResult" class="mt-4 bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800">
-                                            已保存 {{ meituanAdsResult.saved_count || 0 }} 条，解析 {{ meituanAdsResult.row_count || 0 }} 条。
+                                        <div v-if="meituanAdsResult" :class="['mt-4 border rounded p-3 text-sm', otaFetchResultView(meituanAdsResult).panelClass, otaFetchResultView(meituanAdsResult).textClass]">
+                                            <div class="flex items-start gap-2">
+                                                <i :class="[otaFetchResultView(meituanAdsResult).iconClass, 'mt-0.5']"></i>
+                                                <div>
+                                                    <div class="font-medium">{{ otaFetchResultView(meituanAdsResult).title }}</div>
+                                                    <div class="mt-1">{{ otaFetchResultView(meituanAdsResult).detail }}</div>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -1073,20 +1067,20 @@
 
 
 
-                                    <!-- AI智能分析模块 - 弹窗 -->
+                                    <!-- 未验证竞对数据预览 - 弹窗 -->
                                     <div v-if="showMeituanAIAnalysis" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
                                         <div class="bg-white rounded-lg shadow-xl w-full max-w-7xl max-h-[90vh] overflow-y-auto">
                                             <div class="bg-gradient-to-r from-yellow-500 to-orange-500 text-white p-6 rounded-t-lg flex items-center justify-between">
                                                 <div class="flex items-center">
                                                     <i class="fas fa-robot text-2xl mr-3"></i>
-                                                    <div class="text-xl font-bold">AI智能分析报告</div>
+                                                    <div class="text-xl font-bold">竞对数据预览</div>
                                                 </div>
                                                 <button @click="showMeituanAIAnalysis = false" class="text-white hover:text-gray-200">
                                                     <i class="fas fa-times text-xl"></i>
                                                 </button>
                                             </div>
                                             <div class="p-6">
-                                                <div class="text-sm text-gray-600 mb-6">基于美团ebooking数据进行智能分析，提供经营建议和优化方向</div>
+                                                <div class="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800">仅预览美团页面当前展示的竞对数据；数值未经过后端来源、门店和日期口径校验，不生成本店经营、定价或运营建议。</div>
 
                                         <!-- 酒店选择区域 -->
                                         <div class="bg-white border rounded-lg p-4 mb-6">
@@ -1126,7 +1120,7 @@
                                             <div class="flex gap-3 mt-4">
                                                 <button @click="startMeituanAiAnalysis" :disabled="meituanAiAnalyzing || meituanAiSelectedHotels.length === 0" class="px-6 py-2 bg-gradient-to-r from-yellow-500 to-orange-500 text-white rounded-lg hover:from-yellow-600 hover:to-orange-600 disabled:from-gray-400 disabled:to-gray-400">
                                                     <i class="fas fa-brain mr-2"></i>
-                                                    {{ meituanAiAnalyzing ? 'AI分析中...' : '开始AI分析' }}
+                                                    {{ meituanAiAnalyzing ? '生成预览中...' : '生成未验证预览' }}
                                                 </button>
                                                 <span v-if="meituanAiSelectedHotels.length &gt; 0" class="text-sm text-gray-500 self-center">
                                                     已选择 {{ meituanAiSelectedHotels.length }} 家酒店
@@ -1134,13 +1128,13 @@
                                             </div>
                                         </div>
 
-                                        <!-- AI分析结果区域 -->
+                                        <!-- 竞对预览结果区域 -->
                                         <div v-if="meituanAiAnalysisResult" class="mb-6">
                                             <div class="bg-white border rounded-lg overflow-hidden">
                                                 <div class="bg-gradient-to-r from-yellow-500 to-orange-500 text-white px-4 py-3 flex items-center justify-between">
                                                     <div class="flex items-center">
                                                         <i class="fas fa-chart-line mr-2"></i>
-                                                        <span class="font-medium">AI分析报告</span>
+                                                        <span class="font-medium">未验证竞对数据预览</span>
                                                     </div>
                                                     <button @click="copyMeituanAiAnalysisResult" class="text-sm bg-white/20 px-3 py-1 rounded hover:bg-white/30">
                                                         <i class="fas fa-copy mr-1"></i>复制报告
@@ -1150,12 +1144,12 @@
                                             </div>
                                         </div>
 
-                                        <!-- 分析历史记录 -->
+                                        <!-- 预览历史记录 -->
                                         <div class="bg-white border rounded-lg">
                                             <div class="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
                                                 <div class="flex items-center">
                                                     <i class="fas fa-history text-gray-500 mr-2"></i>
-                                                    <span class="font-medium text-gray-700">分析历史</span>
+                                                    <span class="font-medium text-gray-700">预览历史</span>
                                                 </div>
                                                 <span class="text-sm text-gray-500">共 {{ meituanAiAnalysisHistory.length }} 条记录</span>
                                             </div>
@@ -1331,11 +1325,11 @@
                                                                 <span>{{ config.poi_id }}</span>
                                                             </div>
                                                             <div v-if="config.hotel_room_count" class="flex items-center text-gray-400">
-                                                                <span class="w-24">酒店房量:</span>
+                                                                <span class="w-24">酒店房量（人工维护）:</span>
                                                                 <span>{{ config.hotel_room_count }}</span>
                                                             </div>
                                                             <div v-if="config.competitor_room_count" class="flex items-center text-gray-400">
-                                                                <span class="w-24">竞争圈总房量:</span>
+                                                                <span class="w-24">竞争圈总房量（人工维护）:</span>
                                                                 <span>{{ config.competitor_room_count }}</span>
                                                             </div>
                                                             <div class="flex items-center text-gray-400">
@@ -1343,7 +1337,7 @@
                                                                 <span>{{ config.update_time || config.created_at }}</span>
                                                             </div>
                                                             <div v-if="Number(config.history_count || 0) &gt; 0" class="text-amber-600">
-                                                                已折叠 {{ config.history_count }} 条历史配置；{{ config.configuration_verified === true ? 'Profile 验证成功' : '凭据已保存，可直接获取' }}
+                                                                已折叠 {{ config.history_count }} 条历史配置；{{ config.configuration_verified === true ? 'Profile 验证成功' : '凭据已保存，仍待授权与门店验证' }}
                                                             </div>
                                                         </div>
                                                     </div>

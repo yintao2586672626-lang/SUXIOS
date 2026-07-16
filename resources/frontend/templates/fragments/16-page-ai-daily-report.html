@@ -4,14 +4,14 @@
                                 <div>
                                     <div class="text-xs font-semibold text-blue-200 uppercase tracking-wide">AI Daily Operations</div>
                                     <h2 class="text-2xl font-bold mt-2">AI经营日报</h2>
-                                    <p class="text-sm text-slate-300 mt-2 max-w-3xl">把昨日结果、异常指标、竞对变化、数据缺口和3条建议动作集中管理，并推进到执行单和ROI复盘。</p>
+                                    <p class="text-sm text-slate-300 mt-2 max-w-3xl">集中展示昨日结果、今日值得关注的变化、竞对变化和数据缺口；仅呈现已有证据，不放大未知影响。</p>
                                 </div>
                                 <div class="flex flex-wrap items-center gap-2">
                                     <button @click="loadAiDailyReport" :disabled="operationLoading.aiDailyReport" class="px-3 py-2 rounded-lg border border-white/15 bg-white/10 text-sm text-white hover:bg-white/15 disabled:opacity-60">
                                         <i class="fas fa-sync-alt mr-2" :class="{ 'fa-spin': operationLoading.aiDailyReport }"></i>刷新
                                     </button>
                                     <button @click="currentPage = 'ops-track'; loadOperationActions()" class="px-3 py-2 rounded-lg bg-white text-sm text-slate-900 hover:bg-slate-100">
-                                        <i class="fas fa-play-circle mr-2"></i>执行闭环
+                                        <i class="fas fa-play-circle mr-2"></i>查看跟进
                                     </button>
                                 </div>
                             </div>
@@ -77,7 +77,7 @@
                         <div class="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
                             <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4 mb-4">
                                 <div>
-                                    <h3 class="font-bold text-gray-900">生成与查看</h3>
+                                    <h3 class="font-bold text-gray-900">今日概览</h3>
                                     <p class="text-sm text-gray-500 mt-1">日报只使用已授权OTA与运营数据，缺失项会显式展示，不触碰订单手机号、房态或房源映射。</p>
                                 </div>
                                 <div class="grid grid-cols-1 sm:grid-cols-4 gap-2 xl:w-[680px]">
@@ -138,8 +138,8 @@
                                 </div>
                                 <div class="grid grid-cols-1 xl:grid-cols-3 gap-4 mt-4">
                                     <div class="rounded-lg border border-gray-100 p-4">
-                                        <div class="text-sm font-semibold text-gray-900 mb-3">异常指标</div>
-                                        <div v-if="!aiDailyReportAbnormalMetrics.length" class="text-sm text-gray-400">暂无明确异常</div>
+                                        <div class="text-sm font-semibold text-gray-900 mb-3">值得关注的变化</div>
+                                        <div v-if="!aiDailyReportAbnormalMetrics.length" class="text-sm text-gray-400">暂无需要特别关注的变化</div>
                                         <div v-for="(item, index) in aiDailyReportAbnormalMetrics" :key="(item.label || item.type || 'abnormal') + index" class="mb-3 last:mb-0">
                                             <div class="text-sm text-gray-900">{{ item.label || item.type }}</div>
                                             <div class="text-xs text-gray-500 mt-1">{{ item.evidence || item.source_ref }}</div>
@@ -174,7 +174,7 @@
                                 <div class="mt-4 rounded-lg border border-gray-100 overflow-hidden">
                                     <div v-if="aiDailyReportBlockingRows.length" class="border-b border-amber-100 bg-amber-50 px-4 py-3 text-xs text-amber-800">
                                         <div class="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
-                                            <div class="font-semibold">执行门禁：{{ aiDailyReportBlockingSummary.total }} 项仍需先处理</div>
+                                            <div class="font-semibold">数据条件：{{ aiDailyReportBlockingSummary.total }} 项待补充</div>
                                             <div class="text-[11px] text-amber-700">{{ aiDailyReportBlockingSummary.detail }}</div>
                                         </div>
                                         <div class="mt-1 text-[11px] text-amber-700">{{ aiDailyReportBlockingSummary.gateText }}</div>
@@ -186,7 +186,7 @@
                                         </div>
                                     </div>
                                     <div class="grid grid-cols-12 bg-gray-50 text-xs text-gray-500 px-4 py-3">
-                                        <div class="col-span-4">建议</div>
+                                        <div class="col-span-4">关注事项</div>
                                         <div class="col-span-3">原因/来源</div>
                                         <div class="col-span-2">预期指标</div>
                                         <div class="col-span-2">状态</div>
@@ -195,7 +195,7 @@
                                     <div v-for="(action, index) in aiDailyReportActions" :key="(action.title || 'action') + index" class="grid grid-cols-12 gap-3 px-4 py-3 border-t border-gray-100 text-sm">
                                         <div class="col-span-12 md:col-span-4">
                                             <div class="flex flex-wrap items-center gap-2">
-                                                <div class="font-medium text-gray-900">{{ action.title || ('建议' + (index + 1)) }}</div>
+                                                <div class="font-medium text-gray-900">{{ action.title || ('事项' + (index + 1)) }}</div>
                                                 <span v-if="aiDailyReportActionIsInvestigationOnly(action)" class="rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700">调查项 · 不可执行</span>
                                             </div>
                                             <div class="text-xs text-gray-500 mt-1 leading-relaxed">{{ action.action }}</div>

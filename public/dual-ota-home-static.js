@@ -1,6 +1,31 @@
 window.SUXI_DUAL_OTA_HOME = (() => {
     const normalizeDualOtaContextValue = value => String(value || '').trim();
 
+    // OTA 数值必须保留“未返回”和“真实为 0”的差异。该解析器只接受可验证的有限数值，
+    // 不把 null、空串或非数值文本折算成 0。
+    const parseDualOtaNumber = value => {
+        if (value === null || value === undefined || value === '') return null;
+        const normalized = String(value).replace(/[,\s￥¥%]/g, '');
+        if (!normalized) return null;
+        const number = Number(normalized);
+        return Number.isFinite(number) ? number : null;
+    };
+
+    const hasObservedDualOtaNumber = value => parseDualOtaNumber(value) !== null;
+
+    const firstObservedDualOtaValue = (...values) => {
+        for (const value of values) {
+            if (hasObservedDualOtaNumber(value)) return value;
+        }
+        return null;
+    };
+
+    const sumObservedDualOtaValues = values => {
+        const list = Array.isArray(values) ? values : [];
+        if (!list.length || list.some(value => !hasObservedDualOtaNumber(value))) return null;
+        return list.reduce((sum, value) => sum + parseDualOtaNumber(value), 0);
+    };
+
     const buildDualOtaConnectionRows = (readyPlatforms = []) => {
         const ready = new Set((Array.isArray(readyPlatforms) ? readyPlatforms : [])
             .map(normalizeDualOtaContextValue)
@@ -229,7 +254,7 @@ window.SUXI_DUAL_OTA_HOME = (() => {
             contributionText: '平台贡献：携程 88% | 美团 12%',
         },
         lossChain: {
-            title: '经营损耗链',
+            title: '经营字段链',
             subtitle: '曝光 → 浏览 → 订单 → 间夜 → 收入',
             activePlatform: 'combined',
             activeRange: 'yesterday',
@@ -253,34 +278,34 @@ window.SUXI_DUAL_OTA_HOME = (() => {
             ],
             nodeExplanations: {
                 exposure: {
-                    title: '曝光正常',
-                    description: '曝光仍在增长，收入问题暂不归因于入口流量不足。',
-                    evidence: '字段：曝光 / 浏览 / 日期 / 平台',
-                    action: '优先检查浏览、订单和房价环节。',
+                    title: '曝光字段',
+                    description: '仅展示当前筛选返回的曝光字段，不据静态样例生成经营判断。',
+                    evidence: '以当前筛选的 OTA 返回字段为准',
+                    action: '需要判断变化时，请先确认同期字段完整。',
                 },
                 browse: {
-                    title: '浏览承接弱',
-                    description: '曝光增、浏览降，查首图和标题。',
-                    evidence: '字段：浏览 / 曝光 / 平台',
-                    action: '复核列表页、首图、标题。',
+                    title: '浏览字段',
+                    description: '仅展示当前筛选返回的浏览字段，不据静态样例生成经营判断。',
+                    evidence: '以当前筛选的 OTA 返回字段为准',
+                    action: '需要判断变化时，请先确认同期字段完整。',
                 },
                 paidOrders: {
-                    title: '订单量拖累',
-                    description: '支付订单下降 50%。',
-                    evidence: '字段：支付订单 / 状态 / 日期',
-                    action: '先核价、房态、活动。',
+                    title: '订单字段',
+                    description: '仅展示当前筛选返回的订单字段，不据静态样例生成经营判断。',
+                    evidence: '以当前筛选的 OTA 返回字段为准',
+                    action: '需要判断变化时，请先确认同期字段完整。',
                 },
                 roomNights: {
-                    title: '间夜未恶化',
-                    description: '少量多晚订单在支撑。',
-                    evidence: '字段：间夜 / 入住日 / 平台',
-                    action: '拆单看长住或团单。',
+                    title: '间夜字段',
+                    description: '仅展示当前筛选返回的间夜字段，不据静态样例生成经营判断。',
+                    evidence: '以当前筛选的 OTA 返回字段为准',
+                    action: '需要判断变化时，请先确认同期字段完整。',
                 },
                 revenue: {
-                    title: '收入看量价',
-                    description: '继续拆 ADR 和平台结构。',
-                    evidence: '字段：收入 / ADR / 平台占比',
-                    action: '按平台拆 ADR。',
+                    title: '收入字段',
+                    description: '仅展示当前筛选返回的收入字段，不据静态样例生成经营判断。',
+                    evidence: '以当前筛选的 OTA 返回字段为准',
+                    action: '需要判断变化时，请先确认同期字段完整。',
                 },
             },
             scenarios: {
@@ -375,7 +400,7 @@ window.SUXI_DUAL_OTA_HOME = (() => {
                     ],
                 },
             },
-            hint: '点击节点看字段边界；美团昨日漏斗来自用户提供巡查文本样例，收入字段未在该段文本给出。',
+            hint: '点击节点查看字段来源与完整性；缺失字段显示“未返回”，真实零值显示为 0。',
         },
         anomalies: [
             {
@@ -466,7 +491,7 @@ window.SUXI_DUAL_OTA_HOME = (() => {
             { name: '美团竞争圈数据', reason: '' },
         ],
         emptyState: {
-            title: '连接美团和携程后，宿析OS将生成首份经营归因诊断。',
+            title: '连接美团和携程后，宿析OS将展示可核验的双平台经营字段。',
             steps: ['连接美团数据', '连接携程数据', '生成双平台收入结构', '生成平台内经营损耗链', '开启人工操作清单与次日复盘'],
             cta: '开始连接数据',
         },
@@ -483,5 +508,9 @@ window.SUXI_DUAL_OTA_HOME = (() => {
         hasAllDualOtaConnections,
         resolveDualOtaBoundHotelRow,
         isDualOtaWorkbenchRequestCurrent,
+        parseDualOtaNumber,
+        hasObservedDualOtaNumber,
+        firstObservedDualOtaValue,
+        sumObservedDualOtaValues,
     };
 })();

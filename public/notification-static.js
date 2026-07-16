@@ -112,6 +112,21 @@ window.SUXI_NOTIFICATION_STATIC = (() => {
             reminder_level: row.reminder_level || payload.reminder_level || 'normal',
             is_direct_recipient: truthyNotificationFlag(row.is_direct_recipient),
             resolution_rule: row.resolution_rule || payload.resolution_rule || '',
+            authorization_source_label: sanitizeGlobalNotificationText(
+                row.authorization_source_label || payload.authorization_source_label,
+                ''
+            ),
+            authorization_source_type: String(
+                row.authorization_source_type || payload.authorization_source_type || 'unknown'
+            ).toLowerCase(),
+            authorization_source_state: String(
+                row.authorization_source_state || payload.authorization_source_state || 'missing'
+            ).toLowerCase(),
+            authorization_source_note: sanitizeGlobalNotificationText(
+                row.authorization_source_note || payload.authorization_source_note,
+                ''
+            ),
+            data_source_id: Number(row.data_source_id || payload.data_source_id || 0) || null,
             reminder_key: `ota-auth-reminder-${id}:${updatedAt}`,
             is_read: row.is_read === true || row.is_read === 1,
             source: 'backend',

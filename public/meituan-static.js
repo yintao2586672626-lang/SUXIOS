@@ -310,6 +310,80 @@ window.SUXI_MEITUAN_STATIC = (() => {
             }
         }
     };
+    const buildMeituanPersistenceOutcome = (data = {}) => {
+        const savedCount = Number(data?.saved_count || 0);
+        const businessStatus = String(data?.status || data?.business_status || '').trim().toLowerCase();
+        const persistenceStatus = String(data?.persistence_status || '').trim().toLowerCase();
+        const readbackVerified = data?.readback_verified === true
+            || data?.database_readback?.verified === true
+            || data?.database_readback?.readback_verified === true
+            || persistenceStatus === 'readback_verified';
+        const persisted = savedCount > 0 && (
+            readbackVerified
+            || data?.persisted === true
+            || persistenceStatus === 'persisted'
+        );
+        const businessFailed = ['failed', 'error', 'blocked', 'not_persisted'].includes(businessStatus)
+            || ['failed', 'blocked', 'not_persisted', 'readback_failed'].includes(persistenceStatus);
+        const businessCompleted = ['success', 'completed', 'complete', 'partial_success'].includes(businessStatus);
+        return {
+            savedCount,
+            businessStatus,
+            persistenceStatus,
+            readbackVerified,
+            persisted,
+            businessFailed,
+            businessCompleted,
+        };
+    };
+    const buildMeituanPersistenceNotice = ({
+        label = '美团数据',
+        data = {},
+        hasDisplayRows = false,
+        failureMessage = '',
+    } = {}) => {
+        const outcome = buildMeituanPersistenceOutcome(data);
+        if (outcome.businessFailed) {
+            return {
+                ...outcome,
+                level: 'error',
+                message: `${label}请求已返回，但业务处理未完成：${failureMessage || '请查看返回的失败原因'}`,
+            };
+        }
+        if (outcome.readbackVerified && outcome.savedCount > 0) {
+            return {
+                ...outcome,
+                level: 'success',
+                message: `${label}已入库 ${outcome.savedCount} 条，并完成数据库回读核验`,
+            };
+        }
+        if (outcome.persisted) {
+            return {
+                ...outcome,
+                level: 'warning',
+                message: `${label}后端明确报告已持久化 ${outcome.savedCount} 条，尚未完成数据库回读核验`,
+            };
+        }
+        if (outcome.savedCount > 0) {
+            return {
+                ...outcome,
+                level: 'warning',
+                message: `${label}请求已完成，接口报告处理 ${outcome.savedCount} 条，尚未确认数据库回读`,
+            };
+        }
+        if (hasDisplayRows) {
+            return {
+                ...outcome,
+                level: 'warning',
+                message: `${label}请求已完成，已返回可展示数据，但尚未确认入库`,
+            };
+        }
+        return {
+            ...outcome,
+            level: 'warning',
+            message: `${label}请求已完成，未解析到可保存记录`,
+        };
+    };
 
     const createMeituanRankingForm = () => ({
         url: 'https://eb.meituan.com/api/v1/ebooking/business/peer/rank/data/detail',
@@ -721,6 +795,9 @@ window.SUXI_MEITUAN_STATIC = (() => {
             if (result?.rankDataComplete === true) {
                 const isDerived = String(result?.rankDataMode || '').toLowerCase() === 'derived';
                 const isSelfOnly = String(result?.rankDataMode || '').toLowerCase() === 'self_only';
+                const readbackVerified = result?.readbackVerified === true
+                    || result?.readback_verified === true
+                    || String(result?.persistenceStatus || result?.persistence_status || '').toLowerCase() === 'readback_verified';
                 return {
                     ...row,
                     status: 'ok',
@@ -728,7 +805,9 @@ window.SUXI_MEITUAN_STATIC = (() => {
                     sourceLabel: isSelfOnly
                         ? '本店真实值 + 同行名次；本次同行数值未返回'
                         : (isDerived
-                            ? '平台百分比 + 本店真实值锚点，已保存并可回显'
+                            ? (readbackVerified
+                                ? '平台百分比 + 本店真实值锚点；已完成数据库回读核验'
+                                : '平台百分比 + 本店真实值锚点；保存状态以数据库回读为准')
                             : '本次平台原始字段完整'),
                     className: 'bg-emerald-50 text-emerald-700 border-emerald-100',
                 };
@@ -1298,7 +1377,19 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 const data = res.data || {};
                 setCaptureResult(data);
                 setOnlineDataResult(data);
-                notify(res.message || (requestContext.loginOnly ? '美团 Profile 登录状态已保存' : `抓取完成，已入库 ${data?.saved_count || 0} 条`));
+                const hasDisplayRows = ['rows', 'data', 'display_rows', 'display_hotels'].some(key => Array.isArray(data[key]) && data[key].length > 0)
+                    || Number(data.row_count || data.parsed_row_count || 0) > 0;
+                const notice = buildMeituanPersistenceNotice({
+                    label: '美团 Profile 采集',
+                    data,
+                    hasDisplayRows,
+                    failureMessage: res.message || '',
+                });
+                if (requestContext.loginOnly) {
+                    notify('美团 Profile 登录请求已完成；请刷新状态确认 Profile 可复用', 'info');
+                } else {
+                    notify(notice.message, notice.level);
+                }
                 if (!requestContext.loginOnly) {
                     runPostFetchRefresh(refreshOnlineHistory);
                 }
@@ -1308,7 +1399,18 @@ window.SUXI_MEITUAN_STATIC = (() => {
                         runPostFetchRefresh(refreshPlatformDataSources);
                     }
                 }
-                return { status: 'success', response: res, requestContext, data };
+                return {
+                    status: requestContext.loginOnly
+                        ? 'success'
+                        : (notice.businessFailed
+                            ? 'business_failed'
+                            : ((notice.savedCount > 0 || notice.businessCompleted || hasDisplayRows) ? 'success' : 'incomplete')),
+                    response: res,
+                    requestContext,
+                    data,
+                    persisted: notice.persisted,
+                    readback_verified: notice.readbackVerified,
+                };
             }
 
             notify(res.message || '抓取失败', 'error');
@@ -1400,9 +1502,23 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 const data = res.data || {};
                 setCaptureResult(data);
                 setOnlineDataResult(data);
-                notify(`保存成功，已入库 ${data?.saved_count || 0} 条`);
+                const notice = buildMeituanPersistenceNotice({
+                    label: '美团抓取结果',
+                    data,
+                    failureMessage: res.message || '',
+                });
+                notify(notice.message, notice.level);
                 runPostFetchRefresh(refreshOnlineHistory);
-                return { status: 'success', response: res, saveContext, data };
+                return {
+                    status: notice.businessFailed
+                        ? 'business_failed'
+                        : ((notice.savedCount > 0 || notice.businessCompleted) ? 'success' : 'incomplete'),
+                    response: res,
+                    saveContext,
+                    data,
+                    persisted: notice.persisted,
+                    readback_verified: notice.readbackVerified,
+                };
             }
 
             notify(res.message || '保存失败', 'error');
@@ -1527,7 +1643,8 @@ window.SUXI_MEITUAN_STATIC = (() => {
             const responseData = response.data || {};
             const responseStatus = String(responseData.status || '').toLowerCase();
             const displayHotels = Array.isArray(responseData.display_hotels) ? responseData.display_hotels : [];
-            const savedCount = Number(responseData.saved_count || 0) || 0;
+            const persistenceOutcome = buildMeituanPersistenceOutcome(responseData);
+            const savedCount = persistenceOutcome.savedCount;
             const displayCount = Number(responseData.display_hotel_count ?? displayHotels.length) || 0;
             if (['accepted', 'running', 'queued'].includes(responseStatus)) {
                 return {
@@ -1543,12 +1660,15 @@ window.SUXI_MEITUAN_STATIC = (() => {
                     displayHotels,
                     displaySummary: responseData.display_summary || null,
                     displayCount,
+                    persistenceStatus: persistenceOutcome.persistenceStatus,
+                    persisted: persistenceOutcome.persisted,
+                    readbackVerified: persistenceOutcome.readbackVerified,
                 };
             }
             return {
                 ...base,
                 message: response.message || '',
-                status: responseData.status || 'success',
+                status: responseData.status || (savedCount > 0 ? 'processed' : 'response_received'),
                 taskId: responseData.task_id || '',
                 data: responseData.data,
                 savedCount,
@@ -1557,6 +1677,9 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 displayHotels,
                 displaySummary: responseData.display_summary || null,
                 displayCount,
+                persistenceStatus: persistenceOutcome.persistenceStatus,
+                persisted: persistenceOutcome.persisted,
+                readbackVerified: persistenceOutcome.readbackVerified,
             };
         }
         return {
@@ -2767,17 +2890,33 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 const trafficData = data.data;
                 setOnlineDataResult(trafficData);
                 setLatestTrafficData(trafficData);
-                const savedCount = data.saved_count || 0;
-                if (savedCount > 0) {
-                    notify(`获取成功！已保存 ${savedCount} 条流量数据`);
+                const hasDisplayRows = Array.isArray(trafficData)
+                    ? trafficData.length > 0
+                    : Boolean(trafficData && typeof trafficData === 'object' && Object.keys(trafficData).length > 0);
+                const notice = buildMeituanPersistenceNotice({
+                    label: '美团流量数据',
+                    data,
+                    hasDisplayRows,
+                    failureMessage: res.message || '',
+                });
+                notify(notice.message, notice.level);
+                if (notice.savedCount > 0) {
                     runPostFetchRefresh(refreshOnlineHistory);
                     if (getOnlineDataTab() === 'data') {
                         refreshOnlineData();
                     }
-                } else {
-                    notify('获取成功，但未解析到有效流量数据');
                 }
-                return { status: 'success', response: res, requestBody: directRequestBody, data: trafficData, savedCount };
+                return {
+                    status: notice.businessFailed
+                        ? 'business_failed'
+                        : ((notice.savedCount > 0 || notice.businessCompleted || hasDisplayRows) ? 'success' : 'incomplete'),
+                    response: res,
+                    requestBody: directRequestBody,
+                    data: trafficData,
+                    savedCount: notice.savedCount,
+                    persisted: notice.persisted,
+                    readback_verified: notice.readbackVerified,
+                };
             }
 
             notify(res.message || '获取失败', 'error');
@@ -3157,13 +3296,24 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 const data = { ...(res.data || {}), import_row_count: requestBody.parsed_count };
                 setOrderResult(data);
                 setOnlineDataResult(data);
-                const savedCount = data.saved_count || 0;
-                notify(
-                    savedCount > 0 ? `CSV订单导入成功，已入库 ${savedCount} 条` : 'CSV已解析，但未形成可入库订单行',
-                    savedCount > 0 ? 'success' : 'warning'
-                );
+                const notice = buildMeituanPersistenceNotice({
+                    label: '美团 CSV 订单导入',
+                    data,
+                    failureMessage: res.message || '',
+                });
+                notify(notice.message, notice.level);
                 runPostFetchRefresh(refreshOnlineHistory);
-                return { status: 'success', response: res, requestBody, data, savedCount };
+                return {
+                    status: notice.businessFailed
+                        ? 'business_failed'
+                        : ((notice.savedCount > 0 || notice.businessCompleted) ? 'success' : 'incomplete'),
+                    response: res,
+                    requestBody,
+                    data,
+                    savedCount: notice.savedCount,
+                    persisted: notice.persisted,
+                    readback_verified: notice.readbackVerified,
+                };
             }
             notify(res.message || 'CSV订单导入失败', 'error');
             return { status: 'failed', response: res, requestBody };
@@ -3217,6 +3367,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 const data = res.data || {};
                 const runningPayload = {
                     status: data.status || 'running',
+                    ui_flow_status: 'accepted',
                     task_id: data.task_id || '',
                     platform: data.platform || 'meituan',
                     async: true,
@@ -3232,20 +3383,49 @@ window.SUXI_MEITUAN_STATIC = (() => {
             }
             if (res.code === 200) {
                 const data = res.data || {};
-                setOrderResult(data);
-                setOnlineDataResult(data);
-                const savedCount = data.saved_count || 0;
-                notify(
-                    savedCount > 0 ? `订单数据获取成功，已入库 ${savedCount} 条` : '订单接口请求成功，但未解析到可入库数据',
-                    savedCount > 0 ? 'success' : 'warning'
-                );
+                const hasDisplayRows = ['rows', 'orders', 'data'].some(key => Array.isArray(data[key]) && data[key].length > 0)
+                    || Number(data.row_count || data.parsed_row_count || 0) > 0;
+                const notice = buildMeituanPersistenceNotice({
+                    label: '美团订单数据',
+                    data,
+                    hasDisplayRows,
+                    failureMessage: res.message || '',
+                });
+                const flowStatus = notice.businessFailed
+                    ? 'business_failed'
+                    : ((notice.savedCount > 0 || notice.businessCompleted || hasDisplayRows) ? 'success' : 'incomplete');
+                const visibleData = {
+                    ...data,
+                    ui_flow_status: flowStatus,
+                    ui_message: notice.message,
+                    persisted: notice.persisted,
+                    readback_verified: notice.readbackVerified,
+                };
+                setOrderResult(visibleData);
+                setOnlineDataResult(visibleData);
+                notify(notice.message, notice.level);
                 runPostFetchRefresh(refreshOnlineHistory);
-                return { status: 'success', response: res, requestBody: directRequestBody, data, savedCount };
+                return {
+                    status: flowStatus,
+                    response: res,
+                    requestBody: directRequestBody,
+                    data: visibleData,
+                    savedCount: notice.savedCount,
+                    persisted: notice.persisted,
+                    readback_verified: notice.readbackVerified,
+                };
             }
 
-            notify(res.message || '订单数据获取失败', 'error');
+            const failureMessage = res.message || '订单数据获取失败';
+            const failureResult = { ...(res.data || {}), ui_flow_status: 'failed', error: failureMessage };
+            setOrderResult(failureResult);
+            setOnlineDataResult(failureResult);
+            notify(failureMessage, 'error');
             return { status: 'failed', response: res, requestBody: directRequestBody };
         } catch (error) {
+            const failureResult = { ...(error?.data?.data || {}), ui_flow_status: 'exception', error: error.message };
+            setOrderResult(failureResult);
+            setOnlineDataResult(failureResult);
             notify('订单数据获取失败: ' + error.message, 'error');
             return { status: 'exception', error, requestBody: directRequestBody };
         } finally {
@@ -3336,6 +3516,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 const data = res.data || {};
                 const runningPayload = {
                     status: data.status || 'running',
+                    ui_flow_status: 'accepted',
                     task_id: data.task_id || '',
                     platform: data.platform || 'meituan',
                     async: true,
@@ -3351,20 +3532,49 @@ window.SUXI_MEITUAN_STATIC = (() => {
             }
             if (res.code === 200) {
                 const data = res.data || {};
-                setAdsResult(data);
-                setOnlineDataResult(data);
-                const savedCount = data.saved_count || 0;
-                notify(
-                    savedCount > 0 ? `广告数据获取成功，已入库 ${savedCount} 条` : '广告接口请求成功，但未解析到可入库数据',
-                    savedCount > 0 ? 'success' : 'warning'
-                );
+                const hasDisplayRows = ['rows', 'ads', 'campaigns', 'data'].some(key => Array.isArray(data[key]) && data[key].length > 0)
+                    || Number(data.row_count || data.parsed_row_count || 0) > 0;
+                const notice = buildMeituanPersistenceNotice({
+                    label: '美团广告数据',
+                    data,
+                    hasDisplayRows,
+                    failureMessage: res.message || '',
+                });
+                const flowStatus = notice.businessFailed
+                    ? 'business_failed'
+                    : ((notice.savedCount > 0 || notice.businessCompleted || hasDisplayRows) ? 'success' : 'incomplete');
+                const visibleData = {
+                    ...data,
+                    ui_flow_status: flowStatus,
+                    ui_message: notice.message,
+                    persisted: notice.persisted,
+                    readback_verified: notice.readbackVerified,
+                };
+                setAdsResult(visibleData);
+                setOnlineDataResult(visibleData);
+                notify(notice.message, notice.level);
                 runPostFetchRefresh(refreshOnlineHistory);
-                return { status: 'success', response: res, requestBody: directRequestBody, data, savedCount };
+                return {
+                    status: flowStatus,
+                    response: res,
+                    requestBody: directRequestBody,
+                    data: visibleData,
+                    savedCount: notice.savedCount,
+                    persisted: notice.persisted,
+                    readback_verified: notice.readbackVerified,
+                };
             }
 
-            notify(res.message || '广告数据获取失败', 'error');
+            const failureMessage = res.message || '广告数据获取失败';
+            const failureResult = { ...(res.data || {}), ui_flow_status: 'failed', error: failureMessage };
+            setAdsResult(failureResult);
+            setOnlineDataResult(failureResult);
+            notify(failureMessage, 'error');
             return { status: 'failed', response: res, requestBody: directRequestBody };
         } catch (error) {
+            const failureResult = { ...(error?.data?.data || {}), ui_flow_status: 'exception', error: error.message };
+            setAdsResult(failureResult);
+            setOnlineDataResult(failureResult);
             notify('广告数据获取失败: ' + error.message, 'error');
             return { status: 'exception', error, requestBody: directRequestBody };
         } finally {
@@ -3607,8 +3817,9 @@ window.SUXI_MEITUAN_STATIC = (() => {
                             res.data = {};
                         }
                         res.data.saved_count = Number(commitResponse?.data?.saved_count || 0);
-                        res.data.persistence_status = commitResponse?.data?.persistence_status || 'readback_verified';
+                        res.data.persistence_status = commitResponse?.data?.persistence_status || '';
                         res.data.database_readback = commitResponse?.data?.database_readback || null;
+                        res.data.readback_verified = commitResponse?.data?.readback_verified === true;
                     }
                     const retryExhausted = !rankDataComplete
                         && !accepted
@@ -3678,6 +3889,9 @@ window.SUXI_MEITUAN_STATIC = (() => {
             }
             flushResultUpdate();
             setSavedCount(totalSavedCount);
+            const verifiedSavedCount = results.reduce((sum, item) => (
+                item?.readbackVerified === true ? sum + Number(item?.savedCount || 0) : sum
+            ), 0);
             const failedCount = results.filter(item => item?.error).length;
             const incompleteCount = results.filter(item => (
                 item?.rankDataComplete !== true
@@ -3719,12 +3933,23 @@ window.SUXI_MEITUAN_STATIC = (() => {
             setDataFetchTime(getFetchTime());
             updateAiAnalysisHotelList();
 
-            if (totalSavedCount > 0) {
+            if (verifiedSavedCount > 0) {
                 notify(
                     failedCount + incompleteCount > 0
-                        ? `已保存 ${totalSavedCount} 条完整榜单数据，但有 ${failedCount + incompleteCount} 个榜单只返回部分字段`
-                        : `批量获取完成！共保存 ${totalSavedCount} 条数据`,
+                        ? `已入库 ${verifiedSavedCount} 条完整榜单数据并完成数据库回读核验，但有 ${failedCount + incompleteCount} 个榜单只返回部分字段`
+                        : `美团榜单已入库 ${verifiedSavedCount} 条，并完成数据库回读核验`,
                     failedCount + incompleteCount > 0 ? 'warning' : undefined
+                );
+                runPostFetchRefresh(refreshOnlineHistory);
+                if (getOnlineDataTab() === 'data') {
+                    refreshOnlineData();
+                }
+            } else if (totalSavedCount > 0) {
+                notify(
+                    failedCount + incompleteCount > 0
+                        ? `批量请求已完成，接口报告处理 ${totalSavedCount} 条；${failedCount + incompleteCount} 个榜单字段不完整，且尚未确认数据库回读`
+                        : `批量请求已完成，接口报告处理 ${totalSavedCount} 条，尚未确认数据库回读`,
+                    'warning'
                 );
                 runPostFetchRefresh(refreshOnlineHistory);
                 if (getOnlineDataTab() === 'data') {
@@ -3734,15 +3959,21 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 notify(
                     incompleteCount > 0
                         ? `平台返回了 ${allHotels.length} 家酒店的排名/百分比，但实际数值不完整，未按完整数据保存`
-                        : `获取成功！共 ${allHotels.length} 家酒店数据`,
-                    incompleteCount > 0 ? 'warning' : undefined
+                        : `平台已返回 ${allHotels.length} 家酒店的可展示数据，尚未确认入库`,
+                    'warning'
                 );
             } else if (failedCount > 0) {
                 notify(loginFailed ? '美团登录态已失效，请重新登录美团后台后更新 Cookie/API 辅助内容' : `美团获取失败：${failedCount} 个任务未返回有效数据`, loginFailed ? 'error' : 'warning');
             } else {
-                notify('获取完成，但未找到有效数据');
+                notify('请求已完成，但未解析到有效数据', 'warning');
             }
-            return { status: failedCount + incompleteCount > 0 ? 'partial' : 'success', results, totalSavedCount, allHotels };
+            return {
+                status: failedCount + incompleteCount > 0 ? 'partial' : 'success',
+                results,
+                totalSavedCount,
+                verifiedSavedCount,
+                allHotels,
+            };
         } catch (error) {
             if (!runIsActive()) {
                 return { status: 'stale', results, totalSavedCount };

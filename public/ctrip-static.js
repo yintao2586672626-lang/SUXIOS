@@ -153,6 +153,89 @@ window.SUXI_CTRIP_STATIC = (() => {
         const status = String(response.data?.status || '').toLowerCase();
         return ['accepted', 'running', 'queued'].includes(status);
     };
+    const buildCtripPersistenceOutcome = (data = {}) => {
+        const savedCount = Number(data?.saved_count || 0);
+        const businessStatus = String(data?.status || data?.business_status || '').trim().toLowerCase();
+        const persistenceStatus = String(data?.persistence_status || '').trim().toLowerCase();
+        const readbackVerified = data?.readback_verified === true
+            || data?.database_readback?.verified === true
+            || data?.database_readback?.readback_verified === true
+            || persistenceStatus === 'readback_verified';
+        const persisted = savedCount > 0 && (
+            readbackVerified
+            || data?.persisted === true
+            || persistenceStatus === 'persisted'
+        );
+        const businessFailed = ['failed', 'error', 'blocked', 'not_persisted'].includes(businessStatus)
+            || ['failed', 'blocked', 'not_persisted', 'readback_failed'].includes(persistenceStatus);
+        const businessCompleted = ['success', 'completed', 'complete', 'partial_success'].includes(businessStatus);
+        return {
+            savedCount,
+            businessStatus,
+            persistenceStatus,
+            readbackVerified,
+            persisted,
+            businessFailed,
+            businessCompleted,
+        };
+    };
+    const buildCtripPersistenceNotice = ({
+        label = '携程数据',
+        data = {},
+        hasDisplayRows = false,
+        failureMessage = '',
+    } = {}) => {
+        const outcome = buildCtripPersistenceOutcome(data);
+        const explicitlyNotPersisted = outcome.businessStatus === 'not_persisted'
+            || outcome.persistenceStatus === 'not_persisted';
+        if (explicitlyNotPersisted && hasDisplayRows) {
+            return {
+                ...outcome,
+                level: 'warning',
+                message: `${label}请求已完成，已返回可展示数据，但后端明确报告本次未入库`,
+            };
+        }
+        if (outcome.businessFailed) {
+            return {
+                ...outcome,
+                level: 'error',
+                message: `${label}请求已返回，但业务处理未完成：${failureMessage || '请查看返回的失败原因'}`,
+            };
+        }
+        if (outcome.readbackVerified && outcome.savedCount > 0) {
+            return {
+                ...outcome,
+                level: 'success',
+                message: `${label}已入库 ${outcome.savedCount} 条，并完成数据库回读核验`,
+            };
+        }
+        if (outcome.persisted) {
+            return {
+                ...outcome,
+                level: 'warning',
+                message: `${label}后端明确报告已持久化 ${outcome.savedCount} 条，尚未完成数据库回读核验`,
+            };
+        }
+        if (outcome.savedCount > 0) {
+            return {
+                ...outcome,
+                level: 'warning',
+                message: `${label}请求已完成，接口报告处理 ${outcome.savedCount} 条，尚未确认数据库回读`,
+            };
+        }
+        if (hasDisplayRows) {
+            return {
+                ...outcome,
+                level: 'warning',
+                message: `${label}请求已完成，已返回可展示数据，但尚未确认入库`,
+            };
+        }
+        return {
+            ...outcome,
+            level: 'warning',
+            message: `${label}请求已完成，未解析到可保存记录`,
+        };
+    };
     const normalizeCtripCookieText = value => String(value || '').trim();
     const firstCtripConfigText = (...values) => {
         for (const value of values) {
@@ -430,6 +513,11 @@ window.SUXI_CTRIP_STATIC = (() => {
         endDate: '',
         campaignId: '',
     });
+    const defaultCtripOverviewDataDate = () => {
+        const date = new Date();
+        date.setDate(date.getDate() - 1);
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    };
     const createCtripOverviewForm = () => ({
         requestUrls: '',
         cookies: '',
@@ -437,7 +525,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         payloadJson: '',
         hotelId: '',
         method: 'GET',
-        dataDate: '',
+        dataDate: defaultCtripOverviewDataDate(),
     });
     const createCtripFlowOverviewForm = () => ({
         requestUrls: '',
@@ -446,7 +534,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         payloadJson: '',
         hotelId: '',
         method: 'POST',
-        dataDate: '',
+        dataDate: defaultCtripOverviewDataDate(),
     });
     const createCtripBrowserCaptureForm = () => ({
         profileId: '',
@@ -1309,11 +1397,17 @@ window.SUXI_CTRIP_STATIC = (() => {
                     });
                 }
                 if (!silent) {
-                    const savedCount = Number(res.data?.saved_count || 0);
-                    const profileCaptureMessage = loginOnly
-                        ? 'Profile 登录已保存'
-                        : `${res.message || '携程 Profile 采集完成'}：已入库 ${savedCount} 条；字段覆盖按配置表显示，未返回字段保留为缺口`;
-                    notify(profileCaptureMessage);
+                    if (loginOnly) {
+                        notify('Profile 登录请求已完成；请刷新状态确认 Profile 可复用', 'info');
+                    } else {
+                        const notice = buildCtripPersistenceNotice({
+                            label: '携程 Profile 采集',
+                            data: res.data || {},
+                            hasDisplayRows: Array.isArray(res.data?.rows) && res.data.rows.length > 0,
+                            failureMessage: res.message || '',
+                        });
+                        notify(`${notice.message}；字段覆盖按配置表显示，未返回字段保留为缺口`, notice.level);
+                    }
                 }
                 if (!loginOnly) {
                     runPostFetchRefresh(refreshLatestCtripData, { silent: true });
@@ -1619,15 +1713,22 @@ window.SUXI_CTRIP_STATIC = (() => {
         fetchedAt = '',
         savedCount = 0,
         displayHotelCount = 0,
+        persisted = false,
+        readbackVerified = false,
+        displayOnly = false,
     } = {}) => ({
         hotel_id: hotelId || '',
         platform: 'ctrip',
         data_source: '携程 ebooking',
-        status: 'success',
-        status_label: '成功',
+        status: persisted ? 'success' : (displayOnly ? 'display_only' : (displayHotelCount > 0 ? 'unverified' : 'empty')),
+        status_label: persisted
+            ? (readbackVerified ? '已回读核验' : '已持久化')
+            : (displayOnly ? '仅展示' : (displayHotelCount > 0 ? '未确认入库' : '无可保存记录')),
         data_date: startDate === endDate ? startDate : `${startDate} 至 ${endDate}`,
         fetched_at: fetchedAt || '',
-        total_records: savedCount || displayHotelCount,
+        total_records: persisted ? savedCount : displayHotelCount,
+        saved_count: savedCount,
+        readback_verified: readbackVerified,
     });
 
     const buildCtripFetchRawFailureResult = ({
@@ -1749,35 +1850,45 @@ window.SUXI_CTRIP_STATIC = (() => {
                 setOnlineDataResult(selectCtripFetchResponsePayload(data));
                 const allHotels = useDisplayHotels(data.display_hotels || [], data.display_summary || null);
                 setOnlineDataFilterDates({ startDate, endDate });
-                const savedCount = data.saved_count || 0;
+                const persistenceOutcome = buildCtripPersistenceOutcome(data);
+                const savedCount = persistenceOutcome.savedCount;
                 setSavedCount(savedCount);
                 const saveBlocked = data.save_status === 'blocked';
                 const temporaryDisplayOnly = data.save_status === 'display_only';
-                const persistenceStatus = String(data.persistence_status || '').toLowerCase();
-                const persisted = data.persisted === true
-                    || (data.persisted == null
-                        && Number(savedCount) > 0
-                        && !saveBlocked
-                        && !temporaryDisplayOnly);
+                const persistenceStatus = persistenceOutcome.persistenceStatus;
+                const persisted = persistenceOutcome.persisted && !saveBlocked && !temporaryDisplayOnly;
                 const qunarVisitorGap = data.qunar_visitor_quality?.status === 'partial_qunar_visitor_gap';
                 const identityCheckWarning = data.identity_check?.warning === true;
                 const ctripRowsReturned = Number(data.display_hotel_count || allHotels.length || 0) > 0;
                 const ctripFetchReady = ctripRowsReturned;
-                setFetchSuccess(
+                setFetchSuccess(!persistenceOutcome.businessFailed && (
                     persisted || (ctripFetchReady && (saveBlocked || temporaryDisplayOnly))
-                );
+                ));
                 if (temporaryDisplayOnly) {
                     notify(res.message || '临时 Cookie 查询成功；结果仅本页展示，未保存 Cookie、未创建门店、未入库。', 'info');
                 } else if (saveBlocked) {
                     notify(res.message || '携程数据已获取并可查看，但门店归属不一致，本次未入库。', 'warning');
                 } else if (!persisted || persistenceStatus === 'not_persisted') {
-                    notify(res.message || '携程数据已获取并可查看，但本次没有真实入库数据。', 'warning');
+                    const notice = buildCtripPersistenceNotice({
+                        label: '携程竞争圈数据',
+                        data,
+                        hasDisplayRows: ctripRowsReturned,
+                        failureMessage: res.message || '',
+                    });
+                    notify(notice.message, notice.level);
                 } else if (identityCheckWarning) {
-                    notify(data.identity_check?.message || '携程酒店ID需要核对，本次仍按当前选择门店保存。', 'warning');
+                    notify(data.identity_check?.message || '携程酒店ID存在需复核提示，请按返回说明核对门店归属。', 'warning');
                 } else if (qunarVisitorGap) {
                     notify(data.qunar_visitor_quality?.message || '去哪儿访客为 0 仅作为字段缺口提示，不阻断携程竞争圈获取和入库。', 'warning');
                 } else if (!ctripFetchReady) {
                     notify(data.qunar_visitor_quality?.message || '携程竞争圈未返回可展示行，不能按成功处理。', 'warning');
+                } else {
+                    const notice = buildCtripPersistenceNotice({
+                        label: '携程竞争圈数据',
+                        data,
+                        hasDisplayRows: ctripRowsReturned,
+                    });
+                    notify(notice.message, notice.level);
                 }
                 const currentFetchMeta = buildCtripFetchMeta({
                     hotelId: selectedCtripHotelId || '',
@@ -1786,6 +1897,9 @@ window.SUXI_CTRIP_STATIC = (() => {
                     fetchedAt: data.fetched_at || '',
                     savedCount,
                     displayHotelCount: allHotels.length,
+                    persisted,
+                    readbackVerified: persistenceOutcome.readbackVerified,
+                    displayOnly: saveBlocked || temporaryDisplayOnly,
                 });
                 setTableTab('sales');
                 if (persisted) {
@@ -1860,7 +1974,13 @@ window.SUXI_CTRIP_STATIC = (() => {
             reviewResult: hasReview ? {
                 data: reviewRows,
                 total: review.total || reviewRows.length,
-                saved_count: review.total || reviewRows.length,
+                record_count: review.total || reviewRows.length,
+                saved_count: Number(review.saved_count || 0),
+                persistence_status: String(review.persistence_status || ''),
+                readback_verified: review.readback_verified === true
+                    || review.database_readback?.verified === true
+                    || review.database_readback?.readback_verified === true
+                    || String(review.persistence_status || '').toLowerCase() === 'readback_verified',
             } : null,
             onlineResult: hasAnySnapshot ? {
                 source: 'latest',
@@ -1999,7 +2119,8 @@ window.SUXI_CTRIP_STATIC = (() => {
                 return { status: 'accepted', response: res, requestBody: directRequestBody, data: runningPayload };
             }
             if (res.code === 200) {
-                const trafficModel = buildCtripTrafficResponseModel(res.data || {});
+                const data = res.data || {};
+                const trafficModel = buildCtripTrafficResponseModel(data);
                 const rows = useCtripTrafficDisplayRows(
                     trafficModel.displayTrafficRows,
                     trafficModel.displayTrafficSummary,
@@ -2008,17 +2129,38 @@ window.SUXI_CTRIP_STATIC = (() => {
                 );
                 setOnlineDataResult(trafficModel.onlineResult);
                 const savedCount = trafficModel.savedCount;
+                const notice = buildCtripPersistenceNotice({
+                    label: '携程流量数据',
+                    data,
+                    hasDisplayRows: rows.length > 0,
+                    failureMessage: res.message || '',
+                });
+                notify(notice.message, notice.level);
                 if (rows.length === 0) {
-                    notify('当前日期范围暂无流量数据', 'warning');
-                    return { status: 'empty', response: res, requestBody: directRequestBody, trafficModel, rows, savedCount };
+                    return {
+                        status: notice.businessFailed ? 'business_failed' : 'empty',
+                        response: res,
+                        requestBody: directRequestBody,
+                        trafficModel,
+                        rows,
+                        savedCount,
+                    };
                 }
 
-                notify(`获取成功，已保存 ${savedCount} 条流量数据`);
                 runPostFetchRefresh(refreshOnlineHistory);
                 if (getOnlineDataTab() === 'data') {
                     refreshOnlineData();
                 }
-                return { status: 'success', response: res, requestBody: directRequestBody, trafficModel, rows, savedCount };
+                return {
+                    status: notice.businessFailed ? 'business_failed' : 'success',
+                    response: res,
+                    requestBody: directRequestBody,
+                    trafficModel,
+                    rows,
+                    savedCount,
+                    persisted: notice.persisted,
+                    readback_verified: notice.readbackVerified,
+                };
             }
 
             await handleFetchFailure(res.message || '获取失败');
@@ -2089,6 +2231,10 @@ window.SUXI_CTRIP_STATIC = (() => {
         const hotelId = String(activeConfig?.ota_hotel_id || activeConfig?.ctrip_hotel_id || activeConfig?.ctripHotelId || '').trim();
         const form = getForm() || {};
         form.hotelId = String(form.hotelId || hotelId || '').trim();
+        if (!String(form.dataDate || '').trim()) {
+            notify(messages.missingDataDate || '请选择本次采集数据对应的业务日期', 'error');
+            return { status: 'missing_data_date', form };
+        }
         const requestUrls = normalizeCtripExecutionRequestUrls(form.requestUrls || getFallbackRequestUrls());
         if (requestUrls.length === 0) {
             notify(messages.missingRequestUrls || '请填写接口 Request URL', 'error');
@@ -2114,16 +2260,45 @@ window.SUXI_CTRIP_STATIC = (() => {
             const res = await requestFetch(requestBody);
             if (res.code === 200) {
                 const data = res.data || {};
-                setResult(data);
-                setOnlineDataResult(data);
+                const hasDisplayRows = ['rows', 'data', 'display_rows', 'traffic_rows'].some(key => Array.isArray(data[key]) && data[key].length > 0)
+                    || Number(data.row_count || data.parsed_row_count || 0) > 0;
+                const notice = buildCtripPersistenceNotice({
+                    label: messages.successPrefix || '携程概览数据',
+                    data,
+                    hasDisplayRows,
+                    failureMessage: res.message || messages.failure || '',
+                });
+                const responseStatus = String(data.status || '').trim().toLowerCase();
+                const responseRunning = ['accepted', 'running', 'queued', 'pending', 'processing', 'in_progress'].includes(responseStatus);
+                const flowStatus = notice.businessFailed
+                    ? 'business_failed'
+                    : (responseRunning ? responseStatus : ((notice.savedCount > 0 || notice.businessCompleted || hasDisplayRows) ? 'success' : 'incomplete'));
+                const visibleData = {
+                    ...data,
+                    ui_flow_status: flowStatus,
+                    ui_message: notice.message,
+                    persisted: notice.persisted,
+                    readback_verified: notice.readbackVerified,
+                };
+                setResult(visibleData);
+                setOnlineDataResult(visibleData);
                 setShowRawData(false);
-                notify(res.message || `${messages.successPrefix || '携程概览获取完成'}，已入库 ${data.saved_count || 0} 条`);
+                notify(notice.message, notice.level);
                 runPostFetchRefresh(refreshLatestCtripData, { silent: true });
                 runPostFetchRefresh(refreshOnlineHistory);
-                return { status: 'success', response: res, requestBody };
+                return {
+                    status: flowStatus,
+                    response: res,
+                    requestBody,
+                    data: visibleData,
+                    persisted: notice.persisted,
+                    readback_verified: notice.readbackVerified,
+                };
             }
 
-            notify(res.message || messages.failure || '携程概览抓取失败', 'error');
+            const failureMessage = res.message || messages.failure || '携程概览抓取失败';
+            setResult({ ...(res.data || {}), ui_flow_status: 'failed', error: failureMessage });
+            notify(failureMessage, 'error');
             return { status: 'failed', response: res };
         } catch (error) {
             const detail = error?.data?.data?.stderr || error?.data?.data?.stdout || '';
@@ -2133,6 +2308,7 @@ window.SUXI_CTRIP_STATIC = (() => {
                 : {};
             setResult({
                 ...errorResult,
+                ui_flow_status: 'exception',
                 error: errorResult.error || error.message || messages.failure || '携程概览抓取失败',
             });
             return { status: 'exception', error };
@@ -2234,6 +2410,7 @@ window.SUXI_CTRIP_STATIC = (() => {
                 const data = res.data || {};
                 const runningPayload = {
                     status: data.status || 'running',
+                    ui_flow_status: 'accepted',
                     task_id: data.task_id || '',
                     platform: data.platform || 'ctrip',
                     async: true,
@@ -2251,20 +2428,47 @@ window.SUXI_CTRIP_STATIC = (() => {
             }
             if (res.code === 200) {
                 const data = res.data || {};
-                setResult(data);
-                setOnlineDataResult(data);
+                const hasDisplayRows = ['rows', 'data', 'display_rows', 'campaigns'].some(key => Array.isArray(data[key]) && data[key].length > 0)
+                    || Number(data.row_count || data.parsed_row_count || 0) > 0;
+                const notice = buildCtripPersistenceNotice({
+                    label: '携程广告数据',
+                    data,
+                    hasDisplayRows,
+                    failureMessage: res.message || '',
+                });
+                const flowStatus = notice.businessFailed
+                    ? 'business_failed'
+                    : ((notice.savedCount > 0 || notice.businessCompleted || hasDisplayRows) ? 'success' : 'incomplete');
+                const visibleData = {
+                    ...data,
+                    ui_flow_status: flowStatus,
+                    ui_message: notice.message,
+                    persisted: notice.persisted,
+                    readback_verified: notice.readbackVerified,
+                };
+                setResult(visibleData);
+                setOnlineDataResult(visibleData);
                 setShowRawData(false);
-                notify(res.message || `广告数据获取完成，已入库 ${data.saved_count || 0} 条`);
+                notify(notice.message, notice.level);
                 runPostFetchRefresh(refreshLatestCtripData, { silent: true });
                 runPostFetchRefresh(refreshOnlineHistory);
-                return { status: 'success', response: res, requestBody: directRequestBody };
+                return {
+                    status: flowStatus,
+                    response: res,
+                    requestBody: directRequestBody,
+                    data: visibleData,
+                    persisted: notice.persisted,
+                    readback_verified: notice.readbackVerified,
+                };
             }
 
-            notify(res.message || '广告数据获取失败', 'error');
+            const failureMessage = res.message || '广告数据获取失败';
+            setResult({ ...(res.data || {}), ui_flow_status: 'failed', error: failureMessage });
+            notify(failureMessage, 'error');
             return { status: 'failed', response: res, requestBody: directRequestBody };
         } catch (error) {
             notify('广告数据获取失败: ' + error.message, 'error');
-            setResult(error?.data?.data || { error: error.message });
+            setResult({ ...(error?.data?.data || {}), ui_flow_status: 'exception', error: error.message });
             return { status: 'exception', error };
         } finally {
             setRunning(false);
@@ -2404,17 +2608,35 @@ window.SUXI_CTRIP_STATIC = (() => {
                 setCaptureResult(data);
                 setOnlineDataResult(data);
                 setShowRawData(false);
+                const hasDisplayRows = ['rows', 'data', 'display_rows', 'captured_rows'].some(key => Array.isArray(data[key]) && data[key].length > 0)
+                    || Number(data.row_count || data.parsed_row_count || 0) > 0;
+                const notice = buildCtripPersistenceNotice({
+                    label: '携程 Cookie API 采集',
+                    data,
+                    hasDisplayRows,
+                    failureMessage: res.message || '',
+                });
                 if (data.is_ready === false) {
                     notify(data.warning || data.next_action || res.message || '携程 Cookie API 未达到诊断就绪', 'warning');
                 } else {
-                    notify(res.message || `携程 Cookie API 采集完成，已入库 ${data.saved_count || 0} 条`);
+                    notify(notice.message, notice.level);
                 }
                 runPostFetchRefresh(refreshLatestCtripData, { silent: true });
                 runPostFetchRefresh(refreshOnlineHistory);
                 if (shouldRefreshDataHealthPanel()) {
                     runPostFetchRefresh(refreshDataHealthPanel, 'light', { force: true });
                 }
-                return { status: 'success', response: res, requestBody };
+                return {
+                    status: data.is_ready === false
+                        ? 'not_ready'
+                        : (notice.businessFailed
+                            ? 'business_failed'
+                            : ((notice.savedCount > 0 || notice.businessCompleted || hasDisplayRows || data.is_ready === true) ? 'success' : 'incomplete')),
+                    response: res,
+                    requestBody,
+                    persisted: notice.persisted,
+                    readback_verified: notice.readbackVerified,
+                };
             }
 
             const failureResult = res.data || { error: res.message || '携程 Cookie API 采集失败' };
@@ -2699,10 +2921,18 @@ window.SUXI_CTRIP_STATIC = (() => {
             let status = 'not_observed';
             let statusText = '本次未发现';
             let statusClass = 'bg-gray-100 text-gray-500';
-            if (responseHitCount > 0 || responseRowCount > 0) {
+            if (responseRowCount > 0) {
                 status = 'hit';
-                statusText = '已命中';
+                statusText = '已解析业务行';
                 statusClass = 'bg-green-100 text-green-700';
+            } else if (responseHitCount > 0 && hasExplicitParsedRowCount) {
+                status = 'response_unparsed';
+                statusText = '收到响应，未解析业务行';
+                statusClass = 'bg-orange-100 text-orange-700';
+            } else if (responseHitCount > 0) {
+                status = 'hit';
+                statusText = '已收到响应';
+                statusClass = 'bg-blue-100 text-blue-700';
             } else if (errorText) {
                 status = 'request_failed';
                 statusText = '请求失败';

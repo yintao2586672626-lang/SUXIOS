@@ -43,7 +43,16 @@ window.SUXI_USER_ADMIN_STATIC = (() => {
         return `VIP${String(nextNumber).padStart(numberWidth, '0')}`;
     };
 
-    const defaultIssuedPassword = () => '666666';
+    const defaultIssuedPassword = () => {
+        if (!globalThis.crypto || typeof globalThis.crypto.getRandomValues !== 'function') {
+            throw new Error('当前环境无法安全生成临时密码');
+        }
+        const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+        const bytes = new Uint8Array(18);
+        globalThis.crypto.getRandomValues(bytes);
+        const randomPart = Array.from(bytes, value => alphabet[value % alphabet.length]).join('');
+        return `Sx9!${randomPart}`;
+    };
 
     const rolePermissionList = (role = {}) => {
         const raw = role?.permissions;

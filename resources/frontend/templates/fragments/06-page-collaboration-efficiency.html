@@ -42,6 +42,18 @@
                                             <label class="block text-xs text-gray-500 mb-1">预计上线时间</label>
                                             <input type="date" v-model="collaborationProject.expected_online_date" class="input-field w-full">
                                         </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">真实来源证据</label>
+                                            <textarea v-model="collaborationProject.source_evidence" rows="3" class="input-field w-full" placeholder="填写竞品样本、实勘记录、租约/附件编号或可追溯来源说明"></textarea>
+                                            <p class="mt-1 text-[11px] leading-4 text-gray-400">仅填写可复核的真实来源；示例值不能作为立项或执行依据。</p>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-500 mb-1">人工立项复核</label>
+                                            <select v-model="collaborationProject.review_status" class="input-field w-full">
+                                                <option value="pending">待复核</option>
+                                                <option value="approved">已复核并同意进入执行审批</option>
+                                            </select>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -125,4 +137,3 @@
                             </div>
                         </div>
                     </div>
-

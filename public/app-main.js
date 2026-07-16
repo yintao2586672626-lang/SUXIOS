@@ -519,7 +519,7 @@
                 }
             };
             const formOperationSupportScript = 'form-operation-support.js';
-            const formOperationSupportScriptVersion = '20260713-checkbox-false-restore';
+            const formOperationSupportScriptVersion = '20260715-h1f4b1c962f';
             let formOperationSupportLoadPromise = null;
             let formOperationSupportLoadTimer = null;
             const loadFormOperationSupport = () => {
@@ -596,6 +596,23 @@
                 return Promise.resolve();
             };
             const currentPage = ref('compass');
+            const SUPER_ADMIN_ONLY_PAGES = new Set([
+                'agent-center',
+                'users',
+                'roles',
+                'operation-logs',
+                'system-config',
+                'ai-model-config',
+                'ai-governance',
+                'data-config',
+            ]);
+            const guardSuperAdminPageAccess = (page, options = {}) => {
+                const targetPage = String(page || '').trim();
+                if (!SUPER_ADMIN_ONLY_PAGES.has(targetPage) || user.value?.is_super_admin === true) return true;
+                if (currentPage.value === targetPage) currentPage.value = 'compass';
+                if (options.notify !== false) showToast('该页面仅超级管理员可访问', 'warning');
+                return false;
+            };
             const isCompassDataPage = (page = currentPage.value) => ['ai-workbench', 'compass'].includes(page);
             const lifecycleLoading = ref(false);
             const lifecycleOverview = ref(null);
@@ -621,9 +638,6 @@
             const registerSuccess = ref('');
             const registerForm = ref(createRegisterForm());
             const rememberAccount = ref(rememberedLogin.remember);
-            const directorEntryVisible = ref(false);
-            const directorEntryAnswer = ref('');
-            const directorEntryError = ref('');
 
             // 系统配置
             const systemConfig = ref({
@@ -1352,6 +1366,96 @@
             const ctripOverviewFetching = ref(false);
             const ctripFlowOverviewResult = ref(null);
             const ctripFlowOverviewFetching = ref(false);
+            const otaResultFiniteNumber = (value) => {
+                if (value === null || value === undefined || value === '') return null;
+                const number = Number(value);
+                return Number.isFinite(number) ? number : null;
+            };
+            const otaFetchResultView = (result = {}) => {
+                const status = String(result.ui_flow_status || result.flow_status || result.status || '').trim().toLowerCase();
+                const runningStatuses = new Set(['accepted', 'running', 'queued', 'pending', 'processing', 'in_progress']);
+                const failedStatuses = new Set(['business_failed', 'failed', 'error', 'exception', 'rejected']);
+                const savedCount = otaResultFiniteNumber(result.saved_count ?? result.savedCount ?? result.inserted_count ?? result.upserted_count);
+                const parsedCount = otaResultFiniteNumber(result.row_count ?? result.parsed_row_count ?? result.total);
+                const errorText = String(result.error || result.failure_reason || result.ui_message || result.message || '').trim();
+                const partialErrors = Array.isArray(result.errors) ? result.errors.length : 0;
+                const businessFailed = result.business_failed === true || failedStatuses.has(status) || !!result.error;
+                const running = !businessFailed && runningStatuses.has(status);
+                const readbackVerified = result.readback_verified === true || result.readbackVerified === true;
+                const savedAndVerified = savedCount !== null && savedCount > 0 && readbackVerified;
+                const parsedText = parsedCount === null ? '解析数量未返回' : `解析 ${parsedCount} 条`;
+
+                if (businessFailed) {
+                    return {
+                        tone: 'error',
+                        panelClass: 'border-red-200 bg-red-50',
+                        textClass: 'text-red-800',
+                        iconClass: 'fas fa-times-circle text-red-500',
+                        title: status === 'business_failed' ? '业务处理失败' : '获取失败',
+                        detail: errorText || '接口未返回可确认的业务结果，请查看失败原因后重试。',
+                        showMetrics: false,
+                    };
+                }
+                if (running) {
+                    return {
+                        tone: 'running',
+                        panelClass: 'border-blue-200 bg-blue-50',
+                        textClass: 'text-blue-800',
+                        iconClass: 'fas fa-spinner fa-spin text-blue-500',
+                        title: '后台执行中',
+                        detail: result.task_id ? `任务 ${result.task_id} 已提交，尚未确认入库。` : '任务已提交后台执行，尚未确认入库。',
+                        showMetrics: false,
+                    };
+                }
+                if (partialErrors > 0) {
+                    return {
+                        tone: 'warning',
+                        panelClass: 'border-amber-200 bg-amber-50',
+                        textClass: 'text-amber-800',
+                        iconClass: 'fas fa-exclamation-triangle text-amber-500',
+                        title: savedAndVerified
+                            ? '部分数据已入库并回读验证'
+                            : (savedCount !== null && savedCount > 0 ? '部分返回，回读未确认' : '部分数据未返回'),
+                        detail: savedAndVerified
+                            ? `已保存并回读验证 ${savedCount} 条；另有 ${partialErrors} 个板块未返回。`
+                            : (savedCount !== null && savedCount > 0
+                                ? (String(result.ui_message || '').trim() || `接口返回已保存 ${savedCount} 条，但尚未通过回读验证；另有 ${partialErrors} 个板块未返回。`)
+                                : `${partialErrors} 个板块未返回；${parsedText}，尚未确认入库。`),
+                        showMetrics: true,
+                    };
+                }
+                if (savedAndVerified) {
+                    return {
+                        tone: 'success',
+                        panelClass: 'border-green-200 bg-green-50',
+                        textClass: 'text-green-800',
+                        iconClass: 'fas fa-check-circle text-green-500',
+                        title: '已入库并回读验证',
+                        detail: `已保存并回读验证 ${savedCount} 条，${parsedText}。`,
+                        showMetrics: true,
+                    };
+                }
+                if (savedCount !== null && savedCount > 0) {
+                    return {
+                        tone: 'warning',
+                        panelClass: 'border-amber-200 bg-amber-50',
+                        textClass: 'text-amber-800',
+                        iconClass: 'fas fa-exclamation-circle text-amber-500',
+                        title: '已返回保存数量，回读未确认',
+                        detail: String(result.ui_message || '').trim() || `接口返回已保存 ${savedCount} 条，${parsedText}；尚未通过回读验证，不视为入库成功。`,
+                        showMetrics: true,
+                    };
+                }
+                return {
+                    tone: 'warning',
+                    panelClass: 'border-amber-200 bg-amber-50',
+                    textClass: 'text-amber-800',
+                    iconClass: 'fas fa-exclamation-circle text-amber-500',
+                    title: savedCount === 0 ? '请求完成，未入库' : '入库状态未确认',
+                    detail: `${parsedText}，${savedCount === 0 ? '已保存 0 条' : '保存数量未返回'}；不视为入库成功。`,
+                    showMetrics: !!result.metrics || (parsedCount !== null && parsedCount > 0),
+                };
+            };
             const ctripOverviewMetricCards = computed(() => buildCtripOverviewMetricCards(ctripOverviewResult.value));
             const ctripOverviewTopRankTables = computed(() => buildCtripOverviewTopRankTables(ctripOverviewResult.value));
             const ctripFlowOverviewMetricCards = computed(() => buildCtripFlowOverviewMetricCards(ctripFlowOverviewResult.value));
@@ -1904,26 +2008,27 @@
             const ctripHeaderRecordCount = computed(() => ctripSavedCount.value || ctripLatestMeta.value?.total_records || 0);
             const ctripLatestSnapshotText = computed(() => {
                 if (ctripLatestLoading.value) return '加载中';
-                if (ctripLatestMeta.value?.status === 'success') return '已有入库快照';
+                if (ctripLatestMeta.value?.status === 'success') return '目标日期已入库';
                 return ctripLatestMeta.value?.status_label || '暂无入库快照';
             });
             const ctripLatestSnapshotClass = computed(() => ctripLatestMeta.value?.status === 'success' ? 'text-blue-700' : 'text-gray-600');
             const ctripLatestDisplayStatusText = computed(() => {
-                if (ctripLatestLoading.value) return '正在读取最近已入库快照';
+                if (ctripLatestLoading.value) return '正在读取目标日期数据';
                 const meta = ctripLatestMeta.value || {};
-                if (meta.status !== 'success') return '';
+                if (meta.status !== 'success') {
+                    const targetDate = meta.target_data_date || '';
+                    return targetDate
+                        ? `目标日期 ${targetDate} 未采集；当前页不回填历史数据。历史记录请到“入库记录”查询。`
+                        : '';
+                }
                 const dataDate = meta.data_date || '-';
                 const fetchedAt = meta.fetched_at || '-';
-                if (meta.early_morning_fallback) {
-                    const targetDate = meta.target_data_date || '昨日';
-                    return `当前展示：${dataDate} · 采集时间 ${fetchedAt}。${targetDate} 数据早间可能未就绪，已展示最近已抓取快照。`;
-                }
                 return `当前展示：${dataDate} · 采集时间 ${fetchedAt}`;
             });
             const ctripLatestDisplayStatusClass = computed(() => (
-                ctripLatestMeta.value?.early_morning_fallback
-                    ? 'border-amber-200 bg-amber-50 text-amber-800'
-                    : 'border-slate-200 bg-slate-50 text-slate-600'
+                ctripLatestMeta.value?.status === 'success'
+                    ? 'border-slate-200 bg-slate-50 text-slate-600'
+                    : 'border-amber-200 bg-amber-50 text-amber-800'
             ));
 
             // 美团配置管理
@@ -2150,6 +2255,16 @@
             const onlineDataHotelList = ref([]);
             const onlineDataSummary = ref(null);
             const onlineDataQualitySummary = ref(null);
+            const canUseOnlineDataCorrectionLedger = computed(() => (
+                user.value?.is_super_admin === true || userHasPermission('can_delete_online_data')
+            ));
+            const onlineDataCorrectionLedgerOpen = ref(false);
+            const onlineDataCorrectionLedgerLoading = ref(false);
+            const onlineDataCorrectionLedgerError = ref('');
+            const onlineDataCorrectionLedgerList = ref([]);
+            const onlineDataCorrectionLedgerPagination = ref({ total: 0, page: 1, page_size: 20 });
+            const onlineDataCorrectionLedgerRestoringId = ref(0);
+            let onlineDataCorrectionLedgerRequestSeq = 0;
             const dataHealthStatic = window.SUXI_DATA_HEALTH_STATIC;
             if (!dataHealthStatic || typeof dataHealthStatic !== 'object') {
                 throw new Error('缺少数据健康静态展示工具：data-health-static.js 未加载');
@@ -2604,8 +2719,53 @@
             const globalNotificationBackendTotalCount = ref(0);
             const globalNotificationBackendUnreadCount = ref(0);
             const strongOtaReminderOpen = ref(false);
-            const strongOtaReminderDeferredKeys = ref([]);
+            const strongOtaReminderSessionStorageKey = 'suxios_ota_auth_reminder_session_deferred_v1';
+            const strongOtaReminderSnoozedUntilStorageKey = 'suxios_ota_auth_reminder_snoozed_until_v1';
+            const loadStrongOtaReminderSessionKeys = () => {
+                try {
+                    const parsed = JSON.parse(sessionStorage.getItem(strongOtaReminderSessionStorageKey) || '[]');
+                    return Array.isArray(parsed) ? parsed.filter(Boolean).map(String) : [];
+                } catch (error) {
+                    return [];
+                }
+            };
+            const saveStrongOtaReminderSessionKeys = (keys = []) => {
+                try {
+                    const normalized = Array.from(new Set((Array.isArray(keys) ? keys : []).filter(Boolean).map(String)));
+                    if (normalized.length) {
+                        sessionStorage.setItem(strongOtaReminderSessionStorageKey, JSON.stringify(normalized));
+                    } else {
+                        sessionStorage.removeItem(strongOtaReminderSessionStorageKey);
+                    }
+                } catch (error) {
+                    // Storage failure must not block the reminder action.
+                }
+            };
+            const loadStrongOtaReminderSnoozedUntil = () => {
+                try {
+                    const parsed = JSON.parse(localStorage.getItem(strongOtaReminderSnoozedUntilStorageKey) || '{}');
+                    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+                } catch (error) {
+                    return {};
+                }
+            };
+            const saveStrongOtaReminderSnoozedUntil = (value = {}) => {
+                try {
+                    const entries = Object.entries(value && typeof value === 'object' ? value : {})
+                        .filter(([key, expiresAt]) => key && Number(expiresAt) > Date.now());
+                    if (entries.length) {
+                        localStorage.setItem(strongOtaReminderSnoozedUntilStorageKey, JSON.stringify(Object.fromEntries(entries)));
+                    } else {
+                        localStorage.removeItem(strongOtaReminderSnoozedUntilStorageKey);
+                    }
+                } catch (error) {
+                    // Storage failure must not block the reminder action.
+                }
+            };
+            const strongOtaReminderDeferredKeys = ref(loadStrongOtaReminderSessionKeys());
+            const strongOtaReminderSnoozedUntil = ref(loadStrongOtaReminderSnoozedUntil());
             const strongOtaReminderMinimumVisibleSeconds = 3;
+            const strongOtaReminderSnoozeHours = 24;
             const strongOtaReminderDeferSecondsRemaining = ref(0);
             const strongOtaReminderCanDefer = computed(() => strongOtaReminderDeferSecondsRemaining.value <= 0);
             let strongOtaReminderAttentionTimer = null;
@@ -2631,7 +2791,7 @@
                 }
             };
             const notificationStaticScript = 'notification-static.js';
-            const notificationStaticVersion = '20260714-ota-auth-strong-h4c44b30e15';
+            const notificationStaticVersion = '20260716-ota-auth-source-snooze-v1';
             let notificationStaticLoadPromise = null;
             const notificationStaticReady = ref(false);
             let sanitizeGlobalNotificationText = (text, fallback = '-') => String(text || fallback || '').trim().slice(0, 180);
@@ -2735,13 +2895,28 @@
             const syncStrongOtaReminderVisibility = () => {
                 const currentKeys = new Set(strongOtaReminderItems.value.map(item => item.reminder_key));
                 strongOtaReminderDeferredKeys.value = strongOtaReminderDeferredKeys.value.filter(key => currentKeys.has(key));
+                saveStrongOtaReminderSessionKeys(strongOtaReminderDeferredKeys.value);
+                const now = Date.now();
+                strongOtaReminderSnoozedUntil.value = Object.fromEntries(
+                    Object.entries(strongOtaReminderSnoozedUntil.value)
+                        .filter(([key, expiresAt]) => currentKeys.has(key) && Number(expiresAt) > now)
+                );
+                saveStrongOtaReminderSnoozedUntil(strongOtaReminderSnoozedUntil.value);
                 if (!currentKeys.size) {
                     strongOtaReminderOpen.value = false;
                     stopStrongOtaReminderAttentionTimer(true);
                     return;
                 }
-                if (strongOtaReminderItems.value.some(item => !strongOtaReminderDeferredKeys.value.includes(item.reminder_key))) {
+                const hasUnsnoozedReminder = strongOtaReminderItems.value.some((item) => {
+                    const reminderKey = item.reminder_key;
+                    return !strongOtaReminderDeferredKeys.value.includes(reminderKey)
+                        && Number(strongOtaReminderSnoozedUntil.value[reminderKey] || 0) <= now;
+                });
+                if (hasUnsnoozedReminder) {
                     openStrongOtaReminderAttentionModal();
+                } else {
+                    strongOtaReminderOpen.value = false;
+                    stopStrongOtaReminderAttentionTimer(true);
                 }
             };
             const loadBackendGlobalNotifications = async () => {
@@ -2967,6 +3142,18 @@
                     ...strongOtaReminderDeferredKeys.value,
                     ...strongOtaReminderItems.value.map(item => item.reminder_key),
                 ]));
+                saveStrongOtaReminderSessionKeys(strongOtaReminderDeferredKeys.value);
+                strongOtaReminderOpen.value = false;
+                stopStrongOtaReminderAttentionTimer(true);
+            };
+            const snoozeStrongOtaReminder24Hours = () => {
+                if (!strongOtaReminderCanDefer.value) return;
+                const expiresAt = Date.now() + strongOtaReminderSnoozeHours * 60 * 60 * 1000;
+                strongOtaReminderSnoozedUntil.value = {
+                    ...strongOtaReminderSnoozedUntil.value,
+                    ...Object.fromEntries(strongOtaReminderItems.value.map(item => [item.reminder_key, expiresAt])),
+                };
+                saveStrongOtaReminderSnoozedUntil(strongOtaReminderSnoozedUntil.value);
                 strongOtaReminderOpen.value = false;
                 stopStrongOtaReminderAttentionTimer(true);
             };
@@ -3487,13 +3674,21 @@
                 || typeof dualOtaHomeStatic.buildDualOtaConnectionRows !== 'function'
                 || typeof dualOtaHomeStatic.hasAllDualOtaConnections !== 'function'
                 || typeof dualOtaHomeStatic.resolveDualOtaBoundHotelRow !== 'function'
-                || typeof dualOtaHomeStatic.isDualOtaWorkbenchRequestCurrent !== 'function') {
+                || typeof dualOtaHomeStatic.isDualOtaWorkbenchRequestCurrent !== 'function'
+                || typeof dualOtaHomeStatic.parseDualOtaNumber !== 'function'
+                || typeof dualOtaHomeStatic.hasObservedDualOtaNumber !== 'function'
+                || typeof dualOtaHomeStatic.firstObservedDualOtaValue !== 'function'
+                || typeof dualOtaHomeStatic.sumObservedDualOtaValues !== 'function') {
                 throw new Error('缺少双 OTA 首页静态数据：dual-ota-home-static.js 未加载');
             }
             const buildDualOtaConnectionRows = dualOtaHomeStatic.buildDualOtaConnectionRows;
             const hasAllDualOtaConnections = dualOtaHomeStatic.hasAllDualOtaConnections;
             const resolveDualOtaBoundHotelRow = dualOtaHomeStatic.resolveDualOtaBoundHotelRow;
             const isDualOtaWorkbenchRequestCurrent = dualOtaHomeStatic.isDualOtaWorkbenchRequestCurrent;
+            const dualOtaObservedNumber = dualOtaHomeStatic.parseDualOtaNumber;
+            const dualOtaHasObservedNumber = dualOtaHomeStatic.hasObservedDualOtaNumber;
+            const dualOtaFirstObservedValue = dualOtaHomeStatic.firstObservedDualOtaValue;
+            const dualOtaSumObservedValues = dualOtaHomeStatic.sumObservedDualOtaValues;
             const dualOtaDashboard = ref(dualOtaHomeStatic.cloneDashboardData());
             const dualOtaSelectedPlatform = ref(dualOtaDashboard.value.lossChain.activePlatform || 'combined');
             const dualOtaSelectedRange = ref(dualOtaDashboard.value.lossChain.activeRange || 'yesterday');
@@ -3522,7 +3717,12 @@
                 const selected = explanations[dualOtaSelectedLossNodeId.value];
                 if (selected) return selected;
                 const firstNodeId = dualOtaActiveLossNodes.value[0]?.id || '';
-                return explanations[firstNodeId] || { title: '暂无解释', description: '该节点暂无 mock 解释。', evidence: '未知', action: '待补充' };
+                return explanations[firstNodeId] || {
+                    title: '暂无字段说明',
+                    description: '当前筛选未返回可核验的字段说明。',
+                    evidence: '字段来源未返回',
+                    action: '请先确认对应平台采集与字段支持状态。',
+                };
             });
             const dualOtaSelectedAnomaly = computed(() => {
                 const anomalies = Array.isArray(dualOtaDashboard.value.anomalies) ? dualOtaDashboard.value.anomalies : [];
@@ -3536,14 +3736,12 @@
                 };
             });
             const dualOtaFiniteNumber = (value) => {
-                if (value === null || value === undefined || value === '') return 0;
-                const normalized = String(value).replace(/[,\s￥¥%]/g, '');
-                const number = Number(normalized);
-                return Number.isFinite(number) ? number : 0;
+                const number = dualOtaObservedNumber(value);
+                return number === null ? 0 : number;
             };
             const dualOtaNumberText = (value, digits = 0) => {
-                const number = dualOtaFiniteNumber(value);
-                if (number <= 0) return '未返回';
+                const number = dualOtaObservedNumber(value);
+                if (number === null) return '未返回';
                 return number.toLocaleString('zh-CN', {
                     minimumFractionDigits: digits,
                     maximumFractionDigits: digits,
@@ -3554,10 +3752,16 @@
                 return text === '未返回' ? text : `¥${text}`;
             };
             const dualOtaRateText = (value) => {
-                const number = dualOtaFiniteNumber(value);
-                if (number <= 0) return '未返回';
+                const number = dualOtaObservedNumber(value);
+                if (number === null) return '未返回';
                 const percent = number <= 1 ? number * 100 : number;
                 return `${percent.toFixed(2)}%`;
+            };
+            const dualOtaAverageObservedValue = (total, count) => {
+                const totalNumber = dualOtaObservedNumber(total);
+                const countNumber = dualOtaObservedNumber(count);
+                if (totalNumber === null || countNumber === null || countNumber <= 0) return null;
+                return totalNumber / countNumber;
             };
             const dualOtaPreviousPeriodLabel = () => {
                 const range = String(dualOtaSelectedRange.value || '').trim();
@@ -3568,9 +3772,9 @@
                 return '上一个统计周期';
             };
             const dualOtaMetricComparisonValueText = (value, fallback = '') => {
-                const raw = String(fallback || value || '').trim();
-                const number = dualOtaFiniteNumber(value);
-                if (!Number.isFinite(number)) return '';
+                const raw = String(fallback ?? value ?? '').trim();
+                const number = dualOtaObservedNumber(value);
+                if (number === null) return '';
                 const absText = Math.abs(number).toLocaleString('zh-CN', {
                     maximumFractionDigits: raw.includes('%') ? 2 : 1,
                 });
@@ -3624,17 +3828,18 @@
                 const explicit = String(metric.comparisonText || metric.changeText || '').trim();
                 if (explicit === '未返回') return `相对${period}：接口未返回对比字段`;
                 if (explicit) return `相对${period}：${explicit}`;
-                const current = dualOtaFiniteNumber(metric.value);
+                const current = dualOtaObservedNumber(metric.value);
                 const previousRaw = metric.previousValue ?? metric.previous_value ?? metric.previous;
-                const previous = dualOtaFiniteNumber(previousRaw);
-                if (previousRaw !== null && previousRaw !== undefined && previousRaw !== '' && previous > 0 && current > 0) {
+                const previous = dualOtaObservedNumber(previousRaw);
+                if (previous !== null && current !== null) {
                     const diff = current - previous;
                     if (Math.abs(diff) < 0.000001) return `相对${period}：持平`;
                     return `相对${period}：${diff > 0 ? '增长' : '降低'} ${dualOtaMetricComparisonValueText(diff, metric.value)}`;
                 }
                 const deltaRaw = metric.deltaValue ?? metric.delta ?? metric.change;
-                const delta = dualOtaFiniteNumber(deltaRaw);
-                if (deltaRaw !== null && deltaRaw !== undefined && deltaRaw !== '' && delta !== 0) {
+                const delta = dualOtaObservedNumber(deltaRaw);
+                if (delta !== null) {
+                    if (Math.abs(delta) < 0.000001) return `相对${period}：持平`;
                     return `相对${period}：${delta > 0 ? '增长' : '降低'} ${dualOtaMetricComparisonValueText(delta, deltaRaw)}`;
                 }
                 return dualOtaMetricComparisonUnavailableText(metric, period, currentText);
@@ -3746,7 +3951,7 @@
             };
             const dualOtaCtripTrafficPendingNote = '凌晨0-8点携程流量数据待更新';
             const dualOtaCtripTrafficMetric = (label, value, note = '', extra = {}) => {
-                if (dualOtaFiniteNumber(value) <= 0 && dualOtaIsCtripTrafficPendingWindow()) {
+                if (!dualOtaHasObservedNumber(value) && dualOtaIsCtripTrafficPendingWindow()) {
                     return dualOtaMetric(label, '待更新', dualOtaCtripTrafficPendingNote, 'warning');
                 }
                 return dualOtaMetric(label, dualOtaNumberText(value), note, '', extra);
@@ -3758,7 +3963,7 @@
                 return dualOtaMissingCtripMetric(label, note);
             };
             const dualOtaExistingMetricText = (value) => {
-                const text = String(value || '').trim();
+                const text = String(value ?? '').trim();
                 return text && text !== '-' && text !== '未返回' ? text : '';
             };
             const filterReportHotel = ref('');
@@ -3829,12 +4034,12 @@
                 return resolveDualOtaBoundHotelRow(rows, selectedId);
             };
             const dualOtaMetricPreviousExtra = (value) => {
-                const number = dualOtaFiniteNumber(value);
-                return number > 0 ? { previousValue: number } : { comparisonMissingReason: 'baseline_missing' };
+                const number = dualOtaObservedNumber(value);
+                return number !== null ? { previousValue: number } : { comparisonMissingReason: 'baseline_missing' };
             };
             const dualOtaRatePreviousExtra = (value) => {
-                const number = dualOtaFiniteNumber(value);
-                if (number <= 0) return { comparisonMissingReason: 'baseline_missing' };
+                const number = dualOtaObservedNumber(value);
+                if (number === null) return { comparisonMissingReason: 'baseline_missing' };
                 return { previousValue: `${number <= 1 ? number * 100 : number}%` };
             };
             const dualOtaRowsMatchReference = (row = {}, reference = {}) => {
@@ -3872,15 +4077,23 @@
             const dualOtaCtripAverageMetrics = () => {
                 const metrics = ctripBusinessSummary.value?.metrics || {};
                 const previousMetrics = dualOtaComparisonMetrics(ctripLatestComparison.value || {});
-                const hotelCount = dualOtaFiniteNumber(metrics.hotelCount);
-                const previousHotelCount = dualOtaFiniteNumber(previousMetrics.hotelCount);
+                const hotelCount = dualOtaObservedNumber(metrics.hotelCount);
+                const previousHotelCount = dualOtaObservedNumber(previousMetrics.hotelCount);
                 if (hotelCount > 0) {
+                    const averageAmount = dualOtaAverageObservedValue(metrics.totalAmount, hotelCount);
+                    const averageQuantity = dualOtaAverageObservedValue(metrics.totalQuantity, hotelCount);
+                    const averageOrders = dualOtaAverageObservedValue(metrics.totalOrderNum, hotelCount);
+                    const averageVisitors = dualOtaAverageObservedValue(metrics.totalDetailNum, hotelCount);
+                    const previousAverageAmount = dualOtaAverageObservedValue(previousMetrics.totalAmount, previousHotelCount);
+                    const previousAverageQuantity = dualOtaAverageObservedValue(previousMetrics.totalQuantity, previousHotelCount);
+                    const previousAverageOrders = dualOtaAverageObservedValue(previousMetrics.totalOrderNum, previousHotelCount);
+                    const previousAverageVisitors = dualOtaAverageObservedValue(previousMetrics.totalDetailNum, previousHotelCount);
                     return [
-                        dualOtaMetric('均销售额', dualOtaMoneyText(dualOtaFiniteNumber(metrics.totalAmount) / hotelCount), `携程竞争圈 ${hotelCount} 家`, '', dualOtaMetricPreviousExtra(previousHotelCount > 0 ? dualOtaFiniteNumber(previousMetrics.totalAmount) / previousHotelCount : 0)),
-                        dualOtaMetric('均间夜', dualOtaNumberText(dualOtaFiniteNumber(metrics.totalQuantity) / hotelCount, 1), 'totalQuantity / hotelCount', '', dualOtaMetricPreviousExtra(previousHotelCount > 0 ? dualOtaFiniteNumber(previousMetrics.totalQuantity) / previousHotelCount : 0)),
-                        dualOtaMetric('均订单', dualOtaNumberText(dualOtaFiniteNumber(metrics.totalOrderNum) / hotelCount, 1), 'totalOrderNum / hotelCount', '', dualOtaMetricPreviousExtra(previousHotelCount > 0 ? dualOtaFiniteNumber(previousMetrics.totalOrderNum) / previousHotelCount : 0)),
+                        dualOtaMetric('均销售额', dualOtaMoneyText(averageAmount), `携程竞争圈 ${hotelCount} 家`, '', dualOtaMetricPreviousExtra(previousAverageAmount)),
+                        dualOtaMetric('均间夜', dualOtaNumberText(averageQuantity, 1), 'totalQuantity / hotelCount', '', dualOtaMetricPreviousExtra(previousAverageQuantity)),
+                        dualOtaMetric('均订单', dualOtaNumberText(averageOrders, 1), 'totalOrderNum / hotelCount', '', dualOtaMetricPreviousExtra(previousAverageOrders)),
                         dualOtaMetric('平均房价', dualOtaMoneyText(metrics.adr), 'rank.display_summary.metrics.adr', '', dualOtaMetricPreviousExtra(previousMetrics.adr)),
-                        dualOtaCtripTrafficMetric('均携程访客', dualOtaFiniteNumber(metrics.totalDetailNum) / hotelCount, 'totalDetailNum / hotelCount', dualOtaMetricPreviousExtra(previousHotelCount > 0 ? dualOtaFiniteNumber(previousMetrics.totalDetailNum) / previousHotelCount : 0)),
+                        dualOtaCtripTrafficMetric('均携程访客', averageVisitors, 'totalDetailNum / hotelCount', dualOtaMetricPreviousExtra(previousAverageVisitors)),
                         dualOtaMetric('竞争力指数', dualOtaNumberText(metrics.avgSci), '携程商圈综合竞争力', '', dualOtaMetricPreviousExtra(previousMetrics.avgSci)),
                     ];
                 }
@@ -3918,17 +4131,23 @@
                         ...dualOtaCtripAverageMetrics().slice(0, 4),
                     ];
                 }
-                const quantity = dualOtaFiniteNumber(row.quantity);
-                const amount = dualOtaFiniteNumber(row.amount);
+                const quantity = dualOtaObservedNumber(row.quantity);
+                const amount = dualOtaObservedNumber(row.amount);
                 const previous = dualOtaCtripPreviousRow(row) || {};
-                const previousQuantity = dualOtaFiniteNumber(previous.quantity);
-                const previousAmount = dualOtaFiniteNumber(previous.amount);
+                const previousQuantity = dualOtaObservedNumber(previous.quantity);
+                const previousAmount = dualOtaObservedNumber(previous.amount);
+                const orderValue = dualOtaFirstObservedValue(row.totalOrderNum, row.bookOrderNum);
+                const previousOrderValue = dualOtaFirstObservedValue(previous.totalOrderNum, previous.bookOrderNum);
+                const averagePrice = amount !== null && quantity !== null && quantity > 0 ? amount / quantity : null;
+                const previousAveragePrice = previousAmount !== null && previousQuantity !== null && previousQuantity > 0
+                    ? previousAmount / previousQuantity
+                    : null;
                 return [
                     dualOtaMetric('第一酒店', row.hotelName || '未返回', row.amountRank ? `销售额第 ${row.amountRank} 名` : '携程竞争圈返回行'),
                     dualOtaMetric('销售额', dualOtaMoneyText(amount), 'amount', '', dualOtaMetricPreviousExtra(previousAmount)),
                     dualOtaMetric('间夜', dualOtaNumberText(quantity), 'quantity', '', dualOtaMetricPreviousExtra(previousQuantity)),
-                    dualOtaMetric('订单', dualOtaNumberText(row.totalOrderNum || row.bookOrderNum), 'totalOrderNum / bookOrderNum', '', dualOtaMetricPreviousExtra(previous.totalOrderNum || previous.bookOrderNum)),
-                    dualOtaMetric('平均房价', dualOtaMoneyText(quantity > 0 ? amount / quantity : 0), 'amount / quantity', '', dualOtaMetricPreviousExtra(previousQuantity > 0 ? previousAmount / previousQuantity : 0)),
+                    dualOtaMetric('订单', dualOtaNumberText(orderValue), 'totalOrderNum / bookOrderNum', '', dualOtaMetricPreviousExtra(previousOrderValue)),
+                    dualOtaMetric('平均房价', dualOtaMoneyText(averagePrice), 'amount / quantity', '', dualOtaMetricPreviousExtra(previousAveragePrice)),
                     dualOtaCtripTrafficMetric('携程访客', row.totalDetailNum, 'totalDetailNum', dualOtaMetricPreviousExtra(previous.totalDetailNum)),
                     dualOtaMetric('点评分', row.commentScore || row.qunarCommentScore || '未返回', 'commentScore / qunarCommentScore'),
                 ];
@@ -3968,39 +4187,57 @@
                 payConversion: 'payConversionText',
             };
             const dualOtaMeituanRowMetricValue = (row = {}, field = '') => {
-                const value = dualOtaFiniteNumber(row?.[field]);
-                if (value <= 0) return 0;
+                const value = dualOtaObservedNumber(row?.[field]);
+                if (value === null) return null;
                 const textField = dualOtaMeituanMetricTextFields[field] || '';
                 if (textField && Object.prototype.hasOwnProperty.call(row || {}, textField)) {
-                    return dualOtaExistingMetricText(row?.[textField]) ? value : 0;
+                    return dualOtaExistingMetricText(row?.[textField]) ? value : null;
                 }
                 return value;
             };
-            const dualOtaRowsMetricTotal = (rows = [], fields = []) => rows.reduce((sum, row) => {
+            const dualOtaRowsMetricTotal = (rows = [], fields = []) => {
+                const rowList = Array.isArray(rows) ? rows : [];
+                if (!rowList.length) return null;
                 const fieldList = Array.isArray(fields) ? fields : [fields];
-                for (const field of fieldList) {
-                    const value = dualOtaMeituanRowMetricValue(row, field);
-                    if (value > 0) return sum + value;
-                }
-                return sum;
-            }, 0);
+                const values = rowList.map(row => {
+                    for (const field of fieldList) {
+                        const value = dualOtaMeituanRowMetricValue(row, field);
+                        if (value !== null) return value;
+                    }
+                    return null;
+                });
+                if (values.some(value => value === null)) return null;
+                return values.reduce((sum, value) => sum + value, 0);
+            };
             const dualOtaRowsMetricAverage = (rows = [], field) => {
                 const values = rows
                     .map(row => dualOtaMeituanRowMetricValue(row, field))
-                    .filter(value => value > 0);
-                return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+                    .filter(value => value !== null);
+                if (!rows.length || values.length !== rows.length) return null;
+                return values.reduce((sum, value) => sum + value, 0) / values.length;
             };
             const dualOtaMeituanComparisonRows = () => dualOtaComparisonRows(competitorSummary.value?.comparison || {});
             const dualOtaMeituanMetricTotals = (metrics = {}, rows = []) => {
                 const rowList = Array.isArray(rows) ? rows : [];
-                const totalRevenue = dualOtaFiniteNumber(metrics.totalRoomRevenue) || dualOtaRowsMetricTotal(rowList, ['roomRevenue', 'sales']);
-                const totalRoomNights = dualOtaFiniteNumber(metrics.totalRoomNights) || dualOtaRowsMetricTotal(rowList, ['roomNights', 'salesRoomNights']);
-                const totalOrders = dualOtaFiniteNumber(metrics.totalOrderCount) || dualOtaRowsMetricTotal(rowList, 'orderCount');
-                const totalExposure = dualOtaFiniteNumber(metrics.totalExposure) || dualOtaRowsMetricTotal(rowList, 'exposure');
-                const avgRoomPrice = dualOtaFiniteNumber(metrics.avgRoomPrice) || (totalRevenue > 0 && totalRoomNights > 0 ? totalRevenue / totalRoomNights : 0);
-                const avgPayConversion = dualOtaFiniteNumber(metrics.avgPayConversionRate) || dualOtaRowsMetricAverage(rowList, 'payConversion');
+                const observedOrRows = (summaryValue, fields) => {
+                    const observed = dualOtaObservedNumber(summaryValue);
+                    return observed !== null ? observed : dualOtaRowsMetricTotal(rowList, fields);
+                };
+                const totalRevenue = observedOrRows(metrics.totalRoomRevenue, ['roomRevenue', 'sales']);
+                const totalRoomNights = observedOrRows(metrics.totalRoomNights, ['roomNights', 'salesRoomNights']);
+                const totalOrders = observedOrRows(metrics.totalOrderCount, 'orderCount');
+                const totalExposure = observedOrRows(metrics.totalExposure, 'exposure');
+                const returnedAvgRoomPrice = dualOtaObservedNumber(metrics.avgRoomPrice);
+                const avgRoomPrice = returnedAvgRoomPrice !== null
+                    ? returnedAvgRoomPrice
+                    : (totalRevenue !== null && totalRoomNights !== null && totalRoomNights > 0 ? totalRevenue / totalRoomNights : null);
+                const returnedAvgPayConversion = dualOtaObservedNumber(metrics.avgPayConversionRate);
+                const avgPayConversion = returnedAvgPayConversion !== null
+                    ? returnedAvgPayConversion
+                    : dualOtaRowsMetricAverage(rowList, 'payConversion');
+                const returnedHotelCount = dualOtaObservedNumber(metrics.hotelCount);
                 return {
-                    hotelCount: dualOtaFiniteNumber(metrics.hotelCount) || rowList.length,
+                    hotelCount: returnedHotelCount !== null ? returnedHotelCount : (rowList.length ? rowList.length : null),
                     totalRevenue,
                     totalRoomNights,
                     totalOrders,
@@ -4032,12 +4269,21 @@
                         dualOtaMissingMetric('浏览→支付', '美团竞对汇总未返回 avgPayConversionRate'),
                     ];
                 }
+                const averageRevenue = dualOtaAverageObservedValue(currentTotals.totalRevenue, hotelCount);
+                const averageRoomNights = dualOtaAverageObservedValue(currentTotals.totalRoomNights, hotelCount);
+                const averageOrders = dualOtaAverageObservedValue(currentTotals.totalOrders, hotelCount);
+                const averageExposure = dualOtaAverageObservedValue(currentTotals.totalExposure, hotelCount);
+                const previousAverageRevenue = dualOtaAverageObservedValue(previousTotals.totalRevenue, previousHotelCount);
+                const previousAverageRoomNights = dualOtaAverageObservedValue(previousTotals.totalRoomNights, previousHotelCount);
+                const previousAverageOrders = dualOtaAverageObservedValue(previousTotals.totalOrders, previousHotelCount);
+                const previousAverageExposure = dualOtaAverageObservedValue(previousTotals.totalExposure, previousHotelCount);
+                const returnedAverageRoomPrice = dualOtaObservedNumber(metrics.avgRoomPrice);
                 return [
-                    dualOtaMetric('均营收', dualOtaMoneyText(currentTotals.totalRevenue / hotelCount), `美团榜单 ${hotelCount} 家`, '', dualOtaMetricPreviousExtra(previousHotelCount > 0 ? previousTotals.totalRevenue / previousHotelCount : 0)),
-                    dualOtaMetric('均间夜', dualOtaNumberText(currentTotals.totalRoomNights / hotelCount, 1), 'totalRoomNights / hotelCount', '', dualOtaMetricPreviousExtra(previousHotelCount > 0 ? previousTotals.totalRoomNights / previousHotelCount : 0)),
-                    dualOtaMetric('均订单', dualOtaNumberText(currentTotals.totalOrders / hotelCount, 1), 'totalOrderCount / hotelCount', '', dualOtaMetricPreviousExtra(previousHotelCount > 0 ? previousTotals.totalOrders / previousHotelCount : 0)),
-                    dualOtaMetric('平均房价', dualOtaMoneyText(currentTotals.avgRoomPrice), currentTotals.avgRoomPrice === dualOtaFiniteNumber(metrics.avgRoomPrice) ? 'display_summary.metrics.avgRoomPrice' : 'display_hotels 营收 / 间夜', '', dualOtaMetricPreviousExtra(previousTotals.avgRoomPrice)),
-                    dualOtaMetric('均曝光', dualOtaNumberText(currentTotals.totalExposure / hotelCount, 1), 'totalExposure / hotelCount', '', dualOtaMetricPreviousExtra(previousHotelCount > 0 ? previousTotals.totalExposure / previousHotelCount : 0)),
+                    dualOtaMetric('均营收', dualOtaMoneyText(averageRevenue), `美团榜单 ${hotelCount} 家`, '', dualOtaMetricPreviousExtra(previousAverageRevenue)),
+                    dualOtaMetric('均间夜', dualOtaNumberText(averageRoomNights, 1), 'totalRoomNights / hotelCount', '', dualOtaMetricPreviousExtra(previousAverageRoomNights)),
+                    dualOtaMetric('均订单', dualOtaNumberText(averageOrders, 1), 'totalOrderCount / hotelCount', '', dualOtaMetricPreviousExtra(previousAverageOrders)),
+                    dualOtaMetric('平均房价', dualOtaMoneyText(currentTotals.avgRoomPrice), returnedAverageRoomPrice !== null ? 'display_summary.metrics.avgRoomPrice' : 'display_hotels 营收 / 间夜', '', dualOtaMetricPreviousExtra(previousTotals.avgRoomPrice)),
+                    dualOtaMetric('均曝光', dualOtaNumberText(averageExposure, 1), 'totalExposure / hotelCount', '', dualOtaMetricPreviousExtra(previousAverageExposure)),
                     dualOtaMetric('浏览→支付', dualOtaRateText(currentTotals.avgPayConversion), 'avgPayConversionRate / display_hotels', '', dualOtaRatePreviousExtra(previousTotals.avgPayConversion)),
                 ];
             };
@@ -4052,7 +4298,7 @@
                 const previous = dualOtaMeituanPreviousRow(row) || {};
                 return [
                     dualOtaMetric('第一酒店', row.hotelName || '未返回', row.circlePositionText || row.gapToLeaderText || '美团榜单第一行'),
-                    dualOtaMetric('营收', dualOtaMoneyText(row.roomRevenue || row.sales), 'roomRevenue / sales', '', dualOtaMetricPreviousExtra(previous.roomRevenue || previous.sales)),
+                    dualOtaMetric('营收', dualOtaMoneyText(dualOtaFirstObservedValue(row.roomRevenue, row.sales)), 'roomRevenue / sales', '', dualOtaMetricPreviousExtra(dualOtaFirstObservedValue(previous.roomRevenue, previous.sales))),
                     dualOtaMetric('曝光量', dualOtaNumberText(row.exposure), row.exposurePrefix || 'exposure', '', dualOtaMetricPreviousExtra(previous.exposure)),
                     dualOtaMetric('浏览量', dualOtaNumberText(row.views), row.viewsPrefix || 'views', '', dualOtaMetricPreviousExtra(previous.views)),
                     dualOtaMetric('支付订单', dualOtaNumberText(row.orderCount), 'orderCount', '', dualOtaMetricPreviousExtra(previous.orderCount)),
@@ -4066,26 +4312,34 @@
                 const meituanMetrics = dualOtaMeituanSummary().metrics || {};
                 const previousCtripMetrics = dualOtaComparisonMetrics(ctripLatestComparison.value || {});
                 const previousMeituanMetrics = dualOtaComparisonMetrics(competitorSummary.value?.comparison || {});
-                const ctripCount = dualOtaFiniteNumber(ctripMetrics.hotelCount);
+                const ctripCount = dualOtaObservedNumber(ctripMetrics.hotelCount);
                 const meituanRows = dualOtaMeituanRows();
-                const previousCtripCount = dualOtaFiniteNumber(previousCtripMetrics.hotelCount);
+                const previousCtripCount = dualOtaObservedNumber(previousCtripMetrics.hotelCount);
                 const previousMeituanRows = dualOtaMeituanComparisonRows();
                 const meituanTotals = dualOtaMeituanMetricTotals(meituanMetrics, meituanRows);
                 const previousMeituanTotals = dualOtaMeituanMetricTotals(previousMeituanMetrics, previousMeituanRows);
                 const meituanCount = meituanTotals.hotelCount;
                 const previousMeituanCount = previousMeituanTotals.hotelCount;
+                const ctripAverageAmount = dualOtaAverageObservedValue(ctripMetrics.totalAmount, ctripCount);
+                const previousCtripAverageAmount = dualOtaAverageObservedValue(previousCtripMetrics.totalAmount, previousCtripCount);
+                const ctripAverageQuantity = dualOtaAverageObservedValue(ctripMetrics.totalQuantity, ctripCount);
+                const previousCtripAverageQuantity = dualOtaAverageObservedValue(previousCtripMetrics.totalQuantity, previousCtripCount);
+                const meituanAverageRevenue = dualOtaAverageObservedValue(meituanTotals.totalRevenue, meituanCount);
+                const previousMeituanAverageRevenue = dualOtaAverageObservedValue(previousMeituanTotals.totalRevenue, previousMeituanCount);
+                const meituanAverageRoomNights = dualOtaAverageObservedValue(meituanTotals.totalRoomNights, meituanCount);
+                const previousMeituanAverageRoomNights = dualOtaAverageObservedValue(previousMeituanTotals.totalRoomNights, previousMeituanCount);
                 return [
                     ctripCount > 0
-                        ? dualOtaMetric('携程均销售额', dualOtaMoneyText(dualOtaFiniteNumber(ctripMetrics.totalAmount) / ctripCount), `携程竞争圈 ${ctripCount} 家`, '', dualOtaMetricPreviousExtra(previousCtripCount > 0 ? dualOtaFiniteNumber(previousCtripMetrics.totalAmount) / previousCtripCount : 0))
+                        ? dualOtaMetric('携程均销售额', dualOtaMoneyText(ctripAverageAmount), `携程竞争圈 ${ctripCount} 家`, '', dualOtaMetricPreviousExtra(previousCtripAverageAmount))
                         : dualOtaMissingCtripMetric('携程均销售额', '未命中携程 display_summary'),
                     meituanCount > 0
-                        ? dualOtaMetric('美团均营收', dualOtaMoneyText(meituanTotals.totalRevenue / meituanCount), `美团榜单 ${meituanCount} 家`, '', dualOtaMetricPreviousExtra(previousMeituanCount > 0 ? previousMeituanTotals.totalRevenue / previousMeituanCount : 0))
+                        ? dualOtaMetric('美团均营收', dualOtaMoneyText(meituanAverageRevenue), `美团榜单 ${meituanCount} 家`, '', dualOtaMetricPreviousExtra(previousMeituanAverageRevenue))
                         : dualOtaMissingMetric('美团均营收', '未命中美团 display_summary'),
                     ctripCount > 0
-                        ? dualOtaMetric('携程均间夜', dualOtaNumberText(dualOtaFiniteNumber(ctripMetrics.totalQuantity) / ctripCount, 1), '携程 totalQuantity / hotelCount', '', dualOtaMetricPreviousExtra(previousCtripCount > 0 ? dualOtaFiniteNumber(previousCtripMetrics.totalQuantity) / previousCtripCount : 0))
+                        ? dualOtaMetric('携程均间夜', dualOtaNumberText(ctripAverageQuantity, 1), '携程 totalQuantity / hotelCount', '', dualOtaMetricPreviousExtra(previousCtripAverageQuantity))
                         : dualOtaMissingCtripMetric('携程均间夜'),
                     meituanCount > 0
-                        ? dualOtaMetric('美团均间夜', dualOtaNumberText(meituanTotals.totalRoomNights / meituanCount, 1), '美团 totalRoomNights / hotelCount', '', dualOtaMetricPreviousExtra(previousMeituanCount > 0 ? previousMeituanTotals.totalRoomNights / previousMeituanCount : 0))
+                        ? dualOtaMetric('美团均间夜', dualOtaNumberText(meituanAverageRoomNights, 1), '美团 totalRoomNights / hotelCount', '', dualOtaMetricPreviousExtra(previousMeituanAverageRoomNights))
                         : dualOtaMissingMetric('美团均间夜'),
                     ctripCount > 0
                         ? dualOtaMetric('携程样本', `${ctripCount} 家`, '携程竞争圈')
@@ -4109,13 +4363,13 @@
                         ? dualOtaMetric('美团第一', meituanTop.hotelName || '未返回', meituanTop.circlePositionText || '美团榜单')
                         : dualOtaMissingMetric('美团第一', '未命中美团酒店明细'),
                     meituanTop
-                        ? dualOtaMetric('美团第一营收', dualOtaMoneyText(meituanTop.roomRevenue || meituanTop.sales), '美团 roomRevenue / sales', '', dualOtaMetricPreviousExtra(previousMeituanTop.roomRevenue || previousMeituanTop.sales))
+                        ? dualOtaMetric('美团第一营收', dualOtaMoneyText(dualOtaFirstObservedValue(meituanTop.roomRevenue, meituanTop.sales)), '美团 roomRevenue / sales', '', dualOtaMetricPreviousExtra(dualOtaFirstObservedValue(previousMeituanTop.roomRevenue, previousMeituanTop.sales)))
                         : dualOtaMissingMetric('美团第一营收'),
                     ctripTop
                         ? dualOtaMetric('携程第一间夜', dualOtaNumberText(ctripTop.quantity), '携程 quantity', '', dualOtaMetricPreviousExtra(previousCtripTop.quantity))
                         : dualOtaMissingCtripMetric('携程第一间夜'),
                     meituanTop
-                        ? dualOtaMetric('美团第一间夜', dualOtaNumberText(meituanTop.roomNights || meituanTop.salesRoomNights), '美团 roomNights / salesRoomNights', '', dualOtaMetricPreviousExtra(previousMeituanTop.roomNights || previousMeituanTop.salesRoomNights))
+                        ? dualOtaMetric('美团第一间夜', dualOtaNumberText(dualOtaFirstObservedValue(meituanTop.roomNights, meituanTop.salesRoomNights)), '美团 roomNights / salesRoomNights', '', dualOtaMetricPreviousExtra(dualOtaFirstObservedValue(previousMeituanTop.roomNights, previousMeituanTop.salesRoomNights)))
                         : dualOtaMissingMetric('美团第一间夜'),
                 ];
             };
@@ -4131,17 +4385,23 @@
                         dualOtaMissingCtripMetric('竞争力指数', '当前门店携程明细行未返回'),
                     ];
                 }
-                const quantity = dualOtaFiniteNumber(row.quantity);
-                const amount = dualOtaFiniteNumber(row.amount);
+                const quantity = dualOtaObservedNumber(row.quantity);
+                const amount = dualOtaObservedNumber(row.amount);
                 const sciValue = dualOtaExistingMetricText(row.sciText) || dualOtaNumberText(row.sci);
                 const previous = dualOtaCtripPreviousRow(row) || {};
-                const previousQuantity = dualOtaFiniteNumber(previous.quantity);
-                const previousAmount = dualOtaFiniteNumber(previous.amount);
+                const previousQuantity = dualOtaObservedNumber(previous.quantity);
+                const previousAmount = dualOtaObservedNumber(previous.amount);
+                const orderValue = dualOtaFirstObservedValue(row.totalOrderNum, row.bookOrderNum);
+                const previousOrderValue = dualOtaFirstObservedValue(previous.totalOrderNum, previous.bookOrderNum);
+                const avgRoomPrice = amount !== null && quantity !== null && quantity > 0 ? amount / quantity : null;
+                const previousAvgRoomPrice = previousAmount !== null && previousQuantity !== null && previousQuantity > 0
+                    ? previousAmount / previousQuantity
+                    : null;
                 return [
                     dualOtaMetric('销售额', dualOtaMoneyText(amount), '当前门店携程销售额', '', dualOtaMetricPreviousExtra(previousAmount)),
                     dualOtaMetric('间夜', dualOtaNumberText(quantity), '当前门店携程间夜', '', dualOtaMetricPreviousExtra(previousQuantity)),
-                    dualOtaMetric('订单', dualOtaNumberText(row.totalOrderNum || row.bookOrderNum), '当前门店携程订单', '', dualOtaMetricPreviousExtra(previous.totalOrderNum || previous.bookOrderNum)),
-                    dualOtaMetric('平均房价', dualOtaMoneyText(quantity > 0 ? amount / quantity : 0), '当前门店携程销售额 / 间夜', '', dualOtaMetricPreviousExtra(previousQuantity > 0 ? previousAmount / previousQuantity : 0)),
+                    dualOtaMetric('订单', dualOtaNumberText(orderValue), '当前门店携程订单', '', dualOtaMetricPreviousExtra(previousOrderValue)),
+                    dualOtaMetric('平均房价', dualOtaMoneyText(avgRoomPrice), '当前门店携程销售额 / 间夜', '', dualOtaMetricPreviousExtra(previousAvgRoomPrice)),
                     dualOtaCtripTrafficMetric('携程访客', row.totalDetailNum, '当前门店携程访客', dualOtaMetricPreviousExtra(previous.totalDetailNum)),
                     dualOtaMetric('竞争力指数', sciValue, '当前门店携程综合竞争力', '', dualOtaMetricPreviousExtra(previous.sci)),
                 ];
@@ -4158,14 +4418,20 @@
                         dualOtaMissingMetric('浏览→支付', '当前门店美团明细行未返回'),
                     ];
                 }
-                const revenue = dualOtaFiniteNumber(row.roomRevenue || row.sales);
-                const roomNights = dualOtaFiniteNumber(row.roomNights || row.salesRoomNights);
-                const avgRoomPrice = dualOtaFiniteNumber(row.avgRoomPrice) || (revenue > 0 && roomNights > 0 ? revenue / roomNights : 0);
+                const revenue = dualOtaObservedNumber(dualOtaFirstObservedValue(row.roomRevenue, row.sales));
+                const roomNights = dualOtaObservedNumber(dualOtaFirstObservedValue(row.roomNights, row.salesRoomNights));
+                const returnedAvgRoomPrice = dualOtaObservedNumber(row.avgRoomPrice);
+                const avgRoomPrice = returnedAvgRoomPrice !== null
+                    ? returnedAvgRoomPrice
+                    : (revenue !== null && roomNights !== null && roomNights > 0 ? revenue / roomNights : null);
                 const payConversion = dualOtaExistingMetricText(row.payConversionText) || dualOtaRateText(row.payConversion);
                 const previous = dualOtaMeituanPreviousRow(row) || {};
-                const previousRevenue = dualOtaFiniteNumber(previous.roomRevenue || previous.sales);
-                const previousRoomNights = dualOtaFiniteNumber(previous.roomNights || previous.salesRoomNights);
-                const previousAvgRoomPrice = dualOtaFiniteNumber(previous.avgRoomPrice) || (previousRevenue > 0 && previousRoomNights > 0 ? previousRevenue / previousRoomNights : 0);
+                const previousRevenue = dualOtaObservedNumber(dualOtaFirstObservedValue(previous.roomRevenue, previous.sales));
+                const previousRoomNights = dualOtaObservedNumber(dualOtaFirstObservedValue(previous.roomNights, previous.salesRoomNights));
+                const returnedPreviousAvgRoomPrice = dualOtaObservedNumber(previous.avgRoomPrice);
+                const previousAvgRoomPrice = returnedPreviousAvgRoomPrice !== null
+                    ? returnedPreviousAvgRoomPrice
+                    : (previousRevenue !== null && previousRoomNights !== null && previousRoomNights > 0 ? previousRevenue / previousRoomNights : null);
                 return [
                     dualOtaMetric('营收', dualOtaMoneyText(revenue), '当前门店美团营收', '', dualOtaMetricPreviousExtra(previousRevenue)),
                     dualOtaMetric('间夜', dualOtaNumberText(roomNights), '当前门店美团间夜', '', dualOtaMetricPreviousExtra(previousRoomNights)),
@@ -4189,8 +4455,8 @@
                 if (scope === 'meituan') return dualOtaMeituanCurrentMetrics();
                 const ctripRow = dualOtaCtripCurrentRow();
                 const meituanRow = dualOtaMeituanCurrentRow();
-                const meituanRevenue = meituanRow ? dualOtaFiniteNumber(meituanRow.roomRevenue || meituanRow.sales) : 0;
-                const meituanRoomNights = meituanRow ? dualOtaFiniteNumber(meituanRow.roomNights || meituanRow.salesRoomNights) : 0;
+                const meituanRevenue = meituanRow ? dualOtaFirstObservedValue(meituanRow.roomRevenue, meituanRow.sales) : null;
+                const meituanRoomNights = meituanRow ? dualOtaFirstObservedValue(meituanRow.roomNights, meituanRow.salesRoomNights) : null;
                 const ctripPrevious = ctripRow ? (dualOtaCtripPreviousRow(ctripRow) || {}) : {};
                 const meituanPrevious = meituanRow ? (dualOtaMeituanPreviousRow(meituanRow) || {}) : {};
                 return [
@@ -4198,16 +4464,16 @@
                         ? dualOtaMetric('携程销售额', dualOtaMoneyText(ctripRow.amount), '当前门店携程销售额', '', dualOtaMetricPreviousExtra(ctripPrevious.amount))
                         : dualOtaMissingCtripMetric('携程销售额', '当前门店携程明细行未返回'),
                     meituanRow
-                        ? dualOtaMetric('美团营收', dualOtaMoneyText(meituanRevenue), '当前门店美团营收', '', dualOtaMetricPreviousExtra(meituanPrevious.roomRevenue || meituanPrevious.sales))
+                        ? dualOtaMetric('美团营收', dualOtaMoneyText(meituanRevenue), '当前门店美团营收', '', dualOtaMetricPreviousExtra(dualOtaFirstObservedValue(meituanPrevious.roomRevenue, meituanPrevious.sales)))
                         : dualOtaMissingMetric('美团营收', '当前门店美团明细行未返回'),
                     ctripRow
                         ? dualOtaMetric('携程间夜', dualOtaNumberText(ctripRow.quantity), '当前门店携程间夜', '', dualOtaMetricPreviousExtra(ctripPrevious.quantity))
                         : dualOtaMissingCtripMetric('携程间夜', '当前门店携程明细行未返回'),
                     meituanRow
-                        ? dualOtaMetric('美团间夜', dualOtaNumberText(meituanRoomNights), '当前门店美团间夜', '', dualOtaMetricPreviousExtra(meituanPrevious.roomNights || meituanPrevious.salesRoomNights))
+                        ? dualOtaMetric('美团间夜', dualOtaNumberText(meituanRoomNights), '当前门店美团间夜', '', dualOtaMetricPreviousExtra(dualOtaFirstObservedValue(meituanPrevious.roomNights, meituanPrevious.salesRoomNights)))
                         : dualOtaMissingMetric('美团间夜', '当前门店美团明细行未返回'),
                     ctripRow
-                        ? dualOtaMetric('携程订单', dualOtaNumberText(ctripRow.totalOrderNum || ctripRow.bookOrderNum), '当前门店携程订单', '', dualOtaMetricPreviousExtra(ctripPrevious.totalOrderNum || ctripPrevious.bookOrderNum))
+                        ? dualOtaMetric('携程订单', dualOtaNumberText(dualOtaFirstObservedValue(ctripRow.totalOrderNum, ctripRow.bookOrderNum)), '当前门店携程订单', '', dualOtaMetricPreviousExtra(dualOtaFirstObservedValue(ctripPrevious.totalOrderNum, ctripPrevious.bookOrderNum)))
                         : dualOtaMissingCtripMetric('携程订单', '当前门店携程明细行未返回'),
                     meituanRow
                         ? dualOtaMetric('美团订单', dualOtaNumberText(meituanRow.orderCount), '当前门店美团订单', '', dualOtaMetricPreviousExtra(meituanPrevious.orderCount))
@@ -4248,48 +4514,57 @@
             const dualOtaCurrentRevenuePlatforms = () => {
                 const ctripRow = dualOtaCtripCurrentRow();
                 const meituanRow = dualOtaMeituanCurrentRow();
-                const ctripRevenue = ctripRow ? dualOtaFiniteNumber(ctripRow.amount) : 0;
-                const ctripQuantity = ctripRow ? dualOtaFiniteNumber(ctripRow.quantity) : 0;
-                const ctripOrders = ctripRow ? dualOtaFiniteNumber(ctripRow.totalOrderNum || ctripRow.bookOrderNum) : 0;
-                const meituanRevenue = meituanRow ? dualOtaFiniteNumber(meituanRow.roomRevenue || meituanRow.sales) : 0;
-                const meituanQuantity = meituanRow ? dualOtaFiniteNumber(meituanRow.roomNights || meituanRow.salesRoomNights) : 0;
-                const meituanOrders = meituanRow ? dualOtaFiniteNumber(meituanRow.orderCount) : 0;
+                const ctripRevenue = ctripRow ? dualOtaObservedNumber(ctripRow.amount) : null;
+                const ctripQuantity = ctripRow ? dualOtaObservedNumber(ctripRow.quantity) : null;
+                const ctripOrders = ctripRow ? dualOtaObservedNumber(dualOtaFirstObservedValue(ctripRow.totalOrderNum, ctripRow.bookOrderNum)) : null;
+                const meituanRevenue = meituanRow ? dualOtaObservedNumber(dualOtaFirstObservedValue(meituanRow.roomRevenue, meituanRow.sales)) : null;
+                const meituanQuantity = meituanRow ? dualOtaObservedNumber(dualOtaFirstObservedValue(meituanRow.roomNights, meituanRow.salesRoomNights)) : null;
+                const meituanOrders = meituanRow ? dualOtaObservedNumber(meituanRow.orderCount) : null;
                 const rows = [
                     {
                         id: 'ctrip',
                         name: '携程营收',
                         revenue: ctripRevenue,
+                        revenueObserved: ctripRevenue !== null,
                         revenueText: dualOtaMoneyText(ctripRevenue),
                         metrics: [
                             { label: '订单', value: dualOtaMetricUnitText(ctripOrders, '单') },
                             { label: '间夜', value: dualOtaMetricUnitText(ctripQuantity, '间夜') },
-                            { label: '平均房价', value: dualOtaMoneyText(ctripQuantity > 0 ? ctripRevenue / ctripQuantity : 0) },
+                            { label: '平均房价', value: dualOtaMoneyText(ctripRevenue !== null && ctripQuantity !== null && ctripQuantity > 0 ? ctripRevenue / ctripQuantity : null) },
                         ],
                     },
                     {
                         id: 'meituan',
                         name: '美团营收',
                         revenue: meituanRevenue,
+                        revenueObserved: meituanRevenue !== null,
                         revenueText: dualOtaMoneyText(meituanRevenue),
                         metrics: [
                             { label: '订单', value: dualOtaMetricUnitText(meituanOrders, '单') },
                             { label: '间夜', value: dualOtaMetricUnitText(meituanQuantity, '间夜') },
-                            { label: '平均房价', value: dualOtaMoneyText(meituanQuantity > 0 ? meituanRevenue / meituanQuantity : 0) },
+                            { label: '平均房价', value: dualOtaMoneyText(meituanRevenue !== null && meituanQuantity !== null && meituanQuantity > 0 ? meituanRevenue / meituanQuantity : null) },
                         ],
                     },
                 ];
                 const scopedRows = dualOtaEffectiveStoreScope.value === 'combined'
                     ? rows
                     : rows.filter(row => row.id === dualOtaEffectiveStoreScope.value);
-                const totalRevenue = scopedRows.reduce((sum, row) => sum + dualOtaFiniteNumber(row.revenue), 0);
+                const allRevenuesObserved = scopedRows.length > 0 && scopedRows.every(row => row.revenueObserved);
+                const totalRevenue = allRevenuesObserved
+                    ? scopedRows.reduce((sum, row) => sum + row.revenue, 0)
+                    : null;
                 return scopedRows.map(row => ({
                     ...row,
-                    contribution: totalRevenue > 0 ? Math.round((dualOtaFiniteNumber(row.revenue) / totalRevenue) * 100) : 0,
+                    contribution: totalRevenue !== null && totalRevenue > 0
+                        ? Math.round((row.revenue / totalRevenue) * 100)
+                        : null,
                 }));
             };
             const dualOtaPlatformRevenueHasContribution = computed(() => (
                 dualOtaEffectiveStoreScope.value === 'combined'
-                && dualOtaCurrentRevenuePlatforms().some(platform => dualOtaFiniteNumber(platform.revenue) > 0)
+                && dualOtaCurrentRevenuePlatforms().length === 2
+                && dualOtaCurrentRevenuePlatforms().every(platform => platform.revenueObserved)
+                && dualOtaCurrentRevenuePlatforms().reduce((sum, platform) => sum + platform.revenue, 0) > 0
             ));
             const dualOtaLossNode = (id, label, value, note = '') => {
                 const valueText = id === 'revenue' ? dualOtaMoneyText(value) : dualOtaNumberText(value);
@@ -4307,15 +4582,15 @@
                 const scope = dualOtaEffectivePlatform.value || 'combined';
                 const ctripRow = dualOtaCtripCurrentRow();
                 const meituanRow = dualOtaMeituanCurrentRow();
-                const ctripRevenue = ctripRow ? dualOtaFiniteNumber(ctripRow.amount) : 0;
-                const ctripQuantity = ctripRow ? dualOtaFiniteNumber(ctripRow.quantity) : 0;
-                const ctripOrders = ctripRow ? dualOtaFiniteNumber(ctripRow.totalOrderNum || ctripRow.bookOrderNum) : 0;
-                const ctripVisitors = ctripRow ? dualOtaFiniteNumber(ctripRow.totalDetailNum) : 0;
-                const meituanRevenue = meituanRow ? dualOtaFiniteNumber(meituanRow.roomRevenue || meituanRow.sales) : 0;
-                const meituanQuantity = meituanRow ? dualOtaFiniteNumber(meituanRow.roomNights || meituanRow.salesRoomNights) : 0;
-                const meituanOrders = meituanRow ? dualOtaFiniteNumber(meituanRow.orderCount) : 0;
-                const meituanExposure = meituanRow ? dualOtaFiniteNumber(meituanRow.exposure) : 0;
-                const meituanViews = meituanRow ? dualOtaFiniteNumber(meituanRow.views) : 0;
+                const ctripRevenue = ctripRow ? dualOtaObservedNumber(ctripRow.amount) : null;
+                const ctripQuantity = ctripRow ? dualOtaObservedNumber(ctripRow.quantity) : null;
+                const ctripOrders = ctripRow ? dualOtaObservedNumber(dualOtaFirstObservedValue(ctripRow.totalOrderNum, ctripRow.bookOrderNum)) : null;
+                const ctripVisitors = ctripRow ? dualOtaObservedNumber(ctripRow.totalDetailNum) : null;
+                const meituanRevenue = meituanRow ? dualOtaObservedNumber(dualOtaFirstObservedValue(meituanRow.roomRevenue, meituanRow.sales)) : null;
+                const meituanQuantity = meituanRow ? dualOtaObservedNumber(dualOtaFirstObservedValue(meituanRow.roomNights, meituanRow.salesRoomNights)) : null;
+                const meituanOrders = meituanRow ? dualOtaObservedNumber(meituanRow.orderCount) : null;
+                const meituanExposure = meituanRow ? dualOtaObservedNumber(meituanRow.exposure) : null;
+                const meituanViews = meituanRow ? dualOtaObservedNumber(meituanRow.views) : null;
                 if (scope === 'ctrip') {
                     return [
                         dualOtaLossNode('exposure', '携程访客', ctripVisitors, '当前门店携程访客字段'),
@@ -4337,9 +4612,9 @@
                 return [
                     dualOtaLossNode('exposure', '曝光', meituanExposure, '双平台口径下仅美团返回曝光字段'),
                     dualOtaLossNode('browse', '浏览', meituanViews, '双平台口径下仅美团返回浏览字段'),
-                    dualOtaLossNode('paidOrders', '订单', ctripOrders + meituanOrders, '携程订单 + 美团订单'),
-                    dualOtaLossNode('roomNights', '间夜', ctripQuantity + meituanQuantity, '携程间夜 + 美团间夜'),
-                    dualOtaLossNode('revenue', '收入', ctripRevenue + meituanRevenue, '携程销售额 + 美团营收'),
+                    dualOtaLossNode('paidOrders', '订单', dualOtaSumObservedValues([ctripOrders, meituanOrders]), '仅在携程与美团订单均返回时合计'),
+                    dualOtaLossNode('roomNights', '间夜', dualOtaSumObservedValues([ctripQuantity, meituanQuantity]), '仅在携程与美团间夜均返回时合计'),
+                    dualOtaLossNode('revenue', '收入', dualOtaSumObservedValues([ctripRevenue, meituanRevenue]), '仅在携程与美团收入均返回时合计'),
                 ];
             };
             dualOtaCurrentLossExplanation = (nodeId = '') => {
@@ -4690,6 +4965,8 @@
             const holidayRevenueLoading = ref(false);
             const compassLoading = ref(false);
             const compassLastSyncedAt = ref('--');
+            let compassRequestSeq = 0;
+            let compassDisplayedHotelId = '';
             const HOME_SECONDARY_PANEL_DELAY_MS = 4200;
             const COMPASS_WEATHER_REFRESH_DELAY_MS = 3200;
             const homeSecondaryPanelsReady = ref(false);
@@ -4752,6 +5029,142 @@
                     change: '完成经营数据同步后生成趋势判断',
                     action: '进入高级AI工具箱或数据健康工作台，基于最新经营数据生成分析。',
                 },
+            });
+            const createEmptyHomeTemporalData = () => ({
+                metric_scope: 'ota_channel',
+                scope_note: '仅反映已授权 OTA 渠道数据。',
+                past: { status: 'empty', series: [], metrics: {} },
+                present: { status: 'empty', snapshot_row_count: 0 },
+                future: { status: 'empty', series: [] },
+                review: { status: 'empty', items: [] },
+            });
+            const homeTemporalLoading = ref(false);
+            const homeTemporalGenerating = ref(false);
+            const homeTemporalError = ref('');
+            const homeTemporalData = ref(createEmptyHomeTemporalData());
+            let homeTemporalRequestSeq = 0;
+            const homeTemporalMetricLabels = {
+                ota_revenue: 'OTA收入',
+                ota_orders: 'OTA订单',
+                ota_room_nights: 'OTA间夜',
+                ota_list_exposure: '列表曝光',
+                ota_detail_exposure: '详情访问',
+                ota_order_submit: '订单提交',
+            };
+            const homeTemporalDirectionText = (direction) => ({ up: '向上', down: '回落', stable: '平稳' }[String(direction || '')] || '待观察');
+            const homeTemporalNumericValue = (value) => {
+                if (value === null || value === undefined || value === '') return null;
+                const number = Number(value);
+                return Number.isFinite(number) ? number : null;
+            };
+            const homeTemporalNumber = (value) => {
+                const number = homeTemporalNumericValue(value);
+                if (number === null) return '—';
+                return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 1 }).format(number);
+            };
+            const homeTemporalRangeText = (lowerBound, upperBound) => {
+                if (homeTemporalNumericValue(lowerBound) === null || homeTemporalNumericValue(upperBound) === null) {
+                    return '区间未返回';
+                }
+                return `${homeTemporalNumber(lowerBound)}–${homeTemporalNumber(upperBound)}`;
+            };
+            const homeTemporalConfidenceText = (value) => {
+                const number = homeTemporalNumericValue(value);
+                if (number === null) return '待校准';
+                return `${Math.round((Math.abs(number) <= 1 ? number * 100 : number))}%`;
+            };
+            const homeTemporalConfidenceLabel = (metric = {}) => {
+                const type = String(metric.confidence_type || '').trim().toLowerCase();
+                const semantics = String(metric.confidence_semantics || metric.semantics || '').trim().toLowerCase();
+                if (type === 'calibrated_probability' || semantics.includes('calibrated_probability')) return '校准概率';
+                return '规则置信指数（未校准）';
+            };
+            const homeTemporalPercentText = (value) => {
+                const number = homeTemporalNumericValue(value);
+                return number === null ? '未返回' : `${homeTemporalNumber(number)}%`;
+            };
+            const homeTemporalSelectedHotelId = computed(() => {
+                const selected = String(filterReportHotel.value || '').trim();
+                if (selected) return selected;
+                const pool = permittedHotels.value.length ? permittedHotels.value : hotels.value;
+                if (pool.length === 1) return String(pool[0]?.id || '').trim();
+                return '';
+            });
+            const homeTemporalPastMetric = computed(() => {
+                const metrics = homeTemporalData.value?.past?.metrics || {};
+                const priorities = ['ota_revenue', 'ota_orders', 'ota_room_nights', 'ota_list_exposure', 'ota_detail_exposure', 'ota_order_submit'];
+                const key = priorities.find(metricKey => Number(metrics?.[metricKey]?.sample_days || 0) >= 7)
+                    || priorities.find(metricKey => Number(metrics?.[metricKey]?.sample_days || 0) > 0)
+                    || '';
+                return key ? { key, ...(metrics[key] || {}) } : null;
+            });
+            const homeTemporalFutureMetric = computed(() => {
+                const days = Array.isArray(homeTemporalData.value?.future?.series) ? homeTemporalData.value.future.series : [];
+                const metrics = days[0]?.metrics || {};
+                const priorities = ['ota_revenue', 'ota_orders', 'ota_room_nights', 'ota_list_exposure', 'ota_detail_exposure', 'ota_order_submit'];
+                const key = priorities.find(metricKey => metrics?.[metricKey]) || '';
+                return key ? { key, date: days[0]?.date || '', ...(metrics[key] || {}) } : null;
+            });
+            const homeTemporalCards = computed(() => {
+                const past = homeTemporalData.value?.past || {};
+                const present = homeTemporalData.value?.present || {};
+                const future = homeTemporalData.value?.future || {};
+                const pastMetric = homeTemporalPastMetric.value;
+                const futureMetric = homeTemporalFutureMetric.value;
+                const pastDays = Array.isArray(past.series) ? past.series.length : 0;
+                const pastChange = homeTemporalNumericValue(pastMetric?.change_percent);
+                const pastChangeText = pastChange !== null ? `，较前7日 ${pastChange > 0 ? '+' : ''}${pastChange}%` : '，较前7日变化未返回';
+                const futureRange = futureMetric
+                    ? homeTemporalRangeText(futureMetric.lower_bound, futureMetric.upper_bound)
+                    : '区间未返回';
+                return [
+                    {
+                        key: 'past',
+                        label: '过去有据',
+                        status: past.status === 'ready' ? '事实已定稿' : (pastDays > 0 ? '部分事实可用' : '等待定稿事实'),
+                        value: pastDays > 0 ? `${pastDays} 个定稿日` : '暂无定稿日',
+                        detail: pastMetric
+                            ? `${homeTemporalMetricLabels[pastMetric.key] || pastMetric.key}近7日均值 ${homeTemporalNumber(pastMetric.recent_7_day_average)}${pastChangeText}`
+                            : '缺失值保持为空，不用零补齐历史。',
+                        tone: 'blue',
+                    },
+                    {
+                        key: 'present',
+                        label: '如今可察',
+                        status: present.status === 'ready' ? '今日快照有效' : (present.status === 'partial' ? '今日快照部分可用' : '尚无今日快照'),
+                        value: Number(present.snapshot_row_count || 0) > 0 ? `${Number(present.snapshot_row_count)} 条快照` : '等待今日快照',
+                        detail: present.today_reason || '今天只展示真实采集结果，不把缺失显示成零。',
+                        tone: 'cyan',
+                    },
+                    {
+                        key: 'future',
+                        label: '未来可观',
+                        status: future.status === 'ready' ? '已有预测版本' : (future.status === 'select_hotel' ? '需选择单店' : '尚无预测版本'),
+                        value: futureMetric ? `${homeTemporalMetricLabels[futureMetric.key] || futureMetric.key} ${homeTemporalDirectionText(futureMetric.direction)}` : '等待形成区间',
+                        detail: futureMetric
+                            ? `${futureMetric.date} 粗粒度区间 ${futureRange}，${homeTemporalConfidenceLabel(futureMetric)} ${homeTemporalConfidenceText(futureMetric.confidence_score)}`
+                            : (future.message || '基于定稿事实生成方向、区间和置信度，不生成执行价格。'),
+                        tone: 'indigo',
+                    },
+                ];
+            });
+            const homeTemporalReview = computed(() => {
+                const review = homeTemporalData.value?.review || {};
+                if (review.status === 'ready') {
+                    const matchedPoints = homeTemporalNumericValue(review.matched_points);
+                    return {
+                        ready: true,
+                        title: `回看当时：区间命中 ${homeTemporalPercentText(review.range_hit_rate)}`,
+                        detail: matchedPoints === null
+                            ? '到期预测点数量未返回，暂不能核验命中表现；旧预测不因结果而改写。'
+                            : `已用 ${matchedPoints} 个到期预测点与后来定稿事实对照，旧预测不因结果而改写。`,
+                    };
+                }
+                return {
+                    ready: false,
+                    title: '回看当时：预测到期后自动对照',
+                    detail: review.message || '把预测与后来定稿事实匹配，结果进入下一轮历史证据。',
+                };
             });
             const homeTrendCustomRange = ref({
                 start_date: formatDate(thirtyDaysAgo),
@@ -5274,8 +5687,8 @@
                 return `${ready}/${total}项经营指标可用`;
             });
             const dailyOpsPrimaryActions = requireCompassStatic('dailyOpsPrimaryActions');
-            const autoFetchStaticScript = 'auto-fetch-static.js?v=20260712-profile-attempt-first-h26ff10af05';
-            const autoFetchStaticVersion = '20260708-local-auth-copy';
+            const autoFetchStaticScript = 'auto-fetch-static.js';
+            const autoFetchStaticVersion = '20260715-readback-truth-h12f148a2e9';
             const autoFetchStatic = ref(window.SUXI_AUTO_FETCH_STATIC && typeof window.SUXI_AUTO_FETCH_STATIC === 'object' ? window.SUXI_AUTO_FETCH_STATIC : null);
             const autoFetchStaticLoadError = ref('');
             let autoFetchStaticLoadPromise = null;
@@ -5947,19 +6360,37 @@
                 const actionText = draft.actionText;
                 let approvedPrice = null;
                 let reviewRemark = '';
+                let executionIntentFields = {};
+                if (normalizedAction === 'execution_intent') {
+                    const fields = await collectPriceExecutionIntentFields(item);
+                    if (fields === null) return;
+                    executionIntentFields = fields;
+                }
                 if (normalizedAction === 'approve_with_changes') {
                     const defaultPrice = Number(item.suggestedPrice || item.suggested_price || 0);
-                    const inputValue = window.prompt('请输入修改后批准价（不会写入携程/美团，仅记录本地审核价）', Number.isFinite(defaultPrice) && defaultPrice > 0 ? String(defaultPrice) : '');
-                    if (inputValue === null) return;
-                    const approvedPriceCheck = revenueAiValidateApprovedPrice(inputValue, item);
+                    const formValues = await openWorkflowFormDialog({
+                        title: '修改定价建议后批准',
+                        description: '仅记录本地审核价，不会写入携程或美团。',
+                        submitText: '保存并继续审批',
+                        fields: [
+                            {
+                                name: 'approved_price',
+                                label: '修改后批准价',
+                                type: 'number',
+                                required: true,
+                                value: Number.isFinite(defaultPrice) && defaultPrice > 0 ? String(defaultPrice) : '',
+                            },
+                            { name: 'review_remark', label: '修改原因或审核备注', type: 'textarea', value: '' },
+                        ],
+                    });
+                    if (formValues === null) return;
+                    const approvedPriceCheck = revenueAiValidateApprovedPrice(formValues.approved_price, item);
                     if (!approvedPriceCheck.ok) {
                         showToast(approvedPriceCheck.message, 'error');
                         return;
                     }
                     approvedPrice = approvedPriceCheck.approvedPrice;
-                    const remarkValue = window.prompt('请输入修改原因或审核备注（可留空）', '');
-                    if (remarkValue === null) return;
-                    reviewRemark = String(remarkValue || '').trim();
+                    reviewRemark = String(formValues.review_remark || '').trim();
                 }
                 const confirmText = revenueAiBuildReviewConfirmText({
                     action: normalizedAction,
@@ -5976,6 +6407,7 @@
                     approvedPrice,
                     reviewRemark,
                 });
+                Object.assign(body, executionIntentFields);
 
                 setRevenueAiReviewActionLoading(item, normalizedAction, true);
                 try {
@@ -5983,18 +6415,24 @@
                         method: 'POST',
                         body: JSON.stringify(body),
                     });
-                    if (res.code === 200) {
-                        showToast(res.message || `${actionText}成功`);
-                        await loadRevenueAiOverview();
-                        if (normalizedAction === 'execution_intent') {
-                            await openRevenueAiExecutionItem(revenueAiBuildExecutionIntentOpenRow({
-                                payload: res.data || {},
-                                item,
-                            }));
+                    if (res.code !== 200) throw new Error(res.message || `${actionText}失败`);
+                    if (normalizedAction === 'execution_intent') {
+                        const responseIntent = res.data?.execution_intent || {};
+                        const intentId = Number(responseIntent.id || 0);
+                        if (!Number.isInteger(intentId) || intentId <= 0) throw new Error('执行意图创建结果缺少有效ID');
+                        const persistedIntent = await readOperationExecutionIntent(intentId);
+                        if (persistedIntent.status !== 'pending_approval'
+                            || String(persistedIntent.blocked_reason || '').trim() !== ''
+                        ) {
+                            throw new Error('执行意图严格回读未通过');
                         }
-                    } else {
-                        showToast(res.message || `${actionText}失败`, 'error');
+                        await openRevenueAiExecutionItem(revenueAiBuildExecutionIntentOpenRow({
+                            payload: res.data || {},
+                            item,
+                        }));
                     }
+                    showToast(res.message || `${actionText}成功`);
+                    await loadRevenueAiOverview();
                 } catch (error) {
                     showToast(error.message || `${actionText}失败`, 'error');
                 } finally {
@@ -6947,12 +7385,13 @@
                 hotel_name: '',
                 hotel_id: '',
                 data_date: '',
-                amount: 0,
-                quantity: 0,
-                book_order_num: 0,
-                comment_score: 0,
-                qunar_comment_score: 0
+                amount: null,
+                quantity: null,
+                book_order_num: null,
+                comment_score: null,
+                qunar_comment_score: null
             });
+            const onlineDataEditOriginal = ref({});
 
             const editOnlineDataItem = (item) => {
                 onlineDataEditForm.value = {
@@ -6960,23 +7399,36 @@
                     hotel_name: item.hotel_name,
                     hotel_id: item.hotel_id,
                     data_date: item.data_date,
-                    amount: item.amount || 0,
-                    quantity: item.quantity || 0,
-                    book_order_num: item.book_order_num || 0,
-                    comment_score: item.comment_score || 0,
-                    qunar_comment_score: item.qunar_comment_score || 0
+                    amount: item.amount ?? null,
+                    quantity: item.quantity ?? null,
+                    book_order_num: item.book_order_num ?? null,
+                    comment_score: item.comment_score ?? null,
+                    qunar_comment_score: item.qunar_comment_score ?? null
                 };
+                onlineDataEditOriginal.value = { ...onlineDataEditForm.value };
                 showOnlineDataEditModal.value = true;
             };
 
             const saveOnlineDataEdit = async () => {
                 try {
+                    const editableFields = ['amount', 'quantity', 'book_order_num', 'comment_score', 'qunar_comment_score'];
+                    const normalizeValue = value => (value === '' || value === undefined ? null : value);
+                    const payload = { id: onlineDataEditForm.value.id };
+                    editableFields.forEach(field => {
+                        const current = normalizeValue(onlineDataEditForm.value[field]);
+                        const original = normalizeValue(onlineDataEditOriginal.value[field]);
+                        if (current !== original) payload[field] = current;
+                    });
+                    if (Object.keys(payload).length === 1) {
+                        showToast('数据未变化', 'info');
+                        return;
+                    }
                     const res = await request('/online-data/update-data', {
                         method: 'POST',
-                        body: JSON.stringify(onlineDataEditForm.value)
+                        body: JSON.stringify(payload)
                     });
                     if (res.code === 200) {
-                        showToast('保存成功');
+                        showToast(res.message || '已保存为人工修正，复核前不进入可信收益', 'warning');
                         showOnlineDataEditModal.value = false;
                         loadOnlineDataList({ force: true });
                     } else {
@@ -7017,6 +7469,16 @@
                 onlineDataFilter.value.source = 'meituan';
                 onlineDataFilter.value.data_type = '';
                 onlineDataFilter.value.data_types = dataTypes.join(',');
+                if (options.resetDates === true) {
+                    onlineDataFilter.value.start_date = formatDate(thirtyDaysAgo);
+                    onlineDataFilter.value.end_date = formatDate(today);
+                    onlineDataFilter.value.create_start = '';
+                    onlineDataFilter.value.create_end = '';
+                }
+                const selectedHotelId = String(meituanForm.value.hotelId || user.value?.hotel_id || '').trim();
+                if (selectedHotelId) {
+                    onlineDataFilter.value.hotel_id = selectedHotelId;
+                }
                 if (options.resetPage !== false) {
                     onlineDataPage.value = 1;
                     onlineDataPagination.value = { ...onlineDataPagination.value, page: 1 };
@@ -7115,7 +7577,7 @@
                 if (!['overview', 'traffic', 'orders', 'ads'].includes(downloadCenterTab.value)) {
                     downloadCenterTab.value = 'overview';
                 }
-                applyMeituanStoredDataFilter(downloadCenterTab.value, { resetPage: true });
+                applyMeituanStoredDataFilter(downloadCenterTab.value, { resetPage: true, resetDates: true });
                 // 自动加载数据
                 scheduleDownloadCenterTabLoad(downloadCenterTab.value, {
                     onlineDataTab: 'meituan-download',
@@ -7281,6 +7743,144 @@
                 onlineDataListResultCache.clear();
                 onlineDataSummaryResultCache.clear();
                 clearOnlineAnalysisReadCaches();
+            };
+
+            const onlineDataCorrectionLedgerFieldLabels = Object.freeze({
+                amount: '销售额',
+                quantity: '间夜',
+                book_order_num: '订单数',
+                comment_score: '点评分',
+                qunar_comment_score: '去哪儿点评分',
+            });
+            const onlineDataCorrectionLedgerOperationText = (row = {}) => (
+                row.operation === 'delete' ? '删除' : row.operation === 'update' ? '人工更正' : String(row.operation || '未知操作')
+            );
+            const onlineDataCorrectionLedgerChangedFieldsText = (row = {}) => {
+                const fields = Array.isArray(row.changed_fields) ? row.changed_fields.filter(Boolean) : [];
+                if (row.operation === 'delete') {
+                    return fields.length ? `删除前完整快照（${fields.length} 个字段）` : '删除前完整快照';
+                }
+                if (!fields.length) return '未返回字段明细';
+                const labels = fields.map(field => onlineDataCorrectionLedgerFieldLabels[field] || field);
+                return labels.length > 4 ? `${labels.slice(0, 4).join('、')} 等 ${labels.length} 项` : labels.join('、');
+            };
+            const onlineDataCorrectionLedgerStatusText = (row = {}) => {
+                if (String(row.restored_at || '').trim()) return '已恢复';
+                if (row.can_restore === true) return '可恢复';
+                return '仅留痕';
+            };
+            const onlineDataCorrectionLedgerStatusClass = (row = {}) => {
+                if (String(row.restored_at || '').trim()) return 'bg-green-100 text-green-700';
+                if (row.can_restore === true) return 'bg-amber-100 text-amber-700';
+                return 'bg-gray-100 text-gray-600';
+            };
+            const loadOnlineDataCorrectionLedger = async (options = {}) => {
+                if (!canUseOnlineDataCorrectionLedger.value) {
+                    onlineDataCorrectionLedgerList.value = [];
+                    onlineDataCorrectionLedgerError.value = '当前账号无权查看数据更正记录';
+                    return false;
+                }
+                const requestedPage = Math.max(1, Number(options.page || onlineDataCorrectionLedgerPagination.value.page || 1));
+                const pageSize = Math.max(1, Number(onlineDataCorrectionLedgerPagination.value.page_size || 20));
+                const requestSeq = ++onlineDataCorrectionLedgerRequestSeq;
+                onlineDataCorrectionLedgerLoading.value = true;
+                onlineDataCorrectionLedgerError.value = '';
+                try {
+                    const params = new URLSearchParams({ page: String(requestedPage), page_size: String(pageSize) });
+                    const res = await request(`/online-data/correction-ledger?${params.toString()}`);
+                    if (requestSeq !== onlineDataCorrectionLedgerRequestSeq) return null;
+                    if (res?.code !== 200 || !Array.isArray(res?.data?.list)) {
+                        throw new Error(res?.message || '更正记录返回格式不完整');
+                    }
+                    const total = Math.max(0, Number(res.data.total || 0));
+                    const page = Math.max(1, Number(res.data.page || requestedPage));
+                    const returnedPageSize = Math.max(1, Number(res.data.page_size || pageSize));
+                    onlineDataCorrectionLedgerList.value = res.data.list;
+                    onlineDataCorrectionLedgerPagination.value = { total, page, page_size: returnedPageSize };
+                    return true;
+                } catch (error) {
+                    if (requestSeq !== onlineDataCorrectionLedgerRequestSeq) return null;
+                    onlineDataCorrectionLedgerList.value = [];
+                    onlineDataCorrectionLedgerPagination.value = { total: 0, page: requestedPage, page_size: pageSize };
+                    onlineDataCorrectionLedgerError.value = String(error?.message || '更正记录加载失败');
+                    return false;
+                } finally {
+                    if (requestSeq === onlineDataCorrectionLedgerRequestSeq) {
+                        onlineDataCorrectionLedgerLoading.value = false;
+                    }
+                }
+            };
+            const toggleOnlineDataCorrectionLedger = async () => {
+                if (!canUseOnlineDataCorrectionLedger.value) {
+                    showToast('当前账号无权查看数据更正记录', 'error');
+                    return;
+                }
+                onlineDataCorrectionLedgerOpen.value = !onlineDataCorrectionLedgerOpen.value;
+                if (onlineDataCorrectionLedgerOpen.value) {
+                    await loadOnlineDataCorrectionLedger({ page: 1 });
+                }
+            };
+            const changeOnlineDataCorrectionLedgerPage = async (page) => {
+                const normalizedPage = Math.max(1, Number(page || 1));
+                const pagination = onlineDataCorrectionLedgerPagination.value;
+                if (pagination.total > 0 && (normalizedPage - 1) * pagination.page_size >= pagination.total) return;
+                await loadOnlineDataCorrectionLedger({ page: normalizedPage });
+            };
+            const restoreOnlineDataCorrectionLedger = async (row = {}) => {
+                const ledgerId = Number(row.id || 0);
+                if (!canUseOnlineDataCorrectionLedger.value || ledgerId <= 0 || row.can_restore !== true) {
+                    showToast('该更正记录当前不可恢复', 'error');
+                    return;
+                }
+                const confirmationText = `恢复 ${ledgerId}`;
+                const form = await openWorkflowFormDialog({
+                    title: '恢复已删除数据',
+                    description: `将从本地更正账本恢复数据记录 #${row.online_data_id || '-'}。此操作不会触发 OTA 采集，也不会写入 OTA 平台。`,
+                    submitText: '确认恢复',
+                    fields: [{
+                        name: 'confirmation',
+                        label: `输入“${confirmationText}”确认`,
+                        required: true,
+                    }],
+                });
+                if (!form) return;
+                if (String(form.confirmation || '').trim() !== confirmationText) {
+                    showToast('确认文字不一致，未执行恢复', 'error');
+                    return;
+                }
+
+                onlineDataCorrectionLedgerRestoringId.value = ledgerId;
+                try {
+                    const res = await request('/online-data/restore-data', {
+                        method: 'POST',
+                        body: JSON.stringify({ ledger_id: ledgerId }),
+                    });
+                    const restoredId = Number(res?.data?.id || 0);
+                    const responseLedgerId = Number(res?.data?.ledger_id || 0);
+                    const restoredAt = String(res?.data?.restored_at || '').trim();
+                    if (res?.code !== 200 || restoredId <= 0 || responseLedgerId !== ledgerId || !restoredAt) {
+                        throw new Error(res?.message || '恢复结果返回格式不完整');
+                    }
+
+                    const readbackOk = await loadOnlineDataCorrectionLedger({
+                        page: onlineDataCorrectionLedgerPagination.value.page,
+                    });
+                    const readback = onlineDataCorrectionLedgerList.value.find(item => Number(item.id) === ledgerId);
+                    if (readbackOk !== true
+                        || !readback
+                        || readback.can_restore !== false
+                        || !String(readback.restored_at || '').trim()
+                        || Number(readback.online_data_id || 0) !== restoredId) {
+                        throw new Error('恢复接口已返回，但更正账本回读未确认');
+                    }
+
+                    await loadOnlineDataList({ force: true });
+                    showToast(`数据记录 #${restoredId} 已恢复，并完成更正账本回读`);
+                } catch (error) {
+                    showToast(String(error?.message || '数据恢复失败'), 'error');
+                } finally {
+                    onlineDataCorrectionLedgerRestoringId.value = 0;
+                }
             };
 
             const loadOnlineDataList = async (options = {}) => {
@@ -9461,7 +10061,7 @@
                 }, CTRIP_EBOOKING_STARTUP_CONFIG_DELAY_MS);
                 scheduleDelayedPageTask(() => {
                     if (currentPage.value !== 'ctrip-ebooking') return null;
-                    return loadLatestCtripData({ silent: true });
+                    return loadLatestCtripData({ silent: true, hydrateDisplay: true });
                 }, CTRIP_EBOOKING_LATEST_DATA_DELAY_MS);
                 scheduleDelayedPageTask(() => {
                     if (currentPage.value !== 'ctrip-ebooking') return null;
@@ -9564,6 +10164,12 @@
                     syncAdsConfig: syncCtripAdsDirectConfig,
                     hasSelectedHotel: () => !!selectedCtripHotelId.value,
                 }), 80);
+                if (tab === 'ctrip-ranking') {
+                    deferUiTask(() => {
+                        if (currentPage.value !== 'ctrip-ebooking' || onlineDataTab.value !== 'ctrip-ranking') return null;
+                        return loadLatestCtripData({ silent: true, hydrateDisplay: true });
+                    }, 140);
+                }
                 if (tab === 'ctrip-traffic') {
                     deferUiTask(() => {
                         if (currentPage.value !== 'ctrip-ebooking' || onlineDataTab.value !== 'ctrip-traffic') return null;
@@ -9764,6 +10370,7 @@
 
             // 监听页面切换
             watch(currentPage, (newPage) => {
+                if (!guardSuperAdminPageAccess(newPage)) return;
                 schedulePageControlTestIdObserverStart(520);
                 scheduleFormOperationSupportLoad();
                 deferUiTask(() => runPendingPublicSystemConfigRefresh(), 600);
@@ -9804,7 +10411,7 @@
                     runPageLoadOnce(newPage, 'main', () => loadCompassData());
                 }
                 if (newPage === 'ctrip-ebooking') {
-                    setOnlineDataTabFromPage('data-health');
+                    setOnlineDataTabFromPage('ctrip-ranking');
                     ctripEbookingModuleCardsReady.value = false;
                     scheduleCtripEbookingModuleCardsReady();
                     ctripEbookingSecondaryPanelsReady.value = false;
@@ -9884,9 +10491,9 @@
                     }, 100);
                 }
                 if (newPage === 'operation-logs') {
-                    runPageLoadOnce(newPage, 'main', () => loadOperationLogs());
+                    runPageLoadOnce(newPage, 'main', () => reloadOperationLogs());
                 }
-                if (['ai-model-config', 'agent-center', 'asset-pricing', 'knowledge-center'].includes(newPage)) {
+                if (user.value?.is_super_admin && ['ai-model-config', 'agent-center', 'knowledge-center'].includes(newPage)) {
                     runPageLoadOnce(newPage, 'ai-model-configs', () => loadAiModelConfigs());
                 }
                 if (newPage === 'ai-governance') {
@@ -9902,6 +10509,7 @@
                     runPageLoadOnce(newPage, 'platform-configs', () => Promise.allSettled([
                         loadCtripConfigList(),
                         loadMeituanConfigList(),
+                        loadPlatformDataSources({ cacheMs: PLATFORM_SOURCE_PANEL_CACHE_TTL_MS }),
                         loadOnlineDataHotelList({ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS }),
                     ]));
                     runPageLoadOnce(newPage, 'ota-diagnosis-static', () => new Promise(resolve => setTimeout(resolve, 420))
@@ -9912,6 +10520,12 @@
                 }
                 if (isExpansionStaticPage(newPage)) {
                     runPageLoadOnce(newPage, 'expansion-static-options', () => ensureExpansionStaticReady());
+                }
+                if (['market-evaluation', 'market-eval', 'benchmark-model', 'collaboration-efficiency', 'sync-efficiency'].includes(newPage)) {
+                    runPageLoadOnce(newPage, 'expansion-records', () => loadExpansionRecords());
+                }
+                if (['asset-pricing', 'timing-strategy', 'decision-board'].includes(newPage)) {
+                    runPageLoadOnce(newPage, 'transfer-records', () => loadTransferRecords());
                 }
                 if (isSimulationStaticPage(newPage)) {
                     runPageLoadOnce(newPage, 'simulation-static', () => ensureSimulationStaticReady());
@@ -10110,6 +10724,7 @@
             const menuItems = computed(() => resolveMenuItems(menuItemDefinitions, systemConfig.value));
 
             const testIdStaticScript = 'testid-static.js';
+            const testIdStaticVersion = '20260715-h8d71aed16e';
             let testIdStaticLoadPromise = null;
             let pageTestIdController = null;
             let pageControlTestIdObserverTimer = null;
@@ -10155,7 +10770,7 @@
                 if (!testIdStaticLoadPromise) {
                     testIdStaticLoadPromise = new Promise((resolve, reject) => {
                         const script = document.createElement('script');
-                        script.src = testIdStaticScript;
+                        script.src = testIdStaticScript + '?v=' + testIdStaticVersion;
                         script.async = true;
                         script.onload = () => {
                             if (window.SUXI_TESTID_STATIC?.createPageTestIdController) {
@@ -10447,6 +11062,7 @@
             });
 
             const handleMenuClick = (item) => {
+                if (item?.path && !guardSuperAdminPageAccess(item.path)) return;
                 if (item.path === 'online-data' && !item.tab) {
                     openOnlineDataManualEntry();
                     return;
@@ -10494,6 +11110,62 @@
             const showToast = (message, type = 'success') => {
                 toast.value = { show: true, message, type };
                 setTimeout(() => toast.value.show = false, 3000);
+            };
+            const createWorkflowFormDialogState = () => ({
+                visible: false,
+                title: '',
+                description: '',
+                submitText: '确认',
+                fields: [],
+                values: {},
+                errors: {},
+            });
+            const workflowFormDialog = ref(createWorkflowFormDialogState());
+            let workflowFormDialogResolve = null;
+            const openWorkflowFormDialog = (options = {}) => {
+                if (workflowFormDialogResolve) {
+                    const previousResolve = workflowFormDialogResolve;
+                    workflowFormDialogResolve = null;
+                    previousResolve(null);
+                }
+                const fields = Array.isArray(options.fields)
+                    ? options.fields.map(field => ({ type: 'text', required: false, options: [], ...field }))
+                    : [];
+                const values = Object.fromEntries(fields.map(field => [field.name, field.value ?? '']));
+                workflowFormDialog.value = {
+                    visible: true,
+                    title: String(options.title || '请填写信息'),
+                    description: String(options.description || ''),
+                    submitText: String(options.submitText || '确认'),
+                    fields,
+                    values,
+                    errors: {},
+                };
+                return new Promise(resolve => {
+                    workflowFormDialogResolve = resolve;
+                });
+            };
+            const closeWorkflowFormDialog = (result = null) => {
+                if (!workflowFormDialog.value.visible && !workflowFormDialogResolve) return;
+                const resolve = workflowFormDialogResolve;
+                workflowFormDialogResolve = null;
+                workflowFormDialog.value = createWorkflowFormDialogState();
+                if (resolve) resolve(result);
+            };
+            const submitWorkflowFormDialog = () => {
+                const state = workflowFormDialog.value;
+                const errors = {};
+                for (const field of state.fields) {
+                    const value = String(state.values?.[field.name] ?? '').trim();
+                    if (field.required && !value) {
+                        errors[field.name] = `${field.label || field.name}不能为空`;
+                    } else if (field.type === 'number' && value && !Number.isFinite(Number(value.replace(/[,，]/g, '')))) {
+                        errors[field.name] = `${field.label || field.name}必须是数字`;
+                    }
+                }
+                state.errors = errors;
+                if (Object.keys(errors).length) return;
+                closeWorkflowFormDialog({ ...state.values });
             };
             let runtimeErrorRecoveryQueued = false;
             recoverSuxiRuntimeError = ({ error, info }) => {
@@ -11543,8 +12215,12 @@
                     userLoginInfoError.value = '账号信息不完整，请刷新后重试';
                     return;
                 }
-                if (issuedPassword !== defaultIssuedPassword()) {
-                    userLoginInfoError.value = '密码必须为 666666';
+                if (issuedPassword.length < 12
+                    || !/[A-Z]/.test(issuedPassword)
+                    || !/[a-z]/.test(issuedPassword)
+                    || !/[0-9]/.test(issuedPassword)
+                    || !/[^A-Za-z0-9]/.test(issuedPassword)) {
+                    userLoginInfoError.value = '临时密码至少12位，并包含大小写字母、数字和特殊字符';
                     return;
                 }
                 userLoginInfoSaving.value = true;
@@ -11563,10 +12239,10 @@
                         `用户名：${String(target.username || '').trim()}`,
                         `密码：${issuedPassword}`,
                         `授权门店：${userHotelScopeText(target)}`,
-                        '登录后可在个人设置中自行修改密码。',
+                        '请通过安全渠道交付，并提醒用户登录后立即修改密码。',
                     ].join('\n');
                     copyToClipboard(text);
-                    showToast('密码已重置，登录信息已复制', 'success');
+                    showToast('随机临时密码已重置，登录信息已复制', 'success');
                     showUserLoginInfoModal.value = false;
                     userLoginInfoTarget.value = null;
                     userLoginInfoPassword.value = '';
@@ -13900,7 +14576,7 @@
             const platformSyncActionText = (message) => autoFetchStatic.value?.platformSyncActionText?.(message) || '';
 
             const operationStaticScript = 'operation-static.js';
-            const operationStaticScriptVersion = '20260713-ai-coverage-full-count';
+            const operationStaticScriptVersion = '20260715-hdd447ac07f';
             let operationStaticLoadPromise = null;
             const loadOperationStatic = () => {
                 const currentStatic = window.SUXI_OPERATION_STATIC;
@@ -13943,7 +14619,47 @@
             const lifecycleStageTitles = ref({});
             const lifecycleMetricLabel = (label) => lifecycleMetricLabels.value[label] || label;
             const lifecycleStageTitle = (stage) => lifecycleStageTitles.value[stage?.key] || stage?.title || '-';
-            const lifecycleStageStatusClass = () => 'bg-green-50 border-green-100';
+            const lifecycleStageStatusText = (status) => ({
+                active: '有可读记录',
+                empty: '暂无记录',
+                pending: '暂无记录',
+                partial: '部分来源异常',
+                unavailable: '来源不可用',
+            }[String(status || '')] || '状态未核验');
+            const lifecycleStageStatusClass = (status) => ({
+                active: 'bg-emerald-50 border-emerald-200',
+                empty: 'bg-slate-50 border-slate-200',
+                pending: 'bg-slate-50 border-slate-200',
+                partial: 'bg-amber-50 border-amber-200',
+                unavailable: 'bg-red-50 border-red-200',
+            }[String(status || '')] || 'bg-gray-50 border-gray-200');
+            const lifecycleStageBadgeClass = (status) => ({
+                active: 'bg-emerald-100 text-emerald-700',
+                empty: 'bg-slate-100 text-slate-600',
+                pending: 'bg-slate-100 text-slate-600',
+                partial: 'bg-amber-100 text-amber-700',
+                unavailable: 'bg-red-100 text-red-700',
+            }[String(status || '')] || 'bg-gray-100 text-gray-600');
+            const lifecycleOverviewDerivedStatus = (overview) => {
+                const explicit = String(overview?.status || '').trim();
+                if (explicit) return explicit;
+                const statuses = (Array.isArray(overview?.stages) ? overview.stages : []).map(stage => String(stage?.status || ''));
+                if (statuses.includes('unavailable')) return statuses.some(status => ['active', 'empty', 'pending', 'partial'].includes(status)) ? 'partial' : 'unavailable';
+                if (statuses.includes('partial')) return 'partial';
+                return statuses.length ? 'ready' : 'not_loaded';
+            };
+            const lifecycleOverviewStatusText = (overview) => ({
+                ready: '接口已返回',
+                partial: '部分来源异常',
+                unavailable: '来源不可用',
+                not_loaded: '尚未加载',
+            }[lifecycleOverviewDerivedStatus(overview)] || '状态未核验');
+            const lifecycleOverviewStatusClass = (overview) => ({
+                ready: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+                partial: 'bg-amber-50 text-amber-700 border-amber-100',
+                unavailable: 'bg-red-50 text-red-700 border-red-100',
+                not_loaded: 'bg-slate-50 text-slate-600 border-slate-200',
+            }[lifecycleOverviewDerivedStatus(overview)] || 'bg-gray-50 text-gray-600 border-gray-200');
             const loadLifecycleOverview = async () => {
                 await ensureOperationStaticReady();
                 lifecycleLoading.value = true;
@@ -14311,6 +15027,26 @@
                 target_change_rate: 10,
                 remark: '',
             });
+            const operationEvidenceModalOpen = ref(false);
+            const operationEvidenceModalItem = ref(null);
+            const operationEvidenceForm = ref({
+                mode: '1',
+                completed_action: '',
+                receipt_path: '',
+                executed_by: '',
+                executed_at: '',
+                next_review_date: '',
+                before_revenue: '',
+                after_revenue: '',
+                cost: '',
+                remark: '',
+            });
+            const operationReviewModalOpen = ref(false);
+            const operationReviewModalItem = ref(null);
+            const operationReviewForm = ref({
+                status: 'observing',
+                summary: '',
+            });
             const operationAlertFilter = ref('all');
             const operationAlertFilters = ref([]);
             const operationStrategyTypes = ref([]);
@@ -14372,9 +15108,9 @@
             let snapshotOpeningTaskForRollback = () => ({});
             let openingTaskPatchHasChanges = () => false;
             let applyOpeningTaskPatch = (task, patch = {}) => task;
-            let openingRiskText = () => '低风险';
-            let openingRiskTextClass = () => 'text-green-600';
-            let openingRiskClass = () => 'bg-green-50 text-green-700 border border-green-100';
+            let openingRiskText = () => '待评估';
+            let openingRiskTextClass = () => 'text-gray-600';
+            let openingRiskClass = () => 'bg-gray-50 text-gray-700 border border-gray-100';
             let buildOpeningProjectFormDefaults = () => ({
                 hotel_id: '', project_name: '', hotel_name: '', city: '', brand: '', positioning: '', room_count: '', opening_date: formatDate(new Date(Date.now() + 45 * 24 * 60 * 60 * 1000)), manager_name: '',
             });
@@ -14523,7 +15259,7 @@
             }).filter(Boolean);
             const aiDailyReportMetricCards = computed(() => {
                 const metrics = aiDailyReportObjectList(aiDailyReport.value?.yesterday_result?.metrics);
-                return metrics.filter(item => item && item.value !== null && item.value !== undefined).slice(0, 6);
+                return metrics.filter(item => item && item.value !== null && item.value !== undefined).slice(0, 10);
             });
             const aiDailyReportActions = computed(() => aiDailyReportActionList(aiDailyReport.value?.recommended_actions));
             const aiDailyReportDataGaps = computed(() => aiDailyReportObjectList(aiDailyReport.value?.data_gaps));
@@ -14601,6 +15337,7 @@
                 if (!metric || metric.value === null || metric.value === undefined) return '-';
                 const key = String(metric.key || '');
                 if (['revenue', 'adr'].includes(key)) return operationMoney(metric.value);
+                if (String(metric.unit || '') === '%' || ['flow_rate', 'fill_submit_rate'].includes(key)) return operationValue(metric.value, '%');
                 return operationValue(metric.value);
             };
             const aiDailyReportActionStatusClass = (action) => {
@@ -14669,8 +15406,8 @@
                 const total = Math.max(Number(summary.total || 0), items.length);
                 const approved = countItems(linkedItems, item => String(item?.approval?.status || '') === 'approved');
                 const executed = countItems(linkedItems, item => String(item?.execution?.status || '') === 'executed');
-                const evidenceReady = countItems(linkedItems, item => Number(item?.evidence?.count || 0) > 0);
-                const executionEvidenceCount = linkedItems.reduce((sum, item) => sum + Math.max(0, Number(item?.evidence?.count || 0)), 0);
+                const evidenceReady = countItems(linkedItems, item => Number(item?.evidence_summary?.count || item?.evidence?.count || 0) > 0);
+                const executionEvidenceCount = linkedItems.reduce((sum, item) => sum + Math.max(0, Number(item?.evidence_summary?.count || item?.evidence?.count || 0)), 0);
                 const reviewed = countItems(linkedItems, item => String(item?.stage || '') === 'reviewed' || ['success', 'near_success', 'failed'].includes(String(item?.review?.status || '')));
                 const roiReady = countItems(linkedItems, item => String(item?.roi?.status || '') === 'ready');
                 const blocked = Math.max(
@@ -14822,10 +15559,10 @@
                     const query = operationParams();
                     if (query === null) return;
                     const res = await apiRequest(`/operation/full-data${query ? '?' + query : ''}`);
-                    if (res.code !== 200) throw new Error(res.message || '全维数据加载失败');
+                    if (res.code !== 200) throw new Error(res.message || '运营数据汇总加载失败');
                     operationFullData.value = res.data || null;
                 } catch (error) {
-                    operationError.value.fullData = operationErrorMessage(error, '全维数据加载失败');
+                    operationError.value.fullData = operationErrorMessage(error, '运营数据汇总加载失败');
                     showToast(operationError.value.fullData, 'error');
                 } finally {
                     operationLoading.value.fullData = false;
@@ -14850,10 +15587,10 @@
                             problem_type: 'operation',
                         }),
                     });
-                    if (res.code !== 200) throw new Error(res.message || '根因定位失败');
+                    if (res.code !== 200) throw new Error(res.message || '可能影响因素分析失败');
                     operationRootCause.value = res.data || null;
                 } catch (error) {
-                    operationError.value.rootCause = operationErrorMessage(error, '根因定位失败');
+                    operationError.value.rootCause = operationErrorMessage(error, '可能影响因素分析失败');
                     showToast(operationError.value.rootCause, 'error');
                 } finally {
                     operationLoading.value.rootCause = false;
@@ -15100,6 +15837,7 @@
                         fallbackMessage: '请选择有权限的酒店',
                     });
                     if (hotelId === null) return;
+                    operationFilters.value.hotel_id = String(hotelId);
                     void loadAiDailyFactGate({ hotelId, targetDate: aiDailyReportForm.value.report_date || operationYesterday });
                     if (hotelId) params.append('hotel_id', hotelId);
                     const query = params.toString() ? '?' + params.toString() : '';
@@ -15133,6 +15871,7 @@
                         fallbackMessage: '请选择有权限的酒店',
                     });
                     if (hotelId === null) return;
+                    operationFilters.value.hotel_id = String(hotelId);
                     void loadAiDailyFactGate({ hotelId, targetDate: aiDailyReportForm.value.report_date || operationYesterday });
                     const res = await apiRequest('/ai-daily-reports/generate', {
                         method: 'POST',
@@ -15154,6 +15893,94 @@
                 }
             };
 
+            const readOperationExecutionIntent = async (intentId) => {
+                const normalizedId = Number(intentId || 0);
+                if (!Number.isInteger(normalizedId) || normalizedId <= 0) {
+                    throw new Error('执行意图回读ID无效');
+                }
+                const res = await apiRequest(`/operation/execution-intents/${intentId}`);
+                if (res.code !== 200) throw new Error(res.message || '执行意图回读失败');
+                const intent = res.data || {};
+                if (Number(intent.id || 0) !== normalizedId) {
+                    throw new Error('执行意图回读资源不一致');
+                }
+                return intent;
+            };
+
+            const readOperationExecutionTask = async (taskId) => {
+                const normalizedId = Number(taskId || 0);
+                if (!Number.isInteger(normalizedId) || normalizedId <= 0) {
+                    throw new Error('执行任务回读ID无效');
+                }
+                const res = await apiRequest(`/operation/execution-tasks/${taskId}`);
+                if (res.code !== 200) throw new Error(res.message || '执行任务回读失败');
+                const task = res.data || {};
+                if (Number(task.id || 0) !== normalizedId) {
+                    throw new Error('执行任务回读资源不一致');
+                }
+                return task;
+            };
+
+            const operationExecutionEvidenceCount = (task = {}) => Math.max(
+                Array.isArray(task.evidence) ? task.evidence.length : 0,
+                Number(task?.evidence_summary?.count || 0)
+            );
+
+            const operationExecutionHasEvidenceType = (task = {}, evidenceType = '') => {
+                const expected = String(evidenceType || '').trim();
+                if (!expected) return operationExecutionEvidenceCount(task) > 0;
+                const directTypes = Array.isArray(task.evidence)
+                    ? task.evidence.map(row => String(row?.evidence_type || '').trim())
+                    : [];
+                const summaryTypes = Array.isArray(task?.evidence_summary?.types)
+                    ? task.evidence_summary.types.map(value => String(value || '').trim())
+                    : [];
+                return [...directTypes, ...summaryTypes].includes(expected);
+            };
+
+            const collectPriceExecutionIntentFields = async (item = {}) => {
+                const firstText = (keys = []) => {
+                    for (const key of keys) {
+                        const value = item?.[key];
+                        if (value !== undefined && value !== null && String(value).trim() !== '') return String(value).trim();
+                    }
+                    return '';
+                };
+                const defaultPlatform = firstText(['platform', 'channel', 'source_channel']).toLowerCase();
+                const formValues = await openWorkflowFormDialog({
+                    title: '创建 OTA 调价执行意图',
+                    description: '这里只创建待审批执行单，不会直接向 OTA 写入价格。',
+                    submitText: '创建待审批执行单',
+                    fields: [
+                        {
+                            name: 'platform',
+                            label: '执行平台',
+                            type: 'select',
+                            required: true,
+                            value: ['ctrip', 'meituan'].includes(defaultPlatform) ? defaultPlatform : '',
+                            options: [
+                                { value: 'ctrip', label: '携程' },
+                                { value: 'meituan', label: '美团' },
+                            ],
+                        },
+                        { name: 'room_type_key', label: 'OTA 房型标识 room_type_key', required: true, value: firstText(['room_type_key', 'roomTypeKey']) },
+                        { name: 'rate_plan_key', label: 'OTA 价型标识 rate_plan_key', required: true, value: firstText(['rate_plan_key', 'ratePlanKey']) },
+                    ],
+                });
+                if (formValues === null) return null;
+                const fields = {
+                    platform: String(formValues.platform || '').trim().toLowerCase(),
+                    room_type_key: String(formValues.room_type_key || '').trim(),
+                    rate_plan_key: String(formValues.rate_plan_key || '').trim(),
+                };
+                const missing = Object.entries(fields).find(([, value]) => !value);
+                if (missing) {
+                    showToast(`${missing[0]} 必填，未创建执行意图`, 'error');
+                    return null;
+                }
+                return fields;
+            };
+
             const createAiDailyExecutionIntent = async (action, index) => {
                 if (!aiDailyReport.value?.id || !action) return;
                 if (action.can_create_execution_intent === false) {
@@ -15167,7 +15994,18 @@
                         body: JSON.stringify({}),
                     });
                     if (res.code !== 200) throw new Error(res.message || '执行单创建失败');
+                    const responseIntent = res.data?.execution_intent || {};
+                    const intentId = Number(responseIntent.id || 0);
+                    if (!Number.isInteger(intentId) || intentId <= 0) throw new Error('执行单创建结果缺少有效ID');
+                    const persistedIntent = await readOperationExecutionIntent(intentId);
+                    if (persistedIntent.status !== 'pending_approval'
+                        || String(persistedIntent.blocked_reason || '').trim() !== ''
+                    ) {
+                        throw new Error('执行意图未通过待审批且未阻塞的严格回读');
+                    }
                     showToast('已生成执行意图，进入审批流程');
+                    const reportHotelId = String(aiDailyReport.value?.hotel_id || aiDailyReportForm.value.hotel_id || '').trim();
+                    if (reportHotelId) operationFilters.value.hotel_id = reportHotelId;
                     await loadAiDailyReport();
                     await loadOperationActions();
                 } catch (error) {
@@ -15284,8 +16122,17 @@
 
             const approveOperationExecutionIntent = async (item, approved = true) => {
                 if (!item?.id) return;
-                const remark = approved ? '' : (prompt('请输入驳回原因') || '').trim();
-                if (!approved && !remark) return;
+                let remark = '';
+                if (!approved) {
+                    const formValues = await openWorkflowFormDialog({
+                        title: '驳回执行意图',
+                        description: '驳回原因会写入本地审批记录，供后续复核。',
+                        submitText: '确认驳回',
+                        fields: [{ name: 'remark', label: '驳回原因', type: 'textarea', required: true, value: '' }],
+                    });
+                    if (formValues === null) return;
+                    remark = String(formValues.remark || '').trim();
+                }
                 if (approved && !confirm('确认审批该执行意图？')) return;
                 operationLoading.value.actions = true;
                 try {
@@ -15294,6 +16141,20 @@
                         body: JSON.stringify({ approved, remark }),
                     });
                     if (res.code !== 200) throw new Error(res.message || '执行意图审批失败');
+                    const responseIntentId = Number(res.data?.id || 0);
+                    if (!Number.isInteger(responseIntentId) || responseIntentId !== Number(item.id)) {
+                        throw new Error('执行意图审批返回的资源ID不一致');
+                    }
+                    const persistedIntent = await readOperationExecutionIntent(responseIntentId);
+                    const expectedStatus = approved ? 'approved' : 'rejected';
+                    if (persistedIntent.status !== expectedStatus) {
+                        throw new Error(`执行意图回读状态不一致：应为 ${expectedStatus}`);
+                    }
+                    if (approved && (!Array.isArray(persistedIntent.tasks)
+                        || !persistedIntent.tasks.some(task => Number(task?.id || 0) > 0)
+                    )) {
+                        throw new Error('执行意图已审批但未回读到执行任务');
+                    }
                     showToast(approved ? '执行意图已审批' : '执行意图已驳回');
                     await loadOperationActions();
                 } catch (error) {
@@ -15315,26 +16176,34 @@
                     const afterPriceDefault = operationEvidenceFirstText([targetValue, currentValue], ['approved_price', 'target_price', 'suggested_price', 'after_price', 'price']);
                     const platformDefault = operationEvidenceFirstText([recommendation, targetValue, currentValue], ['platform', 'source_channel', 'channel']);
                     const roomTypeDefault = operationEvidenceFirstText([targetValue, currentValue], ['room_type_key', 'room_type_id', 'room_type', 'product_id', 'rate_plan_key']);
-                    const beforePriceText = prompt('请输入执行前公开价/原价（可留空）', beforePriceDefault);
-                    if (beforePriceText === null) return;
-                    const afterPriceText = prompt('请输入执行后公开价/实际执行价（必填，未执行请取消）', afterPriceDefault);
-                    if (afterPriceText === null) return;
-                    const beforeRevenueText = prompt('请输入执行前收入，用于 ROI 复盘（可留空）');
-                    if (beforeRevenueText === null) return;
-                    const afterRevenueText = prompt('请输入执行后收入，用于 ROI 复盘（可留空）');
-                    if (afterRevenueText === null) return;
-                    const platformText = prompt('请输入执行平台，如 ctrip/meituan/手工（可留空）', platformDefault);
-                    if (platformText === null) return;
-                    const roomTypeText = prompt('请输入房型/产品标识（可留空）', roomTypeDefault);
-                    if (roomTypeText === null) return;
-                    const receiptPathText = prompt('请输入截图/回执路径或备注编号（可留空）');
-                    if (receiptPathText === null) return;
-                    const operatorText = prompt('请输入执行人（可留空）');
-                    if (operatorText === null) return;
-                    const executedAtText = prompt('请输入执行时间 YYYY-MM-DD HH:mm:ss（可留空，默认当前时间）', operationEvidenceLocalTimestamp());
-                    if (executedAtText === null) return;
-                    const remarkText = prompt('请输入执行证据备注，如平台、截图路径或操作说明');
-                    if (remarkText === null) return;
+                    const formValues = await openWorkflowFormDialog({
+                        title: '登记人工调价执行证据',
+                        description: '仅保存本地人工证据，不会向携程或美团自动改价。执行前后收入必须同时填写或同时留空。',
+                        submitText: '保存执行证据',
+                        fields: [
+                            { name: 'before_price', label: '执行前公开价 / 原价', type: 'number', value: beforePriceDefault },
+                            { name: 'after_price', label: '执行后公开价 / 实际执行价', type: 'number', required: true, value: afterPriceDefault },
+                            { name: 'before_revenue', label: '执行前收入（用于 ROI 复盘）', type: 'number', value: '' },
+                            { name: 'after_revenue', label: '执行后收入（用于 ROI 复盘）', type: 'number', value: '' },
+                            { name: 'platform', label: '执行平台', value: platformDefault, placeholder: 'ctrip / meituan / 手工' },
+                            { name: 'room_type', label: '房型 / 产品标识', value: roomTypeDefault },
+                            { name: 'receipt_path', label: '截图 / 回执路径或备注编号', value: '' },
+                            { name: 'executed_by', label: '执行人', value: user.value?.realname || user.value?.username || '' },
+                            { name: 'executed_at', label: '执行时间', value: operationEvidenceLocalTimestamp(), placeholder: 'YYYY-MM-DD HH:mm:ss' },
+                            { name: 'remark', label: '执行证据备注', type: 'textarea', value: '' },
+                        ],
+                    });
+                    if (formValues === null) return;
+                    const beforePriceText = formValues.before_price;
+                    const afterPriceText = formValues.after_price;
+                    const beforeRevenueText = formValues.before_revenue;
+                    const afterRevenueText = formValues.after_revenue;
+                    const platformText = formValues.platform;
+                    const roomTypeText = formValues.room_type;
+                    const receiptPathText = formValues.receipt_path;
+                    const operatorText = formValues.executed_by;
+                    const executedAtText = formValues.executed_at;
+                    const remarkText = formValues.remark;
 
                     try {
                         const beforePrice = parseOptionalOperationEvidenceNumber(beforePriceText, '执行前公开价');
@@ -15382,6 +16251,16 @@
                             }),
                         });
                         if (res.code !== 200) throw new Error(res.message || '执行证据保存失败');
+                        const responseTaskId = Number(res.data?.id || 0);
+                        if (!Number.isInteger(responseTaskId) || responseTaskId !== taskId) {
+                            throw new Error('调价执行返回的任务ID不一致');
+                        }
+                        const persistedTask = await readOperationExecutionTask(responseTaskId);
+                        if (persistedTask.status !== 'executed'
+                            || !operationExecutionHasEvidenceType(persistedTask, 'manual_price_execution')
+                        ) {
+                            throw new Error('调价任务未回读到 executed 状态及对应 evidence');
+                        }
                         showToast('调价执行证据已保存；收入未填写时仍需后续补 ROI 验证');
                         await loadOperationActions();
                     } catch (error) {
@@ -15391,36 +16270,106 @@
                     }
                     return;
                 }
-                const beforeText = prompt('请输入执行前收入，用于 ROI 复盘');
-                if (beforeText === null) return;
-                const afterText = prompt('请输入执行后收入，用于 ROI 复盘');
-                if (afterText === null) return;
-                const costText = isPriceExecution ? '' : prompt('请输入执行成本或投放成本');
-                if (!isPriceExecution && costText === null) return;
-                const remark = (prompt('请输入执行证据备注，如平台、截图路径或操作说明') || '').trim();
+                operationEvidenceModalItem.value = item;
+                operationEvidenceForm.value = {
+                    mode: '1',
+                    completed_action: '',
+                    receipt_path: '',
+                    executed_by: user.value?.realname || user.value?.username || '',
+                    executed_at: operationEvidenceLocalTimestamp(),
+                    next_review_date: formatDate(new Date(Date.now() + 24 * 60 * 60 * 1000)),
+                    before_revenue: '',
+                    after_revenue: '',
+                    cost: '',
+                    remark: '',
+                };
+                operationEvidenceModalOpen.value = true;
+            };
 
+            const closeOperationEvidenceModal = () => {
+                if (operationLoading.value.actions) return;
+                operationEvidenceModalOpen.value = false;
+                operationEvidenceModalItem.value = null;
+            };
+
+            const submitOperationExecutionEvidence = async () => {
+                const item = operationEvidenceModalItem.value;
+                const taskId = Number(item?.execution?.task_id || 0);
+                if (!taskId) return;
+                const recommendation = item?.recommendation && typeof item.recommendation === 'object' ? item.recommendation : {};
+                const form = operationEvidenceForm.value || {};
+                const evidenceMode = String(form.mode || '1').trim();
                 try {
-                    const beforeRevenue = parseOperationEvidenceNumber(beforeText, '执行前收入');
-                    const afterRevenue = parseOperationEvidenceNumber(afterText, '执行后收入');
-                    const cost = isPriceExecution ? null : parseOperationEvidenceNumber(costText, '执行成本');
-                    const after = { revenue: afterRevenue };
-                    if (cost !== null) after.cost = cost;
-                    operationLoading.value.actions = true;
-                    const res = await apiRequest(`/operation/execution-tasks/${taskId}/execute`, {
-                        method: 'POST',
-                        body: JSON.stringify({
+                    let payload;
+                    if (evidenceMode === '1') {
+                        const completedAction = String(form.completed_action || '').trim();
+                        if (!completedAction) throw new Error('请填写已实际完成的运营动作');
+                        const executedAt = normalizeOperationEvidenceDateTime(form.executed_at);
+                        const nextReviewDate = String(form.next_review_date || '').trim();
+                        if (nextReviewDate && !/^\d{4}-\d{2}-\d{2}$/.test(nextReviewDate)) {
+                            throw new Error('效果复盘日期格式需为 YYYY-MM-DD');
+                        }
+                        const receiptPath = String(form.receipt_path || '').trim();
+                        payload = {
+                            status: 'executed',
+                            evidence_type: 'manual_operation_execution',
+                            evidence: {
+                                before: {},
+                                after: {},
+                                attachment_path: receiptPath,
+                                platform_response: operationEvidenceCleanObject({
+                                    mode: 'manual_operation_execution',
+                                    scope: 'ota_channel_operation',
+                                    completed_action: completedAction,
+                                    expected_metric: recommendation.expected_metric || item?.expected_metric || '',
+                                    executed_by: String(form.executed_by || '').trim(),
+                                    executed_at: executedAt,
+                                    next_review_date: nextReviewDate,
+                                    effect_status: 'pending_observation',
+                                    evidence_boundary: 'local_manual_evidence_no_ota_write',
+                                }),
+                                remark: completedAction,
+                            },
+                        };
+                    } else if (evidenceMode === '2') {
+                        const beforeRevenue = parseOperationEvidenceNumber(form.before_revenue, '执行前收入');
+                        const afterRevenue = parseOperationEvidenceNumber(form.after_revenue, '执行后收入');
+                        const cost = parseOperationEvidenceNumber(form.cost, '执行成本');
+                        payload = {
                             status: 'executed',
                             evidence_type: 'manual_finance',
                             evidence: {
                                 before: { revenue: beforeRevenue },
-                                after,
+                                after: { revenue: afterRevenue, cost },
                                 platform_response: { mode: 'manual' },
-                                remark,
+                                remark: String(form.remark || '').trim(),
                             },
-                        }),
+                        };
+                    } else {
+                        throw new Error('执行证据模式无效');
+                    }
+                    operationLoading.value.actions = true;
+                    const res = await apiRequest(`/operation/execution-tasks/${taskId}/execute`, {
+                        method: 'POST',
+                        body: JSON.stringify(payload),
                     });
                     if (res.code !== 200) throw new Error(res.message || '执行证据保存失败');
-                    showToast('执行证据已保存');
+                    const responseTaskId = Number(res.data?.id || 0);
+                    if (!Number.isInteger(responseTaskId) || responseTaskId !== taskId) {
+                        throw new Error('运营执行返回的任务ID不一致');
+                    }
+                    const persistedTask = await readOperationExecutionTask(responseTaskId);
+                    const expectedEvidenceType = evidenceMode === '1' ? 'manual_operation_execution' : 'manual_finance';
+                    if (persistedTask.status !== 'executed'
+                        || !operationExecutionHasEvidenceType(persistedTask, expectedEvidenceType)
+                    ) {
+                        throw new Error('运营任务未回读到 executed 状态及对应 evidence');
+                    }
+                    operationEvidenceModalOpen.value = false;
+                    operationEvidenceModalItem.value = null;
+                    showToast(evidenceMode === '1'
+                        ? '已保存运营动作证据；效果保持待观察，不自动生成收入或ROI'
+                        : '执行收入/成本证据已保存');
                     await loadOperationActions();
                 } catch (error) {
                     showToast(operationErrorMessage(error, error.message || '执行证据保存失败'), 'error');
@@ -15434,16 +16383,24 @@
                 if (!taskId) return;
                 const recommendation = item?.recommendation && typeof item.recommendation === 'object' ? item.recommendation : {};
                 const isPriceExecution = recommendation.object_type === 'price';
-                const beforeText = prompt('请输入执行前收入，用于 ROI/增量收入复盘');
-                if (beforeText === null) return;
-                const afterText = prompt('请输入执行后收入，用于 ROI/增量收入复盘');
-                if (afterText === null) return;
-                const costText = isPriceExecution ? prompt('请输入执行成本（价格调整可留空）') : prompt('请输入执行成本或投放成本（必填）');
-                if (costText === null) return;
-                const attachmentPathText = prompt('请输入截图/回执路径或数据来源说明（可留空）');
-                if (attachmentPathText === null) return;
-                const remarkText = prompt('请输入 ROI 证据备注，如日期口径、数据来源或缺口说明');
-                if (remarkText === null) return;
+                const formValues = await openWorkflowFormDialog({
+                    title: '登记 ROI / 增量收入证据',
+                    description: '数据由人工录入并保留本地来源边界；保存后仍需按证据来源复核。',
+                    submitText: '保存 ROI 证据',
+                    fields: [
+                        { name: 'before_revenue', label: '执行前收入', type: 'number', required: true, value: '' },
+                        { name: 'after_revenue', label: '执行后收入', type: 'number', required: true, value: '' },
+                        { name: 'cost', label: isPriceExecution ? '执行成本（价格调整可留空）' : '执行成本或投放成本', type: 'number', required: !isPriceExecution, value: '' },
+                        { name: 'attachment_path', label: '截图 / 回执路径或数据来源说明', value: '' },
+                        { name: 'remark', label: 'ROI 证据备注', type: 'textarea', value: '', placeholder: '日期口径、数据来源或缺口说明' },
+                    ],
+                });
+                if (formValues === null) return;
+                const beforeText = formValues.before_revenue;
+                const afterText = formValues.after_revenue;
+                const costText = formValues.cost;
+                const attachmentPathText = formValues.attachment_path;
+                const remarkText = formValues.remark;
 
                 try {
                     const beforeRevenue = parseOperationEvidenceNumber(beforeText, '执行前收入');
@@ -15476,7 +16433,15 @@
                         }),
                     });
                     if (res.code !== 200) throw new Error(res.message || 'ROI证据保存失败');
-                    showToast('ROI证据已保存；Revenue AI 将按真实收入/成本证据重新判断');
+                    const responseTaskId = Number(res.data?.id || 0);
+                    if (!Number.isInteger(responseTaskId) || responseTaskId !== taskId) {
+                        throw new Error('ROI证据返回的任务ID不一致');
+                    }
+                    const persistedTask = await readOperationExecutionTask(responseTaskId);
+                    if (!operationExecutionHasEvidenceType(persistedTask, 'manual_roi_evidence')) {
+                        throw new Error('ROI evidence 严格回读失败');
+                    }
+                    showToast('人工录入的 ROI 数据已保存；Revenue AI 将按所填收入/成本重新判断，来源仍需复核');
                     await loadOperationActions();
                 } catch (error) {
                     showToast(operationErrorMessage(error, error.message || 'ROI证据保存失败'), 'error');
@@ -15491,13 +16456,27 @@
                 const defaultStatus = ['success', 'near_success', 'failed', 'observing'].includes(String(item?.review?.status || ''))
                     ? String(item.review.status)
                     : 'observing';
-                const statusText = prompt('请输入复盘结论：success=达成 / near_success=接近达成 / failed=未达成 / observing=继续观察', defaultStatus);
-                if (statusText === null) return;
-                const summaryText = prompt('请输入复盘说明。若缺少收入/ROI证据，请明确写出缺口原因');
-                if (summaryText === null) return;
+                operationReviewModalItem.value = item;
+                operationReviewForm.value = {
+                    status: defaultStatus,
+                    summary: '',
+                };
+                operationReviewModalOpen.value = true;
+            };
+
+            const closeOperationReviewModal = () => {
+                if (operationLoading.value.actions) return;
+                operationReviewModalOpen.value = false;
+                operationReviewModalItem.value = null;
+            };
+
+            const submitOperationExecutionReview = async () => {
+                const item = operationReviewModalItem.value;
+                const taskId = Number(item?.execution?.task_id || 0);
+                if (!taskId) return;
                 try {
-                    const resultStatus = normalizeOperationReviewStatus(statusText);
-                    const resultSummary = String(summaryText || '').trim();
+                    const resultStatus = normalizeOperationReviewStatus(operationReviewForm.value?.status);
+                    const resultSummary = String(operationReviewForm.value?.summary || '').trim();
                     if (['success', 'near_success', 'failed'].includes(resultStatus) && !resultSummary) {
                         throw new Error('复盘结论为达成/接近达成/未达成时必须填写说明');
                     }
@@ -15510,6 +16489,16 @@
                         }),
                     });
                     if (res.code !== 200) throw new Error(res.message || '执行复盘失败');
+                    const responseTaskId = Number(res.data?.id || 0);
+                    if (!Number.isInteger(responseTaskId) || responseTaskId !== taskId) {
+                        throw new Error('执行复盘返回的任务ID不一致');
+                    }
+                    const persistedTask = await readOperationExecutionTask(responseTaskId);
+                    if (String(persistedTask.result_status || '') !== resultStatus) {
+                        throw new Error('执行复盘 result_status 严格回读不一致');
+                    }
+                    operationReviewModalOpen.value = false;
+                    operationReviewModalItem.value = null;
                     showToast(resultStatus === 'observing' ? '执行复盘已记录为继续观察' : '执行复盘结论已保存');
                     await loadOperationActions();
                 } catch (error) {
@@ -16014,6 +17003,68 @@
                 scheduleHomeTrendChartRender();
             };
 
+            const loadHomeTemporalInsights = async () => {
+                if (!token.value || !isCompassDataPage()) return;
+                const requestSeq = ++homeTemporalRequestSeq;
+                const hotelId = String(filterReportHotel.value || '').trim();
+                const isCurrentRequest = () => requestSeq === homeTemporalRequestSeq
+                    && hotelId === String(filterReportHotel.value || '').trim()
+                    && isCompassDataPage();
+                homeTemporalLoading.value = true;
+                homeTemporalError.value = '';
+                homeTemporalData.value = createEmptyHomeTemporalData();
+                try {
+                    const params = new URLSearchParams({ history_days: '30', future_days: '7' });
+                    if (hotelId) params.append('hotel_id', hotelId);
+                    const res = await request(`/temporal-insights/overview?${params.toString()}`);
+                    if (!isCurrentRequest()) return null;
+                    if (res.code === 200 && res.data) {
+                        homeTemporalData.value = res.data;
+                    } else {
+                        homeTemporalError.value = res.message || '经营时间轴加载失败，请稍后重试。';
+                    }
+                } catch (error) {
+                    if (isCurrentRequest()) {
+                        homeTemporalData.value = createEmptyHomeTemporalData();
+                        homeTemporalError.value = error?.message || '经营时间轴加载失败，请稍后重试。';
+                        console.error('加载统一时间视角失败:', error);
+                    }
+                } finally {
+                    if (requestSeq === homeTemporalRequestSeq) homeTemporalLoading.value = false;
+                }
+            };
+
+            const generateHomeTemporalForecast = async () => {
+                const hotelId = homeTemporalSelectedHotelId.value;
+                if (!hotelId) {
+                    showToast('请选择一家酒店后生成预测版本', 'warning');
+                    return;
+                }
+                if (homeTemporalGenerating.value) return;
+                homeTemporalGenerating.value = true;
+                try {
+                    const res = await request('/temporal-insights/forecasts', {
+                        method: 'POST',
+                        body: JSON.stringify({ hotel_id: Number(hotelId), future_days: 7 }),
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '预测版本生成失败');
+                    const generated = res.data || {};
+                    const readbackCount = Number(generated.readback_count);
+                    if (generated.status === 'generated' && Number.isFinite(readbackCount) && readbackCount > 0) {
+                        showToast(`预测版本已保存并回读 ${readbackCount} 个点`);
+                    } else if (generated.status === 'generated') {
+                        showToast(generated.message || '接口返回已生成，但未确认预测点回读，本次不标记为可用', 'warning');
+                    } else {
+                        showToast(generated.message || '历史样本不足，未生成预测版本', 'warning');
+                    }
+                    await loadHomeTemporalInsights();
+                } catch (error) {
+                    showToast(error.message || '预测版本生成失败', 'error');
+                } finally {
+                    homeTemporalGenerating.value = false;
+                }
+            };
+
             const loadMacroSignals = async () => {
                 if (!token.value || !isCompassDataPage() || macroSignalLoading.value) return;
                 macroSignalLoading.value = true;
@@ -16344,7 +17395,20 @@
             };
             const confirmAiGovernanceLog = async (log, status) => {
                 if (!log?.id) return;
-                const note = (prompt(status === 'confirmed' ? '请输入确认说明' : '请输入驳回原因') || '').trim();
+                const formValues = await openWorkflowFormDialog({
+                    title: status === 'confirmed' ? '确认 AI 调用记录' : '驳回 AI 调用记录',
+                    description: '说明将保存在本地 AI 治理审查记录中。',
+                    submitText: status === 'confirmed' ? '确认记录' : '确认驳回',
+                    fields: [{
+                        name: 'note',
+                        label: status === 'confirmed' ? '确认说明' : '驳回原因',
+                        type: 'textarea',
+                        required: status !== 'confirmed',
+                        value: '',
+                    }],
+                });
+                if (formValues === null) return;
+                const note = String(formValues.note || '').trim();
                 try {
                     const res = await request(`/ai-governance/logs/${log.id}/confirm`, {
                         method: 'POST',
@@ -16498,32 +17562,6 @@
                 showToast('请联系超级管理员', 'info');
             };
 
-            const openDirectorEntry = () => {
-                directorEntryVisible.value = true;
-                directorEntryAnswer.value = '';
-                directorEntryError.value = '';
-                nextTick(() => {
-                    const answerInput = document.querySelector('[data-testid="director-entry-answer"]');
-                    if (answerInput) answerInput.focus();
-                });
-            };
-
-            const closeDirectorEntry = () => {
-                directorEntryVisible.value = false;
-                directorEntryAnswer.value = '';
-                directorEntryError.value = '';
-            };
-
-            const verifyDirectorEntry = () => {
-                if (String(directorEntryAnswer.value || '').trim() === '418') {
-                    closeDirectorEntry();
-                    showToast('验证成功，请联系群主添加账户', 'success');
-                    return;
-                }
-                directorEntryError.value = '答案不正确，请重新输入';
-                showToast('验证失败', 'error');
-            };
-
             // 侧边栏折叠切换
             const toggleSidebar = () => {
                 if (isCompactViewport()) {
@@ -16539,6 +17577,7 @@
                 globalNotificationOpen.value = false;
                 strongOtaReminderOpen.value = false;
                 strongOtaReminderDeferredKeys.value = [];
+                saveStrongOtaReminderSessionKeys([]);
                 stopStrongOtaReminderAttentionTimer(true);
                 clearAuthSession();
             };
@@ -19507,6 +20546,8 @@
 
             // 操作日志相关
             const operationLogs = ref([]);
+            const operationLogsLoading = ref(false);
+            const operationLogsError = ref('');
             const logModules = ref([]);
             const logActions = ref([]);
             const logUsers = ref([]);
@@ -19521,7 +20562,7 @@
                 end_date: ''
             });
             const logPagination = ref({ page: 1, page_size: 20, total: 0 });
-            const logSummary = ref({
+            const createEmptyLogSummary = () => ({
                 total: 0,
                 today_total: 0,
                 active_users: 0,
@@ -19530,15 +20571,156 @@
                 data_acquisition_count: 0,
                 analysis_count: 0
             });
+            const logSummary = ref(createEmptyLogSummary());
             const selectedLog = ref(null);
             const showLogDetailModal = ref(false);
+            let operationLogsRequestSeq = 0;
+            const securityOverviewDays = ref(30);
+            const securityOverviewLoading = ref(false);
+            const securityOverviewError = ref('');
+            const createEmptySecurityOverview = () => ({
+                summary: {
+                    critical_users: null,
+                    high_users: null,
+                    needs_review_users: null,
+                    rate_limited_events: null,
+                    access_denied_events: null,
+                    destructive_events: null,
+                    successful_destructive_events: null,
+                    failed_logins: null,
+                    automated_logins: null,
+                },
+                risk_users: [],
+                login_activity: [],
+                latest_events: [],
+                account_activity: {
+                    complete: false,
+                    error: '',
+                    summary: {
+                        enabled_accounts: null,
+                        active_accounts: null,
+                        inactive_accounts: null,
+                        never_logged_in_accounts: null,
+                    },
+                    active_accounts: [],
+                    inactive_accounts: [],
+                },
+                ip_evidence: { quality: 'unavailable', note: 'IP证据尚未加载' },
+                coverage: { complete: false, note: '' },
+            });
+            const securityOverview = ref(createEmptySecurityOverview());
+            let securityOverviewRequestSeq = 0;
 
             const reloadOperationLogs = () => {
                 logPagination.value.page = 1;
-                loadOperationLogs();
+                return Promise.allSettled([loadOperationLogs(), loadSecurityOverview()]);
+            };
+
+            const loadSecurityOverview = async () => {
+                const requestSeq = ++securityOverviewRequestSeq;
+                const requestDays = Math.min(30, Math.max(1, Number(securityOverviewDays.value) || 30));
+                const isCurrentRequest = () => requestSeq === securityOverviewRequestSeq
+                    && requestDays === Number(securityOverviewDays.value)
+                    && user.value?.is_super_admin === true;
+                securityOverview.value = createEmptySecurityOverview();
+                if (!user.value?.is_super_admin) {
+                    securityOverviewLoading.value = false;
+                    securityOverviewError.value = '';
+                    return;
+                }
+                securityOverviewLoading.value = true;
+                securityOverviewError.value = '';
+                try {
+                    const params = new URLSearchParams({ days: String(requestDays) });
+                    const res = await request(`/operation-logs/security-overview?${params}`);
+                    if (!isCurrentRequest()) return null;
+                    if (res.code === 200) {
+                        const emptyOverview = createEmptySecurityOverview();
+                        const payload = res.data || {};
+                        securityOverview.value = {
+                            ...emptyOverview,
+                            ...payload,
+                            summary: { ...emptyOverview.summary, ...(payload.summary || {}) },
+                            account_activity: {
+                                ...emptyOverview.account_activity,
+                                ...(payload.account_activity || {}),
+                                summary: {
+                                    ...emptyOverview.account_activity.summary,
+                                    ...(payload.account_activity?.summary || {}),
+                                },
+                            },
+                            ip_evidence: { ...emptyOverview.ip_evidence, ...(payload.ip_evidence || {}) },
+                            coverage: { ...emptyOverview.coverage, ...(payload.coverage || {}) },
+                        };
+                    } else {
+                        securityOverview.value = createEmptySecurityOverview();
+                        securityOverviewError.value = res.message || '安全监测数据加载失败';
+                    }
+                } catch (e) {
+                    if (!isCurrentRequest()) return null;
+                    securityOverview.value = createEmptySecurityOverview();
+                    securityOverviewError.value = e?.message || '安全监测数据加载失败';
+                    console.error('加载安全监测失败:', e);
+                } finally {
+                    if (requestSeq === securityOverviewRequestSeq) securityOverviewLoading.value = false;
+                }
+            };
+
+            const setSecurityOverviewDays = (days) => {
+                securityOverviewDays.value = Math.min(30, Math.max(1, Number(days) || 30));
+                loadSecurityOverview();
+            };
+
+            const securityRiskLevelLabel = (level = '') => ({
+                critical: '立即核查',
+                high: '高风险',
+                medium: '需关注',
+                low: '低风险',
+            }[level] || '待判断');
+
+            const securityRiskLevelClass = (level = '') => ({
+                critical: 'border-red-200 bg-red-50 text-red-800',
+                high: 'border-orange-200 bg-orange-50 text-orange-800',
+                medium: 'border-amber-200 bg-amber-50 text-amber-800',
+                low: 'border-slate-200 bg-slate-50 text-slate-600',
+            }[level] || 'border-slate-200 bg-slate-50 text-slate-600');
+
+            const securityMetricText = (value) => {
+                if (value === null || value === undefined || String(value).trim() === '') return '—';
+                const number = Number(value);
+                return Number.isFinite(number) ? number.toLocaleString('zh-CN') : String(value);
+            };
+
+            const securitySignalText = (row = {}) => {
+                const signals = Array.isArray(row?.signals) ? row.signals : [];
+                return signals.slice(0, 3).map(signal => `${signal.label}（${securityMetricText(signal.count)}）`).join('；') || '暂无明确风险信号';
+            };
+
+            const securityIpEvidenceLabel = (quality = '') => ({
+                available: 'IP证据可用',
+                degraded: 'IP证据不完整',
+                unavailable: 'IP证据不可用',
+            }[quality] || 'IP证据待确认');
+
+            const securityIpEvidenceClass = (quality = '') => ({
+                available: 'border-emerald-300 bg-emerald-50 text-emerald-800',
+                degraded: 'border-amber-300 bg-amber-50 text-amber-800',
+                unavailable: 'border-red-300 bg-red-50 text-red-800',
+            }[quality] || 'border-slate-300 bg-slate-50 text-slate-700');
+
+            const reviewSecurityUser = (row = {}) => {
+                logFilter.value.user_id = row?.user_id || '';
+                logFilter.value.audit_type = '';
+                reloadOperationLogs();
             };
 
             const loadOperationLogs = async () => {
+                const requestSeq = ++operationLogsRequestSeq;
+                operationLogsLoading.value = true;
+                operationLogsError.value = '';
+                operationLogs.value = [];
+                logPagination.value.total = 0;
+                logSummary.value = createEmptyLogSummary();
                 try {
                     const params = new URLSearchParams({
                         page: logPagination.value.page,
@@ -19546,6 +20728,7 @@
                         ...logFilter.value
                     });
                     const res = await request(`/operation-logs?${params}`);
+                    if (requestSeq !== operationLogsRequestSeq) return null;
                     if (res.code === 200) {
                         operationLogs.value = res.data.list || [];
                         logPagination.value.total = res.data.total;
@@ -19553,29 +20736,35 @@
                         logActions.value = res.data.actions || [];
                         logUsers.value = res.data.users || [];
                         logHotels.value = res.data.hotels || [];
-                        logSummary.value = {
-                            total: 0,
-                            today_total: 0,
-                            active_users: 0,
-                            hotel_count: 0,
-                            module_count: 0,
-                            data_acquisition_count: 0,
-                            analysis_count: 0,
-                            ...(res.data.summary || {})
-                        };
+                        logSummary.value = { ...createEmptyLogSummary(), ...(res.data.summary || {}) };
+                    } else {
+                        throw new Error(res.message || '操作日志加载失败，请稍后重试。');
                     }
                 } catch (e) {
+                    if (requestSeq !== operationLogsRequestSeq) return null;
+                    operationLogs.value = [];
+                    logPagination.value.total = 0;
+                    logSummary.value = createEmptyLogSummary();
+                    logModules.value = [];
+                    logActions.value = [];
+                    logUsers.value = [];
+                    logHotels.value = [];
+                    operationLogsError.value = e?.message || '操作日志加载失败，请稍后重试。';
                     console.error('加载操作日志失败:', e);
+                } finally {
+                    if (requestSeq === operationLogsRequestSeq) operationLogsLoading.value = false;
                 }
             };
 
             const logTypeLabel = (log) => ({
+                security: '安全事件',
                 acquisition: '数据获取',
                 analysis: '数据分析',
                 operation: '业务操作'
             }[log?.audit_type] || '业务操作');
 
             const logTypeClass = (log) => ({
+                security: 'bg-red-50 text-red-700 border border-red-100',
                 acquisition: 'bg-sky-50 text-sky-700 border border-sky-100',
                 analysis: 'bg-violet-50 text-violet-700 border border-violet-100',
                 operation: 'bg-gray-50 text-gray-600 border border-gray-100'
@@ -19816,6 +21005,7 @@
             const otaDiagnosisResult = ref(null);
             const otaDiagnosisError = ref('');
             const otaDiagnosisEmpty = ref(false);
+            const otaDiagnosisExecutionLoading = ref('');
             const otaDiagnosisHotelPickerOpen = ref(false);
             const otaDiagnosisHotelKeyword = ref('');
             watch(() => otaDiagnosisForm.value.platform, () => {
@@ -19869,7 +21059,7 @@
                 otaDiagnosisHotelKeyword.value = '';
                 otaDiagnosisError.value = '';
             };
-            const otaDiagnosisStaticScript = 'ota-diagnosis-static.js?v=20260627-decision-closure-v2';
+            const otaDiagnosisStaticScript = 'ota-diagnosis-static.js?v=20260715-meituan-daily-loop-h1c7db7577d';
             const otaDiagnosisStaticVersion = ref(0);
             let otaDiagnosisStaticLoadPromise = null;
             const getOtaDiagnosisStatic = () => {
@@ -19972,9 +21162,9 @@
                         return typeof formatNumber === 'function' ? formatNumber(numeric) : String(numeric);
                     };
                     return [
-                        { label: '数据记录', value: formatValue(metrics.record_count || 0), hint: '本次诊断样本量', icon: 'fas fa-database' },
-                        { label: '订单', value: formatValue(metrics.book_order_num || 0), hint: '周期内订单量', icon: 'fas fa-receipt' },
-                        { label: '曝光', value: formatValue(metrics.list_exposure || 0), hint: '列表曝光量', icon: 'fas fa-eye' },
+                        { label: '数据记录', value: formatValue(metrics.record_count ?? null), hint: '本次诊断样本量', icon: 'fas fa-database' },
+                        { label: '订单', value: formatValue(metrics.book_order_num ?? null), hint: '周期内订单量', icon: 'fas fa-receipt' },
+                        { label: '曝光', value: formatValue(metrics.list_exposure ?? null), hint: '列表曝光量', icon: 'fas fa-eye' },
                         { label: '最近同步', value: summary.last_sync_time || '-', hint: '线上数据更新时间', icon: 'fas fa-sync-alt' },
                     ];
                 }
@@ -21797,6 +22987,7 @@
             };
             const hotelAiToolboxLinks = ref(requireAppSystemStatic('hotelAiToolboxLinks'));
             const revenueResearchStaticScript = 'revenue-research-static.js';
+            const revenueResearchStaticVersion = '20260715-h7d3a20f899';
             let revenueResearchStaticLoadPromise = null;
             const loadRevenueResearchStatic = () => {
                 const currentStatic = window.SUXI_REVENUE_RESEARCH_STATIC;
@@ -21808,7 +22999,7 @@
                 }
                 revenueResearchStaticLoadPromise = new Promise((resolve, reject) => {
                     const script = document.createElement('script');
-                    script.src = revenueResearchStaticScript;
+                    script.src = revenueResearchStaticScript + '?v=' + revenueResearchStaticVersion;
                     script.onload = () => {
                         const loadedStatic = window.SUXI_REVENUE_RESEARCH_STATIC;
                         if (loadedStatic && typeof loadedStatic === 'object') {
@@ -21885,9 +23076,9 @@
                 return 'fas fa-circle';
             };
             const revenueResearchResultStatusLabel = (status) => ({
-                done: '已生成经营预测',
-                pending_data: '已预测，需补数据校准',
-            }[status] || status || '已完成');
+                done: '研究输出已生成',
+                pending_data: '研究输出待补数据',
+            }[status] || status || '状态未返回');
             const revenueResearchResultStatusClass = (status) => ({
                 done: 'bg-green-100 text-green-700',
                 pending_data: 'bg-amber-100 text-amber-700',
@@ -21907,10 +23098,10 @@
                 if (!result || typeof result !== 'object' || !result.product_key) return '请先生成收益研究结果。';
                 const hotelScope = result.hotel_scope && typeof result.hotel_scope === 'object' ? result.hotel_scope : {};
                 if (hotelScope.mode !== 'single_hotel' || Number(hotelScope.hotel_id || 0) <= 0) {
-                    return '转运营执行只支持单店结果，请选择具体门店后重新预测。';
+                    return '转运营执行只支持单店结果，请选择具体门店后重新研究。';
                 }
                 const readiness = result.readiness && typeof result.readiness === 'object' ? result.readiness : {};
-                if (result.status !== 'done') return '研究结果仍有数据缺口，补齐后重新预测才能转运营执行。';
+                if (result.status !== 'done') return '研究结果仍有数据缺口，补齐后重新研究才能转运营执行。';
                 if (readiness.stage !== 'research_ready_for_execution' || readiness.execution_ready !== true) {
                     return readiness.next_action || '研究结果尚未达到可执行状态。';
                 }
@@ -21943,22 +23134,26 @@
                 const forecast = result.business_forecast || {};
                 const forecast7 = forecast.forecast_7d || {};
                 const forecast30 = forecast.forecast_30d || {};
-                if (!forecast.available || (!forecast7.revenue && !forecast30.revenue)) return [];
+                const hasMetric = (value) => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
+                const currencyMetric = (value) => hasMetric(value) ? formatCurrency(Number(value)) : '—';
+                const countMetric = (value) => hasMetric(value) ? Math.round(Number(value)) : '—';
+                const percentMetric = (value) => hasMetric(value) ? `${toFixedSafe(Number(value), 2)}%` : '—';
+                if (!forecast.available || (!hasMetric(forecast7.revenue) && !hasMetric(forecast30.revenue))) return [];
                 return [
                     {
-                        label: '未来7天收入',
-                        value: formatCurrency(forecast7.revenue || 0),
-                        note: `间夜 ${Math.round(toNumber(forecast7.room_nights))} · ADR ${formatCurrency(forecast7.adr || 0)}`,
+                        label: '未来7天 OTA收入情景',
+                        value: currencyMetric(forecast7.revenue),
+                        note: `间夜 ${countMetric(forecast7.room_nights)} · ADR ${currencyMetric(forecast7.adr)}`,
                     },
                     {
-                        label: '未来30天收入',
-                        value: formatCurrency(forecast30.revenue || 0),
-                        note: `间夜 ${Math.round(toNumber(forecast30.room_nights))} · ADR ${formatCurrency(forecast30.adr || 0)}`,
+                        label: '未来30天 OTA收入情景',
+                        value: currencyMetric(forecast30.revenue),
+                        note: `间夜 ${countMetric(forecast30.room_nights)} · ADR ${currencyMetric(forecast30.adr)}`,
                     },
                     {
                         label: '最近趋势',
-                        value: `${toFixedSafe(forecast.trend_percent || 0, 2, '0.00')}%`,
-                        note: `样本 ${forecast.sample_days || 0} 天 · ${forecast.date_range?.start || '-'} 至 ${forecast.date_range?.end || '-'}`,
+                        value: percentMetric(forecast.trend_percent),
+                        note: `样本 ${hasMetric(forecast.sample_days) ? Number(forecast.sample_days) : '—'} 天 · ${forecast.date_range?.start || '-'} 至 ${forecast.date_range?.end || '-'}`,
                     },
                 ];
             };
@@ -21991,13 +23186,13 @@
                     });
                     if (res.code === 200) {
                         setRevenueResearchRun(product.key, { loading: false, stepIndex: revenueResearchSteps.value.length - 1, result: res.data, error: '' });
-                        showToast(res.data?.status === 'pending_data' ? '已生成预测，需补数据校准' : '经营预测已生成');
+                        showToast(res.data?.status === 'pending_data' ? '数据不足，尚未形成可用研究输出' : '研究输出已生成', res.data?.status === 'pending_data' ? 'warning' : 'success');
                         return;
                     }
-                    setRevenueResearchRun(product.key, { loading: false, error: res.message || '预测失败' });
-                    showToast(res.message || '预测失败', 'error');
+                    setRevenueResearchRun(product.key, { loading: false, error: res.message || '研究失败' });
+                    showToast(res.message || '研究失败', 'error');
                 } catch (error) {
-                    const message = error?.data?.message || error.message || '预测失败';
+                    const message = error?.data?.message || error.message || '研究失败';
                     setRevenueResearchRun(product.key, { loading: false, error: message });
                     showToast(message, 'error');
                 } finally {
@@ -22097,6 +23292,52 @@
             const priceSuggestionGenerating = ref(false);
             const priceSuggestionGenerateResult = ref(null);
             const priceSuggestionReview = ref(null);
+            const optionalFiniteNumber = (value) => {
+                if (value === null || value === undefined || value === '') return null;
+                const number = Number(String(value).replace(/[,\s￥¥%]/g, ''));
+                return Number.isFinite(number) ? number : null;
+            };
+            const priceSuggestionReviewHasComparableSamples = computed(() => {
+                const before = priceSuggestionReview.value?.before || {};
+                const after = priceSuggestionReview.value?.after || {};
+                const beforeCount = optionalFiniteNumber(before.sample_count);
+                const afterCount = optionalFiniteNumber(after.sample_count);
+                const unavailableStatuses = new Set(['no_sample', 'empty', 'missing', 'insufficient']);
+                return beforeCount !== null
+                    && afterCount !== null
+                    && beforeCount > 0
+                    && afterCount > 0
+                    && !unavailableStatuses.has(String(before.data_status || '').toLowerCase())
+                    && !unavailableStatuses.has(String(after.data_status || '').toLowerCase());
+            });
+            const priceSuggestionReviewMetricText = (value, prefix = '') => {
+                if (!priceSuggestionReviewHasComparableSamples.value) return '—';
+                const number = optionalFiniteNumber(value);
+                if (number === null) return '—';
+                return `${prefix}${number.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
+            };
+            const priceSuggestionReviewSampleCountText = (value) => {
+                const number = optionalFiniteNumber(value);
+                return number === null ? '—' : number.toLocaleString('zh-CN', { maximumFractionDigits: 0 });
+            };
+            const competitorAlertPriceText = (item = {}) => {
+                const hotelName = item.competitor_hotel?.hotel_name || item.competitor_hotel_id || '竞对';
+                const priceDifference = optionalFiniteNumber(item.price_difference ?? item.priceDifference);
+                if (priceDifference !== null) {
+                    return `${hotelName} 与本店价差 ${priceDifference > 0 ? '+' : ''}¥${priceDifference.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
+                }
+                const priceDifferencePercent = optionalFiniteNumber(item.price_diff_percent ?? item.price_difference_percent ?? item.priceDiffPercent);
+                if (priceDifferencePercent !== null) {
+                    return `${hotelName} 与本店价差率 ${priceDifferencePercent > 0 ? '+' : ''}${priceDifferencePercent}%`;
+                }
+                const priceChangePercent = optionalFiniteNumber(item.price_change_percent);
+                if (priceChangePercent !== null) {
+                    return `${hotelName} 已返回价格变化 ${priceChangePercent > 0 ? '+' : ''}${priceChangePercent}%`;
+                }
+                const priceIndex = optionalFiniteNumber(item.price_index);
+                if (priceIndex !== null) return `${hotelName} 价格指数 ${priceIndex}（非价格波动率）`;
+                return `${hotelName} 价格对比字段未返回`;
+            };
             const roomTypeConfigList = ref([]);
             const roomTypeConfigMeta = ref({});
             const roomTypeConfigSaving = ref(false);
@@ -22148,16 +23389,16 @@
                 room_type_id: firstEnabledRoomTypeId(),
                 predicted_occupancy: null,
                 predicted_demand: null,
-                confidence_percent: 80,
+                confidence_percent: null,
                 remark: '',
             });
             const demandForecastSaving = ref(false);
             const demandForecastForm = ref(createDemandForecastForm());
-            const forecastAccuracy = ref({ avg_error: 0, accuracy_rate: 0, total_forecasts: 0 });
+            const forecastAccuracy = ref({});
             const highDemandDates = ref([]);
             const revenueDashboard = ref({
                 today_suggestions: [], pending_count: 0, forecast_accuracy: {},
-                competitor_alerts: [], week_revpar_forecast: 0, high_demand_count: 0
+                competitor_alerts: [], week_revpar_forecast: null, high_demand_count: 0
             });
 
             // 竞对分析
@@ -22189,22 +23430,35 @@
                 });
                 return rows;
             });
-            const roundAgentMetric = (value, digits = 1) => Number((Number(value) || 0).toFixed(digits));
+            const roundAgentMetric = (value, digits = 1) => {
+                if (value === null || value === undefined || value === '') return null;
+                const number = Number(value);
+                return Number.isFinite(number) ? Number(number.toFixed(digits)) : null;
+            };
             const revenueAccuracyText = computed(() => {
                 const source = [
                     revenueAnalysisData.value.forecast_accuracy,
                     forecastAccuracy.value,
                     revenueDashboard.value.forecast_accuracy
                 ].find(item => item && Object.keys(item).length > 0) || {};
-                const value = source.accuracy_rate ?? source.avg_accuracy ?? source.accuracy ?? 0;
-                return Number(value) ? `${roundAgentMetric(value, 1)}%` : '--';
+                const sampleCount = Number(source.total_forecasts ?? source.sample_count ?? source.matched_count ?? 0);
+                if (!Number.isFinite(sampleCount) || sampleCount <= 0) return '--';
+                const value = source.accuracy_rate ?? source.avg_accuracy ?? source.accuracy ?? null;
+                const rounded = roundAgentMetric(value, 1);
+                return rounded !== null ? `${rounded}%` : '--';
             });
-            const revenueRevparRows = computed(() => (revenueAnalysisData.value.revpar_trend || []).map(row => ({
-                date: row.date || row.forecast_date || '-',
-                revpar: roundAgentMetric(row.predicted_revpar ?? row.revpar ?? 0, 1),
-                occupancy: roundAgentMetric(row.predicted_occupancy ?? row.occupancy ?? 0, 1),
-                confidence: roundAgentMetric(row.confidence ?? row.confidence_score ?? 0, 1)
-            })));
+            const revenueRevparRows = computed(() => (revenueAnalysisData.value.revpar_trend || []).map(row => {
+                const rawConfidence = row.confidence ?? row.confidence_score ?? null;
+                const normalizedConfidence = rawConfidence !== null && Number.isFinite(Number(rawConfidence))
+                    ? (Number(rawConfidence) <= 1 ? Number(rawConfidence) * 100 : Number(rawConfidence))
+                    : null;
+                return {
+                    date: row.date || row.forecast_date || '-',
+                    revpar: roundAgentMetric(row.predicted_revpar ?? row.revpar ?? null, 1),
+                    occupancy: roundAgentMetric(row.predicted_occupancy ?? row.occupancy ?? null, 1),
+                    confidence: roundAgentMetric(normalizedConfidence, 1)
+                };
+            }));
             const revenueAnalysisDataNotice = computed(() => {
                 const hasData = revenueRevparRows.value.length > 0
                     || demandForecasts.value.length > 0
@@ -22289,9 +23543,11 @@
 
             const runOtaDiagnosisHotelFetch = async (selectedHotel, form) => {
                 const runOtaDiagnosisHotelFetchFlow = await getOtaDiagnosisHotelFetchFlow();
+                await loadPlatformDataSources({ cacheMs: PLATFORM_SOURCE_PANEL_CACHE_TTL_MS });
                 return runOtaDiagnosisHotelFetchFlow({
                     selectedHotel,
                     form,
+                    platformDataSources: platformDataSources.value,
                     findCtripConfigByHotelId,
                     findMeituanConfigByHotelId,
                     requestTask: async task => {
@@ -22323,6 +23579,72 @@
                     setEmpty: value => { otaDiagnosisEmpty.value = value; },
                     notify: showToast,
                 });
+            };
+
+            const createOtaDiagnosisExecutionIntent = async (row) => {
+                if (otaDiagnosisResult.value?.record_status === 'superseded' || otaDiagnosisResult.value?.saved_record?.status === 'superseded') {
+                    showToast('该诊断已被更新的同范围诊断替代，仅供回看，不能转运营执行', 'warning');
+                    return;
+                }
+                const recordId = Number(otaDiagnosisResult.value?.saved_record?.id || 0);
+                const actionIndex = Number(row?.index);
+                if (!recordId || !Number.isInteger(actionIndex) || actionIndex < 0) {
+                    showToast('请先保存诊断，再选择可执行行动', 'warning');
+                    return;
+                }
+                if (row?.canCreateIntent !== true) {
+                    showToast(row?.blockedReason || '该行动缺少可执行证据', 'warning');
+                    return;
+                }
+
+                otaDiagnosisExecutionLoading.value = String(row.id || actionIndex);
+                try {
+                    const res = await request(`/agent/ota-diagnoses/${recordId}/actions/${actionIndex}/execution-intent`, {
+                        method: 'POST',
+                        body: JSON.stringify({}),
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '转运营执行失败');
+                    const intent = res.data?.execution_intent || {};
+                    if (Number(intent.id || 0) <= 0) throw new Error('执行意图未返回可跟踪记录');
+                    showToast(res.data?.reused_existing_intent ? '已打开现有执行意图' : '已创建执行意图，等待人工审批');
+                    const hotelId = String(intent.hotel_id || otaDiagnosisResult.value?.hotel?.id || '').trim();
+                    if (hotelId) operationFilters.value.hotel_id = hotelId;
+                    currentPage.value = 'ops-track';
+                    await nextTick();
+                    await loadOperationActions();
+                } catch (error) {
+                    showToast(error?.message || '转运营执行失败', 'error');
+                } finally {
+                    otaDiagnosisExecutionLoading.value = '';
+                }
+            };
+
+            const openSavedOtaDiagnosis = async (log) => {
+                let context = log?.context_data;
+                if (typeof context === 'string') {
+                    try { context = JSON.parse(context); } catch (_) { context = {}; }
+                }
+                const snapshot = context?.diagnosis_result;
+                if (!snapshot || typeof snapshot !== 'object') {
+                    showToast('该日志没有可回看的诊断快照', 'warning');
+                    return;
+                }
+                otaDiagnosisResult.value = snapshot;
+                otaDiagnosisEmpty.value = snapshot?.data_summary?.has_ota_data === false;
+                otaDiagnosisError.value = '';
+                const savedHotelId = String(snapshot?.hotel?.id || log?.hotel_id || '');
+                otaDiagnosisForm.value.platform = String(snapshot?.platform || context?.platform || 'ctrip');
+                await nextTick();
+                otaDiagnosisForm.value.hotel_id = savedHotelId;
+                otaDiagnosisForm.value.start_date = snapshot?.date_range?.start_date || otaDiagnosisForm.value.start_date;
+                otaDiagnosisForm.value.end_date = snapshot?.date_range?.end_date || otaDiagnosisForm.value.end_date;
+                agentTab.value = 'overview';
+                await nextTick();
+                if (snapshot?.record_status === 'superseded' || snapshot?.saved_record?.status === 'superseded') {
+                    showToast('已打开被替代的历史诊断，仅供审计回看', 'warning');
+                    return;
+                }
+                showToast('已打开保存的OTA诊断');
             };
 
             // 加载Agent概览
@@ -22477,14 +23799,18 @@
                 const roomTypeId = Number(demandForecastForm.value.room_type_id || 0);
                 const forecastDate = demandForecastForm.value.forecast_date;
                 const predictedOccupancy = Number(demandForecastForm.value.predicted_occupancy || 0);
-                const predictedDemand = Number(demandForecastForm.value.predicted_demand || 0);
-                const confidencePercent = Number(demandForecastForm.value.confidence_percent || 0);
+                const demandRaw = demandForecastForm.value.predicted_demand;
+                const confidenceRaw = demandForecastForm.value.confidence_percent;
+                const predictedDemand = demandRaw === null || demandRaw === '' ? null : Number(demandRaw);
+                const confidencePercent = confidenceRaw === null || confidenceRaw === '' ? null : Number(confidenceRaw);
                 if (hotelId <= 0) {
                     showToast('请先选择酒店', 'error');
                     return;
                 }
-                if (!forecastDate || roomTypeId <= 0 || predictedOccupancy <= 0 || predictedOccupancy > 100) {
-                    showToast('请补齐预测日期、启用房型和 1-100 的预测入住率', 'error');
+                if (!forecastDate || roomTypeId <= 0 || predictedOccupancy <= 0 || predictedOccupancy > 100
+                    || predictedDemand === null || !Number.isFinite(predictedDemand) || predictedDemand < 0
+                    || confidencePercent === null || !Number.isFinite(confidencePercent) || confidencePercent <= 0 || confidencePercent > 100) {
+                    showToast('请补齐预测日期、启用房型、预测入住率、需求间夜和 1-100 的人工置信度', 'error');
                     return;
                 }
                 demandForecastSaving.value = true;
@@ -22495,7 +23821,7 @@
                         room_type_id: roomTypeId,
                         predicted_occupancy: predictedOccupancy,
                         predicted_demand: predictedDemand,
-                        confidence_score: confidencePercent > 1 ? Number((confidencePercent / 100).toFixed(4)) : confidencePercent,
+                        confidence_score: Number((confidencePercent / 100).toFixed(4)),
                         forecast_method: 3,
                         is_event_driven: 0,
                         historical_data: {
@@ -22682,14 +24008,27 @@
 
             const createPriceSuggestionExecutionIntent = async (id) => {
                 try {
+                    const suggestion = priceSuggestions.value.find(item => Number(item?.id || 0) === Number(id)) || {};
+                    const fields = await collectPriceExecutionIntentFields(suggestion);
+                    if (fields === null) return;
                     const res = await request(`/revenue-ai/price-suggestions/${id}/execution-intent`, {
                         method: 'POST',
                         body: JSON.stringify({
                             source: 'agent_pricing_suggestions',
                             expected_metric: 'orders',
+                            ...fields,
                         }),
                     });
                     if (res.code === 200) {
+                        const responseIntent = res.data?.execution_intent || {};
+                        const intentId = Number(responseIntent.id || 0);
+                        if (!Number.isInteger(intentId) || intentId <= 0) throw new Error('执行意图创建结果缺少有效ID');
+                        const persistedIntent = await readOperationExecutionIntent(intentId);
+                        if (persistedIntent.status !== 'pending_approval'
+                            || String(persistedIntent.blocked_reason || '').trim() !== ''
+                        ) {
+                            throw new Error('执行意图严格回读未通过');
+                        }
                         showToast('执行意图已创建');
                         await Promise.allSettled([
                             loadPriceSuggestions(),
@@ -23278,16 +24617,29 @@
             };
 
             const loadCompassData = async (options = {}) => {
-                if (!token.value || compassLoading.value) return;
+                if (!token.value) return;
+                const requestSeq = ++compassRequestSeq;
+                const compassHotelId = String(filterReportHotel.value || '').trim();
+                const isCurrentRequest = () => requestSeq === compassRequestSeq
+                    && compassHotelId === String(filterReportHotel.value || '').trim()
+                    && isCompassDataPage();
+                if (compassDisplayedHotelId !== compassHotelId) {
+                    compassWeather.value = [];
+                    compassTodos.value = [];
+                    compassMetrics.value = { day: {}, week: {}, month: {} };
+                    compassAlerts.value = [];
+                    compassHolidays.value = [];
+                    compassLastSyncedAt.value = '--';
+                }
                 compassLoading.value = true;
                 try {
                     const revenueAiOverviewLoad = loadRevenueAiOverview();
-                    const compassHotelId = String(filterReportHotel.value || '').trim();
                     const params = new URLSearchParams();
                     if (compassHotelId) params.append('hotel_id', compassHotelId);
                     const suffix = params.toString() ? `?${params.toString()}` : '';
                     const res = await request(`/compass${suffix}`);
                     await revenueAiOverviewLoad;
+                    if (!isCurrentRequest()) return null;
                     if (res.code === 200) {
                         compassLayout.value = mergeStoredHomeQuickLayout(res.data.layout || compassLayout.value);
                         compassWeather.value = res.data.weather || [];
@@ -23295,18 +24647,20 @@
                         compassMetrics.value = res.data.metrics || compassMetrics.value;
                         compassAlerts.value = res.data.alerts || [];
                         compassHolidays.value = res.data.holidays || [];
+                        compassDisplayedHotelId = compassHotelId;
                         scheduleDelayedPageTask(() => {
-                            if (!isCompassDataPage()) return null;
+                            if (!isCurrentRequest()) return null;
                             loadWeatherForCity();
                             return null;
                         }, COMPASS_WEATHER_REFRESH_DELAY_MS);
                     }
                     compassLastSyncedAt.value = new Date().toLocaleString(currentLocale.value);
                     deferUiTask(async () => {
-                        if (!isCompassDataPage()) return null;
+                        if (!isCurrentRequest()) return null;
                         const compassBackgroundJobs = [
                             () => loadHolidayRevenueCountdown(),
                             () => loadMacroSignals(),
+                            () => loadHomeTemporalInsights(),
                             () => loadHomeTrends(),
                             () => {
                                 if (String(filterReportHotel.value || '').trim() !== compassHotelId) return null;
@@ -23315,10 +24669,10 @@
                             () => loadCompetitorSummary({ requireCompass: true })
                         ];
                         for (const job of compassBackgroundJobs) {
-                            if (!isCompassDataPage()) return null;
+                            if (!isCurrentRequest()) return null;
                             await job();
                         }
-                        if (isCompassDataPage()) {
+                        if (isCurrentRequest()) {
                             compassLastSyncedAt.value = new Date().toLocaleString(currentLocale.value);
                         }
                         return null;
@@ -23327,12 +24681,13 @@
                         showToast('罗盘数据已更新');
                     }
                 } catch (e) {
+                    if (!isCurrentRequest()) return null;
                     console.error('加载首页罗盘失败:', e);
                     if (options.notify) {
                         showToast('罗盘数据更新失败', 'error');
                     }
                 } finally {
-                    compassLoading.value = false;
+                    if (requestSeq === compassRequestSeq) compassLoading.value = false;
                 }
             };
 
@@ -23475,13 +24830,7 @@
                 const force = options.force === true;
                 scheduleDelayedPageTask(async () => {
                     if (currentPage.value !== 'meituan-ebooking' || onlineDataTab.value !== 'meituan-ranking') return;
-                    if (force) {
-                        await loadCompetitorSummary({ includeByHotel: false });
-                        return;
-                    }
-                    if (competitorSummary.value) {
-                        syncMeituanRankingDisplayFromCompetitorSummary();
-                    }
+                    await loadCompetitorSummary({ includeByHotel: false, force });
                 }, delay);
             };
 
@@ -23742,6 +25091,10 @@
                 ctripLatestMeta.value = snapshotModel.metadata;
                 ctripLatestComparison.value = payload?.rank?.comparison || null;
 
+                if (hydrateDisplay && !snapshotModel.hasRank) {
+                    clearCtripRankingDisplayState();
+                }
+
                 if (snapshotModel.hasRank && hydrateDisplay) {
                     const allHotels = useCtripDisplayHotels(snapshotModel.rankDisplayHotels, snapshotModel.rankDisplaySummary, {
                         activateDisplay: true,
@@ -23761,14 +25114,18 @@
                         snapshotModel.trafficRows,
                         null
                     );
+                } else if (hydrateDisplay) {
+                    useCtripTrafficDisplayRows([], null, [], null);
                 }
 
                 if (snapshotModel.hasReview && hydrateDisplay) {
                     ctripCommentResult.value = snapshotModel.reviewResult;
+                } else if (hydrateDisplay) {
+                    ctripCommentResult.value = null;
                 }
 
-                if (snapshotModel.onlineResult) {
-                    onlineDataResult.value = snapshotModel.onlineResult;
+                if (hydrateDisplay || snapshotModel.onlineResult) {
+                    onlineDataResult.value = snapshotModel.onlineResult || null;
                 }
             };
 
@@ -26393,7 +27750,7 @@
 
             // AI智能分析相关函数
             const aiAnalysisStaticScript = 'ai-analysis-static.js';
-            const aiAnalysisStaticVersion = '20260711-ctrip-competition-circle-v1';
+            const aiAnalysisStaticVersion = '20260715-unverified-preview-hd13ecd982e';
             const aiAnalysisStatic = ref(window.SUXI_AI_ANALYSIS_STATIC && typeof window.SUXI_AI_ANALYSIS_STATIC === 'object' ? window.SUXI_AI_ANALYSIS_STATIC : null);
             const aiAnalysisStaticLoadError = ref('');
             let aiAnalysisStaticLoadPromise = null;
@@ -28009,6 +29366,9 @@
                 rent_free_months: '',
                 decoration_budget: '',
                 transfer_fee: '',
+                opening_cost: '',
+                adr: '',
+                occ: '',
                 target_brand_level: '',
                 target_customer: '',
                 notes: '',
@@ -28026,7 +29386,7 @@
             const strategyCurrentReadiness = computed(() => aiStrategyResult.value?.execution_readiness || null);
 
             const simulationStaticScript = 'simulation-static.js';
-            const simulationStaticScriptVersion = '20260615-transfer-helpers';
+            const simulationStaticScriptVersion = '20260716-review-close-h25514eecc8';
             const simulationStatic = ref(window.SUXI_SIMULATION_STATIC && typeof window.SUXI_SIMULATION_STATIC === 'object' ? window.SUXI_SIMULATION_STATIC : null);
             const simulationStaticLoadError = ref('');
             let simulationStaticLoadPromise = null;
@@ -28114,7 +29474,7 @@
 
             const expansionDefaultOnlineDate = formatDate(new Date(Date.now() + 45 * 24 * 60 * 60 * 1000));
             const expansionStaticOptionsScript = 'expansion-static-options.js';
-            const expansionStaticOptionsScriptVersion = '20260615-feasibility-payload';
+            const expansionStaticOptionsScriptVersion = '20260715-he66b274612';
             const expansionStaticOptions = ref(window.SUXI_EXPANSION_STATIC && typeof window.SUXI_EXPANSION_STATIC === 'object' ? window.SUXI_EXPANSION_STATIC : null);
             const expansionStaticLoadError = ref('');
             let expansionStaticOptionsLoadPromise = null;
@@ -28193,7 +29553,12 @@
             const strategyAddressKeywordOptionsForProject = (project) => hasExpansionStaticOptions.value ? requireExpansionStaticFunction('strategyAddressKeywordOptionsForProject')(project) : [];
             const strategyNextDistrictForProject = (project) => hasExpansionStaticOptions.value ? requireExpansionStaticFunction('strategyNextDistrictForProject')(project) : project?.district || '';
             const strategyNextAddressForProject = (project) => hasExpansionStaticOptions.value ? requireExpansionStaticFunction('strategyNextAddressForProject')(project) : project?.address || '';
-            const estimateStrategyCompetitorCountForProject = (project) => hasExpansionStaticOptions.value ? requireExpansionStaticFunction('estimateStrategyCompetitorCount')(project) : Number(project?.competitor_count || 0);
+            const estimateStrategyCompetitorCountForProject = (project) => {
+                const value = project?.competitor_count;
+                return value === null || value === undefined || value === '' || !Number.isFinite(Number(value))
+                    ? null
+                    : Math.max(0, Number(value));
+            };
             const normalizeMarketEvaluationForm = (input) => requireExpansionStaticFunction('normalizeMarketEvaluationForm')(input);
             const buildFeasibilityInputCards = (payload) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildFeasibilityInputCards')(payload) : [];
             const buildFeasibilityReportCards = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildFeasibilityReportCards')(result) : [];
@@ -28202,16 +29567,16 @@
             const stringifyFeasibilityReportText = (result, projectName) => requireExpansionStaticOption('stringifyFeasibilityReport')(result, projectName);
             const buildMarketEvaluationAiRiskSuggestions = (payload) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildMarketEvaluationAiRiskSuggestions')(payload) : [];
             const marketEvaluationRiskSeverityClass = (severity) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('marketEvaluationRiskSeverityClass')(severity) : 'bg-gray-50 text-gray-600 border-gray-100';
-            const formatMarketEvaluationScoreChange = (value) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('formatMarketEvaluationScoreChange')(value) : String(Number(value || 0));
+            const formatMarketEvaluationScoreChange = (value) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('formatMarketEvaluationScoreChange')(value) : '—';
             const marketEvaluationScoreChangeClass = (value) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('marketEvaluationScoreChangeClass')(value) : 'bg-gray-50 text-gray-600 border-gray-100';
             const buildMarketEvaluationAiJudgementRows = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildMarketEvaluationAiJudgementRows')(result) : [];
             const buildMarketEvaluationAiRecommendations = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildMarketEvaluationAiRecommendations')(result) : [];
             const buildMarketEvaluationAiAssumptions = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildMarketEvaluationAiAssumptions')(result) : [];
-            const buildMarketEvaluationScoreFormula = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildMarketEvaluationScoreFormula')(result) : { base_score: 62, raw_score: 0, final_score: 0, cap_rule: '0-100封顶/保底' };
+            const buildMarketEvaluationScoreFormula = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildMarketEvaluationScoreFormula')(result) : { base_score: null, raw_score: null, final_score: null, cap_rule: '评分模块未加载' };
             const buildMarketEvaluationScoreBreakdown = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildMarketEvaluationScoreBreakdown')(result) : [];
-            const buildMarketEvaluationScorePercent = (formula) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildMarketEvaluationScorePercent')(formula) : 0;
+            const buildMarketEvaluationScorePercent = (formula) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildMarketEvaluationScorePercent')(formula) : null;
             const buildMarketEvaluationAiRiskNote = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildMarketEvaluationAiRiskNote')(result) : '';
-            const benchmarkModelAiSourceLabelForResult = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('benchmarkModelAiSourceLabelForResult')(result) : 'AI评估';
+            const benchmarkModelAiSourceLabelForResult = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('benchmarkModelAiSourceLabelForResult')(result) : '来源未核验';
             const buildBenchmarkModelAiRecommendations = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildBenchmarkModelAiRecommendations')(result) : [];
             const buildBenchmarkModelAiWatchPoints = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildBenchmarkModelAiWatchPoints')(result) : [];
             const buildBenchmarkModelAiAssumptionNote = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildBenchmarkModelAiAssumptionNote')(result) : '';
@@ -28221,7 +29586,7 @@
             const normalizeStrategyResult = (data) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('normalizeStrategyResult')(data) : data;
             const buildStrategyScoreCards = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildStrategyScoreCards')(result) : [];
             const strategyFreshnessLabelForSnapshot = (snapshot) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('strategyFreshnessLabelForSnapshot')(snapshot) : '--';
-            const strategyAiSourceLabelForResult = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('strategyAiSourceLabelForResult')(result) : 'AI';
+            const strategyAiSourceLabelForResult = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('strategyAiSourceLabelForResult')(result) : '来源未核验';
             const strategyAiModelDisplayLabelForSnapshot = (snapshot) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('strategyAiModelDisplayLabelForSnapshot')(snapshot) : '--';
             const strategyPoiDataSourceLabelForSnapshot = (...args) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('strategyPoiDataSourceLabelForSnapshot')(...args) : '--';
             const strategyDataNoticeForSnapshot = (...args) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('strategyDataNoticeForSnapshot')(...args) : '';
@@ -28256,8 +29621,8 @@
                 return estimateStrategyCompetitorCountForProject(aiProject.value);
             };
             const syncStrategyCompetitorCount = () => {
-                if (!hasExpansionStaticOptions.value) return;
-                aiProject.value.competitor_count = estimateStrategyCompetitorCount();
+                // Competitor counts are evidence-bearing inputs. Never replace a
+                // missing value with a city/tier rule estimate.
             };
             const filteredMarketEvaluationCityOptions = computed(() => marketEvaluationCityOptionsForTier(
                 marketEvaluationCityOptions.value,
@@ -28452,14 +29817,45 @@
                 }
             };
 
-            const feasibilityInputCards = computed(() => buildFeasibilityInputCards({
-                project: aiProject.value,
-                simulationParams: aiSimulationParams.value,
-            }));
+            const feasibilityInputCards = computed(() => {
+                const cards = buildFeasibilityInputCards({
+                    project: aiProject.value,
+                    simulationParams: {
+                        adr: aiProject.value.adr,
+                        occupancyRate: aiProject.value.occ,
+                    },
+                });
+                return cards.map((card, index) => index === 3 ? {
+                    ...card,
+                    label: '预期经营',
+                    meta: '本页显式输入 ADR / OCC',
+                } : card);
+            });
 
-            const feasibilityReportCards = computed(() => buildFeasibilityReportCards(aiFeasibilityResult.value));
+            const feasibilityReportCards = computed(() => {
+                const report = aiFeasibilityResult.value;
+                const cards = buildFeasibilityReportCards(report);
+                if (!report || report.decision_ready === true) return cards;
+                return cards.map(card => card.label === '回本周期'
+                    ? { ...card, value: '待评估', meta: '核心输入未齐，不计算回本期' }
+                    : card);
+            });
 
-            const feasibilityAiEmpowerment = computed(() => buildFeasibilityAiEmpowerment(aiFeasibilityResult.value));
+            const feasibilityAiEmpowerment = computed(() => {
+                const report = aiFeasibilityResult.value;
+                const result = buildFeasibilityAiEmpowerment(report);
+                if (!report || report.decision_ready === true) return result;
+                const firstAction = Array.isArray(report.action_plan) ? (report.action_plan[0] || {}) : {};
+                return {
+                    ...result,
+                    isFallback: false,
+                    sourceLabel: '输入待补充（未形成投决结论）',
+                    headline: '待评估 · 核心输入未齐全',
+                    conclusion: report.core_reason || '补齐核心输入后才能生成可用回本期和结论等级。',
+                    nextAction: firstAction.title ? `${firstAction.title}：${firstAction.detail || '-'}` : '补齐核心投资输入',
+                    evidenceText: '当前仅保存用户已填写内容与规则情景假设',
+                };
+            });
 
             const feasibilityDecisionClass = computed(() => feasibilityDecisionClassForGrade(aiFeasibilityResult.value?.conclusion_grade));
             const feasibilityExecutionIntentId = computed(() => expansionExecutionIntentId({ result: aiFeasibilityResult.value || {} }));
@@ -28554,7 +29950,9 @@
                             city_area: input.city_area ?? collaborationProject.value.city_area,
                             current_stage: input.current_stage ?? collaborationProject.value.current_stage,
                             owner: input.owner ?? collaborationProject.value.owner,
-                            expected_online_date: input.expected_online_date ?? collaborationProject.value.expected_online_date
+                            expected_online_date: input.expected_online_date ?? collaborationProject.value.expected_online_date,
+                            source_evidence: input.source_evidence ?? collaborationProject.value.source_evidence,
+                            review_status: input.review_status ?? collaborationProject.value.review_status
                         };
                         if (Array.isArray(input.tasks)) {
                             collaborationTasks.value = input.tasks;
@@ -28804,14 +30202,14 @@
                     await ensureSimulationStaticReady();
                     const query = `?hotel_id=${encodeURIComponent(hotelId)}&date=${encodeURIComponent(transferSourceDate.value || formatDate(new Date()))}`;
                     const res = await request('/transfer/source' + query);
-                    if (res.code !== 200) throw new Error(res.message || '获取转让真实数据失败');
+                    if (res.code !== 200) throw new Error(res.message || '获取转让测算来源数据失败');
                     transferSelectedHotelId.value = res.data?.hotel_id || hotelId;
                     transferSourceSnapshot.value = res.data?.snapshot || null;
                     applyDefinedFields(transferPricingForm.value, res.data?.pricing_input || {});
                     applyDefinedFields(transferTimingForm.value, res.data?.timing_input || {});
-                    showToast(res.data?.data_notice || '真实数据已带入');
+                    showToast(res.data?.data_notice || '来源数据读取完成；请核对来源范围与缺失项', res.data?.snapshot?.source_verified === true ? 'success' : 'warning');
                 } catch (error) {
-                    showToast(error.message || '获取转让真实数据失败', 'error');
+                    showToast(error.message || '获取转让测算来源数据失败', 'error');
                 } finally {
                     transferSourceLoading.value = false;
                 }
@@ -28939,8 +30337,8 @@
                     if (res.code !== 200) throw new Error(res.message || '资产定价计算失败');
                     transferPricingResult.value = res.data || null;
                     transferDashboardResult.value = null;
-                    await loadTransferRecords();
-                    showToast('资产定价已生成');
+                    if (Number(res.data?.record_id || 0) > 0) await loadTransferRecords();
+                    showToast(res.message || (res.data?.status === 'insufficient_data' ? '关键字段缺失，未生成估值' : '情景估值已生成'), res.data?.status === 'insufficient_data' ? 'warning' : 'success');
                 } catch (error) {
                     showToast(error.message || '资产定价计算失败', 'error');
                 } finally {
@@ -28961,8 +30359,8 @@
                     if (res.code !== 200) throw new Error(res.message || '时机推演失败');
                     transferTimingResult.value = res.data || null;
                     transferDashboardResult.value = null;
-                    await loadTransferRecords();
-                    showToast('时机推演已生成');
+                    if (Number(res.data?.record_id || 0) > 0) await loadTransferRecords();
+                    showToast(res.message || (res.data?.status === 'insufficient_data' ? '关键趋势缺失，未生成时机评分' : '规则时机情景已生成'), res.data?.status === 'insufficient_data' ? 'warning' : 'success');
                 } catch (error) {
                     showToast(error.message || '时机推演失败', 'error');
                 } finally {
@@ -29288,9 +30686,28 @@
             }));
             const simulationMetricCards = computed(() => buildSimulationMetricCards(baseSimulation.value, formatCurrency));
 
-            const buildFeasibilityPayload = () => requireExpansionStaticOption('buildFeasibilityPayload')({
-                project: aiProject.value,
-                simulationParams: aiSimulationParams.value,
+            const feasibilityFormValue = value => value === '' || value === null || value === undefined ? null : value;
+            const feasibilityOccForForm = value => {
+                const number = Number(value);
+                return Number.isFinite(number) && number > 0 && number <= 1 ? number * 100 : value;
+            };
+            const buildFeasibilityPayload = () => ({
+                project_name: aiProject.value.project_name,
+                city: aiProject.value.city,
+                district: aiProject.value.district,
+                address: aiProject.value.address,
+                property_area: feasibilityFormValue(aiProject.value.property_area),
+                room_count: feasibilityFormValue(aiProject.value.room_count),
+                monthly_rent: feasibilityFormValue(aiProject.value.monthly_rent),
+                lease_years: feasibilityFormValue(aiProject.value.lease_years),
+                decoration_budget: feasibilityFormValue(aiProject.value.decoration_budget),
+                transfer_fee: feasibilityFormValue(aiProject.value.transfer_fee),
+                opening_cost: feasibilityFormValue(aiProject.value.opening_cost),
+                adr: feasibilityFormValue(aiProject.value.adr),
+                occ: feasibilityFormValue(aiProject.value.occ),
+                target_brand_level: aiProject.value.target_brand_level,
+                target_customer: aiProject.value.target_customer,
+                notes: aiProject.value.notes || '',
             });
 
             const normalizeFeasibilityResponse = (data) => {
@@ -29314,6 +30731,9 @@
                         lease_years: record.input.lease_years ?? aiProject.value.lease_years,
                         decoration_budget: record.input.decoration_budget ?? aiProject.value.decoration_budget,
                         transfer_fee: record.input.transfer_fee ?? aiProject.value.transfer_fee,
+                        opening_cost: record.input.opening_cost ?? '',
+                        adr: record.input.adr ?? '',
+                        occ: feasibilityOccForForm(record.input.occ ?? ''),
                         target_brand_level: record.input.target_brand_level ?? aiProject.value.target_brand_level,
                         target_customer: record.input.target_customer ?? aiProject.value.target_customer,
                         notes: record.input.notes ?? aiProject.value.notes
@@ -29375,7 +30795,6 @@
                 aiFeasibilityError.value = '';
                 try {
                     await ensureExpansionStaticReady();
-                    await ensureSimulationStaticReady();
                     const url = aiFeasibilityRecordId.value
                         ? `/agent/feasibility-report/regenerate/${aiFeasibilityRecordId.value}`
                         : '/agent/feasibility-report/generate';
@@ -29383,11 +30802,11 @@
                         method: 'POST',
                         body: JSON.stringify(buildFeasibilityPayload())
                     });
-                    if (res.code !== 200) throw new Error(res.message || '报告生成失败');
+                    if (res.code !== 200) throw new Error(res.message || '评估保存失败');
                     normalizeFeasibilityResponse(res.data);
-                    showToast('可行性报告已生成');
+                    showToast(res.data?.decision_ready === true ? '可行性测算已生成' : '输入已保存，当前待评估');
                 } catch (err) {
-                    aiFeasibilityError.value = err.message || '报告生成失败';
+                    aiFeasibilityError.value = err.message || '评估保存失败';
                     showToast(aiFeasibilityError.value, 'error');
                 } finally {
                     aiFeasibilityLoading.value = false;
@@ -29399,6 +30818,10 @@
                 const hotelId = Number(aiFeasibilityExecutionHotelId.value || 0);
                 if (!reportId) {
                     showToast('请先生成或加载可行性报告', 'error');
+                    return;
+                }
+                if (aiFeasibilityReadiness.value?.decision_ready !== true) {
+                    showToast('核心输入未齐，待评估报告不能转投后跟踪', 'error');
                     return;
                 }
                 if (!hotelId) {
@@ -29430,6 +30853,16 @@
             };
 
             const stringifyFeasibilityReport = () => {
+                if (aiFeasibilityResult.value?.decision_ready !== true) {
+                    const report = aiFeasibilityResult.value || {};
+                    return [
+                        `${report.summary?.project_name || aiProject.value?.project_name || '项目'}待评估记录`,
+                        '状态：核心投资输入未齐，未生成回本期或结论等级。',
+                        `原因：${report.core_reason || '请补齐预期 ADR、预期 OCC、开办费及其他核心投资输入。'}`,
+                        `数据缺口：${Array.isArray(report.data_gaps) && report.data_gaps.length ? report.data_gaps.join('、') : '核心投资输入待补充'}`,
+                        `规则情景假设：${Array.isArray(report.assumptions) ? report.assumptions.join('；') : '无'}`,
+                    ].join('\n\n');
+                }
                 return stringifyFeasibilityReportText(aiFeasibilityResult.value, aiProject.value?.project_name || '');
             };
 
@@ -29496,6 +30929,8 @@
                 transferRecordTypeLabel, transferReadinessBadgeClass, transferReadinessMissingText, transferExecutionIntentId, loadTransferSource, loadTransferRecords, loadTransferDetail, reuseTransferRecord, createTransferExecutionIntent, archiveTransferRecord,
                     operationFullData, operationRootCause, operationAlerts, operationStrategyResult, operationActions, operationExecutionFlow, operationClosureOverview, operationEffectValidation,
                 operationLoading, operationError, operationFilters, strategyForm, actionForm,
+                operationEvidenceModalOpen, operationEvidenceForm, closeOperationEvidenceModal, submitOperationExecutionEvidence,
+                operationReviewModalOpen, operationReviewForm, closeOperationReviewModal, submitOperationExecutionReview,
                 operationStrategyRequirementText, operationStrategyAmountRequired, operationStrategyDiscountRequired,
                 operationAlertFilter, operationAlertFilters, operationStrategyTypes, operationHotelOptions, operationSummaryCards, operationOtaCards, operationCompetitorCards,
                 operationSourceBrief, operationDecisionCards,
@@ -29522,6 +30957,7 @@
                 openingTaskDueLabel, openingTaskDueClass, openingTaskProgressPercent, openingTaskProgressStage, openingTaskProgressTextClass, handleOpeningTaskProgressInput, handleOpeningTaskStatusChange, setOpeningTaskProgress, saveOpeningTaskProgress,
                 openingRiskText, openingRiskTextClass, openingRiskClass,
                 homeObservation, homeTrendCards, homeTrendRanges, homeTrendRange, homeTrendMetrics, homeTrendMetric, homeTrendLoading, homeTrendCustomRange, homeTrendHasSamples, homeTrendInterpretation, homeTrendEmptyState,
+                homeTemporalLoading, homeTemporalGenerating, homeTemporalError, homeTemporalData, homeTemporalSelectedHotelId, homeTemporalCards, homeTemporalReview,
                 homeBoardTrendRanges, homeTrendRangeLabel, homeDecisionSummaryRows, homeExecutiveAnswer, homeMinimalWorkbench, homeAiWorkbenchPrimaryMetric, homeAiWorkbenchSecondaryMetrics, homeAiWorkbenchReadySummary, homeOperatingResultCards, homeCausalChainNodes, homeCompetitorSummaryCards, homeBoardActionRows,
                 dualOtaDashboard, dualOtaSelectedPlatform, dualOtaSelectedRange, dualOtaCompareEnabled, dualOtaSelectedStoreScope, dualOtaEffectiveStoreScope, dualOtaEffectivePlatform, dualOtaSelectedLossNodeId, dualOtaSelectedAnomalyRank, dualOtaActionItems, dualOtaReviewMemory, dualOtaExpandedMemoryId, dualOtaLastRecordText, dualOtaHasConnectedPlatforms, dualOtaActiveLossNodes, dualOtaSelectedLossExplanation, dualOtaSelectedAnomaly, dualOtaSystemOverviewGroups, dualOtaPlatformRevenueTitle, dualOtaPlatformRevenueSubtitle, dualOtaPlatformRevenuePlatforms, dualOtaPlatformRevenueHasContribution,
                 dualOtaConnectionClass, dualOtaConnectionPlatformValue, switchDualOtaConnection, setDualOtaPlatform, setDualOtaRange, setDualOtaStoreScope, dualOtaMetricComparisonText, toggleDualOtaCompare, dualOtaModuleNavigationTarget, openDualOtaModule, dualOtaTrustClass, dualOtaSeverityClass, dualOtaHeatClass, dualOtaActionStatusClass, setDualOtaLossNode, setDualOtaAnomaly, syncDualOtaActionStatus, toggleDualOtaAction, copyDualOtaAdvice, openDualOtaBackendPlaceholder, recordDualOtaExecution, toggleDualOtaMemory,
@@ -29534,17 +30970,17 @@
                 weatherDemandHint, weatherDecisionTags, weatherDecisionInsights, weatherLocationName, selectedWeatherCity, weatherCityPickerOpen, weatherCityChoices, selectWeatherCity, defaultWeatherCity, weatherSelectableCities, displayWeather, weatherToday, weatherForecastDays, weatherImpactTone, weatherLoading, weatherError, weatherDataSourceLabel,
                 homeQuickEntries, hiddenHomeQuickEntries, homeQuickLayoutEditing, homeQuickLayoutSaving, homeQuickLayoutSaveHint, homeQuickDragKey, homeQuickDragOverKey, startHomeQuickDrag, enterHomeQuickDrag, dropHomeQuickDrag, endHomeQuickDrag, toggleHomeQuickEntry, resetHomeQuickLayout, saveHomeQuickLayout, openHomeQuickEntry,
                 homeCompetitorReadiness, homeCompetitorPlatformTagText, homeCompetitorPlatformTagClass, competitorSummaryReadinessClass,
-                lifecycleLoading, lifecycleOverview, lifecycleMetricLabel, lifecycleStageTitle, lifecycleStageStatusClass, loadLifecycleOverview,
+                lifecycleLoading, lifecycleOverview, lifecycleMetricLabel, lifecycleStageTitle, lifecycleStageStatusText, lifecycleStageStatusClass, lifecycleStageBadgeClass, lifecycleOverviewStatusText, lifecycleOverviewStatusClass, loadLifecycleOverview,
                 investmentDecisionLoading, investmentDecisionOverview, investmentDecisionSummaryCards, investmentDecisionBusinessChainRows, investmentDecisionActionQueueRows, investmentDecisionSectionRows, investmentDecisionRiskRows, investmentDecisionRecordRows, investmentDecisionFormulaRows, investmentDecisionStatusText, investmentDecisionStatusClass, investmentDecisionSeverityText, investmentDecisionSeverityClass, investmentDecisionPriorityClass, investmentDecisionSourceLabel, loadInvestmentDecisionOverview,
                 isLoggedIn, loading, loginError, registerMode, registerLoading, registerError, registerSuccess, registerForm, user, token, userHasPermission, canManageOwnHotels, canMaintainOtaConfig, currentLocale, languageOptions, switchLocale, currentTime, currentDateText, currentClockText, currentTimeZoneLabel, currentPage, showPassword,
-                directorEntryVisible, directorEntryAnswer, directorEntryError,
                 loginForm, rememberAccount, menuItems, visibleMenuItems, pageTitle, toast, handleMenuClick,
+                workflowFormDialog, closeWorkflowFormDialog, submitWorkflowFormDialog,
                 globalNotificationOpen, globalNotificationLoading, globalNotificationVisibleItems, globalNotificationUnreadCount, globalNotificationTotalCount,
                 globalNotificationSummaryText, toggleGlobalNotifications, refreshGlobalNotifications, openGlobalNotification,
                 markAllGlobalNotificationsRead, clearGlobalNotifications, globalNotificationSeverityDotClass, globalNotificationBadgeClass,
                 strongOtaReminderOpen, strongOtaReminderItems, strongOtaReminderCount,
-                strongOtaReminderMinimumVisibleSeconds, strongOtaReminderDeferSecondsRemaining, strongOtaReminderCanDefer,
-                showStrongOtaReminder, deferStrongOtaReminder, openStrongOtaReminderItem,
+                strongOtaReminderMinimumVisibleSeconds, strongOtaReminderSnoozeHours, strongOtaReminderDeferSecondsRemaining, strongOtaReminderCanDefer,
+                showStrongOtaReminder, deferStrongOtaReminder, snoozeStrongOtaReminder24Hours, openStrongOtaReminderItem,
                 revenueResearchProducts, revenueResearchStatusClass, revenueResearchRuns, revenueResearchHotelId, revenueResearchHotelOptions, revenueResearchSteps, revenueResearchRunFor,
                 revenueResearchStepClass, revenueResearchStepIcon, revenueResearchResultStatusLabel, revenueResearchResultStatusClass, revenueResearchReadinessClass, revenueResearchMissingText,
                 revenueResearchExecutionBlockedText, revenueResearchCanCreateExecutionIntent, createRevenueResearchExecutionIntent, openRevenueResearchExecutionIntent,
@@ -29587,7 +31023,7 @@
                 getEmptyHotelBackgroundProfile, parseHotelDescriptionPayload, buildHotelDescriptionPayload, getHotelDescriptionProfileRows, hotelFormAccountHotel,
                 filteredHotels, filteredUsers,
                 permissionUser, userPermissions,
-                handleLogin, handleRegister, openRegisterForm, closeRegisterForm, handleLogout, forgotPassword, openDirectorEntry, closeDirectorEntry, verifyDirectorEntry, showToast,
+                handleLogin, handleRegister, openRegisterForm, closeRegisterForm, handleLogout, forgotPassword, showToast,
                 openHotelModal, openHotelManagementForOta, saveHotel, openHotelDeleteModal, closeHotelDeleteModal, confirmDeleteHotel, deactivateHotelDeleteTarget, deleteHotel, hotelDeleteIdentityText, openHotelMergeModal, closeHotelMergeModal, invalidateHotelMergePreview, previewHotelMerge, executeHotelMerge, toggleHotelStatus,
                 openUserModal, openUserAuthorization, closeHotelUserAuthorization, saveHotelUserAuthorization, openUserModalWithRole, applyUserIssueRole, applyUserRoleQuickFilter, resetUserFilters, saveUser, approveUser, deactivateUser, openUserLoginInfoModal, closeUserLoginInfoModal, confirmUserLoginInfoReset, copyLastUserIssueGuide, clearLastUserIssueGuide, closeUserStatusConfirm, confirmUserStatusChange, deleteUser, closeUserDeleteModal, confirmDeleteUser,
                 rolesList, allPermissions, showRoleModal, roleForm, openRoleModal, saveRole, deleteRole, togglePermission,
@@ -29611,12 +31047,17 @@
                 filteredPlatformAccountCenterRows,
                 platformAccountCenterSummaryCards,
                 ctripTrafficView, ctripRealtimeTrafficView,
+                otaFetchResultView,
                 onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformCollectionResources, platformCollectionStatus, platformCollectionResourceLoading, platformCollectionResourceError, platformCollectionStatusLoading, platformCollectionStatusError, platformCollectionStatusRows, platformContextSummaryCards, platformCollectionBoundaryRows, platformCollectionStatusText, platformCollectionStatusClass, platformReviewCollectionText, platformRowLatestText, platformCollectionFailureReasonText, platformCollectionFailureReasonClass, platformProfileFlowRows, platformProfileFlowStepClass, platformProfileFlowStepDotClass, authContext, platformCollectionResourceRows, platformCollectionResourceSummary, platformCollectionTypeRows, platformCollectionResourceStatusText, platformCollectionResourceStatusClass, platformCollectionEtlStatusText, platformCollectionFreshnessText, platformDataSourceLoading, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, browserAssistImporting, browserAssistImportResult, browserAssistImportFileName, browserAssistImportForm, browserAssistImportPackages, browserAssistImportWarnings, platformDataSourceError, platformDataSourceForm, platformDataSourceConfigPlaceholder, platformDataSourceSecretPlaceholder, platformAccountBindingGuideRows, platformAccountBindingStatusRows, platformBatchHealthRows, platformBatchHealthSummaryCards, platformBatchHealthBadgeClass, applyPlatformAccountBindingGuide, togglePlatformAccountCenterDetails, openPlatformAccountCenterAction, platformProfileStatus, platformProfileStatusLoading, platformProfileStatusRows, meituanPlatformProfileStatusRow, ctripPlatformProfileStatusRow, meituanPlatformProfileLoginTask, ctripPlatformProfileLoginTask, platformProfileSummary, platformProfileLoginTasks, platformProfileLoginTask, platformProfileLoginRunning, triggerPlatformProfileLogin, loadPlatformProfileStatus, loginPlatformProfile, probePlatformProfileStatus, openPlatformProfileAction, platformProfileStatusLabel, platformProfileStatusRawText, platformProfileStatusBadgeClass, platformProfileCheckClass, platformProfileBindingText, platformProfileBindingRawText, platformProfileStrategyText, platformProfilePrimaryActionText, platformProfileNextActionText, platformProfileLoginTaskText, platformProfileLoginTaskRawText, platformImportForm, platformDataSourceHotelOptions, platformSourceGuidePanelsReady, loadPlatformDataSourcePanel, openPlatformSourcesTab, schedulePlatformDataSourcePanelLoad, schedulePlatformSyncLogPanelRefresh, loadPlatformCollectionResources, loadPlatformCollectionStatus, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, deletePlatformProfileBinding, syncPlatformDataSource, importPlatformDataRowsFromText, readBrowserAssistCaptureFile, copyBrowserAssistCollectorScript, importBrowserAssistCaptureFromText, clearBrowserAssistImportForm, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, platformSyncActionText, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripBusinessSourceNotice, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficBusinessQuality, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripOverviewTopRankTables, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCookieApiForm, ctripCookieApiRunning, ctripProfileStatus, ctripProfileStatusChecking, ctripProfileStatusText, ctripProfileStatusClass, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripReviewMatchForm, ctripReviewMatchLoading, ctripReviewMatchLookupLoadingCommentId, ctripReviewMatchResult, ctripReviewMatchSamples, ctripReviewMatchStatusLabel, ctripReviewMatchStatusClass, applyCtripReviewMatchSample, showCtripReviewMatchManualPanel, runCtripReviewMatchAutomation, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultCtripLoginUrl, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCapturePresets, meituanBrowserCaptureCommand, meituanBrowserCaptureSelectedSectionsText, meituanBrowserCaptureReadinessNotice, meituanBrowserCaptureSupplementModules, meituanBrowserCaptureSupplementCounts, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
                 ctripProfileFields, ctripProfileFieldSummary, ctripProfileFieldLoading, ctripProfileFieldSampleLoading, ctripProfileFieldSamplesLoaded, ctripProfileFieldSaving, ctripProfileFieldTogglingId, ctripProfileFieldVerifyingId, ctripProfileFieldRechecking, ctripProfileFieldConfigPanelReady, ctripProfileFieldConfigPanelBody, ctripProfileFieldRecheckState, ctripProfileFieldRecheckProgress, ctripProfileFieldRecheckEstimatedText, ctripProfileFieldRecheckSectionText, ctripProfileFieldRecheckTargetCount, showCtripProfileFieldForm, selectedCtripProfileSampleField, selectedCtripProfileFieldSamples, ctripProfileSamplePanel, editingCtripProfileField, editingCtripProfileFieldSamples, ctripProfileModules, ctripProfileAllModules, ctripProfilePrimaryCategoryOptions, ctripProfilePrimaryCategoryCards, ctripProfileModuleCategoryFilter, ctripProfileModuleRows, showCtripProfileModuleManager, ctripProfileModuleSaving, ctripProfileModuleDeletingId, ctripProfileModuleForm, ctripProfileFieldSectionOptions, ctripProfileFieldForm, ctripProfileFieldFilters, ctripProfileFieldSampleText, ctripProfileFieldSampleValueText, ctripProfileFieldSampleItems, ctripProfileFieldDisplaySampleItems, ctripProfileFieldDisplaySampleLabel, ctripProfileFieldPreviewSampleItems, ctripProfileFieldLatestBatchSampleCount, ctripProfileFieldDisplaySampleCount, ctripProfileFieldLatestSampleTime, ctripProfileFieldSampleMetaText, ctripProfileFieldSampleBriefMetaText, ctripProfileFieldSampleSourceText, ctripProfileFieldSampledCount, ctripProfileEnabledFieldCount, ctripProfileEnabledSampledFieldCount, ctripProfileEnabledMissingFieldCount, ctripProfileCaptureResultText, ctripProfileEnabledVisibleFieldCount, ctripProfileSampledVisibleFieldCount, ctripProfileFieldCurrentBatchSampledCount, ctripProfileConfirmedFieldCount, ctripProfileDoubtfulFieldCount, ctripProfileForbiddenFieldAssets, ctripProfileFieldAssetLedgerCards, ctripProfileFieldInferredSectionText, ctripProfileFieldInferredEndpoint, ctripProfileFieldInferredSourceKey, ctripProfileFieldInferredFieldKey, ctripProfileFieldInferredStorageField, filteredCtripProfileFields, resetCtripProfileModuleForm, openCtripProfileModuleManager, closeCtripProfileModuleManager, editCtripProfileModule, saveCtripProfileModule, deleteCtripProfileModule, ctripProfileModulePageUrl, ctripProfileModulePageDisplay, openCtripProfileModulePage, resetCtripProfileFieldFilters, resetCtripProfileFieldForm, openCtripProfileFieldCreateForm, openCtripProfileFieldSamplePanel, closeCtripProfileFieldSamplePanel, loadCtripProfileFields, openCtripProfileFieldsForReview, applyCtripProfileFieldSections, recheckCtripProfileMismatchedFields, editCtripProfileField, applyCtripProfileFieldSmartDefaults, selectCtripProfileCorrectSample, isCtripProfileCorrectSampleSelected, ctripProfileFieldNeedsSecondConfirmation, saveCtripProfileField, toggleCtripProfileFieldEnabled, setCtripProfileFieldVerification, deleteCtripProfileField, ctripProfileCaptureSectionText, ctripProfileFieldStatusText, ctripProfileFieldStatusDetailText, ctripProfileFieldStatusClass, normalizeCtripProfileFieldVerificationStatus, ctripProfileFieldVerificationText, ctripProfileFieldVerificationBadgeClass, ctripProfileFieldVerificationLightClass,
                 quickCookiesName, quickCookiesValue, openTargetSite, saveQuickCookies,
                 // 线上数据记录
                 onlineDataFilter, onlineDataList, onlineDataPagination, onlineDataPage, onlineDataHotelList, onlineDataSummary,
                 onlineDataQualitySummary, onlineDataQualityStatusText, onlineDataQualityStatusClass, onlineDataQualityPromptList, onlineDataQualityScopeText, autoFetchRecordStatusClass,
+                canUseOnlineDataCorrectionLedger, onlineDataCorrectionLedgerOpen, onlineDataCorrectionLedgerLoading, onlineDataCorrectionLedgerError,
+                onlineDataCorrectionLedgerList, onlineDataCorrectionLedgerPagination, onlineDataCorrectionLedgerRestoringId,
+                loadOnlineDataCorrectionLedger, toggleOnlineDataCorrectionLedger, changeOnlineDataCorrectionLedgerPage, restoreOnlineDataCorrectionLedger,
+                onlineDataCorrectionLedgerOperationText, onlineDataCorrectionLedgerChangedFieldsText, onlineDataCorrectionLedgerStatusText, onlineDataCorrectionLedgerStatusClass,
                 collectionReliability, collectionReliabilityLoading, collectionReliabilityError,
                 otaConfigOverviewPageSize, otaConfigOverviewPages, otaConfigOverviewRefreshing, otaConfigOverviewProbeState, otaConfigOverviewSelectedCount, otaConfigOverviewHiddenSelectedCount, otaConfigOverviewPageCount, otaConfigOverviewPageNumber, otaConfigOverviewPageSummary, changeOtaConfigOverviewPage, isOtaConfigOverviewRowSelected, toggleOtaConfigOverviewRow, isOtaConfigOverviewPageSelected, toggleSelectOtaConfigOverviewPage, clearOtaConfigOverviewSelection, refreshOtaConfigOverviewStatus, probeOtaConfigOverviewRow, probeSelectedOtaConfigOverviewRows, runOtaConfigOverviewRowCollection, runSelectedOtaConfigOverviewCollection, deleteOtaConfigOverviewRow,
                 dailyWorkbench, dailyWorkbenchLoading, dailyWorkbenchError, dailyWorkbenchPatrol, dailyWorkbenchPatrolLoading, dailyWorkbenchPatrolRunning, dailyWorkbenchPatrolActionUpdating, dailyWorkbenchPatrolError, phase3OperationEffectLoop, phase3OperationEffectLoopLedger, phase3OperationEffectLoopLoading, phase3OperationEffectLoopError, phase3OperationEffectLoopActionUpdating, phase3OperationEffectLoopSummary, phase3OperationEffectLoopCards, phase3OperationEffectLoopRows, phase3OperationEffectLoopBoundaryText, phase3OperationEffectLoopLedgerText, phase3OperationEffectLoopEmptyText, phase3OperationEffectLoopStatusText, phase3OperationEffectLoopStatusClass, phase3OperationEffectLoopActionKey, dailyWorkbenchWriteBoundary, dailyWorkbenchSummary, dailyWorkbenchScopeText, dailyWorkbenchSummaryCards, dailyWorkbenchRows, employeeOtaChecklistScopeText, employeeOtaChecklistCards, employeeOtaChecklistHeadline, employeeOtaChecklistRows, employeeOtaChecklistEmptyText, employeeOtaChecklistActionRunning, runEmployeeOtaChecklistAction, dataAcquisitionWorkbenchRows, dataAcquisitionIssueGroups, dataAcquisitionWorkbenchCards, dataAcquisitionWorkbenchScopeText, dataAcquisitionWorkbenchHeadline, dataAcquisitionWorkbenchEmptyText, dataAcquisitionPrimaryFetchHotelId, dataAcquisitionFetchableHotelIds, otaConfigOverviewGroups, otaConfigOverviewExpanded, otaConfigOverviewFilters, otaConfigOverviewTotalCount, otaConfigOverviewFilteredCount, otaConfigOverviewHasFilters, resetOtaConfigOverviewFilters, otaConfigOverviewVisibleRows, toggleOtaConfigOverview, manageOtaConfigOverview, editOtaConfigOverviewRow, otaDirectViewCards, otaDirectIssueRows, handleOtaDirectIssueAction, manualOneClickFetchRunning, manualOneClickFetchRows, manualOneClickFetchDisplayRows, manualOneClickFetchCards, manualOneClickFetchScopeText, manualOneClickFetchEvidenceError, manualOneClickFetchStatusFilter, manualOneClickFetchFilterOptions, manualOneClickFetchFilteredEmptyText, manualOneClickFetchEmptyText, manualOneClickFetchStatusClass, canEditManualOneClickFetchRow, canRetryManualOneClickFetchRow, canDeleteManualOneClickFetchRow, canSupplementManualOneClickFetchRow, editManualOneClickFetchFailure, retryManualOneClickFetchFailure, deleteManualOneClickFetchConfig, supplementManualOneClickFetchConfig, runManualOneClickFetch, refreshManualOneClickFetchConfig, dailyWorkbenchNextActions, dailyWorkbenchPatrolVisibleActions, dailyWorkbenchEmptyText, dailyWorkbenchStatusText, dailyWorkbenchStatusClass, dailyWorkbenchPatrolLatest, dailyWorkbenchPatrolHealth, dailyWorkbenchPatrolHealthText, dailyWorkbenchPatrolHealthClass, dailyWorkbenchPatrolAutomationText, dailyWorkbenchPatrolAutomationClass, dailyWorkbenchPatrolNextActionText, dailyWorkbenchPatrolLatestText, dailyWorkbenchPatrolLatestRawText, dailyWorkbenchPatrolActionText, dailyWorkbenchPatrolBoundaryText, dailyWorkbenchPatrolTrackedStatusText, dailyWorkbenchPatrolTrackedStatusClass, dailyWorkbenchPatrolExecutionText, dailyWorkbenchPatrolTaskId, dailyWorkbenchPatrolReviewText, dailyWorkbenchPatrolReviewClass, dailyWorkbenchPatrolActionUpdatingKey, dailyWorkbenchPatrolReviewUpdatingKey,
@@ -29692,11 +31133,14 @@
                 onlineAnalysisP0CaptureEvidenceStatus, onlineAnalysisP0CaptureEvidenceStatusText, onlineAnalysisP0CaptureEvidenceStatusClass, onlineAnalysisP0CaptureEvidenceDetailText,
                 loadOnlineAnalysisRows, refreshOnlineAnalysis, openOnlineAnalysisTab,
                 // 操作日志
-                operationLogs, logModules, logActions, logUsers, logHotels, logFilter, logPagination, logSummary, selectedLog, showLogDetailModal,
+                operationLogs, operationLogsLoading, operationLogsError, logModules, logActions, logUsers, logHotels, logFilter, logPagination, logSummary, selectedLog, showLogDetailModal,
                 reloadOperationLogs, loadOperationLogs, viewLogDetail, logTypeLabel, logTypeClass, logActionClass,
+                securityOverview, securityOverviewDays, securityOverviewLoading, securityOverviewError,
+                loadSecurityOverview, setSecurityOverviewDays, securityRiskLevelLabel, securityRiskLevelClass,
+                securityMetricText, securitySignalText, securityIpEvidenceLabel, securityIpEvidenceClass, reviewSecurityUser,
                 // 门店罗盘
                 compassLayout, compassLayoutPanel, compassWeather, compassTodos, compassMetrics, compassAlerts, compassHolidays, compassMetricTab,
-                loadCompassData, loadHolidayRevenueCountdown, moveCompassBlock, toggleCompassBlock, saveCompassLayout, compassBlockLabel, getHotelName,
+                loadCompassData, loadHolidayRevenueCountdown, loadHomeTemporalInsights, generateHomeTemporalForecast, moveCompassBlock, toggleCompassBlock, saveCompassLayout, compassBlockLabel, getHotelName,
                 // 竞对价格监控
                 competitorTab, competitorHotels, competitorLogs, competitorDevices, competitorRobots,
                 competitorHotelFilter, competitorLogFilter, competitorRobotFilter,
@@ -29707,13 +31151,13 @@
                 loadCompetitorRobots, openCompetitorRobotModal, saveCompetitorRobot, deleteCompetitorRobot, testCompetitorRobot, getCompetitorStoreName,
                 // Agent中心 - 基础
                 agentTab, agentTabs, agentOverview, hotelAiToolboxLinks, agentConfigs,
-                otaDiagnosisForm, otaDiagnosisLoading, otaDiagnosisResult, otaDiagnosisError, otaDiagnosisEmpty,
+                otaDiagnosisForm, otaDiagnosisLoading, otaDiagnosisResult, otaDiagnosisError, otaDiagnosisEmpty, otaDiagnosisExecutionLoading,
                 otaDiagnosisHotelOptions, otaDiagnosisSelectedHotel, otaDiagnosisHotelPickerOpen, otaDiagnosisHotelKeyword,
                 otaDiagnosisFilteredHotelOptions, otaDiagnosisHotelSourceText, toggleOtaDiagnosisHotelPicker, selectOtaDiagnosisHotel,
                 otaDiagnosisPlatformText, otaDiagnosisDateRangeText,
                 otaDiagnosisPriorityClass, otaDiagnosisPriorityText, otaDiagnosisMetricCards, otaDiagnosisResultSections, otaDiagnosisDecisionClosureCards, otaDiagnosisBusinessLoopSteps, otaDiagnosisActionRows, otaDiagnosisDataGapRows, otaDiagnosisDecisionStatusTextFor, otaDiagnosisDecisionStatusClassFor, otaDiagnosisDataGaps, otaDiagnosisActionItems,
-                setOtaDiagnosisRange, normalizeOtaDiagnosisList, generateOtaDiagnosis, switchAgentTab,
-                revenueAgentTab, priceSuggestions, priceSuggestionFilter, priceSuggestionGenerating, priceSuggestionGenerateResult, priceSuggestionReview, agentPricingGenerationPreflightSummary,
+                setOtaDiagnosisRange, normalizeOtaDiagnosisList, generateOtaDiagnosis, createOtaDiagnosisExecutionIntent, openSavedOtaDiagnosis, switchAgentTab,
+                revenueAgentTab, priceSuggestions, priceSuggestionFilter, priceSuggestionGenerating, priceSuggestionGenerateResult, priceSuggestionReview, priceSuggestionReviewHasComparableSamples, priceSuggestionReviewMetricText, priceSuggestionReviewSampleCountText, competitorAlertPriceText, agentPricingGenerationPreflightSummary,
                 roomTypeConfigList, roomTypeConfigMeta, roomTypeConfigSaving, roomTypeConfigForm,
                 agentLogs, agentLogFilter,
                 loadAgentOverview, saveAgentConfig,

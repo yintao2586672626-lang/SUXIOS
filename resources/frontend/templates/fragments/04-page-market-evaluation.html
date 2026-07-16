@@ -3,11 +3,11 @@
                             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
                                 <div>
                                     <h2 class="text-2xl font-bold">智投·市场评估</h2>
-                                    <p class="text-sm text-emerald-100 mt-1">二期测算能力：判断城市、商圈与物业条件是否适合投资开店</p>
+                                    <p class="text-sm text-emerald-100 mt-1">基于录入条件的规则初筛与模型辅助；缺少来源证据时不形成投资结论</p>
                                 </div>
                                 <button @click="handleMarketEvaluation" :disabled="marketEvaluationLoading" class="bg-white/15 hover:bg-white/20 border border-white/20 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-60 disabled:cursor-not-allowed">
                                     <i :class="marketEvaluationLoading ? 'fas fa-spinner fa-spin' : 'fas fa-chart-area'"></i>
-                                    <span>{{ marketEvaluationLoading ? 'AI评估中...' : '生成市场评估' }}</span>
+                                    <span>{{ marketEvaluationLoading ? '评估中...' : '生成市场评估' }}</span>
                                 </button>
                             </div>
                         </div>
@@ -80,7 +80,7 @@
                                         <div class="bg-white rounded-xl shadow-sm border border-emerald-100 bg-gradient-to-br from-white to-emerald-50/40 p-5 xl:col-span-8">
                                             <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
                                                 <div>
-                                                    <div class="text-xs text-gray-500">市场热度评分</div>
+                                                    <div class="text-xs text-gray-500">规则初筛指数（非真实市场热度）</div>
                                                     <div class="flex items-end gap-2 mt-2">
                                                         <div class="text-3xl font-bold text-emerald-700">{{ marketEvaluationResult.market_heat_score }}分</div>
                                                         <div class="text-xs text-gray-500 pb-1">{{ marketEvaluationScoreFormula.cap_rule }}</div>
@@ -99,7 +99,7 @@
                                             <div class="mt-4 border-t border-gray-100 pt-4">
                                                 <div class="flex items-center justify-between mb-2">
                                                     <div class="text-xs font-semibold text-gray-700">评分逻辑</div>
-                                                    <div class="text-[11px] text-gray-400">基础分 + 条件修正</div>
+                                                    <div class="text-[11px] text-gray-400">预设基础分 + 录入条件修正</div>
                                                 </div>
                                                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-5 gap-y-2">
                                                     <div v-for="item in marketEvaluationScoreBreakdown" :key="`${item.label}-${item.raw_score_after}`" class="flex gap-3 border-b border-gray-50 pb-2">
@@ -114,14 +114,14 @@
                                         </div>
                                         <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 gap-4 xl:col-span-4">
                                             <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-                                                <div class="text-xs text-gray-500">投资风险等级</div>
+                                                 <div class="text-xs text-gray-500">规则风险标记（待尽调）</div>
                                                 <div class="mt-2">
                                                     <span :class="['px-2 py-1 rounded text-xs border', riskBadgeClass(marketEvaluationResult.investment_risk_level)]">{{ marketEvaluationResult.investment_risk_level }}</span>
                                                 </div>
-                                                <div class="mt-3 text-xs leading-5 text-gray-500">用于判断是否进入尽调、重谈或暂缓。</div>
+                                                 <div class="mt-3 text-xs leading-5 text-gray-500">只用于安排尽调与补证顺序，不代表投资结论。</div>
                                             </div>
                                             <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-                                                <div class="text-xs text-gray-500">推荐物业类型</div>
+                                                 <div class="text-xs text-gray-500">规则建议物业类型</div>
                                                 <div class="text-base font-semibold text-gray-800 mt-2 leading-relaxed">{{ marketEvaluationResult.recommended_property_type }}</div>
                                             </div>
                                         </div>
@@ -129,9 +129,9 @@
                                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
                                         <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                                             <div class="flex items-center justify-between gap-3 mb-3">
-                                                <h3 class="font-bold text-gray-800">AI市场判断</h3>
+                                                <h3 class="font-bold text-gray-800">市场判断（模型或规则）</h3>
                                                 <span v-if="marketEvaluationResult.ai_evaluation" :class="['px-2 py-1 rounded text-xs border', marketEvaluationResult.ai_evaluation.source === 'llm' ? 'bg-cyan-50 text-cyan-700 border-cyan-100' : 'bg-gray-50 text-gray-600 border-gray-100']">
-                                                    {{ marketEvaluationResult.ai_evaluation.source === 'llm' ? 'AI模型评估' : '本地兜底' }}
+                                                    {{ marketEvaluationResult.ai_evaluation.source === 'llm' ? 'AI模型评估' : '本地规则评估' }}
                                                 </span>
                                             </div>
                                             <div class="space-y-4 text-sm">
@@ -175,17 +175,17 @@
                                         </div>
                                         <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                                             <div class="flex items-center justify-between gap-3 mb-3">
-                                                <h3 class="font-bold text-gray-800">AI建议</h3>
+                                                <h3 class="font-bold text-gray-800">行动建议（模型或规则）</h3>
                                                 <span v-if="marketEvaluationResult.ai_evaluation" :class="['px-2 py-1 rounded text-xs border', marketEvaluationResult.ai_evaluation.source === 'llm' ? 'bg-cyan-50 text-cyan-700 border-cyan-100' : 'bg-gray-50 text-gray-600 border-gray-100']">
-                                                    {{ marketEvaluationResult.ai_evaluation.source === 'llm' ? 'AI模型评估' : '本地兜底' }}
+                                                    {{ marketEvaluationResult.ai_evaluation.source === 'llm' ? 'AI模型评估' : '本地规则评估' }}
                                                 </span>
                                             </div>
                                             <p v-if="marketEvaluationResult.ai_evaluation &amp;&amp; marketEvaluationResult.ai_evaluation.summary" class="text-sm text-gray-600 mb-3">{{ marketEvaluationResult.ai_evaluation.summary }}</p>
                                             <div class="space-y-3 text-sm text-gray-700">
-                                                <div v-for="(item, index) in marketEvaluationAiRecommendations" :key="`${item?.priority || 'P1'}-${item?.title || 'AI建议'}-${index}`" class="rounded-lg border border-cyan-100 bg-cyan-50 p-3">
+                                                <div v-for="(item, index) in marketEvaluationAiRecommendations" :key="`${item?.priority || 'P1'}-${item?.title || '行动建议'}-${index}`" class="rounded-lg border border-cyan-100 bg-cyan-50 p-3">
                                                     <div class="flex items-center gap-2">
                                                         <span class="px-1.5 py-0.5 rounded border border-cyan-200 bg-white text-[11px] font-semibold text-cyan-700">{{ item?.priority || 'P1' }}</span>
-                                                        <span class="font-medium text-gray-800">{{ item?.title || 'AI建议' }}</span>
+                                                        <span class="font-medium text-gray-800">{{ item?.title || '行动建议' }}</span>
                                                     </div>
                                                     <p class="mt-1 leading-relaxed text-gray-700">{{ item?.detail || '' }}</p>
                                                 </div>
@@ -194,8 +194,8 @@
                                     </div>
                                     <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                                         <div class="flex items-center justify-between gap-3 mb-3">
-                                            <h3 class="font-bold text-gray-800">AI风险建议</h3>
-                                            <span v-if="marketEvaluationResult.ai_evaluation" class="px-2 py-1 rounded text-xs border bg-amber-50 text-amber-700 border-amber-100">AI建议</span>
+                                            <h3 class="font-bold text-gray-800">风险提示（模型或规则）</h3>
+                                            <span v-if="marketEvaluationResult.ai_evaluation" class="px-2 py-1 rounded text-xs border bg-amber-50 text-amber-700 border-amber-100">{{ marketEvaluationResult.ai_evaluation.source === 'llm' ? 'AI模型评估' : '本地规则评估' }}</span>
                                         </div>
                                         <div class="space-y-3 text-sm text-gray-700 max-h-[560px] overflow-y-auto pr-1">
                                             <div v-for="item in marketEvaluationAiRiskSuggestions" :key="`${item.metric}-${item.threshold}-${item.action}`" class="rounded-lg border border-amber-100 bg-amber-50/80 p-4">

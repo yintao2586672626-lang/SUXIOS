@@ -4225,6 +4225,780 @@ aside.sidebar.collapsed > .p-3:last-child button {
     }
 }
 
+/* P1 layout density repair: primary actions first, compact mobile navigation. */
+main[data-current-page="compass"] .compass-hero-core {
+    padding: clamp(24px, 2.8vw, 36px) !important;
+}
+
+main[data-current-page="compass"] .compass-signal-grid {
+    margin-top: 20px !important;
+}
+
+main[data-current-page="compass"] .compass-temporal-summary {
+    display: flex;
+    min-height: 52px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 12px 14px;
+    cursor: pointer;
+    color: #f8f3e9;
+    list-style: none;
+}
+
+main[data-current-page="compass"] .compass-temporal-summary::-webkit-details-marker {
+    display: none;
+}
+
+main[data-current-page="compass"] .compass-temporal-summary-title {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    gap: 9px;
+    font-size: 13px;
+    font-weight: 750;
+}
+
+main[data-current-page="compass"] .compass-temporal-summary-title > span {
+    display: inline-flex;
+    width: 26px;
+    height: 26px;
+    flex: 0 0 26px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: rgba(147, 197, 253, .14);
+    color: #bfdbfe;
+    font-size: 10px;
+}
+
+main[data-current-page="compass"] .compass-temporal-summary-note {
+    overflow: hidden;
+    color: rgba(219, 234, 254, .72);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+main[data-current-page="compass"] .compass-temporal-summary::after {
+    content: "展开";
+    flex: 0 0 auto;
+    padding: 4px 8px;
+    border: 1px solid rgba(191, 219, 254, .18);
+    border-radius: 999px;
+    color: #bfdbfe;
+    font-size: 10px;
+    font-weight: 700;
+}
+
+main[data-current-page="compass"] .compass-temporal-fold[open] > .compass-temporal-summary {
+    border-bottom: 1px solid rgba(255, 255, 255, .10);
+}
+
+main[data-current-page="compass"] .compass-temporal-fold[open] > .compass-temporal-summary::after {
+    content: "收起";
+}
+
+@media (max-width: 767px) {
+    .suxi-app-shell main[data-current-page="users"] .user-management-page {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .suxi-app-shell main[data-current-page="users"] .user-management-toolbar {
+        position: relative !important;
+        top: auto !important;
+        order: -3;
+        margin-bottom: 10px !important;
+        padding: 12px !important;
+    }
+
+    .suxi-app-shell main[data-current-page="users"] .user-management-toolbar > .flex:first-child {
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-auto-flow: row dense;
+        gap: 8px !important;
+    }
+
+    .suxi-app-shell main[data-current-page="users"] .user-management-toolbar .users-search {
+        grid-column: 1 / -1;
+        min-width: 0 !important;
+    }
+
+    .suxi-app-shell main[data-current-page="users"] .user-management-toolbar > .flex:first-child:has(.users-primary-action) .users-search {
+        grid-column: 1;
+        grid-row: 1;
+    }
+
+    .suxi-app-shell main[data-current-page="users"] .user-management-toolbar .users-primary-action {
+        grid-column: 2;
+        grid-row: 1;
+        justify-content: center;
+    }
+
+    .suxi-app-shell main[data-current-page="users"] .user-management-toolbar > .flex:first-child > :where(select, button) {
+        width: 100%;
+        min-width: 0;
+        margin-left: 0 !important;
+        padding-right: 10px !important;
+        padding-left: 10px !important;
+    }
+
+    .suxi-app-shell main[data-current-page="users"] .user-summary-grid {
+        order: -2;
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+        gap: 7px !important;
+        margin-bottom: 12px !important;
+    }
+
+    .suxi-app-shell main[data-current-page="users"] .user-summary-grid > button {
+        min-width: 0;
+        min-height: 68px;
+        padding: 10px !important;
+    }
+
+    .suxi-app-shell main[data-current-page="users"] .user-summary-grid > button > div > div:last-child {
+        display: none;
+    }
+
+    .suxi-app-shell main[data-current-page="users"] .user-summary-grid .text-sm {
+        overflow: hidden;
+        margin-bottom: 2px !important;
+        font-size: 10px !important;
+        line-height: 1.3 !important;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .suxi-app-shell main[data-current-page="users"] .user-summary-grid .text-2xl {
+        font-size: 18px !important;
+        line-height: 1.25 !important;
+    }
+
+    main[data-current-page="compass"] .compass-hero-core {
+        padding: 20px 16px 16px !important;
+    }
+
+    main[data-current-page="compass"] .compass-hero-grid {
+        gap: 16px;
+    }
+
+    main[data-current-page="compass"] .compass-hero-copy h1 {
+        font-size: clamp(24px, 8vw, 32px) !important;
+        line-height: 1.08;
+    }
+
+    main[data-current-page="compass"] .compass-signal-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 8px;
+        margin-top: 16px !important;
+    }
+
+    main[data-current-page="compass"] .compass-signal-card {
+        min-width: 0;
+        min-height: 86px;
+        padding: 11px !important;
+    }
+
+    main[data-current-page="compass"] .compass-signal-card strong {
+        font-size: 18px;
+    }
+
+    main[data-current-page="compass"] .compass-signal-badge {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    main[data-current-page="compass"] .compass-temporal-summary-note {
+        display: none;
+    }
+
+    main[data-current-page="compass"] .compass-blocker-strip {
+        gap: 10px;
+        padding: 11px 12px;
+    }
+
+    .suxi-app-shell main[data-current-page="online-data"] .online-data-primary-tabs {
+        flex-wrap: nowrap !important;
+        overflow-x: auto;
+        margin-right: -4px;
+        margin-left: -4px;
+        padding: 4px 4px 10px !important;
+        scroll-padding-inline: 4px;
+        scroll-snap-type: x proximity;
+        scrollbar-width: none;
+        overscroll-behavior-inline: contain;
+    }
+
+    .suxi-app-shell main[data-current-page="online-data"] .online-data-primary-tabs::-webkit-scrollbar {
+        display: none;
+    }
+
+    .suxi-app-shell main[data-current-page="online-data"] .online-data-primary-tabs > button {
+        flex: 0 0 auto;
+        min-height: 38px;
+        padding: 8px 12px !important;
+        scroll-snap-align: start;
+        white-space: nowrap;
+    }
+}
+
+@media (max-width: 479px) {
+    .suxi-app-shell .header {
+        padding: 10px 12px !important;
+    }
+
+    .suxi-app-shell .header > div {
+        gap: 8px !important;
+    }
+
+    .suxi-app-shell .header h1 {
+        font-size: 16px !important;
+        line-height: 1.25;
+    }
+
+    .suxi-app-shell .header-utility-cluster {
+        grid-template-columns: minmax(112px, 1fr) 38px minmax(76px, auto) !important;
+        gap: 6px !important;
+    }
+
+    .suxi-app-shell .header-language-control,
+    .suxi-app-shell .header-notification-button,
+    .suxi-app-shell .header-time-panel {
+        height: 38px;
+        min-height: 38px;
+    }
+
+    .suxi-app-shell .header-time-panel {
+        grid-column: auto !important;
+        width: auto !important;
+        min-width: 76px !important;
+        padding: 4px 7px;
+    }
+
+    .suxi-app-shell .header-time-panel .header-utility-icon,
+    .suxi-app-shell .header-time-panel .header-date-row,
+    .suxi-app-shell .header-time-panel .header-clock-row small {
+        display: none;
+    }
+
+    .suxi-app-shell .header-clock-row strong {
+        font-size: 12px;
+    }
+
+    .suxi-app-shell .header-notification-control > .header-notification-button {
+        width: 38px !important;
+        min-width: 38px !important;
+    }
+
+    .suxi-app-shell .header .header-language-option {
+        min-width: 32px !important;
+        padding: 0 6px !important;
+    }
+}
+
+/* AI工作台 v8：统一品牌色与信息层级，仅调整展示，不改变 OTA 数据、筛选或预测逻辑。 */
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] {
+    --dual-bg: #f4efe5;
+    --dual-surface: #fffdf8;
+    --dual-text: #112238;
+    --dual-muted: #677285;
+    --dual-teal: #0b6f62;
+    --dual-teal-deep: #082d26;
+    --dual-gold: #a88a52;
+    --dual-gold-soft: #f3ead8;
+    --dual-border: #dfd2bd;
+    --dual-border-soft: rgba(189, 164, 121, .34);
+    gap: 16px !important;
+    padding: 20px !important;
+    border: 1px solid rgba(189, 164, 121, .28) !important;
+    border-radius: 20px !important;
+    background:
+        radial-gradient(circle at 94% 2%, rgba(220, 197, 145, .22), transparent 26%),
+        linear-gradient(180deg, #f8f4ec 0%, var(--dual-bg) 100%) !important;
+    box-shadow: 0 18px 44px rgba(42, 34, 21, .08) !important;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-header {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    align-items: center !important;
+    min-height: 92px;
+    padding: 20px 22px !important;
+    border: 1px solid rgba(220, 197, 145, .30) !important;
+    border-radius: 16px !important;
+    background: linear-gradient(128deg, #06110d 0%, #0d2b24 58%, #174237 100%) !important;
+    box-shadow: 0 16px 30px rgba(2, 13, 10, .16) !important;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-header::after {
+    position: absolute;
+    top: -88px;
+    right: -42px;
+    z-index: -1;
+    width: 260px;
+    height: 210px;
+    border: 1px solid rgba(220, 197, 145, .15);
+    border-radius: 50%;
+    content: "";
+    background: radial-gradient(circle, rgba(220, 197, 145, .13) 0%, transparent 68%);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-header h1 {
+    color: #f8faf7 !important;
+    font-size: clamp(29px, 2.7vw, 40px) !important;
+    letter-spacing: -.025em !important;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-header p {
+    color: rgba(234, 224, 199, .74) !important;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-top-range-row {
+    gap: 7px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-range-button {
+    min-width: 76px;
+    min-height: 34px;
+    padding: 7px 12px;
+    border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: 9px;
+    background: rgba(255, 255, 255, .07);
+    color: rgba(248, 250, 247, .76);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-range-button:hover {
+    border-color: rgba(220, 197, 145, .55);
+    background: rgba(220, 197, 145, .12);
+    color: #fff;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-range-button.is-active {
+    border-color: #dcc591;
+    background: #dcc591;
+    color: #06110d;
+    box-shadow: 0 7px 18px rgba(0, 0, 0, .16);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-axis {
+    overflow: hidden;
+    border: 1px solid var(--dual-border);
+    border-radius: 16px;
+    background: var(--dual-surface);
+    box-shadow: 0 9px 22px rgba(45, 35, 19, .06);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 15px 18px;
+    border-bottom: 1px solid rgba(189, 164, 121, .30);
+    background: linear-gradient(90deg, rgba(11, 111, 98, .075), rgba(220, 197, 145, .10));
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-heading {
+    min-width: 0;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-title {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: var(--dual-text);
+    font-size: 15px;
+    font-weight: 850;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid rgba(220, 197, 145, .42);
+    border-radius: 9px;
+    background: var(--dual-teal-deep);
+    color: #e8d8ad;
+    font-size: 11px;
+    box-shadow: 0 5px 12px rgba(8, 45, 38, .14);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-loading {
+    color: var(--dual-teal);
+    font-size: 11px;
+    font-weight: 650;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-subtitle {
+    margin: 4px 0 0 37px !important;
+    color: var(--dual-muted);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    min-height: 36px;
+    padding: 8px 13px;
+    border: 1px solid rgba(11, 111, 98, .78);
+    border-radius: 9px;
+    background: var(--dual-teal);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 800;
+    box-shadow: 0 7px 16px rgba(11, 111, 98, .16);
+    transition: transform 180ms ease, background 180ms ease, box-shadow 180ms ease;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-action:hover:not(:disabled) {
+    background: #075e54;
+    box-shadow: 0 9px 20px rgba(11, 111, 98, .22);
+    transform: translateY(-1px);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-action:disabled {
+    border-color: rgba(148, 163, 184, .34);
+    background: rgba(148, 163, 184, .12);
+    color: #94a3b8;
+    box-shadow: none;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-card {
+    --temporal-accent: #a88a52;
+    position: relative;
+    min-width: 0;
+    min-height: 128px;
+    padding: 16px 18px 17px;
+    border-right: 1px solid rgba(189, 164, 121, .28);
+    background: linear-gradient(180deg, rgba(168, 138, 82, .035), transparent 72%);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-card::before {
+    position: absolute;
+    top: 0;
+    right: 18px;
+    left: 18px;
+    height: 2px;
+    border-radius: 999px;
+    content: "";
+    background: linear-gradient(90deg, var(--temporal-accent), transparent);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-card:last-child {
+    border-right: 0;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-card.is-stage-2 {
+    --temporal-accent: #0b6f62;
+    background: linear-gradient(180deg, rgba(11, 111, 98, .045), transparent 72%);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-card.is-stage-3 {
+    --temporal-accent: #456da3;
+    background: linear-gradient(180deg, rgba(69, 109, 163, .045), transparent 72%);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-label {
+    color: var(--temporal-accent);
+    font-size: 11px;
+    font-weight: 850;
+    letter-spacing: .08em;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-status {
+    overflow: hidden;
+    max-width: 58%;
+    padding: 3px 7px;
+    border: 1px solid color-mix(in srgb, var(--temporal-accent) 28%, transparent);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, .72);
+    color: #596579;
+    font-size: 10px;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-value {
+    display: block;
+    margin-top: 14px;
+    overflow: hidden;
+    color: var(--dual-text);
+    font-size: 18px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 900;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-detail {
+    display: -webkit-box;
+    overflow: hidden;
+    margin-top: 6px !important;
+    color: var(--dual-muted);
+    font-size: 12px;
+    line-height: 1.55;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-review {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 10px 18px;
+    border-top: 1px solid rgba(189, 164, 121, .26);
+    background: #f8f5ee;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-review div {
+    flex: 0 0 auto;
+    color: var(--dual-text);
+    font-size: 11px;
+    font-weight: 850;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-temporal-review p {
+    color: var(--dual-muted);
+    font-size: 11px;
+    line-height: 1.5;
+    text-align: right;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-overview {
+    padding: 20px 22px !important;
+    border-color: rgba(189, 164, 121, .38) !important;
+    background: rgba(255, 253, 248, .94) !important;
+    box-shadow: 0 9px 22px rgba(45, 35, 19, .055) !important;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-store-scope {
+    grid-template-columns: minmax(280px, 1fr) minmax(410px, 500px);
+    gap: 14px;
+    margin-top: 0;
+    padding: 11px 12px;
+    border-color: rgba(11, 111, 98, .18);
+    border-radius: 13px;
+    background: linear-gradient(90deg, rgba(11, 111, 98, .055), rgba(220, 197, 145, .065));
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-store-picker .dual-ota-context-item-store {
+    flex: 1 1 auto;
+    width: 100%;
+    max-width: 100%;
+    padding: 9px 11px;
+    border-color: rgba(189, 164, 121, .48);
+    background: rgba(255, 255, 255, .92);
+    box-shadow: none;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-hotel-select {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+    padding: 4px 6px;
+    color: var(--dual-text);
+    font-size: 14px;
+    text-align: left;
+    text-align-last: left;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] [data-testid="dual-ota-hotel-order-open"] {
+    min-width: 58px;
+    min-height: 34px;
+    border-color: rgba(168, 138, 82, .34) !important;
+    background: #fbf6eb !important;
+    color: #6f572f !important;
+    box-shadow: none !important;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-store-scope-list {
+    gap: 7px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-store-option,
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-compare-toggle {
+    min-height: 35px;
+    border-radius: 9px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-store-option.is-selected {
+    border-color: rgba(11, 111, 98, .42);
+    background: rgba(11, 111, 98, .10);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .72);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-grid {
+    gap: 12px;
+    margin-top: 14px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-column,
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-column:last-child {
+    min-width: 0;
+    padding: 14px;
+    border: 1px solid rgba(189, 164, 121, .28);
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(248, 245, 238, .84), rgba(255, 255, 255, .72));
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-column-head {
+    margin-bottom: 9px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-column-head h3 {
+    font-size: 16px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-column-head span {
+    overflow: hidden;
+    max-width: 58%;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metrics {
+    gap: 8px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric {
+    min-height: 66px;
+    padding: 9px 10px;
+    border-color: rgba(189, 164, 121, .32);
+    background: rgba(255, 255, 255, .88);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric strong {
+    margin-top: 5px;
+    font-size: 18px;
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-card {
+    border-color: rgba(189, 164, 121, .34) !important;
+    background: rgba(255, 253, 248, .94) !important;
+    box-shadow: 0 9px 22px rgba(45, 35, 19, .05) !important;
+}
+
+@media (max-width: 1440px) and (min-width: 1181px) {
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-module-grid-top {
+        grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr) !important;
+    }
+}
+
+@media (max-width: 1180px) {
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-store-scope {
+        grid-template-columns: 1fr;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-column,
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-column:last-child {
+        padding: 14px;
+        border: 1px solid rgba(189, 164, 121, .28);
+    }
+}
+
+@media (max-width: 860px) {
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-header {
+        align-items: stretch !important;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-temporal-head,
+    main[data-current-page="ai-workbench"] .dual-ota-temporal-review {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-temporal-action {
+        align-self: flex-start;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-temporal-grid {
+        grid-template-columns: 1fr;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-temporal-card,
+    main[data-current-page="ai-workbench"] .dual-ota-temporal-card:last-child {
+        min-height: 0;
+        border-right: 0;
+        border-bottom: 1px solid rgba(189, 164, 121, .28);
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-temporal-card:last-child {
+        border-bottom: 0;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-temporal-review p {
+        text-align: left;
+    }
+}
+
+@media (max-width: 640px) {
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] {
+        gap: 12px !important;
+        padding: 12px !important;
+        border-radius: 16px !important;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-header {
+        min-height: 0;
+        padding: 17px !important;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-top-range-row {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        width: 100%;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-range-button {
+        width: 100%;
+        min-width: 0;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-temporal-action {
+        width: 100%;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-temporal-subtitle {
+        margin-left: 0 !important;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-overview {
+        padding: 14px !important;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-store-scope-list {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metrics {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* Header utility cluster: language, notification and China Standard Time */
 .suxi-app-shell .header-utility-cluster {
     gap: 8px !important;
@@ -8169,6 +8943,55 @@ aside.sidebar:not(.collapsed) {
     box-shadow: 0 10px 26px rgba(51, 65, 85, .07), 0 1px 2px rgba(15, 23, 42, .04) !important;
 }
 
+.suxi-app-shell main[data-current-page="operation-logs"] .suxi-security-monitor-hero {
+    border-color: #2c493f !important;
+    background: linear-gradient(135deg, #06110d 0%, #10251d 100%) !important;
+    color: #f8fafc !important;
+}
+
+.suxi-app-shell main[data-current-page="operation-logs"] .suxi-security-monitor-hero h2 {
+    color: #ffffff !important;
+}
+
+.suxi-app-shell main[data-current-page="operation-logs"] .suxi-security-monitor-hero p {
+    color: #cbd5e1 !important;
+}
+
+.suxi-app-shell main[data-current-page="operation-logs"] .suxi-security-visibility-badge {
+    border-color: rgba(220, 197, 145, .4) !important;
+    background: rgba(220, 197, 145, .1) !important;
+    color: #ead9ad !important;
+}
+
+.suxi-app-shell main[data-current-page="operation-logs"] .suxi-security-range {
+    border-color: rgba(255, 255, 255, .15) !important;
+    background: rgba(255, 255, 255, .05) !important;
+}
+
+.suxi-app-shell main[data-current-page="operation-logs"] .suxi-security-range-button {
+    color: #cbd5e1 !important;
+}
+
+.suxi-app-shell main[data-current-page="operation-logs"] .suxi-security-range-button:hover {
+    background: rgba(255, 255, 255, .1) !important;
+    color: #ffffff !important;
+}
+
+.suxi-app-shell main[data-current-page="operation-logs"] .suxi-security-range-button.is-active {
+    background: #dcc591 !important;
+    color: #06110d !important;
+}
+
+.suxi-app-shell main[data-current-page="operation-logs"] .suxi-security-refresh-button {
+    border-color: rgba(220, 197, 145, .4) !important;
+    background: rgba(220, 197, 145, .1) !important;
+    color: #ead9ad !important;
+}
+
+.suxi-app-shell main[data-current-page="operation-logs"] .suxi-security-refresh-button:hover {
+    background: rgba(220, 197, 145, .2) !important;
+}
+
 .suxi-app-shell [class*="fixed"][class*="inset-0"] {
     backdrop-filter: blur(6px);
 }
@@ -9112,7 +9935,7 @@ aside.sidebar:not(.collapsed) {
         height: 58px !important;
         max-height: 58px !important;
         flex: none !important;
-        overflow: hidden !important;
+        overflow: visible !important;
         border: 1px solid rgba(148, 163, 184, .20) !important;
         border-radius: 14px !important;
         box-shadow: 0 18px 42px rgba(8, 17, 29, .24) !important;
@@ -9148,8 +9971,23 @@ aside.sidebar:not(.collapsed) {
         margin: 0 !important;
     }
 
-    .suxi-app-shell aside.sidebar.sidebar nav[data-testid="app-nav"] > div > div {
-        display: none !important;
+    .suxi-app-shell aside.sidebar.sidebar .mobile-nav-submenu {
+        position: fixed !important;
+        right: 10px !important;
+        bottom: calc(env(safe-area-inset-bottom, 0px) + 78px) !important;
+        left: 10px !important;
+        z-index: 72;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 5px;
+        max-height: min(60vh, 420px);
+        overflow-y: auto;
+        padding: 10px;
+        border: 1px solid rgba(220, 197, 145, .28);
+        border-radius: 14px;
+        background: linear-gradient(180deg, rgba(17, 24, 23, .99), rgba(7, 14, 13, .99)) !important;
+        box-shadow: 0 20px 48px rgba(2, 7, 6, .34);
+        overscroll-behavior: contain;
     }
 
     .suxi-app-shell aside.sidebar.sidebar .sidebar-item {
@@ -9176,6 +10014,41 @@ aside.sidebar:not(.collapsed) {
     .suxi-app-shell aside.sidebar.sidebar .sidebar-item span,
     .suxi-app-shell aside.sidebar.sidebar .sidebar-item > i:last-child {
         display: none !important;
+    }
+
+    .suxi-app-shell aside.sidebar.sidebar .mobile-nav-submenu .sidebar-item {
+        width: 100% !important;
+        min-width: 0 !important;
+        height: auto !important;
+        min-height: 40px !important;
+        justify-content: flex-start !important;
+        margin: 0 !important;
+        padding: 9px 10px !important;
+        border-radius: 9px !important;
+    }
+
+    .suxi-app-shell aside.sidebar.sidebar .mobile-nav-submenu .sidebar-item > div {
+        justify-content: flex-start !important;
+    }
+
+    .suxi-app-shell aside.sidebar.sidebar .mobile-nav-submenu .sidebar-item span,
+    .suxi-app-shell aside.sidebar.sidebar .mobile-nav-submenu .sidebar-item > i:last-child {
+        display: inline !important;
+    }
+
+    .suxi-app-shell aside.sidebar.sidebar .mobile-nav-submenu .sidebar-item i {
+        width: 18px !important;
+        margin-right: 8px !important;
+        font-size: 12px !important;
+    }
+
+    .suxi-app-shell aside.sidebar.sidebar .mobile-nav-submenu .sidebar-item > i:last-child {
+        margin-right: 0 !important;
+        margin-left: auto !important;
+    }
+
+    .suxi-app-shell aside.sidebar.sidebar .mobile-nav-submenu > div {
+        min-width: 0;
     }
 
     .suxi-app-shell main[data-testid="app-main"] {

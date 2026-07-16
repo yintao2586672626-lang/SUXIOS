@@ -9,7 +9,7 @@
                                         </span>
                                         <span class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
                                             <i class="fas fa-shield-alt"></i>
-                                            已闭合经营数据
+                                            {{ investmentDecisionOverview ? (investmentDecisionOverview?.summary?.status === 'ready' ? '经营证据已通过当前门禁' : '经营证据未闭合') : '经营证据未加载' }}
                                         </span>
                                     </div>
                                     <h2 class="mt-3 text-xl md:text-2xl font-bold text-gray-900">P4 投资决策辅助</h2>
@@ -85,10 +85,10 @@
                                     </div>
                                     <div class="flex flex-wrap gap-2">
                                         <span class="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium" :class="investmentDecisionStatusClass(investmentDecisionOverview?.action_queue?.status)">
-                                            {{ investmentDecisionStatusText(investmentDecisionOverview?.action_queue?.status || 'clear') }}
+                                            {{ investmentDecisionStatusText(investmentDecisionOverview?.action_queue?.status || 'not_ready') }}
                                         </span>
                                         <span class="inline-flex items-center rounded-full border border-red-100 bg-red-50 px-3 py-1 text-xs text-red-700">
-                                            阻断 {{ investmentDecisionOverview?.action_queue?.blocking_count || 0 }}
+                                            阻断 {{ investmentDecisionOverview?.action_queue?.blocking_count ?? '—' }}
                                         </span>
                                     </div>
                                 </div>
@@ -227,7 +227,7 @@
                                 <div class="bg-white rounded-2xl border border-gray-100 p-4 sm:p-5 shadow-sm">
                                     <div class="flex items-center justify-between gap-3 mb-4">
                                         <h3 class="font-semibold text-gray-900">风险提示</h3>
-                                        <span class="text-xs text-gray-400">阻断 {{ investmentDecisionOverview?.sections?.risk_alerts?.blocking_count || 0 }}</span>
+                                        <span class="text-xs text-gray-400">阻断 {{ investmentDecisionOverview?.sections?.risk_alerts?.blocking_count ?? '—' }}</span>
                                     </div>
                                     <div v-if="investmentDecisionRiskRows.length" class="space-y-3">
                                         <div v-for="risk in investmentDecisionRiskRows" :key="risk.code + risk.title" class="rounded-xl border border-gray-100 p-3">
@@ -239,13 +239,13 @@
                                             <div class="mt-2 text-[11px]" :class="risk.blocking ? 'text-red-600' : 'text-amber-600'">{{ risk.blocking ? '投决阻断' : '需补充证据' }}</div>
                                         </div>
                                     </div>
-                                    <div v-else="" class="py-8 text-center text-gray-400">暂无风险提示</div>
+                                    <div v-else="" class="py-8 text-center text-gray-400">{{ investmentDecisionOverview?.sections?.risk_alerts?.status === 'ready' ? '当前范围未返回风险提示' : '风险提示未加载或经营证据不足' }}</div>
                                 </div>
 
                                 <div class="bg-white rounded-2xl border border-gray-100 p-4 sm:p-5 shadow-sm">
                                     <div class="flex items-center justify-between gap-3 mb-4">
                                         <h3 class="font-semibold text-gray-900">决策记录</h3>
-                                        <span class="text-xs text-gray-400">可复核 {{ investmentDecisionOverview?.sections?.decision_records?.eligible_count || 0 }} / {{ investmentDecisionOverview?.sections?.decision_records?.record_count || 0 }}</span>
+                                        <span class="text-xs text-gray-400">可复核 {{ investmentDecisionOverview?.sections?.decision_records?.eligible_count ?? '—' }} / {{ investmentDecisionOverview?.sections?.decision_records?.record_count ?? '—' }}</span>
                                     </div>
                                     <div v-if="investmentDecisionRecordRows.length" class="overflow-x-auto">
                                         <table class="min-w-full text-sm">

@@ -1,3 +1,37 @@
+        <div v-if="workflowFormDialog.visible" class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 p-4" data-testid="workflow-form-dialog" role="dialog" aria-modal="true" :aria-label="workflowFormDialog.title" @click.self="closeWorkflowFormDialog()" @keydown.esc.stop="closeWorkflowFormDialog()">
+            <form class="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl" @submit.prevent="submitWorkflowFormDialog">
+                <div class="border-b border-slate-100 px-6 py-5">
+                    <div class="flex items-start justify-between gap-4">
+                        <div>
+                            <h2 class="text-lg font-bold text-slate-900">{{ workflowFormDialog.title }}</h2>
+                            <p v-if="workflowFormDialog.description" class="mt-1 text-sm leading-6 text-slate-500">{{ workflowFormDialog.description }}</p>
+                        </div>
+                        <button type="button" class="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="关闭" @click="closeWorkflowFormDialog()">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="grid gap-4 overflow-y-auto px-6 py-5 sm:grid-cols-2">
+                    <label v-for="field in workflowFormDialog.fields" :key="field.name" class="block" :class="field.type === 'textarea' ? 'sm:col-span-2' : ''">
+                        <span class="mb-1.5 block text-sm font-medium text-slate-700">
+                            {{ field.label }}<span v-if="field.required" class="ml-1 text-red-500">*</span>
+                        </span>
+                        <select v-if="field.type === 'select'" v-model="workflowFormDialog.values[field.name]" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-[#a88a52] focus:outline-none focus:ring-2 focus:ring-[#a88a52]/20">
+                            <option value="">请选择</option>
+                            <option v-for="option in field.options" :key="typeof option === 'object' ? option.value : option" :value="typeof option === 'object' ? option.value : option">{{ typeof option === 'object' ? option.label : option }}</option>
+                        </select>
+                        <textarea v-else-if="field.type === 'textarea'" v-model="workflowFormDialog.values[field.name]" rows="3" :placeholder="field.placeholder || ''" class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 focus:border-[#a88a52] focus:outline-none focus:ring-2 focus:ring-[#a88a52]/20"></textarea>
+                        <input v-else v-model="workflowFormDialog.values[field.name]" :type="field.type === 'number' ? 'text' : field.type" :inputmode="field.type === 'number' ? 'decimal' : undefined" :placeholder="field.placeholder || ''" class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 focus:border-[#a88a52] focus:outline-none focus:ring-2 focus:ring-[#a88a52]/20">
+                        <span v-if="workflowFormDialog.errors[field.name]" class="mt-1 block text-xs text-red-600">{{ workflowFormDialog.errors[field.name] }}</span>
+                    </label>
+                </div>
+                <div class="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
+                    <button type="button" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100" @click="closeWorkflowFormDialog()">取消</button>
+                    <button type="submit" class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">{{ workflowFormDialog.submitText }}</button>
+                </div>
+            </form>
+        </div>
+
         <!-- Toast 提示 -->
         <div v-if="toast.show" class="fixed top-4 right-4 z-50 px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 animate-slide-in" :class="{
                 'bg-green-500 text-white': toast.type === 'success',

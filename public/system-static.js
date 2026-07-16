@@ -93,7 +93,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
             'aiModelConfig.testFailed': '模型连接测试失败',
             'aiModelConfig.networkErrorFallback': '网络错误',
             'aiModelQuickSetup.quickTitle': '快速配置AI厂家',
-            'aiModelQuickSetup.quickDescription': '选择厂家并填写 API Key，系统自动生成可用模型配置。',
+            'aiModelQuickSetup.quickDescription': '选择厂家并填写 API Key，系统生成模型配置；连接测试通过后才可使用。',
             'aiModelQuickSetup.providerLabel': '模型厂家',
             'aiModelQuickSetup.apiKeyLabel': 'API Key',
             'aiModelQuickSetup.apiKeyPlaceholder': '请输入 API Key',
@@ -258,7 +258,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
             permissions: [],
             children: [
                 { name: '经营数据总览', path: 'ops-source', icon: 'fas fa-search' },
-                { name: '问题根因分析', path: 'ops-analysis', icon: 'fas fa-microscope' },
+                { name: '可能影响因素分析', path: 'ops-analysis', icon: 'fas fa-microscope' },
                 { name: '风险预警', path: 'ops-insight', icon: 'fas fa-bell' },
                 { name: 'AI经营日报', path: 'ai-daily-report', icon: 'fas fa-file-alt' },
                 { name: '策略模拟', path: 'ops-plan', icon: 'fas fa-lightbulb' },
@@ -282,7 +282,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
                     children: [
                         { name: '员工管理', path: 'users', icon: 'fas fa-user-friends' },
                         { name: '角色权限', path: 'roles', icon: 'fas fa-user-shield', requireSuper: true },
-                        { name: '操作日志', path: 'operation-logs', icon: 'fas fa-history', requireSuper: true },
+                        { name: '安全监测', path: 'operation-logs', icon: 'fas fa-shield-alt', requireSuper: true },
                     ],
                 },
                 { name: '系统配置', path: 'system-config', icon: 'fas fa-sliders-h', requireSuper: true, permissions: [] },
@@ -314,7 +314,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         '生成市场评估': 'generate-market-evaluation',
         '生成标杆模型': 'generate-benchmark-model',
         '生成协同看板': 'generate-collaboration-board',
-        '从真实数据带入': 'load-source-data',
+        '从本地记录带入': 'load-source-data',
         '刷新记录': 'refresh-records',
         '计算资产定价': 'calculate-asset-pricing',
         '生成时机判断': 'generate-timing',
@@ -537,12 +537,29 @@ window.SUXI_SYSTEM_STATIC = (() => {
         }
         return timestamp;
     };
-    const aiRound = (value, digits = 0) => Number((Number(value) || 0).toFixed(digits));
+    const displayNumberOrNull = (value) => {
+        if (value === null || value === undefined || value === '') return null;
+        const number = Number(value);
+        return Number.isFinite(number) ? number : null;
+    };
+    const aiRound = (value, digits = 0) => {
+        const number = displayNumberOrNull(value);
+        return number === null ? '--' : Number(number.toFixed(digits));
+    };
     const formatPaybackMonth = (value) => value === null || value === undefined ? '不可回收' : `${aiRound(value, 1)}个月`;
-    const formatCurrency = (value) => `¥${Math.round(toNumber(value)).toLocaleString()}`;
+    const formatCurrency = (value) => {
+        const number = displayNumberOrNull(value);
+        return number === null ? '--' : `¥${Math.round(number).toLocaleString()}`;
+    };
     const formatMoney = formatCurrency;
-    const formatPercent = (value) => `${aiRound(toNumber(value) * 100, 1)}%`;
-    const formatWan = (value) => value === null || value === undefined ? '--' : `${aiRound(toNumber(value), 2)}万元`;
+    const formatPercent = (value) => {
+        const number = displayNumberOrNull(value);
+        return number === null ? '--' : `${aiRound(number * 100, 1)}%`;
+    };
+    const formatWan = (value) => {
+        const number = displayNumberOrNull(value);
+        return number === null ? '--' : `${aiRound(number, 2)}万元`;
+    };
     const calculateHhi = (items, valueGetter) => {
         const values = (items || []).map(item => Math.max(0, toNumber(valueGetter(item), 0)));
         const total = values.reduce((sum, value) => sum + value, 0);
@@ -599,6 +616,8 @@ window.SUXI_SYSTEM_STATIC = (() => {
         'ai-strategy',
         'ai-feasibility',
         'ai-simulation',
+        'market-evaluation',
+        'market-eval',
         'benchmark-model',
         'collaboration-efficiency',
         'sync-efficiency',
@@ -1449,7 +1468,16 @@ window.SUXI_SYSTEM_STATIC = (() => {
         if (['logged_in', 'profile_reusable', 'renewal_warning'].includes(statusCode) && captureCode === 'none') {
             return { text: `${prefix}采集`, weight: 40, className: 'bg-blue-50 text-blue-700 border-blue-200', target: 'platform-auto', actionKey: 'run_trial_capture' };
         }
-        return { text: '正常', weight: 99, className: 'bg-emerald-50 text-emerald-700 border-emerald-200', target: '', actionKey: '' };
+        if (captureCode === 'running') {
+            return { text: `${prefix}采集中`, weight: 45, className: 'bg-blue-50 text-blue-700 border-blue-200', target: 'sync-logs', actionKey: 'open_sync_logs' };
+        }
+        if (captureCode === 'partial_success') {
+            return { text: `${prefix}复核采集`, weight: 50, className: 'bg-amber-50 text-amber-700 border-amber-200', target: 'sync-logs', actionKey: 'open_sync_logs' };
+        }
+        if (['logged_in', 'profile_reusable', 'renewal_warning'].includes(statusCode) && captureCode === 'success') {
+            return { text: '正常', weight: 99, className: 'bg-emerald-50 text-emerald-700 border-emerald-200', target: '', actionKey: '' };
+        }
+        return { text: `${prefix}待核验`, weight: 60, className: 'bg-gray-50 text-gray-600 border-gray-200', target: 'hotel-ota', actionKey: 'review_platform_status' };
     };
     const platformAccountStoreText = (label, hotel, source = {}, config = {}) => {
         const sourceConfig = source?.config || {};
@@ -1568,7 +1596,9 @@ window.SUXI_SYSTEM_STATIC = (() => {
         } else if (!sessionVerified) {
             reasonText = '未检测当天登录态，但不阻塞采集；以平台实际采集结果为准。';
         } else if (renewalWarning) {
-            reasonText = `Profile 仍可自动采集，建议在 ${daysUntilForcedLogin ?? 0} 天内重新登录。`;
+            reasonText = daysUntilForcedLogin === null
+                ? 'Profile 仍可自动采集；建议重新登录，但续登剩余天数未返回。'
+                : `Profile 仍可自动采集，建议在 ${daysUntilForcedLogin} 天内重新登录。`;
         }
 
         return {
@@ -1783,16 +1813,18 @@ window.SUXI_SYSTEM_STATIC = (() => {
     };
 
     const riskBadgeClass = (risk) => {
-        if (['高风险', 'D', 'E'].includes(risk)) return 'bg-red-50 text-red-700 border-red-200';
-        if (['中高风险', 'C'].includes(risk)) return 'bg-orange-50 text-orange-700 border-orange-200';
-        if (['中风险', 'B'].includes(risk)) return 'bg-yellow-50 text-yellow-700 border-yellow-200';
-        return 'bg-green-50 text-green-700 border-green-200';
+        if (['高风险', '高', 'high', 'D', 'E', 'P0'].includes(risk)) return 'bg-red-50 text-red-700 border-red-200';
+        if (['中高风险', '中高', 'medium_high', 'C', 'P1'].includes(risk)) return 'bg-orange-50 text-orange-700 border-orange-200';
+        if (['中风险', '中', 'medium', 'B', 'P2'].includes(risk)) return 'bg-yellow-50 text-yellow-700 border-yellow-200';
+        if (['低风险', '低', 'low', 'A'].includes(risk)) return 'bg-green-50 text-green-700 border-green-200';
+        return 'bg-gray-50 text-gray-600 border-gray-200';
     };
 
     const transferRiskTextClass = (risk) => {
-        if (risk === '高风险') return 'text-red-600';
-        if (risk === '中风险') return 'text-amber-600';
-        return 'text-green-600';
+        if (['高风险', '高', 'high'].includes(risk)) return 'text-red-600';
+        if (['中高风险', '中高', '中风险', '中', 'medium_high', 'medium'].includes(risk)) return 'text-amber-600';
+        if (['低风险', '低', 'low'].includes(risk)) return 'text-green-600';
+        return 'text-gray-500';
     };
 
     const transferDecisionClass = (decision) => {
@@ -1823,7 +1855,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         return 'bg-gray-50 text-gray-600 border-gray-200';
     };
 
-    const operationDataStatusText = (status) => status === 'ok' ? '已接入' : (status || '待接入真实数据');
+    const operationDataStatusText = (status) => status === 'ok' ? '已返回来源记录' : (status || '待接入可验证来源数据');
     const operationProblemLevelLabel = (level) => ({
         high: '高风险',
         medium: '中风险',
@@ -1838,6 +1870,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         low: 'bg-blue-50 text-blue-600',
     }[level] || 'bg-gray-100 text-gray-500');
     const operationRiskLevelLabel = (level) => ({
+        unknown: '待评估',
         low: '低风险',
         medium: '中风险',
         medium_high: '中高风险',
@@ -1851,7 +1884,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         active: '执行中',
         finished: '已结束',
         cancelled: '已取消',
-    }[status] || '观察中');
+    }[status] || '状态待核验');
     const operationEffectStatusLabel = (status) => ({
         ready: '已形成闭环',
         partial: '部分可验证',
@@ -1940,13 +1973,16 @@ window.SUXI_SYSTEM_STATIC = (() => {
         days: '统计天数',
     }[key] || key);
     const operationMetricRows = (data) => Object.entries(data || {})
-        .filter(([key]) => !['data_status'].includes(key))
+        .filter(([key]) => [
+            'avg_orders', 'avg_revenue', 'avg_room_nights', 'avg_conversion',
+            'orders_change', 'revenue_change', 'conversion_change', 'actual_days', 'days',
+        ].includes(key))
         .map(([key, value]) => ({
             label: operationMetricLabel(key),
             value: key.includes('revenue') ? operationMoney(value) : (key.includes('conversion') ? operationValue(value, '%') : operationValue(value)),
         }));
     const operationActionDataText = (data) => {
-        if (!data || data.data_status === '待接入真实数据') return '待接入真实数据';
+        if (!data || data.data_status === '待接入真实数据') return '待接入可验证来源数据';
         return `订单${operationValue(data.avg_orders)} / 收入${operationMoney(data.avg_revenue)}`;
     };
     const operationActionTarget = (action) => {

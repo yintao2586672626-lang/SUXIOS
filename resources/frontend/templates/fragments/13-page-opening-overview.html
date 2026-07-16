@@ -39,7 +39,7 @@
                                     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                                         <div>
                                             <div class="text-sm font-medium text-blue-900">{{ selectedOpeningProjectId ? '修改后需要保存' : '填写项目后创建项目' }}</div>
-                                            <div class="text-xs text-blue-700 mt-1">{{ selectedOpeningProjectId ? '调整基础信息后点击保存项目，再进入清单更新任务状态。' : '系统会保存项目，并自动生成开业检查清单。' }}</div>
+                                            <div class="text-xs text-blue-700 mt-1">{{ selectedOpeningProjectId ? '调整基础信息后点击保存项目，再进入清单更新任务状态。' : '系统会保存项目，并生成标准开业检查清单。' }}</div>
                                         </div>
                                         <button @click="saveOpeningProject" :disabled="openingLoading" class="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap">
                                             <i class="fas fa-save mr-1"></i>{{ selectedOpeningProjectId ? '保存项目' : '创建并生成清单' }}
@@ -139,7 +139,7 @@
                                 <div v-if="openingOverview &amp;&amp; openingTasks.length === 0" class="bg-blue-50 border border-blue-100 rounded-xl p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                                     <div>
                                         <div class="font-semibold text-blue-900">标准检查清单尚未生成</div>
-                                        <div class="text-sm text-blue-700 mt-1">生成后将自动带出责任人、截止时间、验收标准和AI建议。</div>
+                                        <div class="text-sm text-blue-700 mt-1">生成后将按标准或规则带出责任人、截止时间、验收标准和建议。</div>
                                     </div>
                                     <button @click="generateOpeningTasks" :disabled="openingLoading" class="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50">
                                         <i class="fas fa-magic mr-1"></i>生成检查清单
@@ -155,7 +155,7 @@
                                         <div class="flex items-center justify-between mb-4">
                                             <div>
                                                 <h3 class="font-bold text-gray-900">开业准备总览</h3>
-                                                <p class="text-xs text-gray-500 mt-1">按评分权重归类，完成后同步刷新总评分</p>
+                                        <p class="text-xs text-gray-500 mt-1">按评分权重归类，完成后重新计算总评分</p>
                                             </div>
                                             <span :class="openingRiskClass(openingOverview.project.risk_level)" class="px-2 py-1 rounded-full text-xs font-medium">{{ openingRiskText(openingOverview.project.risk_level) }}</span>
                                         </div>
@@ -179,7 +179,7 @@
                                         </div>
                                     </div>
                                     <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-                                        <h3 class="font-bold text-gray-900 mb-4">AI开业建议</h3>
+                                        <h3 class="font-bold text-gray-900 mb-4">开业建议（标准或规则）</h3>
                                         <div class="space-y-3">
                                             <div v-for="item in openingOverview.ai_suggestions" :key="item" class="flex gap-2 text-sm text-gray-700 leading-relaxed">
                                                 <i class="fas fa-robot text-blue-500 mt-1"></i><span>{{ item }}</span>
