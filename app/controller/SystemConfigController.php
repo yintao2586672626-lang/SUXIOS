@@ -163,11 +163,6 @@ class SystemConfigController extends Base
         }
     }
 
-    private function filterPublicConfigs(array $configs): array
-    {
-        return array_intersect_key($configs, array_fill_keys($this->publicConfigKeys(), true));
-    }
-
     private function publicConfigKeys(): array
     {
         return [
