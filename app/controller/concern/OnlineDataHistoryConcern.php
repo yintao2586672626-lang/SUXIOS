@@ -89,7 +89,7 @@ trait OnlineDataHistoryConcern
     }
 
     /**
-     * 携程最近一次成功采集数据
+     * 携程目标日期数据；未指定范围时读取最近入库数据。
      */
     public function ctripLatest(): Response
     {
@@ -108,7 +108,7 @@ trait OnlineDataHistoryConcern
             ];
 
             return $this->success([
-                'metadata' => $this->buildCtripLatestMetadata($sections, $hotelId),
+                'metadata' => $this->buildCtripLatestMetadata($sections, $hotelId, $range),
                 'rank' => $sections['rank'],
                 'traffic' => $sections['traffic'],
                 'review' => $sections['review'],
@@ -182,30 +182,13 @@ trait OnlineDataHistoryConcern
         $this->applyCtripHotelScope($query, $hotelId, $currentUser, $columns);
         $this->applyCtripLatestPeriodScope($query, $columns, $range);
         $targetDate = $this->resolveCtripLatestTargetDate($range);
-        $earlyMorningFallback = null;
         if ($targetDate !== '' && isset($columns['data_date'])) {
             $query->where('data_date', $targetDate);
         }
 
         $latest = $this->orderOnlineDataByFetchTime($query, $columns)->find();
-        if (!$latest && $targetDate !== '' && $this->shouldUseCtripYesterdayEarlyFallback()) {
-            $fallbackQuery = Db::name('online_daily_data');
-            $this->applyCtripStorageFilter($fallbackQuery, $columns);
-            $this->applyCtripSectionTypeFilter($fallbackQuery, $section, $columns);
-            $this->applyCtripHotelScope($fallbackQuery, $hotelId, $currentUser, $columns);
-            $this->applyCtripLatestPeriodScope($fallbackQuery, $columns, $range);
-            $latest = $this->orderOnlineDataByFetchTime($fallbackQuery, $columns)->find();
-            if ($latest) {
-                $earlyMorningFallback = [
-                    'reason' => 'early_morning_yesterday_not_ready',
-                    'target_data_date' => $targetDate,
-                    'fallback_data_date' => (string)($latest['data_date'] ?? ''),
-                    'fallback_fetched_at' => $this->onlineRowFetchedAt($latest, $columns),
-                ];
-            }
-        }
         if (!$latest) {
-            return $this->emptyCtripLatestSection($section, $labelMap[$section] ?? $section);
+            return $this->emptyCtripLatestSection($section, $labelMap[$section] ?? $section, $targetDate);
         }
 
         $rowsQuery = Db::name('online_daily_data');
@@ -227,7 +210,7 @@ trait OnlineDataHistoryConcern
         $decodedRows = $this->decodeOnlineRawRows($rows);
         $displayHotels = $section === 'rank' ? $this->buildCtripBusinessDisplayHotels($decodedRows) : [];
         $trafficFallback = null;
-        if ($section === 'rank' && (empty($displayHotels) || !$this->ctripBusinessDisplayHotelsHaveTraffic($displayHotels))) {
+        if ($range === '' && $section === 'rank' && (empty($displayHotels) || !$this->ctripBusinessDisplayHotelsHaveTraffic($displayHotels))) {
             $fallback = $this->findLatestCtripRankRowsWithTraffic($latest, $hotelId, $currentUser, $columns);
             if ($fallback !== null) {
                 $latest = $fallback['latest'];
@@ -260,7 +243,8 @@ trait OnlineDataHistoryConcern
             'data_type_label' => $labelMap[$section] ?? $section,
             'data_source' => '携程 ebooking',
             'status' => empty($rows) ? 'empty' : 'success',
-            'status_label' => empty($rows) ? '暂无数据' : '成功',
+            'status_label' => empty($rows) ? '暂无入库记录' : '有入库记录',
+            'verification_status' => empty($rows) ? 'not_available' : 'record_present_source_not_proven',
             'data_date' => (string)($latest['data_date'] ?? ''),
             'target_data_date' => $targetDate,
             'fetched_at' => $fetchedAt !== '' ? $fetchedAt : $this->onlineRowFetchedAt($latest, $columns),
@@ -271,7 +255,7 @@ trait OnlineDataHistoryConcern
             'display_traffic_rows' => $displayTrafficRows,
             'display_traffic_summary' => $section === 'traffic' ? CtripTrafficDisplayService::buildCtripTrafficDisplaySummary($displayTrafficRows) : CtripTrafficDisplayService::emptyCtripTrafficDisplaySummary(),
             'traffic_fallback' => $trafficFallback,
-            'early_morning_fallback' => $earlyMorningFallback,
+            'early_morning_fallback' => null,
             'comparison' => $comparison,
         ];
     }
@@ -315,12 +299,6 @@ trait OnlineDataHistoryConcern
                 $query->where('is_final', 0);
             }
         }
-    }
-
-    private function shouldUseCtripYesterdayEarlyFallback(): bool
-    {
-        $hour = (int)date('G');
-        return $hour >= 0 && $hour < 8;
     }
 
     private function buildCtripLatestRankComparison(array $latest, string $hotelId, $currentUser, array $columns, string $range): ?array
@@ -467,15 +445,16 @@ trait OnlineDataHistoryConcern
         return implode('|', $parts);
     }
 
-    private function emptyCtripLatestSection(string $section, string $label): array
+    private function emptyCtripLatestSection(string $section, string $label, string $targetDate = ''): array
     {
         return [
             'data_type' => $section,
             'data_type_label' => $label,
             'data_source' => '携程 ebooking',
             'status' => 'empty',
-            'status_label' => '暂无数据',
+            'status_label' => $targetDate !== '' ? '目标日期未采集' : '暂无数据',
             'data_date' => '',
+            'target_data_date' => $targetDate,
             'fetched_at' => '',
             'total' => 0,
             'rows' => [],
@@ -486,7 +465,7 @@ trait OnlineDataHistoryConcern
         ];
     }
 
-    private function buildCtripLatestMetadata(array $sections, string $hotelId): array
+    private function buildCtripLatestMetadata(array $sections, string $hotelId, string $range = ''): array
     {
         $fetchedAt = '';
         $dataDate = '';
@@ -512,11 +491,13 @@ trait OnlineDataHistoryConcern
             }
         }
 
-        $fetchStatus = $this->getCtripLatestFetchStatus($hotelId);
-        if (!empty($fetchStatus['fetched_at']) && ($fetchedAt === '' || strcmp((string)$fetchStatus['fetched_at'], $fetchedAt) >= 0)) {
-            $fetchedAt = (string)$fetchStatus['fetched_at'];
-            $dataDate = (string)($fetchStatus['data_date'] ?? $dataDate);
-            $total = max($total, (int)($fetchStatus['saved_count'] ?? 0));
+        if ($range === '') {
+            $fetchStatus = $this->getCtripLatestFetchStatus($hotelId);
+            if (!empty($fetchStatus['fetched_at']) && ($fetchedAt === '' || strcmp((string)$fetchStatus['fetched_at'], $fetchedAt) >= 0)) {
+                $fetchedAt = (string)$fetchStatus['fetched_at'];
+                $dataDate = (string)($fetchStatus['data_date'] ?? $dataDate);
+                $total = max($total, (int)($fetchStatus['saved_count'] ?? 0));
+            }
         }
 
         return [
@@ -524,7 +505,8 @@ trait OnlineDataHistoryConcern
             'platform' => 'ctrip',
             'data_source' => '携程 ebooking',
             'status' => $total > 0 ? 'success' : 'empty',
-            'status_label' => $total > 0 ? '成功' : '暂无成功采集',
+            'status_label' => $total > 0 ? '有入库记录' : ($targetDataDate !== '' ? '目标日期未采集' : '暂无入库记录'),
+            'verification_status' => $total > 0 ? 'record_present_source_not_proven' : 'not_available',
             'data_date' => $dataDate,
             'target_data_date' => $targetDataDate,
             'fetched_at' => $fetchedAt,

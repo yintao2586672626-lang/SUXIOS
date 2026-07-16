@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\controller\concern;
 
+use app\model\OperationLog;
 use app\service\OnlineDataFieldFactService;
 use think\Response;
 use think\facade\Db;
@@ -29,6 +30,17 @@ trait OnlineDataQualityConcern
         $savedCount = $this->parseAndSaveData(['data' => $dataList], $dataDate, $dataDate, $systemHotelId);
 
         OperationLog::record('online_data', 'save_daily', '保存线上数据: ' . $savedCount . '条', $this->currentUser->id, $systemHotelId);
+
+        if ($savedCount <= 0) {
+            return json([
+                'code' => 422,
+                'message' => '未确认任何数据入库；请检查字段格式、门店绑定和数据库回读结果。',
+                'data' => [
+                    'saved_count' => 0,
+                    'persistence_status' => 'not_verified',
+                ],
+            ], 422);
+        }
 
         return $this->success(['saved_count' => $savedCount], '保存成功，共保存 ' . $savedCount . ' 条数据');
     }
@@ -332,13 +344,13 @@ trait OnlineDataQualityConcern
 
         if ($source !== 'meituan' && $dataType !== 'traffic' && !$isNonNumericFact) {
             if ($amount !== null && $amount > 0 && ($quantity === null || $quantity <= 0)) {
-                $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'adr_denominator_zero', 'quantity', '间夜', $quantity, '营业额存在但间夜为0，ADR无法计算');
+                $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'adr_denominator_zero', 'quantity', '间夜', $quantity, $quantity === null ? '营业额存在但间夜未返回，ADR无法计算' : '营业额存在且间夜明确为0，ADR无法计算');
             }
             if ($quantity !== null && $quantity > 0 && ($amount === null || $amount <= 0)) {
-                $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'amount_missing_for_quantity', 'amount', '营业额', $amount, '间夜存在但营业额为0');
+                $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'amount_missing_for_quantity', 'amount', '营业额', $amount, $amount === null ? '间夜存在但营业额未返回' : '间夜存在且营业额明确为0');
             }
             if ($orders !== null && $orders > 0 && ($quantity === null || $quantity <= 0)) {
-                $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'orders_without_room_nights', 'book_order_num', '订单数', $orders, '订单数存在但间夜为0');
+                $abnormal[] = $this->makeOnlineDataAbnormalIssue('warning', 'orders_without_room_nights', 'book_order_num', '订单数', $orders, $quantity === null ? '订单数存在但间夜未返回' : '订单数存在且间夜明确为0');
             }
             if ($amount !== null && $quantity !== null && $quantity > 0) {
                 $adr = round($amount / $quantity, 2);
@@ -379,7 +391,7 @@ trait OnlineDataQualityConcern
 
         return [
             'status' => $status,
-            'status_label' => $status === 'ok' ? '完整' : ($status === 'error' ? '异常' : '需复核'),
+            'status_label' => $status === 'ok' ? '字段检查通过' : ($status === 'error' ? '异常' : '需复核'),
             'score' => max(0, 100 - count($missing) * 12 - count($abnormal) * 18),
             'missing_metrics' => $missing,
             'abnormal_metrics' => $abnormal,
@@ -388,7 +400,7 @@ trait OnlineDataQualityConcern
             'error_count' => $errorCount,
             'warning_count' => $warningCount,
             'prompts' => $prompts,
-            'summary' => empty($prompts) ? '数据完整' : implode('；', $prompts),
+            'summary' => empty($prompts) ? '字段检查通过（不代表数据来源已验证）' : implode('；', $prompts),
         ];
     }
 

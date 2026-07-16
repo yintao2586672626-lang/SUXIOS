@@ -28,6 +28,88 @@ final class OnlineDailyDataPersistenceService
         return array_intersect_key($data, $columns);
     }
 
+    /**
+     * Keep updates sparse while making missing metrics explicit on new rows.
+     * An observed zero is retained because presence is checked with
+     * array_key_exists rather than truthiness.
+     *
+     * @param array<int, string> $metricFields
+     */
+    public static function buildMetricAwareWriteData(
+        array $base,
+        array $observedMetrics,
+        array $metricFields,
+        bool $isInsert
+    ): array {
+        foreach ($metricFields as $field) {
+            unset($base[$field]);
+        }
+        $data = array_merge($base, $observedMetrics);
+        if (!$isInsert) {
+            return $data;
+        }
+
+        foreach ($metricFields as $field) {
+            if (!array_key_exists($field, $data)) {
+                $data[$field] = null;
+            }
+        }
+        return $data;
+    }
+
+    /**
+     * @param array<int, string> $identityFields
+     * @param array<int, string> $observedMetricFields
+     */
+    public static function matchesMetricReadback(
+        array $persisted,
+        array $expected,
+        array $identityFields,
+        array $observedMetricFields
+    ): bool {
+        foreach ($identityFields as $field) {
+            if (!array_key_exists($field, $expected)) {
+                continue;
+            }
+            $expectedValue = $expected[$field];
+            $persistedValue = $persisted[$field] ?? null;
+            if ($expectedValue === null) {
+                if ($persistedValue !== null && $persistedValue !== '') {
+                    return false;
+                }
+                continue;
+            }
+            if ((string)$persistedValue !== (string)$expectedValue) {
+                return false;
+            }
+        }
+
+        foreach ($observedMetricFields as $field) {
+            if (!array_key_exists($field, $expected) || !array_key_exists($field, $persisted)) {
+                return false;
+            }
+            $expectedValue = $expected[$field];
+            $persistedValue = $persisted[$field];
+            if ($expectedValue === null || $persistedValue === null) {
+                if ($expectedValue !== $persistedValue) {
+                    return false;
+                }
+                continue;
+            }
+            if (is_numeric($expectedValue) && is_numeric($persistedValue)) {
+                if (abs((float)$persistedValue - (float)$expectedValue) > 0.000001) {
+                    return false;
+                }
+                continue;
+            }
+            if ((string)$persistedValue !== (string)$expectedValue) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     public static function desensitizedSourceTraceId(array $source): string
     {
         foreach (['source_trace_id', '_source_trace_id', 'trace_id', '_trace_id'] as $key) {
@@ -187,6 +269,13 @@ final class OnlineDailyDataPersistenceService
             $period = self::looksLikeRealtimeRow($merged) ? 'realtime_snapshot' : 'historical_daily';
         }
 
+        $dataDate = self::normalizeDate($merged['data_date'] ?? $merged['dataDate'] ?? '');
+        $dataType = strtolower(str_replace(['-', ' '], '_', trim((string)($merged['data_type'] ?? $merged['dataType'] ?? ''))));
+        if (in_array($dataType, ['traffic_forecast', 'trafficforecast', 'flow_forecast', 'flowforecast', 'forecast'], true)) {
+            $period = 'next_30_days';
+        } elseif ($dataDate === date('Y-m-d') && $period === 'historical_daily') {
+            $period = 'realtime_snapshot';
+        }
         $snapshotTime = null;
         $snapshotBucket = '';
         if ($period === 'realtime_snapshot') {
@@ -197,7 +286,7 @@ final class OnlineDailyDataPersistenceService
                 ?? $merged['capturedAt']
                 ?? null
             ) ?? date('Y-m-d H:i:s');
-            $snapshotBucket = date('YmdH', strtotime($snapshotTime) ?: time());
+            $snapshotBucket = date('YmdHi', strtotime($snapshotTime) ?: time());
         }
 
         if (isset($columns['data_period'])) {
@@ -330,12 +419,12 @@ final class OnlineDailyDataPersistenceService
             $isAverage = $hotelId < 0 || str_contains($compareText, 'avg') || str_contains($compareText, 'average');
             $compareType = $isAverage ? 'competitor_avg' : ($isCompetitor ? 'competitor' : 'self');
             $hotelName = (string)($item['hotelName'] ?? $item['hotel_name'] ?? $item['HotelName'] ?? $item['name'] ?? ($compareType === 'self' ? '本店' : '竞争圈'));
-            $listExposure = (int)CtripTrafficDisplayService::readTrafficNumber($item, ['listExposure', 'list_exposure', 'exposure', 'exposureCount', 'impressions', 'showCount', 'PV', 'pv', 'pageView', 'pageViews', 'page_view'], 0.0);
-            $detailExposure = (int)CtripTrafficDisplayService::readTrafficNumber($item, ['detailExposure', 'detail_exposure', 'detailVisitors', 'detailUv', 'visitorCount', 'UV', 'uv', 'uniqueVisitors', 'unique_visitors', 'views'], 0.0);
-            $flowRate = round(CtripTrafficDisplayService::normalizeTrafficPercent(CtripTrafficDisplayService::readTrafficNumber($item, ['flowRate', 'flow_rate', 'conversionRate', 'conversion_rate', 'convertionRate', 'convertRate', 'transforRate', 'transferRate', 'transRate', 'cvr'], $listExposure > 0 ? $detailExposure / $listExposure * 100 : 0.0)), 2);
-            $orderFillingNum = (int)CtripTrafficDisplayService::readTrafficNumber($item, ['orderFillingNum', 'order_filling_num', 'orderVisitors', 'clickCount', 'click_count', 'clickNum', 'clicks'], 0.0);
-            $orderSubmitNum = (int)CtripTrafficDisplayService::readTrafficNumber($item, ['orderSubmitNum', 'order_submit_num', 'submitUsers', 'submitNum', 'orderCount', 'order_count', 'orderNum', 'bookOrderNum', 'dealNum', 'orders'], 0.0);
+            $trafficMetrics = $this->extractObservedTrafficMetrics($item, false);
+            if (array_key_exists('list_exposure', $trafficMetrics)) {
+                $trafficMetrics['data_value'] = (float)$trafficMetrics['list_exposure'];
+            }
             $columns = self::getColumns();
+            $trafficMetrics = array_intersect_key($trafficMetrics, $columns);
             $periodFilter = self::applyPeriodFields([
                 'data_date' => $itemDate,
                 'source' => $source,
@@ -364,42 +453,40 @@ final class OnlineDailyDataPersistenceService
 
             $exists = $query->find();
             $sourceTraceId = self::desensitizedSourceTraceId($item);
-            $payload = [
+            $base = [
                 'hotel_id' => (string)$hotelId,
                 'hotel_name' => $hotelName,
                 'system_hotel_id' => $systemHotelId,
                 'data_date' => $itemDate,
-                'amount' => 0,
-                'quantity' => 0,
-                'book_order_num' => 0,
-                'comment_score' => 0,
-                'qunar_comment_score' => 0,
-                'data_value' => $listExposure,
                 'source' => $source,
                 'data_type' => 'traffic',
                 'dimension' => $platform . ':' . $compareType,
                 'platform' => $platform,
                 'compare_type' => $compareType,
-                'list_exposure' => $listExposure,
-                'detail_exposure' => $detailExposure,
-                'flow_rate' => $flowRate,
-                'order_filling_num' => $orderFillingNum,
-                'order_submit_num' => $orderSubmitNum,
                 'raw_data' => json_encode($item, JSON_UNESCAPED_UNICODE),
             ];
             if ($sourceTraceId !== '') {
-                $payload['source_trace_id'] = $sourceTraceId;
+                $base['source_trace_id'] = $sourceTraceId;
             }
+            $payload = self::buildMetricAwareWriteData(
+                $base,
+                $trafficMetrics,
+                self::trafficMetricFields(),
+                !$exists
+            );
             $data = self::applyValidationFields($payload);
             $data = OnlineDataFieldFactService::attachToOnlineDailyRow($data, $item);
             $data = self::filterFields($data);
 
             if ($exists) {
-                Db::name('online_daily_data')->where('id', $exists['id'])->update($data);
+                $rowId = (int)$exists['id'];
+                Db::name('online_daily_data')->where('id', $rowId)->update($data);
             } else {
-                Db::name('online_daily_data')->insert($data);
+                $rowId = (int)Db::name('online_daily_data')->insertGetId($data);
             }
-            $savedCount++;
+            if ($rowId > 0 && $this->verifyTrafficRowReadback($rowId, $payload, array_keys($trafficMetrics))) {
+                $savedCount++;
+            }
         }
 
         return $savedCount;
@@ -458,11 +545,17 @@ final class OnlineDailyDataPersistenceService
                 continue;
             }
 
-            $trafficMetrics = $this->extractGenericTrafficMetrics($item);
+            $trafficMetrics = $this->extractObservedTrafficMetrics($item, true);
             $trafficValue = OnlineTrafficDataExtractionService::extractTrafficValue($item);
+            if ($trafficValue !== null) {
+                $trafficMetrics['data_value'] = round($trafficValue, 2);
+            } elseif (array_key_exists('list_exposure', $trafficMetrics)) {
+                $trafficMetrics['data_value'] = (float)$trafficMetrics['list_exposure'];
+            }
             $itemDate = $item['dataDate'] ?? $item['date'] ?? $item['statDate'] ?? $item['stat_date'] ?? $item['data_date'] ?? $dataDate;
             $dimension = $item['metric'] ?? $item['metricName'] ?? $item['dimension'] ?? $item['_metric'] ?? 'traffic';
             $columns = self::getColumns();
+            $trafficMetrics = array_intersect_key($trafficMetrics, $columns);
             $periodFilter = self::applyPeriodFields([
                 'data_date' => $itemDate,
                 'source' => $source,
@@ -489,30 +582,25 @@ final class OnlineDailyDataPersistenceService
             $exists = $query->find();
 
             $sourceTraceId = self::desensitizedSourceTraceId($item);
-            $payload = [
+            $base = [
                 'hotel_id' => $hotelId ? (string)$hotelId : '',
                 'hotel_name' => $hotelName,
                 'system_hotel_id' => $systemHotelId,
                 'data_date' => $itemDate,
-                'amount' => 0,
-                'quantity' => 0,
-                'book_order_num' => 0,
-                'comment_score' => 0,
-                'qunar_comment_score' => 0,
-                'data_value' => $trafficValue ?? $trafficMetrics['list_exposure'],
                 'source' => $source,
                 'data_type' => 'traffic',
                 'dimension' => $dimension ?: 'traffic',
-                'list_exposure' => $trafficMetrics['list_exposure'],
-                'detail_exposure' => $trafficMetrics['detail_exposure'],
-                'flow_rate' => $trafficMetrics['flow_rate'],
-                'order_filling_num' => $trafficMetrics['order_filling_num'],
-                'order_submit_num' => $trafficMetrics['order_submit_num'],
                 'raw_data' => json_encode($item, JSON_UNESCAPED_UNICODE),
             ];
             if ($sourceTraceId !== '') {
-                $payload['source_trace_id'] = $sourceTraceId;
+                $base['source_trace_id'] = $sourceTraceId;
             }
+            $payload = self::buildMetricAwareWriteData(
+                $base,
+                $trafficMetrics,
+                self::trafficMetricFields(),
+                !$exists
+            );
             $data = self::applyValidationFields($payload);
             $data = OnlineDataFieldFactService::attachToOnlineDailyRow($data, $item);
             $data = self::filterFields($data);
@@ -525,7 +613,7 @@ final class OnlineDailyDataPersistenceService
             } else {
                 $rowId = (int)Db::name('online_daily_data')->insertGetId($data);
             }
-            if ($rowId > 0 && $this->verifyTrafficRowReadback($rowId, $payload)) {
+            if ($rowId > 0 && $this->verifyTrafficRowReadback($rowId, $payload, array_keys($trafficMetrics))) {
                 $savedCount++;
             }
         }
@@ -533,61 +621,74 @@ final class OnlineDailyDataPersistenceService
         return $savedCount;
     }
 
-    private function verifyTrafficRowReadback(int $rowId, array $expected): bool
+    /** @param array<int, string> $observedMetricFields */
+    private function verifyTrafficRowReadback(int $rowId, array $expected, array $observedMetricFields): bool
     {
         $persisted = Db::name('online_daily_data')->where('id', $rowId)->find();
         if (!is_array($persisted)) {
             return false;
         }
-        foreach (['source', 'data_type', 'data_date', 'dimension'] as $field) {
-            if ((string)($persisted[$field] ?? '') !== (string)($expected[$field] ?? '')) {
-                return false;
-            }
-        }
-        if ((string)($persisted['hotel_id'] ?? '') !== (string)($expected['hotel_id'] ?? '')) {
-            return false;
-        }
 
-        $expectedSystemHotelId = $expected['system_hotel_id'] ?? null;
-        $persistedSystemHotelId = $persisted['system_hotel_id'] ?? null;
-        return $expectedSystemHotelId === null
-            ? $persistedSystemHotelId === null
-            : (int)$persistedSystemHotelId === (int)$expectedSystemHotelId;
+        return self::matchesMetricReadback(
+            $persisted,
+            $expected,
+            ['source', 'data_type', 'data_date', 'dimension', 'hotel_id', 'system_hotel_id'],
+            $observedMetricFields
+        );
     }
 
     /**
      * @param array<string, mixed> $item
-     * @return array{list_exposure:int,detail_exposure:int,flow_rate:float,order_filling_num:int,order_submit_num:int}
+     * @return array<string, int|float>
      */
-    private function extractGenericTrafficMetrics(array $item): array
+    private function extractObservedTrafficMetrics(array $item, bool $generic): array
     {
-        $listExposure = (int)CtripTrafficDisplayService::readTrafficNumber($item, [
-            'list_exposure', 'listExposure', 'exposure_count', 'exposureCount',
-            'exposureNum', 'impression', 'impressions', 'exposure',
-        ], 0.0);
-        $detailExposure = (int)CtripTrafficDisplayService::readTrafficNumber($item, [
-            'detail_exposure', 'detailExposure', 'page_views', 'pageViews',
-            'unique_visitors', 'uniqueVisitors', 'visitor_count', 'visitorCount',
-            'click_count', 'clickCount', 'clicks', 'click', 'uv', 'UV', 'pv', 'views',
-        ], 0.0);
-        $flowRate = round(CtripTrafficDisplayService::normalizeTrafficPercent(CtripTrafficDisplayService::readTrafficNumber($item, [
-            'flow_rate', 'flowRate', 'conversion_rate', 'conversionRate', 'orderRate',
-        ], $listExposure > 0 ? $detailExposure / $listExposure * 100 : 0.0)), 2);
-        $orderFillingNum = (int)CtripTrafficDisplayService::readTrafficNumber($item, [
-            'order_filling_num', 'orderFillingNum', 'orderVisitors',
-            'click_count', 'clickCount', 'clicks', 'click',
-        ], 0.0);
-        $orderSubmitNum = (int)CtripTrafficDisplayService::readTrafficNumber($item, [
-            'order_submit_num', 'orderSubmitNum', 'submit_users', 'submitUsers',
-            'submitNum', 'orderCount', 'order_count', 'orderNum', 'bookOrderNum', 'orders',
-        ], 0.0);
+        $aliases = [
+            'list_exposure' => $generic
+                ? ['list_exposure', 'listExposure', 'exposure_count', 'exposureCount', 'exposureNum', 'impression', 'impressions', 'exposure']
+                : ['listExposure', 'list_exposure', 'exposure', 'exposureCount', 'impressions', 'showCount', 'PV', 'pv', 'pageView', 'pageViews', 'page_view'],
+            'detail_exposure' => $generic
+                ? ['detail_exposure', 'detailExposure', 'page_views', 'pageViews', 'unique_visitors', 'uniqueVisitors', 'visitor_count', 'visitorCount', 'click_count', 'clickCount', 'clicks', 'click', 'uv', 'UV', 'pv', 'views']
+                : ['detailExposure', 'detail_exposure', 'detailVisitors', 'detailUv', 'visitorCount', 'UV', 'uv', 'uniqueVisitors', 'unique_visitors', 'views'],
+            'flow_rate' => $generic
+                ? ['flow_rate', 'flowRate', 'conversion_rate', 'conversionRate', 'orderRate']
+                : ['flowRate', 'flow_rate', 'conversionRate', 'conversion_rate', 'convertionRate', 'convertRate', 'transforRate', 'transferRate', 'transRate', 'cvr'],
+            'order_filling_num' => $generic
+                ? ['order_filling_num', 'orderFillingNum', 'orderVisitors', 'click_count', 'clickCount', 'clicks', 'click']
+                : ['orderFillingNum', 'order_filling_num', 'orderVisitors', 'clickCount', 'click_count', 'clickNum', 'clicks'],
+            'order_submit_num' => $generic
+                ? ['order_submit_num', 'orderSubmitNum', 'submit_users', 'submitUsers', 'submitNum', 'orderCount', 'order_count', 'orderNum', 'bookOrderNum', 'orders']
+                : ['orderSubmitNum', 'order_submit_num', 'submitUsers', 'submitNum', 'orderCount', 'order_count', 'orderNum', 'bookOrderNum', 'dealNum', 'orders'],
+        ];
 
+        $metrics = [];
+        foreach ($aliases as $field => $keys) {
+            $value = CtripTrafficDisplayService::readTrafficNumber($item, $keys, null);
+            if ($value === null) {
+                continue;
+            }
+            $metrics[$field] = $field === 'flow_rate'
+                ? round(CtripTrafficDisplayService::normalizeTrafficPercent($value), 2)
+                : (int)$value;
+        }
+        return $metrics;
+    }
+
+    /** @return array<int, string> */
+    private static function trafficMetricFields(): array
+    {
         return [
-            'list_exposure' => $listExposure,
-            'detail_exposure' => $detailExposure,
-            'flow_rate' => $flowRate,
-            'order_filling_num' => $orderFillingNum,
-            'order_submit_num' => $orderSubmitNum,
+            'amount',
+            'quantity',
+            'book_order_num',
+            'comment_score',
+            'qunar_comment_score',
+            'data_value',
+            'list_exposure',
+            'detail_exposure',
+            'flow_rate',
+            'order_filling_num',
+            'order_submit_num',
         ];
     }
 

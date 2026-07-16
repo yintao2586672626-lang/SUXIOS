@@ -496,14 +496,6 @@ trait OnlineDataAnalyticsConcern
     }
 
     /**
-     * 递归提取流量数据
-     */
-    private function extractTrafficData($data): array
-    {
-        return OnlineTrafficDataExtractionService::extractGenericTrafficRows($data);
-    }
-
-    /**
      * 应用数据类型筛选
      */
     private function applyDataTypeFilter($query, ?string $dataType): void

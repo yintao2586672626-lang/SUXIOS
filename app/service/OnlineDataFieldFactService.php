@@ -343,7 +343,7 @@ final class OnlineDataFieldFactService
         $capturedCount = count($captured);
         $missingCount = count($missing);
         $status = 'ready';
-        $label = '字段闭环';
+        $label = '字段链路齐全（业务值仍需来源校验）';
         if ($capturedCount === 0) {
             $status = 'missing';
             $label = '字段缺失';

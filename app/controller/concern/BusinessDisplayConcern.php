@@ -7,6 +7,7 @@ use app\service\CtripCompetitionCirclePersistenceService;
 use app\service\MeituanManualFetchRequestService;
 use app\service\MeituanOnlineDataPersistenceService;
 use app\service\MeituanRankDataExtractionService;
+use app\service\OnlineDailyDataPersistenceService;
 use think\facade\Db;
 
 trait BusinessDisplayConcern
@@ -637,29 +638,7 @@ trait BusinessDisplayConcern
             // 尝试多种字段名获取酒店名称
             $hotelName = $item['hotelName'] ?? $item['hotel_name'] ?? $item['HotelName'] ?? $item['name'] ?? '';
 
-            // 尝试多种字段名获取其他数据
-            $amount = $this->nullableNumberFromKeys($item, ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount', 'orderAmount', 'ordamount', 'gmv', 'turnover', 'bookingAmount', '成交收入', '成交金额', '销售额']);
-            $quantity = $this->nullableNumberFromKeys($item, ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity', 'roomNightCount', 'nightNum', '成交间夜', '间夜', '房晚']);
-            $quantity = $quantity === null ? null : (int)$quantity;
-            $bookOrderNum = $this->nullableNumberFromKeys($item, ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count', 'orderNum', 'ordquantity', 'orders', 'bookings', '成交订单数', '订单数']);
-            $bookOrderNum = $bookOrderNum === null ? null : (int)$bookOrderNum;
-            $commentScoreRaw = $this->firstMeituanValue($item, ['commentScore', 'comment_score', 'score', 'avgScore', 'ctripRatingall'], null);
-            $commentScore = is_numeric($commentScoreRaw) && (float)$commentScoreRaw > 0
-                ? (float)$commentScoreRaw
-                : null;
-            $qunarCommentScoreRaw = $this->firstMeituanValue($item, ['qunarCommentScore', 'qunar_comment_score', 'qunarScore'], null);
-            $qunarCommentScore = is_numeric($qunarCommentScoreRaw) && (float)$qunarCommentScoreRaw > 0
-                ? (float)$qunarCommentScoreRaw
-                : null;
-            $listExposure = $this->nullableNumberFromKeys($item, ['self_list_exposure', 'listExposure', 'list_exposure']);
-            $listExposure = $listExposure === null ? null : (int)$listExposure;
-            $detailExposure = $this->nullableNumberFromKeys($item, ['self_detail_exposure', 'detailExposure', 'detail_exposure']);
-            $detailExposure = $detailExposure === null ? null : (int)$detailExposure;
-            $orderFillingNum = $this->nullableNumberFromKeys($item, ['self_order_filling_num', 'orderFillingNum', 'order_filling_num']);
-            $orderFillingNum = $orderFillingNum === null ? null : (int)$orderFillingNum;
-            $orderSubmitNum = $this->nullableNumberFromKeys($item, ['self_order_submit_num', 'orderSubmitNum', 'order_submit_num']);
-            $orderSubmitNum = $orderSubmitNum === null ? null : (int)$orderSubmitNum;
-            $flowRate = $this->normalizeMeituanPercentValue($this->firstMeituanValue($item, ['self_flow_rate', 'flowRate', 'flow_rate'], null));
+            $observedMetrics = $this->buildCtripBusinessObservedMetricPatch($item, $columns);
 
             // 如果有日期字段，优先使用接口返回日期；没有返回时使用请求日期
             $itemDate = $item['dataDate']
@@ -698,16 +677,11 @@ trait BusinessDisplayConcern
 
             $exists = $query->find();
 
-            $data = [
+            $base = [
                 'hotel_id' => (string)$hotelId,
                 'hotel_name' => $hotelName,
                 'system_hotel_id' => $systemHotelId, // 系统酒店ID，用于门店隔离
                 'data_date' => $itemDate,
-                'amount' => $amount,
-                'quantity' => $quantity,
-                'book_order_num' => $bookOrderNum,
-                'comment_score' => $commentScore,
-                'qunar_comment_score' => $qunarCommentScore,
                 'source' => 'ctrip',
                 'data_type' => 'business',
                 'dimension' => '',
@@ -716,39 +690,103 @@ trait BusinessDisplayConcern
             ];
 
             if (isset($columns['update_time'])) {
-                $data['update_time'] = $now;
+                $base['update_time'] = $now;
             }
-            if (isset($columns['list_exposure'])) {
-                $data['list_exposure'] = $listExposure;
-            }
-            if (isset($columns['detail_exposure'])) {
-                $data['detail_exposure'] = $detailExposure;
-            }
-            if (isset($columns['flow_rate'])) {
-                $data['flow_rate'] = $flowRate;
-            }
-            if (isset($columns['order_filling_num'])) {
-                $data['order_filling_num'] = $orderFillingNum;
-            }
-            if (isset($columns['order_submit_num'])) {
-                $data['order_submit_num'] = $orderSubmitNum;
-            }
+            $data = OnlineDailyDataPersistenceService::buildMetricAwareWriteData(
+                $base,
+                $observedMetrics,
+                $this->ctripBusinessMetricFields($columns),
+                !$exists
+            );
             $data = $this->applyOnlineDailyDataValidationFields($data, $columns);
 
             if ($exists) {
+                $rowId = (int)$exists['id'];
                 Db::name('online_daily_data')
-                    ->where('id', $exists['id'])
+                    ->where('id', $rowId)
                     ->update($data);
             } else {
                 if (isset($columns['create_time'])) {
                     $data['create_time'] = $now;
                 }
-                Db::name('online_daily_data')->insert($data);
+                $rowId = (int)Db::name('online_daily_data')->insertGetId($data);
             }
-            $savedCount++;
+            if ($rowId > 0 && $this->verifyCtripBusinessMetricReadback($rowId, $data, array_keys($observedMetrics))) {
+                $savedCount++;
+            }
         }
 
         return $savedCount;
+    }
+
+    /** @return array<string, int|float> */
+    private function buildCtripBusinessObservedMetricPatch(array $item, array $columns): array
+    {
+        $definitions = [
+            'amount' => ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount', 'orderAmount', 'ordamount', 'gmv', 'turnover', 'bookingAmount', '成交收入', '成交金额', '销售额'],
+            'quantity' => ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity', 'roomNightCount', 'nightNum', '成交间夜', '间夜', '房晚'],
+            'book_order_num' => ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count', 'orderNum', 'ordquantity', 'orders', 'bookings', '成交订单数', '订单数'],
+            'comment_score' => ['commentScore', 'comment_score', 'score', 'avgScore', 'ctripRatingall'],
+            'qunar_comment_score' => ['qunarCommentScore', 'qunar_comment_score', 'qunarScore'],
+            'list_exposure' => ['self_list_exposure', 'listExposure', 'list_exposure'],
+            'detail_exposure' => ['self_detail_exposure', 'detailExposure', 'detail_exposure'],
+            'flow_rate' => ['self_flow_rate', 'flowRate', 'flow_rate'],
+            'order_filling_num' => ['self_order_filling_num', 'orderFillingNum', 'order_filling_num'],
+            'order_submit_num' => ['self_order_submit_num', 'orderSubmitNum', 'order_submit_num'],
+        ];
+
+        $patch = [];
+        foreach ($definitions as $field => $keys) {
+            if (!isset($columns[$field])) {
+                continue;
+            }
+            $value = $this->nullableNumberFromKeys($item, $keys);
+            if ($value === null) {
+                continue;
+            }
+            $patch[$field] = match ($field) {
+                'amount' => round($value, 2),
+                'comment_score', 'qunar_comment_score' => round($value, 1),
+                'flow_rate' => round((float)$this->normalizeMeituanPercentValue($value), 2),
+                'quantity', 'book_order_num', 'list_exposure', 'detail_exposure', 'order_filling_num', 'order_submit_num' => (int)$value,
+                default => $value,
+            };
+        }
+        return $patch;
+    }
+
+    /** @return array<int, string> */
+    private function ctripBusinessMetricFields(array $columns): array
+    {
+        return array_values(array_filter([
+            'amount',
+            'quantity',
+            'book_order_num',
+            'comment_score',
+            'qunar_comment_score',
+            'data_value',
+            'list_exposure',
+            'detail_exposure',
+            'flow_rate',
+            'order_filling_num',
+            'order_submit_num',
+        ], static fn(string $field): bool => isset($columns[$field])));
+    }
+
+    /** @param array<int, string> $observedMetricFields */
+    private function verifyCtripBusinessMetricReadback(int $rowId, array $expected, array $observedMetricFields): bool
+    {
+        $persisted = Db::name('online_daily_data')->where('id', $rowId)->find();
+        if (!is_array($persisted)) {
+            return false;
+        }
+
+        return OnlineDailyDataPersistenceService::matchesMetricReadback(
+            $persisted,
+            $expected,
+            ['source', 'data_type', 'data_date', 'dimension', 'hotel_id', 'system_hotel_id'],
+            $observedMetricFields
+        );
     }
 
     private function persistCtripCompetitionCircleRowsFromLegacyParser(
@@ -4297,9 +4335,9 @@ trait BusinessDisplayConcern
         }
 
         // Meituan ranking modules are written as adjacent batches for one
-        // hotel/date. Use a short fetch-time window so the four rank modules
-        // stay together without mixing older runs from the same data_date.
-        foreach (['update_time', 'create_time'] as $column) {
+        // hotel/date. Prefer the immutable create time so later identity or
+        // quality repairs do not split one complete batch by update_time.
+        foreach (['create_time', 'update_time'] as $column) {
             if (!isset($columns[$column]) || empty($latest[$column])) {
                 continue;
             }

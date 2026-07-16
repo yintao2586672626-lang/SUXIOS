@@ -55,11 +55,6 @@ trait OnlineDailyDataPersistenceConcern
         return OnlineDailyDataPersistenceService::getColumns();
     }
 
-    private function filterOnlineDailyDataFields(array $data): array
-    {
-        return OnlineDailyDataPersistenceService::filterFields($data);
-    }
-
     private function buildOnlineDailyDataValidationFields(array $data): array
     {
         return OnlineDailyDataPersistenceService::buildValidationFields($data);

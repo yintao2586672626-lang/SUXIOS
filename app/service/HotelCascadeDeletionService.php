@@ -62,6 +62,7 @@ final class HotelCascadeDeletionService
         ['price_suggestions', 'hotel_id'],
         ['room_types', 'hotel_id'],
         ['system_notifications', 'hotel_id'],
+        ['temporal_forecast_snapshots', 'system_hotel_id'],
         ['transfer_records', 'hotel_id'],
     ];
 
