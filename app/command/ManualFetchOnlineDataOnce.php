@@ -44,6 +44,17 @@ class ManualFetchOnlineDataOnce extends Command
             return 1;
         }
 
+        $taskStatus = $taskService->readTaskStatus($taskId);
+        if ((string)($task['task_id'] ?? '') !== $taskId
+            || $taskStatus === []
+            || (int)($taskStatus['hotel_id'] ?? 0) !== (int)($task['hotel_id'] ?? 0)
+            || (string)($taskStatus['platform'] ?? '') !== (string)($task['platform'] ?? '')
+        ) {
+            $taskService->markTaskFailed($taskId, 'background manual fetch task scope does not match its status metadata', 'input_invalid');
+            $output->writeln('Task input scope is invalid.');
+            return 1;
+        }
+
         $taskService->markTaskRunning($taskId);
 
         $hotelId = (int)($task['hotel_id'] ?? 0);
@@ -62,16 +73,29 @@ class ManualFetchOnlineDataOnce extends Command
         $body['background_task'] = true;
         $body['task_id'] = $taskId;
 
-        $result = $this->postJson($apiUrl, $authorization, $body, (int)($task['timeout_seconds'] ?? 3600));
-        $authorization = '';
-        $completion = $taskService->completeTask(
-            $taskId,
-            is_array($result['response'] ?? null) ? $result['response'] : [],
-            (string)($result['message'] ?? ''),
-            ($result['success'] ?? false) === true
-        );
+        try {
+            $result = $this->postJson($apiUrl, $authorization, $body, (int)($task['timeout_seconds'] ?? 3600));
+            $completion = $taskService->completeTask(
+                $taskId,
+                is_array($result['response'] ?? null) ? $result['response'] : [],
+                (string)($result['message'] ?? ''),
+                ($result['success'] ?? false) === true
+            );
+        } catch (\Throwable $e) {
+            $completion = $taskService->markTaskFailed(
+                $taskId,
+                $e->getMessage() ?: 'background manual fetch task crashed',
+                'runtime_exception'
+            );
+            $message = (string)($completion['message'] ?? 'background manual fetch task crashed');
+            $this->recordFailure($task, $message);
+            $output->writeln($message);
+            return 1;
+        } finally {
+            $authorization = '';
+        }
         if (!$result['success']) {
-            $message = (string)($result['message'] ?? 'background manual fetch request failed');
+            $message = (string)($completion['message'] ?? 'background manual fetch request failed');
             $this->recordFailure($task, $message);
             $output->writeln($message);
             return ($completion['status'] ?? '') === 'partial_success' ? 2 : 1;
@@ -139,10 +163,18 @@ class ManualFetchOnlineDataOnce extends Command
             ];
         }
 
+        if (!is_array($decoded)) {
+            return [
+                'success' => false,
+                'message' => 'background manual fetch API returned invalid JSON',
+                'response' => [],
+            ];
+        }
+
         return [
-            'success' => is_array($decoded) ? (int)($decoded['code'] ?? 500) === 200 : true,
-            'message' => is_array($decoded) ? (string)($decoded['message'] ?? 'ok') : 'ok',
-            'response' => is_array($decoded) ? $decoded : [],
+            'success' => (int)($decoded['code'] ?? 500) === 200,
+            'message' => (string)($decoded['message'] ?? 'ok'),
+            'response' => $decoded,
         ];
     }
 

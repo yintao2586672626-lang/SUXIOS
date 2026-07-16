@@ -14,7 +14,8 @@ final class ManualOnlineFetchTaskService
         $requestedTaskKind = $this->normalizeTaskKind($platform);
         $platform = $this->normalizePlatform($platform);
         $authorization = trim((string)($context['authorization'] ?? ''));
-        if ($platform === '' || $hotelId <= 0 || $authorization === '') {
+        $apiUrl = $this->normalizeTaskApiUrl((string)($context['api_url'] ?? ''));
+        if ($platform === '' || $hotelId <= 0 || $authorization === '' || $apiUrl === '') {
             return [];
         }
 
@@ -48,7 +49,7 @@ final class ManualOnlineFetchTaskService
             'task_kind' => trim((string)($context['task_kind'] ?? '')) ?: $requestedTaskKind,
             'start_date' => $startDate,
             'end_date' => $endDate,
-            'api_url' => (string)($context['api_url'] ?? ''),
+            'api_url' => $apiUrl,
             'authorization' => $authorization,
             'authorization_env' => $authorizationEnv,
             'body' => $body,
@@ -150,16 +151,15 @@ final class ManualOnlineFetchTaskService
                     $this->cleanupLaunchArtifacts($inputPath, $taskId);
                     return false;
                 }
+                $this->updateTaskStatus($taskId, [
+                    'stage' => 'launching',
+                    'message' => '正在启动后台进程',
+                    'progress_percent' => 10,
+                ]);
                 $launched = $this->launchWindowsBatchFile($batPath);
                 if (!$launched) {
                     $this->markLaunchFailure($task, '后台任务进程未成功启动');
                     $this->cleanupLaunchArtifacts($inputPath, $taskId);
-                } else {
-                    $this->updateTaskStatus($taskId, [
-                        'stage' => 'launched',
-                        'message' => '后台进程已启动，等待执行',
-                        'progress_percent' => 10,
-                    ]);
                 }
                 return $launched;
             }
@@ -183,6 +183,11 @@ final class ManualOnlineFetchTaskService
                 return false;
             }
             @chmod($shellPath, 0755);
+            $this->updateTaskStatus($taskId, [
+                'stage' => 'launching',
+                'message' => '正在启动后台进程',
+                'progress_percent' => 10,
+            ]);
             $handle = @popen('sh ' . escapeshellarg($shellPath) . ' >/dev/null 2>&1 &', 'r');
             if (!is_resource($handle)) {
                 $this->markLaunchFailure($task, '后台任务进程未成功启动');
@@ -190,11 +195,6 @@ final class ManualOnlineFetchTaskService
                 return false;
             }
             pclose($handle);
-            $this->updateTaskStatus($taskId, [
-                'stage' => 'launched',
-                'message' => '后台进程已启动，等待执行',
-                'progress_percent' => 10,
-            ]);
             return true;
         } finally {
             if ($previousAuthorization === false) {
@@ -248,7 +248,16 @@ final class ManualOnlineFetchTaskService
         $readbackCount = $this->firstNonNegativeNumber($payload, [
             'readback_count', 'readbackCount', 'database_readback_count',
         ]);
-        $readbackVerified = ($payload['readback_verified'] ?? $payload['readbackVerified'] ?? false) === true;
+        $databaseReadback = is_array($payload['database_readback'] ?? null) ? $payload['database_readback'] : [];
+        if ($readbackCount === 0) {
+            $readbackCount = $this->firstNonNegativeNumber($databaseReadback, [
+                'readback_count', 'matched_count', 'verified_count', 'row_count',
+            ]);
+        }
+        $persistenceStatus = strtolower(trim((string)($payload['persistence_status'] ?? '')));
+        $readbackVerified = ($payload['readback_verified'] ?? $payload['readbackVerified'] ?? false) === true
+            || ($databaseReadback['verified'] ?? false) === true
+            || $persistenceStatus === 'readback_verified';
         $failureStatuses = ['failed', 'error', 'exception', 'business_failed', 'rejected', 'login_required'];
         $noDataStatuses = ['no_data', 'empty', 'no_saved'];
 
@@ -322,13 +331,17 @@ final class ManualOnlineFetchTaskService
         if (!in_array($status, ['success', 'partial_success', 'failed', 'no_data', 'unverified'], true)
             && $this->isTaskStatusStale($decoded)
         ) {
+            $finishedAt = date('Y-m-d H:i:s');
             $decoded['status'] = 'failed';
             $decoded['stage'] = 'timeout';
             $decoded['status_text'] = '已超时';
             $decoded['message'] = '后台任务超过最长执行时间，请查看失败原因后重试';
             $decoded['progress_percent'] = 100;
             $decoded['quality_status'] = 'collection_failed';
+            $decoded['finished_at'] = $finishedAt;
+            $decoded['updated_at'] = $finishedAt;
             $decoded['done'] = true;
+            $this->persistTaskStatus($taskId, $decoded);
         }
         return $decoded;
     }
@@ -336,7 +349,7 @@ final class ManualOnlineFetchTaskService
     public function publicTaskStatus(array $task): array
     {
         $allowed = [
-            'task_id', 'hotel_id', 'user_id', 'platform', 'task_kind', 'start_date', 'end_date',
+            'task_id', 'hotel_id', 'platform', 'task_kind', 'start_date', 'end_date',
             'status', 'stage', 'status_text', 'message', 'progress_percent', 'saved_count',
             'readback_count', 'readback_verified', 'quality_status', 'quality_summary', 'done',
             'created_at', 'started_at', 'finished_at', 'updated_at',
@@ -403,11 +416,77 @@ final class ManualOnlineFetchTaskService
         return preg_replace('/[^a-z0-9_]+/', '_', strtolower(trim($platform))) ?: '';
     }
 
+    private function normalizeTaskApiUrl(string $url): string
+    {
+        $url = trim($url);
+        $parts = $url !== '' ? parse_url($url) : false;
+        if (!is_array($parts)) {
+            return '';
+        }
+        $scheme = strtolower(trim((string)($parts['scheme'] ?? '')));
+        $host = strtolower(trim((string)($parts['host'] ?? ''), '[]'));
+        $path = '/' . ltrim((string)($parts['path'] ?? ''), '/');
+        $allowedPaths = [
+            '/api/online-data/fetch-ctrip',
+            '/api/online-data/fetch-meituan',
+            '/api/online-data/fetch-ctrip-traffic',
+            '/api/online-data/fetch-ctrip-ads',
+            '/api/online-data/fetch-meituan-traffic',
+            '/api/online-data/fetch-meituan-orders',
+            '/api/online-data/fetch-meituan-ads',
+        ];
+        if (!in_array($scheme, ['http', 'https'], true)
+            || $host === ''
+            || !in_array($path, $allowedPaths, true)
+            || isset($parts['user'])
+            || isset($parts['pass'])
+            || isset($parts['query'])
+            || isset($parts['fragment'])
+        ) {
+            return '';
+        }
+
+        $allowedHosts = ['127.0.0.1', 'localhost', '::1'];
+        foreach ([
+            (string)($_SERVER['SERVER_NAME'] ?? ''),
+            (string)(getenv('APP_URL') ?: ''),
+            (string)($_ENV['APP_URL'] ?? ''),
+        ] as $candidate) {
+            $candidateHost = str_contains($candidate, '://')
+                ? (string)(parse_url($candidate, PHP_URL_HOST) ?: '')
+                : $candidate;
+            $candidateHost = strtolower(trim($candidateHost, " \t\n\r\0\x0B[]"));
+            if ($candidateHost !== '' && preg_match('/^[a-z0-9.-]+$/', $candidateHost) === 1) {
+                $allowedHosts[] = $candidateHost;
+            }
+        }
+        if (!in_array($host, array_values(array_unique($allowedHosts)), true)) {
+            return '';
+        }
+
+        $port = isset($parts['port']) ? (int)$parts['port'] : null;
+        if ($port !== null && ($port <= 0 || $port > 65535)) {
+            return '';
+        }
+        $hostForUrl = str_contains($host, ':') ? '[' . $host . ']' : $host;
+        return $scheme . '://' . $hostForUrl . ($port !== null ? ':' . $port : '') . $path;
+    }
+
     private function updateTaskStatus(string $taskId, array $changes): array
     {
         $current = $this->readTaskStatus($taskId);
         if ($current === []) {
             return [];
+        }
+        $terminalStatuses = ['success', 'partial_success', 'failed', 'no_data', 'unverified'];
+        if (in_array(strtolower(trim((string)($current['status'] ?? ''))), $terminalStatuses, true)) {
+            return $current;
+        }
+        if (isset($changes['progress_percent'])) {
+            $changes['progress_percent'] = max(
+                (int)($current['progress_percent'] ?? 0),
+                (int)$changes['progress_percent']
+            );
         }
         $next = array_merge($current, $changes, ['updated_at' => date('Y-m-d H:i:s')]);
         return $this->persistTaskStatus($taskId, $next) ? $next : [];
@@ -427,7 +506,12 @@ final class ManualOnlineFetchTaskService
         if (!is_string($encoded)) {
             return false;
         }
-        $temporaryPath = $path . '.tmp.' . getmypid() . '.' . bin2hex(random_bytes(3));
+        try {
+            $suffix = bin2hex(random_bytes(3));
+        } catch (\Throwable) {
+            $suffix = str_replace('.', '', uniqid('', true));
+        }
+        $temporaryPath = $path . '.tmp.' . getmypid() . '.' . $suffix;
         if (file_put_contents($temporaryPath, $encoded, LOCK_EX) === false) {
             return false;
         }
