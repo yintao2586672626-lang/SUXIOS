@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 use app\service\BusinessClosureOverviewService;
+use app\service\OperationManagementService;
 use app\service\OtaStandardEtlService;
 use app\service\RevenueAiOverviewService;
 use think\App;
@@ -342,20 +343,27 @@ function business_chain_stage_rows(array $referenceDataset, array $revenue, arra
 {
     $counts = business_chain_fact_counts($referenceDataset);
     $p0Blocked = (string)($closure['summary']['status'] ?? '') === 'blocked_by_p0_ota_gate';
+    $otaClaimAllowed = !$skipP0 && !$p0Blocked && $counts['accepted'] > 0;
+    $revenueStatus = (string)($revenue['data_status'] ?? 'unknown');
+    $revenueClaimAllowed = $otaClaimAllowed && $revenueStatus === 'ok';
+    $actionCount = count(business_chain_list($revenue['actions'] ?? []));
+    $aiClaimAllowed = $revenueClaimAllowed && $actionCount > 0;
 
     return [
         [
             'key' => 'ota_data',
             'label' => 'OTA data',
-            'status' => $counts['accepted'] > 0 ? ($skipP0 ? 'reference_only' : 'ready') : 'data_gap',
-            'claim_allowed' => !$skipP0 && $counts['accepted'] > 0,
+            'status' => $skipP0
+                ? 'reference_only'
+                : ($p0Blocked ? 'blocked_by_p0_ota_gate' : ($counts['accepted'] > 0 ? 'ready' : 'data_gap')),
+            'claim_allowed' => $otaClaimAllowed,
             'evidence' => $counts,
         ],
         [
             'key' => 'revenue_analysis',
             'label' => 'Revenue analysis',
-            'status' => $skipP0 ? 'reference_only' : (string)($revenue['data_status'] ?? 'unknown'),
-            'claim_allowed' => !$skipP0 && !$p0Blocked,
+            'status' => $skipP0 ? 'reference_only' : ($p0Blocked ? 'blocked_by_p0_ota_gate' : $revenueStatus),
+            'claim_allowed' => $revenueClaimAllowed,
             'evidence' => [
                 'data_status' => $revenue['data_status'] ?? '',
                 'source_channels' => $revenue['source_channels'] ?? [],
@@ -365,10 +373,12 @@ function business_chain_stage_rows(array $referenceDataset, array $revenue, arra
         [
             'key' => 'ai_decision_advice',
             'label' => 'AI decision advice',
-            'status' => $p0Blocked ? 'blocked_by_p0_ota_gate' : 'ready_for_review',
-            'claim_allowed' => !$p0Blocked,
+            'status' => $p0Blocked
+                ? 'blocked_by_p0_ota_gate'
+                : (!$revenueClaimAllowed ? 'blocked_by_revenue_data' : ($actionCount > 0 ? 'ready_for_review' : 'no_actionable_advice')),
+            'claim_allowed' => $aiClaimAllowed,
             'evidence' => [
-                'action_count' => count(business_chain_list($revenue['actions'] ?? [])),
+                'action_count' => $actionCount,
                 'agent_activity_status' => $revenue['agent_activity']['status'] ?? '',
             ],
         ],
@@ -376,10 +386,18 @@ function business_chain_stage_rows(array $referenceDataset, array $revenue, arra
             'key' => 'operation_closure',
             'label' => 'Operation closure',
             'status' => (string)($closure['summary']['status'] ?? 'unknown'),
-            'claim_allowed' => !$p0Blocked && (string)($closure['summary']['status'] ?? '') === 'closed',
+            'claim_allowed' => $aiClaimAllowed && (string)($closure['summary']['status'] ?? '') === 'closed',
             'evidence' => [
-                'operation_execution_total' => (int)($closure['summary']['operation_execution_total'] ?? 0),
-                'operation_roi_ready' => (int)($closure['summary']['operation_roi_ready'] ?? 0),
+                'statistics_status' => (string)($closure['summary']['operation_statistics_status'] ?? 'unknown'),
+                'statistics_loaded' => ($closure['summary']['operation_statistics_loaded'] ?? false) === true,
+                'execution_total_loaded' => ($closure['summary']['operation_execution_total_loaded'] ?? false) === true,
+                'roi_loaded' => ($closure['summary']['operation_roi_loaded'] ?? false) === true,
+                'operation_execution_total' => ($closure['summary']['operation_execution_total_loaded'] ?? false) === true
+                    ? (int)($closure['summary']['operation_execution_total'] ?? 0)
+                    : null,
+                'operation_roi_ready' => ($closure['summary']['operation_roi_loaded'] ?? false) === true
+                    ? (int)($closure['summary']['operation_roi_ready'] ?? 0)
+                    : null,
             ],
         ],
     ];
@@ -1530,8 +1548,16 @@ function business_chain_ai_to_operation_handoff(array $revenueToAiHandoff, array
         'operation_intake_preflight_contract' => $operationIntakePreflight,
         'operation_closure_snapshot' => [
             'status' => (string)($closureSummary['status'] ?? ''),
-            'operation_execution_total' => (int)($closureSummary['operation_execution_total'] ?? 0),
-            'operation_roi_ready' => (int)($closureSummary['operation_roi_ready'] ?? 0),
+            'statistics_status' => (string)($closureSummary['operation_statistics_status'] ?? 'unknown'),
+            'statistics_loaded' => ($closureSummary['operation_statistics_loaded'] ?? false) === true,
+            'execution_total_loaded' => ($closureSummary['operation_execution_total_loaded'] ?? false) === true,
+            'roi_loaded' => ($closureSummary['operation_roi_loaded'] ?? false) === true,
+            'operation_execution_total' => ($closureSummary['operation_execution_total_loaded'] ?? false) === true
+                ? (int)($closureSummary['operation_execution_total'] ?? 0)
+                : null,
+            'operation_roi_ready' => ($closureSummary['operation_roi_loaded'] ?? false) === true
+                ? (int)($closureSummary['operation_roi_ready'] ?? 0)
+                : null,
         ],
     ];
 }
@@ -1712,8 +1738,16 @@ function business_chain_downstream_reference_workflow(array $revenue, array $clo
             'intake_status' => (string)($aiToOperationHandoff['status'] ?? ''),
             'intake_target_entry' => (string)($aiToOperationHandoff['target_entry'] ?? ''),
             'can_create_operation_execution' => false,
-            'operation_execution_total' => (int)($closure['summary']['operation_execution_total'] ?? 0),
-            'operation_roi_ready' => (int)($closure['summary']['operation_roi_ready'] ?? 0),
+            'statistics_status' => (string)($closure['summary']['operation_statistics_status'] ?? 'unknown'),
+            'statistics_loaded' => ($closure['summary']['operation_statistics_loaded'] ?? false) === true,
+            'execution_total_loaded' => ($closure['summary']['operation_execution_total_loaded'] ?? false) === true,
+            'roi_loaded' => ($closure['summary']['operation_roi_loaded'] ?? false) === true,
+            'operation_execution_total' => ($closure['summary']['operation_execution_total_loaded'] ?? false) === true
+                ? (int)($closure['summary']['operation_execution_total'] ?? 0)
+                : null,
+            'operation_roi_ready' => ($closure['summary']['operation_roi_loaded'] ?? false) === true
+                ? (int)($closure['summary']['operation_roi_ready'] ?? 0)
+                : null,
             'next_actions' => [
                 'create_execution_intent_after_human_review',
                 'attach_execution_evidence_after_real_action',
@@ -1745,9 +1779,12 @@ function business_chain_metric_digest(mixed $metric): array
  * @param array<string, mixed> $revenue
  * @return array<int, array<string, mixed>>
  */
-function business_chain_downstream_signals(array $revenue): array
+function business_chain_downstream_signals(array $revenue, array $executionFlow = []): array
 {
     $actionCount = count(business_chain_list($revenue['actions'] ?? []));
+    $executionSummary = is_array($executionFlow['summary'] ?? null) ? $executionFlow['summary'] : [];
+    $stageCounts = is_array($executionSummary['stage_counts'] ?? null) ? $executionSummary['stage_counts'] : [];
+    $executionDataGaps = business_chain_list($executionFlow['data_gaps'] ?? []);
     return [
         [
             'key' => 'ai_daily_report',
@@ -1776,16 +1813,50 @@ function business_chain_downstream_signals(array $revenue): array
         [
             'key' => 'operation_execution',
             'label' => '运营执行闭环',
-            'source_scope' => 'operation_execution_not_loaded_by_read_only_chain_report',
-            'record_count' => 0,
-            'linked_execution_count' => 0,
-            'reviewed_count' => 0,
-            'roi_ready_count' => 0,
-            'data_gaps' => [
-                ['code' => 'operation_execution_not_loaded', 'message' => 'Read-only business-chain report did not load or write operation execution records.'],
-            ],
+            'source_scope' => 'read_existing_operation_execution_records',
+            'table_status' => (string)($executionFlow['data_status'] ?? 'unknown'),
+            'record_count' => (int)($executionSummary['total'] ?? 0),
+            'linked_execution_count' => (int)($executionSummary['total'] ?? 0),
+            'approved_count' => (int)($executionSummary['approved'] ?? 0),
+            'executed_count' => (int)($executionSummary['executed'] ?? 0),
+            'evidence_ready_count' => (int)($executionSummary['evidence_ready'] ?? 0),
+            'reviewed_count' => (int)($stageCounts['reviewed'] ?? 0),
+            'roi_ready_count' => (int)($executionSummary['roi_ready'] ?? 0),
+            'blocked_count' => (int)($stageCounts['blocked'] ?? 0),
+            'data_gaps' => $executionDataGaps,
         ],
     ];
+}
+
+/**
+ * Keep operation evidence on the same target date and OTA platform scope as the report.
+ *
+ * @param array<string, mixed> $executionFlow
+ * @param array<int, string> $platforms
+ * @return array<string, mixed>
+ */
+function business_chain_scope_execution_flow(
+    array $executionFlow,
+    string $targetDate,
+    array $platforms,
+    ?int $systemHotelId
+): array
+{
+    $platforms = array_values(array_unique(array_map(static fn(string $item): string => strtolower(trim($item)), $platforms)));
+    $executionFlow['scope'] = [
+        'target_date' => $targetDate,
+        'platforms' => $platforms,
+        'system_hotel_id' => $systemHotelId,
+        'policy' => $systemHotelId !== null
+            ? 'same_hotel_same_target_date_same_ota_platform'
+            : 'single_system_hotel_scope_required',
+        'query_applied_before_limit' => $systemHotelId !== null,
+        'scope_source' => $systemHotelId !== null
+            ? 'operation_execution_intents_query'
+            : 'operation_query_not_run_without_hotel_scope',
+    ];
+
+    return $executionFlow;
 }
 
 /**
@@ -1922,23 +1993,84 @@ function business_chain_report(array $options): array
             'enabled_channels' => $diagnosisEnabledChannels,
         ]
     );
+    $operationService = new OperationManagementService();
+    $executionFlow = $systemHotelId !== null
+        ? $operationService->executionFlow(
+            [$systemHotelId],
+            $systemHotelId,
+            [
+                'target_date' => $targetDate,
+                'platforms' => $sources,
+                'limit' => 500,
+            ]
+        )
+        : [
+            'summary' => $operationService->buildExecutionFlowSummary([]),
+            'stages' => [],
+            'list' => [],
+            'data_status' => 'pending',
+            'data_gaps' => [[
+                'code' => 'operation_system_hotel_scope_missing',
+                'message' => 'system_hotel_id is required before loading hotel-scoped operation statistics',
+            ]],
+            'matched_total' => null,
+            'returned_count' => 0,
+            'truncated' => false,
+            'statistics' => [
+                'execution_total_loaded' => false,
+                'task_status_loaded' => false,
+                'evidence_loaded' => false,
+                'roi_loaded' => false,
+            ],
+        ];
+    $executionFlow = business_chain_scope_execution_flow($executionFlow, $targetDate, $sources, $systemHotelId);
+    $executionSummary = is_array($executionFlow['summary'] ?? null) ? $executionFlow['summary'] : [];
+    $executionDataGaps = business_chain_list($executionFlow['data_gaps'] ?? []);
     $closure = (new BusinessClosureOverviewService())->buildOverviewFromSignals(
-        business_chain_downstream_signals($revenue),
-        ['total' => 0, 'roi_ready' => 0],
-        [
-            ['code' => 'read_only_report_operation_execution_not_loaded', 'message' => 'Operation execution records are not loaded by this read-only P0 skip report.'],
-        ],
+        business_chain_downstream_signals($revenue, $executionFlow),
+        $executionSummary,
+        $executionDataGaps,
         $p0Gate
     );
+    $operationStatistics = is_array($executionFlow['statistics'] ?? null) ? $executionFlow['statistics'] : [];
+    $operationExecutionTotalLoaded = ($operationStatistics['execution_total_loaded'] ?? false) === true;
+    $operationRoiLoaded = ($operationStatistics['roi_loaded'] ?? false) === true;
+    $operationStatisticsLoaded = $operationExecutionTotalLoaded && $operationRoiLoaded;
+    $closure['summary']['operation_statistics_status'] = (string)($executionFlow['data_status'] ?? 'unknown');
+    $closure['summary']['operation_statistics_loaded'] = $operationStatisticsLoaded;
+    $closure['summary']['operation_execution_total_loaded'] = $operationExecutionTotalLoaded;
+    $closure['summary']['operation_roi_loaded'] = $operationRoiLoaded;
+    if ($operationExecutionTotalLoaded) {
+        $closure['summary']['operation_execution_total'] = (int)($executionFlow['matched_total'] ?? 0);
+    } else {
+        $closure['summary']['operation_execution_total'] = null;
+    }
+    if (!$operationRoiLoaded) {
+        $closure['summary']['operation_roi_ready'] = null;
+    }
     $downstreamReferenceWorkflow = business_chain_downstream_reference_workflow($revenue, $closure, $skipActive, $downstreamReferenceScope, $p0Ready);
     $focusedChain = business_chain_focused_ota_revenue_ai_chain($p0Gate, $downstreamReferenceWorkflow, $sources);
     $stages = business_chain_stage_rows($referenceDataset, $revenue, $closure, $skipActive);
     $claimAllowed = count(array_filter($stages, static fn(array $row): bool => ($row['claim_allowed'] ?? false) !== true)) === 0;
+    $stageMap = [];
+    foreach ($stages as $stage) {
+        $stageMap[(string)($stage['key'] ?? '')] = $stage;
+    }
+    $runtimeDataReady = ($stageMap['ota_data']['claim_allowed'] ?? false) === true
+        && ($stageMap['revenue_analysis']['claim_allowed'] ?? false) === true;
 
     return [
         'generated_at' => date('c'),
         'status' => $claimAllowed ? 'closed' : ($skipActive ? 'skip_p0_reference_only' : 'incomplete'),
         'claim_allowed' => $claimAllowed,
+        'readiness' => [
+            'code_contract_ready' => null,
+            'code_contract_status' => 'not_evaluated_by_runtime_report',
+            'runtime_data_ready' => $runtimeDataReady,
+            'business_loop_ready' => $claimAllowed,
+            'release_ready' => null,
+            'release_status' => 'not_evaluated_by_runtime_report',
+        ],
         'mode' => $skipActive ? 'skip_p0_reference_only' : 'p0_required',
         'scope' => [
             'target_date' => $targetDate,
@@ -1975,8 +2107,20 @@ function business_chain_report(array $options): array
         ],
         'operation_summary' => [
             'status' => $closure['summary']['status'] ?? '',
-            'operation_execution_total' => (int)($closure['summary']['operation_execution_total'] ?? 0),
-            'operation_roi_ready' => (int)($closure['summary']['operation_roi_ready'] ?? 0),
+            'statistics_status' => $closure['summary']['operation_statistics_status'] ?? 'unknown',
+            'statistics_loaded' => ($closure['summary']['operation_statistics_loaded'] ?? false) === true,
+            'execution_total_loaded' => ($closure['summary']['operation_execution_total_loaded'] ?? false) === true,
+            'roi_loaded' => ($closure['summary']['operation_roi_loaded'] ?? false) === true,
+            'scope' => $executionFlow['scope'] ?? [],
+            'matched_total' => $executionFlow['matched_total'] ?? null,
+            'returned_count' => (int)($executionFlow['returned_count'] ?? 0),
+            'truncated' => ($executionFlow['truncated'] ?? false) === true,
+            'operation_execution_total' => ($closure['summary']['operation_execution_total_loaded'] ?? false) === true
+                ? (int)($closure['summary']['operation_execution_total'] ?? 0)
+                : null,
+            'operation_roi_ready' => ($closure['summary']['operation_roi_loaded'] ?? false) === true
+                ? (int)($closure['summary']['operation_roi_ready'] ?? 0)
+                : null,
         ],
         'next_required_gate' => [
             'command' => $p0Gate['required_gate_command'],
@@ -1998,6 +2142,11 @@ function business_chain_markdown(array $report): string
     $lines[] = '- claim_allowed: `' . (($report['claim_allowed'] ?? false) ? 'true' : 'false') . '`';
     $lines[] = '- mode: `' . ($report['mode'] ?? '') . '`';
     $lines[] = '- target_date: `' . ($report['scope']['target_date'] ?? '') . '`';
+    $readiness = is_array($report['readiness'] ?? null) ? $report['readiness'] : [];
+    $lines[] = '- code_contract_ready: `' . (($readiness['code_contract_ready'] ?? null) === null ? 'not_evaluated' : (($readiness['code_contract_ready'] ?? false) ? 'true' : 'false')) . '`';
+    $lines[] = '- runtime_data_ready: `' . (($readiness['runtime_data_ready'] ?? false) ? 'true' : 'false') . '`';
+    $lines[] = '- business_loop_ready: `' . (($readiness['business_loop_ready'] ?? false) ? 'true' : 'false') . '`';
+    $lines[] = '- release_ready: `' . (($readiness['release_ready'] ?? null) === null ? 'not_evaluated' : (($readiness['release_ready'] ?? false) ? 'true' : 'false')) . '`';
     $focusedChain = is_array($report['focused_chain'] ?? null) ? $report['focused_chain'] : [];
     if ($focusedChain !== []) {
         $lines[] = '- focused_chain: `' . ($focusedChain['status'] ?? '') . '`, platforms=`' . implode(',', business_chain_list($focusedChain['platforms'] ?? [])) . '`';

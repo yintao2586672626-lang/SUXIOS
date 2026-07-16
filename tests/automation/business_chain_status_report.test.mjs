@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
 const php = 'C:\\xampp\\php\\php.exe';
@@ -60,6 +60,48 @@ test('Business-chain report keeps operator-skipped Meituan read-only and action-
   assert.doesNotMatch(output, /\/api\/online-data\/capture-meituan-browser/);
   assert.doesNotMatch(output, /\/api\/online-data\/profile-login-trigger\/meituan/);
   assert.doesNotMatch(output, /\/api\/online-data\/data-sources\/18\/sync/);
+  const stages = Object.fromEntries(payload.stages.map((stage) => [stage.key, stage]));
+  assert.equal(stages.ota_data.status, 'blocked_by_p0_ota_gate');
+  assert.equal(stages.ota_data.claim_allowed, false);
+  assert.equal(stages.revenue_analysis.claim_allowed, false);
+  assert.equal(stages.ai_decision_advice.claim_allowed, false);
+  assert.equal(stages.operation_closure.claim_allowed, false);
+  assert.equal(payload.readiness.code_contract_ready, null);
+  assert.equal(payload.readiness.runtime_data_ready, false);
+  assert.equal(payload.readiness.business_loop_ready, false);
+  assert.equal(payload.readiness.release_ready, null);
+  assert.equal(stages.operation_closure.evidence.operation_execution_total, payload.operation_summary.operation_execution_total);
+  assert.equal(payload.operation_summary.scope.target_date, '2026-06-28');
+  assert.deepEqual(payload.operation_summary.scope.platforms, ['ctrip', 'meituan']);
+  assert.equal(payload.operation_summary.scope.system_hotel_id, null);
+  assert.equal(payload.operation_summary.scope.policy, 'single_system_hotel_scope_required');
+  assert.equal(payload.operation_summary.scope.query_applied_before_limit, false);
+  assert.equal(payload.operation_summary.scope.scope_source, 'operation_query_not_run_without_hotel_scope');
+  assert.equal(payload.operation_summary.matched_total, null);
+  assert.equal(payload.operation_summary.operation_execution_total, null);
+  assert.equal(payload.operation_summary.operation_roi_ready, null);
+  assert.equal(typeof payload.operation_summary.truncated, 'boolean');
+});
+
+test('Operation execution statistics apply date/platform scope before limit and expose partial state', () => {
+  const source = readFileSync('app/service/OperationManagementService.php', 'utf8');
+  const reportSource = readFileSync('scripts/report_business_chain_status.php', 'utf8');
+  const targetFilter = source.indexOf("$targetDate = substr(trim((string)($filters['target_date'] ?? '')), 0, 10);");
+  const matchedCount = source.indexOf('$matchedTotal = (int)(clone $query)->count();');
+  const limitedSelect = source.indexOf("$intentRows = $query->order('id', 'desc')->limit($limit)->select()->toArray();");
+
+  assert(targetFilter >= 0, 'target-date scope filter is missing');
+  assert(matchedCount > targetFilter, 'matched total must be computed after target-date/platform scope');
+  assert(limitedSelect > matchedCount, 'row limit must be applied after scoped matched count');
+  assert.match(source, /'data_status' => \$dataGaps === \[\] \? self::DATA_OK : 'partial'/);
+  assert.match(source, /'execution_total_loaded' => true/);
+  assert.match(source, /'roi_loaded' => \$taskTableLoaded && \$evidenceTableLoaded && !\$truncated/);
+
+  const helperStart = reportSource.indexOf('function business_chain_scope_execution_flow');
+  const helperEnd = reportSource.indexOf('function business_chain_focused_ota_revenue_ai_chain', helperStart);
+  const helper = reportSource.slice(helperStart, helperEnd);
+  assert(helperStart >= 0 && helperEnd > helperStart, 'execution-flow scope helper is missing');
+  assert.doesNotMatch(helper, /array_filter|buildExecutionFlowSummary/, 'report must not re-filter or rebuild the DB-scoped execution flow');
 });
 
 test('Business-chain report keeps the Ctrip path truthful at either ready or blocked P0 state', (t) => {
@@ -101,6 +143,16 @@ test('Business-chain report keeps the Ctrip path truthful at either ready or blo
     assert.equal(payload.p0_execution_plan.status, 'incomplete');
     assert.equal(handoff.can_auto_write_ota, false);
     assert.equal(operationHandoff.operation_intake_packet.operation_intake_preflight_contract.would_call_create_endpoint, false);
+    const stages = Object.fromEntries(payload.stages.map((stage) => [stage.key, stage]));
+    assert.equal(stages.ota_data.status, 'blocked_by_p0_ota_gate');
+    assert.equal(stages.ota_data.claim_allowed, false);
+    assert.equal(stages.revenue_analysis.claim_allowed, false);
+    assert.equal(stages.ai_decision_advice.claim_allowed, false);
+    assert.equal(stages.operation_closure.claim_allowed, false);
+    assert.equal(payload.readiness.runtime_data_ready, false);
+    assert.equal(payload.readiness.business_loop_ready, false);
+    assert.equal(payload.operation_summary.scope.target_date, '2026-06-28');
+    assert.deepEqual(payload.operation_summary.scope.platforms, ['ctrip']);
     return;
   }
   assert.equal(payload.p0_downstream_gate.status, 'ready');
@@ -268,9 +320,13 @@ test('Business-chain markdown exposes Ctrip manual review packet without hiding 
     assert.match(output, /AI decision advice \| `blocked_by_p0_ota_gate`/);
     assert.match(output, /can_create=`false`/);
   }
+  assert.match(output, /code_contract_ready: `not_evaluated`/);
+  assert.match(output, /runtime_data_ready: `(true|false)`/);
+  assert.match(output, /business_loop_ready: `(true|false)`/);
+  assert.match(output, /release_ready: `not_evaluated`/);
   assert.match(output, /manual_review_packet: `blocked_ready_for_manual_review`/);
   assert.match(output, /mode=`manual_review_only`/);
-  assert.match(output, /primary_action=`(?:available_room_nights_missing|ota_room_nights_zero)`/);
+  assert.match(output, /primary_action=`(?:available_room_nights_missing|ota_room_nights_zero|ota_revenue_metrics_missing)`/);
   assert.match(output, /primary_blocker=`available_room_nights_missing`/);
   assert.match(output, /manual_review_next_blockers: `available_room_nights_missing/);
   assert.match(output, /manual_review_forbidden_actions: `auto_write_ota/);
