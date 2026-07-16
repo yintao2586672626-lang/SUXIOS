@@ -1,5 +1,15 @@
 <?php
 
+$e2eDatabaseOverride = trim((string)getenv('SUXI_E2E_DB_OVERRIDE')) === '1';
+$e2eDatabaseName = trim((string)getenv('SUXI_E2E_DB_NAME'));
+if ($e2eDatabaseOverride) {
+    if (preg_match('/(?:^|[_-])(?:test(?:ing)?|e2e)(?:$|[_-])/iD', $e2eDatabaseName) !== 1) {
+        throw new RuntimeException('SUXI_E2E_DB_OVERRIDE requires a dedicated *_test/*_testing/*_e2e database name');
+    }
+} else {
+    $e2eDatabaseName = '';
+}
+
 return [
     // 默认使用的数据库连接配置
     'default'         => env('DB_TYPE', 'mysql'),
@@ -34,7 +44,7 @@ return [
             // 服务器地址
             'hostname'        => env('DB_HOST', '127.0.0.1'),
             // 数据库名
-            'database'        => env('DB_NAME', 'hotelx'),
+            'database'        => $e2eDatabaseName !== '' ? $e2eDatabaseName : env('DB_NAME', 'hotelx'),
             // 用户名
             'username'        => env('DB_USER', 'root'),
             // 密码

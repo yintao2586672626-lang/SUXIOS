@@ -140,10 +140,28 @@ Use `output/playwright/business-chains/latest-run.json` to find the latest run.
 
 建议 CI 使用快速组合，夜间或上线前再运行全按钮/数据互通回归。
 
+快速 E2E 默认连接 `hotelx_e2e`（可用 `SUXI_E2E_DB_NAME` 修改），并在 `127.0.0.1:18080` 自启临时 PHP 服务；测试助手和被测应用会收到同一个 `DB_NAME`，不再复用当前 8080 服务的数据库。首次使用先创建并初始化专用测试库：
+
+```powershell
+& 'C:\xampp\mysql\bin\mysql.exe' -u root -e "CREATE DATABASE IF NOT EXISTS hotelx_e2e CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+Get-Content -Raw database/init_full.sql | & 'C:\xampp\mysql\bin\mysql.exe' -u root hotelx_e2e
+$env:SUXI_E2E_DB_NAME='hotelx_e2e'
+```
+
 ```powershell
 npm run verify:e2e-contracts
 npm run test:e2e:quick
 ```
+
+快速 E2E 默认只允许本机专用测试库，数据库名必须包含独立的 `_test`、`_testing` 或 `_e2e` 段。若明确要在本机共享开发库执行，必须对单次命令显式授权，并在结束后移除环境变量：
+
+```powershell
+$env:SUXI_E2E_ALLOW_SHARED_DB='1' # 同时关闭默认专用库与自启服务，改用当前 DB_NAME/8080 服务
+npm run test:e2e:quick
+Remove-Item Env:SUXI_E2E_ALLOW_SHARED_DB
+```
+
+非回环数据库即使名称为测试库也会拒绝；只有明确的远程测试库才可额外设置 `SUXI_E2E_ALLOW_REMOTE_TEST_DB=1`。不要把这两个授权开关设置为持久值或写入生产任务。
 
 需要覆盖前端 UI 自动化和极端输入时：
 

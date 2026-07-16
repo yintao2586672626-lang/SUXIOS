@@ -57,6 +57,8 @@ Desktop.ini
 # Sensitive database backup
 database/backups/
 /storage/db_backups/
+/storage/backups/
+/storage/migration-backups/
 hotelx_dump.sql
 *_dump.sql
 *_backup*.sql
