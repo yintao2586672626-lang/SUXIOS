@@ -94,11 +94,12 @@ function fileText(relativePath) {
 function regressionSignals() {
   const meituanStatic = fileText('public/meituan-static.js');
   const signals = [];
-  if (!meituanStatic.includes('const requestBody = { ...task.body, async: false, background: false }')) {
+  if (!meituanStatic.includes('background = false')
+    || !meituanStatic.includes('const requestBody = { ...task.body, async: background === true, background: background === true }')) {
     signals.push({
       code: 'meituan_manual_batch_not_direct',
       path: 'public/meituan-static.js',
-      message: 'Meituan manual ranking fetch is not requesting direct results.',
+      message: 'Meituan manual ranking fetch no longer defaults to direct results or lacks explicit background support.',
     });
   }
   if (meituanStatic.includes('const requestBody = { ...task.body, async: true, background: true }')) {

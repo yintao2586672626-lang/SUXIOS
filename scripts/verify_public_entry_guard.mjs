@@ -440,7 +440,7 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
   } catch (error) {
     failures.push(`public/system-static.js navigation guard could not evaluate menu definitions: ${error.message}`);
   }
-  if (!content.includes('revenue-ai-static.js?v=20260710-ai-daily-fact-gate-investigation')
+  if (!content.includes('revenue-ai-static.js?v=20260715-truthful-not-loaded-h29ec697779')
     || !revenueAiStaticContent.includes('window.SUXI_REVENUE_AI_STATIC')
     || !revenueAiStaticContent.includes('buildRevenueAiBusinessClosure')
     || !revenueAiStaticContent.includes('buildRevenueAiGapRows')
@@ -854,7 +854,8 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
   if (compassPageGuardCount < 2
     || !content.includes("if (!token.value || !isCompassDataPage() || macroSignalLoading.value) return;")
     || !content.includes("if (options.requireCompass === true && !isCompassDataPage()) return;")
-    || !content.includes("if (!isCompassDataPage()) return null;")
+    || (!content.includes("if (!isCompassDataPage()) return null;")
+      && !content.includes("if (!isCurrentRequest()) return null;"))
     || !content.includes('loadCompetitorSummary({ requireCompass: true })')) {
     failures.push('public/index.html compass-data background refreshes must stop after the user leaves AI workbench/compass pages.');
   }
@@ -2903,10 +2904,11 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
   const ctripRankingFlowSource = rankingFlowStart >= 0 && trafficFlowStart > rankingFlowStart
     ? ctripStaticContent.slice(rankingFlowStart, trafficFlowStart)
     : '';
-  if (!/\{\s*\.\.\.requestContext\.requestBody,\s*async:\s*false,\s*background:\s*false\s*\}/.test(ctripRankingFlowSource)
+  if (!/background\s*=\s*false/.test(ctripRankingFlowSource)
+    || !/\{\s*\.\.\.requestContext\.requestBody,\s*async:\s*background\s*===\s*true,\s*background:\s*background\s*===\s*true\s*\}/.test(ctripRankingFlowSource)
     || /\{\s*\.\.\.requestContext\.requestBody,\s*async:\s*true\s*\}/.test(ctripRankingFlowSource)
     || !/return\s+\{\s*status:\s*['"]accepted['"][\s\S]*requestBody/.test(ctripRankingFlowSource)) {
-    failures.push('public/ctrip-static.js Ctrip ranking manual fetch must request direct results while keeping defensive queued-state handling.');
+    failures.push('public/ctrip-static.js Ctrip ranking manual fetch must default to direct results and allow explicit background task mode.');
   }
   const adsFlowStart = ctripStaticContent.indexOf('const runCtripAdsFetchFlow = async');
   const ctripTrafficFlowSource = trafficFlowStart >= 0 && adsFlowStart > trafficFlowStart
@@ -2929,11 +2931,12 @@ if (!/<script\s+(?:defer\s+)?src=["']system-static\.js\?v=[^"']+["']><\/script>/
     || !/return\s+\{\s*status:\s*['"]accepted['"][\s\S]*requestBody:\s*directRequestBody/.test(ctripAdsFlowSource)) {
     failures.push('public/ctrip-static.js must request direct Ctrip ads manual results and keep running responses explicit if returned.');
   }
-  if (!/\{\s*\.\.\.task\.body,\s*async:\s*false,\s*background:\s*false\s*\}/.test(meituanStaticContent)
+  if (!/background\s*=\s*false/.test(meituanStaticContent)
+    || !/\{\s*\.\.\.task\.body,\s*async:\s*background\s*===\s*true,\s*background:\s*background\s*===\s*true\s*\}/.test(meituanStaticContent)
     || !/await\s+Promise\.all\(fetchTasks\.map\(async\s+\(task,\s*index\)\s*=>\s*\{/.test(meituanStaticContent)
     || /\{\s*\.\.\.task\.body,\s*async:\s*true,\s*background:\s*true\s*\}/.test(meituanStaticContent)
     || !/const\s+modelRes\s*=\s*await\s+requestDisplayModel/.test(meituanStaticContent)) {
-    failures.push('public/meituan-static.js must request Meituan ranking direct results concurrently and build the display model from returned data.');
+    failures.push('public/meituan-static.js must default to direct concurrent results, allow explicit background task mode, and preserve display-model handling.');
   }
   const meituanAcceptedHelperMatches = meituanStaticContent.match(/const\s+isMeituanBackgroundAcceptedResponse\s*=/g) || [];
   if (meituanAcceptedHelperMatches.length !== 1) {

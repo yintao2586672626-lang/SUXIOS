@@ -97,8 +97,9 @@ if (!fs.existsSync(frontendTemplatePath) || fs.statSync(frontendTemplatePath).si
 const meituanStaticPath = path.join(repoRoot, 'public/meituan-static.js');
 const meituanIndexSource = fs.existsSync(publicIndexPath) ? fs.readFileSync(publicIndexPath, 'utf8') : '';
 const meituanStaticSource = fs.existsSync(meituanStaticPath) ? fs.readFileSync(meituanStaticPath, 'utf8') : '';
-if (!meituanStaticSource.includes('const requestBody = { ...task.body, async: false, background: false }')) {
-  failures.push('Meituan manual ranking fetch must request direct results so the UI can display this fetch result immediately.');
+if (!meituanStaticSource.includes('background = false')
+  || !meituanStaticSource.includes('const requestBody = { ...task.body, async: background === true, background: background === true }')) {
+  failures.push('Meituan manual ranking fetch must default to direct results and allow explicit background execution.');
 }
 if (!meituanStaticSource.includes('await Promise.all(fetchTasks.map(async (task, index) => {')) {
   failures.push('Meituan manual ranking fetch must keep independent rank requests concurrent.');
