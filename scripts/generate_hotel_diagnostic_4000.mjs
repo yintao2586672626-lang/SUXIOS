@@ -1,4 +1,4 @@
-import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,12 @@ const qaDir = path.join(projectRoot, 'docs', 'qa');
 const auditDate = '2026-07-15';
 const generatedAt = `${auditDate}T00:00:00+08:00`;
 const sourcePath = path.join(qaDir, 'hotel_system_500_test_cases_2026-07-14.json');
+const outputDir = process.env.SUXI_DIAGNOSTIC_OUTPUT_DIR
+  ? path.resolve(process.env.SUXI_DIAGNOSTIC_OUTPUT_DIR)
+  : qaDir;
+const executionEvidencePath = process.env.SUXI_DIAGNOSTIC_EVIDENCE_PATH
+  ? path.resolve(process.env.SUXI_DIAGNOSTIC_EVIDENCE_PATH)
+  : path.join(qaDir, `hotel_system_4000_execution_evidence_${auditDate}.json`);
 
 const sourceAudit = JSON.parse(readFileSync(sourcePath, 'utf8'));
 const baseCases = sourceAudit.test_cases;
@@ -150,6 +156,125 @@ for (const baseCase of baseCases) {
   }
 }
 
+function loadExecutionEvidence() {
+  if (!existsSync(executionEvidencePath)) {
+    return { schema_version: 1, audit_date: auditDate, records: [] };
+  }
+
+  const ledger = JSON.parse(readFileSync(executionEvidencePath, 'utf8'));
+  if (Number(ledger?.schema_version) !== 1 || ledger?.audit_date !== auditDate || !Array.isArray(ledger?.records)) {
+    throw new Error('Execution evidence ledger must use schema_version=1, the current audit_date, and a records array.');
+  }
+  return ledger;
+}
+
+const executionLedger = loadExecutionEvidence();
+const allowedExecutedStatuses = new Set(['pass', 'partial', 'fail', 'blocked', 'not_applicable']);
+const casesById = new Map(cases.map((testCase) => [testCase.id, testCase]));
+const seenEvidenceCaseIds = new Set();
+for (const record of executionLedger.records) {
+  const caseId = String(record?.case_id || '').trim();
+  const testCase = casesById.get(caseId);
+  if (!testCase) throw new Error(`Execution evidence references unknown case_id: ${caseId || '(empty)'}`);
+  if (seenEvidenceCaseIds.has(caseId)) throw new Error(`Execution evidence contains duplicate case_id: ${caseId}`);
+  seenEvidenceCaseIds.add(caseId);
+
+  const signature = String(record?.scenario_signature || '').trim();
+  if (!signature || !hashEquals(signature, testCase.scenario_signature)) {
+    throw new Error(`Execution evidence signature mismatch for ${caseId}`);
+  }
+  const status = String(record?.status || '').trim();
+  if (!allowedExecutedStatuses.has(status)) throw new Error(`Execution evidence status is invalid for ${caseId}: ${status}`);
+  for (const field of ['executed_at', 'runner', 'evidence_ref']) {
+    if (!String(record?.[field] || '').trim()) throw new Error(`Execution evidence ${field} is required for ${caseId}`);
+  }
+  verifyLocalEvidenceRef(record.evidence_ref, caseId);
+  const exitCode = verifiedExitCode(record.exit_code, status, caseId);
+  const assertions = normalizedAssertions(record.assertions, caseId);
+  if (assertions.length === 0 && !hasMinimumOutputSummary(record.output_summary)) {
+    throw new Error(`Execution evidence minimum assertion or output summary is required for ${caseId}`);
+  }
+
+  testCase.variant_execution_status = status;
+  testCase.variant_execution_evidence = {
+    executed_at: String(record.executed_at),
+    runner: String(record.runner),
+    evidence_ref: String(record.evidence_ref),
+    exit_code: exitCode,
+    assertions,
+    notes: String(record.notes || ''),
+  };
+  if (record.output_summary !== undefined) {
+    testCase.variant_execution_evidence.output_summary = record.output_summary;
+  }
+  testCase.pending_execution_note = null;
+}
+
+function verifyLocalEvidenceRef(evidenceRef, caseId) {
+  const fileRef = String(evidenceRef).split('#', 1)[0].trim();
+  if (!fileRef || /^[a-z][a-z\d+.-]*:\/\//iu.test(fileRef)) {
+    throw new Error(`Execution evidence evidence_ref must reference a local file for ${caseId}`);
+  }
+
+  const portableRef = fileRef.replaceAll('\\', '/');
+  const absolutePath = path.resolve(projectRoot, fileRef);
+  const projectRelativePath = path.relative(projectRoot, absolutePath);
+  if (path.isAbsolute(fileRef)
+    || portableRef.startsWith('/')
+    || portableRef.split('/').includes('..')
+    || projectRelativePath === ''
+    || projectRelativePath.startsWith(`..${path.sep}`)
+    || path.isAbsolute(projectRelativePath)
+  ) {
+    throw new Error(`Execution evidence evidence_ref must be project-relative for ${caseId}`);
+  }
+  if (!existsSync(absolutePath) || !statSync(absolutePath).isFile()) {
+    throw new Error(`Execution evidence evidence_ref file is missing for ${caseId}: ${fileRef}`);
+  }
+}
+
+function verifiedExitCode(value, status, caseId) {
+  const exitCode = value === undefined || value === null ? null : value;
+  if (exitCode !== null && !Number.isInteger(exitCode)) {
+    throw new Error(`Execution evidence exit_code must be an integer or null for ${caseId}`);
+  }
+
+  const successful = status === 'pass' || status === 'partial';
+  const inconsistent = (successful && exitCode !== 0)
+    || (status === 'fail' && (exitCode === null || exitCode === 0))
+    || (status === 'not_applicable' && exitCode !== null && exitCode !== 0);
+  if (inconsistent) {
+    throw new Error(`Execution evidence exit_code is inconsistent with status ${status} for ${caseId}`);
+  }
+  return exitCode;
+}
+
+function normalizedAssertions(value, caseId) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new Error(`Execution evidence minimum assertion or output summary is required for ${caseId}`);
+  }
+  if (value.some((item) => typeof item !== 'string' || item.trim() === '')) {
+    throw new Error(`Execution evidence minimum assertion or output summary is required for ${caseId}`);
+  }
+  return value.map((item) => item.trim());
+}
+
+function hasMinimumOutputSummary(value) {
+  if (typeof value === 'string') return value.trim() !== '';
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  return Object.values(value).some((item) => (
+    (typeof item === 'string' && item.trim() !== '')
+    || (typeof item === 'number' && Number.isFinite(item))
+  ));
+}
+
+function hashEquals(left, right) {
+  const leftBuffer = Buffer.from(String(left), 'utf8');
+  const rightBuffer = Buffer.from(String(right), 'utf8');
+  return leftBuffer.length === rightBuffer.length && leftBuffer.equals(rightBuffer);
+}
+
 function verifyPairwiseCoverage(rows) {
   const gaps = [];
   for (let left = 0; left < factorNames.length; left += 1) {
@@ -187,7 +312,6 @@ const requiredFields = [
   'base_assessment_result',
   'base_assessment_status',
   'variant_execution_status',
-  'pending_execution_note',
 ];
 const hasRequiredValue = (value) => {
   if (Array.isArray(value)) return value.length > 0 && value.every((item) => typeof item === 'string' && item.trim() !== '');
@@ -214,9 +338,8 @@ const invalidVariantEvidence = cases.filter((testCase) => {
   if (testCase.variant_execution_status === 'not_executed') {
     return testCase.variant_execution_evidence !== null || !hasRequiredValue(testCase.pending_execution_note);
   }
-  return !hasRequiredValue(testCase.variant_execution_evidence);
+  return !hasRequiredValue(testCase.variant_execution_evidence) || testCase.pending_execution_note !== null;
 });
-const unexpectedExecutedVariants = cases.filter((testCase) => testCase.variant_execution_status !== 'not_executed');
 
 if (
   cases.length !== 4000
@@ -229,7 +352,6 @@ if (
   || invalidCategoryCoverage.length
   || unexpectedCategories.length
   || invalidVariantEvidence.length
-  || unexpectedExecutedVariants.length
   || pairwiseGaps.length
 ) {
   throw new Error(JSON.stringify({
@@ -244,7 +366,6 @@ if (
     invalidCategoryCoverage,
     unexpectedCategories,
     invalidVariantEvidence: invalidVariantEvidence.length,
-    unexpectedExecutedVariants: unexpectedExecutedVariants.length,
     pairwiseGaps,
   }));
 }
@@ -318,6 +439,7 @@ const summary = {
     variant_execution_statuses: countBy('variant_execution_status'),
     execution_types: countBy('execution_type'),
     base_evidence_execution_classes: countBy('base_evidence_execution_class'),
+    execution_evidence_records: executionLedger.records.length,
   },
   factor_model: {
     factors: factorNames,
@@ -328,17 +450,18 @@ const summary = {
   sources: internetSources,
   execution_boundary: {
     matrix_validation: '4,000 条用例定义均已执行结构校验；ID 连续唯一、语义签名唯一、必填字段完整、领域配额正确、每个核心场景 8 个变体完整且两两覆盖无缺口。',
-    variant_execution: '当前 4,000 条 L8 变体均为 not_executed；只有保存该权限/完整性/新鲜度/上游状态组合的直接证据后，才能更新为 pass、partial、fail、blocked 或 not_applicable。',
+    variant_execution: 'L8 变体默认 not_executed；只有执行证据账本同时匹配 case_id、scenario_signature、执行状态和证据引用后，才能更新为 pass、partial、fail、blocked 或 not_applicable。',
+    execution_evidence_ledger: path.relative(projectRoot, executionEvidencePath).replaceAll('\\', '/'),
     base_assessment: 'base_assessment_result 来自 500 条基线资产，只用于排期与上下文参考，不是 L8 变体执行结果。',
   },
 };
 
-mkdirSync(qaDir, { recursive: true });
+mkdirSync(outputDir, { recursive: true });
 
-const jsonlPath = path.join(qaDir, `hotel_system_4000_diagnostic_cases_${auditDate}.jsonl`);
+const jsonlPath = path.join(outputDir, `hotel_system_4000_diagnostic_cases_${auditDate}.jsonl`);
 writeFileSync(jsonlPath, `${cases.map((testCase) => JSON.stringify(testCase)).join('\n')}\n`, 'utf8');
 
-const resultPath = path.join(qaDir, `hotel_system_4000_diagnostic_results_${auditDate}.json`);
+const resultPath = path.join(outputDir, `hotel_system_4000_diagnostic_results_${auditDate}.json`);
 writeFileSync(resultPath, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
 
 const markdown = [];
@@ -346,7 +469,7 @@ markdown.push('# 宿析OS 4,000 条软件与酒店运营诊断矩阵', '');
 markdown.push(`- 生成日期：${auditDate}`);
 markdown.push('- 设计：500 个核心场景 × NIST L8 四因子两两组合 = 4,000 条。');
 markdown.push('- 四因子：权限范围、数据完整性、数据新鲜度、上游状态。');
-markdown.push('- 真实性边界：4,000 条均完成用例定义与组合覆盖校验，但当前没有组合级直接执行证据，全部保持 `not_executed`；500 条基线评估不能替代变体执行。', '');
+markdown.push(`- 真实性边界：4,000 条均完成用例定义与组合覆盖校验；当前已登记 ${summary.totals.execution_evidence_records} 条组合级直接证据，其余保持 \`not_executed\`；500 条基线评估不能替代变体执行。`, '');
 markdown.push('## 矩阵校验', '');
 markdown.push(`- 用例总数：${summary.totals.cases}`);
 markdown.push(`- 唯一 ID：${summary.totals.unique_ids}`);
@@ -368,14 +491,14 @@ for (const [executionType, count] of Object.entries(summary.totals.execution_typ
 markdown.push('', '## 分类结果', '');
 markdown.push('| 分类 | 总数 | 基线通过映射 | 基线部分映射 | 基线失败映射 | 基线阻塞映射 | 基线不适用映射 | 变体未执行 |', '|---|---:|---:|---:|---:|---:|---:|---:|');
 for (const row of categorySummary) {
-  markdown.push(`| ${row.code} ${row.name} | ${row.total} | ${row.base_assessment_results.pass} | ${row.base_assessment_results.partial} | ${row.base_assessment_results.fail} | ${row.base_assessment_results.blocked} | ${row.base_assessment_results.not_applicable} | ${row.variant_execution_statuses.not_executed} |`);
+  markdown.push(`| ${row.code} ${row.name} | ${row.total} | ${row.base_assessment_results.pass} | ${row.base_assessment_results.partial} | ${row.base_assessment_results.fail} | ${row.base_assessment_results.blocked} | ${row.base_assessment_results.not_applicable} | ${row.variant_execution_statuses.not_executed ?? 0} |`);
 }
 markdown.push('', '## 生成物', '');
 markdown.push(`- 完整 4,000 条 JSONL：\`docs/qa/${path.basename(jsonlPath)}\``);
 markdown.push(`- 汇总 JSON：\`docs/qa/${path.basename(resultPath)}\``);
 markdown.push(`- 生成脚本：\`scripts/${path.basename(fileURLToPath(import.meta.url))}\``);
 
-const summaryPath = path.join(qaDir, `hotel_system_4000_diagnostic_summary_${auditDate}.md`);
+const summaryPath = path.join(outputDir, `hotel_system_4000_diagnostic_summary_${auditDate}.md`);
 writeFileSync(summaryPath, `${markdown.join('\n')}\n`, 'utf8');
 
 console.log(JSON.stringify({
