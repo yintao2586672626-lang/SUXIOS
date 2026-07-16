@@ -11108,6 +11108,13 @@
                 }
             };
 
+            const handleNestedMenuClick = (item, parentName) => {
+                handleMenuClick(item);
+                if (typeof window !== 'undefined' && window.innerWidth <= 640) {
+                    toggleSubmenu(parentName);
+                }
+            };
+
             const isStillOnRequestPage = (requestPage) => currentPage.value === requestPage;
 
             // Toast
@@ -31095,7 +31102,7 @@
                 lifecycleLoading, lifecycleOverview, lifecycleMetricLabel, lifecycleStageTitle, lifecycleStageStatusText, lifecycleStageStatusClass, lifecycleStageBadgeClass, lifecycleOverviewStatusText, lifecycleOverviewStatusClass, loadLifecycleOverview,
                 investmentDecisionLoading, investmentDecisionOverview, investmentDecisionSummaryCards, investmentDecisionBusinessChainRows, investmentDecisionActionQueueRows, investmentDecisionSectionRows, investmentDecisionRiskRows, investmentDecisionRecordRows, investmentDecisionFormulaRows, investmentDecisionStatusText, investmentDecisionStatusClass, investmentDecisionSeverityText, investmentDecisionSeverityClass, investmentDecisionPriorityClass, investmentDecisionSourceLabel, loadInvestmentDecisionOverview,
                 isLoggedIn, loading, loginError, registerMode, registerLoading, registerError, registerSuccess, registerForm, user, token, userHasPermission, canManageOwnHotels, canMaintainOtaConfig, currentLocale, languageOptions, switchLocale, currentTime, currentDateText, currentClockText, currentTimeZoneLabel, currentPage, showPassword,
-                loginForm, rememberAccount, menuItems, visibleMenuItems, pageTitle, toast, handleMenuClick,
+                loginForm, rememberAccount, menuItems, visibleMenuItems, pageTitle, toast, handleMenuClick, handleNestedMenuClick,
                 workflowFormDialog, closeWorkflowFormDialog, submitWorkflowFormDialog,
                 globalNotificationOpen, globalNotificationLoading, globalNotificationVisibleItems, globalNotificationUnreadCount, globalNotificationTotalCount,
                 globalNotificationSummaryText, toggleGlobalNotifications, refreshGlobalNotifications, openGlobalNotification,

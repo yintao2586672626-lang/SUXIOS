@@ -231,14 +231,14 @@
                                         </a>
                                         <!-- 第三层 -->
                                         <div v-show="expandedMenus.includes(child.name)" class="bg-black/5">
-                                        <a v-for="grandChild in child.children" :key="grandChild.path" @click.stop="handleMenuClick(grandChild); window.innerWidth &lt;= 640 &amp;&amp; toggleSubmenu(item.name)" :data-testid="menuTestId(grandChild)" class="sidebar-item flex items-center px-5 py-2 cursor-pointer mx-2 pl-16 text-xs opacity-80 hover:opacity-100" :class="{ 'active': currentPage === grandChild.path }">
+                                        <a v-for="grandChild in child.children" :key="grandChild.path" @click.stop="handleNestedMenuClick(grandChild, item.name)" :data-testid="menuTestId(grandChild)" class="sidebar-item flex items-center px-5 py-2 cursor-pointer mx-2 pl-16 text-xs opacity-80 hover:opacity-100" :class="{ 'active': currentPage === grandChild.path }">
                                                 <i :class="grandChild.icon" class="w-4 text-center mr-2 text-blue-300/60 text-[10px]"></i>
                                                 <span>{{ getMenuItemName(grandChild) }}</span>
                                             </a>
                                         </div>
                                     </div>
                                     <!-- 第二层: 普通项 -->
-                                <a v-else="" @click.stop="handleMenuClick(child); window.innerWidth &lt;= 640 &amp;&amp; toggleSubmenu(item.name)" :data-testid="menuTestId(child)" class="sidebar-item flex items-center px-5 py-2.5 cursor-pointer mx-2 pl-10" :class="{ 'active': currentPage === child.path }">
+                                <a v-else="" @click.stop="handleNestedMenuClick(child, item.name)" :data-testid="menuTestId(child)" class="sidebar-item flex items-center px-5 py-2.5 cursor-pointer mx-2 pl-10" :class="{ 'active': currentPage === child.path }">
                                         <i :class="child.icon" class="w-4 text-center mr-3 text-blue-300 text-xs"></i>
                                         <span class="text-sm">{{ getMenuItemName(child) }}</span>
                                     </a>

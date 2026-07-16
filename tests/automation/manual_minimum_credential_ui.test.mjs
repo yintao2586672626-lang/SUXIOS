@@ -3448,6 +3448,21 @@ test('Vue template helper calls are exposed from setup return', () => {
   assert.deepEqual(missing, []);
 });
 
+test('nested menu clicks resolve viewport state outside Vue template expressions', () => {
+  const template = readFileSync('resources/frontend/app-template.html', 'utf8');
+  const handler = sliceFrom(
+    'const handleNestedMenuClick = (item, parentName) => {',
+    '\n\n            const isStillOnRequestPage'
+  );
+
+  assert.doesNotMatch(template, /\bwindow\.innerWidth\b/);
+  assert.match(template, /handleNestedMenuClick\(grandChild, item\.name\)/);
+  assert.match(template, /handleNestedMenuClick\(child, item\.name\)/);
+  assert.match(handler, /handleMenuClick\(item\);/);
+  assert.match(handler, /typeof window !== 'undefined' && window\.innerWidth <= 640/);
+  assert.match(handler, /toggleSubmenu\(parentName\);/);
+});
+
 test('Meituan hotel matching does not wait for all-store competitor summaries', () => {
   const loadCompetitorSummary = sliceFrom('const loadCompetitorSummary = async (options = {}) => {', '\n            const loadCompassData');
   const scheduleMeituanRankingSummaryRefresh = sliceFrom('const scheduleMeituanRankingSummaryRefresh = (options = {}) => {', '\n\n            // 线上数据获取相关方法');
