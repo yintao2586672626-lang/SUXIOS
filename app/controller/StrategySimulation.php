@@ -50,6 +50,10 @@ class StrategySimulation extends Base
 
             return $this->success([
                 'total_score' => $scores['total_score'],
+                'score_type' => $scores['score_type'],
+                'score_semantics' => $scores['score_semantics'],
+                'decision_ready' => $scores['decision_ready'],
+                'data_gaps' => $scores['data_gaps'],
                 'risk_level' => $risk['risk_level'],
                 'decision' => $recommendation['decision'],
                 'scores' => $scores['items'],
@@ -209,6 +213,12 @@ class StrategySimulation extends Base
 
     private function normalizeInput(array $data): array
     {
+        $nullableInt = static function (array $source, string $key): ?int {
+            if (!array_key_exists($key, $source) || $source[$key] === null || $source[$key] === '') {
+                return null;
+            }
+            return (int)$source[$key];
+        };
         $input = [
             'project_name' => trim((string)($data['project_name'] ?? '')),
             'city_tier' => trim((string)($data['city_tier'] ?? '')),
@@ -219,11 +229,11 @@ class StrategySimulation extends Base
             'room_count' => (int)($data['room_count'] ?? 0),
             'monthly_rent' => (float)($data['monthly_rent'] ?? 0),
             'decoration_budget' => (float)($data['decoration_budget'] ?? 0),
-            'lease_years' => (int)($data['lease_years'] ?? 0),
-            'rent_free_months' => (int)($data['rent_free_months'] ?? 0),
+            'lease_years' => $nullableInt($data, 'lease_years'),
+            'rent_free_months' => $nullableInt($data, 'rent_free_months'),
             'business_type' => trim((string)($data['business_type'] ?? '')),
             'target_customer' => trim((string)($data['target_customer'] ?? $data['primary_customer'] ?? '')),
-            'competitor_count' => max(0, (int)($data['competitor_count'] ?? 0)),
+            'competitor_count' => ($competitorCount = $nullableInt($data, 'competitor_count')) === null ? null : max(0, $competitorCount),
             'target_hotel_level' => trim((string)($data['target_hotel_level'] ?? $data['target_grade'] ?? '')),
             'model_key' => trim((string)($data['model_key'] ?? $data['modelKey'] ?? 'deepseek_v4_default')),
         ];
@@ -244,15 +254,6 @@ class StrategySimulation extends Base
             'decoration_budget.egt' => '装修预算不能为负数',
         ]);
 
-        if ($input['business_type'] === '') {
-            $input['business_type'] = '核心商务区';
-        }
-        if ($input['target_customer'] === '') {
-            $input['target_customer'] = '商务差旅';
-        }
-        if ($input['target_hotel_level'] === '') {
-            $input['target_hotel_level'] = '中端精选';
-        }
         if ($input['model_key'] === '') {
             $input['model_key'] = 'deepseek_v4_default';
         }
@@ -262,15 +263,28 @@ class StrategySimulation extends Base
 
     private function collectLocalData(array $input): array
     {
-        $hotelIds = $this->currentUser ? $this->currentUser->getPermittedHotelIds() : [];
+        $permittedHotelIds = $this->currentUser ? $this->currentUser->getPermittedHotelIds() : [];
+        $hotelIds = $this->resolveStrategyCityHotelIds($permittedHotelIds, (string)$input['city']);
         $data = [
             'hotel_ids' => $hotelIds,
+            'scope' => 'same_city_permitted_hotels',
+            'target_city' => (string)$input['city'],
             'daily_reports' => ['count' => 0, 'avg_occupancy' => null, 'avg_revenue' => null, 'avg_room_count' => null],
             'online_daily_data' => ['count' => 0, 'total_quantity' => 0, 'total_orders' => 0, 'avg_score' => null, 'avg_conversion' => null, 'competitor_hotels' => 0],
             'competitor_analysis' => ['count' => 0, 'competitor_hotels' => 0, 'avg_competitor_price' => null, 'avg_price_index' => null],
             'data_sources' => [],
             'missing_data' => [],
         ];
+
+        if ($hotelIds === []) {
+            $data['missing_data'] = [
+                '同城且当前账号有权的门店样本',
+                '同城经营日报',
+                '同城 OTA 渠道数据',
+                '同城竞品分析',
+            ];
+            return $data;
+        }
 
         if ($this->tableExists('daily_reports')) {
             $query = Db::name('daily_reports')->where('report_date', '>=', date('Y-m-d', strtotime('-90 days')));
@@ -279,7 +293,11 @@ class StrategySimulation extends Base
             }
             $rows = $query->field('occupancy_rate,revenue,room_count,report_data')->limit(120)->select()->toArray();
             $data['daily_reports'] = $this->summarizeDailyReports($rows);
-            $data['data_sources'][] = 'daily_reports';
+            if ($rows !== []) {
+                $data['data_sources'][] = 'daily_reports_same_city';
+            } else {
+                $data['missing_data'][] = '同城经营日报';
+            }
         } else {
             $data['missing_data'][] = 'daily_reports';
         }
@@ -291,7 +309,11 @@ class StrategySimulation extends Base
             }
             $rows = $query->field('hotel_id,hotel_name,amount,quantity,book_order_num,comment_score,qunar_comment_score,raw_data,data_value,source')->limit(300)->select()->toArray();
             $data['online_daily_data'] = $this->summarizeOnlineData($rows);
-            $data['data_sources'][] = 'online_daily_data';
+            if ($rows !== []) {
+                $data['data_sources'][] = 'online_daily_data_same_city';
+            } else {
+                $data['missing_data'][] = '同城 OTA 渠道数据';
+            }
         } else {
             $data['missing_data'][] = 'online_daily_data';
         }
@@ -303,12 +325,35 @@ class StrategySimulation extends Base
             }
             $rows = $query->field('competitor_hotel_id,competitor_price,price_index')->limit(200)->select()->toArray();
             $data['competitor_analysis'] = $this->summarizeCompetitorAnalysis($rows);
-            $data['data_sources'][] = 'competitor_analysis';
+            if ($rows !== []) {
+                $data['data_sources'][] = 'competitor_analysis_same_city';
+            } else {
+                $data['missing_data'][] = '同城竞品分析';
+            }
         } else {
             $data['missing_data'][] = 'competitor_analysis';
         }
 
         return $data;
+    }
+
+    /** @param array<int, int|string> $permittedHotelIds */
+    private function resolveStrategyCityHotelIds(array $permittedHotelIds, string $city): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $permittedHotelIds), static fn(int $id): bool => $id > 0)));
+        $city = trim($city);
+        if ($ids === [] || $city === '' || !$this->tableExists('hotels')) {
+            return [];
+        }
+
+        try {
+            return array_values(array_map('intval', Db::name('hotels')
+                ->whereIn('id', $ids)
+                ->where('city', $city)
+                ->column('id')));
+        } catch (Throwable) {
+            return [];
+        }
     }
 
     private function collectExternalData(array $input): array
@@ -408,9 +453,22 @@ class StrategySimulation extends Base
             + $items['cost_pressure']['score'] * 0.20
             + $items['exit_safety']['score'] * 0.15
         );
+        $dataGaps = [];
+        foreach ($items as $item) {
+            foreach ((array)($item['missing_data'] ?? []) as $gap) {
+                $gap = trim((string)$gap);
+                if ($gap !== '') {
+                    $dataGaps[$gap] = true;
+                }
+            }
+        }
 
         return [
             'total_score' => $this->clampScore($total),
+            'score_type' => 'rule_simulation_index',
+            'score_semantics' => '基于用户录入、同城授权样本与可用外部证据的规则情景分；不是真实市场热度、投资成功率或经营预测。',
+            'decision_ready' => $dataGaps === [],
+            'data_gaps' => array_keys($dataGaps),
             'items' => $items,
         ];
     }
@@ -420,11 +478,17 @@ class StrategySimulation extends Base
         $total = $scores['total_score'];
         $competitionScore = $scores['items']['competition']['score'];
         $costScore = $scores['items']['cost_pressure']['score'];
-        $decision = $total >= 85 ? '建议推进' : ($total >= 70 ? '谨慎推进' : ($total >= 60 ? '需要重构条件后再推进' : '不建议推进'));
-        $pressure = $competitionScore >= 80 ? '低' : ($competitionScore >= 60 ? '中' : '高');
+        $decisionReady = ($scores['decision_ready'] ?? false) === true;
+        $decision = $decisionReady
+            ? ($total >= 85 ? '规则情景偏积极，待人工尽调' : ($total >= 70 ? '规则情景中性，待人工尽调' : ($total >= 60 ? '规则情景偏谨慎，待重构条件' : '规则情景高风险，待人工复核')))
+            : '数据不足，仅生成规则情景，不形成选址或投资结论';
+        $pressure = !empty($scores['items']['competition']['missing_data'])
+            ? '待评估'
+            : ($competitionScore >= 80 ? '低' : ($competitionScore >= 60 ? '中' : '高'));
+        $modelParts = array_values(array_filter([$input['target_hotel_level'], $input['business_type'], $input['target_customer']]));
 
         return [
-            'recommended_model' => $input['target_hotel_level'] . '酒店 + ' . $input['business_type'] . '客源模型',
+            'recommended_model' => $modelParts !== [] ? implode(' + ', $modelParts) . '（录入情景）' : '定位与客群待补充',
             'target_customer' => $input['target_customer'],
             'competition_pressure' => $pressure,
             'decision_direction' => '智略定方向',
@@ -435,7 +499,7 @@ class StrategySimulation extends Base
                 $costScore < 70 ? '继续谈判租金、免租期或装修投入上限' : '锁定租金递增和装修预算边界',
             ],
             'main_risks' => [
-                $pressure === '高' ? '同档竞品密度较高，开业爬坡和 ADR 上浮承压' : '需持续跟踪新增供给和竞品翻牌',
+                $pressure === '待评估' ? '竞品数量、价格带与点评样本未核验' : ($pressure === '高' ? '同档竞品密度较高，开业爬坡和 ADR 上浮承压' : '需持续跟踪新增供给和竞品翻牌'),
                 '外部客流与 POI 数据不足时，需用实地调研复核需求强度',
             ],
             'next_data_to_verify' => [
@@ -468,6 +532,14 @@ class StrategySimulation extends Base
             }
         }
 
+        if (($scores['decision_ready'] ?? false) !== true) {
+            $recommendation['decision_direction'] = '补证后再决策';
+            $recommendation['decision'] = '数据不足，仅生成规则情景，不形成选址或投资结论';
+            if (!empty($scores['items']['competition']['missing_data'])) {
+                $recommendation['competition_pressure'] = '待评估';
+            }
+        }
+
         return $recommendation;
     }
 
@@ -482,7 +554,7 @@ class StrategySimulation extends Base
         $messages = [
             [
                 'role' => 'system',
-                'content' => '你是酒店投资战略推演分析师。只输出符合 schema 的 JSON。必须基于用户输入、本地数据口径、外部地图/POI状态和本地评分结果生成战略推荐；不得发明未提供的经营数字；缺少地图、OTA或竞品数据时写入 assumptions；建议必须可执行、克制、面向酒店筹建投决。',
+                'content' => '你是酒店投资战略推演分析师。只输出符合 schema 的 JSON。必须基于用户输入、同城且当前账号有权的本地样本、外部地图/POI状态和规则情景分生成建议；同城门店数据不代表目标商圈，OTA数据只代表 OTA 渠道；不得发明未提供的经营数字、市场热度、成功率或已执行动作；缺少商圈、地图、OTA或竞品证据时写入 assumptions 并明确不形成投资结论。',
             ],
             [
                 'role' => 'user',
@@ -491,6 +563,8 @@ class StrategySimulation extends Base
                     'scores' => $scores,
                     'deterministic_recommendation' => $recommendation,
                     'local_data_summary' => [
+                        'scope' => $localData['scope'] ?? 'same_city_permitted_hotels',
+                        'target_city' => $localData['target_city'] ?? $input['city'],
                         'data_sources' => $localData['data_sources'] ?? [],
                         'daily_reports' => $localData['daily_reports'] ?? [],
                         'online_daily_data' => $localData['online_daily_data'] ?? [],
@@ -607,7 +681,7 @@ class StrategySimulation extends Base
             'main_risks' => $this->stringList($recommendation['main_risks'] ?? [], []),
             'next_data_to_verify' => $this->stringList($recommendation['next_data_to_verify'] ?? [], []),
             'assumptions' => [
-                'AI模型不可用时启用本地规则兜底：' . $safeReason,
+                'AI模型不可用时仅生成本地规则情景：' . $safeReason,
                 '投决前仍需补齐真实OTA、竞品、租约和周边客流样本。',
             ],
             'error' => $safeReason,
@@ -619,24 +693,27 @@ class StrategySimulation extends Base
         $source = (string)($aiEvaluation['source'] ?? '');
         $modelKey = trim((string)($aiEvaluation['model_key'] ?? 'deepseek_v4_default'));
         $client = new LlmClient();
-        $modelLabel = $this->strategyModelChainLabel($modelKey, $client);
+        $modelLabel = $this->strategyModelChainLabel($modelKey);
         $aiUsed = $source === 'llm';
         $externalData['ai_available'] = $aiUsed;
         $externalData['ai_used'] = $aiUsed;
         $externalData['ai_model_key'] = $modelKey;
         $externalData['ai_model_label'] = $modelLabel;
-        $externalData['ai_source_summary'] = $aiUsed ? 'AI模型已接入：' . $modelLabel : 'AI模型未生成，已使用本地兜底';
+        $externalData['ai_source_summary'] = $aiUsed ? 'AI模型已生成结果：' . $modelLabel : 'AI模型未生成；当前仅为本地规则情景';
         $externalData['ai_error'] = $aiUsed ? '' : (string)($aiEvaluation['error'] ?? '');
 
         if ($aiUsed && !(bool)($externalData['used'] ?? false)) {
             $poiSearch = $this->buildAiPoiSearch($input, $localData, $aiEvaluation, $client);
             $externalData['ai_search_available'] = (bool)($poiSearch['available'] ?? false);
             $externalData['ai_search_used'] = (bool)($poiSearch['used'] ?? false);
-            $externalData['ai_search_provider'] = $modelLabel;
+            $externalData['ai_search_provider'] = ($poiSearch['available'] ?? false) ? 'MIMO' : '';
             $externalData['ai_poi_search'] = $poiSearch;
 
             if (($poiSearch['used'] ?? false) === true) {
-                $externalData['source_summary'][] = 'AI搜索补充地图/POI：' . $modelLabel;
+                $modelLabel .= ' + MIMO';
+                $externalData['ai_model_label'] = $modelLabel;
+                $externalData['ai_source_summary'] = 'AI模型已生成结果：' . $modelLabel;
+                $externalData['source_summary'][] = 'MIMO 已生成位置/POI 辅助推断（非地图 API 实采）';
             } else {
                 $externalData['missing_data'] = array_values(array_unique(array_merge(
                     (array)($externalData['missing_data'] ?? []),
@@ -660,27 +737,14 @@ class StrategySimulation extends Base
         return $externalData;
     }
 
-    private function strategyModelChainLabel(string $modelKey, ?LlmClient $client = null): string
+    private function strategyModelChainLabel(string $modelKey): string
     {
         $key = strtolower(trim($modelKey));
         $primary = str_contains($key, 'deepseek') ? 'DeepSeek' : trim($modelKey);
         if ($primary === '') {
             $primary = 'AI';
         }
-
-        $client = $client ?: new LlmClient();
-        $mimoConfigured = false;
-        try {
-            $mimoConfigured = $client->isConfiguredModelKey(self::STRATEGY_POI_AI_MODEL_KEY);
-        } catch (Throwable $e) {
-            $mimoConfigured = false;
-        }
-
-        if (!$mimoConfigured) {
-            return $primary;
-        }
-
-        return $primary === 'DeepSeek' ? 'DeepSeek + MIMO' : $primary . ' + MIMO';
+        return $primary;
     }
 
     private function buildAiPoiSearch(array $input, array $localData, array $aiEvaluation, LlmClient $client): array
@@ -769,7 +833,7 @@ class StrategySimulation extends Base
             'used' => true,
             'source' => 'mimo_ai_search',
             'model_key' => $modelKey,
-            'summary' => $this->textOrFallback($raw['summary'] ?? null, 'MIMO 已完成位置/POI 辅助搜索判断，需用地图或实地调研复核。'),
+            'summary' => $this->textOrFallback($raw['summary'] ?? null, 'MIMO 仅生成位置/POI 辅助推断，并未完成地图 API 实采；需用地图或实地调研复核。'),
             'demand_signals' => $this->stringList($raw['demand_signals'] ?? [], []),
             'competition_signals' => $this->stringList($raw['competition_signals'] ?? [], []),
             'poi_assumptions' => $this->stringList($raw['poi_assumptions'] ?? [], []),
@@ -806,7 +870,9 @@ class StrategySimulation extends Base
         $recommendation = $this->decodeJson($row['recommendation_json'] ?? []);
         $risk = $this->decodeJson($row['risk_json'] ?? []);
         $dataSnapshot = $this->decodeJson($row['data_snapshot_json'] ?? []);
-        $totalScore = (int)($scoreJson['total_score'] ?? 0);
+        $totalScore = array_key_exists('total_score', $scoreJson) && is_numeric($scoreJson['total_score'])
+            ? (int)$scoreJson['total_score']
+            : null;
         $scoreItems = $scoreJson['items'] ?? $scoreJson;
 
         $record = [
@@ -817,6 +883,10 @@ class StrategySimulation extends Base
             'city' => (string)($row['city'] ?? ($input['city'] ?? '')),
             'district' => (string)($row['district'] ?? ($input['district'] ?? '')),
             'total_score' => $totalScore,
+            'score_type' => (string)($scoreJson['score_type'] ?? 'legacy_rule_score'),
+            'score_semantics' => (string)($scoreJson['score_semantics'] ?? '历史规则分，不等同真实市场热度或投资成功率'),
+            'decision_ready' => ($scoreJson['decision_ready'] ?? false) === true,
+            'data_gaps' => array_values((array)($scoreJson['data_gaps'] ?? [])),
             'risk_level' => (string)($risk['risk_level'] ?? ''),
             'decision' => (string)($recommendation['decision'] ?? ''),
             'created_at' => (string)($row['created_at'] ?? ''),
@@ -970,10 +1040,19 @@ class StrategySimulation extends Base
 
     private function scoreMarketDemand(array $input, array $localData, array $externalData): array
     {
-        $base = ['核心商务区' => 88, '交通枢纽' => 84, '文旅景区' => 80, '产业园区' => 76, '社区配套' => 66][$input['business_type']] ?? 70;
-        $reasons = ["商圈类型为{$input['business_type']}，基础需求分为{$base}"];
-        $sources = ['用户输入'];
-        $missing = [];
+        $businessScores = ['核心商务区' => 88, '交通枢纽' => 84, '文旅景区' => 80, '产业园区' => 76, '社区配套' => 66];
+        $hasBusinessType = isset($businessScores[$input['business_type']]);
+        $base = $hasBusinessType ? $businessScores[$input['business_type']] : 50;
+        $reasons = $hasBusinessType
+            ? ["商圈类型为{$input['business_type']}，基础规则分为{$base}"]
+            : ['商圈类型未录入，需求维度仅保留中性情景分'];
+        $sources = $hasBusinessType ? ['用户输入'] : [];
+        $missing = $hasBusinessType ? [] : ['商圈类型'];
+
+        if ($input['target_customer'] === '') {
+            $missing[] = '目标客群';
+            $reasons[] = '目标客群未录入，不进行客群匹配加分';
+        }
 
         if ($input['target_customer'] === '商务差旅') {
             $base += 4;
@@ -988,7 +1067,7 @@ class StrategySimulation extends Base
                 $base += 3;
                 $reasons[] = '本地 OTA 评分均值较高，说明同类供给具备基础接受度';
             }
-            $reasons[] = '已使用本地 OTA 入住、订单、评分数据校准需求强度';
+            $reasons[] = '同城授权门店的 OTA 入住、订单、评分仅作情景参考；不代表目标商圈真实需求';
         } else {
             $missing[] = '本地 OTA 历史入住/浏览/转化数据';
         }
@@ -1008,16 +1087,36 @@ class StrategySimulation extends Base
 
     private function scoreCompetition(array $input, array $localData, array $externalData): array
     {
-        $competitorCount = max($input['competitor_count'], $localData['online_daily_data']['competitor_hotels'], $localData['competitor_analysis']['competitor_hotels']);
+        $verifiedCounts = [];
+        $sources = [];
+        if ($input['competitor_count'] !== null) {
+            $verifiedCounts[] = (int)$input['competitor_count'];
+            $sources[] = '人工录入（未核验）';
+        }
+        if (($localData['online_daily_data']['count'] ?? 0) > 0) {
+            $verifiedCounts[] = (int)($localData['online_daily_data']['competitor_hotels'] ?? 0);
+            $sources[] = 'online_daily_data_same_city';
+        }
+        if (($localData['competitor_analysis']['count'] ?? 0) > 0) {
+            $verifiedCounts[] = (int)($localData['competitor_analysis']['competitor_hotels'] ?? 0);
+            $sources[] = 'competitor_analysis_same_city';
+        }
+        if (!empty($externalData['used']) && array_key_exists('hotel', (array)($externalData['poi_counts'] ?? []))) {
+            $verifiedCounts[] = max(0, (int)$externalData['poi_counts']['hotel']);
+            $sources[] = '外部酒店 POI';
+        }
+        $hasCompetitorCount = $verifiedCounts !== [];
+        $competitorCount = $hasCompetitorCount ? max($verifiedCounts) : null;
         $marketDemandHint = ['核心商务区' => 8, '交通枢纽' => 6, '文旅景区' => 5][$input['business_type']] ?? 0;
-        $score = 96 - $competitorCount * 5 + $marketDemandHint;
-        $reasons = ["识别竞品数量{$competitorCount}个，竞争越激烈分数越低"];
-        $sources = ['用户输入'];
-        $missing = [];
+        $score = $hasCompetitorCount ? 96 - $competitorCount * 5 + $marketDemandHint : 50;
+        $reasons = $hasCompetitorCount
+            ? ["当前可用证据中的竞品数量上界为{$competitorCount}个；不代表已覆盖周边全部竞品"]
+            : ['竞品数量未核验，竞争维度仅保留中性情景分'];
+        $missing = $hasCompetitorCount ? [] : ['竞品数量'];
 
         if ($localData['online_daily_data']['competitor_hotels'] > 0) {
             $sources[] = 'online_daily_data';
-            $reasons[] = '已使用本地 OTA 榜单酒店数量辅助判断供给密度';
+            $reasons[] = '同城授权门店的 OTA 竞品记录仅作供给情景参考；未证明目标商圈完整供给';
         }
         if ($localData['competitor_analysis']['count'] > 0) {
             $sources[] = 'competitor_analysis';
@@ -1027,8 +1126,6 @@ class StrategySimulation extends Base
             $missing[] = '竞品价格带/评分/点评量';
         }
         if (!empty($externalData['poi_counts']['hotel'])) {
-            $sources[] = '外部酒店 POI';
-            $score -= min(10, $externalData['poi_counts']['hotel'] * 2);
             $reasons[] = "外部 POI 显示周边酒店约{$externalData['poi_counts']['hotel']}个";
         }
 
@@ -1037,13 +1134,18 @@ class StrategySimulation extends Base
 
     private function scorePropertyFit(array $input, array $localData): array
     {
-        $config = self::PROPERTY_FIT_CONFIG[$input['target_hotel_level']] ?? self::PROPERTY_FIT_CONFIG['中端精选'];
+        $hasTargetLevel = isset(self::PROPERTY_FIT_CONFIG[$input['target_hotel_level']]);
+        $config = $hasTargetLevel
+            ? self::PROPERTY_FIT_CONFIG[$input['target_hotel_level']]
+            : self::PROPERTY_FIT_CONFIG['中端精选'];
         $areaPerRoom = $input['property_area'] / max(1, $input['room_count']);
         $mid = ($config['area_per_room_min'] + $config['area_per_room_max']) / 2;
         $score = 100 - abs($areaPerRoom - $mid) * 2;
         $reasons = [
             "单房建筑面积约" . round($areaPerRoom, 1) . "㎡",
-            "{$input['target_hotel_level']}建议单房建筑面积区间为{$config['area_per_room_min']}-{$config['area_per_room_max']}㎡",
+            $hasTargetLevel
+                ? "{$input['target_hotel_level']}的规则参考区间为{$config['area_per_room_min']}-{$config['area_per_room_max']}㎡"
+                : "目标酒店档次未录入；当前仅用{$config['area_per_room_min']}-{$config['area_per_room_max']}㎡中性情景区间占位",
         ];
         if ($input['room_count'] >= $config['preferred_room_count_min']) {
             $score += 4;
@@ -1053,7 +1155,12 @@ class StrategySimulation extends Base
             $reasons[] = '房量低于目标模型的建议规模，需复核坪效';
         }
 
-        return $this->scoreItem($score, $reasons, ['用户输入', '物业适配参数'], []);
+        return $this->scoreItem(
+            $score,
+            $reasons,
+            ['用户输入', '物业适配规则'],
+            $hasTargetLevel ? [] : ['目标酒店档次']
+        );
     }
 
     private function scoreCostPressure(array $input, array $localData): array
@@ -1061,35 +1168,61 @@ class StrategySimulation extends Base
         $rentPerRoom = $input['monthly_rent'] / max(1, $input['room_count']);
         $decorationPerRoom = $input['decoration_budget'] / max(1, $input['room_count']);
         $score = 100 - max(0, $rentPerRoom - 1800) / 45 - max(0, $decorationPerRoom - 23000) / 600;
-        $score += min(8, $input['rent_free_months'] * 1.5);
-        if ($input['lease_years'] >= 10) {
+        if ($input['rent_free_months'] !== null) {
+            $score += min(8, $input['rent_free_months'] * 1.5);
+        }
+        if ($input['lease_years'] !== null && $input['lease_years'] >= 10) {
             $score += 4;
         }
 
-        return $this->scoreItem($score, [
+        $reasons = [
             '单房月租约' . round($rentPerRoom) . '元',
             '单房装修约' . round($decorationPerRoom) . '元',
-            "免租期{$input['rent_free_months']}个月、租期{$input['lease_years']}年，对成本压力有修正",
-        ], ['用户输入'], []);
+        ];
+        if ($input['rent_free_months'] !== null || $input['lease_years'] !== null) {
+            $reasons[] = '免租期' . ($input['rent_free_months'] ?? '未录入') . '个月、租期' . ($input['lease_years'] ?? '未录入') . '年；仅已录入部分参与修正';
+        }
+        $missing = [];
+        if ($input['rent_free_months'] === null) $missing[] = '免租期';
+        if ($input['lease_years'] === null) $missing[] = '租期';
+
+        return $this->scoreItem($score, $reasons, ['用户输入'], $missing);
     }
 
     private function scoreExitSafety(array $input): array
     {
         $decorationPerRoom = $input['decoration_budget'] / max(1, $input['room_count']);
-        $score = 58 + min(18, $input['lease_years'] * 2) + min(10, $input['rent_free_months'] * 1.5) - max(0, $decorationPerRoom - 26000) / 900;
+        $score = 58
+            + ($input['lease_years'] !== null ? min(18, $input['lease_years'] * 2) : 0)
+            + ($input['rent_free_months'] !== null ? min(10, $input['rent_free_months'] * 1.5) : 0)
+            - max(0, $decorationPerRoom - 26000) / 900;
         $genericBonus = in_array($input['target_hotel_level'], ['经济型', '中端精选', '中高端商务'], true) ? 6 : 0;
         $score += $genericBonus;
 
         return $this->scoreItem($score, [
-            "租期{$input['lease_years']}年、免租期{$input['rent_free_months']}个月",
+            '租期' . ($input['lease_years'] ?? '未录入') . '年、免租期' . ($input['rent_free_months'] ?? '未录入') . '个月',
             '单房沉没装修成本约' . round($decorationPerRoom) . '元',
             $genericBonus > 0 ? '目标模型通用性较强，退出或转租安全边际较好' : '目标模型偏定制化，退出安全需额外验证',
-        ], ['用户输入'], ['租约退出条款', '物业转租限制']);
+        ], ['用户输入'], array_values(array_filter([
+            $input['lease_years'] === null ? '租期' : null,
+            $input['rent_free_months'] === null ? '免租期' : null,
+            '租约退出条款',
+            '物业转租限制',
+        ])));
     }
 
     private function buildRisk(array $scores, array $recommendation): array
     {
         $total = $scores['total_score'];
+        if (($scores['decision_ready'] ?? false) !== true) {
+            return [
+                'risk_level' => '待评估',
+                'main_risks' => array_values(array_unique(array_merge(
+                    (array)($recommendation['main_risks'] ?? []),
+                    ['关键证据缺口：' . implode('、', array_slice((array)($scores['data_gaps'] ?? []), 0, 6))]
+                ))),
+            ];
+        }
         return [
             'risk_level' => $total >= 85 ? '低风险' : ($total >= 70 ? '中风险' : ($total >= 60 ? '中高风险' : '高风险')),
             'main_risks' => $recommendation['main_risks'],

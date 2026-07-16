@@ -220,7 +220,7 @@ class QuantSimulationService
             $otaRate
         );
 
-        return [
+        $result = [
             'availableRoomNights' => round($availableRoomNights, 2),
             'roomRevenue' => round($roomRevenue, 2),
             'monthlyRevenue' => round($monthlyRevenue, 2),
@@ -234,6 +234,61 @@ class QuantSimulationService
             'breakEvenOccupancy' => round($breakEvenOccupancy, 4),
             'riskLevel' => $this->calculateRiskLevel($monthlyNetCashflow, $paybackMonths, $rentRatio, $breakEvenOccupancy),
         ];
+
+        if (isset(
+            $input['valuation_date'],
+            $input['currency'],
+            $input['construction_cashflows'],
+            $input['operation_cashflows'],
+            $input['terminal_value']
+        )) {
+            $result = array_merge($result, $this->buildCashflowSeriesResult($input));
+        }
+        return $result;
+    }
+
+    /**
+     * @param array<string, mixed> $input
+     * @return array<string, mixed>
+     */
+    private function buildCashflowSeriesResult(array $input): array
+    {
+        $construction = array_values(array_map('floatval', (array)$input['construction_cashflows']));
+        $operation = array_values(array_map('floatval', (array)$input['operation_cashflows']));
+        $terminalValue = (float)$input['terminal_value'];
+        $values = array_merge($construction, $operation);
+        $lastPeriod = count($values) - 1;
+        if ($lastPeriod >= 0) {
+            $values[$lastPeriod] += $terminalValue;
+        }
+
+        $valuationDate = (string)$input['valuation_date'];
+        $baseDate = new \DateTimeImmutable($valuationDate);
+        $series = [];
+        foreach ($values as $period => $value) {
+            $series[] = [
+                'period' => $period,
+                'date' => $baseDate->modify('+' . $period . ' months')->format('Y-m-d'),
+                'value' => round((float)$value, 2),
+            ];
+        }
+
+        return [
+            'valuation_date' => $valuationDate,
+            'freshness_status' => $this->cashflowFreshnessStatus($baseDate),
+            'currency' => (string)$input['currency'],
+            'terminal_value' => $terminalValue,
+            'construction_periods' => count($construction),
+            'operation_periods' => count($operation),
+            'cashflow_series' => $series,
+        ];
+    }
+
+    private function cashflowFreshnessStatus(\DateTimeImmutable $valuationDate): string
+    {
+        $today = new \DateTimeImmutable('today');
+        $cutoff = (new \DateTimeImmutable('first day of this month'))->modify('-12 months');
+        return $valuationDate >= $cutoff && $valuationDate <= $today ? 'fresh' : 'stale';
     }
 
     private function calculateBreakEvenOccupancy(
@@ -605,6 +660,7 @@ class QuantSimulationService
             ])
         );
         $input = array_merge($input, $this->otaCommissionGroup($raw, $input));
+        $input = array_merge($input, $this->normalizeCashflowSeriesInput($raw));
         $revenue = $this->calculateRevenueSummary($input);
         $input['adr'] = (float)$revenue['adr'];
         $input['occupancyRate'] = (float)$revenue['occupancyRate'];
@@ -657,12 +713,101 @@ class QuantSimulationService
             throw new \InvalidArgumentException('OTA佣金率必须在0到100之间');
         }
         foreach ($input as $key => $value) {
+            if (!is_int($value) && !is_float($value)) {
+                continue;
+            }
             if (!in_array($key, ['occupancyRate', 'otaCommissionRate'], true) && $value < 0) {
                 throw new \InvalidArgumentException('量化模拟输入不能为负数');
             }
         }
 
         return $input;
+    }
+
+    /**
+     * @param array<string, mixed> $raw
+     * @return array<string, mixed>
+     */
+    private function normalizeCashflowSeriesInput(array $raw): array
+    {
+        $aliases = [
+            'valuation_date' => ['valuation_date', 'valuationDate'],
+            'currency' => ['currency'],
+            'construction_cashflows' => ['construction_cashflows', 'constructionCashflows'],
+            'operation_cashflows' => ['operation_cashflows', 'operationCashflows'],
+            'terminal_value' => ['terminal_value', 'terminalValue'],
+        ];
+        $requested = false;
+        foreach ($aliases as $keys) {
+            foreach ($keys as $key) {
+                if (array_key_exists($key, $raw)) {
+                    $requested = true;
+                    break 2;
+                }
+            }
+        }
+        if (!$requested) {
+            return [];
+        }
+
+        $currency = strtoupper(trim((string)($raw['currency'] ?? '')));
+        if ($currency === '') {
+            throw new \InvalidArgumentException('Cashflow currency is required.');
+        }
+        if (preg_match('/^[A-Z]{3}$/', $currency) !== 1) {
+            throw new \InvalidArgumentException('Cashflow currency must be a three-letter ISO code.');
+        }
+
+        $valuationDate = trim((string)($raw['valuation_date'] ?? $raw['valuationDate'] ?? ''));
+        $parsedDate = \DateTimeImmutable::createFromFormat('!Y-m-d', $valuationDate);
+        if (!$parsedDate || $parsedDate->format('Y-m-d') !== $valuationDate) {
+            throw new \InvalidArgumentException('Cashflow valuation_date is required in YYYY-MM-DD format.');
+        }
+
+        $construction = $this->normalizeCashflowValues(
+            $raw['construction_cashflows'] ?? $raw['constructionCashflows'] ?? null,
+            'construction_cashflows',
+            true
+        );
+        $operation = $this->normalizeCashflowValues(
+            $raw['operation_cashflows'] ?? $raw['operationCashflows'] ?? null,
+            'operation_cashflows',
+            false
+        );
+        $terminalRaw = $raw['terminal_value'] ?? $raw['terminalValue'] ?? null;
+        if (!is_numeric($terminalRaw) || !is_finite((float)$terminalRaw) || (float)$terminalRaw < 0) {
+            throw new \InvalidArgumentException('Cashflow terminal_value is required and cannot be negative.');
+        }
+
+        return [
+            'valuation_date' => $valuationDate,
+            'currency' => $currency,
+            'construction_cashflows' => $construction,
+            'operation_cashflows' => $operation,
+            'terminal_value' => (float)$terminalRaw,
+        ];
+    }
+
+    /**
+     * @return array<int, float>
+     */
+    private function normalizeCashflowValues(mixed $raw, string $field, bool $allowEmpty): array
+    {
+        if (!is_array($raw) || array_keys($raw) !== range(0, count($raw) - 1)) {
+            throw new \InvalidArgumentException('Cashflow ' . $field . ' must be a numeric list.');
+        }
+        if (!$allowEmpty && $raw === []) {
+            throw new \InvalidArgumentException('Cashflow ' . $field . ' must contain at least one period.');
+        }
+
+        $values = [];
+        foreach ($raw as $value) {
+            if (!is_numeric($value) || !is_finite((float)$value)) {
+                throw new \InvalidArgumentException('Cashflow ' . $field . ' contains a non-numeric period.');
+            }
+            $values[] = (float)$value;
+        }
+        return $values;
     }
 
     private function calculateRiskLevel(float $monthlyNetCashflow, ?float $paybackMonths, float $rentRatio, float $breakEvenOccupancy): string

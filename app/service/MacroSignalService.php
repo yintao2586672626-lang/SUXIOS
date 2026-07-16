@@ -657,7 +657,7 @@ class MacroSignalService
         $trend = $this->compareSeries($values);
         $total = array_sum($values);
         $direction = $this->trendDirectionText($trend);
-        return [
+        return $this->withTrendImpact([
             'key' => 'revenue',
             'status' => 'available',
             'name' => '收益趋势',
@@ -668,7 +668,7 @@ class MacroSignalService
             'source' => '来源：经营日报收入；无日报时取 OTA 成交额',
             'spark' => $this->sparkline($values),
             'change_rate' => $trend['change_rate'],
-        ];
+        ]);
     }
 
     private function buildDemandTrendCard(array $rows, array $forecasts, string $rangeLabel): array
@@ -688,7 +688,7 @@ class MacroSignalService
             ? "{$rangeLabel}订单{$direction}，较前段" . $this->formatChangeRate($trend['change_rate'])
             : '已读取未来需求预测，等待订单样本校准';
 
-        return [
+        return $this->withTrendImpact([
             'key' => 'demand',
             'status' => 'available',
             'name' => '市场需求',
@@ -699,7 +699,7 @@ class MacroSignalService
             'source' => '来源：OTA 订单数；无订单时取需求预测',
             'spark' => $this->sparkline($orderValues),
             'change_rate' => $trend['change_rate'],
-        ];
+        ]);
     }
 
     private function buildPriceTrendCard(array $rows, float $competitorAvg, string $rangeLabel): array
@@ -733,7 +733,7 @@ class MacroSignalService
             $note = '本店ADR较竞对均价' . ($gap >= 0 ? '高' : '低') . '¥' . abs((int)round($gap)) . '，价格区间已纳入竞对均价校准';
         }
 
-        return [
+        return $this->withTrendImpact([
             'key' => 'price',
             'status' => 'available',
             'name' => '价格竞争',
@@ -748,7 +748,7 @@ class MacroSignalService
             'adr_avg' => round($avgAdr, 2),
             'competitor_avg' => $competitorAvg > 0 ? round($competitorAvg, 2) : null,
             'price_sample_count' => $priceBand['sample_count'],
-        ];
+        ]);
     }
 
     private function buildChannelTrendCard(array $rows, string $rangeLabel): array
@@ -778,7 +778,7 @@ class MacroSignalService
             $direction = '转化偏低';
         }
 
-        return [
+        return $this->withTrendImpact([
             'key' => 'channel',
             'status' => 'available',
             'name' => '渠道表现',
@@ -793,7 +793,7 @@ class MacroSignalService
             'source' => '来源：OTA 曝光、访客、转化和订单数据',
             'spark' => $this->sparkline($avgConversion > 0 ? $conversionValues : array_column($rows, 'orders')),
             'change_rate' => $trend['change_rate'],
-        ];
+        ]);
     }
 
     private function buildTrendInterpretation(array $cards, int $sampleDays, string $rangeLabel): array
@@ -803,35 +803,88 @@ class MacroSignalService
                 'level' => 'gray',
                 'judgement' => '等待数据形成判断',
                 'change' => '完成经营数据同步后生成趋势判断',
-                'action' => '进入酒店AI工具箱或数据中心，基于最新经营数据生成分析。',
+                'action' => '数据不足，暂不判断持续影响；缺失项不会按 0 或旧数据代替。',
             ];
         }
 
         $priority = ['red' => 4, 'yellow' => 3, 'blue' => 2, 'green' => 1, 'gray' => 0];
         usort($cards, static fn (array $a, array $b): int => ($priority[$b['level'] ?? 'gray'] ?? 0) <=> ($priority[$a['level'] ?? 'gray'] ?? 0));
-        $main = $cards[0];
-        $weak = array_values(array_filter($cards, static fn (array $card): bool => in_array($card['level'] ?? '', ['red', 'yellow'], true)));
-        $opportunity = array_values(array_filter($cards, static fn (array $card): bool => ($card['level'] ?? '') === 'blue'));
-
-        if (!empty($weak)) {
-            $action = '优先复核' . implode('、', array_column($weak, 'name')) . '，从价格、房态、渠道转化和数据完整性逐项排查。';
-        } elseif (!empty($opportunity)) {
-            $action = '保留高价值库存，结合高需求日期做小步提价或促销收口。';
-        } else {
-            $action = '维持当前经营节奏，继续每日同步 OTA、日报和竞对价格用于滚动判断。';
-        }
+        $main = $cards[0] ?? [];
+        $impact = (string)($main['impact'] ?? '当前变化需要结合后续样本继续观察，暂不生成价格或执行结论。');
 
         return [
             'level' => $main['level'] ?? 'green',
             'judgement' => ($main['name'] ?? '经营趋势') . '：' . ($main['direction'] ?? '平稳'),
             'change' => "已读取{$rangeLabel}{$sampleDays}个有效样本；" . ($main['note'] ?? '趋势样本已形成。'),
-            'action' => $action,
+            'action' => $impact,
         ];
+    }
+
+    private function withTrendImpact(array $card): array
+    {
+        $card['impact'] = $this->trendImpactText($card);
+        return $card;
+    }
+
+    private function trendImpactText(array $card): string
+    {
+        if (($card['status'] ?? '') !== 'available') {
+            return '数据不足，暂不解释持续影响；缺失项不会按 0 或旧数据代替。';
+        }
+
+        $key = (string)($card['key'] ?? '');
+        $level = (string)($card['level'] ?? 'gray');
+        $direction = (string)($card['direction'] ?? '');
+        $isWeak = in_array($level, ['red', 'yellow'], true)
+            || str_contains($direction, '下降')
+            || str_contains($direction, '偏低');
+        // Blue denotes evidence synchronisation or pending calibration. It is
+        // never, by itself, evidence that a business metric improved.
+        $isImproving = str_contains($direction, '上升');
+
+        if ($key === 'revenue') {
+            if ($isWeak) {
+                return '若当前趋势持续，现有数据范围内的收入表现可能继续承压。';
+            }
+            if ($isImproving) {
+                return '收入正在改善，持续查看可确认增长是否稳定，避免把短期波动当成长期趋势。';
+            }
+            return '收入暂未出现明显偏离，继续查看可及时发现后续变化。';
+        }
+
+        if ($key === 'demand') {
+            if ($isWeak) {
+                return '若订单或需求下降持续，未来可转化的 OTA 订单基础可能收窄。';
+            }
+            if ($isImproving) {
+                return '订单或需求正在改善，持续查看可确认这一变化是否延续。';
+            }
+            return '订单需求暂时平稳，后续变化仍需结合新增样本判断。';
+        }
+
+        if ($key === 'price') {
+            if (($card['competitor_avg'] ?? null) !== null) {
+                return '与竞对均价的差距若持续，可能影响 OTA 渠道相对吸引力或收入空间；这里只提示差距，不生成调价结论。';
+            }
+            return 'ADR 变化若持续，可能影响当前数据范围内的收入结构；需与订单和间夜一起判断。';
+        }
+
+        if ($key === 'channel') {
+            if ($isWeak) {
+                return '若渠道效率持续偏弱，已有曝光或访客可能未充分转化为 OTA 订单。';
+            }
+            if ($isImproving) {
+                return '渠道效率正在改善，持续查看可确认曝光、访客和订单是否同步增长。';
+            }
+            return '渠道表现暂时平稳，继续查看可及时发现曝光、访客或转化偏离。';
+        }
+
+        return '当前变化需要结合后续样本继续观察，暂不生成价格或执行结论。';
     }
 
     private function trendPendingCard(string $key, string $name, string $note): array
     {
-        return [
+        return $this->withTrendImpact([
             'key' => $key,
             'status' => 'missing',
             'name' => $name,
@@ -841,7 +894,7 @@ class MacroSignalService
             'note' => $note,
             'spark' => [30, 30, 30, 30, 30, 30, 30, 30, 30],
             'change_rate' => null,
-        ];
+        ]);
     }
 
     private function isTrendDisplayCard(array $card): bool
@@ -874,7 +927,7 @@ class MacroSignalService
 
         $changeRate = ($current - $previous) / $previous * 100;
         if ($changeRate > 8) {
-            return ['change_rate' => round($changeRate, 1), 'direction' => 'up', 'level' => 'blue'];
+            return ['change_rate' => round($changeRate, 1), 'direction' => 'up', 'level' => 'green'];
         }
         if ($changeRate < -8) {
             return ['change_rate' => round($changeRate, 1), 'direction' => 'down', 'level' => 'yellow'];
@@ -1544,6 +1597,9 @@ class MacroSignalService
         string $actionText,
         array $reasons = []
     ): array {
+        if ($status === 'opportunity' && $level === 'blue') {
+            $level = 'green';
+        }
         return [
             'key' => $key,
             'title' => $title,

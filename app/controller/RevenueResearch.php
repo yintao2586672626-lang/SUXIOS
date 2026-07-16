@@ -27,7 +27,11 @@ class RevenueResearch extends Base
 
         try {
             $result = (new RevenueResearchService())->run($productKey, $modelKey, $this->currentUser, $hotelId);
-            return $this->success($result, '经营预测已生成');
+            $message = ($result['status'] ?? '') === 'done'
+                ? 'OTA渠道经营预测已生成'
+                : '数据不足，未生成可用经营预测';
+
+            return $this->success($result, $message);
         } catch (RuntimeException $e) {
             $code = $e->getCode();
             if ($code < 400 || $code > 599) {
