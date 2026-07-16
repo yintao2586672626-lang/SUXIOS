@@ -586,16 +586,19 @@ class FeasibilityReportService
         $online = $this->safeRows('online_daily_data', fn () => $this->buildTenantSnapshotQuery('online_daily_data', $tenantId)->order('id', 'desc')->limit(30)->select()->toArray());
         $competitors = $this->safeRows('competitor_hotel', fn () => $this->buildTenantSnapshotQuery('competitor_hotel', $tenantId)->where('status', 1)->limit(20)->select()->toArray());
         $prices = $this->safeRows('competitor_price_log', fn () => $this->buildTenantSnapshotQuery('competitor_price_log', $tenantId)->order('id', 'desc')->limit(50)->select()->toArray());
+        $competitorSummary = $this->summarizeCompetitors($competitors, $prices);
 
         return [
             'daily_summary' => $this->summarizeDailyReports($daily),
             'online_summary' => $this->summarizeOnlineData($online),
-            'competitor_summary' => $this->summarizeCompetitors($competitors, $prices),
+            'competitor_summary' => $competitorSummary,
             'source_counts' => [
                 'daily_reports' => count($daily),
                 'online_daily_data' => count($online),
                 'competitor_hotels' => count($competitors),
                 'competitor_price_logs' => count($prices),
+                'competitor_price_logs_decision_eligible' => (int)($competitorSummary['decision_eligible_price_count'] ?? 0),
+                'competitor_price_logs_reference_only' => (int)($competitorSummary['reference_only_price_count'] ?? 0),
             ],
             'generated_at' => date('Y-m-d H:i:s'),
         ];
@@ -682,11 +685,228 @@ class FeasibilityReportService
 
     private function summarizeCompetitors(array $hotels, array $prices): array
     {
-        $priceValues = array_values(array_filter(array_map(fn ($row) => (float) ($row['price'] ?? 0), $prices), fn ($v) => $v > 0));
+        $priceSummary = $this->summarizeComparableCompetitorPrices($prices);
         return [
             'competitor_count' => count($hotels),
-            'avg_competitor_price' => $this->avg($priceValues),
+            'visible_price_count' => count($prices),
+            'decision_eligible_price_count' => (int)($priceSummary['decision_eligible_row_count'] ?? 0),
+            'reference_only_price_count' => (int)($priceSummary['reference_only_row_count'] ?? count($prices)),
+            'avg_competitor_price' => $priceSummary['avg_price'] ?? null,
+            'comparison_key' => (string)($priceSummary['comparison_key'] ?? ''),
+            'comparison_status' => (string)($priceSummary['comparison_status'] ?? 'no_data'),
+            'comparison_scope' => 'same_platform_stay_dates_room_rate_meal_cancel_payment_tax_currency_guest_mix',
+            'price_usage_boundary' => 'ota_public_rate_reference_not_project_adr_or_financial_assumption',
+            'data_gaps' => array_values((array)($priceSummary['data_gaps'] ?? [])),
+            'quality_gap_counts' => (array)($priceSummary['quality_gap_counts'] ?? []),
         ];
+    }
+
+    /** @return array<string, mixed> */
+    private function summarizeComparableCompetitorPrices(array $rows): array
+    {
+        $groups = [];
+        $gapCounts = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $assessment = $this->assessComparableCompetitorPrice($row);
+            if (($assessment['eligible'] ?? false) !== true) {
+                foreach ((array)($assessment['reasons'] ?? []) as $reason) {
+                    $gapCounts[$reason] = ($gapCounts[$reason] ?? 0) + 1;
+                }
+                continue;
+            }
+
+            $comparisonKey = (string)$assessment['comparison_key'];
+            $groups[$comparisonKey]['prices'][] = (float)$row['price'];
+            $groups[$comparisonKey]['latest'] = max(
+                (string)($groups[$comparisonKey]['latest'] ?? ''),
+                (string)($assessment['captured_at'] ?? '')
+            );
+        }
+
+        if ($groups === []) {
+            if ($rows !== []) {
+                $gapCounts['strict_comparability_missing'] = count($rows);
+            }
+            return [
+                'comparison_status' => $rows === [] ? 'no_data' : 'reference_only',
+                'avg_price' => null,
+                'comparison_key' => '',
+                'visible_row_count' => count($rows),
+                'decision_eligible_row_count' => 0,
+                'reference_only_row_count' => count($rows),
+                'data_gaps' => array_values(array_keys($gapCounts)),
+                'quality_gap_counts' => $gapCounts,
+            ];
+        }
+
+        uasort($groups, static function (array $left, array $right): int {
+            $sampleCompare = count($right['prices'] ?? []) <=> count($left['prices'] ?? []);
+            return $sampleCompare !== 0
+                ? $sampleCompare
+                : strcmp((string)($right['latest'] ?? ''), (string)($left['latest'] ?? ''));
+        });
+        $comparisonKey = (string)array_key_first($groups);
+        $selected = $groups[$comparisonKey];
+        $selectedPrices = (array)($selected['prices'] ?? []);
+        $selectedCount = count($selectedPrices);
+        $eligibleCount = array_sum(array_map(
+            static fn (array $group): int => count($group['prices'] ?? []),
+            $groups
+        ));
+        if (count($groups) > 1) {
+            $gapCounts['mixed_comparison_key'] = max(1, $eligibleCount - $selectedCount);
+        }
+
+        return [
+            'comparison_status' => 'eligible',
+            'avg_price' => $selectedPrices === [] ? null : round(array_sum($selectedPrices) / $selectedCount, 2),
+            'comparison_key' => $comparisonKey,
+            'visible_row_count' => count($rows),
+            'decision_eligible_row_count' => $selectedCount,
+            'reference_only_row_count' => max(0, count($rows) - $selectedCount),
+            'data_gaps' => array_values(array_keys($gapCounts)),
+            'quality_gap_counts' => $gapCounts,
+        ];
+    }
+
+    /** @return array{eligible:bool,reasons:array<int,string>,comparison_key:string,captured_at:string} */
+    private function assessComparableCompetitorPrice(array $row): array
+    {
+        $context = $this->competitorPriceContext($row);
+        $reasons = [];
+        if (!is_numeric($row['price'] ?? null) || (float)$row['price'] <= 0) {
+            $reasons[] = 'price_missing';
+        }
+        foreach ([
+            'platform', 'check_in_date', 'check_out_date', 'room_type_key', 'rate_plan_key',
+            'breakfast', 'cancellation_policy', 'payment_mode', 'price_basis', 'currency',
+            'availability', 'validation_status',
+        ] as $field) {
+            if (!$this->competitorPriceContextHasValue($context, $field)) {
+                $reasons[] = $field . '_missing';
+            }
+        }
+        if (!array_key_exists('tax_fee_included', $context)) {
+            $reasons[] = 'tax_fee_included_missing';
+        }
+        if (!is_numeric($context['adults'] ?? null) || (int)$context['adults'] <= 0) {
+            $reasons[] = 'adults_missing';
+        }
+        if (!is_numeric($context['children'] ?? null) || (int)$context['children'] < 0) {
+            $reasons[] = 'children_missing';
+        }
+        if (!$this->competitorPriceReadbackVerified($context['readback_verified'] ?? null)) {
+            $reasons[] = 'readback_unverified';
+        }
+        if (!in_array(strtolower(trim((string)($context['validation_status'] ?? ''))), ['normal', 'available', 'ok', 'valid', 'verified'], true)) {
+            $reasons[] = 'validation_failed';
+        }
+        if (!in_array(strtolower(trim((string)($context['availability'] ?? ''))), ['available', 'bookable'], true)) {
+            $reasons[] = 'not_publicly_bookable';
+        }
+
+        $checkIn = trim((string)($context['check_in_date'] ?? ''));
+        $checkOut = trim((string)($context['check_out_date'] ?? ''));
+        if ($checkIn !== '' && $checkOut !== ''
+            && (strtotime($checkIn) === false || strtotime($checkOut) === false || strtotime($checkOut) <= strtotime($checkIn))
+        ) {
+            $reasons[] = 'stay_date_invalid';
+        }
+
+        $keyValues = [];
+        foreach ([
+            'platform', 'check_in_date', 'check_out_date', 'room_type_key', 'rate_plan_key',
+            'breakfast', 'cancellation_policy', 'payment_mode', 'tax_fee_included', 'price_basis',
+            'currency', 'adults', 'children',
+        ] as $field) {
+            $keyValues[] = strtolower(trim((string)($context[$field] ?? '')));
+        }
+
+        $derivedComparisonKey = hash('sha256', implode('|', $keyValues));
+        $providedComparisonKey = strtolower(trim((string)($context['comparison_key'] ?? '')));
+
+        return [
+            'eligible' => $reasons === [],
+            'reasons' => array_values(array_unique($reasons)),
+            'comparison_key' => $providedComparisonKey === ''
+                ? $derivedComparisonKey
+                : hash('sha256', $providedComparisonKey . '|' . $derivedComparisonKey),
+            'captured_at' => trim((string)($context['captured_at'] ?? '')),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function competitorPriceContext(array $row): array
+    {
+        $context = $row;
+        foreach (['comparison_context', 'rate_context', 'context_json', 'metadata_json', 'raw_data'] as $field) {
+            $nested = $this->decodeJson($row[$field] ?? []);
+            if ($nested !== []) {
+                $context = array_merge($context, $nested);
+            }
+        }
+
+        $aliases = [
+            'platform' => ['platform', 'ota_platform'],
+            'check_in_date' => ['check_in_date', 'checkin_date', 'checkInDate', 'stay_date'],
+            'check_out_date' => ['check_out_date', 'checkout_date', 'checkOutDate', 'departure_date'],
+            'room_type_key' => ['room_type_key', 'room_type_id', 'room_type_name'],
+            'rate_plan_key' => ['rate_plan_key', 'rate_plan_id', 'rate_plan_name'],
+            'breakfast' => ['breakfast', 'breakfast_policy', 'breakfast_included', 'meal_plan'],
+            'cancellation_policy' => ['cancellation_policy', 'cancel_policy', 'cancel_rule'],
+            'payment_mode' => ['payment_mode', 'payment_policy', 'payment_type'],
+            'tax_fee_included' => ['tax_fee_included', 'tax_included', 'includes_tax'],
+            'price_basis' => ['price_basis', 'price_unit'],
+            'currency' => ['currency'],
+            'adults' => ['adults', 'adult_count'],
+            'children' => ['children', 'child_count'],
+            'availability' => ['availability', 'availability_status'],
+            'validation_status' => ['validation_status', 'quality_status'],
+            'readback_verified' => ['readback_verified'],
+            'comparison_key' => ['comparison_key'],
+            'captured_at' => ['captured_at', 'fetch_time', 'create_time', 'created_at'],
+        ];
+        foreach ($aliases as $canonical => $fields) {
+            $value = $this->firstCompetitorPriceContextValue($context, $fields);
+            if ($value !== null) {
+                if ($canonical === 'breakfast' && is_bool($value)) {
+                    $value = $value ? 'included' : 'excluded';
+                }
+                $context[$canonical] = $value;
+            }
+        }
+        return $context;
+    }
+
+    private function firstCompetitorPriceContextValue(array $context, array $fields): mixed
+    {
+        foreach ($fields as $field) {
+            if (!array_key_exists($field, $context) || $context[$field] === null) {
+                continue;
+            }
+            if (is_string($context[$field]) && trim($context[$field]) === '') {
+                continue;
+            }
+            return $context[$field];
+        }
+        return null;
+    }
+
+    private function competitorPriceContextHasValue(array $context, string $field): bool
+    {
+        return array_key_exists($field, $context)
+            && $context[$field] !== null
+            && trim((string)$context[$field]) !== '';
+    }
+
+    private function competitorPriceReadbackVerified(mixed $value): bool
+    {
+        return $value === true
+            || $value === 1
+            || in_array(strtolower(trim((string)$value)), ['1', 'true', 'yes', 'verified'], true);
     }
 
     private function calculate(array $input, array $snapshot): array
@@ -813,7 +1033,7 @@ class FeasibilityReportService
         $messages = [
             [
                 'role' => 'system',
-                'content' => '你是酒店投资可行性分析师。只输出符合 schema 的 JSON。财务数字必须采用用户显式输入和本地规则情景测算，不要编造来源；固定成本公式与 18% 变动成本均为规则情景假设，不是经营实绩。无可追溯市场或竞品证据时，market_score 必须为 null、competition_level 必须写“未评估”；用户未输入产品定位或目标客群时，recommended_model 和 target_customer 必须为 null；无来源的数据写入 assumptions；风险评级保持保守。',
+                'content' => '你是酒店投资可行性分析师。只输出符合 schema 的 JSON。财务数字必须采用用户显式输入和本地规则情景测算，不要编造来源；固定成本公式与 18% 变动成本均为规则情景假设，不是经营实绩。competitor_summary.comparison_status 不是 eligible 或 avg_competitor_price 为 null 时，竞对原始价只能标记为 reference_only，不得与项目 ADR 比较，不得生成调价风险或投资结论；即使严格可比，OTA公开价也不能替代项目 ADR 假设或财务输入。无可追溯市场或竞品证据时，market_score 必须为 null、competition_level 必须写“未评估”；用户未输入产品定位或目标客群时，recommended_model 和 target_customer 必须为 null；无来源的数据写入 assumptions；风险评级保持保守。',
             ],
             [
                 'role' => 'user',
@@ -1035,8 +1255,16 @@ class FeasibilityReportService
     private function hasTraceableMarketEvidence(array $snapshot): bool
     {
         $counts = is_array($snapshot['source_counts'] ?? null) ? $snapshot['source_counts'] : [];
+        $competitorSummary = is_array($snapshot['competitor_summary'] ?? null)
+            ? $snapshot['competitor_summary']
+            : [];
         return (int)($counts['competitor_hotels'] ?? 0) > 0
-            || (int)($counts['competitor_price_logs'] ?? 0) > 0;
+            || (
+                ($competitorSummary['comparison_status'] ?? '') === 'eligible'
+                && (int)($competitorSummary['decision_eligible_price_count'] ?? 0) > 0
+                && is_numeric($competitorSummary['avg_competitor_price'] ?? null)
+                && (float)$competitorSummary['avg_competitor_price'] > 0
+            );
     }
 
     private function formatRecord(FeasibilityReport $record): array
@@ -1324,7 +1552,14 @@ class FeasibilityReportService
     private function sourceCountTotal(array $snapshot): int
     {
         $counts = is_array($snapshot['source_counts'] ?? null) ? $snapshot['source_counts'] : [];
-        return array_sum(array_map(static fn ($value): int => max(0, (int)$value), $counts));
+        $total = 0;
+        foreach ($counts as $key => $value) {
+            if (in_array((string)$key, ['competitor_price_logs', 'competitor_price_logs_reference_only'], true)) {
+                continue;
+            }
+            $total += max(0, (int)$value);
+        }
+        return $total;
     }
 
     private function hasPositiveReadinessValue(mixed $value): bool

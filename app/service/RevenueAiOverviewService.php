@@ -11,6 +11,9 @@ class RevenueAiOverviewService
     private const CHANNELS = ['ctrip', 'meituan'];
     private const CTRIP_COMPETITOR_PLATFORM_VALUES = [1, '1', 'ctrip'];
 
+    /** @var array<int, int> */
+    private array $overviewScopeHotelIds = [];
+
     /**
      * @param array<string, mixed> $filters
      * @return array<string, mixed>
@@ -44,6 +47,7 @@ class RevenueAiOverviewService
             $channelDatasets[$channel] = $etl->buildDataset(array_merge($baseFilters, ['source' => $channel]));
         }
         $dataset = $this->mergeChannelDatasets($channelDatasets);
+        $this->overviewScopeHotelIds = $hotelId !== null ? [$hotelId] : $hotelIds;
         $reviewQueue = $this->priceSuggestionReviewQueue($businessDate, $hotelId);
         $pricingGenerationPreflight = $this->pricingGenerationPreflight($businessDate, $hotelId, $hotelIds, $dataset, $channels);
         $agentActivity = $this->agentActivity($businessDate, $hotelId);
@@ -1739,6 +1743,7 @@ class RevenueAiOverviewService
 
     private function priceSuggestionReviewQueue(string $businessDate, ?int $hotelId): array
     {
+        $scopeHotelIds = $this->overviewScopeHotelIds;
         if (!$this->tableExists('price_suggestions')) {
             return $this->priceSuggestionReviewQueueUnavailable($businessDate, $hotelId, 'missing', 'price_suggestions_missing');
         }
@@ -1755,7 +1760,7 @@ class RevenueAiOverviewService
                 ['missing_fields' => $missingRequired]
             );
         }
-        if ($hotelId !== null && !isset($columns['hotel_id'])) {
+        if (($hotelId !== null || $scopeHotelIds !== []) && !isset($columns['hotel_id'])) {
             return $this->priceSuggestionReviewQueueUnavailable(
                 $businessDate,
                 $hotelId,
@@ -1795,6 +1800,8 @@ class RevenueAiOverviewService
                 ->where('suggestion_date', $businessDate);
             if ($hotelId !== null) {
                 $query->where('hotel_id', $hotelId);
+            } elseif ($scopeHotelIds !== []) {
+                $query->whereIn('hotel_id', $scopeHotelIds);
             }
             if (isset($columns['update_time'])) {
                 $query->order('update_time', 'desc');
@@ -3451,6 +3458,7 @@ class RevenueAiOverviewService
 
     private function agentActivity(string $businessDate, ?int $hotelId): array
     {
+        $scopeHotelIds = $this->overviewScopeHotelIds;
         if (!$this->tableExists('agent_logs')) {
             return $this->agentActivityUnavailable($businessDate, $hotelId, 'missing', 'agent_logs_missing');
         }
@@ -3467,7 +3475,7 @@ class RevenueAiOverviewService
                 ['missing_fields' => $missingRequired]
             );
         }
-        if ($hotelId !== null && !isset($columns['hotel_id'])) {
+        if (($hotelId !== null || $scopeHotelIds !== []) && !isset($columns['hotel_id'])) {
             return $this->agentActivityUnavailable(
                 $businessDate,
                 $hotelId,
@@ -3497,6 +3505,8 @@ class RevenueAiOverviewService
                 ->order('create_time', 'desc');
             if ($hotelId !== null) {
                 $query->where('hotel_id', $hotelId);
+            } elseif ($scopeHotelIds !== []) {
+                $query->whereIn('hotel_id', $scopeHotelIds);
             }
             if (isset($columns['id'])) {
                 $query->order('id', 'desc');
@@ -4638,15 +4648,18 @@ class RevenueAiOverviewService
     }
 
     /**
-     * @param int|null $hotelId
      * @return array<string, array<string, mixed>>
      */
     private function sourceStatusRows(?int $hotelId): array
     {
+        $scopeHotelIds = $this->overviewScopeHotelIds;
         if (!$this->tableExists('platform_data_sources')) {
             return [];
         }
         $columns = $this->tableColumns('platform_data_sources');
+        if (($hotelId !== null || $scopeHotelIds !== []) && !isset($columns['system_hotel_id'])) {
+            return [];
+        }
         $fields = array_values(array_intersect([
             'id',
             'system_hotel_id',
@@ -4669,8 +4682,12 @@ class RevenueAiOverviewService
                 ->order('last_sync_time', 'desc')
                 ->order('update_time', 'desc')
                 ->order('id', 'desc');
-            if ($hotelId !== null && isset($columns['system_hotel_id'])) {
-                $query->where('system_hotel_id', $hotelId);
+            if (isset($columns['system_hotel_id'])) {
+                if ($hotelId !== null) {
+                    $query->where('system_hotel_id', $hotelId);
+                } elseif ($scopeHotelIds !== []) {
+                    $query->whereIn('system_hotel_id', $scopeHotelIds);
+                }
             }
             $rows = $query->select()->toArray();
         } catch (\Throwable) {

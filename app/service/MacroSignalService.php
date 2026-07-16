@@ -57,7 +57,12 @@ class MacroSignalService
         $cards = [
             $this->buildRevenueTrendCard($series['rows'], $rangeLabel),
             $this->buildDemandTrendCard($series['rows'], $forecasts, $rangeLabel),
-            $this->buildPriceTrendCard($series['rows'], $series['competitor_avg'], $rangeLabel),
+            $this->buildPriceTrendCard(
+                $series['rows'],
+                $series['competitor_avg'],
+                $rangeLabel,
+                $series['competitor_price_summary'] ?? []
+            ),
             $this->buildChannelTrendCard($series['rows'], $rangeLabel),
         ];
         $displayCards = array_values(array_filter($cards, fn (array $card): bool => $this->isTrendDisplayCard($card)));
@@ -303,12 +308,16 @@ class MacroSignalService
         $daily = $this->readDailyRows($hotelIds, 30);
         $competitors = $this->readCompetitorPrices($hotelIds, 30);
         $adr = $this->avgAdr($online, $daily);
-        $competitorAvg = $this->avgField($competitors, 'price');
+        $competitorSummary = $this->summarizeComparableCompetitorPrices($competitors);
+        $competitorAvg = $competitorSummary['avg_price'];
         $occupancy = $this->avgOccupancy($daily);
         $conversion = $this->aggregateTraffic($online)['conversion'];
 
         if ($adr <= 0 && $competitorAvg <= 0) {
-            return $this->pending('price', '价格信号', '等待 ADR、竞对价格、入住率和转化数据同步');
+            return $this->appendCompetitorPriceEvidence(
+                $this->pending('price', '价格信号', '等待 ADR、严格可比的竞对价格、入住率和转化数据同步'),
+                $competitorSummary
+            );
         }
 
         $gap = ($adr > 0 && $competitorAvg > 0) ? $adr - $competitorAvg : null;
@@ -340,9 +349,15 @@ class MacroSignalService
             $status = 'attention';
             $statusText = '待校准';
             $level = 'yellow';
-            $summary = '已有本店 ADR，缺少竞对价格样本，暂不判断价差';
-            $reasons = ['近30天未读取到有效竞对价格样本'];
-            $suggestions = ['同步或录入竞对价格后再判断价差'];
+            if (($competitorSummary['visible_row_count'] ?? 0) > 0) {
+                $summary = '已有竞对原始价，但价盘口径、客人结构或验证回读证据不完整，仅作参考，未与本店 ADR 比较';
+                $reasons = ['竞对价格未通过严格可比性门控'];
+                $suggestions = ['补齐同平台、同入住日、同房型价型及完整价格条件并完成验证回读后再判断'];
+            } else {
+                $summary = '已有本店 ADR，缺少严格可比的竞对价格样本，暂不判断价差';
+                $reasons = ['近30天未读取到严格可比的竞对价格样本'];
+                $suggestions = ['同步或录入完整竞对价盘证据后再判断价差'];
+            }
         } elseif ($gap !== null && $competitorAvg > 0) {
             $gapRate = $gap / $competitorAvg;
             if ($gapRate > 0.15 && (($occupancy !== null && $occupancy < 70) || ($conversion !== null && $conversion < 3))) {
@@ -362,7 +377,10 @@ class MacroSignalService
             }
         }
 
-        return $this->card('price', '价格信号', $status, $statusText, $level, $summary, $metrics, $suggestions, '去分析', $reasons);
+        return $this->appendCompetitorPriceEvidence(
+            $this->card('price', '价格信号', $status, $statusText, $level, $summary, $metrics, $suggestions, '去分析', $reasons),
+            $competitorSummary
+        );
     }
 
     private function demand(array $hotelIds): array
@@ -594,9 +612,12 @@ class MacroSignalService
         }
         unset($row);
 
+        $competitorSummary = $this->summarizeComparableCompetitorPrices($competitorRows);
+
         return [
             'rows' => array_values($rows),
-            'competitor_avg' => $this->avgField($competitorRows, 'price'),
+            'competitor_avg' => (float)($competitorSummary['avg_price'] ?? 0.0),
+            'competitor_price_summary' => $competitorSummary,
         ];
     }
 
@@ -702,12 +723,15 @@ class MacroSignalService
         ]);
     }
 
-    private function buildPriceTrendCard(array $rows, float $competitorAvg, string $rangeLabel): array
+    private function buildPriceTrendCard(array $rows, float $competitorAvg, string $rangeLabel, array $competitorSummary = []): array
     {
         $values = $this->positiveNumericValues(array_column($rows, 'adr'));
         $avgAdr = $this->avgNumeric($values);
         if ($avgAdr <= 0 || (count($values) < 2 && $competitorAvg <= 0)) {
-            return $this->trendPendingCard('price', '价格竞争', '等待 ADR 或竞对价格同步后判断价格走势');
+            return $this->appendCompetitorPriceEvidence(
+                $this->trendPendingCard('price', '价格竞争', '等待 ADR 或严格可比的竞对价格同步后判断价格走势'),
+                $competitorSummary
+            );
         }
 
         $priceBand = $this->priceBandFromSamples($values, $competitorAvg);
@@ -733,7 +757,7 @@ class MacroSignalService
             $note = '本店ADR较竞对均价' . ($gap >= 0 ? '高' : '低') . '¥' . abs((int)round($gap)) . '，价格区间已纳入竞对均价校准';
         }
 
-        return $this->withTrendImpact([
+        $card = $this->withTrendImpact([
             'key' => 'price',
             'status' => 'available',
             'name' => '价格竞争',
@@ -749,6 +773,13 @@ class MacroSignalService
             'competitor_avg' => $competitorAvg > 0 ? round($competitorAvg, 2) : null,
             'price_sample_count' => $priceBand['sample_count'],
         ]);
+
+        if (($competitorSummary['comparison_status'] ?? '') === 'reference_only') {
+            $card['source'] = '来源：经营日报/OTA 推算 ADR；不完整竞对原始价仅作参考，未参与价差比较';
+            $card['note'] = "{$rangeLabel}ADR{$direction}，竞对原始价因可比字段或验证回读不完整未参与比较";
+        }
+
+        return $this->appendCompetitorPriceEvidence($card, $competitorSummary);
     }
 
     private function buildChannelTrendCard(array $rows, string $rangeLabel): array
@@ -1165,7 +1196,6 @@ class MacroSignalService
 
         return $this->safeRows(fn () => $this->withHotelIds(
             Db::name('competitor_price_log')
-                ->field('store_id,hotel_id,price,fetch_time,create_time')
                 ->where('price', '>', 0)
                 ->where(function ($query) use ($start) {
                     $query->where('fetch_time', '>=', $start)->whereOr('create_time', '>=', $start);
@@ -1218,7 +1248,6 @@ class MacroSignalService
 
         return $this->safeRows(fn () => $this->withHotelIds(
             Db::name('competitor_price_log')
-                ->field('store_id,hotel_id,price,fetch_time,create_time')
                 ->where('price', '>', 0)
                 ->where(function ($query) use ($start, $end) {
                     $query->whereBetween('fetch_time', [$start, $end])->whereOr(function ($subQuery) use ($start, $end) {
@@ -1435,6 +1464,241 @@ class MacroSignalService
         }
 
         return (int)round($total);
+    }
+
+    /**
+     * Legacy competitor_price_log rows only contain a naked display price. They are
+     * visible for audit, but cannot enter an ADR comparison until the full public-rate
+     * context is present, validated and read back. A single comparison key is selected
+     * so prices from different stay dates or rate conditions are never averaged together.
+     *
+     * @return array<string, mixed>
+     */
+    private function summarizeComparableCompetitorPrices(array $rows): array
+    {
+        $groups = [];
+        $gapCounts = [];
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $assessment = $this->assessComparableCompetitorPrice($row);
+            if (($assessment['eligible'] ?? false) !== true) {
+                foreach ((array)($assessment['reasons'] ?? []) as $reason) {
+                    $gapCounts[$reason] = ($gapCounts[$reason] ?? 0) + 1;
+                }
+                continue;
+            }
+
+            $comparisonKey = (string)$assessment['comparison_key'];
+            $groups[$comparisonKey]['prices'][] = (float)$row['price'];
+            $groups[$comparisonKey]['latest'] = max(
+                (string)($groups[$comparisonKey]['latest'] ?? ''),
+                (string)($assessment['captured_at'] ?? '')
+            );
+        }
+
+        if ($groups === []) {
+            if ($rows !== []) {
+                $gapCounts['strict_comparability_missing'] = count($rows);
+            }
+            return [
+                'comparison_status' => $rows === [] ? 'no_data' : 'reference_only',
+                'avg_price' => null,
+                'comparison_key' => '',
+                'visible_row_count' => count($rows),
+                'decision_eligible_row_count' => 0,
+                'reference_only_row_count' => count($rows),
+                'data_gaps' => array_values(array_keys($gapCounts)),
+                'quality_gap_counts' => $gapCounts,
+            ];
+        }
+
+        uasort($groups, static function (array $left, array $right): int {
+            $sampleCompare = count($right['prices'] ?? []) <=> count($left['prices'] ?? []);
+            return $sampleCompare !== 0
+                ? $sampleCompare
+                : strcmp((string)($right['latest'] ?? ''), (string)($left['latest'] ?? ''));
+        });
+
+        $comparisonKey = (string)array_key_first($groups);
+        $selected = $groups[$comparisonKey];
+        $prices = (array)($selected['prices'] ?? []);
+        $selectedCount = count($prices);
+        $eligibleCount = array_sum(array_map(
+            static fn (array $group): int => count($group['prices'] ?? []),
+            $groups
+        ));
+        if (count($groups) > 1) {
+            $gapCounts['mixed_comparison_key'] = max(1, $eligibleCount - $selectedCount);
+        }
+
+        return [
+            'comparison_status' => 'eligible',
+            'avg_price' => $prices === [] ? null : round(array_sum($prices) / $selectedCount, 2),
+            'comparison_key' => $comparisonKey,
+            'visible_row_count' => count($rows),
+            'decision_eligible_row_count' => $selectedCount,
+            'reference_only_row_count' => max(0, count($rows) - $selectedCount),
+            'data_gaps' => array_values(array_keys($gapCounts)),
+            'quality_gap_counts' => $gapCounts,
+        ];
+    }
+
+    /** @return array{eligible:bool,reasons:array<int,string>,comparison_key:string,captured_at:string} */
+    private function assessComparableCompetitorPrice(array $row): array
+    {
+        $context = $this->competitorPriceContext($row);
+        $reasons = [];
+        if (!is_numeric($row['price'] ?? null) || (float)$row['price'] <= 0) {
+            $reasons[] = 'price_missing';
+        }
+
+        foreach ([
+            'platform', 'check_in_date', 'check_out_date', 'room_type_key', 'rate_plan_key',
+            'breakfast', 'cancellation_policy', 'payment_mode', 'price_basis', 'currency',
+            'availability', 'validation_status',
+        ] as $field) {
+            if (!$this->competitorPriceContextHasValue($context, $field)) {
+                $reasons[] = $field . '_missing';
+            }
+        }
+        if (!array_key_exists('tax_fee_included', $context)) {
+            $reasons[] = 'tax_fee_included_missing';
+        }
+        if (!is_numeric($context['adults'] ?? null) || (int)$context['adults'] <= 0) {
+            $reasons[] = 'adults_missing';
+        }
+        if (!is_numeric($context['children'] ?? null) || (int)$context['children'] < 0) {
+            $reasons[] = 'children_missing';
+        }
+        if (!$this->competitorPriceReadbackVerified($context['readback_verified'] ?? null)) {
+            $reasons[] = 'readback_unverified';
+        }
+        if (!in_array(strtolower(trim((string)($context['validation_status'] ?? ''))), ['normal', 'available', 'ok', 'valid', 'verified'], true)) {
+            $reasons[] = 'validation_failed';
+        }
+        if (!in_array(strtolower(trim((string)($context['availability'] ?? ''))), ['available', 'bookable'], true)) {
+            $reasons[] = 'not_publicly_bookable';
+        }
+
+        $checkIn = trim((string)($context['check_in_date'] ?? ''));
+        $checkOut = trim((string)($context['check_out_date'] ?? ''));
+        if ($checkIn !== '' && $checkOut !== ''
+            && (strtotime($checkIn) === false || strtotime($checkOut) === false || strtotime($checkOut) <= strtotime($checkIn))
+        ) {
+            $reasons[] = 'stay_date_invalid';
+        }
+
+        $keyValues = [];
+        foreach ([
+            'platform', 'check_in_date', 'check_out_date', 'room_type_key', 'rate_plan_key',
+            'breakfast', 'cancellation_policy', 'payment_mode', 'tax_fee_included', 'price_basis',
+            'currency', 'adults', 'children',
+        ] as $field) {
+            $keyValues[] = strtolower(trim((string)($context[$field] ?? '')));
+        }
+
+        $derivedComparisonKey = hash('sha256', implode('|', $keyValues));
+        $providedComparisonKey = strtolower(trim((string)($context['comparison_key'] ?? '')));
+
+        return [
+            'eligible' => $reasons === [],
+            'reasons' => array_values(array_unique($reasons)),
+            'comparison_key' => $providedComparisonKey === ''
+                ? $derivedComparisonKey
+                : hash('sha256', $providedComparisonKey . '|' . $derivedComparisonKey),
+            'captured_at' => trim((string)($context['captured_at'] ?? '')),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function competitorPriceContext(array $row): array
+    {
+        $context = $row;
+        foreach (['comparison_context', 'rate_context', 'context_json', 'metadata_json', 'raw_data'] as $field) {
+            $nested = $this->decodeJson($row[$field] ?? null);
+            if ($nested !== []) {
+                $context = array_merge($context, $nested);
+            }
+        }
+
+        $aliases = [
+            'platform' => ['platform', 'ota_platform'],
+            'check_in_date' => ['check_in_date', 'checkin_date', 'checkInDate', 'stay_date'],
+            'check_out_date' => ['check_out_date', 'checkout_date', 'checkOutDate', 'departure_date'],
+            'room_type_key' => ['room_type_key', 'room_type_id', 'room_type_name'],
+            'rate_plan_key' => ['rate_plan_key', 'rate_plan_id', 'rate_plan_name'],
+            'breakfast' => ['breakfast', 'breakfast_policy', 'breakfast_included', 'meal_plan'],
+            'cancellation_policy' => ['cancellation_policy', 'cancel_policy', 'cancel_rule'],
+            'payment_mode' => ['payment_mode', 'payment_policy', 'payment_type'],
+            'tax_fee_included' => ['tax_fee_included', 'tax_included', 'includes_tax'],
+            'price_basis' => ['price_basis', 'price_unit'],
+            'currency' => ['currency'],
+            'adults' => ['adults', 'adult_count'],
+            'children' => ['children', 'child_count'],
+            'availability' => ['availability', 'availability_status'],
+            'validation_status' => ['validation_status', 'quality_status'],
+            'readback_verified' => ['readback_verified'],
+            'comparison_key' => ['comparison_key'],
+            'captured_at' => ['captured_at', 'fetch_time', 'create_time', 'created_at'],
+        ];
+        foreach ($aliases as $canonical => $fields) {
+            $value = $this->firstCompetitorPriceContextValue($context, $fields);
+            if ($value !== null) {
+                if ($canonical === 'breakfast' && is_bool($value)) {
+                    $value = $value ? 'included' : 'excluded';
+                }
+                $context[$canonical] = $value;
+            }
+        }
+
+        return $context;
+    }
+
+    private function firstCompetitorPriceContextValue(array $context, array $fields): mixed
+    {
+        foreach ($fields as $field) {
+            if (!array_key_exists($field, $context) || $context[$field] === null) {
+                continue;
+            }
+            if (is_string($context[$field]) && trim($context[$field]) === '') {
+                continue;
+            }
+            return $context[$field];
+        }
+        return null;
+    }
+
+    private function competitorPriceContextHasValue(array $context, string $field): bool
+    {
+        return array_key_exists($field, $context)
+            && $context[$field] !== null
+            && trim((string)$context[$field]) !== '';
+    }
+
+    private function competitorPriceReadbackVerified(mixed $value): bool
+    {
+        return $value === true
+            || $value === 1
+            || in_array(strtolower(trim((string)$value)), ['1', 'true', 'yes', 'verified'], true);
+    }
+
+    /** @param array<string, mixed> $summary */
+    private function appendCompetitorPriceEvidence(array $card, array $summary): array
+    {
+        $card['competitor_data_status'] = (string)($summary['comparison_status'] ?? 'no_data');
+        $card['competitor_avg'] = isset($summary['avg_price']) && is_numeric($summary['avg_price'])
+            ? round((float)$summary['avg_price'], 2)
+            : null;
+        $card['comparison_key'] = (string)($summary['comparison_key'] ?? '');
+        $card['comparison_scope'] = 'hotel_adr_to_same_context_ota_public_rate_reference';
+        $card['visible_competitor_price_rows'] = (int)($summary['visible_row_count'] ?? 0);
+        $card['decision_eligible_competitor_price_rows'] = (int)($summary['decision_eligible_row_count'] ?? 0);
+        $card['reference_only_competitor_price_rows'] = (int)($summary['reference_only_row_count'] ?? 0);
+        $card['data_gaps'] = array_values((array)($summary['data_gaps'] ?? []));
+        return $card;
     }
 
     private function avgField(array $rows, string $field): float

@@ -363,28 +363,39 @@ class OperationLogController extends Base
     private function buildSummary($query): array
     {
         $today = date('Y-m-d');
+        $acquisitionActions = $this->sqlStringList(self::DATA_ACQUISITION_ACTIONS);
+        $analysisActions = $this->sqlStringList(self::DATA_ANALYSIS_ACTIONS);
+
+        $row = (clone $query)->field(implode(',', [
+            'COUNT(*) AS total',
+            "SUM(CASE WHEN create_time BETWEEN '{$today} 00:00:00' AND '{$today} 23:59:59' THEN 1 ELSE 0 END) AS today_total",
+            'COUNT(DISTINCT user_id) AS active_users',
+            'COUNT(DISTINCT hotel_id) AS hotel_count',
+            'COUNT(DISTINCT module) AS module_count',
+            "SUM(CASE WHEN action IN ({$acquisitionActions}) OR action LIKE 'fetch\_%' THEN 1 ELSE 0 END) AS data_acquisition_count",
+            "SUM(CASE WHEN action IN ({$analysisActions}) OR action LIKE '%analysis%' OR action LIKE '%analyze%' OR action LIKE '%simulate%' OR action LIKE '%forecast%' OR action LIKE '%feasibility%' THEN 1 ELSE 0 END) AS analysis_count",
+        ]))->find();
 
         return [
-            'total' => (int)(clone $query)->count(),
-            'today_total' => (int)(clone $query)->whereBetween('create_time', [$today . ' 00:00:00', $today . ' 23:59:59'])->count(),
-            'active_users' => $this->countDistinct(clone $query, 'user_id'),
-            'hotel_count' => $this->countDistinct(clone $query, 'hotel_id'),
-            'module_count' => $this->countDistinct(clone $query, 'module'),
-            'data_acquisition_count' => $this->countByAuditType(clone $query, 'acquisition'),
-            'analysis_count' => $this->countByAuditType(clone $query, 'analysis'),
+            'total' => (int)($row['total'] ?? 0),
+            'today_total' => (int)($row['today_total'] ?? 0),
+            'active_users' => (int)($row['active_users'] ?? 0),
+            'hotel_count' => (int)($row['hotel_count'] ?? 0),
+            'module_count' => (int)($row['module_count'] ?? 0),
+            'data_acquisition_count' => (int)($row['data_acquisition_count'] ?? 0),
+            'analysis_count' => (int)($row['analysis_count'] ?? 0),
         ];
     }
 
-    private function countDistinct($query, string $field): int
+    /**
+     * @param array<int, string> $values
+     */
+    private function sqlStringList(array $values): string
     {
-        $row = $query->whereNotNull($field)->field("COUNT(DISTINCT {$field}) as total")->find();
-        return (int)($row['total'] ?? 0);
-    }
-
-    private function countByAuditType($query, string $auditType): int
-    {
-        $this->applyAuditTypeFilter($query, $auditType);
-        return (int)$query->count();
+        return implode(',', array_map(
+            static fn(string $value): string => "'" . str_replace("'", "''", $value) . "'",
+            $values
+        ));
     }
 
     private function applyAuditTypeFilter($query, string $auditType): void

@@ -18,8 +18,15 @@ class RevenuePricingRecommendationService
     private const CTRIP_TRAFFIC_SOURCE_ALIASES = ['ctrip', 'ctrip_business', 'ctrip_manual_overview', 'ctrip_browser_profile'];
     private const CTRIP_COMPETITOR_PLATFORM_VALUES = [CompetitorAnalysis::PLATFORM_CTRIP, '1', 'ctrip'];
 
+    private TrustedOtaFactRepository $trustedOtaFacts;
+
     /** @var array<string, array<string, mixed>> */
     private array $hotelSignalCache = [];
+
+    public function __construct(?TrustedOtaFactRepository $trustedOtaFacts = null)
+    {
+        $this->trustedOtaFacts = $trustedOtaFacts ?? new TrustedOtaFactRepository();
+    }
 
     /**
      * @param array<string, mixed> $roomType
@@ -68,6 +75,8 @@ class RevenuePricingRecommendationService
             'price_elasticity' => $signals['elasticity'] ?? [],
             'backtest' => $signals['backtest'] ?? [],
             'holiday' => $signals['holiday'] ?? [],
+            'history_data_status' => $signals['history_data_status'] ?? 'unknown',
+            'source_policy' => $signals['source_policy'] ?? [],
             'data_gaps' => $signals['data_gaps'] ?? [],
         ];
     }
@@ -667,7 +676,8 @@ class RevenuePricingRecommendationService
 
         $asOfDate = min($targetDate, date('Y-m-d'));
         $historyStart = date('Y-m-d', strtotime($asOfDate . ' -60 days'));
-        $historyRows = $this->onlineDailyRows($hotelId, $historyStart, $asOfDate);
+        $history = $this->trustedOtaFacts->pricingHistory($hotelId, $historyStart, $asOfDate);
+        $historyRows = is_array($history['rows'] ?? null) ? $history['rows'] : [];
         $elasticity = $this->estimatePriceElasticity($historyRows);
         $pickup = $this->pickupSignal($historyRows, $asOfDate);
         $holiday = $this->holidaySignal($targetDate);
@@ -679,6 +689,7 @@ class RevenuePricingRecommendationService
 
         $dataGaps = $this->uniqueStrings(array_filter(array_merge(
             empty($historyRows) ? ['online_daily_history_missing'] : [],
+            is_array($history['data_gaps'] ?? null) ? $history['data_gaps'] : [],
             $elasticity['data_gaps'] ?? [],
             $pickup['data_gaps'] ?? [],
             $holiday['data_gaps'] ?? []
@@ -689,6 +700,9 @@ class RevenuePricingRecommendationService
             'elasticity' => $elasticity,
             'backtest' => $backtest,
             'holiday' => $holiday,
+            'history_data_status' => (string)($history['data_status'] ?? 'unknown'),
+            'source_policy' => is_array($history['source_policy'] ?? null) ? $history['source_policy'] : [],
+            'history_data_quality' => is_array($history['data_quality'] ?? null) ? $history['data_quality'] : [],
             'data_gaps' => $dataGaps,
         ];
     }
@@ -1252,23 +1266,6 @@ class RevenuePricingRecommendationService
         ][$year] ?? [];
     }
 
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function onlineDailyRows(int $hotelId, string $startDate, string $endDate): array
-    {
-        return Db::name('online_daily_data')
-            ->whereBetween('data_date', [$startDate, $endDate])
-            ->where(function ($query) use ($hotelId): void {
-                $query->where('system_hotel_id', $hotelId)
-                    ->whereOr('hotel_id', (string)$hotelId);
-            })
-            ->field('data_date,amount,quantity,book_order_num')
-            ->order('data_date', 'asc')
-            ->select()
-            ->toArray();
-    }
-
     private function ctripTrafficForecastHistoryEndDate(string $targetDate): string
     {
         $targetTimestamp = strtotime($targetDate);
@@ -1449,7 +1446,7 @@ class RevenuePricingRecommendationService
 
     /**
      * @param array<int, array<string, mixed>> $rows
-     * @return array<string, array<string, float>>
+     * @return array<string, array<string, float|null>>
      */
     private function aggregateOnlineRowsByDate(array $rows): array
     {
@@ -1460,11 +1457,15 @@ class RevenuePricingRecommendationService
                 continue;
             }
             if (!isset($byDate[$date])) {
-                $byDate[$date] = ['amount' => 0.0, 'quantity' => 0.0, 'orders' => 0.0];
+                $byDate[$date] = ['amount' => null, 'quantity' => null, 'orders' => null];
             }
-            $byDate[$date]['amount'] += $this->toFloat($row['amount'] ?? 0);
-            $byDate[$date]['quantity'] += $this->toFloat($row['quantity'] ?? 0);
-            $byDate[$date]['orders'] += $this->toFloat($row['book_order_num'] ?? 0);
+            foreach (['amount' => 'amount', 'quantity' => 'quantity', 'book_order_num' => 'orders'] as $source => $target) {
+                $value = $this->toNullableFloat($row[$source] ?? null);
+                if ($value === null) {
+                    continue;
+                }
+                $byDate[$date][$target] = ($byDate[$date][$target] ?? 0.0) + $value;
+            }
         }
         ksort($byDate);
 

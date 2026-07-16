@@ -122,7 +122,7 @@ class Lifecycle extends Base
     private function transferStage(array $hotelIds): array
     {
         $simulationsRead = $this->readInt(fn() => Db::name('strategy_simulation_records')->count());
-        $competitorLogsRead = $this->readInt(fn() => $this->withHotelIds(Db::name('competitor_price_log'), $hotelIds, 'hotel_id')->count());
+        $competitorLogsRead = $this->readInt(fn() => $this->withHotelIds(Db::name('competitor_price_log'), $hotelIds, 'store_id')->count());
         $simulations = $simulationsRead['value'];
         $competitorLogs = $competitorLogsRead['value'];
 
@@ -174,7 +174,11 @@ class Lifecycle extends Base
 
     private function withHotelIds($query, array $hotelIds, string $field)
     {
+        $hadExplicitScope = $hotelIds !== [];
         $hotelIds = array_values(array_filter(array_map('intval', $hotelIds), static fn(int $id): bool => $id > 0));
+        if ($hadExplicitScope && empty($hotelIds)) {
+            return $query->whereRaw('1 = 0');
+        }
         return empty($hotelIds) ? $query : $query->whereIn($field, $hotelIds);
     }
 

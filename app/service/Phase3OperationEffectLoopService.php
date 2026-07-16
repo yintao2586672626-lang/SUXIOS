@@ -707,7 +707,7 @@ final class Phase3OperationEffectLoopService
             }
 
             $columns = $this->tableColumns('online_daily_data');
-            $required = ['system_hotel_id', 'data_date'];
+            $required = ['system_hotel_id', 'data_date', 'readback_verified'];
             foreach ($required as $field) {
                 if (!in_array($field, $columns, true)) {
                     return [
@@ -731,6 +731,7 @@ final class Phase3OperationEffectLoopService
                 'dimension',
                 'compare_type',
                 'validation_status',
+                'readback_verified',
                 'data_period',
                 'snapshot_time',
                 'is_final',
@@ -752,6 +753,7 @@ final class Phase3OperationEffectLoopService
                 ->field($select)
                 ->whereIn('system_hotel_id', $hotelIds)
                 ->whereIn('data_date', [$targetDate, $previousDate])
+                ->where('readback_verified', 1)
                 ->limit(self::MAX_METRIC_WINDOW_ROWS + 1)
                 ->select()
                 ->toArray();
@@ -864,7 +866,22 @@ final class Phase3OperationEffectLoopService
     private function effectMetricRecordRole(array $record, array $allowedPlatforms = []): string
     {
         $validationStatus = strtolower(trim((string)($record['validation_status'] ?? '')));
-        if (!in_array($validationStatus, ['available', 'verified', 'success', 'complete', 'completed'], true)) {
+        if (!in_array($validationStatus, [
+            'normal',
+            'available',
+            'verified',
+            'valid',
+            'confirmed',
+            'approved',
+            'passed',
+            'ok',
+            'success',
+            'complete',
+            'completed',
+        ], true)) {
+            return '';
+        }
+        if ((int)($record['readback_verified'] ?? 0) !== 1) {
             return '';
         }
         $compareType = strtolower(trim((string)($record['compare_type'] ?? '')));

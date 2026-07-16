@@ -699,6 +699,7 @@ trait BusinessDisplayConcern
                 !$exists
             );
             $data = $this->applyOnlineDailyDataValidationFields($data, $columns);
+            $data = OnlineDailyDataPersistenceService::resetReadbackVerification($data, $columns);
 
             if ($exists) {
                 $rowId = (int)$exists['id'];
@@ -711,7 +712,11 @@ trait BusinessDisplayConcern
                 }
                 $rowId = (int)Db::name('online_daily_data')->insertGetId($data);
             }
-            if ($rowId > 0 && $this->verifyCtripBusinessMetricReadback($rowId, $data, array_keys($observedMetrics))) {
+            $readbackRow = $rowId > 0
+                ? $this->verifiedCtripBusinessMetricReadback($rowId, $data, array_keys($observedMetrics))
+                : null;
+            if (is_array($readbackRow)
+                && OnlineDailyDataPersistenceService::markRowsReadbackVerified([$readbackRow], $columns)) {
                 $savedCount++;
             }
         }
@@ -774,19 +779,19 @@ trait BusinessDisplayConcern
     }
 
     /** @param array<int, string> $observedMetricFields */
-    private function verifyCtripBusinessMetricReadback(int $rowId, array $expected, array $observedMetricFields): bool
+    private function verifiedCtripBusinessMetricReadback(int $rowId, array $expected, array $observedMetricFields): ?array
     {
         $persisted = Db::name('online_daily_data')->where('id', $rowId)->find();
         if (!is_array($persisted)) {
-            return false;
+            return null;
         }
 
         return OnlineDailyDataPersistenceService::matchesMetricReadback(
             $persisted,
             $expected,
-            ['source', 'data_type', 'data_date', 'dimension', 'hotel_id', 'system_hotel_id'],
+            ['tenant_id', 'source', 'data_type', 'data_date', 'dimension', 'hotel_id', 'system_hotel_id'],
             $observedMetricFields
-        );
+        ) ? $persisted : null;
     }
 
     private function persistCtripCompetitionCircleRowsFromLegacyParser(

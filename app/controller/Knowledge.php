@@ -10,6 +10,7 @@ use app\service\KnowledgeDocumentTextExtractor;
 use app\service\KnowledgeDistillationService;
 use app\service\KnowledgeMaterialIngestionService;
 use app\service\KnowledgePayloadMapper;
+use app\service\OperationManagementService;
 use InvalidArgumentException;
 use think\exception\ValidateException;
 use think\facade\Db;
@@ -32,6 +33,18 @@ class Knowledge extends Base
             $keyword = trim((string)$this->request->param('keyword', ''));
             $hotelId = (int)$this->request->param('hotel_id', 0);
             $tags = $this->normalizeTags($this->request->param('tags', $this->request->param('tag', [])));
+            $chunkFilters = [
+                'module' => trim((string)$this->request->param('module', '')),
+                'role' => trim((string)$this->request->param('role', '')),
+                'scene' => trim((string)$this->request->param('scene', '')),
+                'platform' => strtolower(trim((string)$this->request->param('platform', ''))),
+                'evidence_level' => trim((string)$this->request->param('evidence_level', '')),
+                'version' => trim((string)$this->request->param('version', '')),
+            ];
+            $hasChunkFilters = count(array_filter($chunkFilters, static fn(string $value): bool => $value !== '')) > 0;
+            $chunkMatchedUnitIds = ($keyword !== '' || $hasChunkFilters)
+                ? $this->knowledgeChunkMatchingUnitIds($keyword, $chunkFilters)
+                : [];
 
             $query = KnowledgeUnit::order('unit_id', 'desc');
             $this->applyOwnerScope($query);
@@ -49,10 +62,20 @@ class Knowledge extends Base
                 $query->where('hotel_id', $hotelId);
             }
             if ($keyword !== '') {
-                $query->where(function ($q) use ($keyword) {
+                $query->where(function ($q) use ($keyword, $chunkMatchedUnitIds) {
                     $q->whereLike('name', '%' . $keyword . '%')
                         ->whereOrLike('description', '%' . $keyword . '%');
+                    if ($chunkMatchedUnitIds !== []) {
+                        $q->whereOr(function ($subQuery) use ($chunkMatchedUnitIds): void {
+                            $subQuery->whereIn('unit_id', $chunkMatchedUnitIds);
+                        });
+                    }
                 });
+            }
+            if ($hasChunkFilters) {
+                $chunkMatchedUnitIds === []
+                    ? $query->whereRaw('1 = 0')
+                    : $query->whereIn('unit_id', $chunkMatchedUnitIds);
             }
             foreach ($tags as $tag) {
                 $query->whereRaw('JSON_CONTAINS(COALESCE(`tags`, JSON_ARRAY()), JSON_QUOTE(:tag))', ['tag' => $tag]);
@@ -249,7 +272,7 @@ class Knowledge extends Base
     public function addChunk(int $unit_id): Response
     {
         try {
-            $unit = $this->findAccessibleUnit($unit_id);
+            $unit = $this->findModifiableUnit($unit_id);
             if (!$unit) {
                 return $this->fail('Knowledge unit not found', 404);
             }
@@ -266,10 +289,100 @@ class Knowledge extends Base
         }
     }
 
-    public function update(int $unit_id): Response
+    public function createExecutionIntent(int $unit_id, int $chunk_id): Response
     {
         try {
             $unit = $this->findAccessibleUnit($unit_id);
+            if (!$unit) {
+                return $this->fail('Knowledge unit not found', 404);
+            }
+            $chunk = KnowledgeChunk::where('unit_id', $unit_id)->where('chunk_id', $chunk_id)->find();
+            if (!$chunk) {
+                return $this->fail('Knowledge chunk not found', 404);
+            }
+            $content = $chunk->content;
+            if (is_string($content)) {
+                $decoded = json_decode($content, true);
+                $content = is_array($decoded) ? $decoded : [];
+            }
+            $content = is_array($content) ? $content : [];
+            $template = is_array($content['task_template'] ?? null) ? $content['task_template'] : [];
+            if (($content['content_type'] ?? '') !== 'sop_card' || $template === []) {
+                return $this->fail('This knowledge chunk is not a taskable SOP card', 422);
+            }
+
+            $input = $this->requestData();
+            $hotelId = $this->resolveKnowledgeImportHotelId((int)($input['hotel_id'] ?? 0));
+            $userId = $this->currentUserId();
+            $permittedHotelIds = $this->currentUser && method_exists($this->currentUser, 'getPermittedHotelIds')
+                ? array_values(array_unique(array_filter(array_map('intval', (array)$this->currentUser->getPermittedHotelIds()))))
+                : [$hotelId];
+            if ($this->isSuperAdmin() && !in_array($hotelId, $permittedHotelIds, true)) {
+                $permittedHotelIds[] = $hotelId;
+            }
+            $startDate = trim((string)($input['date_start'] ?? date('Y-m-d')));
+            $dueDate = trim((string)($input['due_at'] ?? $input['date_end'] ?? date('Y-m-d', strtotime('+7 days'))));
+            $assigneeId = (int)($input['assignee_id'] ?? $userId);
+            $platform = strtolower(trim((string)($input['platform'] ?? 'ota')));
+
+            $payload = [
+                'source_module' => 'knowledge_sop',
+                'source_record_id' => $chunk_id,
+                'hotel_id' => $hotelId,
+                'platform' => $platform !== '' ? $platform : 'ota',
+                'object_type' => 'operation_checklist',
+                'action_type' => (string)($template['action_type'] ?? 'execute_sop_card'),
+                'date_start' => $startDate,
+                'date_end' => $dueDate,
+                'current_value' => [
+                    'status' => 'not_started',
+                    'content_key' => (string)($content['content_key'] ?? ''),
+                ],
+                'target_value' => [
+                    'title' => (string)($template['title'] ?? $content['title'] ?? ''),
+                    'action_text' => (string)($content['module_name'] ?? 'OTA运营SOP') . ' / ' . (string)($content['title'] ?? ''),
+                    'steps' => array_values((array)($template['steps'] ?? [])),
+                    'acceptance_criteria' => array_values((array)($template['acceptance_criteria'] ?? [])),
+                    'assignee_id' => $assigneeId,
+                    'due_at' => $dueDate,
+                    'source_version' => (string)($content['seed_version'] ?? ''),
+                ],
+                'evidence' => [
+                    'evidence_refs' => ['knowledge_chunks#' . $chunk_id],
+                    'source_policy' => 'reviewed_reference_sop_requires_hotel_context_and_human_approval',
+                    'knowledge_unit_id' => $unit_id,
+                    'knowledge_chunk_id' => $chunk_id,
+                    'content_key' => (string)($content['content_key'] ?? ''),
+                    'source_version' => (string)($content['seed_version'] ?? ''),
+                    'source_refs' => array_values((array)($content['source_refs'] ?? [])),
+                    'evidence_level' => (string)($content['evidence_level'] ?? ''),
+                    'auto_write_ota' => false,
+                ],
+                'expected_metric' => 'sop_completion',
+                'expected_delta' => 0,
+                'risk_level' => 'low',
+                'status' => 'pending_approval',
+            ];
+
+            $intent = (new OperationManagementService())->createExecutionIntent(
+                $permittedHotelIds,
+                $hotelId,
+                $payload,
+                $userId
+            );
+
+            return $this->ok(['execution_intent' => $intent], 'task draft created');
+        } catch (ValidateException|InvalidArgumentException $e) {
+            return $this->fail($e->getMessage(), 422);
+        } catch (\Throwable $e) {
+            return $this->fail('Failed to create SOP task draft: ' . $e->getMessage(), 500);
+        }
+    }
+
+    public function update(int $unit_id): Response
+    {
+        try {
+            $unit = $this->findModifiableUnit($unit_id);
             if (!$unit) {
                 return $this->fail('Knowledge unit not found', 404);
             }
@@ -291,7 +404,7 @@ class Knowledge extends Base
     public function status(int $unit_id): Response
     {
         try {
-            $unit = $this->findAccessibleUnit($unit_id);
+            $unit = $this->findModifiableUnit($unit_id);
             if (!$unit) {
                 return $this->fail('Knowledge unit not found', 404);
             }
@@ -313,7 +426,7 @@ class Knowledge extends Base
     public function delete(int $unit_id): Response
     {
         try {
-            $unit = $this->findAccessibleUnit($unit_id);
+            $unit = $this->findModifiableUnit($unit_id);
             if (!$unit) {
                 return $this->fail('Knowledge unit not found', 404);
             }
@@ -551,18 +664,57 @@ class Knowledge extends Base
         return $unit;
     }
 
+    private function findModifiableUnit(int $unitId): ?KnowledgeUnit
+    {
+        $unit = KnowledgeUnit::find($unitId);
+        if (!$unit || !$this->canModifyOwnedRow($unit->toArray())) {
+            return null;
+        }
+
+        return $unit;
+    }
+
     private function applyOwnerScope($query): void
     {
         if ($this->isSuperAdmin()) {
             return;
         }
 
-        $query->where('created_by', $this->currentUserId());
+        $userId = $this->currentUserId();
+        $hasHotelColumn = $this->knowledgeUnitHasHotelColumn();
+        $query->where(function ($scope) use ($userId, $hasHotelColumn): void {
+            $scope->where('created_by', $userId);
+            if ($hasHotelColumn) {
+                $scope->whereOr(function ($global): void {
+                    $global->where('created_by', 0)
+                        ->where('hotel_id', 0)
+                        ->where('status', 'done');
+                });
+            }
+        });
     }
 
     private function canAccessOwnedRow(array $row): bool
     {
+        return $this->isSuperAdmin()
+            || (int)($row['created_by'] ?? 0) === $this->currentUserId()
+            || $this->isGlobalSystemKnowledgeRow($row);
+    }
+
+    private function canModifyOwnedRow(array $row): bool
+    {
+        if ($this->isGlobalSystemKnowledgeRow($row)) {
+            return false;
+        }
+
         return $this->isSuperAdmin() || (int)($row['created_by'] ?? 0) === $this->currentUserId();
+    }
+
+    private function isGlobalSystemKnowledgeRow(array $row): bool
+    {
+        return (int)($row['created_by'] ?? 0) === 0
+            && (int)($row['hotel_id'] ?? 0) === 0
+            && (string)($row['status'] ?? '') === 'done';
     }
 
     private function currentUserId(): int
@@ -600,9 +752,61 @@ class Knowledge extends Base
         return $this->payloadMapper()->normalizeTags($value);
     }
 
+    /**
+     * Search structured chunk content so SOP cards can be found by role,
+     * scene, module, platform, evidence level and source version.
+     *
+     * @param array<string,string> $filters
+     * @return array<int,int>
+     */
+    private function knowledgeChunkMatchingUnitIds(string $keyword, array $filters): array
+    {
+        $query = KnowledgeChunk::field('unit_id')->distinct(true);
+        if ($keyword !== '') {
+            $query->whereLike('content', '%' . $keyword . '%');
+        }
+
+        $scalarPaths = [
+            'module' => '$.module_id',
+            'evidence_level' => '$.evidence_level',
+            'version' => '$.seed_version',
+        ];
+        foreach ($scalarPaths as $filter => $path) {
+            $value = trim((string)($filters[$filter] ?? ''));
+            if ($value === '') {
+                continue;
+            }
+            $parameter = 'chunk_' . $filter;
+            $query->whereRaw(
+                "JSON_UNQUOTE(JSON_EXTRACT(`content`, '{$path}')) = :{$parameter}",
+                [$parameter => $value]
+            );
+        }
+
+        foreach (['role' => 'roles', 'scene' => 'scenes', 'platform' => 'platforms'] as $filter => $jsonField) {
+            $value = trim((string)($filters[$filter] ?? ''));
+            if ($value === '') {
+                continue;
+            }
+            $parameter = 'chunk_' . $filter;
+            $query->whereRaw(
+                "JSON_SEARCH(`content`, 'one', :{$parameter}, NULL, '$.{$jsonField}[*]') IS NOT NULL",
+                [$parameter => $value]
+            );
+        }
+
+        return array_values(array_unique(array_filter(array_map(
+            'intval',
+            $query->column('unit_id')
+        ), static fn(int $id): bool => $id > 0)));
+    }
+
     private function formatUnitRow(array $row, ?int $chunkCount = null): array
     {
-        return $this->payloadMapper()->formatUnitRow($row, $chunkCount);
+        $formatted = $this->payloadMapper()->formatUnitRow($row, $chunkCount);
+        $formatted['system_read_only'] = $this->isGlobalSystemKnowledgeRow($row);
+        $formatted['can_edit'] = $this->canModifyOwnedRow($row);
+        return $formatted;
     }
 
     private function formatChunkRow(array $row): array

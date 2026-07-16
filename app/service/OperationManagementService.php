@@ -116,7 +116,14 @@ class OperationManagementService
             && (float)$todayOta['exposure'] <= 0
             && (float)$todayOta['visitors'] <= 0
         ) {
-            $rootCauses[] = $this->cause('data_abnormal', '数据采集异常', 1, 0.95, '曝光/访客为0但订单大于0', '优先检查OTA采集配置、Cookie状态和字段映射');
+            $rootCauses[] = $this->cause('data_abnormal', '数据采集异常', 1, 0.95, '曝光/访客为0但订单大于0', '优先检查OTA采集配置、Cookie状态和字段映射', [
+                'status' => 'available',
+                'type' => 'same_day_cross_field_consistency',
+                'metric' => 'exposure_visitors_orders',
+                'measured_value' => ['exposure' => (float)$todayOta['exposure'], 'visitors' => (float)$todayOta['visitors'], 'orders' => (float)$todayOta['orders']],
+                'comparison_rule' => 'exposure <= 0 and visitors <= 0 while orders > 0',
+                'reference_scope' => 'same_hotel_same_platform_same_business_date',
+            ]);
         }
 
         $todayFunnelComparable = ($todayOta['data_status'] ?? '') === self::DATA_OK;
@@ -124,34 +131,64 @@ class OperationManagementService
         $avg30FunnelComparable = ($avg30['data_status'] ?? '') === self::DATA_OK;
 
         if ($todayFunnelComparable && $avg7FunnelComparable && ($avg7['exposure'] ?? 0) > 0 && ($todayOta['exposure'] ?? 0) < $avg7['exposure'] * 0.7) {
-            $rootCauses[] = $this->cause('traffic_down', '曝光下降', 2, 0.82, '今日曝光低于7日均值30%以上', '检查渠道排名、标题图片和活动流量入口');
+            $rootCauses[] = $this->cause('traffic_down', '曝光下降', 2, 0.82, '今日曝光低于7日均值30%以上', '检查渠道排名、标题图片和活动流量入口', [
+                'status' => 'available', 'type' => 'historical_average', 'metric' => 'exposure',
+                'measured_value' => (float)$todayOta['exposure'], 'reference_value' => (float)$avg7['exposure'],
+                'history_window' => 7, 'comparison_rule' => 'measured_value < reference_value * 0.7',
+                'reference_scope' => 'same_hotel_same_platform',
+            ]);
         }
 
         if ($todayFunnelComparable && $avg30FunnelComparable && ($avg30['view_rate'] ?? 0) > 0 && ($todayOta['view_rate'] ?? 0) < $avg30['view_rate'] * 0.8) {
-            $rootCauses[] = $this->cause('view_conversion_low', '浏览转化差', 3, 0.78, '浏览/曝光低于历史均值20%以上', '优化首图、卖点、价格展示和可售房型');
+            $rootCauses[] = $this->cause('view_conversion_low', '浏览转化差', 3, 0.78, '浏览/曝光低于历史均值20%以上', '优化首图、卖点、价格展示和可售房型', [
+                'status' => 'available', 'type' => 'historical_average', 'metric' => 'view_rate',
+                'measured_value' => (float)$todayOta['view_rate'], 'reference_value' => (float)$avg30['view_rate'],
+                'history_window' => 30, 'comparison_rule' => 'measured_value < reference_value * 0.8',
+                'reference_scope' => 'same_hotel_same_platform',
+            ]);
         }
 
         if ($todayFunnelComparable && $avg30FunnelComparable && ($avg30['order_rate'] ?? 0) > 0 && ($todayOta['order_rate'] ?? 0) < $avg30['order_rate'] * 0.8) {
-            $rootCauses[] = $this->cause('order_conversion_low', '订单转化差', 4, 0.78, '订单/访客低于历史均值20%以上', '检查价格竞争力、取消政策、库存和促销');
+            $rootCauses[] = $this->cause('order_conversion_low', '订单转化差', 4, 0.78, '订单/访客低于历史均值20%以上', '检查价格竞争力、取消政策、库存和促销', [
+                'status' => 'available', 'type' => 'historical_average', 'metric' => 'order_rate',
+                'measured_value' => (float)$todayOta['order_rate'], 'reference_value' => (float)$avg30['order_rate'],
+                'history_window' => 30, 'comparison_rule' => 'measured_value < reference_value * 0.8',
+                'reference_scope' => 'same_hotel_same_platform',
+            ]);
         }
 
-        if (($summary['data_status'] ?? '') === self::DATA_OK
-            && ($competitors['data_status'] ?? '') === self::DATA_OK
-            && ($summary['adr'] ?? 0) > 0
+        if (($competitors['data_status'] ?? '') === self::DATA_OK
+            && ($competitors['comparability_status'] ?? '') === 'eligible'
+            && ($competitors['avg_our_public_price'] ?? 0) > 0
             && ($competitors['avg_price'] ?? 0) > 0
-            && $summary['adr'] > $competitors['avg_price'] * 1.1
+            && $competitors['avg_our_public_price'] > $competitors['avg_price'] * 1.1
         ) {
-            $rootCauses[] = $this->cause('price_high', '价格偏高', 5, 0.75, '本店价格高于竞对均价10%以上', '按房型检查价差，必要时做小幅跟价或活动补贴');
+            $rootCauses[] = $this->cause('price_high', '价格偏高', 5, 0.75, '本店价格高于竞对均价10%以上', '按房型检查价差，必要时做小幅跟价或活动补贴', [
+                'status' => 'available', 'type' => 'competitor_average', 'metric' => 'ota_public_display_price',
+                'measured_value' => (float)$competitors['avg_our_public_price'], 'reference_value' => (float)$competitors['avg_price'],
+                'comparison_rule' => 'measured_value > reference_value * 1.1',
+                'reference_scope' => 'same_platform_stay_dates_room_rate_meal_cancel_payment_tax_currency_guest_mix',
+                'comparison_key' => (string)($competitors['comparison_key'] ?? ''),
+            ]);
         }
 
         $psiScore = (float)($serviceQuality['avg_psi_score'] ?? 0);
         $serviceScore = (float)($serviceQuality['avg_service_score'] ?? 0);
         if ($this->serviceQualityThresholdEligible($serviceQuality) && (($psiScore > 0 && $psiScore < 80) || ($serviceScore > 0 && $serviceScore < 80))) {
-            $rootCauses[] = $this->cause('service_quality_low', '服务质量偏低', 6, 0.72, 'OTA服务质量或PSI低于80分', '优先复核服务质量扣分项、履约问题和影响转化的服务节点');
+            $rootCauses[] = $this->cause('service_quality_low', '服务质量偏低', 6, 0.72, 'OTA服务质量或PSI低于80分', '优先复核服务质量扣分项、履约问题和影响转化的服务节点', [
+                'status' => 'available', 'type' => 'fixed_threshold', 'metric' => 'service_quality_score',
+                'measured_value' => ['psi_score' => $psiScore, 'service_score' => $serviceScore],
+                'reference_value' => 80, 'comparison_rule' => '0 < measured_value < 80',
+                'reference_scope' => 'ota_service_quality_rule',
+            ]);
         }
 
         if (($holiday['days_left'] ?? 999) < 15 && ($holiday['data_status'] ?? '') === self::DATA_OK) {
-            $rootCauses[] = $this->cause('holiday_near', '节假日临近', 7, 0.68, '距离节假日小于15天', '提前确认库存、底价、活动和高需求日调价节奏');
+            $rootCauses[] = $this->cause('holiday_near', '节假日临近', 7, 0.68, '距离节假日小于15天', '提前确认库存、底价、活动和高需求日调价节奏', [
+                'status' => 'available', 'type' => 'fixed_threshold', 'metric' => 'holiday_days_left',
+                'measured_value' => (int)$holiday['days_left'], 'reference_value' => 15,
+                'comparison_rule' => 'measured_value < 15', 'reference_scope' => 'holiday_calendar',
+            ]);
         }
 
         usort($rootCauses, static fn(array $a, array $b): int => $a['priority'] <=> $b['priority']);
@@ -374,7 +411,7 @@ class OperationManagementService
         ];
 
         return (int)Db::name('operation_action_tracks')->insertGetId(
-            $this->withTenantId($data, 'operation_action_tracks', $selectedHotelId)
+            $this->withHotelTenantId($data, 'operation_action_tracks', $selectedHotelId)
         );
     }
 
@@ -1079,7 +1116,7 @@ class OperationManagementService
 
         try {
             $id = (int)Db::name('operation_execution_intents')->insertGetId(
-                $this->withTenantId($insert, 'operation_execution_intents', (int)$payload['hotel_id'])
+                $this->withHotelTenantId($insert, 'operation_execution_intents', (int)$payload['hotel_id'])
             );
         } catch (Throwable $e) {
             if ($idempotencyKey !== null) {
@@ -1124,54 +1161,42 @@ class OperationManagementService
             $intent = $this->executionIntentDetail((int)$intent['id'], $hotelIds);
         }
 
-        $task = null;
-        if ($status === 'done') {
-            if ((string)($intent['status'] ?? '') !== 'approved') {
-                $intent = $this->approveExecutionIntent(
-                    (int)$intent['id'],
-                    true,
-                    'operator marked action done from daily workbench patrol',
-                    $userId,
-                    $hotelIds
-                );
-            }
-            $task = $this->latestExecutionTask(is_array($intent['tasks'] ?? null) ? $intent['tasks'] : []);
-            $taskId = (int)($task['id'] ?? 0);
-            if ($taskId > 0 && (string)($task['status'] ?? '') !== 'executed') {
-                $task = $this->executeExecutionTask($taskId, $hotelIds, [
-                    'status' => 'executed',
-                    'current_value' => [
-                        'patrol_action_status' => $status,
-                        'source' => 'daily_workbench_patrol',
-                    ],
-                    'evidence_type' => 'manual',
-                    'evidence' => [
-                        'before' => [
-                            'patrol_action_status' => 'pending',
-                            'run_id' => $runId,
-                        ],
-                        'after' => [
-                            'patrol_action_status' => 'done',
-                            'run_id' => $runId,
-                            'action_code' => $actionCode,
-                            'question_key' => $questionKey,
-                        ],
-                        'remark' => trim((string)($input['note'] ?? 'operator marked action done from daily workbench')),
-                    ],
-                ], $userId);
-            }
+        $task = $this->latestExecutionTask(is_array($intent['tasks'] ?? null) ? $intent['tasks'] : []);
+        $taskId = (int)($task['id'] ?? 0);
+        $taskStatus = (string)($task['status'] ?? '');
+        $executionEvidenceCount = 0;
+        if ($taskId > 0 && $taskStatus === 'executed') {
+            $executionEvidenceCount = (int)Db::name('operation_execution_evidence')
+                ->where('task_id', $taskId)
+                ->whereNull('deleted_at')
+                ->count();
+        }
+        $executionClaimed = $taskStatus === 'executed' && $executionEvidenceCount > 0;
+        $syncStatus = 'synced_intent';
+        $requiredNextAction = '';
+        if ($status === 'done' && $executionClaimed) {
+            $syncStatus = 'synced_executed_with_evidence';
+        } elseif ($status === 'done') {
+            $syncStatus = 'synced_pending_execution_evidence';
+            $requiredNextAction = (string)($intent['status'] ?? '') === 'approved'
+                ? 'execute_task_and_attach_external_or_business_evidence'
+                : 'approve_intent_then_execute_and_attach_external_or_business_evidence';
         }
 
         return [
-            'status' => $status === 'done' ? 'synced_executed' : 'synced_intent',
+            'status' => $syncStatus,
+            'workbench_status' => $status,
             'source_module' => 'ota_diagnosis',
             'source_record_id' => $sourceRecordId,
             'intent_id' => (int)($intent['id'] ?? 0),
             'intent_status' => (string)($intent['status'] ?? ''),
-            'task_id' => (int)($task['id'] ?? ($intent['tasks'][0]['id'] ?? 0)),
-            'task_status' => (string)($task['status'] ?? ($intent['tasks'][0]['status'] ?? '')),
+            'task_id' => $taskId,
+            'task_status' => $taskStatus,
+            'execution_claimed' => $executionClaimed,
+            'execution_evidence_count' => $executionEvidenceCount,
+            'required_next_action' => $requiredNextAction,
             'metric_scope' => 'ota_channel',
-            'source_policy' => 'daily_workbench_patrol_to_operation_execution_loop',
+            'source_policy' => 'workbench_status_only_no_automatic_approval_or_execution',
         ];
     }
 
@@ -1258,7 +1283,7 @@ class OperationManagementService
                     ->whereNull('deleted_at')
                     ->count();
                 if ($taskExists === 0) {
-                    Db::name('operation_execution_tasks')->insert($this->withTenantId([
+                    Db::name('operation_execution_tasks')->insert($this->withHotelTenantId([
                         'intent_id' => $id,
                         'hotel_id' => (int)$intent['hotel_id'],
                         'execution_mode' => 'manual',
@@ -1549,13 +1574,40 @@ class OperationManagementService
         }
     }
 
-    private function withTenantId(array $data, string $table, int $tenantId): array
+    private function withHotelTenantId(array $data, string $table, int $hotelId): array
     {
         if ($this->tableHasColumn($table, 'tenant_id')) {
-            $data['tenant_id'] = $tenantId > 0 ? $tenantId : null;
+            $data['tenant_id'] = $this->tenantIdForHotel($hotelId);
         }
 
         return $data;
+    }
+
+    private function withExecutionTaskTenantId(array $data, string $table, int $taskId): array
+    {
+        if ($this->tableHasColumn($table, 'tenant_id')) {
+            $data['tenant_id'] = $this->tenantIdForExecutionTask($taskId);
+        }
+
+        return $data;
+    }
+
+    private function tenantIdForHotel(int $hotelId): int
+    {
+        if ($hotelId <= 0) {
+            throw new \InvalidArgumentException('hotel_id is invalid for tenant scope');
+        }
+
+        try {
+            $tenantId = (int)(Db::name('hotels')->where('id', $hotelId)->value('tenant_id') ?? 0);
+        } catch (Throwable $e) {
+            throw new \RuntimeException('hotel tenant scope cannot be resolved', 0, $e);
+        }
+        if ($tenantId <= 0) {
+            throw new \RuntimeException('hotel tenant_id is missing or invalid');
+        }
+
+        return $tenantId;
     }
 
     private function tableHasColumn(string $table, string $column): bool
@@ -1582,19 +1634,26 @@ class OperationManagementService
         }
 
         try {
-            $row = Db::name('operation_execution_tasks')->where('id', $taskId)->field('tenant_id,hotel_id')->find();
+            $fields = $this->tableHasColumn('operation_execution_tasks', 'tenant_id')
+                ? 'tenant_id,hotel_id'
+                : 'hotel_id';
+            $row = Db::name('operation_execution_tasks')->where('id', $taskId)->field($fields)->find();
             if (!$row) {
-                return 0;
+                throw new \RuntimeException('execution task not found for tenant scope');
             }
 
-            $tenantId = (int)($row['tenant_id'] ?? 0);
-            if ($tenantId > 0) {
-                return $tenantId;
+            $tenantId = $this->tenantIdForHotel((int)($row['hotel_id'] ?? 0));
+            $storedTenantId = (int)($row['tenant_id'] ?? 0);
+            if ($storedTenantId > 0 && $storedTenantId !== $tenantId) {
+                throw new \RuntimeException('execution task tenant_id does not match hotel tenant scope');
             }
 
-            return max(0, (int)($row['hotel_id'] ?? 0));
+            return $tenantId;
         } catch (Throwable $e) {
-            return 0;
+            if ($e instanceof \RuntimeException) {
+                throw $e;
+            }
+            throw new \RuntimeException('execution task tenant scope cannot be resolved', 0, $e);
         }
     }
 
@@ -1998,6 +2057,21 @@ class OperationManagementService
             }
             if (empty($evidence['evidence_refs']) && empty($evidence['data_gaps'])) {
                 $reasons[] = 'ota evidence refs or data_gaps missing';
+            }
+        } elseif ($objectType === 'operation_checklist') {
+            foreach (['title', 'action_text'] as $field) {
+                if (trim((string)($targetValue[$field] ?? '')) === '') {
+                    $reasons[] = $field . ' missing';
+                }
+            }
+            if (!is_array($targetValue['steps'] ?? null) || $targetValue['steps'] === []) {
+                $reasons[] = 'steps missing';
+            }
+            if (!is_array($targetValue['acceptance_criteria'] ?? null) || $targetValue['acceptance_criteria'] === []) {
+                $reasons[] = 'acceptance_criteria missing';
+            }
+            if (empty($evidence['evidence_refs'])) {
+                $reasons[] = 'knowledge evidence refs missing';
             }
         } elseif ($objectType === 'investment') {
             foreach (['project_name', 'tracking_status', 'target_metric'] as $field) {
@@ -2454,7 +2528,7 @@ class OperationManagementService
     {
         $this->assertExecutionPayloadHasNoCredentialMaterial($payload);
         $taskId = (int)$payload['task_id'];
-        Db::name('operation_execution_evidence')->insert($this->withTenantId([
+        Db::name('operation_execution_evidence')->insert($this->withExecutionTaskTenantId([
             'task_id' => $taskId,
             'evidence_type' => (string)$payload['evidence_type'],
             'before_json' => json_encode($payload['before'] ?? [], JSON_UNESCAPED_UNICODE),
@@ -2465,7 +2539,7 @@ class OperationManagementService
             'created_by' => (int)($payload['created_by'] ?? 0),
             'created_at' => (string)($payload['created_at'] ?? date('Y-m-d H:i:s')),
             'updated_at' => date('Y-m-d H:i:s'),
-        ], 'operation_execution_evidence', $this->tenantIdForExecutionTask($taskId)));
+        ], 'operation_execution_evidence', $taskId));
     }
 
     private function buildExecutionEvidencePlatformResponse(array $evidence): array
@@ -2488,7 +2562,7 @@ class OperationManagementService
         $hotelId = (int)$intent['hotel_id'];
         $before = $this->baseline([$hotelId], 7, $dateStart);
 
-        return (int)Db::name('operation_action_tracks')->insertGetId($this->withTenantId([
+        return (int)Db::name('operation_action_tracks')->insertGetId($this->withHotelTenantId([
             'hotel_id' => $hotelId,
             'action_type' => (string)($intent['action_type'] ?? ''),
             'action_title' => 'execution_task_' . $taskId . '_' . (string)($intent['object_type'] ?? 'operation'),
@@ -3448,12 +3522,21 @@ class OperationManagementService
     private function buildCompetitors(array $hotelIds, string $date, array $summary): array
     {
         $base = [
-            'avg_price' => 0,
-            'avg_score' => 0,
-            'price_gap' => 0,
-            'score_gap' => 0,
+            'avg_price' => null,
+            'avg_our_public_price' => null,
+            'avg_score' => null,
+            'price_gap' => null,
+            'price_gap_percent' => null,
+            'score_gap' => null,
             'rank_position' => null,
             'data_status' => self::DATA_PENDING,
+            'comparability_status' => 'insufficient_evidence',
+            'comparison_scope' => 'ota_public_rate_to_ota_public_rate',
+            'comparison_key' => '',
+            'visible_row_count' => 0,
+            'decision_eligible_row_count' => 0,
+            'excluded_from_decision_count' => 0,
+            'quality_gaps' => [],
             'meituan_rank_summary' => $this->buildMeituanRankSummary($hotelIds, $date),
         ];
 
@@ -3462,13 +3545,63 @@ class OperationManagementService
                 $rows = Db::name('competitor_analysis')
                     ->whereIn('hotel_id', $hotelIds)
                     ->where('analysis_date', $date)
-                    ->field('our_price,competitor_price,price_difference,price_index,competitor_data')
+                    ->field('id,hotel_id,competitor_hotel_id,room_type_id,competitor_room_type_id,analysis_date,our_price,competitor_price,price_difference,price_index,ota_platform,competitor_data,create_time,update_time')
                     ->select()
                     ->toArray();
                 if (!empty($rows)) {
-                    $prices = array_filter(array_map(static fn(array $row): float => (float)($row['competitor_price'] ?? 0), $rows), static fn(float $v): bool => $v > 0);
-                    $base['avg_price'] = $this->avg($prices);
-                    $base['price_gap'] = round((float)($summary['adr'] ?? 0) - $base['avg_price'], 2);
+                    $base['visible_row_count'] = count($rows);
+                    $groups = [];
+                    $gapCounts = [];
+                    foreach ($rows as $row) {
+                        $assessment = $this->competitorAnalysisComparability($row);
+                        if (($assessment['eligible'] ?? false) !== true) {
+                            foreach (($assessment['reasons'] ?? []) as $reason) {
+                                $gapCounts[$reason] = ($gapCounts[$reason] ?? 0) + 1;
+                            }
+                            continue;
+                        }
+                        $key = (string)$assessment['comparison_key'];
+                        $groups[$key]['our_prices'][] = (float)$row['our_price'];
+                        $groups[$key]['competitor_prices'][] = (float)$row['competitor_price'];
+                        $groups[$key]['latest'] = max(
+                            (string)($groups[$key]['latest'] ?? ''),
+                            (string)($assessment['captured_at'] ?? '')
+                        );
+                    }
+
+                    $eligibleCount = array_sum(array_map(
+                        static fn(array $group): int => count($group['competitor_prices'] ?? []),
+                        $groups
+                    ));
+                    $base['decision_eligible_row_count'] = $eligibleCount;
+                    $base['excluded_from_decision_count'] = max(0, count($rows) - $eligibleCount);
+                    $base['quality_gaps'] = array_map(
+                        static fn(string $code, int $count): array => ['code' => $code, 'row_count' => $count],
+                        array_keys($gapCounts),
+                        array_values($gapCounts)
+                    );
+
+                    if ($groups === []) {
+                        $base['data_status'] = 'data_gap';
+                        return $base;
+                    }
+
+                    uasort($groups, static function (array $left, array $right): int {
+                        $countCompare = count($right['competitor_prices'] ?? []) <=> count($left['competitor_prices'] ?? []);
+                        return $countCompare !== 0
+                            ? $countCompare
+                            : strcmp((string)($right['latest'] ?? ''), (string)($left['latest'] ?? ''));
+                    });
+                    $comparisonKey = (string)array_key_first($groups);
+                    $group = $groups[$comparisonKey];
+                    $base['avg_our_public_price'] = $this->avg($group['our_prices'] ?? []);
+                    $base['avg_price'] = $this->avg($group['competitor_prices'] ?? []);
+                    $base['price_gap'] = round($base['avg_our_public_price'] - $base['avg_price'], 2);
+                    $base['price_gap_percent'] = $base['avg_price'] > 0
+                        ? round($base['price_gap'] / $base['avg_price'] * 100, 2)
+                        : null;
+                    $base['comparison_key'] = $comparisonKey;
+                    $base['comparability_status'] = 'eligible';
                     $base['data_status'] = self::DATA_OK;
                     return $base;
                 }
@@ -3477,46 +3610,98 @@ class OperationManagementService
             }
         }
 
-        $rows = $this->onlineRows([], $date, $date);
-        $competitorRows = array_filter($rows, static function (array $row) use ($hotelIds): bool {
-            $systemId = (int)($row['system_hotel_id'] ?? 0);
-            return $systemId === 0 || !in_array($systemId, $hotelIds, true) || ($row['data_type'] ?? '') === 'competitor';
-        });
-        if (empty($competitorRows)) {
-            return $base;
-        }
-
-        $prices = [];
-        $scores = [];
-        $ranks = [];
-        foreach ($competitorRows as $row) {
-            $raw = $this->decodeJson((string)($row['raw_data'] ?? ''));
-            $quantity = (float)($row['quantity'] ?? 0);
-            $amount = (float)($row['amount'] ?? 0);
-            if ($amount > 0 && $quantity > 0) {
-                $prices[] = $amount / $quantity;
-            }
-            $score = max((float)($row['comment_score'] ?? 0), (float)($row['qunar_comment_score'] ?? 0));
-            if ($score > 0) {
-                $scores[] = $score;
-            }
-            if (($raw['amountRank'] ?? 0) > 0) {
-                $ranks[] = (int)$raw['amountRank'];
-            }
-        }
-
-        if (empty($prices) && empty($scores) && empty($ranks)) {
-            return $base;
-        }
-
-        $base['avg_price'] = $this->avg($prices);
-        $base['avg_score'] = $this->avg($scores);
-        $base['price_gap'] = $base['avg_price'] > 0 ? round((float)($summary['adr'] ?? 0) - $base['avg_price'], 2) : 0;
-        $base['score_gap'] = 0;
-        $base['rank_position'] = !empty($ranks) ? min($ranks) : null;
-        $base['data_status'] = self::DATA_OK;
-
         return $base;
+    }
+
+    /** @return array{eligible:bool,reasons:array<int,string>,comparison_key:string,captured_at:string} */
+    private function competitorAnalysisComparability(array $row): array
+    {
+        $context = $this->arrayValue($row['competitor_data'] ?? []);
+        foreach (['comparison_context', 'rate_context', 'source'] as $nestedKey) {
+            $nested = $this->arrayValue($context[$nestedKey] ?? []);
+            if ($nested !== []) {
+                $context = array_merge($context, $nested);
+            }
+        }
+
+        $context += [
+            'platform' => $row['ota_platform'] ?? null,
+            'captured_at' => $row['update_time'] ?? $row['create_time'] ?? '',
+        ];
+        $reasons = [];
+        if (!is_numeric($row['our_price'] ?? null) || (float)$row['our_price'] <= 0
+            || !is_numeric($row['competitor_price'] ?? null) || (float)$row['competitor_price'] <= 0
+        ) {
+            $reasons[] = 'public_price_missing';
+        }
+
+        $requiredStrings = [
+            'platform', 'check_in_date', 'check_out_date', 'room_type_key', 'rate_plan_key',
+            'breakfast', 'cancellation_policy', 'payment_mode', 'price_basis', 'currency',
+            'availability', 'source_method', 'source_ref', 'captured_at', 'validation_status',
+        ];
+        foreach ($requiredStrings as $field) {
+            if (!$this->competitorContextHasValue($context, $field)) {
+                $reasons[] = $field . '_missing';
+            }
+        }
+        if (!array_key_exists('tax_fee_included', $context)) {
+            $reasons[] = 'tax_fee_included_missing';
+        }
+        if (!is_numeric($context['adults'] ?? null) || (int)$context['adults'] <= 0) {
+            $reasons[] = 'adults_missing';
+        }
+        if (!is_numeric($context['children'] ?? null) || (int)$context['children'] < 0) {
+            $reasons[] = 'children_missing';
+        }
+        if (!$this->competitorContextReadbackVerified($context['readback_verified'] ?? null)) {
+            $reasons[] = 'readback_unverified';
+        }
+        if (!in_array(strtolower(trim((string)($context['validation_status'] ?? ''))), ['normal', 'available', 'ok', 'valid', 'verified'], true)) {
+            $reasons[] = 'validation_failed';
+        }
+        if (!in_array(strtolower(trim((string)($context['availability'] ?? ''))), ['available', 'bookable'], true)) {
+            $reasons[] = 'not_publicly_bookable';
+        }
+
+        $checkIn = trim((string)($context['check_in_date'] ?? ''));
+        $checkOut = trim((string)($context['check_out_date'] ?? ''));
+        if ($checkIn !== '' && $checkOut !== ''
+            && (strtotime($checkIn) === false || strtotime($checkOut) === false || strtotime($checkOut) <= strtotime($checkIn))
+        ) {
+            $reasons[] = 'stay_date_invalid';
+        }
+
+        $keyFields = [
+            'platform', 'check_in_date', 'check_out_date', 'room_type_key', 'rate_plan_key',
+            'breakfast', 'cancellation_policy', 'payment_mode', 'tax_fee_included', 'price_basis',
+            'currency', 'adults', 'children',
+        ];
+        $keyValues = [];
+        foreach ($keyFields as $field) {
+            $keyValues[] = strtolower(trim((string)($context[$field] ?? '')));
+        }
+
+        return [
+            'eligible' => $reasons === [],
+            'reasons' => array_values(array_unique($reasons)),
+            'comparison_key' => hash('sha256', implode('|', $keyValues)),
+            'captured_at' => trim((string)($context['captured_at'] ?? '')),
+        ];
+    }
+
+    private function competitorContextHasValue(array $context, string $field): bool
+    {
+        return array_key_exists($field, $context)
+            && $context[$field] !== null
+            && trim((string)$context[$field]) !== '';
+    }
+
+    private function competitorContextReadbackVerified(mixed $value): bool
+    {
+        return $value === true
+            || $value === 1
+            || in_array(strtolower(trim((string)$value)), ['1', 'true', 'yes', 'verified'], true);
     }
 
     private function buildMeituanRankSummary(array $hotelIds, string $date): array
@@ -4614,7 +4799,9 @@ class OperationManagementService
         if (($full['ota']['order_rate'] ?? 0) > 0 && ($full['ota']['order_rate'] ?? 0) < 3) {
             $alerts[] = $this->alert($id++, $hotelId ?: ($hotelIds[0] ?? 0), 'conversion_low', 'medium', '转化偏低', '订单/访客转化率低于3%', $date);
         }
-        if (($full['competitors']['price_gap'] ?? 0) > 10) {
+        if (($full['competitors']['comparability_status'] ?? '') === 'eligible'
+            && ($full['competitors']['price_gap'] ?? 0) > 10
+        ) {
             $alerts[] = $this->alert($id++, $hotelId ?: ($hotelIds[0] ?? 0), 'price_high', 'medium', '价格偏高', '本店价格高于竞对均价', $date);
         }
         $meituanSummary = $full['competitors']['meituan_rank_summary'] ?? [];
@@ -4712,7 +4899,7 @@ class OperationManagementService
                 'raw_data' => json_encode($rawData, JSON_UNESCAPED_UNICODE),
                 'updated_at' => $now,
             ];
-            $payload = $this->withTenantId($payload, 'operation_alerts', $hotelId);
+            $payload = $this->withHotelTenantId($payload, 'operation_alerts', $hotelId);
 
             $existing = Db::name('operation_alerts')
                 ->where('hotel_id', $hotelId)
@@ -4833,9 +5020,28 @@ class OperationManagementService
         };
     }
 
-    private function cause(string $type, string $title, int $priority, float $ruleMatchWeight, string $evidence, string $suggestion): array
+    private function cause(
+        string $type,
+        string $title,
+        int $priority,
+        float $ruleMatchWeight,
+        string $evidence,
+        string $suggestion,
+        array $referenceBasis = []
+    ): array
     {
         $detail = $this->causeDetail($type);
+        if (!empty($referenceBasis)) {
+            $referenceBasis['rule_version'] = 'operation_root_cause.v1';
+            $referenceDefinition = array_diff_key($referenceBasis, [
+                'measured_value' => true,
+                'reference_value' => true,
+            ]);
+            $referenceBasis['reference_version'] = hash('sha256', json_encode(
+                $referenceDefinition,
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION
+            ) ?: '');
+        }
         return [
             'type' => $type,
             'title' => $title,
@@ -4844,6 +5050,7 @@ class OperationManagementService
             'confidence' => $ruleMatchWeight,
             'confidence_basis' => 'confidence 为兼容旧客户端保留，值等同 rule_match_weight；这是规则匹配权重，不是统计置信度或因果概率',
             'evidence' => $evidence,
+            'reference_basis' => $referenceBasis,
             'suggestion' => $suggestion,
             'impact' => $detail['impact'],
             'check_points' => $detail['check_points'],
