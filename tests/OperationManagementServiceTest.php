@@ -9,6 +9,18 @@ use Tests\Support\ReflectionHelper;
 
 final class OperationManagementServiceTest extends TestCase
 {
+    public function testMissingTrustedFunnelIsNullInsteadOfARealZero(): void
+    {
+        $service = new OperationManagementService();
+        $summary = $this->invokeNonPublic($service, 'buildOtaFromRows', [[]]);
+
+        self::assertNull($summary['exposure']);
+        self::assertNull($summary['visitors']);
+        self::assertSame('missing', $summary['funnel_status']);
+        self::assertSame(['exposure', 'visitors'], $summary['missing_metrics']);
+        self::assertNotSame('ok', $summary['data_status']);
+    }
+
     use ReflectionHelper;
 
     public function testEffectValidationSummaryCalculatesProductLevelClosedLoopMetrics(): void
@@ -167,6 +179,8 @@ final class OperationManagementServiceTest extends TestCase
             [[
                 'system_hotel_id' => 7,
                 'data_date' => '2026-05-18',
+                'source' => 'ctrip',
+                'platform' => 'ctrip',
                 'amount' => 999,
                 'quantity' => 9,
                 'book_order_num' => 8,
@@ -184,6 +198,240 @@ final class OperationManagementServiceTest extends TestCase
         self::assertSame(50.0, $summary['occ']);
         self::assertSame(150.0, $summary['revpar']);
         self::assertSame('ok', $summary['data_status']);
+        self::assertSame('mixed_whole_hotel_and_ota_channel', $summary['source_scope']);
+        self::assertSame(['whole_hotel_daily_report'], $summary['metric_scopes']['revenue']);
+        self::assertSame(['ota_channel'], $summary['metric_scopes']['orders']);
+    }
+
+    public function testDashboardSummaryKeepsMissingMetricsNullAndReportsGaps(): void
+    {
+        $service = new OperationManagementService();
+
+        $summary = $this->invokeNonPublic($service, 'buildSummaryFromRows', [
+            [[
+                'id' => 5,
+                'hotel_id' => 7,
+                'report_date' => '2026-07-15',
+                'revenue' => 0,
+                'report_data' => '{}',
+            ]],
+            [],
+            [7],
+            7,
+            '2026-07-15',
+        ]);
+
+        self::assertSame(0.0, $summary['revenue'], 'An explicitly recorded zero must remain a real zero.');
+        self::assertNull($summary['orders']);
+        self::assertNull($summary['room_nights']);
+        self::assertNull($summary['adr']);
+        self::assertSame('partial', $summary['data_status']);
+        self::assertContains('operation_orders_missing', array_column($summary['data_gaps'], 'code'));
+        self::assertContains('operation_room_nights_missing', array_column($summary['data_gaps'], 'code'));
+    }
+
+    public function testDashboardSummaryAcceptsExplicitZeroesOnlyWhenEveryRequiredMetricAndSourceExist(): void
+    {
+        $service = new OperationManagementService();
+
+        $summary = $this->invokeNonPublic($service, 'buildSummaryFromRows', [
+            [],
+            [[
+                'id' => 6,
+                'system_hotel_id' => 7,
+                'data_date' => '2026-07-15',
+                'source' => 'ctrip',
+                'data_type' => 'business',
+                'dimension' => '',
+                'amount' => 0,
+                'quantity' => 0,
+                'book_order_num' => 0,
+                'raw_data' => '{}',
+            ]],
+            [7],
+            7,
+            '2026-07-15',
+        ]);
+
+        self::assertSame(0.0, $summary['revenue']);
+        self::assertSame(0, $summary['orders']);
+        self::assertSame(0.0, $summary['room_nights']);
+        self::assertNull($summary['adr'], 'A zero denominator must not produce a fake ADR zero.');
+        self::assertSame('ok', $summary['data_status']);
+        self::assertSame([], $summary['data_gaps']);
+    }
+
+    public function testDashboardSummaryMarksUnknownOnlineSourcePartial(): void
+    {
+        $service = new OperationManagementService();
+
+        $summary = $this->invokeNonPublic($service, 'buildSummaryFromRows', [
+            [],
+            [[
+                'id' => 7,
+                'system_hotel_id' => 7,
+                'data_date' => '2026-07-15',
+                'data_type' => 'business',
+                'dimension' => '',
+                'amount' => 100,
+                'quantity' => 1,
+                'book_order_num' => 1,
+                'raw_data' => '{}',
+            ]],
+            [7],
+            7,
+            '2026-07-15',
+        ]);
+
+        self::assertSame('partial', $summary['data_status']);
+        self::assertSame('partial', $summary['source_status']);
+        self::assertContains('operation_source_missing', array_column($summary['data_gaps'], 'code'));
+    }
+
+    public function testDashboardSummaryExcludesCompetitorFactsAndDuplicateBusinessSnapshots(): void
+    {
+        $service = new OperationManagementService();
+
+        $summary = $this->invokeNonPublic($service, 'buildSummaryFromRows', [
+            [],
+            [
+                [
+                    'id' => 17652,
+                    'system_hotel_id' => 80,
+                    'data_date' => '2026-07-15',
+                    'source' => 'ctrip',
+                    'data_type' => 'business',
+                    'dimension' => '',
+                    'validation_status' => 'normal',
+                    'update_time' => '2026-07-15 09:15:46',
+                    'amount' => 5939,
+                    'quantity' => 7,
+                    'book_order_num' => 11,
+                    'raw_data' => '{}',
+                ],
+                [
+                    'id' => 34952,
+                    'system_hotel_id' => 80,
+                    'data_date' => '2026-07-15',
+                    'source' => 'ctrip',
+                    'data_type' => 'business',
+                    'dimension' => 'catalog:business_overview:business_flow_compete:order_count',
+                    'validation_status' => 'normal',
+                    'update_time' => '2026-07-15 09:13:33',
+                    'amount' => 377223.9,
+                    'quantity' => 0,
+                    'book_order_num' => 288,
+                    'raw_data' => '{}',
+                ],
+                [
+                    'id' => 17670,
+                    'system_hotel_id' => 80,
+                    'data_date' => '2026-07-15',
+                    'source' => 'ctrip',
+                    'data_type' => 'business',
+                    'dimension' => 'catalog:business_overview:business_realtime:visitor_count+order_count',
+                    'validation_status' => 'normal',
+                    'update_time' => '2026-07-15 09:16:00',
+                    'amount' => 0,
+                    'quantity' => 0,
+                    'book_order_num' => 6,
+                    'raw_data' => '{}',
+                ],
+            ],
+            [80],
+            80,
+            '2026-07-15',
+        ]);
+
+        self::assertSame(5939.0, $summary['revenue']);
+        self::assertSame(7.0, $summary['room_nights']);
+        self::assertSame(11, $summary['orders']);
+        self::assertSame(848.43, $summary['adr']);
+        self::assertNull($summary['occ']);
+        self::assertNull($summary['revpar']);
+        self::assertSame('ok', $summary['data_status']);
+    }
+
+    public function testCompetitorTrafficNeverBecomesSelfOtaFunnelEvidence(): void
+    {
+        $service = new OperationManagementService();
+        $today = date('Y-m-d');
+        $selfBusiness = [
+            'id' => 17652,
+            'system_hotel_id' => 80,
+            'hotel_id' => 130079194,
+            'data_date' => $today,
+            'source' => 'ctrip',
+            'platform' => 'ctrip',
+            'compare_type' => '',
+            'data_type' => 'business',
+            'dimension' => '',
+            'validation_status' => 'normal',
+            'ingestion_method' => 'browser_profile',
+            'data_period' => 'realtime_snapshot',
+            'is_final' => 0,
+            'update_time' => '2026-07-15 09:15:46',
+            'amount' => 5939,
+            'quantity' => 7,
+            'book_order_num' => 11,
+            'raw_data' => '{}',
+        ];
+        $competitorTraffic = [
+            'id' => 43491,
+            'system_hotel_id' => 80,
+            'hotel_id' => -1,
+            'data_date' => $today,
+            'source' => 'ctrip',
+            'platform' => 'Qunar',
+            'compare_type' => 'competitor_avg',
+            'data_type' => 'traffic',
+            'dimension' => 'catalog:traffic_report:traffic_flow_transform:list_exposure+competitor_list_exposure+detail_visitor:50.listExposure',
+            'validation_status' => 'normal',
+            'ingestion_method' => 'browser_profile',
+            'data_period' => 'realtime_snapshot',
+            'is_final' => 0,
+            'update_time' => '2026-07-15 09:15:46',
+            'list_exposure' => 268,
+            'detail_exposure' => 48,
+            'order_filling_num' => 3,
+            'order_submit_num' => 2,
+            'raw_data' => '{}',
+        ];
+
+        $ota = $this->invokeNonPublic($service, 'buildOtaFromRows', [[$selfBusiness, $competitorTraffic]]);
+        self::assertNull($ota['exposure']);
+        self::assertNull($ota['visitors']);
+        self::assertSame('missing', $ota['funnel_status']);
+        self::assertSame(['exposure', 'visitors'], $ota['missing_metrics']);
+        self::assertNotContains('online_daily_data#43491', array_column($ota['evidence_refs'], 'source_ref'));
+
+        $summary = $this->invokeNonPublic($service, 'buildSummaryFromRows', [
+            [],
+            [$selfBusiness, $competitorTraffic],
+            [80],
+            80,
+            $today,
+        ]);
+        self::assertSame(5939.0, $summary['revenue']);
+        self::assertSame(11, $summary['orders']);
+        self::assertSame(7.0, $summary['room_nights']);
+        self::assertSame(['online_daily_data#17652'], array_column($summary['evidence_refs'], 'source_ref'));
+        self::assertSame('ctrip', $summary['evidence_refs'][0]['platform']);
+        self::assertNotContains('online_daily_data#43491', array_column($summary['evidence_refs'], 'source_ref'));
+    }
+
+    public function testOperatingSnapshotChannelUsesPlatformWhenSourceIsEmpty(): void
+    {
+        $service = new OperationManagementService();
+
+        $channel = $this->invokeNonPublic($service, 'operatingSnapshotChannel', [[
+            'evidence_refs' => [[
+                'source' => '',
+                'platform' => 'Qunar',
+            ]],
+        ]]);
+
+        self::assertSame('qunar', $channel);
     }
 
     public function testRootCauseRulesFlagDataTrafficPriceServiceQualityAndHolidayBoundaries(): void
@@ -191,12 +439,12 @@ final class OperationManagementServiceTest extends TestCase
         $service = new OperationManagementService();
 
         $result = $this->invokeNonPublic($service, 'buildRootCauseResult', [[
-            'ota' => ['orders' => 5, 'exposure' => 0, 'visitors' => 0, 'view_rate' => 2, 'order_rate' => 1],
-            'summary' => ['adr' => 330],
-            'competitors' => ['avg_price' => 250, 'avg_score' => 4.8],
+            'ota' => ['orders' => 5, 'exposure' => 0, 'visitors' => 0, 'view_rate' => 2, 'order_rate' => 1, 'data_status' => 'ok'],
+            'summary' => ['adr' => 330, 'data_status' => 'ok'],
+            'competitors' => ['avg_price' => 250, 'avg_score' => 4.8, 'data_status' => 'ok'],
             'service_quality' => ['avg_psi_score' => 76.5, 'avg_service_score' => 79.0, 'data_status' => 'ok'],
             'holiday' => ['days_left' => 7, 'data_status' => 'ok'],
-        ], ['exposure' => 100], ['view_rate' => 20, 'order_rate' => 10], 'conversion_low']);
+        ], ['exposure' => 100, 'data_status' => 'ok'], ['view_rate' => 20, 'order_rate' => 10, 'data_status' => 'ok'], 'conversion_low']);
 
         self::assertSame('high', $result['problem_level']);
         self::assertSame('data_abnormal', $result['root_causes'][0]['type']);
@@ -205,6 +453,9 @@ final class OperationManagementServiceTest extends TestCase
         self::assertContains('service_quality_low', array_column($result['root_causes'], 'type'));
         self::assertNotContains('score_low', array_column($result['root_causes'], 'type'));
         self::assertContains('holiday_near', array_column($result['root_causes'], 'type'));
+        self::assertSame($result['candidate_factors'], $result['root_causes']);
+        self::assertSame($result['candidate_factors'][0]['rule_match_weight'], $result['candidate_factors'][0]['confidence']);
+        self::assertStringContainsString('不是统计置信度', $result['candidate_factors'][0]['confidence_basis']);
 
         $empty = $this->invokeNonPublic($service, 'buildRootCauseResult', [[
             'ota' => [],
@@ -218,6 +469,23 @@ final class OperationManagementServiceTest extends TestCase
         self::assertSame('unknown', $empty['main_problem']);
         self::assertSame([], $empty['root_causes']);
         self::assertStringNotContainsString('点评', implode(' ', $empty['next_actions']));
+    }
+
+    public function testStrategySimulationContractNamesRuleScenarioAndTreatsUnknownRiskAsUnassessed(): void
+    {
+        $method = new \ReflectionMethod(OperationManagementService::class, 'strategySimulation');
+        $lines = file($method->getFileName()) ?: [];
+        $source = implode('', array_slice(
+            $lines,
+            $method->getStartLine() - 1,
+            $method->getEndLine() - $method->getStartLine() + 1
+        ));
+
+        self::assertStringContainsString("'rule_scenario'", $source);
+        self::assertStringContainsString('forecast 为兼容旧客户端保留', $source);
+        self::assertStringContainsString("'level' => 'unknown'", $source);
+        self::assertStringNotContainsString('规则估算风险较低', $source);
+        self::assertStringContainsString('不是经营预测', $source);
     }
 
     public function testServiceQualitySummaryUsesCapturedQualityRows(): void
@@ -447,6 +715,24 @@ final class OperationManagementServiceTest extends TestCase
             substr_count($source, 'assertExecutionPayloadHasNoCredentialMaterial'),
             'Task review must guard both request input and any summary derived from legacy action tracking.'
         );
+    }
+
+    public function testExecutionTaskReviewUsesTransactionalCompareAndSwap(): void
+    {
+        $method = new \ReflectionMethod(OperationManagementService::class, 'reviewExecutionTask');
+        $lines = file($method->getFileName()) ?: [];
+        $source = implode('', array_slice(
+            $lines,
+            $method->getStartLine() - 1,
+            $method->getEndLine() - $method->getStartLine() + 1
+        ));
+
+        self::assertStringContainsString('Db::transaction', $source);
+        self::assertStringContainsString("->where('status', 'executed')", $source);
+        self::assertStringContainsString("->where('result_status', \$expectedResultStatus)", $source);
+        self::assertStringContainsString("->where('result_summary', \$expectedResultSummary)", $source);
+        self::assertStringContainsString('if ($affected !== 1)', $source);
+        self::assertStringContainsString('execution task state changed; refresh before review', $source);
     }
 
     private function metricValue(array $summary, string $key): mixed

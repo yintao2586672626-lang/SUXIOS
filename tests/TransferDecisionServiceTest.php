@@ -143,6 +143,21 @@ final class TransferDecisionServiceTest extends TestCase
         (new TransferDecisionService())->calculateAssetPricing(['room_count' => 0]);
     }
 
+    public function testCalculateAssetPricingKeepsMissingCoreFieldNullAndSkipsValuation(): void
+    {
+        $input = $this->pricingInput();
+        unset($input['monthly_revenue']);
+
+        $result = $this->fallbackService()->calculateAssetPricing($input);
+
+        self::assertSame('insufficient_data', $result['status']);
+        self::assertContains('月营业额', $result['missing_fields']);
+        self::assertNull($result['profit']['monthly_revenue']);
+        self::assertNull($result['profit']['monthly_net_profit']);
+        self::assertNull($result['valuation']['reasonable_valuation']);
+        self::assertArrayNotHasKey('ai_evaluation', $result);
+    }
+
     public function testCalculateTransferTimingDetectsCollectionAnomaly(): void
     {
         $result = (new TransferDecisionService())->calculateTransferTiming([
@@ -157,6 +172,20 @@ final class TransferDecisionServiceTest extends TestCase
         self::assertTrue($result['data_quality']['suspected_collection_anomaly']);
         self::assertTrue($result['data_quality']['has_data_anomaly']);
         self::assertContains('疑似采集异常', $result['risk_points']);
+    }
+
+    public function testCalculateTransferTimingDoesNotDefaultMissingTrendsToFlat(): void
+    {
+        $result = (new TransferDecisionService())->calculateTransferTiming([
+            'rating' => 4.8,
+            'has_data_anomaly' => false,
+            'has_data_gap' => false,
+        ]);
+
+        self::assertSame('insufficient_data', $result['status']);
+        self::assertNull($result['timing_score']);
+        self::assertSame('数据不足，暂无法判断转让时机', $result['decision']);
+        self::assertCount(4, $result['missing_fields']);
     }
 
     public function testCalculateTransferTimingRewardsPositiveWindow(): void
@@ -208,6 +237,24 @@ final class TransferDecisionServiceTest extends TestCase
         self::assertSame(60, $benchmark['orders']);
         self::assertSame(300.0, $benchmark['adr']);
         self::assertSame(75.0, $benchmark['occupancy_rate']);
+    }
+
+    public function testOtaChannelRevenueIsNotPromotedToWholeHotelRevenue(): void
+    {
+        $metrics = $this->invokeNonPublic(new TransferDecisionService(), 'aggregateTransferMetrics', [[], [[
+            'data_date' => '2026-07-15',
+            'amount' => 30000,
+            'book_order_num' => 20,
+            'quantity' => 25,
+            'raw_data' => json_encode(['visitors' => 400, 'exposure' => 5000], JSON_THROW_ON_ERROR),
+        ]]]);
+
+        self::assertSame(0.0, $metrics['revenue']);
+        self::assertSame(30000.0, $metrics['ota_channel_revenue']);
+        self::assertSame(20, $metrics['ota_channel_orders']);
+        self::assertSame(0.0, $metrics['room_nights']);
+        self::assertSame(25.0, $metrics['ota_channel_room_nights']);
+        self::assertStringContainsString('不得互相替代', $metrics['scope_note']);
     }
 
     public function testBuildTransferDashboardMergesPricingTimingAndMetricRisks(): void

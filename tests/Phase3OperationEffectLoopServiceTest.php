@@ -5,9 +5,12 @@ namespace Tests;
 
 use app\service\Phase3OperationEffectLoopService;
 use PHPUnit\Framework\TestCase;
+use Tests\Support\ReflectionHelper;
 
 final class Phase3OperationEffectLoopServiceTest extends TestCase
 {
+    use ReflectionHelper;
+
     public function testMissingExecutionEvidenceCannotBecomeSopCandidate(): void
     {
         $service = new Phase3OperationEffectLoopService();
@@ -72,6 +75,58 @@ final class Phase3OperationEffectLoopServiceTest extends TestCase
         self::assertSame('candidate', $first['replication']['status']);
         self::assertSame([8], array_column($first['replication']['target_hotels'], 'hotel_id'));
         self::assertFalse($first['replication']['auto_apply_enabled']);
+    }
+
+    public function testEffectMetricsRequireTrustedFinalHistoricalOtaRows(): void
+    {
+        $service = new Phase3OperationEffectLoopService();
+        $record = [
+            'validation_status' => 'verified',
+            'compare_type' => 'self',
+            'hotel_id' => 123,
+            'source' => 'ctrip',
+            'platform' => 'ctrip',
+            'data_date' => '2026-07-14',
+            'data_period' => 'historical_daily',
+            'is_final' => 1,
+            'data_type' => 'business',
+            'dimension' => '',
+        ];
+
+        self::assertSame('operating', $this->invokeNonPublic($service, 'effectMetricRecordRole', [$record, ['ctrip']]));
+        self::assertSame('', $this->invokeNonPublic($service, 'effectMetricRecordRole', [array_merge($record, ['validation_status' => '']), ['ctrip']]));
+        self::assertSame('', $this->invokeNonPublic($service, 'effectMetricRecordRole', [array_merge($record, ['is_final' => 0]), ['ctrip']]));
+        self::assertSame('', $this->invokeNonPublic($service, 'effectMetricRecordRole', [array_merge($record, ['data_period' => 'realtime_snapshot']), ['ctrip']]));
+        self::assertSame('', $this->invokeNonPublic($service, 'effectMetricRecordRole', [array_merge($record, ['platform' => 'meituan']), ['ctrip']]));
+    }
+
+    public function testMetricWindowProjectionExposesTruncation(): void
+    {
+        $service = new Phase3OperationEffectLoopService();
+        $window = $this->metricWindow([7]);
+        $window['status'] = 'partial';
+        $window['truncated'] = true;
+        $window['record_limit'] = 2000;
+        $window['records_scanned'] = 2000;
+        $window['data_gaps'] = ['metric_window_truncated'];
+        $window['by_hotel'][7]['status'] = 'metric_window_truncated';
+
+        $snapshot = $this->snapshot(
+            [$this->action(7, 'North Hotel')],
+            ['7|price_adjust' => $this->trackedExecution(701, 801, 'success')]
+        );
+        $result = $service->buildFromSnapshot($snapshot, [
+            'target_date' => '2026-07-14',
+            'metric_window' => $window,
+        ]);
+
+        self::assertTrue($result['metric_window']['truncated']);
+        self::assertSame(2000, $result['metric_window']['record_limit']);
+        self::assertSame(2000, $result['metric_window']['records_scanned']);
+        self::assertContains('metric_window_truncated', $result['metric_window']['data_gaps']);
+        self::assertSame('metric_window_truncated', $result['rows'][0]['stages']['effect_review']['metric_window_status']);
+        self::assertContains('metric_window_truncated', $result['rows'][0]['stages']['effect_review']['reason_codes']);
+        self::assertSame('not_ready', $result['rows'][0]['stages']['sop']['status']);
     }
 
     /** @param array<int, array<string, mixed>> $actions */

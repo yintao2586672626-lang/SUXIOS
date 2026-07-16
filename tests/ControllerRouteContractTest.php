@@ -84,6 +84,31 @@ final class ControllerRouteContractTest extends TestCase
         );
     }
 
+    public function testOperationExecutionResourcesExposeHotelScopedReadRoutesBeforeCollection(): void
+    {
+        $source = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
+        $intentRead = strpos($source, "Route::get('/execution-intents/:id', 'OperationManagement/readExecutionIntent')");
+        $taskRead = strpos($source, "Route::get('/execution-tasks/:id', 'OperationManagement/readExecutionTask')");
+        $collection = strpos($source, "Route::get('/execution-intents', 'OperationManagement/executionIntents')");
+
+        self::assertNotFalse($intentRead);
+        self::assertNotFalse($taskRead);
+        self::assertNotFalse($collection);
+        self::assertLessThan($collection, $intentRead);
+        self::assertLessThan($collection, $taskRead);
+    }
+
+    public function testAgentSavedOtaDiagnosisCanCreateManualExecutionIntentRoute(): void
+    {
+        $source = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
+
+        self::assertStringContainsString(
+            "Route::post('/ota-diagnoses/:id/actions/:actionIndex/execution-intent', 'Agent/createOtaDiagnosisExecutionIntent')",
+            $source,
+            'A saved OTA diagnosis must expose a manual execution-intent bridge route'
+        );
+    }
+
     public function testCtripReviewOrderMatchRoutes(): void
     {
         $source = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');

@@ -26,7 +26,7 @@ final class FeasibilityReportServiceTest extends TestCase
             'lease_years' => '10',
             'decoration_budget' => '300000',
             'transfer_fee' => '100000',
-            'opening_cost' => '',
+            'opening_cost' => '50000',
             'adr' => '300',
             'occ' => '75',
         ]]);
@@ -51,6 +51,10 @@ final class FeasibilityReportServiceTest extends TestCase
         self::assertSame(105500.0, $base['monthly_operating_cost']);
         self::assertSame(29500.0, $base['monthly_net_cashflow']);
         self::assertSame(15.3, $base['payback_months']);
+        self::assertTrue($calculation['decision_ready']);
+        self::assertSame('rule_scenario_assumption', $calculation['cost_model']['basis']);
+        self::assertFalse($calculation['cost_model']['is_actual_performance']);
+        self::assertStringContainsString('非经营实绩', implode(' ', $calculation['assumptions']));
     }
 
     public function testSnapshotSummariesNormalizeDailyJsonAndCompetitorSamples(): void
@@ -75,9 +79,14 @@ final class FeasibilityReportServiceTest extends TestCase
         self::assertTrue($online['has_real_ota_data']);
         self::assertSame(2, $competitors['competitor_count']);
         self::assertSame(280.0, $competitors['avg_competitor_price']);
+
+        $emptyDaily = $this->invokeNonPublic($service, 'summarizeDailyReports', [[]]);
+        self::assertNull($emptyDaily['avg_adr']);
+        self::assertNull($emptyDaily['avg_occ']);
+        self::assertNull($emptyDaily['avg_revenue']);
     }
 
-    public function testCalculateUsesConservativeDefaultsForEmptySnapshotAndExtremeRent(): void
+    public function testCalculateKeepsMissingCoreInputsNullWithoutHiddenDefaults(): void
     {
         $service = new FeasibilityReportService($this->failingClient());
         $input = $this->invokeNonPublic($service, 'normalizeInput', [[
@@ -88,25 +97,99 @@ final class FeasibilityReportServiceTest extends TestCase
             'lease_years' => 5,
             'decoration_budget' => 0,
             'transfer_fee' => 0,
-            'opening_cost' => 0,
-            'adr' => 0,
-            'occ' => 0,
+            'opening_cost' => '',
+            'adr' => '',
+            'occ' => '',
         ]]);
 
         $calculation = $this->invokeNonPublic($service, 'calculate', [$input, [
-            'daily_summary' => ['avg_adr' => 0, 'avg_occ' => 0],
-            'competitor_summary' => ['avg_competitor_price' => 0],
+            'daily_summary' => ['avg_adr' => 333, 'avg_occ' => 0.81],
+            'competitor_summary' => ['avg_competitor_price' => 444],
         ]]);
         $base = $calculation['scenarios'][1];
 
-        self::assertSame(25000.0, $calculation['opening_cost']);
-        self::assertSame(25000.0, $calculation['total_investment']);
-        self::assertSame(260.0, $base['adr']);
-        self::assertSame(0.72, $base['occ']);
-        self::assertSame(56160.0, $base['monthly_revenue']);
-        self::assertLessThan(0, $base['monthly_net_cashflow']);
+        self::assertNull($input['opening_cost']);
+        self::assertNull($input['adr']);
+        self::assertNull($input['occ']);
+        self::assertFalse($calculation['decision_ready']);
+        self::assertSame('待评估', $calculation['evaluation_status']);
+        self::assertContains('opening_cost_missing', $calculation['data_gaps']);
+        self::assertContains('expected_adr_missing_or_invalid', $calculation['data_gaps']);
+        self::assertContains('expected_occ_missing_or_invalid', $calculation['data_gaps']);
+        self::assertNull($calculation['opening_cost']);
+        self::assertNull($calculation['total_investment']);
+        self::assertNull($base['adr']);
+        self::assertNull($base['occ']);
+        self::assertNull($base['monthly_revenue']);
+        self::assertNull($base['monthly_net_cashflow']);
         self::assertNull($base['payback_months']);
-        self::assertNotEmpty($calculation['assumptions']);
+        self::assertSame('待评估', $base['risk_level']);
+        self::assertStringNotContainsString('260 元估算', implode(' ', $calculation['assumptions']));
+        self::assertStringNotContainsString('72% 估算', implode(' ', $calculation['assumptions']));
+        self::assertStringNotContainsString('2500 元/间', implode(' ', $calculation['assumptions']));
+    }
+
+    public function testExplicitZeroOpeningCostIsPreservedAsUserAssumption(): void
+    {
+        $service = new FeasibilityReportService($this->failingClient());
+        $input = $this->validInput(['opening_cost' => 0.0]);
+
+        $calculation = $this->invokeNonPublic($service, 'calculate', [$input, [
+            'daily_summary' => ['avg_adr' => 999, 'avg_occ' => 0.99],
+            'competitor_summary' => ['avg_competitor_price' => 999],
+        ]]);
+
+        self::assertTrue($calculation['decision_ready']);
+        self::assertSame(0.0, $calculation['opening_cost']);
+        self::assertSame(400000.0, $calculation['total_investment']);
+        self::assertSame(300.0, $calculation['scenarios'][1]['adr']);
+        self::assertSame(0.75, $calculation['scenarios'][1]['occ']);
+    }
+
+    public function testMissingCoreInputsBypassLlmAndReturnPendingEvaluation(): void
+    {
+        $client = new class extends LlmClient {
+            public int $calls = 0;
+
+            public function createJsonResponse(array $messages, array $schema, string $modelKey = 'deepseek_v4_default'): array
+            {
+                $this->calls++;
+                throw new RuntimeException('LLM must not run for incomplete investment inputs');
+            }
+        };
+        $service = new FeasibilityReportService($client);
+        $input = $this->invokeNonPublic($service, 'normalizeInput', [[
+            'project_name' => 'Pending Project',
+            'property_area' => 300,
+            'room_count' => 10,
+            'monthly_rent' => 20000,
+            'lease_years' => 8,
+            'decoration_budget' => 200000,
+            'transfer_fee' => 0,
+            'opening_cost' => '',
+            'adr' => '',
+            'occ' => '',
+        ]]);
+        $snapshot = [
+            'source_counts' => ['daily_reports' => 30, 'competitor_price_logs' => 20],
+            'daily_summary' => ['avg_adr' => 888, 'avg_occ' => 0.88],
+            'competitor_summary' => ['avg_competitor_price' => 777],
+        ];
+        $calculation = $this->invokeNonPublic($service, 'calculate', [$input, $snapshot]);
+        $report = $this->invokeNonPublic($service, 'buildAiReport', [$input, $snapshot, $calculation]);
+        $report = $this->invokeNonPublic($service, 'mergeFinancials', [$report, $input, $calculation]);
+        $readiness = $service->buildFeasibilityReadiness($input, $snapshot, $report);
+
+        self::assertSame(0, $client->calls);
+        self::assertFalse($report['decision_ready']);
+        self::assertSame('待评估', $report['evaluation_status']);
+        self::assertNull($report['conclusion_grade']);
+        self::assertNull($report['summary']['payback_months']);
+        self::assertContains('opening_cost_missing', $report['data_gaps']);
+        self::assertStringContainsString('未生成回本期或结论等级', $report['core_reason']);
+        self::assertSame('input_pending', $readiness['stage']);
+        self::assertFalse($readiness['decision_ready']);
+        self::assertSame('待评估', $readiness['status_label']);
     }
 
     public function testBuildAiReportUsesStubbedLlmPayloadAndModelKey(): void
@@ -169,7 +252,39 @@ final class FeasibilityReportServiceTest extends TestCase
         self::assertContains($report['conclusion_grade'], ['A', 'B', 'C', 'D']);
         self::assertSame($calculation['scenarios'], $report['financial_scenarios']);
         self::assertNotEmpty($report['assumptions']);
-        self::assertSame('system', $report['evidence'][0]['source']);
+        self::assertSame('local_calculation', $report['evidence'][0]['source']);
+    }
+
+    public function testFallbackKeepsMissingMarketFactsAndPaybackUnknown(): void
+    {
+        $service = new FeasibilityReportService($this->failingClient());
+        $input = $this->validInput([
+            'target_brand_level' => '',
+            'target_customer' => '',
+            'monthly_rent' => 999999.0,
+        ]);
+        $snapshot = [
+            'source_counts' => ['daily_reports' => 1, 'online_daily_data' => 1],
+            'daily_summary' => [],
+            'competitor_summary' => [],
+        ];
+        $calculation = $this->invokeNonPublic($service, 'calculate', [$input, $snapshot]);
+
+        $report = $this->invokeNonPublic($service, 'buildAiReport', [$input, $snapshot, $calculation]);
+        $report = $this->invokeNonPublic($service, 'mergeFinancials', [$report, $input, $calculation]);
+
+        self::assertNull($report['summary']['payback_months']);
+        self::assertNull($report['market_judgement']['market_score']);
+        self::assertSame('未评估', $report['market_judgement']['competition_level']);
+        self::assertNull($report['market_judgement']['recommended_model']);
+        self::assertNull($report['market_judgement']['target_customer']);
+        self::assertSame('待核验', $report['risk_list'][1]['level']);
+        self::assertStringContainsString('记录存在不等于来源', $report['risk_list'][1]['reason']);
+
+        $positiveInput = $this->validInput(['target_brand_level' => '', 'target_customer' => '']);
+        $positiveCalculation = $this->invokeNonPublic($service, 'calculate', [$positiveInput, $snapshot]);
+        $positiveReport = $this->invokeNonPublic($service, 'buildAiReport', [$positiveInput, $snapshot, $positiveCalculation]);
+        self::assertSame('待核验', $this->invokeNonPublic($service, 'feasibilityRiskLevel', [$positiveReport]));
     }
 
     public function testReadinessKeepsManualOnlyReportOutOfInvestmentClosure(): void
@@ -269,12 +384,69 @@ final class FeasibilityReportServiceTest extends TestCase
         self::assertArrayHasKey('report', $record);
     }
 
+    public function testFormattedLegacyRecordCannotExposeGradeOrPaybackWhenCoreInputsAreMissing(): void
+    {
+        $service = new FeasibilityReportService($this->failingClient());
+        $input = $this->validInput([
+            'opening_cost' => null,
+            'adr' => null,
+            'occ' => null,
+        ]);
+        $report = [
+            'conclusion_grade' => 'A',
+            'conclusion_text' => 'Legacy generated conclusion',
+            'summary' => ['total_investment' => 450000, 'payback_months' => 12],
+            'financial_scenarios' => [[], [], []],
+            'risk_list' => [],
+        ];
+
+        $record = $this->invokeNonPublic($service, 'formatArrayRecord', [[
+            'id' => 99,
+            'project_name' => 'Legacy Pending Project',
+            'input_json' => $input,
+            'snapshot_json' => [],
+            'report_json' => $report,
+            'conclusion_grade' => 'A',
+            'payback_months' => 12,
+            'total_investment' => 450000,
+        ], true]);
+
+        self::assertFalse($record['decision_ready']);
+        self::assertSame('待评估', $record['evaluation_status']);
+        self::assertNull($record['conclusion_grade']);
+        self::assertNull($record['payback_months']);
+        self::assertContains('opening_cost_missing', $record['data_gaps']);
+        self::assertSame('input_pending', $record['feasibility_readiness']['stage']);
+    }
+
     public function testBuildExecutionIntentInputRequiresExplicitHotel(): void
     {
         $service = new FeasibilityReportService($this->failingClient());
 
         $this->expectException(\InvalidArgumentException::class);
         $service->buildExecutionIntentInput(['id' => 7], 0);
+    }
+
+    public function testBuildExecutionIntentRejectsPendingEvaluation(): void
+    {
+        $service = new FeasibilityReportService($this->failingClient());
+        $input = $this->validInput(['opening_cost' => null, 'adr' => null, 'occ' => null]);
+        $report = [
+            'decision_ready' => false,
+            'data_gaps' => ['opening_cost_missing', 'expected_adr_missing_or_invalid', 'expected_occ_missing_or_invalid'],
+            'conclusion_grade' => null,
+            'conclusion_text' => '待评估',
+            'financial_scenarios' => [],
+        ];
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('待评估报告不能转投后跟踪');
+        $service->buildExecutionIntentInput([
+            'id' => 7,
+            'input' => $input,
+            'snapshot' => [],
+            'report' => $report,
+        ], 3);
     }
 
     public function testBuildExecutionIntentInputCarriesReadinessAndInvestmentScope(): void

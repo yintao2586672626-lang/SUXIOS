@@ -277,6 +277,24 @@ final class LlmClientTest extends TestCase
         ]));
     }
 
+    public function testTransportTimeoutAndFailureSemanticsAreBoundedAndActionable(): void
+    {
+        $client = new LlmClient();
+
+        self::assertSame(45, $this->invokeNonPublic($client, 'transportTimeoutSeconds', [[]]));
+        self::assertSame(60, $this->invokeNonPublic($client, 'transportTimeoutSeconds', [['timeout' => 999]]));
+        self::assertSame(1, $this->invokeNonPublic($client, 'transportTimeoutSeconds', [['timeout' => 0]]));
+
+        $message = $this->invokeNonPublic($client, 'actionableTransportError', [
+            'dependency timed out with api_key=must-not-be-retained',
+            true,
+        ]);
+        self::assertStringContainsString('timeout', strtolower($message));
+        self::assertStringContainsString('retries exhausted', strtolower($message));
+        self::assertStringContainsString('retry later', strtolower($message));
+        self::assertStringNotContainsString('must-not-be-retained', $message);
+    }
+
     public function testDebugIncludesRetryMetadataWithoutMaskingFailure(): void
     {
         $client = new LlmClient();
@@ -299,6 +317,9 @@ final class LlmClientTest extends TestCase
                 'max_retries' => 2,
                 'retryable' => true,
                 'retry_reason' => 'retryable_http_429',
+                'retry_exhausted' => true,
+                'terminal_failure' => true,
+                'failure_state' => 'retry_exhausted',
             ],
             128,
         ]);
@@ -308,6 +329,9 @@ final class LlmClientTest extends TestCase
         self::assertSame(2, $debug['debug']['max_retries']);
         self::assertTrue($debug['debug']['retryable']);
         self::assertSame('retryable_http_429', $debug['debug']['retry_reason']);
+        self::assertTrue($debug['debug']['retry_exhausted']);
+        self::assertTrue($debug['debug']['terminal_failure']);
+        self::assertSame('retry_exhausted', $debug['debug']['failure_state']);
         self::assertSame(429, $debug['debug']['http_status']);
     }
 }

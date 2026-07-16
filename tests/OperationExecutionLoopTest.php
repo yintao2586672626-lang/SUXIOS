@@ -9,12 +9,15 @@ use PHPUnit\Framework\TestCase;
 
 final class OperationExecutionLoopTest extends TestCase
 {
-    public function testPriceIntentIsBlockedWhenRoomOrRateMappingIsMissing(): void
+    public function testPriceIntentIsRejectedBeforePersistenceWhenRoomOrRateMappingIsMissing(): void
     {
         $service = new OperationManagementService();
         self::assertTrue(method_exists($service, 'buildExecutionIntentPayload'), 'Missing execution intent payload builder');
 
-        $payload = $service->buildExecutionIntentPayload([7], null, [
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('room_type_key');
+
+        $service->buildExecutionIntentPayload([7], null, [
             'source_module' => 'root_cause',
             'source_record_id' => 15,
             'hotel_id' => 7,
@@ -27,9 +30,6 @@ final class OperationExecutionLoopTest extends TestCase
             'expected_delta' => 8,
         ], 3);
 
-        self::assertSame('blocked', $payload['status']);
-        self::assertStringContainsString('room_type_key', $payload['blocked_reason']);
-        self::assertStringContainsString('rate_plan_key', $payload['blocked_reason']);
     }
 
     public function testCompletePromotionIntentMovesToPendingApproval(): void
@@ -172,6 +172,34 @@ final class OperationExecutionLoopTest extends TestCase
         self::assertSame('pending_approval', $payload['status']);
         self::assertSame('', $payload['blocked_reason']);
         self::assertSame('expansion', $payload['object_type']);
+    }
+
+    public function testExpansionIntentIsBlockedBeforeProjectReviewReadiness(): void
+    {
+        $service = new OperationManagementService();
+
+        $payload = $service->buildExecutionIntentPayload([7], 7, [
+            'source_module' => 'expansion',
+            'source_record_id' => 9,
+            'hotel_id' => 7,
+            'platform' => 'investment',
+            'object_type' => 'expansion',
+            'action_type' => 'expansion_post_decision_tracking',
+            'target_value' => [
+                'project_name' => 'Screening Only Project',
+                'tracking_status' => 'pending_expansion_post_decision_tracking',
+                'target_metric' => 'expansion_project_closure',
+            ],
+            'evidence' => [
+                'source_scope' => 'expansion_screening_and_project_decision',
+                'readiness_stage' => 'screening_record_only',
+            ],
+            'expected_metric' => 'expansion_project_closure',
+            'risk_level' => 'medium',
+        ], 3);
+
+        self::assertSame('blocked', $payload['status']);
+        self::assertStringContainsString('expansion_readiness_stage screening_record_only', $payload['blocked_reason']);
     }
 
     public function testPriceSuggestionBuildsExecutionIntentInput(): void
@@ -364,6 +392,8 @@ final class OperationExecutionLoopTest extends TestCase
         self::assertSame('executed', $item['execution']['status']);
         self::assertSame(1, $item['evidence']['count']);
         self::assertSame('success', $item['review']['status']);
+        self::assertSame(1, $item['evidence_summary']['count']);
+        self::assertSame(['manual_screenshot'], $item['evidence_summary']['types']);
         self::assertSame('ready', $item['roi']['status']);
         self::assertSame(50.0, $item['roi']['value']);
         self::assertSame(300.0, $item['roi']['incremental_revenue']);

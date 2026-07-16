@@ -237,13 +237,60 @@ final class AgentTest extends TestCase
                 'quantity' => 0,
                 'book_order_num' => 0,
                 'data_value' => 0,
-                'raw_data' => '{}',
+                'raw_data' => json_encode([
+                    'row' => [
+                        'amount' => 0,
+                        'quantity' => 0,
+                        'book_order_num' => 0,
+                    ],
+                    'field_facts' => [
+                        ['metric_key' => 'order_amount', 'normalized_field' => 'amount', 'status' => 'captured', 'stored_value_present' => true],
+                        ['metric_key' => 'room_nights', 'normalized_field' => 'quantity', 'status' => 'captured', 'stored_value_present' => true],
+                        ['metric_key' => 'order_count', 'normalized_field' => 'book_order_num', 'status' => 'captured', 'stored_value_present' => true],
+                    ],
+                ], JSON_UNESCAPED_UNICODE),
             ]],
         ]), ...$arguments]);
 
         self::assertSame(0.0, $zero['metrics']['amount']);
         self::assertSame(0, $zero['metrics']['quantity']);
         self::assertStringContainsString('全指标为 0', implode(' ', $zero['source_summary']['data_anomalies']));
+    }
+
+    public function testOtaDiagnosisDoesNotTreatSupplementalDefaultZerosAsCoreEvidence(): void
+    {
+        $controller = $this->controller();
+        $result = $this->invokeNonPublic($controller, 'buildOtaDiagnosisResult', [[
+            'hotel' => ['id' => 80, 'name' => '敦煌漠蓝新'],
+            'online_rows' => [[
+                'id' => 901,
+                'source' => 'meituan',
+                'data_type' => 'traffic_forecast',
+                'data_date' => '2026-07-14',
+                'hotel_name' => '敦煌漠蓝新',
+                'amount' => 0,
+                'quantity' => 0,
+                'book_order_num' => 0,
+                'list_exposure' => 0,
+                'detail_exposure' => 0,
+                'order_filling_num' => 0,
+                'order_submit_num' => 0,
+                'data_value' => 52,
+                'raw_data' => json_encode(['row' => ['forecast_type' => 'next_7_days', 'data_value' => 52]], JSON_UNESCAPED_UNICODE),
+            ]],
+            'daily_reports' => [],
+            'competitor_prices' => [],
+            'competitor_analyses' => [],
+            'price_suggestions' => [],
+            'sync_logs' => [],
+        ], 80, '80', '敦煌漠蓝新', 'meituan', '2026-07-14', '2026-07-14', 'all']);
+
+        self::assertNull($result['metrics']['amount']);
+        self::assertNull($result['metrics']['list_exposure']);
+        self::assertContains('metric_missing:amount', $result['data_gaps']);
+        self::assertContains('metric_missing:list_exposure', $result['data_gaps']);
+        self::assertFalse($result['data_summary']['core_metrics_complete']);
+        self::assertNotEmpty($result['blocking_data_gaps']);
     }
 
     public function testOtaDiagnosisPromptAndParserUseAdvertisingQualitySchema(): void
@@ -259,6 +306,8 @@ final class AgentTest extends TestCase
 
         self::assertStringContainsString('advertising_analysis', $prompt);
         self::assertStringContainsString('service_quality_analysis', $prompt);
+        self::assertStringContainsString('actions 允许为空数组', $prompt);
+        self::assertStringContainsString('不能补0或猜测', $prompt);
         self::assertStringNotContainsString('comment_analysis', $prompt);
 
         $parsed = $this->invokeNonPublic($controller, 'parseOtaDiagnosisResult', [json_encode([
@@ -341,10 +390,10 @@ final class AgentTest extends TestCase
         self::assertSame($result['data_gaps'], $result['evidence_report']['data_gaps']);
         self::assertSame('low', $result['ai_governance']['confidence_level']);
         self::assertTrue($result['ai_governance']['human_confirmation_required']);
-        self::assertSame('blocked', $result['decision_closure']['status']);
+        self::assertSame('blocked_by_data', $result['decision_closure']['status']);
         self::assertFalse($result['decision_closure']['data_evidence_input']['enough_for_executable_actions']);
         self::assertSame(1, $result['decision_closure']['suggested_actions']['blocked_count']);
-        self::assertSame('blocked', $result['evidence_report']['decision_closure']['status']);
+        self::assertSame('blocked_by_data', $result['evidence_report']['decision_closure']['status']);
         self::assertStringContainsString('不能生成可信经营诊断', $result['core_conclusion']);
     }
 
@@ -381,9 +430,148 @@ final class AgentTest extends TestCase
         self::assertSame($result['data_gaps'], $report['data_gaps']);
 
         $closure = $this->invokeNonPublic($controller, 'buildAiDecisionClosure', [$result]);
-        self::assertSame('blocked', $closure['status']);
+        self::assertSame('blocked_by_data', $closure['status']);
         self::assertFalse($closure['data_evidence_input']['enough_for_executable_actions']);
         self::assertSame('missing_target_date_ota_evidence', $closure['suggested_actions']['items'][0]['missing_evidence'][0]['code']);
+    }
+
+    public function testOtaDiagnosisHealthyCoreMetricsCanFinishAsNoAction(): void
+    {
+        $controller = $this->controller();
+        $actions = $this->invokeNonPublic($controller, 'buildOtaDiagnosisActions', [
+            true,
+            true,
+            false,
+            false,
+            [
+                'list_exposure' => 1000,
+                'detail_visitors' => 120,
+                'detail_rate' => 12.0,
+                'order_rate' => 8.0,
+            ],
+            ['metric_missing:advertising_spend'],
+        ]);
+        self::assertSame([], $actions, 'Competitor presence and optional fields must not manufacture an action.');
+
+        $closure = $this->invokeNonPublic($controller, 'buildAiDecisionClosure', [[
+            'action_items' => [],
+            'data_gaps' => ['metric_missing:advertising_spend'],
+            'main_problems' => [],
+            'data_summary' => ['source_counts' => ['online_rows' => 2]],
+            'evidence_sources' => [[
+                'ref' => 'online_daily_data#1',
+                'table' => 'online_daily_data',
+            ]],
+        ]]);
+
+        self::assertSame('no_action', $closure['status']);
+        self::assertFalse($closure['blocked_state']['is_blocked']);
+        self::assertTrue($closure['data_evidence_input']['enough_for_decision']);
+        self::assertFalse($closure['data_evidence_input']['enough_for_executable_actions']);
+        self::assertFalse($closure['human_confirmation']['required']);
+        self::assertSame('not_required', $closure['human_confirmation']['status']);
+        self::assertSame('metric_missing:advertising_spend', $closure['data_evidence_input']['optional_data_gaps'][0]['code']);
+    }
+
+    public function testOtaDiagnosisCoreGapCanNeverBecomeNoAction(): void
+    {
+        $controller = $this->controller();
+        $closure = $this->invokeNonPublic($controller, 'buildAiDecisionClosure', [[
+            'action_items' => [],
+            'data_gaps' => ['metric_missing:book_order_num'],
+            'main_problems' => [],
+            'data_summary' => ['source_counts' => ['online_rows' => 1]],
+        ]]);
+
+        self::assertSame('blocked_by_data', $closure['status']);
+        self::assertTrue($closure['blocked_state']['is_blocked']);
+        self::assertSame('metric_missing:book_order_num', $closure['data_evidence_input']['blocking_data_gaps'][0]['code']);
+
+        $final = $this->invokeNonPublic($controller, 'finalizeOtaDiagnosisDecision', [[
+            'priority' => 'high',
+            'action_items' => [],
+            'data_gaps' => ['metric_missing:book_order_num'],
+            'main_problems' => [],
+            'data_summary' => ['source_counts' => ['online_rows' => 1]],
+            'diagnosis' => ['summary' => '核心订单证据缺失', 'actions' => []],
+        ]]);
+        self::assertSame('blocked_by_data', $final['decision_status']);
+        self::assertSame('none', $final['priority']);
+    }
+
+    public function testOtaDiagnosisExecutionIntentUsesSavedEvidenceWithoutInventingTargetDelta(): void
+    {
+        $controller = $this->controller();
+        $input = $this->invokeNonPublic($controller, 'buildOtaDiagnosisExecutionIntentInput', [[
+            'hotel' => ['id' => 80],
+            'platform' => 'meituan',
+            'date_range' => ['start_date' => '2026-07-14', 'end_date' => '2026-07-14'],
+            'decision_status' => 'action_required',
+            'priority' => 'high',
+            'metrics' => [
+                'list_exposure' => 1000,
+                'detail_visitors' => 20,
+                'detail_rate' => 2.0,
+                'book_order_num' => 0,
+            ],
+            'evidence_sources' => [[
+                'ref' => 'online_daily_data#901',
+                'table' => 'online_daily_data',
+                'record_id' => 901,
+            ]],
+            'derived_metric_lineage' => [[
+                'metric' => 'detail_rate',
+                'formula' => 'detail_visitors / list_exposure * 100',
+            ]],
+            'core_conclusion' => '曝光到访问转化偏低',
+        ], [
+            'id' => 'ota_action_1',
+            'action' => '优先优化列表页主图、标题卖点和页面信息呈现，提升曝光到访问转化。',
+            'status' => 'pending_manual_review',
+            'execution_ready' => true,
+            'can_request_execution_intent' => true,
+            'evidence_refs' => ['online_daily_data#901'],
+        ], 77, 80]);
+
+        self::assertSame('ota_diagnosis_saved', $input['source_module']);
+        self::assertSame(77, $input['source_record_id']);
+        self::assertSame('meituan', $input['platform']);
+        self::assertSame('campaign', $input['object_type']);
+        self::assertSame('listing_conversion_optimization', $input['action_type']);
+        self::assertSame(0, $input['current_value']['book_order_num'], 'A verified zero must remain observable.');
+        self::assertSame('target_not_quantified_until_manual_confirmation', $input['target_value']['measurement_policy']);
+        self::assertArrayNotHasKey('expected_delta', $input);
+        self::assertSame('not_quantified', $input['evidence']['expected_delta_status']);
+        self::assertSame(['online_daily_data#901'], $input['evidence']['evidence_refs']);
+    }
+
+    public function testOtaDiagnosisSupersedeScopeUsesRequestedDatesAndSnapshotKeepsRecordStatus(): void
+    {
+        $controller = $this->controller();
+        $range = $this->invokeNonPublic($controller, 'normalizeOtaDiagnosisScopeDateRange', [[
+            'end_date' => '2026-07-14',
+            'start_date' => '2026-07-14',
+            'ignored' => 'does-not-affect-scope',
+        ]]);
+        self::assertSame([
+            'start_date' => '2026-07-14',
+            'end_date' => '2026-07-14',
+        ], $range);
+
+        $snapshot = $this->invokeNonPublic($controller, 'buildOtaDiagnosisSnapshot', [[
+            'platform' => 'meituan',
+            'date_range' => ['start_date' => '2026-07-15', 'end_date' => '2026-07-15'],
+            'requested_date_range' => ['start_date' => '2026-07-14', 'end_date' => '2026-07-14'],
+            'record_status' => 'superseded',
+            'superseded_by' => ['log_id' => 211],
+            'saved_record' => ['id' => 210, 'status' => 'superseded'],
+            'unsafe_field' => 'must-not-persist',
+        ]]);
+
+        self::assertSame('superseded', $snapshot['record_status']);
+        self::assertSame(211, $snapshot['superseded_by']['log_id']);
+        self::assertSame('2026-07-14', $snapshot['requested_date_range']['start_date']);
+        self::assertArrayNotHasKey('unsafe_field', $snapshot);
     }
 
     public function testNormalizeRequestedModelKeyCoversDefaultAliasesAndFallback(): void
@@ -510,6 +698,10 @@ final class AgentTest extends TestCase
         ]);
         self::assertTrue($truncated['truncated']);
         self::assertSame(50, $truncated['hotel_count']);
+        self::assertNull($truncated['totals']['room_nights']);
+        self::assertNull($truncated['totals']['orders']);
+        self::assertNull($truncated['averages']['adr']);
+        self::assertSame(0, $truncated['metric_sample_counts']['room_nights']);
     }
 
     /**
@@ -640,6 +832,21 @@ final class AgentTest extends TestCase
         self::assertStringContainsString('酒店OTA专业指标口径知识库', $prompt);
         self::assertStringContainsString('分母为 0 或缺失时返回不可计算', $prompt);
         self::assertStringContainsString('异常描述必须优先写成数据口径提示或需复核提示', $prompt);
+    }
+
+    public function testCapturedOtaFinalPromptKeepsCtripChannelBoundary(): void
+    {
+        $controller = $this->controller();
+
+        $prompt = $this->invokeNonPublic($controller, 'buildCapturedOtaFinalPrompt', [[
+            'scope' => ['platform' => 'ctrip', 'data_source' => 'captured'],
+            'hotel_count' => 1,
+        ]]);
+
+        self::assertStringContainsString('携程OTA渠道样本诊断报告', $prompt);
+        self::assertStringContainsString('不得外推全酒店营收、全渠道需求或整体经营状况', $prompt);
+        self::assertStringContainsString('建议不等于已执行', $prompt);
+        self::assertStringNotContainsString('整体经营现状', $prompt);
     }
 
     /**
@@ -844,6 +1051,7 @@ final class AgentTest extends TestCase
             'predicted_occupancy' => '86.5',
             'predicted_demand' => '9',
             'confidence_percent' => 82,
+            'forecast_method' => 3,
             'historical_data' => ['operator_note' => 'manual input'],
             'remark' => 'manual forecast',
         ]]);
@@ -861,6 +1069,36 @@ final class AgentTest extends TestCase
         self::assertSame('operator_provided', $payload['historical_data']['evidence_status']);
         self::assertFalse($payload['historical_data']['auto_write_ota']);
         self::assertSame('manual_demand_forecast', $payload['historical_data']['input_type']);
+    }
+
+    public function testDemandForecastPayloadRejectsMissingManualEvidenceFields(): void
+    {
+        $controller = $this->controller();
+        $valid = [
+            'hotel_id' => 64,
+            'forecast_date' => '2026-06-28',
+            'room_type_id' => 12,
+            'forecast_method' => 3,
+            'predicted_occupancy' => 86,
+            'predicted_demand' => 9,
+            'confidence_score' => 0.82,
+        ];
+
+        foreach ([
+            'forecast_method' => 'forecast_method is required',
+            'predicted_occupancy' => 'predicted_occupancy must be numeric',
+            'predicted_demand' => 'predicted_demand must be numeric',
+            'confidence_score' => 'confidence_score must be numeric',
+        ] as $field => $message) {
+            $payload = $valid;
+            unset($payload[$field]);
+            try {
+                $this->invokeNonPublic($controller, 'normalizeDemandForecastPayload', [$payload]);
+                self::fail($field . ' should be required');
+            } catch (\InvalidArgumentException $e) {
+                self::assertSame($message, $e->getMessage());
+            }
+        }
     }
 
     public function testDemandForecastPayloadRejectsMissingRoomTypeMapping(): void
@@ -950,6 +1188,40 @@ final class AgentTest extends TestCase
         ]]);
 
         self::assertSame([7, 8, 9, 10], $hotelIds);
+    }
+
+    public function testOtaDiagnosisIntentIdempotencyIsPerActionAndFailedTerminalsCanRetry(): void
+    {
+        $controller = $this->controller();
+        $action = ['id' => 'action-1'];
+        $input = ['action_type' => 'review_price', 'platform' => 'ctrip'];
+
+        $key = $this->invokeNonPublic($controller, 'otaDiagnosisActionIdempotencyKey', [31, 0, $action, $input]);
+        self::assertSame(
+            $key,
+            $this->invokeNonPublic($controller, 'otaDiagnosisActionIdempotencyKey', [31, 0, $action, $input])
+        );
+        self::assertNotSame(
+            $key,
+            $this->invokeNonPublic($controller, 'otaDiagnosisActionIdempotencyKey', [31, 1, $action, $input])
+        );
+        self::assertNotSame(
+            $key,
+            $this->invokeNonPublic($controller, 'otaDiagnosisActionIdempotencyKey', [31, 0, ['id' => 'action-2'], $input])
+        );
+
+        foreach (['failed', 'failure', 'rejected', 'cancelled', 'canceled'] as $status) {
+            self::assertTrue(
+                $this->invokeNonPublic($controller, 'isRetryableOtaDiagnosisIntentTerminal', [$status]),
+                $status
+            );
+        }
+        foreach (['pending_approval', 'approved', 'completed'] as $status) {
+            self::assertFalse(
+                $this->invokeNonPublic($controller, 'isRetryableOtaDiagnosisIntentTerminal', [$status]),
+                $status
+            );
+        }
     }
 
     public function testCapturedOtaDataQualityGuardRewritesProblemHotelAnomalyTone(): void

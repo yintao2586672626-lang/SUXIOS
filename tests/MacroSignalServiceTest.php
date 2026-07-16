@@ -174,6 +174,67 @@ final class MacroSignalServiceTest extends TestCase
         self::assertSame('missing', $price['status']);
         self::assertSame('--', $price['value']);
         self::assertSame('available', $channel['status']);
+        self::assertStringContainsString('曝光', $channel['impact']);
+        self::assertStringContainsString('订单', $channel['impact']);
+    }
+
+    public function testTrendInterpretationUsesObservedResultToExplainContinuingImpact(): void
+    {
+        $service = new MacroSignalService();
+        $interpretation = $this->invokeNonPublic($service, 'buildTrendInterpretation', [[
+            [
+                'key' => 'revenue',
+                'status' => 'available',
+                'name' => '收益趋势',
+                'value' => '¥8,000',
+                'direction' => '下降',
+                'level' => 'yellow',
+                'note' => '近7日营收下降，较前段-12.0%',
+                'source' => '来源：经营日报收入；无日报时取 OTA 成交额',
+                'impact' => '若当前趋势持续，现有数据范围内的收入表现可能继续承压。',
+            ],
+            [
+                'key' => 'channel',
+                'status' => 'available',
+                'name' => '渠道表现',
+                'value' => '4.2%',
+                'direction' => '平稳',
+                'level' => 'green',
+                'note' => '近7日OTA平均转化率4.2%',
+                'source' => '来源：OTA 曝光、访客、转化和订单数据',
+                'impact' => '渠道表现暂时平稳。',
+            ],
+        ], 7, '近7日']);
+
+        self::assertSame('收益趋势：下降', $interpretation['judgement']);
+        self::assertStringContainsString('7个有效样本', $interpretation['change']);
+        self::assertStringContainsString('收入表现可能继续承压', $interpretation['action']);
+        self::assertStringNotContainsString('提价', $interpretation['action']);
+        self::assertStringNotContainsString('促销', $interpretation['action']);
+    }
+
+    public function testPriceTrendImpactExplainsGapWithoutCreatingPriceAction(): void
+    {
+        $impact = $this->invokeNonPublic(new MacroSignalService(), 'trendImpactText', [[
+            'key' => 'price',
+            'status' => 'available',
+            'direction' => '高于竞对',
+            'level' => 'yellow',
+            'competitor_avg' => 288.0,
+        ]]);
+
+        self::assertStringContainsString('竞对均价的差距', $impact);
+        self::assertStringContainsString('不生成调价结论', $impact);
+    }
+
+    public function testInsufficientTrendSamplesDoNotInventImpact(): void
+    {
+        $interpretation = $this->invokeNonPublic(new MacroSignalService(), 'buildTrendInterpretation', [[], 1, '近7日']);
+
+        self::assertSame('等待数据形成判断', $interpretation['judgement']);
+        self::assertStringContainsString('数据不足', $interpretation['action']);
+        self::assertStringContainsString('不', $interpretation['action']);
+        self::assertStringContainsString('0', $interpretation['action']);
     }
 
     public function testDemandTrendDoesNotTurnMissingEvidenceIntoZeroForecast(): void
@@ -199,6 +260,23 @@ final class MacroSignalServiceTest extends TestCase
         self::assertSame('120曝光', $card['value']);
         self::assertNotSame('0单', $card['value']);
         self::assertSame('曝光已同步', $card['direction']);
+    }
+
+    public function testBlueMeansSyncedOrPendingAndDoesNotClaimImprovement(): void
+    {
+        $service = new MacroSignalService();
+        $trend = $this->invokeNonPublic($service, 'compareSeries', [[100, 120]]);
+        self::assertSame('up', $trend['direction']);
+        self::assertSame('green', $trend['level']);
+
+        $card = [
+            'key' => 'channel',
+            'status' => 'available',
+            'direction' => 'synced',
+        ];
+        $blueImpact = $this->invokeNonPublic($service, 'trendImpactText', [array_merge($card, ['level' => 'blue'])]);
+        $neutralImpact = $this->invokeNonPublic($service, 'trendImpactText', [array_merge($card, ['level' => 'gray'])]);
+        self::assertSame($neutralImpact, $blueImpact);
     }
 
     public function testSafeRowsExposesReadFailureInsteadOfReportingInsufficientData(): void

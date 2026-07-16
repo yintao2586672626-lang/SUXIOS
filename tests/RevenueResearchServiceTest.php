@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\RevenueResearchService;
+use app\service\RevenueOperationsKnowledgeService;
 use app\service\OperationManagementService;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
@@ -445,5 +446,308 @@ final class RevenueResearchServiceTest extends TestCase
 
         self::assertSame('ota', $input['platform']);
         self::assertSame('ota', $payload['platform']);
+    }
+
+    public function testBusinessForecastSelectorKeepsOnlyTrustedCanonicalHotelDailyFacts(): void
+    {
+        $service = new RevenueResearchService();
+        $rows = $this->invokeNonPublic($service, 'selectCanonicalOnlineOperatingRows', [[
+            [
+                'id' => 17652,
+                'system_hotel_id' => 80,
+                'data_date' => '2026-07-15',
+                'source' => 'ctrip',
+                'data_type' => 'business',
+                'dimension' => '',
+                'compare_type' => 'self',
+                'data_period' => 'historical_daily',
+                'is_final' => 1,
+                'validation_status' => 'verified',
+                'source_trace_id' => 'trace-17652',
+                'update_time' => '2026-07-15 09:15:46',
+                'amount' => 5939,
+                'quantity' => 7,
+                'book_order_num' => 11,
+                'hotel_name' => '敦煌漠蓝新',
+            ],
+            [
+                'id' => 34952,
+                'system_hotel_id' => 80,
+                'data_date' => '2026-07-15',
+                'source' => 'ctrip',
+                'data_type' => 'business',
+                'dimension' => 'catalog:business_overview:business_flow_compete:order_count',
+                'compare_type' => 'self',
+                'data_period' => 'historical_daily',
+                'is_final' => 1,
+                'validation_status' => 'verified',
+                'source_trace_id' => 'trace-34952',
+                'update_time' => '2026-07-15 09:13:33',
+                'amount' => 377223.9,
+                'quantity' => 0,
+                'book_order_num' => 288,
+                'hotel_name' => '敦煌漠蓝新',
+            ],
+            [
+                'id' => 90000,
+                'system_hotel_id' => 80,
+                'data_date' => '2026-07-15',
+                'source' => 'ctrip',
+                'data_type' => 'business',
+                'dimension' => '',
+                'validation_status' => 'unverified',
+                'compare_type' => 'self',
+                'data_period' => 'historical_daily',
+                'is_final' => 1,
+                'source_trace_id' => 'trace-90000',
+                'update_time' => '2026-07-15 10:00:00',
+                'amount' => 999999,
+                'quantity' => 999,
+                'book_order_num' => 999,
+                'hotel_name' => '未验证样本',
+            ],
+            [
+                'id' => 90001,
+                'system_hotel_id' => 80,
+                'data_date' => '2026-07-14',
+                'source' => 'ctrip',
+                'data_type' => 'business',
+                'dimension' => '',
+                'compare_type' => 'competitor',
+                'data_period' => 'historical_daily',
+                'is_final' => 1,
+                'validation_status' => 'verified',
+                'source_trace_id' => 'trace-competitor',
+                'amount' => 88888,
+                'quantity' => 88,
+                'book_order_num' => 88,
+            ],
+            [
+                'id' => 90002,
+                'system_hotel_id' => 80,
+                'data_date' => '2026-07-14',
+                'source' => 'ctrip',
+                'data_type' => 'business',
+                'dimension' => '',
+                'compare_type' => 'self',
+                'data_period' => 'realtime_snapshot',
+                'is_final' => 0,
+                'validation_status' => 'verified',
+                'source_trace_id' => 'trace-realtime',
+                'amount' => 77777,
+                'quantity' => 77,
+                'book_order_num' => 77,
+            ],
+            [
+                'id' => 90003,
+                'system_hotel_id' => 80,
+                'data_date' => '2026-07-14',
+                'source' => 'ctrip',
+                'data_type' => 'order',
+                'dimension' => '',
+                'compare_type' => 'self',
+                'data_period' => 'historical_daily',
+                'is_final' => 1,
+                'validation_status' => 'verified',
+                'source_trace_id' => 'trace-single-order',
+                'amount' => 66666,
+                'quantity' => 66,
+                'book_order_num' => 1,
+            ],
+        ]]);
+
+        self::assertCount(1, $rows);
+        self::assertSame(17652, $rows[0]['id']);
+        self::assertSame(5939, $rows[0]['amount']);
+        self::assertSame('敦煌漠蓝新', $rows[0]['hotel_name']);
+    }
+
+    public function testRevenueOperationsKnowledgeIsWiredIntoAiPromptWithProtectedBoundary(): void
+    {
+        $service = new RevenueResearchService();
+        $prompt = $this->invokeNonPublic($service, 'buildPrompt', [
+            ['name' => '需求预测', 'module' => '收益研究', 'query' => 'pickup'],
+            [],
+            [],
+            ['available' => true, 'method' => 'trusted daily facts'],
+            false,
+            [
+                'status' => 'available',
+                'source' => RevenueOperationsKnowledgeService::SOURCE,
+                'entries' => [[
+                    'scope' => 'generic_methodology',
+                    'knowledge_type' => '建议卡契约',
+                    'content' => ['readiness_rule' => 'missing facts means data gaps only'],
+                ]],
+                'protected_boundary' => 'never becomes current-hotel fact or an automatic OTA write instruction',
+            ],
+        ]);
+
+        self::assertStringContainsString(RevenueOperationsKnowledgeService::SOURCE, $prompt);
+        self::assertStringContainsString('不得替代当前酒店事实或触发 OTA 写入', $prompt);
+        self::assertStringContainsString('generic_methodology', $prompt);
+    }
+
+    public function testCanonicalSelectorPrefersExplicitZeroMetricsOverNewerMissingFields(): void
+    {
+        $service = new RevenueResearchService();
+        $base = [
+            'system_hotel_id' => 80,
+            'data_date' => '2026-07-14',
+            'source' => 'ctrip',
+            'data_type' => 'business',
+            'dimension' => '',
+            'compare_type' => 'self',
+            'data_period' => 'historical_daily',
+            'is_final' => 1,
+            'validation_status' => 'verified',
+            'source_trace_id' => 'trace-zero',
+        ];
+        $rows = $this->invokeNonPublic($service, 'selectCanonicalOnlineOperatingRows', [[
+            array_merge($base, [
+                'id' => 1,
+                'update_time' => '2026-07-14 09:00:00',
+                'amount' => 0,
+                'quantity' => 0,
+                'book_order_num' => 0,
+            ]),
+            array_merge($base, [
+                'id' => 2,
+                'update_time' => '2026-07-14 10:00:00',
+                'amount' => null,
+                'quantity' => null,
+                'book_order_num' => null,
+            ]),
+        ]]);
+
+        self::assertCount(1, $rows);
+        self::assertSame(1, $rows[0]['id']);
+        self::assertSame(0, $rows[0]['amount']);
+        self::assertSame(0, $rows[0]['quantity']);
+        self::assertSame(0, $rows[0]['book_order_num']);
+    }
+
+    public function testSparseDailyMetricsRemainNullAndBlockForecastDecision(): void
+    {
+        $service = new RevenueResearchService();
+        $forecast = $this->invokeNonPublic($service, 'buildBusinessForecastFromRows', [[
+            ['data_date' => '2026-07-10', 'amount' => 0, 'quantity' => null, 'book_order_num' => null, 'source' => 'ctrip'],
+            ['data_date' => '2026-07-11', 'amount' => 120, 'quantity' => null, 'book_order_num' => null, 'source' => 'ctrip'],
+            ['data_date' => '2026-07-12', 'amount' => 180, 'quantity' => null, 'book_order_num' => null, 'source' => 'ctrip'],
+        ]]);
+
+        self::assertFalse($forecast['available']);
+        self::assertFalse($forecast['decision_ready']);
+        self::assertSame('ota_channel', $forecast['metric_scope']);
+        self::assertSame(3, $forecast['metric_sample_days']['revenue']);
+        self::assertSame(0, $forecast['metric_sample_days']['room_nights']);
+        self::assertSame(0, $forecast['metric_sample_days']['orders']);
+        self::assertSame(0, $forecast['complete_sample_days']);
+        self::assertContains('room_nights_sample_days_below_3', $forecast['data_gaps']);
+        self::assertContains('orders_sample_days_below_3', $forecast['data_gaps']);
+        self::assertStringContainsString('未生成经营预测', $forecast['message']);
+        self::assertArrayNotHasKey('forecast_7d', $forecast);
+    }
+
+    public function testWindowAggregationPreservesExplicitZeroAndDoesNotAlignDifferentMissingDays(): void
+    {
+        $service = new RevenueResearchService();
+        $window = $this->invokeNonPublic($service, 'aggregateWindow', [[
+            ['date' => '2026-07-10', 'revenue' => 0, 'room_nights' => null, 'orders' => null],
+            ['date' => '2026-07-11', 'revenue' => null, 'room_nights' => 2, 'orders' => null],
+            ['date' => '2026-07-12', 'revenue' => null, 'room_nights' => null, 'orders' => 1],
+        ]]);
+
+        self::assertSame(0.0, $window['revenue']);
+        self::assertSame(2.0, $window['room_nights']);
+        self::assertSame(1.0, $window['orders']);
+        self::assertSame(['revenue' => 1, 'room_nights' => 1, 'orders' => 1], $window['metric_sample_days']);
+        self::assertNull($window['adr'], 'Revenue and room nights from different days cannot form ADR.');
+        self::assertNull($window['aov'], 'Revenue and orders from different days cannot form AOV.');
+        self::assertContains('adr_not_calculable', $window['data_gaps']);
+        self::assertContains('aov_not_calculable', $window['data_gaps']);
+    }
+
+    public function testCompleteAlignedOtaDailySamplesProduceDecisionReadyForecast(): void
+    {
+        $service = new RevenueResearchService();
+        $forecast = $this->invokeNonPublic($service, 'buildBusinessForecastFromRows', [[
+            ['data_date' => '2026-07-10', 'amount' => 0, 'quantity' => 1, 'book_order_num' => 1, 'source' => 'ctrip'],
+            ['data_date' => '2026-07-11', 'amount' => 200, 'quantity' => 2, 'book_order_num' => 2, 'source' => 'ctrip'],
+            ['data_date' => '2026-07-12', 'amount' => 300, 'quantity' => 3, 'book_order_num' => 3, 'source' => 'ctrip'],
+        ]]);
+
+        self::assertTrue($forecast['available']);
+        self::assertTrue($forecast['decision_ready']);
+        self::assertSame('ota_channel', $forecast['metric_scope']);
+        self::assertSame(3, $forecast['sample_days']);
+        self::assertSame(['revenue' => 3, 'room_nights' => 3, 'orders' => 3], $forecast['metric_sample_days']);
+        self::assertSame([], $forecast['data_gaps']);
+        self::assertTrue($forecast['forecast_7d']['decision_ready']);
+        self::assertNull($forecast['forecast_7d']['trend_adjustment_percent']);
+        self::assertNotNull($forecast['forecast_7d']['adr']);
+        self::assertNotNull($forecast['forecast_7d']['aov']);
+    }
+
+    public function testForecastAndDailyRowsKeepMissingOperandsNull(): void
+    {
+        $service = new RevenueResearchService();
+        $forecast = $this->invokeNonPublic($service, 'forecastWindow', [[
+            'avg_daily_revenue' => 100,
+            'avg_daily_room_nights' => 2,
+            'avg_daily_orders' => null,
+            'adr' => 50,
+            'aov' => null,
+        ], 7, null]);
+        $daily = $this->invokeNonPublic($service, 'buildDailyForecast', [$forecast, null]);
+
+        self::assertSame(700.0, $forecast['revenue']);
+        self::assertSame(14.0, $forecast['room_nights']);
+        self::assertNull($forecast['orders']);
+        self::assertNull($forecast['aov']);
+        self::assertFalse($forecast['decision_ready']);
+        self::assertNull($daily[0]['orders']);
+        self::assertSame('partial', $daily[0]['data_status']);
+    }
+
+    public function testPendingDataSummaryCannotClaimForecastWasGenerated(): void
+    {
+        $service = new RevenueResearchService();
+        $result = $this->invokeNonPublic($service, 'normalizeAiResult', [[
+            'summary' => '已生成经营预测，未来收入上涨。',
+            'key_metrics' => ['未来收入 99999 元'],
+            'recommended_actions' => ['先补数据'],
+        ], [
+            'name' => '需求预测',
+            'module' => '收益研究',
+        ], [], [
+            'available' => false,
+            'decision_ready' => false,
+            'message' => 'OTA 渠道订单和间夜样本不足，未生成经营预测。',
+            'data_gaps' => ['orders_sample_days_below_3', 'room_nights_sample_days_below_3'],
+        ]]);
+
+        self::assertFalse($result['decision_ready']);
+        self::assertSame('ota_channel', $result['metric_scope']);
+        self::assertStringNotContainsString('已生成', $result['summary']);
+        self::assertStringContainsString('未生成经营预测', $result['summary']);
+        self::assertSame([], $result['key_metrics']);
+        self::assertContains('orders_sample_days_below_3', $result['data_gaps']);
+    }
+
+    public function testReadinessUsesDecisionReadyInsteadOfLegacyAvailableFlag(): void
+    {
+        $service = new RevenueResearchService();
+        $products = $this->invokeNonPublic($service, 'products');
+        $readiness = $service->buildResearchReadiness($products['demand-forecast'], 'pending_data', [], [
+            'available' => true,
+            'decision_ready' => false,
+            'message' => '订单与间夜样本不完整',
+        ], [
+            'recommended_actions' => ['补齐订单和间夜'],
+        ]);
+
+        self::assertSame('research_forecast_missing', $readiness['stage']);
+        self::assertFalse($readiness['execution_ready']);
     }
 }
