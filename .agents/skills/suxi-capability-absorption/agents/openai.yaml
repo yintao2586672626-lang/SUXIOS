@@ -1,0 +1,6 @@
+interface:
+  display_name: "宿析能力吸收与复刻"
+  short_description: "把各类外部材料转成宿析OS可验证、可复用功能"
+  default_prompt: "使用 $suxi-capability-absorption 从这份材料学习或复刻能力，重放真实样例并融入宿析OS形成可验证闭环。"
+policy:
+  allow_implicit_invocation: true

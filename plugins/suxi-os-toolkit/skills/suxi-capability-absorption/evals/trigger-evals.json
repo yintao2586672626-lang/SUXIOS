@@ -1,0 +1,29 @@
+{
+  "skill_name": "suxi-capability-absorption",
+  "evals": [
+    {"id":"T-001","query":"把这个GitHub Skill学会并融入宿析OS，直接用一次。","should_trigger":true},
+    {"id":"T-002","query":"这套源码的排班功能挺好，接到员工管理里，保存回显都做通。","should_trigger":true},
+    {"id":"T-003","query":"照这个公开网站的价格日历做进收益页。","should_trigger":true},
+    {"id":"T-004","query":"这份SOP别只总结，变成店长能实际走的流程。","should_trigger":true},
+    {"id":"T-005","query":"供应商OpenAPI给你，把接口和错误状态接进来。","should_trigger":true},
+    {"id":"T-006","query":"n8n导出的这个JSON你吸收一下，放进差评处理。","should_trigger":true},
+    {"id":"T-007","query":"我录屏教你操作了，照着学会并做进系统。","should_trigger":true},
+    {"id":"T-008","query":"把这批SQL、Excel和JSON的结构学进去，最后要能保存回读。","should_trigger":true},
+    {"id":"T-009","query":"这些报错和失败测试都给你，修完要形成以后不会再犯的守卫。","should_trigger":true},
+    {"id":"T-010","query":"这是一个Prompt加MCP智能体，把它的能力用到竞品分析。","should_trigger":true},
+    {"id":"T-011","query":"上游新版和旧版diff给你，只吸收真正变化的部分。","should_trigger":true},
+    {"id":"T-012","query":"[附文件] 这个给你，你按我们现在的语境判断怎么用。","should_trigger":true},
+    {"id":"T-013","query":"解释一下什么是SOP。","should_trigger":false},
+    {"id":"T-014","query":"把这份PDF概括成三点，不需要接进系统。","should_trigger":false},
+    {"id":"T-015","query":"只翻译这段源码注释，别改程序。","should_trigger":false},
+    {"id":"T-016","query":"帮我把这段SQL排版一下。","should_trigger":false},
+    {"id":"T-017","query":"打开这个网站，告诉我页面标题是什么。","should_trigger":false},
+    {"id":"T-018","query":"把这张截图裁成16比9。","should_trigger":false},
+    {"id":"T-019","query":"只把这段操作录屏转成文字稿。","should_trigger":false},
+    {"id":"T-020","query":"算一下这个Excel里A列的总和。","should_trigger":false},
+    {"id":"T-021","query":"安装我点名的官方插件，不需要学习或改造它。","should_trigger":false},
+    {"id":"T-022","query":"解释HTTP 401和403的区别。","should_trigger":false},
+    {"id":"T-023","query":"给我看看当前git diff，不要修改。","should_trigger":false},
+    {"id":"T-024","query":"从零写一个普通客服提示词，我没有提供外部材料。","should_trigger":false}
+  ]
+}

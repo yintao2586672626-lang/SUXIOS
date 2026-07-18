@@ -301,6 +301,7 @@
 | `.agents/plugins/marketplace.json` | 本地插件市场配置 | 保留 |
 | `.agents/skills/ecc-codex-adapter/SKILL.md` | ECC/Codex 适配 Skill | 保留 |
 | `.agents/skills/scrapling/SKILL.md` | 授权网页解析与 selector 证据 Skill | 保留 |
+| `.agents/skills/suxi-capability-absorption/` | 多源能力学习、复刻、在线Skill预览与来源锁定、基线评测、接入和防遗忘门禁 | 保留并同步插件分发 |
 | `.agents/skills/suxi-ai-report/SKILL.md` | AI 报告 Skill | 保留 |
 | `.agents/skills/suxi-ai-report/agents/openai.yaml` | AI 报告 Skill agent 配置 | 保留 |
 | `.agents/skills/suxi-ctrip-field-table-closure/SKILL.md` | 携程字段到表闭环 Skill | 保留 |
@@ -319,6 +320,6 @@
 | `.agents/skills/suxi-test-guard/SKILL.md` | 测试守卫 Skill | 保留 |
 | `.agents/skills/suxi-test-guard/agents/openai.yaml` | 测试守卫 agent 配置 | 保留 |
 | `plugins/suxi-os-toolkit/.codex-plugin/plugin.json` | 本地插件定义 | 保留 |
-| `plugins/suxi-os-toolkit/skills/*` | 插件分发版 Skill 内容，包含上述 11 个项目本地 Skill | 保留，与 `.agents/skills` 同源并同步分发 |
+| `plugins/suxi-os-toolkit/skills/*` | 插件分发版 Skill 内容，包含需要跨会话发现的项目本地 Skill | 保留，与 `.agents/skills` 同源并同步分发 |
 | `plugins/suxi-os-toolkit/skills/suxi-ota-ops/references/ctrip-browser-capture.md` | 插件分发版携程浏览器采集参考 | 保留 |
 | `plugins/suxi-os-toolkit/skills/suxi-ota-ops/references/meituan-browser-capture.md` | 插件分发版美团浏览器采集参考 | 保留 |
