@@ -7,6 +7,7 @@ use app\model\OperationLog;
 use app\service\BrowserProfileCaptureRequestService;
 use app\service\MeituanManualIdentityService;
 use app\service\OtaExecutionStageException;
+use app\service\OtaProfileSessionProofService;
 use app\service\OtaTrafficUrlNormalizer;
 use app\service\PlatformDataSyncService;
 use think\Response;
@@ -416,6 +417,68 @@ trait OnlineDataRequestConcern
         }
 
         $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
+        if ($loginOnly) {
+            $loginContract = $this->evaluateBrowserProfileLoginPayload($payload);
+            if ($systemHotelId) {
+                $this->cachePlatformProfileStatus('meituan', (int)$systemHotelId, $storeId, [
+                    'checked_at' => date('Y-m-d H:i:s'),
+                    'auth_status' => $authStatus,
+                    'session_probe' => $loginContract['session_probe'],
+                    'capture_gate' => $payload['capture_gate'] ?? null,
+                    'status_code' => $loginContract['status_code'],
+                    'output' => $outputPath,
+                ]);
+            }
+            if (!$loginContract['collectable']) {
+                return $this->error((string)$loginContract['message'], 400, [
+                    'auth_status' => $authStatus,
+                    'session_probe' => $loginContract['session_probe'],
+                    'capture_gate' => $payload['capture_gate'] ?? null,
+                    'status_code' => $loginContract['status_code'],
+                    'output' => $outputPath,
+                ]);
+            }
+
+            $responsePayload = [
+                'mode' => (string)($payload['mode'] ?? 'login_only'),
+                'store_id' => (string)($payload['store_id'] ?? $storeId),
+                'poi_id' => (string)($payload['poi_id'] ?? $poiId),
+                'auth_status' => $authStatus,
+                'session_probe' => $loginContract['session_probe'],
+                'capture_gate' => $payload['capture_gate'] ?? null,
+                'status_code' => $loginContract['status_code'],
+                'hotel_identity_verified' => $loginContract['proof_eligible'],
+                'pages' => $payload['pages'] ?? [],
+                'saved_count' => 0,
+                'row_count' => 0,
+                'counts' => [],
+                'output' => $outputPath,
+                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
+            ];
+            if ($systemHotelId && $this->isTruthyRequestValue($requestData['bind_data_source'] ?? $requestData['bindDataSource'] ?? false)) {
+                if (!$loginContract['proof_eligible']) {
+                    $responsePayload['data_source_binding'] = [
+                        'status' => 'blocked',
+                        'reason' => 'hotel_identity_unverified',
+                    ];
+                } else {
+                    $responsePayload['data_source'] = $this->bindVerifiedBrowserProfileDataSource(
+                        'meituan',
+                        (int)$systemHotelId,
+                        $storeId,
+                        $requestData,
+                        $payload
+                    );
+                }
+            }
+
+            return $this->success(
+                $responsePayload,
+                $loginContract['proof_eligible']
+                    ? '美团浏览器 Profile 登录态与门店身份已验证，未执行数据采集和入库'
+                    : '美团账号 Session 可用，但门店身份尚未核验；未绑定数据源、未执行采集和入库'
+            );
+        }
         if ($authStatus !== [] && empty($authStatus['ok'])) {
             if ($systemHotelId) {
                 $this->cachePlatformProfileStatus('meituan', (int)$systemHotelId, $storeId, [
@@ -442,27 +505,6 @@ trait OnlineDataRequestConcern
                 'status_code' => 'logged_in',
                 'output' => $outputPath,
             ]);
-        }
-
-        if ($loginOnly) {
-            $responsePayload = [
-                'mode' => (string)($payload['mode'] ?? 'login_only'),
-                'store_id' => (string)($payload['store_id'] ?? $storeId),
-                'poi_id' => (string)($payload['poi_id'] ?? $poiId),
-                'auth_status' => $payload['auth_status'] ?? null,
-                'capture_gate' => $payload['capture_gate'] ?? null,
-                'pages' => $payload['pages'] ?? [],
-                'saved_count' => 0,
-                'row_count' => 0,
-                'counts' => [],
-                'output' => $outputPath,
-                'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
-            ];
-            if ($systemHotelId && $this->isTruthyRequestValue($requestData['bind_data_source'] ?? $requestData['bindDataSource'] ?? false)) {
-                $responsePayload['data_source'] = $this->bindBrowserProfileDataSource('meituan', (int)$systemHotelId, $requestData, $payload);
-            }
-
-            return $this->success($responsePayload, '美团浏览器 Profile 登录状态已准备，未执行数据采集和入库');
         }
 
         $gate = is_array($payload['capture_gate'] ?? null) ? $payload['capture_gate'] : [];
@@ -517,14 +559,14 @@ trait OnlineDataRequestConcern
         }
         if (empty($rows)) {
             if (BrowserProfileCaptureRequestService::isConfirmedEmptyMeituanCaptureGate($gate)) {
-                return $this->success([
+                return $this->success(array_merge([
                     'auth_status' => $payload['auth_status'] ?? null,
                     'capture_gate' => $gate,
                     'saved_count' => 0,
                     'row_count' => 0,
                     'counts' => [],
                     'output' => $outputPath,
-                ], '美团平台已确认当前条件无数据，未写入空行');
+                ], $this->browserProfileCollectionProofStatusPayload('not_recorded', 'no_persisted_rows')), '美团平台已确认当前条件无数据，未写入空行');
             }
             return $this->error('美团浏览器 Profile 采集未解析到业务行，未入库空数据', 400, [
                 'auth_status' => $payload['auth_status'] ?? null,
@@ -607,6 +649,20 @@ trait OnlineDataRequestConcern
                 'data' => $responsePayload,
             ], 500);
         }
+
+        $identityIdentifier = trim((string)($profileIdentity['store_id'] ?? $profileIdentity['poi_id'] ?? ''));
+        $sessionProof = $this->recordBrowserProfileCollectionProofOutcome(
+            'meituan',
+            (int)$systemHotelId,
+            $storeId,
+            (int)($dataSourceId ?? 0),
+            $authStatus,
+            $identityIdentifier,
+            $savedCount,
+            count($rows),
+            $savedCount === count($rows)
+        );
+        $responsePayload = array_merge($responsePayload, $sessionProof);
 
         return $this->success($responsePayload, '美团浏览器抓取完成并已确认入库');
     }
@@ -760,39 +816,56 @@ trait OnlineDataRequestConcern
 
         if ($loginOnly) {
             $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
-            if ($authStatus !== [] && empty($authStatus['ok'])) {
-                $this->cachePlatformProfileStatus('ctrip', (int)$systemHotelId, $profileId, [
-                    'checked_at' => date('Y-m-d H:i:s'),
+            $loginContract = $this->evaluateBrowserProfileLoginPayload($payload);
+            $this->cachePlatformProfileStatus('ctrip', (int)$systemHotelId, $profileId, [
+                'checked_at' => date('Y-m-d H:i:s'),
+                'auth_status' => $authStatus,
+                'session_probe' => $loginContract['session_probe'],
+                'capture_gate' => $payload['capture_gate'] ?? null,
+                'status_code' => $loginContract['status_code'],
+                'output' => $outputPath,
+            ]);
+            if (!$loginContract['collectable']) {
+                return $this->error((string)$loginContract['message'], 400, [
                     'auth_status' => $authStatus,
+                    'session_probe' => $loginContract['session_probe'],
                     'capture_gate' => $payload['capture_gate'] ?? null,
-                    'status_code' => 'login_expired',
-                    'output' => $outputPath,
-                ]);
-                return $this->error('重新登录携程平台账号', 400, [
-                    'auth_status' => $authStatus,
-                    'capture_gate' => $payload['capture_gate'] ?? null,
+                    'status_code' => $loginContract['status_code'],
                     'output' => $outputPath,
                     'stdout' => $this->trimMeituanCaptureLog($runResult['stdout'] ?? ''),
                 ]);
             }
-
-            $this->cachePlatformProfileStatus('ctrip', (int)$systemHotelId, $profileId, [
-                'checked_at' => date('Y-m-d H:i:s'),
-                'auth_status' => $authStatus !== [] ? $authStatus : ['ok' => true, 'status' => 'logged_in'],
-                'capture_gate' => $payload['capture_gate'] ?? null,
-                'status_code' => 'logged_in',
-                'output' => $outputPath,
-            ]);
             $responsePayload = $this->buildCtripLoginOnlyResponsePayload(
                 $payload,
                 $outputPath,
                 $this->trimMeituanCaptureLog($runResult['stdout'] ?? '')
             );
+            $responsePayload['session_probe'] = $loginContract['session_probe'];
+            $responsePayload['status_code'] = $loginContract['status_code'];
+            $responsePayload['hotel_identity_verified'] = $loginContract['proof_eligible'];
             if ($this->isTruthyRequestValue($requestData['bind_data_source'] ?? $requestData['bindDataSource'] ?? false)) {
-                $responsePayload['data_source'] = $this->bindBrowserProfileDataSource('ctrip', (int)$systemHotelId, $requestData, $payload);
+                if (!$loginContract['proof_eligible']) {
+                    $responsePayload['data_source_binding'] = [
+                        'status' => 'blocked',
+                        'reason' => 'hotel_identity_unverified',
+                    ];
+                } else {
+                    $responsePayload['data_source'] = $this->bindVerifiedBrowserProfileDataSource(
+                        'ctrip',
+                        (int)$systemHotelId,
+                        $profileId,
+                        $requestData,
+                        $payload
+                    );
+                }
             }
 
-            return $this->success($responsePayload, '携程浏览器 Profile 登录状态已准备，未执行数据采集和入库');
+            return $this->success(
+                $responsePayload,
+                $loginContract['proof_eligible']
+                    ? '携程浏览器 Profile 登录态与门店身份已验证，未执行数据采集和入库'
+                    : '携程账号 Session 可用，但门店身份尚未核验；未绑定数据源、未执行采集和入库'
+            );
         }
 
         $captureGateDecision = $this->buildCtripCaptureGateDecision($payload);
@@ -820,9 +893,27 @@ trait OnlineDataRequestConcern
             }
         }
 
+        $identityConfig = $requestData;
+        if ($hotelId !== '') {
+            $identityConfig['ctrip_hotel_id'] = $hotelId;
+        }
+        $identityCheck = $this->validateCtripPayloadHotelIdentity($payload, (int)$systemHotelId, $identityConfig);
+        if (empty($identityCheck['ok'])
+            || empty($identityCheck['expected_hotel_ids'])
+            || ($identityCheck['status'] ?? '') !== 'matched'
+        ) {
+            return $this->error((string)($identityCheck['message'] ?? '携程门店身份未通过校验，本次未绑定数据源、未入库。'), 409, [
+                'reason' => 'hotel_identity_unverified',
+                'identity_check' => $identityCheck,
+                'saved_count' => 0,
+                'output' => $outputPath,
+            ]);
+        }
+
         $dataSourceBinding = null;
         $dataSourceBindingError = '';
-        $dataSourceId = null;
+        $existingDataSourceId = $this->findBrowserProfileDataSourceId((int)$systemHotelId, 'ctrip', $profileId);
+        $dataSourceId = $existingDataSourceId > 0 ? $existingDataSourceId : null;
         if ($this->isTruthyRequestValue($requestData['bind_data_source'] ?? $requestData['bindDataSource'] ?? false)) {
             try {
                 $dataSourceBinding = $this->bindBrowserProfileDataSource('ctrip', (int)$systemHotelId, $requestData, $payload);
@@ -901,6 +992,22 @@ trait OnlineDataRequestConcern
         }
 
         $responsePayload['persistence_status'] = $savedCount > 0 ? 'readback_verified' : 'no_parsed_rows';
+        $validatedHotelIds = array_values(array_intersect(
+            array_map('strval', is_array($identityCheck['captured_hotel_ids'] ?? null) ? $identityCheck['captured_hotel_ids'] : []),
+            array_map('strval', is_array($identityCheck['expected_hotel_ids'] ?? null) ? $identityCheck['expected_hotel_ids'] : [])
+        ));
+        $sessionProof = $this->recordBrowserProfileCollectionProofOutcome(
+            'ctrip',
+            (int)$systemHotelId,
+            $profileId,
+            (int)($dataSourceId ?? 0),
+            is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [],
+            trim((string)($validatedHotelIds[0] ?? '')),
+            $savedCount,
+            $rowCount,
+            $savedCount > 0
+        );
+        $responsePayload = array_merge($responsePayload, $sessionProof);
         return $this->success($responsePayload, $savedCount > 0 ? '携程浏览器 Profile 采集完成并已确认入库' : '携程浏览器 Profile 采集完成，但未解析到可入库数据');
     }
 
@@ -1044,6 +1151,7 @@ trait OnlineDataRequestConcern
                     'status' => ($status['status_code'] ?? '') === 'logged_in' ? 'logged_in' : 'login_required',
                     'message' => (string)($status['next_action'] ?? ''),
                 ],
+                'session_probe' => $status['session_probe'] ?? null,
                 'capture_gate' => $status['capture_gate'] ?? null,
                 'status_code' => (string)($status['status_code'] ?? 'login_expired'),
                 'output' => (string)($status['output'] ?? ''),
@@ -2831,6 +2939,236 @@ trait OnlineDataRequestConcern
         }
 
         return false;
+    }
+
+    /**
+     * @return array{collectable:bool,proof_eligible:bool,status_code:string,message:string,session_probe:array<string,mixed>}
+     */
+    private function evaluateBrowserProfileLoginPayload(array $payload): array
+    {
+        $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
+        $sessionProbe = is_array($payload['session_probe'] ?? null) ? $payload['session_probe'] : [];
+        $authStatusCode = strtolower(trim((string)($authStatus['status'] ?? '')));
+        $proofService = new OtaProfileSessionProofService();
+        $collectable = ($authStatus['ok'] ?? null) === true
+            && in_array($authStatusCode, ['logged_in', 'authorized'], true)
+            && $proofService->isCollectableProfileLoginSessionProbe($sessionProbe);
+        $proofEligible = $collectable && $proofService->isStrongProfileLoginSessionProbe($sessionProbe);
+        $statusCode = $this->ctripProfileProbeStatusCode($payload, $authStatus);
+        $message = trim((string)($sessionProbe['message'] ?? ''));
+        if ($message === '') {
+            $message = $collectable
+                ? '平台账号 Session 可用，但门店身份尚未核验。'
+                : '当前 Profile 尚未形成可验证登录态，请重新登录后检测。';
+        }
+
+        return [
+            'collectable' => $collectable,
+            'proof_eligible' => $proofEligible,
+            'status_code' => $statusCode,
+            'message' => $message,
+            'session_probe' => $sessionProbe,
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function bindVerifiedBrowserProfileDataSource(
+        string $platform,
+        int $systemHotelId,
+        string $profileKey,
+        array $requestData,
+        array $payload
+    ): array {
+        $source = $this->bindBrowserProfileDataSource($platform, $systemHotelId, $requestData, $payload);
+        $sourceId = (int)($source['id'] ?? 0);
+        if ($sourceId <= 0) {
+            throw new \RuntimeException('Profile data source was saved without an id.', 500);
+        }
+        $proof = (new OtaProfileSessionProofService())->recordProfileLoginVerified(
+            $sourceId,
+            $systemHotelId,
+            $platform,
+            $profileKey,
+            true,
+            is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [],
+            is_array($payload['session_probe'] ?? null) ? $payload['session_probe'] : []
+        );
+        $source['current_session_verified'] = (bool)($proof['current_session_verified'] ?? false);
+        $source['sensitive_values_exposed'] = false;
+        return $source;
+    }
+
+    /** @param array<string, mixed> $authStatus */
+    private function recordVerifiedBrowserProfileCollectionProof(
+        string $platform,
+        int $systemHotelId,
+        string $profileKey,
+        int $dataSourceId,
+        array $authStatus,
+        string $validatedIdentifier,
+        int $savedCount,
+        int $rowCount,
+        bool $readbackVerified
+    ): bool {
+        $outcome = $this->recordBrowserProfileCollectionProofOutcome(
+            $platform,
+            $systemHotelId,
+            $profileKey,
+            $dataSourceId,
+            $authStatus,
+            $validatedIdentifier,
+            $savedCount,
+            $rowCount,
+            $readbackVerified
+        );
+
+        return ($outcome['session_proof_status'] ?? '') === 'verified';
+    }
+
+    /**
+     * @param array<string, mixed> $authStatus
+     * @return array<string, string>
+     */
+    private function recordBrowserProfileCollectionProofOutcome(
+        string $platform,
+        int $systemHotelId,
+        string $profileKey,
+        int $dataSourceId,
+        array $authStatus,
+        string $validatedIdentifier,
+        int $savedCount,
+        int $rowCount,
+        bool $readbackVerified
+    ): array {
+        $blocker = $this->browserProfileCollectionProofBlocker(
+            $systemHotelId,
+            $profileKey,
+            $dataSourceId,
+            $authStatus,
+            $validatedIdentifier,
+            $savedCount,
+            $rowCount,
+            $readbackVerified
+        );
+        if ($blocker !== '') {
+            return $this->browserProfileCollectionProofStatusPayload('not_recorded', $blocker);
+        }
+
+        try {
+            (new OtaProfileSessionProofService())->recordCollectionPreflightVerified(
+                $dataSourceId,
+                $systemHotelId,
+                $platform,
+                $profileKey,
+                true,
+                $authStatus,
+                [
+                    'status' => 'matched',
+                    'validated_identifier' => $validatedIdentifier,
+                    'sensitive_values_exposed' => false,
+                ]
+            );
+            return $this->browserProfileCollectionProofStatusPayload('verified', 'none');
+        } catch (\Throwable) {
+            return $this->browserProfileCollectionProofStatusPayload('not_recorded', 'proof_write_failed');
+        }
+    }
+
+    /** @param array<string, mixed> $authStatus */
+    private function browserProfileCollectionProofEligible(
+        int $systemHotelId,
+        string $profileKey,
+        int $dataSourceId,
+        array $authStatus,
+        string $validatedIdentifier,
+        int $savedCount,
+        int $rowCount,
+        bool $readbackVerified
+    ): bool {
+        return $this->browserProfileCollectionProofBlocker(
+            $systemHotelId,
+            $profileKey,
+            $dataSourceId,
+            $authStatus,
+            $validatedIdentifier,
+            $savedCount,
+            $rowCount,
+            $readbackVerified
+        ) === '';
+    }
+
+    /** @param array<string, mixed> $authStatus */
+    private function browserProfileCollectionProofBlocker(
+        int $systemHotelId,
+        string $profileKey,
+        int $dataSourceId,
+        array $authStatus,
+        string $validatedIdentifier,
+        int $savedCount,
+        int $rowCount,
+        bool $readbackVerified
+    ): string {
+        $authCode = strtolower(trim((string)($authStatus['status'] ?? '')));
+        if ($savedCount <= 0 || $rowCount <= 0) {
+            return 'no_persisted_rows';
+        }
+        if (!$readbackVerified) {
+            return 'readback_not_verified';
+        }
+        if ($dataSourceId <= 0 || $systemHotelId <= 0 || trim($profileKey) === '') {
+            return 'data_source_scope_missing';
+        }
+        if (($authStatus['ok'] ?? null) !== true || !in_array($authCode, ['logged_in', 'authorized'], true)) {
+            return 'auth_evidence_unverified';
+        }
+        if (trim($validatedIdentifier) === '') {
+            return 'hotel_identity_unverified';
+        }
+        return '';
+    }
+
+    /** @return array<string, string> */
+    private function browserProfileCollectionProofStatusPayload(string $status, string $reasonCode): array
+    {
+        $reasonCode = trim($reasonCode) !== '' ? trim($reasonCode) : 'proof_write_failed';
+        $copy = [
+            'none' => [
+                '登录证据已与本次采集结果关联并持久化。',
+                '继续核对目标日期数据、收益分析和下游业务链状态。',
+            ],
+            'no_persisted_rows' => [
+                '本次没有目标日期入库行，因此未生成可复用的登录证据。',
+                '核对目标日期和采集模块后重新采集；确认无数据时无需重复登录。',
+            ],
+            'readback_not_verified' => [
+                '本次数据尚未通过数据库回读，登录证据未记录。',
+                '先排查保存与数据库回读，再重新执行最小采集。',
+            ],
+            'data_source_scope_missing' => [
+                '数据已保存，但当前 Profile 尚未绑定到可归属的数据源，登录证据未记录。',
+                '绑定当前门店的平台 Profile 数据源后，重新执行一次最小采集。',
+            ],
+            'auth_evidence_unverified' => [
+                '数据已保存，但本次登录态证据不足，未写入可复用 Session 证明。',
+                '由账号使用者在本机完成平台登录并重新检测 Session，再执行最小采集。',
+            ],
+            'hotel_identity_unverified' => [
+                '数据已保存，但平台门店身份尚未核验，登录证据未记录。',
+                '核对平台门店标识与系统门店绑定后重新执行最小采集。',
+            ],
+            'proof_write_failed' => [
+                '数据已保存并完成回读，但登录证据写入失败。',
+                '刷新登录状态后重试；若仍失败，请检查 Profile 数据源状态。',
+            ],
+        ];
+        [$message, $nextAction] = $copy[$reasonCode] ?? $copy['proof_write_failed'];
+
+        return [
+            'session_proof_status' => $status === 'verified' ? 'verified' : 'not_recorded',
+            'session_proof_reason_code' => $status === 'verified' ? 'none' : $reasonCode,
+            'session_proof_message' => $message,
+            'session_proof_next_action' => $nextAction,
+        ];
     }
 
     private function sendCustomRequest(string $url, string $method, string $headersStr, string $body): array

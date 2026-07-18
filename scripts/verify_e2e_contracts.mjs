@@ -561,7 +561,7 @@ requireText('public/index.html', 'const openPlatformAutoTab = (options = {}) =>'
 requireText('public/index.html', 'const openOnlinePlatformAutoTab = (options = {}) =>', 'cross-page platform auto navigation uses the deduplicated entrypoint');
 requireText('public/index.html', 'const PLATFORM_AUTO_SETTINGS_PANEL_DELAY_MS = 800;', 'platform auto-fetch delays schedule/browser settings behind immediate collect controls');
 requireText('public/index.html', 'const platformAutoSettingsPanelsReady = ref(false);', 'platform auto-fetch tracks settings readiness separately from core controls');
-requireText('public/index.html', "const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260714-manual-direct-scheduled-profile';", 'platform auto-fetch extension panels use a versioned lazy component script');
+requireText('public/index.html', "const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260719-session-proof-hd0bfaeed76';", 'platform auto-fetch extension panels use a versioned lazy component script');
 requireText('public/index.html', 'const ensurePlatformAutoPanelsReady = async () => {', 'platform auto-fetch extension panels load only after the delayed panel timers fire');
 requireText('public/index.html', "requireOnlineDataComponent('PlatformAutoSettingsPanelsBody')", 'platform auto-fetch settings panel resolves the lazy body component after script load');
 requireText('public/index.html', "requireOnlineDataComponent('PlatformAutoSecondaryPanelsBody')", 'platform auto-fetch secondary panel resolves the lazy body component after script load');

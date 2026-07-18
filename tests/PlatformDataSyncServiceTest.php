@@ -208,6 +208,31 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertSame(['profile_session_unverified'], $missing);
     }
 
+    public function testBrowserProfileBackgroundSyncStopsAfterRiskControlUntilManualReview(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'browserProfileBackgroundSyncLoginMissingRequirements');
+        $method->setAccessible(true);
+
+        $missing = $method->invoke($service, [
+            'id' => 801,
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'ingestion_method' => 'browser_profile',
+            'system_hotel_id' => 58,
+            'config' => [
+                'profile_id' => 'hotel_001',
+                'current_session_status' => 'anti_bot',
+                'current_session_backoff_until' => '2099-01-01 00:00:00',
+            ],
+        ], [
+            'trigger_type' => 'daily_profile_reuse',
+            'interactive_browser' => false,
+        ]);
+
+        self::assertSame(['profile_risk_control_manual_review_required'], $missing);
+    }
+
     public function testBrowserProfileInteractiveSynchronizationDoesNotRequireCurrentSessionProof(): void
     {
         $service = new PlatformDataSyncService();
@@ -228,6 +253,30 @@ final class PlatformDataSyncServiceTest extends TestCase
             'interactive_browser' => true,
         ]));
 
+    }
+
+    public function testFreshPostLoginCollectionMayRunOnceToVerifyHotelIdentity(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'browserProfileBackgroundSyncLoginMissingRequirements');
+        $method->setAccessible(true);
+
+        $missing = $method->invoke($service, [
+            'id' => 811,
+            'platform' => 'ctrip',
+            'data_type' => 'traffic',
+            'ingestion_method' => 'browser_profile',
+            'system_hotel_id' => 58,
+            'config' => [
+                'profile_id' => 'hotel_001',
+                'current_session_status' => 'identity_unverified',
+            ],
+        ], [
+            'trigger_type' => 'profile_login_after_login',
+            'interactive_browser' => false,
+        ]);
+
+        self::assertSame([], $missing);
     }
 
     public function testBrowserProfileBackgroundSyncRejectsHistoricalVerifiedManualLoginWithoutReusableProof(): void
@@ -1535,6 +1584,59 @@ final class PlatformDataSyncServiceTest extends TestCase
         ]));
     }
 
+    public function testCtripBrowserProfileIdentityUsesObservedHotelFactsInsteadOfConfiguredFallback(): void
+    {
+        $adapter = new CtripBrowserProfileDataSourceAdapter(sys_get_temp_dir(), 'node', static fn() => []);
+        $method = new \ReflectionMethod($adapter, 'evaluatePlatformIdentity');
+        $method->setAccessible(true);
+        $payload = [
+            'catalog_facts' => [[
+                'metric_key' => 'hotel_id',
+                'source_key' => 'masterHotelId',
+                'value' => '6866634',
+            ]],
+        ];
+
+        self::assertSame('matched', $method->invoke($adapter, $payload, '6866634')['status']);
+        self::assertSame('mismatch', $method->invoke($adapter, $payload, '9999999')['status']);
+        $mixedPayload = $payload;
+        $mixedPayload['catalog_facts'][] = [
+            'metric_key' => 'hotel_id',
+            'source_key' => 'hotelId',
+            'value' => '9999999',
+        ];
+        self::assertSame('mismatch', $method->invoke($adapter, $mixedPayload, '6866634')['status']);
+        self::assertSame('unverified', $method->invoke($adapter, ['catalog_facts' => []], '6866634')['status']);
+        self::assertSame('not_configured', $method->invoke($adapter, $payload, '')['status']);
+    }
+
+    public function testCtripBrowserProfileAdapterRejectsRowsWithoutVerifiedHotelIdentity(): void
+    {
+        $root = $this->createCtripBrowserProfileTestRoot('hotel_001');
+
+        try {
+            $adapter = new CtripBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'capture_gate' => ['status' => 'pass'],
+                'catalog_facts' => [],
+                'standard_rows' => [[
+                    'hotel_id' => '24588',
+                    'data_date' => '2026-05-31',
+                    'data_type' => 'business',
+                    'amount' => 100,
+                ]],
+            ]));
+
+            $result = $adapter->fetch($this->ctripBrowserProfileSource(), ['interactive_browser' => false]);
+
+            self::assertSame('failed', $result['status']);
+            self::assertSame('ctrip_platform_identity_unverified', $result['status_code']);
+            self::assertArrayNotHasKey('rows', $result['payload']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
     public function testCtripBrowserProfileAdapterReturnsWaitingConfigWhenProfileIsMissing(): void
     {
         $root = $this->createCtripBrowserProfileTestRoot();
@@ -1639,6 +1741,7 @@ final class PlatformDataSyncServiceTest extends TestCase
                     file_put_contents($outputPath, json_encode([
                         'auth_status' => ['ok' => true, 'status' => 'logged_in'],
                         'capture_gate' => ['status' => 'pass'],
+                        'catalog_facts' => [['metric_key' => 'hotel_id', 'source_key' => 'masterHotelId', 'value' => '24588']],
                         'standard_rows' => [
                             [
                                 'hotel_id' => '24588',
@@ -1686,6 +1789,7 @@ final class PlatformDataSyncServiceTest extends TestCase
                     file_put_contents($outputPath, json_encode([
                         'auth_status' => ['ok' => true, 'status' => 'logged_in'],
                         'capture_gate' => ['status' => 'pass'],
+                        'catalog_facts' => [['metric_key' => 'hotel_id', 'source_key' => 'masterHotelId', 'value' => '24588']],
                         'standard_rows' => [[
                             'hotel_id' => '24588',
                             'hotel_name' => 'Ctrip Demo Hotel',
@@ -1737,6 +1841,7 @@ final class PlatformDataSyncServiceTest extends TestCase
                 $payload = [
                     'auth_status' => ['ok' => true, 'status' => 'logged_in'],
                     'capture_gate' => ['status' => 'pass'],
+                    'catalog_facts' => [['metric_key' => 'hotel_id', 'source_key' => 'masterHotelId', 'value' => '24588']],
                     'standard_rows' => [],
                     'business' => [],
                     'traffic' => [],
@@ -1815,6 +1920,7 @@ final class PlatformDataSyncServiceTest extends TestCase
             $adapter = new CtripBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
                 'auth_status' => ['ok' => true, 'status' => 'logged_in'],
                 'capture_gate' => ['status' => 'pass'],
+                'catalog_facts' => [['metric_key' => 'hotel_id', 'source_key' => 'masterHotelId', 'value' => '24588']],
                 'standard_rows' => [],
                 'business' => [],
                 'traffic' => [],
@@ -1939,6 +2045,7 @@ final class PlatformDataSyncServiceTest extends TestCase
                     file_put_contents($outputPath, json_encode([
                         'auth_status' => ['ok' => true, 'status' => 'logged_in'],
                         'capture_gate' => ['status' => 'pass'],
+                        'catalog_facts' => [['metric_key' => 'hotel_id', 'source_key' => 'masterHotelId', 'value' => '24588']],
                         'by_section' => [
                             $section => [['metric_key' => 'field-config-row-' . $section]],
                         ],
@@ -2049,6 +2156,7 @@ final class PlatformDataSyncServiceTest extends TestCase
                     file_put_contents($outputPath, json_encode([
                         'auth_status' => ['ok' => true, 'status' => 'logged_in'],
                         'capture_gate' => ['status' => 'pass'],
+                        'catalog_facts' => [['metric_key' => 'hotel_id', 'source_key' => 'masterHotelId', 'value' => '24588']],
                         'standard_rows' => [
                             [
                                 'hotel_id' => '24588',
@@ -2106,6 +2214,7 @@ final class PlatformDataSyncServiceTest extends TestCase
                     file_put_contents($outputPath, json_encode([
                         'auth_status' => ['ok' => true, 'status' => 'logged_in'],
                         'capture_gate' => ['status' => 'pass'],
+                        'catalog_facts' => [['metric_key' => 'hotel_id', 'source_key' => 'masterHotelId', 'value' => '24588']],
                         'capture_execution' => [
                             'mode' => 'parallel_pages',
                             'section_concurrency' => 3,
@@ -2185,6 +2294,7 @@ final class PlatformDataSyncServiceTest extends TestCase
                     file_put_contents($outputPath, json_encode([
                         'auth_status' => ['ok' => true, 'status' => 'logged_in'],
                         'capture_gate' => ['status' => 'pass'],
+                        'catalog_facts' => [['metric_key' => 'hotel_id', 'source_key' => 'masterHotelId', 'value' => '24588']],
                         'not_applicable_sections' => $notApplicableSections,
                         'standard_rows' => [
                             [
@@ -2242,6 +2352,7 @@ final class PlatformDataSyncServiceTest extends TestCase
                 file_put_contents($outputPath, json_encode([
                     'auth_status' => ['ok' => true, 'status' => 'logged_in'],
                     'capture_gate' => ['status' => 'pass'],
+                    'catalog_facts' => [['metric_key' => 'hotel_id', 'source_key' => 'masterHotelId', 'value' => '24588']],
                     'standard_rows' => [
                         [
                             'hotel_id' => '24588',
@@ -3275,6 +3386,19 @@ final class PlatformDataSyncServiceTest extends TestCase
                 return ['success' => false, 'message' => 'missing output path', 'stdout' => '', 'stderr' => ''];
             }
             $capturePayload = $payload;
+            if (!array_key_exists('catalog_facts', $capturePayload)) {
+                foreach (is_array($capturePayload['standard_rows'] ?? null) ? $capturePayload['standard_rows'] : [] as $row) {
+                    $capturedHotelId = trim((string)($row['hotel_id'] ?? $row['hotelId'] ?? ''));
+                    if ($capturedHotelId !== '') {
+                        $capturePayload['catalog_facts'] = [[
+                            'metric_key' => 'hotel_id',
+                            'source_key' => 'masterHotelId',
+                            'value' => $capturedHotelId,
+                        ]];
+                        break;
+                    }
+                }
+            }
             if (($capturePayload['auth_status']['ok'] ?? false) === true
                 && !array_key_exists('platform_identity_validation', $capturePayload)
             ) {

@@ -33,6 +33,14 @@ import {
   extractOtaRequestDateEvidence,
   sanitizeOtaPayloadForStorage,
 } from './lib/ota_capture_standard.mjs';
+import {
+  classifyOtaSessionProbeResponse,
+  evaluateOtaSessionProbe,
+  isTrustedOtaPlatformUrl,
+  otaSessionCookieInjectionDomains,
+  sanitizeOtaObservedUrl,
+  summarizeOtaSessionCookies,
+} from './lib/ota_session_probe.mjs';
 import { fail, parseArgs, safeName, timestamp } from './lib/shared_helpers.mjs';
 
 const PAGE_URLS = buildCtripPageUrls();
@@ -45,7 +53,9 @@ if (!profileId) {
   fail('Missing --profile-id or --hotel-id. Example: node scripts/ctrip_browser_capture.mjs --profile-id=59');
 }
 
-const loginOnly = booleanArg(args.loginOnly) || booleanArg(args.authOnly);
+const sessionProbeOnly = booleanArg(args.sessionProbeOnly) || booleanArg(args.session_probe_only);
+const loginOnly = !sessionProbeOnly && (booleanArg(args.loginOnly) || booleanArg(args.authOnly));
+const authOnly = sessionProbeOnly || loginOnly;
 const rawRequestedSections = normalizeSections(args.sections || args.captureSections || args.only || 'default');
 const notApplicableSections = normalizeOptionalSections(
   args.notApplicableSections
@@ -77,7 +87,7 @@ const sectionConcurrency = normalizeSectionConcurrency(
     || args.ctrip_section_concurrency,
   3,
 );
-const parallelSectionsEnabled = !loginOnly
+const parallelSectionsEnabled = !authOnly
   && requestedSections.length > 1
   && sectionConcurrency > 1
   && !booleanArg(args.disableParallelSections)
@@ -98,7 +108,7 @@ const payload = {
   system_hotel_id: args.systemHotelId ? Number(args.systemHotelId) : null,
   default_data_date: defaultDataDate,
   source: 'ctrip_browser_profile',
-  mode: loginOnly ? 'login_only' : 'capture',
+  mode: sessionProbeOnly ? 'session_probe_only' : (loginOnly ? 'login_only' : 'capture'),
   captured_at: capturedAt,
   page_urls: PAGE_URLS,
   requested_sections: requestedSections,
@@ -137,6 +147,13 @@ const payload = {
   screenshots: [],
   cookie_injection: { attempted: false, injected_count: 0, domains: [] },
   auth_status: { status: 'pending', message: 'Login status has not been checked.' },
+  session_probe: {
+    schema_version: 1,
+    mode: 'session_probe_only',
+    platform: 'ctrip',
+    status: 'pending',
+    collectable: false,
+  },
   capture_execution: {
     mode: parallelSectionsEnabled ? 'parallel_pages' : 'single_page_sequential',
     section_concurrency: parallelSectionsEnabled ? sectionConcurrency : 1,
@@ -149,31 +166,47 @@ for (const section of requestedSections) {
   payload.by_section[section] = [];
 }
 const defaultCaptureState = createCaptureState('');
+let sessionProbeSuccessfulApiResponseCount = 0;
+const sessionProbeResponseDiagnostics = {
+  recognized_response_count: 0,
+  candidate_drift_response_count: 0,
+  access_denied_response_count: 0,
+  authentication_required_response_count: 0,
+  permission_denied_response_count: 0,
+  rate_limited_response_count: 0,
+};
 
 const browser = await launchOtaPersistentContext(storageDir, args);
 await grantCtripBrowserPermissions(browser);
-payload.cookie_injection = await injectBrowserCookies(browser, args, 'ctrip');
+payload.cookie_injection = sessionProbeOnly
+  ? { attempted: false, injected_count: 0, domains: [], reason: 'session_probe_only' }
+  : await injectBrowserCookies(browser, args, 'ctrip');
 const page = await browser.newPage();
 await bringLoginPageToFront(page);
-registerResponseCapture(page, payload, defaultCaptureState);
+if (authOnly) {
+  registerSessionProbeResponseObserver(page);
+} else {
+  registerResponseCapture(page, payload, defaultCaptureState);
+}
 
 try {
-  const loginStatus = await ensureLoggedIn(page);
+  const loginStatus = await ensureLoggedIn(page, { interactive: !sessionProbeOnly });
   payload.auth_status = loginStatus;
   if (!loginStatus.ok) {
     payload.pages.push({
       name: 'auth',
       label: '登录状态',
       url: loginStatus.url || page.url(),
-      configured_url: ctripLoginEntryUrl(),
+      configured_url: sanitizeObservedPageUrl(ctripLoginEntryUrl()),
       ok: false,
       auth_status: loginStatus.status,
       error: loginStatus.message,
     });
     process.exitCode = 2;
-  } else if (loginOnly) {
-    await holdInteractiveLoginWindow(page, 'Ctrip');
-    await finalizeLoginOnlyPayload();
+  } else if (authOnly) {
+    if (loginOnly) {
+      await holdInteractiveLoginWindow(page, 'Ctrip');
+    }
   } else {
     if (parallelSectionsEnabled) {
       await page.close().catch(() => null);
@@ -193,7 +226,9 @@ try {
       }
     }
   }
-  if (!loginOnly) {
+  if (authOnly) {
+    await finalizeLoginOnlyPayload();
+  } else {
     await waitForPendingResponses(payload);
     await finalizePayload();
   }
@@ -202,19 +237,29 @@ try {
     output: outputPath,
     profile_dir: storageDir,
     auth_status: payload.auth_status,
+    session_probe: payload.session_probe,
     counts: summarize(payload),
   }, null, 2));
 } finally {
   await browser.close();
 }
 
-async function ensureLoggedIn(page) {
+async function ensureLoggedIn(page, options = {}) {
   await page.goto(ctripLoginEntryUrl(), { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => null);
   await bringLoginPageToFront(page);
   await page.waitForTimeout(2000);
   await dismissBlockingOverlays(page);
   if (await looksLoggedIn(page)) {
-    return { ok: true, status: 'logged_in', url: page.url(), message: 'Ctrip profile is logged in.' };
+    return { ok: true, status: 'logged_in', url: sanitizeObservedPageUrl(page.url()), message: 'Ctrip profile is logged in.' };
+  }
+
+  if (options.interactive === false) {
+    return {
+      ok: false,
+      status: 'login_required',
+      url: sanitizeObservedPageUrl(page.url()),
+      message: 'Ctrip existing Profile session is not ready for collection.',
+    };
   }
 
   console.log(`Open Ctrip eBooking login page and complete login. Profile will be saved at ${storageDir}`);
@@ -223,13 +268,13 @@ async function ensureLoggedIn(page) {
   while (Date.now() < deadline) {
     await page.waitForTimeout(3000);
     if (await looksLoggedIn(page)) {
-      return { ok: true, status: 'logged_in', url: page.url(), message: 'Ctrip profile is logged in.' };
+      return { ok: true, status: 'logged_in', url: sanitizeObservedPageUrl(page.url()), message: 'Ctrip profile is logged in.' };
     }
   }
   return {
     ok: false,
     status: 'login_required',
-    url: page.url(),
+    url: sanitizeObservedPageUrl(page.url()),
     timeout_ms: timeoutMs,
     message: `Ctrip login timeout after ${Math.round(timeoutMs / 1000)} seconds`,
   };
@@ -282,35 +327,74 @@ async function finalizePayload() {
 }
 
 async function finalizeLoginOnlyPayload() {
+  await waitForPendingResponses(payload);
+  payload.session_probe = await buildLoginOnlySessionProbe();
+  const probePassed = payload.session_probe.collectable === true;
+  if (probePassed && payload.auth_status?.ok !== true) {
+    payload.auth_status = {
+      ...payload.auth_status,
+      ok: true,
+      status: 'authorized',
+      message: 'Protected business API and reusable Session state are verified.',
+    };
+  } else if (payload.session_probe.status === 'anti_bot') {
+    payload.auth_status = {
+      ...payload.auth_status,
+      ok: false,
+      status: 'anti_bot',
+      message: payload.session_probe.message,
+      retry_after_seconds: payload.session_probe.retry_after_seconds,
+      next_retry_at: payload.session_probe.next_retry_at,
+    };
+  }
   payload.capture_gate = {
-    status: 'pass',
-    mode: loginOnly ? 'login_only' : 'capture',
-    reason: 'login_only',
-    failed_check_ids: [],
+    status: probePassed ? 'pass' : 'fail',
+    mode: payload.mode,
+    reason: 'session_probe_only',
+    failed_check_ids: probePassed ? [] : payload.session_probe.failed_check_ids,
+    retry_after_seconds: payload.session_probe.retry_after_seconds,
+    next_retry_at: payload.session_probe.next_retry_at,
     checks: [{
-      id: 'auth_session',
-      status: 'pass',
-      message: 'Ctrip login session prepared in browser profile.',
+      id: 'session_collectability',
+      status: probePassed ? 'pass' : 'fail',
+      message: payload.session_probe.message,
     }],
   };
   payload.capture_gap_report = {
     status: 'skipped',
-    reason: 'login_only',
+    reason: 'session_probe_only',
   };
   payload.capture_audit = {
     auth_status: payload.auth_status,
+    session_probe: payload.session_probe,
     capture_gap_report: payload.capture_gap_report,
   };
   payload.pages.push({
     name: 'auth',
     label: '登录状态',
     url: payload.auth_status?.url || '',
-    configured_url: ctripLoginEntryUrl(),
-    ok: true,
-    auth_status: 'login_prepared',
-    reason: 'login_only',
+    configured_url: sanitizeObservedPageUrl(ctripLoginEntryUrl()),
+    ok: probePassed,
+    auth_status: payload.auth_status?.status || 'unknown',
+    session_probe_status: payload.session_probe.status,
+    reason: 'session_probe_only',
   });
   await writeFile(outputPath, JSON.stringify(payload, null, 2), 'utf8');
+  process.exitCode = probePassed ? 0 : 2;
+}
+
+async function buildLoginOnlySessionProbe() {
+  const pageText = await page.locator('body').innerText({ timeout: 5000 }).catch(() => '');
+  const cookies = await browser.cookies().catch(() => []);
+  const cookieSummary = summarizeOtaSessionCookies('ctrip', cookies);
+  return evaluateOtaSessionProbe('ctrip', {
+    auth_status: payload.auth_status,
+    url: page.url(),
+    page_text: pageText,
+    cookie_summary: cookieSummary,
+    successful_api_response_count: sessionProbeSuccessfulApiResponseCount,
+    response_diagnostics: sessionProbeResponseDiagnostics,
+  });
 }
 
 function createCaptureState(section) {
@@ -476,10 +560,10 @@ async function looksLoggedIn(page) {
     return false;
   }
   const text = await page.locator('body').innerText({ timeout: 5000 }).catch(() => '');
-  if (/login|password|captcha|verification/i.test(text) && !/data|report|comment|order|ebooking/i.test(text)) {
+  if (/登录(?:状态|态|会话)?(?:已)?(?:过期|失效|无效)|(?:请|需要|必须|重新|立即|扫码|账号|密码|手机号).{0,8}登录|登录(?:页面|账号|密码)|(?:未|尚未)登录|login\s*(?:required|expired)|sign\s*in|password|captcha|verification/i.test(text)) {
     return false;
   }
-  return true;
+  return /酒店管理|工作台|订单|点评|评论|经营|数据|流量|房态|房价|ebooking|order|report|review|traffic|dashboard/i.test(text);
 }
 
 async function captureSection(page, section, url, confidence = '', target = payload, state = defaultCaptureState, options = {}) {
@@ -962,6 +1046,37 @@ function registerResponseCapture(page, target, state = defaultCaptureState) {
       finishPendingResponse();
     }
   });
+}
+
+function registerSessionProbeResponseObserver(page) {
+  page.on('response', response => {
+    const requestType = response.request().resourceType();
+    const status = Number(response.status() || 0);
+    const contentType = response.headers()['content-type'] || '';
+    const classification = classifyOtaSessionProbeResponse('ctrip', {
+      url: response.url(),
+      status,
+      resource_type: requestType,
+      content_type: contentType,
+    }).classification;
+    if (classification === 'recognized') {
+      sessionProbeSuccessfulApiResponseCount = Math.min(20, sessionProbeSuccessfulApiResponseCount + 1);
+      sessionProbeResponseDiagnostics.recognized_response_count = sessionProbeSuccessfulApiResponseCount;
+    } else if (classification === 'candidate_drift') {
+      sessionProbeResponseDiagnostics.candidate_drift_response_count = Math.min(20, sessionProbeResponseDiagnostics.candidate_drift_response_count + 1);
+    } else if (classification === 'authentication_required') {
+      sessionProbeResponseDiagnostics.authentication_required_response_count = Math.min(20, sessionProbeResponseDiagnostics.authentication_required_response_count + 1);
+      sessionProbeResponseDiagnostics.access_denied_response_count = Math.min(20, sessionProbeResponseDiagnostics.access_denied_response_count + 1);
+    } else if (classification === 'permission_denied') {
+      sessionProbeResponseDiagnostics.permission_denied_response_count = Math.min(20, sessionProbeResponseDiagnostics.permission_denied_response_count + 1);
+    } else if (classification === 'rate_limited') {
+      sessionProbeResponseDiagnostics.rate_limited_response_count = Math.min(20, sessionProbeResponseDiagnostics.rate_limited_response_count + 1);
+    }
+  });
+}
+
+function sanitizeObservedPageUrl(value) {
+  return sanitizeOtaObservedUrl(value);
 }
 
 function classifyByUrl(url, state = defaultCaptureState) {
@@ -1557,17 +1672,11 @@ function parseCookieHeader(raw) {
 }
 
 function allowedCookieDomains(platform) {
-  if (platform === 'ctrip') {
-    return ['ebooking.ctrip.com', '.ctrip.com', 'bbk.ctripbiz.cn', '.ctripbiz.cn', 'bbk.ctripbiz.com', '.ctripbiz.com'];
-  }
-  return [];
+  return platform === 'ctrip' ? otaSessionCookieInjectionDomains('ctrip') : [];
 }
 
 function isCtripCaptureUrl(url) {
-  const lower = String(url || '').toLowerCase();
-  return lower.includes('ctrip.com')
-    || lower.includes('ctripbiz.cn')
-    || lower.includes('ctripbiz.com');
+  return isTrustedOtaPlatformUrl('ctrip', url);
 }
 
 function firstKnownPageUrl() {

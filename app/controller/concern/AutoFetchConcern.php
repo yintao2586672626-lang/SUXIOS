@@ -1522,6 +1522,7 @@ trait AutoFetchConcern
 
     private function createPlatformProfileLoginTask(string $platform, int $hotelId, string $profileKey, array $requestData): array
     {
+        $this->assertPlatformProfileLoginBackoffClear($platform, $hotelId, $profileKey);
         $requestData = $this->preparePlatformProfileLoginRequest($platform, $requestData, $hotelId, $profileKey);
         $projectRoot = dirname(__DIR__, 3);
         $dir = $projectRoot . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'platform_profile_login';
@@ -1577,6 +1578,43 @@ trait AutoFetchConcern
 
         $this->cachePlatformProfileLoginTask($task);
         return $task;
+    }
+
+    private function assertPlatformProfileLoginBackoffClear(string $platform, int $hotelId, string $profileKey): void
+    {
+        $cached = $this->readPlatformProfileStatusCache($platform, $hotelId, $profileKey);
+        $nextRetryTimestamp = $this->platformProfileLoginBackoffUntil($cached, time());
+        if ($nextRetryTimestamp <= 0) {
+            return;
+        }
+
+        throw new \RuntimeException(
+            '平台风控退避中，已停止自动重试；请在 ' . date('Y-m-d H:i:s', $nextRetryTimestamp) . ' 后由账号使用者人工复核'
+        );
+    }
+
+    private function platformProfileLoginBackoffUntil(array $cached, ?int $nowTimestamp = null): int
+    {
+        if (strtolower(trim((string)($cached['status_code'] ?? ''))) !== 'anti_bot') {
+            return 0;
+        }
+
+        $nowTimestamp ??= time();
+        $sessionProbe = is_array($cached['session_probe'] ?? null) ? $cached['session_probe'] : [];
+        $captureGate = is_array($cached['capture_gate'] ?? null) ? $cached['capture_gate'] : [];
+        $nextRetryAt = trim((string)($sessionProbe['next_retry_at'] ?? $captureGate['next_retry_at'] ?? ''));
+        $nextRetryTimestamp = $nextRetryAt !== '' ? strtotime($nextRetryAt) : false;
+        if ($nextRetryTimestamp === false) {
+            $checkedAt = trim((string)($cached['checked_at'] ?? ''));
+            $checkedTimestamp = $checkedAt !== '' ? strtotime($checkedAt) : false;
+            if ($checkedTimestamp === false) {
+                return 0;
+            }
+            $retryAfterSeconds = max(60, (int)($sessionProbe['retry_after_seconds'] ?? $captureGate['retry_after_seconds'] ?? 900));
+            $nextRetryTimestamp = $checkedTimestamp + $retryAfterSeconds;
+        }
+
+        return $nextRetryTimestamp > $nowTimestamp ? (int)$nextRetryTimestamp : 0;
     }
 
     private function launchPlatformProfileLoginTask(array $task): bool
@@ -2105,6 +2143,8 @@ trait AutoFetchConcern
             'current_status' => $this->platformProfileStatusText($statusCode),
             'status_code' => $statusCode,
             'auth_status' => $cache['auth_status'] ?? null,
+            'session_probe' => $cache['session_probe'] ?? null,
+            'capture_gate' => $cache['capture_gate'] ?? null,
             'primary_action' => $primaryAction,
             'next_action' => (string)($primaryAction['next_action'] ?? '') ?: $this->platformProfileNextAction($statusCode, $platform),
         ];
@@ -2207,6 +2247,16 @@ trait AutoFetchConcern
         if (!$profileExists) {
             return 'waiting_login';
         }
+        $proofService = is_array($source) ? new OtaProfileSessionProofService() : null;
+        $persistedBlockingStatus = $proofService?->currentSessionBlockingStatus($source) ?? '';
+        if ($persistedBlockingStatus !== '') {
+            return match ($persistedBlockingStatus) {
+                'identity_mismatch' => 'hotel_mismatch',
+                'identity_unverified' => 'hotel_identity_unverified',
+                'login_required' => 'login_expired',
+                default => $persistedBlockingStatus,
+            };
+        }
         if ($this->platformProfileSourceHasHotelMismatchError($source)) {
             return 'hotel_mismatch';
         }
@@ -2222,17 +2272,28 @@ trait AutoFetchConcern
         if ($this->platformProfileSourceHasLoginExpiredError($source)) {
             return 'login_expired';
         }
-        if (in_array((string)($cache['status_code'] ?? ''), ['session_expired', 'login_expired', 'login_required'], true)) {
-            return (string)($cache['status_code'] ?? '') === 'session_expired' ? 'session_expired' : 'login_expired';
+        $cachedStatusCode = strtolower(trim((string)($cache['status_code'] ?? '')));
+        $cachedBlockingStatusCode = in_array($cachedStatusCode, [
+            'anti_bot', 'cookies_incomplete', 'hotel_mismatch', 'hotel_identity_unverified',
+            'capture_failed', 'session_expired', 'login_expired', 'login_required', 'platform_contract_drift',
+            'permission_denied',
+        ], true) ? $cachedStatusCode : '';
+        if ($cachedBlockingStatusCode !== ''
+            && $this->platformProfileBlockingCacheIsAtLeastAsFreshAsProof($cache, $source)
+        ) {
+            return $cachedBlockingStatusCode === 'login_required' ? 'login_expired' : $cachedBlockingStatusCode;
+        }
+        if ($proofService !== null && $proofService->isCurrentVerified($source)) {
+            return 'logged_in';
+        }
+        if ($cachedBlockingStatusCode !== '') {
+            return $cachedBlockingStatusCode === 'login_required' ? 'login_expired' : $cachedBlockingStatusCode;
         }
         if (in_array((string)($source['last_sync_status'] ?? ''), ['failed', 'partial_success'], true)) {
             return 'capture_failed';
         }
         if (is_array($source)) {
-            $proofService = new OtaProfileSessionProofService();
-            if ($proofService->isCurrentVerified($source)) {
-                return 'logged_in';
-            }
+            $proofService ??= new OtaProfileSessionProofService();
             $reuseState = $proofService->profileReuseState($source);
             if (($reuseState['status'] ?? '') === 'renewal_warning') {
                 return 'renewal_warning';
@@ -2246,6 +2307,21 @@ trait AutoFetchConcern
             return 'waiting_login';
         }
         return 'waiting_login';
+    }
+
+    private function platformProfileBlockingCacheIsAtLeastAsFreshAsProof(array $cache, ?array $source): bool
+    {
+        $cacheCheckedAt = trim((string)($cache['checked_at'] ?? ''));
+        $cacheTimestamp = $cacheCheckedAt !== '' ? strtotime($cacheCheckedAt) : false;
+        if ($cacheTimestamp === false || !is_array($source)) {
+            return true;
+        }
+
+        $sourceConfig = json_decode((string)($source['config_json'] ?? ''), true);
+        $sourceConfig = is_array($sourceConfig) ? $sourceConfig : [];
+        $proofAt = trim((string)($sourceConfig['current_session_probe_at'] ?? ''));
+        $proofTimestamp = $proofAt !== '' ? strtotime($proofAt) : false;
+        return $proofTimestamp === false || $cacheTimestamp >= $proofTimestamp;
     }
 
     private function platformProfileSourceHasLoginExpiredError(?array $source): bool
@@ -2329,7 +2405,12 @@ trait AutoFetchConcern
             'renewal_warning' => 'Profile 登录态可用，建议续登',
             'session_expired' => 'session_expired',
             'login_expired' => '登录失效',
-            'anti_bot' => 'anti_bot',
+            'anti_bot' => '平台风控退避中',
+            'platform_contract_drift' => '平台规则疑似变化',
+            'permission_denied' => '平台权限不足',
+            'cookies_incomplete' => '授权信息不完整',
+            'hotel_mismatch' => '门店不匹配',
+            'hotel_identity_unverified' => '门店身份待核验',
             'capture_failed' => '采集失败',
             'waiting_login' => '登录待验证',
             default => '未配置',
@@ -2345,7 +2426,12 @@ trait AutoFetchConcern
             'renewal_warning' => '直接执行采集；建议有空时续登，但不阻塞采集',
             'session_expired' => 'session_expired',
             'login_expired' => '重新登录' . $name . '平台账号',
-            'anti_bot' => 'anti_bot',
+            'anti_bot' => '停止自动重试；等待退避窗口结束后由账号使用者人工复核平台风控',
+            'platform_contract_drift' => '平台返回与当前识别规则不一致；先校准接口规则，不要反复登录',
+            'permission_denied' => '核对平台账号的门店与业务模块权限；不要通过反复登录替代权限处理',
+            'cookies_incomplete' => '由账号使用者在本机刷新平台授权，再重新检测 Session',
+            'hotel_mismatch' => '核对 Profile 与当前门店绑定后重新检测',
+            'hotel_identity_unverified' => '完成一次带平台门店身份校验的最小采集；未核验前不写入门店级登录证明',
             'capture_failed' => '查看最近同步日志后重新检测登录状态',
             'waiting_login' => '点击“登录' . $name . '”完成平台验证',
             default => '先配置酒店与平台账号/Profile 绑定',
@@ -2360,7 +2446,12 @@ trait AutoFetchConcern
             'profile_reusable', 'renewal_warning' => ['run_profile_capture', '立即采集', 'platform-auto'],
             'session_expired' => ['login_platform_profile', 'session_expired', 'profile-login'],
             'login_expired' => ['login_platform_profile', '重新登录' . $name, 'profile-login'],
-            'anti_bot' => ['login_platform_profile', 'anti_bot', 'profile-login'],
+            'anti_bot' => ['wait_platform_risk_control', '查看风控与退避状态', 'sync-logs'],
+            'platform_contract_drift' => ['open_sync_logs', '查看规则漂移证据', 'sync-logs'],
+            'permission_denied' => ['open_sync_logs', '查看权限诊断', 'sync-logs'],
+            'cookies_incomplete' => ['login_platform_profile', '刷新' . $name . '授权', 'profile-login'],
+            'hotel_mismatch' => ['configure_platform_profile', '核对门店绑定', 'platform-sources'],
+            'hotel_identity_unverified' => ['run_profile_capture', '采集并核验门店身份', 'platform-auto'],
             'capture_failed' => ['open_sync_logs', '查看日志并检测登录', 'sync-logs'],
             'waiting_login' => ['login_platform_profile', '登录' . $name, 'profile-login'],
             default => ['configure_platform_profile', '配置账号/Profile', 'platform-sources'],
@@ -5611,12 +5702,15 @@ trait AutoFetchConcern
             ];
         }
 
-        if ($expectedIds !== [] && $capturedIds !== [] && array_intersect($expectedIds, $capturedIds) === []) {
+        $unexpectedCapturedIds = $expectedIds !== [] ? array_values(array_diff($capturedIds, $expectedIds)) : [];
+        if ($expectedIds !== [] && $capturedIds !== []
+            && (array_intersect($expectedIds, $capturedIds) === [] || $unexpectedCapturedIds !== [])
+        ) {
             return [
                 'ok' => false,
                 'status' => 'configured_platform_hotel_id_mismatch',
                 'warning' => true,
-                'message' => '携程数据已获取，但返回酒店ID与当前门店配置不一致，本次未入库。请核对配置ID：' . implode('、', $expectedIds) . '；返回ID：' . implode('、', $capturedIds),
+                'message' => '携程数据已获取，但返回酒店ID与当前门店配置不一致或同时包含其他门店，本次未入库。请核对配置ID：' . implode('、', $expectedIds) . '；返回ID：' . implode('、', $capturedIds),
                 'target_system_hotel_id' => $systemHotelId,
                 'target_hotel_name' => $targetHotelName,
                 'captured_hotel_ids' => $capturedIds,
@@ -5712,64 +5806,29 @@ trait AutoFetchConcern
     private function extractCtripPayloadSelfHotelIds(array $payload): array
     {
         $ids = [];
+        $trustedSourceKeys = ['masterhotelid', 'master_hotel_id', 'hotelid', 'hotel_id'];
+        foreach (is_array($payload['catalog_facts'] ?? null) ? $payload['catalog_facts'] : [] as $fact) {
+            if (!is_array($fact) || strtolower(trim((string)($fact['metric_key'] ?? ''))) !== 'hotel_id') {
+                continue;
+            }
+            $sourceKey = strtolower(trim((string)($fact['source_key'] ?? '')));
+            if (!in_array($sourceKey, $trustedSourceKeys, true)) {
+                continue;
+            }
+            $this->addCtripPayloadHotelId($ids, $fact['value'] ?? null);
+        }
         foreach (is_array($payload['standard_rows'] ?? null) ? $payload['standard_rows'] : [] as $row) {
             if (!is_array($row)) {
                 continue;
             }
-            if (!$this->isCtripCompetitorLikeValue($row)) {
-                $this->addCtripPayloadHotelId($ids, $row['hotel_id'] ?? null);
-            }
-        }
-        if ($ids !== []) {
-            return array_keys($ids);
-        }
-
-        foreach (is_array($payload['responses'] ?? null) ? $payload['responses'] : [] as $response) {
-            if (!is_array($response)) {
-                continue;
-            }
-            foreach (['data', 'body', 'json'] as $key) {
-                if (is_array($response[$key] ?? null)) {
-                    $this->collectCtripPayloadSelfHotelIds($response[$key], $ids);
-                }
-            }
-        }
-
-        foreach (['business', 'traffic', 'catalog_facts'] as $section) {
-            if (is_array($payload[$section] ?? null)) {
-                $this->collectCtripPayloadSelfHotelIds($payload[$section], $ids);
+            $rawData = is_array($row['raw_data'] ?? null) ? $row['raw_data'] : [];
+            $sourceKey = strtolower(trim((string)($rawData['hotel_id_source_key'] ?? '')));
+            if (!$this->isCtripCompetitorLikeValue($row) && in_array($sourceKey, $trustedSourceKeys, true)) {
+                $this->addCtripPayloadHotelId($ids, $row['hotel_id'] ?? $row['hotelId'] ?? null);
             }
         }
 
         return array_keys($ids);
-    }
-
-    private function collectCtripPayloadSelfHotelIds(mixed $value, array &$ids, int $depth = 0): void
-    {
-        if ($depth > 8 || !is_array($value)) {
-            return;
-        }
-
-        if ($this->isSequentialArray($value)) {
-            foreach ($value as $item) {
-                $this->collectCtripPayloadSelfHotelIds($item, $ids, $depth + 1);
-            }
-            return;
-        }
-
-        if (!$this->isCtripCompetitorLikeValue($value)) {
-            foreach (['masterhotelid', 'masterHotelId', 'master_hotel_id', '_overview_source_hotel_id', 'hotelId', 'hotel_id', 'HotelId', 'hotelID'] as $key) {
-                if (array_key_exists($key, $value)) {
-                    $this->addCtripPayloadHotelId($ids, $value[$key]);
-                }
-            }
-        }
-
-        foreach ($value as $child) {
-            if (is_array($child)) {
-                $this->collectCtripPayloadSelfHotelIds($child, $ids, $depth + 1);
-            }
-        }
     }
 
     private function addCtripPayloadHotelId(array &$ids, mixed $value): void

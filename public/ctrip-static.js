@@ -1302,6 +1302,23 @@ window.SUXI_CTRIP_STATIC = (() => {
         }
         return data && Object.keys(data).length ? { ...data, error: error.message } : { error: error.message };
     };
+    const buildCtripSessionProofNotice = (data = {}, fallback = {}) => {
+        if (String(data?.session_proof_status || '').trim() !== 'not_recorded') {
+            return fallback;
+        }
+        const reasonCode = String(data?.session_proof_reason_code || '').trim();
+        const message = String(data?.session_proof_message || '').trim()
+            || '数据已保存，但登录证据未持久化。';
+        const nextAction = String(data?.session_proof_next_action || '').trim()
+            || '刷新登录状态后重新执行一次最小采集。';
+        return {
+            ...fallback,
+            level: reasonCode === 'no_persisted_rows' ? 'info' : 'warning',
+            message: `${message} 下一步：${nextAction}`,
+            sessionProofMissing: true,
+        };
+    };
+
     const runCtripBrowserCaptureFlow = async ({
         options = {},
         getSelectedCtripHotelId = () => '',
@@ -1382,8 +1399,12 @@ window.SUXI_CTRIP_STATIC = (() => {
         try {
             const res = await requestCapture(capturePayload);
             if (res.code === 200) {
-                setCaptureResult(res.data || {});
-                setOnlineDataResult(res.data || {});
+                const captureData = res.data || {};
+                const resultProofNotice = buildCtripSessionProofNotice(captureData);
+                setCaptureResult(resultProofNotice.sessionProofMissing
+                    ? { ...captureData, warning: resultProofNotice.message }
+                    : captureData);
+                setOnlineDataResult(captureData);
                 setShowRawData(false);
                 if (loginOnly) {
                     const nextProfileId = res.data?.profile_id || profileId;
@@ -1406,7 +1427,11 @@ window.SUXI_CTRIP_STATIC = (() => {
                             hasDisplayRows: Array.isArray(res.data?.rows) && res.data.rows.length > 0,
                             failureMessage: res.message || '',
                         });
-                        notify(`${notice.message}；字段覆盖按配置表显示，未返回字段保留为缺口`, notice.level);
+                        const sessionProofNotice = buildCtripSessionProofNotice(res.data || {}, notice);
+                        const suffix = sessionProofNotice.sessionProofMissing
+                            ? ''
+                            : '；字段覆盖按配置表显示，未返回字段保留为缺口';
+                        notify(`${sessionProofNotice.message}${suffix}`, sessionProofNotice.level);
                     }
                 }
                 if (!loginOnly) {
@@ -3607,6 +3632,7 @@ window.SUXI_CTRIP_STATIC = (() => {
         buildCtripBrowserCapturePayload,
         buildCtripBrowserCaptureRequestContext,
         normalizeCtripBrowserCaptureErrorResult,
+        buildCtripSessionProofNotice,
         runCtripBrowserCaptureFlow,
         buildCtripFetchDateRange,
         resolveCtripExecutionConfigId,

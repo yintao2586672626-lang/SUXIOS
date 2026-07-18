@@ -3925,6 +3925,196 @@ final class OnlineDataTest extends TestCase
         self::assertSame('anti_bot', $loginTaskAntiBot);
     }
 
+    public function testPlatformProfileLoginRequiresStrongSessionProbeEvidence(): void
+    {
+        $command = $this->profileLoginCommand();
+        $strongProbe = [
+            'schema_version' => 1,
+            'contract_version' => '2026-07-19.1',
+            'performed' => true,
+            'verified' => true,
+            'status' => 'collectable',
+            'collectable' => true,
+            'proof_eligible' => true,
+            'evidence_type' => 'recognized_business_response_2xx_plus_session_cookie',
+            'evidence_level' => 'strong',
+            'sensitive_values_exposed' => false,
+            'signals' => [
+                'auth' => ['status' => 'pass'],
+                'url' => ['status' => 'pass', 'trusted_host' => true, 'business_path' => true],
+                'page' => ['status' => 'pass', 'business_marker_present' => true, 'risk_control_present' => false],
+                'session_state' => ['status' => 'pass', 'session_state_count' => 1],
+                'api' => ['status' => 'pass', 'successful_response_count' => 1],
+                'identity' => ['status' => 'matched', 'hotel_scope_verified' => true],
+            ],
+        ];
+
+        self::assertTrue($this->invokeNonPublic($command, 'profileLoginSessionProbeEligible', [$strongProbe]));
+
+        foreach ([
+            ['evidence_level' => 'partial'],
+            ['proof_eligible' => false],
+            ['verified' => false],
+            ['sensitive_values_exposed' => true],
+            ['evidence_type' => 'page_url_only'],
+            ['contract_version' => '2026-07-18.9'],
+        ] as $mutation) {
+            self::assertFalse($this->invokeNonPublic(
+                $command,
+                'profileLoginSessionProbeEligible',
+                [array_merge($strongProbe, $mutation)]
+            ));
+        }
+
+        $riskProbe = $strongProbe;
+        $riskProbe['signals']['page']['risk_control_present'] = true;
+        self::assertFalse($this->invokeNonPublic($command, 'profileLoginSessionProbeEligible', [$riskProbe]));
+        $missingSessionState = $strongProbe;
+        $missingSessionState['signals']['session_state']['session_state_count'] = 0;
+        self::assertFalse($this->invokeNonPublic($command, 'profileLoginSessionProbeEligible', [$missingSessionState]));
+    }
+
+    public function testPlatformProfileSessionProbeFailureKeepsBackoffWithoutSecrets(): void
+    {
+        $command = $this->profileLoginCommand();
+        $probe = [
+            'schema_version' => 1,
+            'contract_version' => '2026-07-19.1',
+            'mode' => 'session_probe_only',
+            'platform' => 'ctrip',
+            'performed' => true,
+            'verified' => false,
+            'status' => 'anti_bot',
+            'collectable' => false,
+            'proof_eligible' => false,
+            'evidence_type' => 'insufficient',
+            'evidence_level' => 'blocked',
+            'sensitive_values_exposed' => false,
+            'retry_after_seconds' => 900,
+            'next_retry_at' => '2026-07-19T02:15:00.000Z',
+            'message' => 'risk control Cookie: sid=must-not-leak',
+            'raw_cookie' => 'must-not-leak',
+            'signals' => [
+                'page' => ['status' => 'blocked', 'risk_control_present' => true, 'raw_text' => 'must-not-leak'],
+                'session_state' => ['status' => 'pass', 'platform_state_count' => 3, 'session_state_count' => 1],
+            ],
+        ];
+
+        $compact = $this->invokeNonPublic($command, 'compactProfileLoginSessionProbe', [$probe]);
+        $cacheSafe = $this->invokeNonPublic($command, 'sanitizeProfileLoginCachePayload', [[
+            'session_probe' => $compact,
+        ]]);
+        $status = $this->invokeNonPublic($command, 'profileLoginFailureStatusCode', [
+            'probe failed',
+            ['ok' => false, 'status' => 'anti_bot'],
+            ['retry_after_seconds' => 900, 'next_retry_at' => '2026-07-19T02:15:00.000Z'],
+            $probe,
+        ]);
+        $captureFailedStatus = $this->invokeNonPublic($command, 'profileLoginFailureStatusCode', [
+            'Node.js process failed before producing a trusted probe',
+            [],
+            null,
+            ['performed' => false, 'status' => 'capture_failed'],
+        ]);
+        $legacyProbe = $probe;
+        $legacyProbe['contract_version'] = '2026-07-18.9';
+        $legacyProbe['status'] = 'collectable';
+        $legacyProbe['verified'] = true;
+        $legacyProbe['collectable'] = true;
+        $legacyStatus = $this->invokeNonPublic($command, 'profileLoginFailureStatusCode', [
+            'legacy probe',
+            ['ok' => true, 'status' => 'logged_in'],
+            null,
+            $legacyProbe,
+        ]);
+
+        self::assertSame('anti_bot', $status);
+        self::assertSame('capture_failed', $captureFailedStatus);
+        self::assertSame('platform_contract_drift', $legacyStatus);
+        self::assertSame(900, $compact['retry_after_seconds']);
+        self::assertSame('2026-07-19T02:15:00.000Z', $compact['next_retry_at']);
+        self::assertTrue($compact['signals']['page']['risk_control_present']);
+        self::assertSame(1, $cacheSafe['session_probe']['signals']['session_state']['session_state_count']);
+        self::assertArrayNotHasKey('raw_cookie', $compact);
+        self::assertArrayNotHasKey('raw_text', $compact['signals']['page']);
+        self::assertStringNotContainsString('must-not-leak', (string)json_encode($compact, JSON_UNESCAPED_UNICODE));
+    }
+
+    public function testProfileProbeDoesNotPromoteWeakEvidenceWhenAuthLooksLoggedIn(): void
+    {
+        $status = $this->invokeNonPublic($this->controller(), 'ctripProfileProbeStatusCode', [[
+            'session_probe' => [
+                'status' => 'weak_evidence',
+                'collectable' => false,
+                'proof_eligible' => false,
+            ],
+        ], [
+            'ok' => true,
+            'status' => 'logged_in',
+        ]]);
+
+        self::assertSame('capture_failed', $status);
+    }
+
+    public function testPlatformProfileAntiBotBackoffBlocksOnlyUntilRetryTime(): void
+    {
+        $controller = $this->controller();
+        $now = strtotime('2026-07-19T02:00:00.000Z');
+        $cached = [
+            'status_code' => 'anti_bot',
+            'session_probe' => [
+                'retry_after_seconds' => 900,
+                'next_retry_at' => '2026-07-19T02:15:00.000Z',
+            ],
+        ];
+
+        $activeUntil = $this->invokeNonPublic($controller, 'platformProfileLoginBackoffUntil', [$cached, $now]);
+        $expiredUntil = $this->invokeNonPublic($controller, 'platformProfileLoginBackoffUntil', [$cached, $activeUntil]);
+        $otherPlatformState = $this->invokeNonPublic($controller, 'platformProfileLoginBackoffUntil', [[
+            'status_code' => 'logged_in',
+            'session_probe' => $cached['session_probe'],
+        ], $now]);
+        $legacyStateWithoutTiming = $this->invokeNonPublic($controller, 'platformProfileLoginBackoffUntil', [[
+            'status_code' => 'anti_bot',
+        ], $now]);
+
+        self::assertSame(strtotime('2026-07-19T02:15:00.000Z'), $activeUntil);
+        self::assertSame(0, $expiredUntil);
+        self::assertSame(0, $otherPlatformState);
+        self::assertSame(0, $legacyStateWithoutTiming);
+    }
+
+    public function testPlatformProfileCachedBlockingStateOverridesReusableSourceDisplay(): void
+    {
+        $controller = $this->controller();
+        $source = [
+            'id' => 99,
+            'platform' => 'ctrip',
+            'ingestion_method' => 'browser_profile',
+            'system_hotel_id' => 7,
+            'last_sync_status' => 'success',
+            'last_error' => '',
+        ];
+
+        $antiBot = $this->invokeNonPublic($controller, 'resolvePlatformProfileStatusCode', [
+            'profile-7',
+            true,
+            $source,
+            ['status_code' => 'anti_bot'],
+            [],
+        ]);
+        $identityUnverified = $this->invokeNonPublic($controller, 'resolvePlatformProfileStatusCode', [
+            'profile-7',
+            true,
+            $source,
+            ['status_code' => 'hotel_identity_unverified'],
+            [],
+        ]);
+
+        self::assertSame('anti_bot', $antiBot);
+        self::assertSame('hotel_identity_unverified', $identityUnverified);
+    }
+
     public function testPlatformProfileStatusDetectsAntiBotFromSourceLog(): void
     {
         $controller = $this->controller();
@@ -4025,6 +4215,100 @@ final class OnlineDataTest extends TestCase
         self::assertSame(5, $compact['saved_count']);
         self::assertFalse($compact['sensitive_values_exposed']);
         self::assertStringNotContainsString('must-not-copy', json_encode($compact, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+
+    public function testPublicDataSourceSyncCannotForgeInternalProfileLoginBypassOptions(): void
+    {
+        $options = $this->invokeNonPublic($this->controller(), 'sanitizePublicDataSourceSyncOptions', [[
+            'trigger_type' => 'profile_login_after_login',
+            'triggerType' => 'profile_login_after_login',
+            'interactive_browser' => true,
+            'interactiveBrowser' => true,
+            'data_date' => '2026-07-18',
+        ]]);
+
+        self::assertSame('manual', $options['trigger_type']);
+        self::assertFalse($options['interactive_browser']);
+        self::assertArrayNotHasKey('triggerType', $options);
+        self::assertArrayNotHasKey('interactiveBrowser', $options);
+        self::assertSame('2026-07-18', $options['data_date']);
+    }
+
+    public function testCtripIdentityExtractorRejectsConfiguredFallbackAndPreservesMixedObservedHotelIds(): void
+    {
+        $controller = $this->controller();
+        $fallbackOnly = $this->invokeNonPublic($controller, 'extractCtripPayloadSelfHotelIds', [[
+            'standard_rows' => [[
+                'hotel_id' => '24588',
+                'raw_data' => [],
+            ]],
+        ]]);
+        self::assertSame([], $fallbackOnly);
+
+        $mixedPayload = [
+            'catalog_facts' => [
+                ['metric_key' => 'hotel_id', 'source_key' => 'masterHotelId', 'value' => '24588'],
+                ['metric_key' => 'hotel_id', 'source_key' => 'hotelId', 'value' => '99999'],
+            ],
+        ];
+        $observedIds = array_map('strval', $this->invokeNonPublic($controller, 'extractCtripPayloadSelfHotelIds', [$mixedPayload]));
+        sort($observedIds);
+        self::assertSame(['24588', '99999'], $observedIds);
+
+    }
+
+    public function testBrowserProfileCollectionProofNeverPromotesConfirmedEmptyOrMissingScope(): void
+    {
+        $controller = $this->controller();
+        $auth = ['ok' => true, 'status' => 'logged_in'];
+
+        self::assertFalse($this->invokeNonPublic($controller, 'recordVerifiedBrowserProfileCollectionProof', [
+            'ctrip', 58, 'profile-58', 18, $auth, '24588', 0, 0, true,
+        ]));
+        self::assertTrue($this->invokeNonPublic($controller, 'browserProfileCollectionProofEligible', [
+            58, 'profile-58', 18, $auth, '24588', 1, 2, true,
+        ]));
+        self::assertFalse($this->invokeNonPublic($controller, 'browserProfileCollectionProofEligible', [
+            58, 'profile-58', 0, $auth, '24588', 3, 3, true,
+        ]));
+        self::assertFalse($this->invokeNonPublic($controller, 'browserProfileCollectionProofEligible', [
+            58, 'profile-58', 18, $auth, '24588', 3, 3, false,
+        ]));
+        self::assertFalse($this->invokeNonPublic($controller, 'browserProfileCollectionProofEligible', [
+            58, 'profile-58', 18, ['ok' => false, 'status' => 'login_required'], '24588', 3, 3, true,
+        ]));
+        self::assertFalse($this->invokeNonPublic($controller, 'browserProfileCollectionProofEligible', [
+            58, 'profile-58', 18, $auth, '', 3, 3, true,
+        ]));
+    }
+
+    public function testBrowserProfileCollectionProofOutcomeExplainsWhyProofWasNotRecorded(): void
+    {
+        $controller = $this->controller();
+        $auth = ['ok' => true, 'status' => 'logged_in'];
+        $cases = [
+            'no_persisted_rows' => [58, 'profile-58', 18, $auth, '24588', 0, 0, true],
+            'readback_not_verified' => [58, 'profile-58', 18, $auth, '24588', 2, 2, false],
+            'data_source_scope_missing' => [58, 'profile-58', 0, $auth, '24588', 2, 2, true],
+            'auth_evidence_unverified' => [58, 'profile-58', 18, ['ok' => false, 'status' => 'login_required'], '24588', 2, 2, true],
+            'hotel_identity_unverified' => [58, 'profile-58', 18, $auth, '', 2, 2, true],
+        ];
+
+        foreach ($cases as $reasonCode => $args) {
+            $outcome = $this->invokeNonPublic($controller, 'recordBrowserProfileCollectionProofOutcome', [
+                'ctrip',
+                ...$args,
+            ]);
+            self::assertSame('not_recorded', $outcome['session_proof_status'], $reasonCode);
+            self::assertSame($reasonCode, $outcome['session_proof_reason_code'], $reasonCode);
+            self::assertNotSame('', trim((string)$outcome['session_proof_message']), $reasonCode);
+            self::assertNotSame('', trim((string)$outcome['session_proof_next_action']), $reasonCode);
+            self::assertArrayNotHasKey('error', $outcome, $reasonCode);
+        }
+
+        $verified = $this->invokeNonPublic($controller, 'browserProfileCollectionProofStatusPayload', ['verified', 'none']);
+        self::assertSame('verified', $verified['session_proof_status']);
+        self::assertSame('none', $verified['session_proof_reason_code']);
     }
 
     public function testPlatformProfileLoginRequestResolvesMeituanDataSourceServerSide(): void

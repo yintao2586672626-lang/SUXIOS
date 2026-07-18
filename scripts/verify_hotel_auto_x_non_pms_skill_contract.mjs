@@ -67,6 +67,28 @@ function requireFunctionBodyNoText(file, functionName, needle, label) {
   add(file, label, body !== '' && !body.includes(needle), `${functionName}: ${needle}`);
 }
 
+function requireFunctionBodyText(file, functionName, needle, label) {
+  const source = exists(file) ? read(file) : '';
+  const start = source.indexOf(`function ${functionName}`);
+  const open = start === -1 ? -1 : source.indexOf('{', start);
+  let depth = 0;
+  let end = -1;
+  if (open !== -1) {
+    for (let index = open; index < source.length; index += 1) {
+      if (source[index] === '{') depth += 1;
+      if (source[index] === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          end = index;
+          break;
+        }
+      }
+    }
+  }
+  const body = start === -1 || end === -1 ? '' : source.slice(start, end + 1);
+  add(file, label, body.includes(needle), `${functionName}: ${needle}`);
+}
+
 function readFiles(files) {
   return files.map((file) => read(file)).join('\n');
 }
@@ -154,9 +176,10 @@ requireText('scripts/verify_hotel_ota_login_eligibility.php', "'permission_block
 requireText('scripts/verify_hotel_ota_login_eligibility.php', "&& !in_array('inactive_hotel', $blockers, true)", 'eligibility verifier does not suggest permission repair as the next action for inactive hotels');
 requireRegex('scripts/verify_p0_ota_field_loop_closure.php', /function p0_traffic_current_session_verified\(array \$row, array \$config\): bool[\s\S]*?OtaProfileSessionProofService[\s\S]*?isCurrentVerified\(\$source\)/, 'P0 field-loop verifier delegates same-source current-session proof to the runtime service');
 requireRegex('app/controller/concern/Phase1EmployeeConsoleConcern.php', /function phase1TrafficProfileLoginStateVerified\(array \$source\): bool[\s\S]*?OtaProfileSessionProofService[\s\S]*?isCurrentVerified\(\$source\);\n    }/, 'employee console requires same-source current-session Profile proof');
-requireRegex('app/controller/concern/AutoFetchConcern.php', /function filterCollectableBrowserProfileDataSources\(array \$sources, string \$platform = ''\): array[\s\S]*?new OtaProfileSessionProofService\(\)[\s\S]*?!\$proofService->isCurrentVerified\(\$source\)[\s\S]*?return \$verified;\r?\n    }/, 'AutoFetch only collects browser Profile sources with same-source current-session proof');
-requireText('public/index.html', 'bindingContract.current_session_verified === true', 'frontend Profile flow requires explicit current-session verification when a binding contract exists');
-requireText('public/index.html', "const loginVerified = currentSessionVerified && statusCode === 'logged_in';", 'frontend Profile flow requires both current-session proof and logged_in status');
+requireFunctionBodyText('app/controller/concern/AutoFetchConcern.php', 'filterCollectableBrowserProfileDataSources', 'profileReuseState($source)', 'AutoFetch only collects reusable browser Profile sources');
+requireFunctionBodyText('app/controller/concern/AutoFetchConcern.php', 'filterCollectableBrowserProfileDataSources', "['is_reusable']", 'AutoFetch checks the Profile reuse verdict');
+requireText('public/app-main.js', 'bindingContract.current_session_verified === true', 'frontend Profile flow requires explicit current-session verification when a binding contract exists');
+requireText('public/app-main.js', "const loginVerified = currentSessionVerified && statusCode === 'logged_in';", 'frontend Profile flow requires both current-session proof and logged_in status');
 for (const [file, functionName] of [
   ['scripts/verify_p0_ota_field_loop_closure.php', 'p0_traffic_current_session_verified'],
   ['app/controller/concern/Phase1EmployeeConsoleConcern.php', 'phase1TrafficProfileLoginStateVerified'],
@@ -197,7 +220,18 @@ requireText('app/command/PlatformProfileLogin.php', "return 'session_expired';",
 requireText('app/command/PlatformProfileLogin.php', "'status_code' => 'logged_in'", 'Profile login success is explicit');
 requireText('app/command/PlatformProfileLogin.php', "$authStatusCode = strtolower(trim((string)($authStatus['status'] ?? '')));", 'Profile login success extracts explicit auth status code');
 requireText('app/command/PlatformProfileLogin.php', "&& !empty($authStatus['ok'])", 'Profile login success requires explicit auth_status.ok evidence');
-requireText('app/command/PlatformProfileLogin.php', "&& in_array($authStatusCode, ['logged_in', 'authorized'], true);", 'Profile login success requires a verified logged-in auth status');
+requireText('app/command/PlatformProfileLogin.php', "&& in_array($authStatusCode, ['logged_in', 'authorized'], true)", 'Profile login success requires a verified logged-in auth status');
+requireText('app/command/PlatformProfileLogin.php', 'isCollectableProfileLoginSessionProbe($sessionProbe)', 'Profile login requires account-level Session collectability');
+requireText('app/command/PlatformProfileLogin.php', 'isStrongProfileLoginSessionProbe($sessionProbe)', 'Profile login writes hotel-level proof only after identity verification');
+requireText('app/service/OtaProfileSessionProofService.php', 'recordProfileLoginVerified(', 'Profile proof service has a strong Session-probe entrypoint');
+requireText('app/service/OtaProfileSessionProofService.php', 'assertStrongProfileLoginSessionProbe($sessionProbe)', 'Profile proof service rejects weak Session evidence');
+requireText('app/service/OtaProfileSessionProofService.php', 'private function recordVerified(', 'Low-level authoritative proof writer is not a public weak-evidence bypass');
+requireText('app/service/OtaProfileSessionProofService.php', "'identity_status' => 'matched'", 'Authoritative Session proof requires matched hotel identity');
+requireText('scripts/ctrip_browser_capture.mjs', 'const sessionProbeOnly = booleanArg(args.sessionProbeOnly)', 'Ctrip supports a non-interactive Session probe mode');
+requireText('scripts/meituan_browser_capture.mjs', 'const sessionProbeOnly = booleanArg(args.sessionProbeOnly)', 'Meituan supports a non-interactive Session probe mode');
+requireText('scripts/ctrip_browser_capture.mjs', "classifyOtaSessionProbeResponse('ctrip'", 'Ctrip Session probe classifies protected endpoint metadata and bounded drift signals');
+requireText('scripts/meituan_browser_capture.mjs', "classifyOtaSessionProbeResponse('meituan'", 'Meituan Session probe classifies protected endpoint metadata and bounded drift signals');
+requireText('app/controller/concern/AutoFetchConcern.php', 'assertPlatformProfileLoginBackoffClear', 'Profile login enforces anti-bot backoff before relaunch');
 requireNoText('app/command/PlatformProfileLogin.php', "$authStatus === [] || !empty($authStatus['ok'])", 'Profile login does not treat missing auth_status as logged in');
 requireNoText('app/command/PlatformProfileLogin.php', "['ok' => true, 'status' => 'logged_in']", 'Profile login does not synthesize logged_in auth_status when auth evidence is missing');
 requireText('app/command/PlatformProfileLogin.php', "'ok' => (bool)($authStatus['ok'] ?? false)", 'Profile login auth status compression defaults missing ok to false');
@@ -207,7 +241,25 @@ requireText('app/command/PlatformProfileLogin.php', "$config['profile_status'] =
 requireText('app/command/PlatformProfileLogin.php', "$config['last_login_verified_at'] = $now;", 'Profile login records last verification time');
 requireText('app/command/PlatformProfileLogin.php', "$config['profile_login_verification_scope'] = 'browser_profile_session_only';", 'Profile login records verification scope');
 requireText('app/service/PlatformDataSyncService.php', 'OTA account password custody is not supported', 'OTA password custody is rejected');
-requireRegex('app/service/PlatformDataSyncService.php', /function browserProfileBackgroundSyncLoginMissingRequirements\(array \$source, array \$options\): array[\s\S]*?\$this->profileSessionProofService->isCurrentVerified\(\$source\)[\s\S]*?: \['current_session_verified'\];\r?\n    }/, 'background Profile sync requires same-source current-session proof');
+requireFunctionBodyText('app/service/PlatformDataSyncService.php', 'browserProfileBackgroundSyncLoginMissingRequirements', 'profileReuseState($source)', 'background Profile sync uses the Profile reuse contract');
+requireFunctionBodyText('app/service/PlatformDataSyncService.php', 'browserProfileBackgroundSyncLoginMissingRequirements', "['is_reusable']", 'background Profile sync requires a reusable Profile session');
+requireFunctionBodyText('app/service/PlatformDataSyncService.php', 'browserProfileBackgroundSyncLoginMissingRequirements', 'browserProfileRiskControlReviewRequired($source)', 'background Profile sync stops after anti-bot until manual review');
+requireText('scripts/lib/ota_session_probe.mjs', 'findCtripEndpointByUrl(`${parsed.origin}${parsed.pathname}`)', 'Ctrip Session endpoint matching ignores query and fragment spoofing');
+requireNoText('scripts/lib/ota_session_probe.mjs', 'cookie?.httpOnly === true ||', 'Session proof does not promote arbitrary HttpOnly cookies');
+requireText('scripts/lib/ota_session_probe.mjs', 'const protectedApiEvidencePresent = successfulApiResponseCount > 0;', 'recognized protected business HTTP evidence is explicit');
+requireText('scripts/lib/ota_session_probe.mjs', '} else if (!protectedApiEvidencePresent) {', 'page and Cookie hints cannot replace protected business HTTP evidence');
+requireNoText('scripts/lib/ota_session_probe.mjs', 'verification[_-]?(?:code|challenge)', 'ordinary SMS verification is not classified as anti-bot risk control');
+requireText('app/controller/concern/OnlineDataRequestConcern.php', 'evaluateBrowserProfileLoginPayload($payload)', 'legacy browser login endpoints reuse the strict Session contract');
+requireText('app/controller/concern/OnlineDataRequestConcern.php', 'bindVerifiedBrowserProfileDataSource(', 'legacy browser login binds only through verified hotel proof');
+requireText('app/controller/concern/OnlineDataRequestConcern.php', 'recordVerifiedBrowserProfileCollectionProof(', 'successful legacy browser capture can persist a verified collection preflight proof');
+requireFunctionBodyText('app/controller/concern/OnlineDataRequestConcern.php', 'recordVerifiedBrowserProfileCollectionProof', 'recordBrowserProfileCollectionProofOutcome(', 'legacy collection proof compatibility delegates to the structured outcome gate');
+requireFunctionBodyText('app/controller/concern/OnlineDataRequestConcern.php', 'recordBrowserProfileCollectionProofOutcome', 'browserProfileCollectionProofBlocker(', 'collection proof persistence delegates to one blocker gate');
+requireFunctionBodyText('app/controller/concern/OnlineDataRequestConcern.php', 'browserProfileCollectionProofBlocker', '$savedCount <= 0', 'confirmed-empty browser captures never promote Session proof');
+requireText('app/controller/concern/AutoFetchConcern.php', "$rawData['hotel_id_source_key']", 'legacy Ctrip save identity uses an observed source key instead of normalized fallback hotel_id');
+requireText('app/service/platform/CtripBrowserProfileDataSourceAdapter.php', "if ($identityStatus !== 'matched')", 'Ctrip data-source capture refuses rows until hotel identity is matched');
+requireFunctionBodyText('app/service/PlatformDataSyncService.php', 'recordBrowserProfileCollectionPreflight', 'recordProfileSessionBlocked(', 'failed collection identity or risk evidence invalidates prior Profile proof');
+requireText('app/controller/concern/PlatformDataSourceConcern.php', 'sanitizePublicDataSourceSyncOptions($this->requestData())', 'public data-source sync strips internal Profile-login bypass options');
+requireText('app/service/OtaProfileSessionProofService.php', 'clearStaleAuthenticationFailureConfig(', 'fresh authoritative proof clears stale authentication failure state');
 for (const legacyProofField of ['manual_login_state_verified', 'profile_status_logged_in', 'last_login_verified_at']) {
   requireFunctionBodyNoText(
     'app/service/PlatformDataSyncService.php',
@@ -296,23 +348,27 @@ requireTextInFiles(onlineControllerFiles, 'function commentCollectionDisabledRes
 requireTextInFiles(onlineControllerFiles, 'aggregate_metrics_only_no_review_text', 'comment capture documents aggregate-only no-review-text boundary');
 requireTextInFiles(onlineControllerFiles, 'return $this->captureCtripCommentsBrowserData();', 'Ctrip comments route delegates to aggregate browser capture');
 requireTextInFiles(onlineControllerFiles, 'return $this->captureMeituanBrowserData($requestData);', 'Meituan comments route delegates to aggregate browser capture');
-requireRegex('app/controller/concern/AutoFetchConcern.php', /function executeCtripBrowserProfileAutoFetch\([\s\S]*?OtaProfileSessionProofService\(\)\)->isCurrentVerified\(\$profileSource \?\? \[\]\)[\s\S]*?'current_session_not_verified'/, 'auto-fetch Ctrip browser Profile execution requires same-source current-session proof');
+requireFunctionBodyText('app/controller/concern/AutoFetchConcern.php', 'executeCtripBrowserProfileAutoFetch', 'profileReuseState($profileSource ?? [])', 'auto-fetch Ctrip browser Profile execution requires reusable Profile evidence');
+requireFunctionBodyText('app/controller/concern/AutoFetchConcern.php', 'executeCtripBrowserProfileAutoFetch', "'profile_session_unverified'", 'auto-fetch Ctrip keeps unverified Profile failure explicit');
+requireFunctionBodyText('app/controller/concern/AutoFetchConcern.php', 'executeCtripBrowserProfileAutoFetch', "'profile_session_expired'", 'auto-fetch Ctrip keeps expired Profile failure explicit');
 requireText('app/controller/concern/AutoFetchConcern.php', "'capture_sections' => 'comment_review'", 'auto-fetch Ctrip comments use comment_review section');
 requireText('app/controller/concern/AutoFetchConcern.php', "'ctrip:comments' => $this->executeCtripBrowserProfileAutoFetch(", 'auto-fetch runs Ctrip comments through browser Profile');
-requireRegex('app/controller/concern/AutoFetchConcern.php', /function executeMeituanBrowserProfileAutoFetch\([\s\S]*?OtaProfileSessionProofService\(\)\)->isCurrentVerified\(\$profileSource \?\? \[\]\)[\s\S]*?'current_session_not_verified'/, 'auto-fetch Meituan browser Profile execution requires same-source current-session proof');
+requireFunctionBodyText('app/controller/concern/AutoFetchConcern.php', 'executeMeituanBrowserProfileAutoFetch', 'profileReuseState($profileSource ?? [])', 'auto-fetch Meituan browser Profile execution requires reusable Profile evidence');
+requireFunctionBodyText('app/controller/concern/AutoFetchConcern.php', 'executeMeituanBrowserProfileAutoFetch', "'profile_session_unverified'", 'auto-fetch Meituan keeps unverified Profile failure explicit');
+requireFunctionBodyText('app/controller/concern/AutoFetchConcern.php', 'executeMeituanBrowserProfileAutoFetch', "'profile_session_expired'", 'auto-fetch Meituan keeps expired Profile failure explicit');
 requireText('app/controller/concern/AutoFetchConcern.php', "'capture_sections' => 'reviews'", 'auto-fetch Meituan comments use reviews section');
 requireText('app/controller/concern/AutoFetchConcern.php', "'meituan:comments' => $this->executeMeituanBrowserProfileAutoFetch(", 'auto-fetch runs Meituan comments through browser Profile');
 requireNoText('app/controller/concern/AutoFetchConcern.php', 'commentCollectionDisabledResponse($platform', 'auto-fetch does not disable aggregate comment modules by policy');
 
-requireText('public/index.html', "const defaultCtripLoginUrl = 'https://ebooking.ctrip.com/home/mainland';", 'frontend Ctrip login opens China eBooking entry');
-requireText('public/index.html', "const defaultMeituanLoginUrl = 'https://me.meituan.com/ebooking/';", 'frontend Meituan login opens eBooking entry');
-requireText('public/index.html', 'clientLocalAuthorizationRequired', 'frontend labels account-owner local authorization requirement');
-requireText('public/index.html', 'openTargetSite(localPlatformAuthorizationUrl(platform))', 'frontend opens platform authorization on current client computer');
-requireText('public/index.html', 'server_browser_launch_disabled', 'frontend records server-side browser launch disabled');
-requireText('public/index.html', 'account_owner_local_computer_only', 'frontend records account-owner local computer authorization policy');
-requireText('public/index.html', 'const canLaunchLocalPlatformProfileBrowser = () =>', 'frontend detects account-owner loopback access before launching Profile browser');
-requireText('public/index.html', "['127.0.0.1', 'localhost', '::1'].includes(hostname)", 'frontend limits Profile browser launch to loopback hosts');
-requireText('public/index.html', "`/online-data/profile-login-trigger/${platform}`", 'frontend triggers the local Profile login task');
+requireText('public/app-main.js', "const defaultCtripLoginUrl = 'https://ebooking.ctrip.com/home/mainland';", 'frontend Ctrip login opens China eBooking entry');
+requireText('public/app-main.js', "const defaultMeituanLoginUrl = 'https://me.meituan.com/ebooking/';", 'frontend Meituan login opens eBooking entry');
+requireText('public/app-main.js', 'clientLocalAuthorizationRequired', 'frontend labels account-owner local authorization requirement');
+requireText('public/app-main.js', 'openTargetSite(localPlatformAuthorizationUrl(platform))', 'frontend opens platform authorization on current client computer');
+requireText('public/app-main.js', 'server_browser_launch_disabled', 'frontend records server-side browser launch disabled');
+requireText('public/app-main.js', 'account_owner_local_computer_only', 'frontend records account-owner local computer authorization policy');
+requireText('public/app-main.js', 'const canLaunchLocalPlatformProfileBrowser = () =>', 'frontend detects account-owner loopback access before launching Profile browser');
+requireText('public/app-main.js', "['127.0.0.1', 'localhost', '::1'].includes(hostname)", 'frontend limits Profile browser launch to loopback hosts');
+requireText('public/app-main.js', "`/online-data/profile-login-trigger/${platform}`", 'frontend triggers the local Profile login task');
 requireText('app/controller/concern/OnlineDataRequestConcern.php', 'private function isLocalPlatformProfileLoginRequest(): bool', 'backend has a loopback guard for Profile login launch');
 requireText('app/controller/concern/OnlineDataRequestConcern.php', "['127.0.0.1', '::1', '::ffff:127.0.0.1']", 'backend accepts only loopback client IPs for Profile login launch');
 requireText('app/controller/concern/OnlineDataRequestConcern.php', 'client_local_authorization_required', 'backend blocks non-local Profile login launch');
@@ -325,16 +381,16 @@ requireText('app/controller/concern/OnlineDataRequestConcern.php', 'if ($taskHot
 requireText('app/controller/concern/OnlineDataRequestConcern.php', 'Profile login task is missing hotel scope', 'Profile login task-id lookup exposes missing hotel scope as an explicit blocker');
 requireText('app/controller/concern/OnlineDataRequestConcern.php', 'if (!$this->currentUserCanViewOnlineDataHotel($taskHotelId))', 'Profile login task-id lookup checks task hotel OTA view permission');
 requireTextBefore('app/controller/concern/OnlineDataRequestConcern.php', 'if (!$this->currentUserCanViewOnlineDataHotel($taskHotelId))', "if (($task['platform'] ?? '') !== $platform)", 'Profile login task-id lookup checks hotel permission before exposing platform mismatch');
-requireText('public/index.html', 'fetchCtripComments', 'frontend exposes Ctrip comment fetch');
-requireText('public/index.html', 'runCtripCommentBrowserCapture', 'frontend exposes Ctrip browser comment capture');
-requireText('public/index.html', 'fetchMeituanComments', 'frontend exposes Meituan comment fetch');
-requireText('public/index.html', "`/online-data/profile-login-status/${platform}?${params.toString()}`", 'frontend polls Profile login task');
-requireText('public/index.html', "`/online-data/collection-status?${params.toString()}`", 'frontend refreshes collection status');
-requireText('public/index.html', "stale_running: '任务运行超时'", 'frontend labels stale running collection tasks');
-requireText('public/index.html', "'session_expired', 'login_expired', 'anti_bot', 'resource_busy_login', 'cookies_incomplete', 'capture_failed', 'permission_denied', 'hotel_mismatch'", 'frontend blocks collection on explicit Profile failure states');
-requireText('public/auto-fetch-static.js', "if (statusCode === 'cookies_incomplete') return 'Cookie incomplete';", 'auto-fetch UI labels cookies_incomplete');
-requireText('public/auto-fetch-static.js', "if (statusCode === 'anti_bot') return 'Anti bot';", 'auto-fetch UI labels anti_bot');
-requireText('public/auto-fetch-static.js', "if (statusCode === 'resource_busy_login') return 'Login busy';", 'auto-fetch UI labels resource_busy_login');
+requireText('public/app-main.js', 'fetchCtripComments', 'frontend exposes Ctrip comment fetch');
+requireText('public/app-main.js', 'runCtripCommentBrowserCapture', 'frontend exposes Ctrip browser comment capture');
+requireText('public/app-main.js', 'fetchMeituanComments', 'frontend exposes Meituan comment fetch');
+requireText('public/app-main.js', "`/online-data/profile-login-status/${platform}?${params.toString()}`", 'frontend polls Profile login task');
+requireText('public/app-main.js', "`/online-data/collection-status?${params.toString()}`", 'frontend refreshes collection status');
+requireText('public/app-main.js', "stale_running: '任务运行超时'", 'frontend labels stale running collection tasks');
+requireText('public/app-main.js', "'session_expired', 'login_expired', 'anti_bot', 'resource_busy_login', 'cookies_incomplete', 'capture_failed', 'permission_denied', 'hotel_mismatch'", 'frontend blocks collection on explicit Profile failure states');
+requireText('public/auto-fetch-static.js', "if (statusCode === 'cookies_incomplete')", 'auto-fetch UI handles cookies_incomplete');
+requireText('public/auto-fetch-static.js', "if (statusCode === 'anti_bot')", 'auto-fetch UI handles anti_bot');
+requireText('public/auto-fetch-static.js', "if (statusCode === 'resource_busy_login')", 'auto-fetch UI handles resource_busy_login');
 requireText('public/auto-fetch-static.js', "cookies_incomplete: 'bg-red-50 text-red-700 border-red-200'", 'auto-fetch UI badges cookies_incomplete');
 requireText('scripts/verify_ota_diagnosis_auto_fetch.mjs', 'Ctrip aggregate comments stay on browser Profile collection and legacy Cookie config is disabled', 'existing diagnosis verifier covers Ctrip aggregate comments');
 requireText('scripts/verify_ota_diagnosis_auto_fetch.mjs', 'Meituan aggregate comments stay on browser Profile collection and reject Cookie/API config', 'existing diagnosis verifier covers Meituan aggregate comments');

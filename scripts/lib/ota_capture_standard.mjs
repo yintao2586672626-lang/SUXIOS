@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { findCtripEndpointByUrl } from './ctrip_capture_catalog.mjs';
+import { otaSessionCookieInjectionDomains } from './ota_session_probe.mjs';
 
 export const PLATFORM_CONFIGS = {
   meituan: {
@@ -8,7 +9,7 @@ export const PLATFORM_CONFIGS = {
     defaultSections: ['traffic', 'orders'],
     fullSections: ['traffic', 'orders', 'ads', 'reviews'],
     allowedSections: ['traffic', 'order_flow', 'ads', 'orders', 'reviews'],
-    cookieDomains: ['me.meituan.com', 'eb.meituan.com', '.meituan.com', '.dianping.com'],
+    cookieDomains: otaSessionCookieInjectionDomains('meituan'),
     sectionAliases: {
       business: 'traffic',
       businessdata: 'traffic',
@@ -81,7 +82,7 @@ export const PLATFORM_CONFIGS = {
     profilePrefix: 'ctrip_profile',
     defaultSections: ['business', 'traffic'],
     allowedSections: ['business', 'traffic', 'ads', 'orders', 'quality', 'search_keyword', 'reviews'],
-    cookieDomains: ['ebooking.ctrip.com', '.ctrip.com'],
+    cookieDomains: otaSessionCookieInjectionDomains('ctrip'),
     sectionAliases: {
       business: 'business',
       overview: 'business',

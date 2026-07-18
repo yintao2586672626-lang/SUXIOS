@@ -340,7 +340,7 @@ if (!runtimeAssetPaths.includes('system-static.js')
       failures.push(`${file} must keep OTA authorization copy on account-owner local-computer authorization and must not contain legacy server/login-task wording: ${text}`);
     }
   }
-  if (!content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260714-manual-direct-scheduled-profile';")
+  if (!content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260719-session-proof-hd0bfaeed76';")
     || !content.includes("const PlatformAutoSettingsPanels = {")
     || !content.includes("const PlatformAutoSecondaryPanels = {")
     || !content.includes('const ensurePlatformAutoPanelsReady = async () => {')
@@ -2004,7 +2004,7 @@ if (!runtimeAssetPaths.includes('system-static.js')
   }
   if (!platformAutoTemplateSource.includes('<platform-auto-settings-panels')
     || !platformAutoTemplateSource.includes(':ctx="$root"')
-    || !content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260714-manual-direct-scheduled-profile';")
+    || !content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260719-session-proof-hd0bfaeed76';")
     || !content.includes('const ensurePlatformAutoPanelsReady = async () => {')
     || !content.includes("requireOnlineDataComponent('PlatformAutoSettingsPanelsBody')")
     || !content.includes("requireOnlineDataComponent('PlatformAutoSecondaryPanelsBody')")

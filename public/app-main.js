@@ -215,7 +215,7 @@
         }
         return component;
     };
-    const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260714-manual-direct-scheduled-profile';
+    const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260719-session-proof-hd0bfaeed76';
     const ctripProfileFieldConfigPanelScript = 'components/online-data/ctrip-profile-field-config-panel.js?v=20260613-profile-template-split';
     const PlatformAutoSettingsPanels = {
         name: 'PlatformAutoSettingsPanels',
@@ -6491,7 +6491,7 @@
             });
             const dailyOpsPrimaryActions = requireCompassStatic('dailyOpsPrimaryActions');
             const autoFetchStaticScript = 'auto-fetch-static.js';
-            const autoFetchStaticVersion = '20260715-readback-truth-h12f148a2e9';
+            const autoFetchStaticVersion = '20260719-session-proof-he8c45208ba';
             const autoFetchStatic = ref(window.SUXI_AUTO_FETCH_STATIC && typeof window.SUXI_AUTO_FETCH_STATIC === 'object' ? window.SUXI_AUTO_FETCH_STATIC : null);
             const autoFetchStaticLoadError = ref('');
             let autoFetchStaticLoadPromise = null;

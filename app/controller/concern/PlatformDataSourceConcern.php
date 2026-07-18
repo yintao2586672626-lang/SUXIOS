@@ -208,7 +208,11 @@ trait PlatformDataSourceConcern
 
         try {
             $service = new PlatformDataSyncService();
-            $result = $service->syncDataSource($this->currentUser, (int)$id, $this->requestData());
+            $result = $service->syncDataSource(
+                $this->currentUser,
+                (int)$id,
+                $this->sanitizePublicDataSourceSyncOptions($this->requestData())
+            );
             OperationLog::record('online_data', 'sync_data_source', '同步平台数据源ID: ' . $id . '，状态: ' . $result['status'], $this->currentUser->id, null);
             return $this->platformDataTaskResponse($result, '同步');
         } catch (\RuntimeException $e) {
@@ -216,6 +220,20 @@ trait PlatformDataSourceConcern
         } catch (\Throwable $e) {
             return $this->error('同步数据源失败: ' . $e->getMessage(), 500);
         }
+    }
+
+    /** @param array<string, mixed> $options @return array<string, mixed> */
+    private function sanitizePublicDataSourceSyncOptions(array $options): array
+    {
+        unset(
+            $options['trigger_type'],
+            $options['triggerType'],
+            $options['interactive_browser'],
+            $options['interactiveBrowser']
+        );
+        $options['trigger_type'] = 'manual';
+        $options['interactive_browser'] = false;
+        return $options;
     }
 
     public function importDataSourceRows(): Response

@@ -66,13 +66,14 @@ final class OtaConfigVerificationServiceTest extends TestCase
 
         self::assertSame('saved_pending_verification', $service->statusForConfig($config, 'ctrip')['verification_status']);
 
-        $proofService->recordVerified(
+        $proofService->recordCollectionPreflightVerified(
             1,
             10,
             'ctrip',
             'profile-10',
             true,
-            ['ok' => true, 'status' => 'logged_in']
+            ['ok' => true, 'status' => 'logged_in'],
+            ['status' => 'matched', 'validated_identifier' => 'profile-10']
         );
 
         $verified = (new OtaConfigVerificationService($proofService))->statusForConfig($config, 'ctrip');

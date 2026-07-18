@@ -218,6 +218,54 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
         }
     }
 
+    /** @return array<string, mixed> */
+    private function evaluatePlatformIdentity(array $payload, string $expectedHotelId): array
+    {
+        $expectedHotelId = trim($expectedHotelId);
+        $observed = [];
+        foreach (is_array($payload['catalog_facts'] ?? null) ? $payload['catalog_facts'] : [] as $fact) {
+            if (!is_array($fact) || strtolower(trim((string)($fact['metric_key'] ?? ''))) !== 'hotel_id') {
+                continue;
+            }
+            $sourceKey = strtolower(trim((string)($fact['source_key'] ?? '')));
+            if (!in_array($sourceKey, ['masterhotelid', 'master_hotel_id', 'hotelid', 'hotel_id'], true)) {
+                continue;
+            }
+            $value = trim((string)($fact['value'] ?? ''));
+            if ($value !== '' && $value !== '-1') {
+                $observed[$value] = true;
+            }
+        }
+        foreach (is_array($payload['standard_rows'] ?? null) ? $payload['standard_rows'] : [] as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $rawData = is_array($row['raw_data'] ?? null) ? $row['raw_data'] : [];
+            if (trim((string)($rawData['hotel_id_source_key'] ?? '')) === '') {
+                continue;
+            }
+            $value = trim((string)($row['hotel_id'] ?? $row['hotelId'] ?? ''));
+            if ($value !== '' && $value !== '-1') {
+                $observed[$value] = true;
+            }
+        }
+
+        $observedIds = array_keys($observed);
+        $status = $expectedHotelId === ''
+            ? 'not_configured'
+            : (count($observedIds) === 1 && (string)$observedIds[0] === $expectedHotelId
+                ? 'matched'
+                : ($observedIds !== [] ? 'mismatch' : 'unverified'));
+        return [
+            'schema_version' => 1,
+            'status' => $status,
+            'expected_identifier_present' => $expectedHotelId !== '',
+            'observed_identifier_count' => count($observedIds),
+            'validated_identifier' => $status === 'matched' ? $expectedHotelId : '',
+            'sensitive_values_exposed' => false,
+        ];
+    }
+
     /**
      * @return array<int, array<string, mixed>>
      */
@@ -309,13 +357,20 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             $failurePayload['capture_module_results'] = $moduleResults;
             $failureStatus = (string)($firstFailure['status'] ?? 'failed');
             $failureMessage = (string)($firstFailure['message'] ?? 'unknown error');
-            return [
+            $failureResult = [
                 'status' => $failureStatus,
                 'message' => $failureStatus === 'waiting_config'
                     ? $failureMessage
                     : 'Ctrip browser Profile section capture failed: ' . $failureMessage,
                 'payload' => $failurePayload,
             ];
+            foreach (['status_code', 'error_code'] as $key) {
+                $value = trim((string)($firstFailure[$key] ?? ''));
+                if ($value !== '') {
+                    $failureResult[$key] = $value;
+                }
+            }
+            return $failureResult;
         }
 
         $payload = $this->mergeSequentialCapturePayloads(
@@ -478,6 +533,9 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             ];
         }
 
+        $payload['platform_identity_validation'] = $this->evaluatePlatformIdentity($payload, $hotelId);
+        $identityStatus = strtolower(trim((string)($payload['platform_identity_validation']['status'] ?? 'unverified')));
+
         $gate = is_array($payload['capture_gate'] ?? null) ? $payload['capture_gate'] : [];
         $gateWarning = null;
         if (($gate['status'] ?? 'fail') !== 'pass') {
@@ -493,6 +551,19 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             $gateWarning = $this->buildCaptureGateWarning($gate, $failedCheckIds);
         }
 
+        if ($identityStatus !== 'matched') {
+            $identityStatusCode = $identityStatus === 'mismatch'
+                ? 'ctrip_platform_identity_mismatch'
+                : 'ctrip_platform_identity_unverified';
+            return [
+                'status' => 'failed',
+                'status_code' => $identityStatusCode,
+                'error_code' => $identityStatusCode,
+                'message' => $identityStatusCode,
+                'payload' => $this->compactFailurePayload($payload, $runResult),
+            ];
+        }
+
         $rows = $this->buildRows($payload, $source, $systemHotelId, $dataDate, $hotelId);
         if (empty($rows)) {
             return [
@@ -501,7 +572,6 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                 'payload' => $this->compactFailurePayload($payload, $runResult),
             ];
         }
-
         if ($gateWarning !== null) {
             $payload['capture_gate_warning'] = $gateWarning;
         }
@@ -744,6 +814,16 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
                 return false;
             }
         }
+        $statusCode = strtolower(trim((string)($result['status_code'] ?? $result['error_code'] ?? '')));
+        if (in_array($statusCode, [
+            'ctrip_platform_identity_mismatch',
+            'ctrip_platform_identity_unverified',
+            'permission_denied',
+            'platform_contract_drift',
+            'anti_bot',
+        ], true)) {
+            return false;
+        }
         return !in_array((string)($result['status'] ?? ''), ['success', 'partial_success'], true);
     }
 
@@ -793,6 +873,7 @@ final class CtripBrowserProfileDataSourceAdapter implements DataSourceAdapter
             'capture_gate' => $payload['capture_gate'] ?? null,
             'capture_gate_warning' => $payload['capture_gate_warning'] ?? null,
             'capture_audit' => $payload['capture_audit'] ?? null,
+            'platform_identity_validation' => $payload['platform_identity_validation'] ?? null,
             'pages' => $payload['pages'] ?? [],
             'xhr_urls' => array_slice(is_array($payload['xhr_urls'] ?? null) ? $payload['xhr_urls'] : [], 0, 20),
             'output' => $payload['output'] ?? '',

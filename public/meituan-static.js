@@ -1464,6 +1464,23 @@ window.SUXI_MEITUAN_STATIC = (() => {
         };
     };
 
+    const buildMeituanSessionProofNotice = (data = {}, fallback = {}) => {
+        if (String(data?.session_proof_status || '').trim() !== 'not_recorded') {
+            return fallback;
+        }
+        const reasonCode = String(data?.session_proof_reason_code || '').trim();
+        const message = String(data?.session_proof_message || '').trim()
+            || '数据已保存，但登录证据未持久化。';
+        const nextAction = String(data?.session_proof_next_action || '').trim()
+            || '刷新登录状态后重新执行一次最小采集。';
+        return {
+            ...fallback,
+            level: reasonCode === 'no_persisted_rows' ? 'info' : 'warning',
+            message: `${message} 下一步：${nextAction}`,
+            sessionProofMissing: true,
+        };
+    };
+
     const runMeituanBrowserCaptureFlow = async ({
         getForm = () => ({}),
         getSystemHotelId = () => null,
@@ -1512,10 +1529,11 @@ window.SUXI_MEITUAN_STATIC = (() => {
                     hasDisplayRows,
                     failureMessage: res.message || '',
                 });
+                const sessionProofNotice = buildMeituanSessionProofNotice(data, notice);
                 if (requestContext.loginOnly) {
                     notify('美团 Profile 登录请求已完成；请刷新状态确认 Profile 可复用', 'info');
                 } else {
-                    notify(notice.message, notice.level);
+                    notify(sessionProofNotice.message, sessionProofNotice.level);
                 }
                 if (!requestContext.loginOnly) {
                     runPostFetchRefresh(refreshOnlineHistory);
@@ -4342,6 +4360,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         buildMeituanBrowserCaptureCommand,
         buildMeituanBrowserCaptureReadinessNotice,
         buildMeituanBrowserCaptureRequestContext,
+        buildMeituanSessionProofNotice,
         runMeituanBrowserCaptureFlow,
         buildMeituanCapturedPayloadSaveContext,
         runMeituanCapturedPayloadSaveFlow,

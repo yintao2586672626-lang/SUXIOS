@@ -33,6 +33,12 @@ import {
   extractMeituanRequestPlatformIdentifiers,
   isMeituanOwnHotelPayloadKey,
 } from './lib/meituan_platform_identity.mjs';
+import {
+  classifyOtaSessionProbeResponse,
+  evaluateOtaSessionProbe,
+  sanitizeOtaObservedUrl,
+  summarizeOtaSessionCookies,
+} from './lib/ota_session_probe.mjs';
 import { fail, parseArgs, safeName, timestamp, waitForEnter } from './lib/shared_helpers.mjs';
 
 const URLS = {
@@ -59,7 +65,9 @@ const dataPeriod = String(args.dataPeriod || '').trim();
 const snapshotTime = String(args.snapshotTime || '').trim() || (dataPeriod === 'realtime_snapshot' ? capturedAt : '');
 const outputPath = resolve(args.output || join(reportDir, `meituan_capture_${safeName(storeId)}_${timestamp()}.json`));
 const captureSections = normalizeCaptureSections(args.sections || args.captureSections || args.only || 'traffic,orders');
-const loginOnly = booleanArg(args.loginOnly) || booleanArg(args.authOnly) || booleanArg(args.prepareProfile);
+const sessionProbeOnly = booleanArg(args.sessionProbeOnly) || booleanArg(args.session_probe_only);
+const loginOnly = !sessionProbeOnly && (booleanArg(args.loginOnly) || booleanArg(args.authOnly) || booleanArg(args.prepareProfile));
+const authOnly = sessionProbeOnly || loginOnly;
 
 await mkdir(storageDir, { recursive: true });
 await mkdir(reportDir, { recursive: true });
@@ -75,7 +83,7 @@ const payload = {
   snapshot_time: snapshotTime,
   captured_at: capturedAt,
   source: 'meituan_browser_profile',
-  mode: loginOnly ? 'login_only' : 'capture',
+  mode: sessionProbeOnly ? 'session_probe_only' : (loginOnly ? 'login_only' : 'capture'),
   capture_sections: Array.from(captureSections),
   section_evidence: {},
   pages: [],
@@ -92,6 +100,13 @@ const payload = {
   screenshots: [],
   cookie_injection: { attempted: false, injected_count: 0, domains: [] },
   auth_status: { ok: false, status: 'pending', message: 'Login status has not been checked.' },
+  session_probe: {
+    schema_version: 1,
+    mode: 'session_probe_only',
+    platform: 'meituan',
+    status: 'pending',
+    collectable: false,
+  },
   capture_gate: null,
 };
 const observedOrderFlowRequestUrls = new Set();
@@ -100,16 +115,32 @@ const requestQueryEvidence = new WeakMap();
 const observedPlatformIdentifiers = new Set();
 let activeOrderQueryEvidence = null;
 let orderQueryEpoch = 0;
+let sessionProbeSuccessfulApiResponseCount = 0;
+const sessionProbeResponseDiagnostics = {
+  recognized_response_count: 0,
+  candidate_drift_response_count: 0,
+  access_denied_response_count: 0,
+  authentication_required_response_count: 0,
+  permission_denied_response_count: 0,
+  rate_limited_response_count: 0,
+  candidate_route_samples: [],
+};
 
 const browser = await launchOtaPersistentContext(storageDir, args);
-payload.cookie_injection = await injectBrowserCookies(browser, args, 'meituan');
+payload.cookie_injection = sessionProbeOnly
+  ? { attempted: false, injected_count: 0, domains: [], reason: 'session_probe_only' }
+  : await injectBrowserCookies(browser, args, 'meituan');
 
 const page = await browser.newPage();
 await bringLoginPageToFront(page);
-registerResponseCapture(page, payload);
+if (authOnly) {
+  registerSessionProbeResponseObserver(page);
+} else {
+  registerResponseCapture(page, payload);
+}
 
 try {
-  const loginStatus = await ensureLoggedIn(page);
+  const loginStatus = await ensureLoggedIn(page, { interactive: !sessionProbeOnly });
   payload.auth_status = loginStatus;
   if (!loginStatus.ok) {
     payload.pages.push({
@@ -120,9 +151,11 @@ try {
       error: loginStatus.message,
     });
     process.exitCode = 2;
-  } else if (loginOnly) {
-    await holdInteractiveLoginWindow(page, 'Meituan');
-  } else if (!loginOnly) {
+  } else if (authOnly) {
+    if (loginOnly) {
+      await holdInteractiveLoginWindow(page, 'Meituan');
+    }
+  } else {
     if (wantsSection('reviews')) {
       await capturePage(page, 'comments', URLS.comments);
       await collectDomFallback(page, payload, 'reviews');
@@ -152,7 +185,7 @@ try {
   }
 
   await waitForPendingResponseCaptures(page);
-  const platformIdentityValidation = loginOnly
+  const platformIdentityValidation = authOnly
     ? {
         schema_version: 1,
         status: 'not_checked_login_only',
@@ -181,10 +214,42 @@ try {
   }
   Object.assign(payload, filterMeituanEventRowsByTargetDate(payload, defaultDataDate, captureSections));
   dedupePayloadRows(payload);
-  const sectionGate = loginOnly
-    ? { status: loginStatus.ok ? 'pass' : 'fail', failed_check_ids: loginStatus.ok ? [] : ['auth_login_required'], mode: 'login_only' }
+  if (authOnly) {
+    payload.session_probe = await buildLoginOnlySessionProbe(platformIdentityValidation);
+    if (payload.session_probe.collectable === true && payload.auth_status?.ok !== true) {
+      payload.auth_status = {
+        ...payload.auth_status,
+        ok: true,
+        status: 'authorized',
+        message: 'Protected business API and reusable Session state are verified.',
+      };
+    } else if (payload.session_probe.status === 'anti_bot') {
+      payload.auth_status = {
+        ...payload.auth_status,
+        ok: false,
+        status: 'anti_bot',
+        message: payload.session_probe.message,
+        retry_after_seconds: payload.session_probe.retry_after_seconds,
+        next_retry_at: payload.session_probe.next_retry_at,
+      };
+    }
+  }
+  const sectionGate = authOnly
+    ? {
+        status: payload.session_probe.collectable === true ? 'pass' : 'fail',
+        failed_check_ids: payload.session_probe.collectable === true ? [] : payload.session_probe.failed_check_ids,
+        mode: payload.mode,
+        reason: 'session_probe_only',
+        retry_after_seconds: payload.session_probe.retry_after_seconds,
+        next_retry_at: payload.session_probe.next_retry_at,
+        checks: [{
+          id: 'session_collectability',
+          status: payload.session_probe.collectable === true ? 'pass' : 'fail',
+          message: payload.session_probe.message,
+        }],
+      }
     : evaluateMeituanCaptureGate(payload, captureSections, { targetDate: defaultDataDate });
-  payload.capture_gate = !loginOnly && platformIdentityValidation.status !== 'matched'
+  payload.capture_gate = !authOnly && platformIdentityValidation.status !== 'matched'
     ? {
         ...sectionGate,
         status: 'fail',
@@ -197,28 +262,46 @@ try {
     : sectionGate;
   if (payload.capture_gate.status !== 'pass') {
     process.exitCode = 2;
+  } else if (authOnly) {
+    process.exitCode = 0;
   }
   await writeFile(outputPath, JSON.stringify(payload, null, 2), 'utf8');
 
-  if (args.submit === 'true') {
+  if (!authOnly && args.submit === 'true') {
     await submitPayload(payload);
   }
 
   console.log(JSON.stringify({
     output: outputPath,
     profile_dir: storageDir,
+    auth_status: payload.auth_status,
+    session_probe: payload.session_probe,
     counts: summarize(payload),
   }, null, 2));
 } finally {
   await browser.close();
 }
 
-async function ensureLoggedIn(page) {
+async function ensureLoggedIn(page, options = {}) {
   await page.goto(URLS.check, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => null);
   await bringLoginPageToFront(page);
   await page.waitForTimeout(2000);
   if (await looksLoggedIn(page)) {
-    return { ok: true, status: 'logged_in', url: page.url(), message: 'Meituan profile is logged in.' };
+    return { ok: true, status: 'logged_in', url: sanitizeObservedPageUrl(page.url()), message: 'Meituan profile is logged in.' };
+  }
+
+  if (options.interactive === false) {
+    await page.goto(URLS.login, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => null);
+    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => null);
+    await page.waitForTimeout(3000);
+    return (await looksLoggedIn(page))
+      ? { ok: true, status: 'logged_in', url: sanitizeObservedPageUrl(page.url()), message: 'Meituan profile is logged in.' }
+      : {
+          ok: false,
+          status: 'login_required',
+          url: sanitizeObservedPageUrl(page.url()),
+          message: 'Meituan existing Profile session is not ready for collection.',
+        };
   }
 
   if (!(await looksLoggedIn(page))) {
@@ -232,12 +315,12 @@ async function ensureLoggedIn(page) {
       await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => null);
       await page.waitForTimeout(3000);
       if (await looksLoggedIn(page)) {
-        return { ok: true, status: 'logged_in', url: page.url(), message: 'Meituan profile is logged in.' };
+        return { ok: true, status: 'logged_in', url: sanitizeObservedPageUrl(page.url()), message: 'Meituan profile is logged in.' };
       }
       return {
         ok: false,
         status: 'login_required',
-        url: page.url(),
+        url: sanitizeObservedPageUrl(page.url()),
         message: 'Meituan login session is not ready. Re-login with a visible browser Profile before scheduled sync.',
       };
     }
@@ -249,8 +332,8 @@ async function ensureLoggedIn(page) {
       await waitForEnter('Press Enter after login succeeds...');
       await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => null);
       return (await looksLoggedIn(page))
-        ? { ok: true, status: 'logged_in', url: page.url(), message: 'Meituan profile is logged in.' }
-        : { ok: false, status: 'login_required', url: page.url(), message: 'Meituan login was not completed.' };
+        ? { ok: true, status: 'logged_in', url: sanitizeObservedPageUrl(page.url()), message: 'Meituan profile is logged in.' }
+        : { ok: false, status: 'login_required', url: sanitizeObservedPageUrl(page.url()), message: 'Meituan login was not completed.' };
     }
 
     const timeoutMs = Number(args.loginTimeoutMs || 300000);
@@ -258,19 +341,19 @@ async function ensureLoggedIn(page) {
     while (Date.now() < deadline) {
       await page.waitForTimeout(3000);
       if (await looksLoggedIn(page)) {
-        return { ok: true, status: 'logged_in', url: page.url(), message: 'Meituan profile is logged in.' };
+        return { ok: true, status: 'logged_in', url: sanitizeObservedPageUrl(page.url()), message: 'Meituan profile is logged in.' };
       }
     }
     return {
       ok: false,
       status: 'login_required',
-      url: page.url(),
+      url: sanitizeObservedPageUrl(page.url()),
       timeout_ms: timeoutMs,
       message: `Meituan login timeout after ${Math.round(timeoutMs / 1000)} seconds`,
     };
   }
 
-  return { ok: true, status: 'logged_in', url: page.url(), message: 'Meituan profile is logged in.' };
+  return { ok: true, status: 'logged_in', url: sanitizeObservedPageUrl(page.url()), message: 'Meituan profile is logged in.' };
 }
 
 async function bringLoginPageToFront(page) {
@@ -297,6 +380,21 @@ async function holdInteractiveLoginWindow(page, platformName) {
     }
     await page.waitForTimeout(Math.min(3000, Math.max(250, deadline - Date.now()))).catch(() => null);
   }
+}
+
+async function buildLoginOnlySessionProbe(platformIdentityValidation) {
+  const pageText = await page.locator('body').innerText({ timeout: 5000 }).catch(() => '');
+  const cookies = await browser.cookies().catch(() => []);
+  const cookieSummary = summarizeOtaSessionCookies('meituan', cookies);
+  return evaluateOtaSessionProbe('meituan', {
+    auth_status: payload.auth_status,
+    url: page.url(),
+    page_text: pageText,
+    cookie_summary: cookieSummary,
+    successful_api_response_count: sessionProbeSuccessfulApiResponseCount,
+    response_diagnostics: sessionProbeResponseDiagnostics,
+    identity_status: platformIdentityValidation?.status || 'not_checked',
+  });
 }
 
 async function looksLoggedIn(page) {
@@ -701,6 +799,45 @@ function registerResponseCapture(page, target) {
     pendingResponseCaptures.add(task);
     void task.finally(() => pendingResponseCaptures.delete(task)).catch(() => null);
   });
+}
+
+function registerSessionProbeResponseObserver(page) {
+  page.on('response', response => {
+    const requestType = response.request().resourceType();
+    const status = Number(response.status() || 0);
+    const contentType = response.headers()['content-type'] || '';
+    const classified = classifyOtaSessionProbeResponse('meituan', {
+      url: response.url(),
+      status,
+      resource_type: requestType,
+      content_type: contentType,
+    });
+    const classification = classified.classification;
+    if (classification === 'recognized') {
+      sessionProbeSuccessfulApiResponseCount = Math.min(20, sessionProbeSuccessfulApiResponseCount + 1);
+      sessionProbeResponseDiagnostics.recognized_response_count = sessionProbeSuccessfulApiResponseCount;
+    } else if (classification === 'candidate_drift') {
+      sessionProbeResponseDiagnostics.candidate_drift_response_count = Math.min(20, sessionProbeResponseDiagnostics.candidate_drift_response_count + 1);
+      const safeRoute = sanitizeOtaObservedUrl(response.url());
+      if (safeRoute && !sessionProbeResponseDiagnostics.candidate_route_samples.includes(safeRoute)) {
+        sessionProbeResponseDiagnostics.candidate_route_samples = [
+          ...sessionProbeResponseDiagnostics.candidate_route_samples,
+          safeRoute,
+        ].slice(0, 20);
+      }
+    } else if (classification === 'authentication_required') {
+      sessionProbeResponseDiagnostics.authentication_required_response_count = Math.min(20, sessionProbeResponseDiagnostics.authentication_required_response_count + 1);
+      sessionProbeResponseDiagnostics.access_denied_response_count = Math.min(20, sessionProbeResponseDiagnostics.access_denied_response_count + 1);
+    } else if (classification === 'permission_denied') {
+      sessionProbeResponseDiagnostics.permission_denied_response_count = Math.min(20, sessionProbeResponseDiagnostics.permission_denied_response_count + 1);
+    } else if (classification === 'rate_limited') {
+      sessionProbeResponseDiagnostics.rate_limited_response_count = Math.min(20, sessionProbeResponseDiagnostics.rate_limited_response_count + 1);
+    }
+  });
+}
+
+function sanitizeObservedPageUrl(value) {
+  return sanitizeOtaObservedUrl(value);
 }
 
 async function captureMeituanResponse(response, target) {

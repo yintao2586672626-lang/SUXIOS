@@ -121,6 +121,7 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         if (statusCode === 'anti_bot') return '需要人机验证';
         if (statusCode === 'session_expired') return '授权已失效';
         if (statusCode === 'resource_busy_login') return '授权任务占用中';
+        if (statusCode === 'platform_contract_drift') return '平台规则疑似变化';
         if (['permission_denied', 'no_permission', 'unauthorized'].includes(statusCode)) return '无权限';
         if (statusCode === 'hotel_mismatch') return '门店不匹配';
         const map = {
@@ -134,6 +135,7 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
             login_required: '需要登录',
             anti_bot: '需要人机验证',
             resource_busy_login: '授权任务占用中',
+            platform_contract_drift: '平台规则疑似变化',
             permission_denied: '无权限',
             no_permission: '无权限',
             unauthorized: '无权限',
@@ -158,6 +160,7 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         anti_bot: 'bg-red-50 text-red-700 border-red-200',
         session_expired: 'bg-red-50 text-red-700 border-red-200',
         resource_busy_login: 'bg-amber-50 text-amber-700 border-amber-200',
+        platform_contract_drift: 'bg-amber-50 text-amber-700 border-amber-200',
         logged_in: 'bg-emerald-50 text-emerald-700 border-emerald-200',
         profile_reusable: 'bg-emerald-50 text-emerald-700 border-emerald-200',
         renewal_warning: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -227,6 +230,7 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         if (statusCode === 'hotel_mismatch') return '重新绑定门店';
         if (statusCode === 'anti_bot') return '人工处理风控';
         if (statusCode === 'resource_busy_login') return '等待当前任务完成';
+        if (statusCode === 'platform_contract_drift') return '查看规则漂移证据';
         if (statusCode === 'session_expired') return '本机重新授权平台账号';
         if (item?.status_code === 'login_expired') return '本机重新授权平台账号';
         if (item?.platform === 'meituan') return '本机授权美团';
@@ -239,6 +243,7 @@ window.SUXI_AUTO_FETCH_STATIC = (() => {
         if (statusCode === 'cookies_incomplete') return '账号使用者在本机刷新平台授权；页面可访问，但业务 Cookie/API 辅助内容不完整。';
         if (statusCode === 'anti_bot') return '已触发平台风控或人机验证；请停止自动重试，由账号使用者在已授权的浏览器 Profile 中完成验证。';
         if (statusCode === 'resource_busy_login') return '当前平台或门店已有授权窗口或采集任务占用；请等待完成后再启动新的授权。';
+        if (statusCode === 'platform_contract_drift') return '平台返回与当前识别规则不一致；先查看同步日志并校准规则，不要反复登录。';
         if (statusCode === 'session_expired') return '平台授权已失效；账号使用者在本机授权浏览器内重新验证后再采集。';
         if (['permission_denied', 'no_permission', 'unauthorized'].includes(statusCode)) return '当前账号无该门店采集权限，请切换账号或补授权。';
         if (statusCode === 'hotel_mismatch') return 'Profile 登录态存在，但绑定门店与当前门店不匹配，请重新绑定正确门店。';

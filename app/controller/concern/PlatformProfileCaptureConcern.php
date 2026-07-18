@@ -75,6 +75,7 @@ trait PlatformProfileCaptureConcern
             'last_modified_at' => $exists ? date('Y-m-d H:i:s', (int)filemtime($profileDir)) : '',
             'last_login_check_time' => (string)($cached['checked_at'] ?? ''),
             'auth_status' => $cached['auth_status'] ?? null,
+            'session_probe' => $cached['session_probe'] ?? null,
             'capture_gate' => $cached['capture_gate'] ?? null,
             'status' => $exists ? 'profile_found' : 'missing_profile',
             'status_code' => $statusCode,
@@ -91,9 +92,12 @@ trait PlatformProfileCaptureConcern
                 'status' => 'login_required',
                 'message' => (string)($probe['message'] ?? 'Ctrip login probe failed.'),
             ];
-            $isOk = !empty($authStatus['ok']);
+            $sessionProbe = is_array($probe['session_probe'] ?? null) ? $probe['session_probe'] : [];
+            $isOk = !empty($authStatus['ok'])
+                && (new OtaProfileSessionProofService())->isStrongProfileLoginSessionProbe($sessionProbe);
             $probeStatusCode = $this->ctripProfileProbeStatusCode($probe, $authStatus);
             $status['auth_status'] = $authStatus;
+            $status['session_probe'] = $sessionProbe !== [] ? $sessionProbe : null;
             $status['capture_gate'] = $probe['capture_gate'] ?? null;
             $status['output'] = (string)($probe['output'] ?? '');
             $status['last_login_check_time'] = date('Y-m-d H:i:s');
@@ -102,12 +106,17 @@ trait PlatformProfileCaptureConcern
             $status['current_status'] = $this->ctripProfileStatusText((string)$status['status_code']);
             $status['next_action'] = $isOk
                 ? 'profile_reuse_ready'
-                : (string)$status['status_code'];
+                : ($probeStatusCode === 'platform_contract_drift'
+                    ? '平台探针契约已变化；先查看同步日志并校准规则，不要反复登录'
+                    : (trim((string)($sessionProbe['next_action'] ?? '')) !== ''
+                        ? (string)$sessionProbe['next_action']
+                        : (string)$status['status_code']));
 
             if ($hotelId > 0 && $profileId !== '') {
                 $this->cachePlatformProfileStatus('ctrip', $hotelId, $profileId, [
                     'checked_at' => $status['last_login_check_time'],
                     'auth_status' => $authStatus,
+                    'session_probe' => $status['session_probe'],
                     'capture_gate' => $status['capture_gate'],
                     'status_code' => $status['status_code'],
                     'output' => $status['output'],
@@ -153,8 +162,10 @@ trait PlatformProfileCaptureConcern
             'session_expired' => 'session_expired',
             'login_expired', 'login_required' => 'login_expired',
             'anti_bot' => 'anti_bot',
+            'platform_contract_drift' => 'platform_contract_drift',
             'permission_denied' => 'permission_denied',
             'hotel_mismatch' => 'hotel_mismatch',
+            'hotel_identity_unverified' => 'hotel_identity_unverified',
             'capture_failed' => 'capture_failed',
             'cookies_incomplete' => 'cookies_incomplete',
             'waiting_login' => 'waiting_login',
@@ -164,13 +175,41 @@ trait PlatformProfileCaptureConcern
 
     private function ctripProfileProbeStatusCode(array $probe, array $authStatus): string
     {
-        if (!empty($authStatus['ok'])) {
+        $sessionProbe = is_array($probe['session_probe'] ?? null) ? $probe['session_probe'] : [];
+        $probeStatus = strtolower(trim((string)($sessionProbe['status'] ?? '')));
+        if ((new OtaProfileSessionProofService())->profileLoginSessionProbeContractStatus($sessionProbe) === 'platform_contract_drift') {
+            return 'platform_contract_drift';
+        }
+        if ($probeStatus === 'anti_bot') {
+            return 'anti_bot';
+        }
+        if ($probeStatus === 'platform_contract_drift') {
+            return 'platform_contract_drift';
+        }
+        if ($probeStatus === 'permission_denied') {
+            return 'permission_denied';
+        }
+        if ($probeStatus === 'identity_mismatch') {
+            return 'hotel_mismatch';
+        }
+        if (!empty($sessionProbe['collectable']) && empty($sessionProbe['proof_eligible'])) {
+            return 'hotel_identity_unverified';
+        }
+        if ($probeStatus === 'cookies_incomplete') {
+            return 'cookies_incomplete';
+        }
+        if ($probeStatus === 'login_required') {
+            return 'login_expired';
+        }
+        if (!empty($authStatus['ok'])
+            && (new OtaProfileSessionProofService())->isStrongProfileLoginSessionProbe($sessionProbe)) {
             return 'logged_in';
         }
         $text = strtolower(json_encode([
             'message' => $authStatus['message'] ?? $probe['message'] ?? '',
             'status' => $authStatus['status'] ?? '',
             'capture_gate' => $probe['capture_gate'] ?? null,
+            'session_probe' => $sessionProbe,
             'stdout' => $probe['stdout'] ?? '',
             'stderr' => $probe['stderr'] ?? '',
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '');
@@ -185,6 +224,9 @@ trait PlatformProfileCaptureConcern
         }
         if (preg_match('/session_expired|session expired|session invalid|expired session/', $text) === 1) {
             return 'session_expired';
+        }
+        if (in_array($probeStatus, ['weak_evidence', 'probe_failed'], true)) {
+            return 'capture_failed';
         }
         return 'login_expired';
     }
@@ -211,7 +253,7 @@ trait PlatformProfileCaptureConcern
             '--profile-id=' . $profileId,
             '--system-hotel-id=' . (string)$systemHotelId,
             '--output=' . $outputPath,
-            '--login-only=true',
+            '--session-probe-only=true',
             '--headless=true',
             '--login-timeout-ms=30000',
             '--sections=business_overview',
@@ -277,6 +319,7 @@ trait PlatformProfileCaptureConcern
             'last_modified_at' => $exists ? date('Y-m-d H:i:s', (int)filemtime($profileDir)) : '',
             'last_login_check_time' => (string)($cached['checked_at'] ?? ''),
             'auth_status' => $cached['auth_status'] ?? null,
+            'session_probe' => $cached['session_probe'] ?? null,
             'capture_gate' => $cached['capture_gate'] ?? null,
             'status' => $exists ? 'profile_found' : 'missing_profile',
             'current_status' => $exists ? '登录待验证' : '登录待验证',
@@ -296,26 +339,38 @@ trait PlatformProfileCaptureConcern
             'status' => 'login_required',
             'message' => (string)($probe['message'] ?? 'Meituan login probe failed.'),
         ];
-        $isOk = !empty($authStatus['ok']);
+        $sessionProbe = is_array($probe['session_probe'] ?? null) ? $probe['session_probe'] : [];
+        $isOk = !empty($authStatus['ok'])
+            && (new OtaProfileSessionProofService())->isStrongProfileLoginSessionProbe($sessionProbe);
         $status['auth_status'] = $authStatus;
+        $status['session_probe'] = $sessionProbe !== [] ? $sessionProbe : null;
         $status['capture_gate'] = $probe['capture_gate'] ?? null;
         $status['output'] = $probe['output'] ?? '';
         $status['last_login_check_time'] = date('Y-m-d H:i:s');
         $status['status'] = $isOk ? 'ready' : 'login_required';
-        $probeStatusCode = $isOk ? 'logged_in' : $this->ctripProfileProbeStatusCode($probe, $authStatus);
+        $probeStatusCode = $this->ctripProfileProbeStatusCode($probe, $authStatus);
         $status['status_code'] = $probeStatusCode;
         $status['current_status'] = $isOk ? '登录态已验证' : '登录失效';
-        $status['next_action'] = $isOk ? '登录态已验证；仍需执行目标日同步并检查入库结果' : '重新登录美团平台账号';
+        $status['next_action'] = $isOk
+            ? '登录态已验证；仍需执行目标日同步并检查入库结果'
+            : ($probeStatusCode === 'platform_contract_drift'
+                ? '平台探针契约已变化；先查看同步日志并校准规则，不要反复登录'
+                : (trim((string)($sessionProbe['next_action'] ?? '')) !== ''
+                    ? (string)$sessionProbe['next_action']
+                    : '重新登录美团平台账号'));
 
         if (!$isOk) {
             $status['current_status'] = $this->ctripProfileStatusText($probeStatusCode);
-            $status['next_action'] = $probeStatusCode;
+            if (trim((string)($sessionProbe['next_action'] ?? '')) === '') {
+                $status['next_action'] = $probeStatusCode;
+            }
         }
 
         if ($hotelId > 0 && $storeId !== '') {
             $this->cachePlatformProfileStatus('meituan', $hotelId, $storeId, [
                 'checked_at' => $status['last_login_check_time'],
                 'auth_status' => $authStatus,
+                'session_probe' => $status['session_probe'],
                 'capture_gate' => $status['capture_gate'],
                 'status_code' => $status['status_code'],
                 'output' => $status['output'],
@@ -346,7 +401,7 @@ trait PlatformProfileCaptureConcern
             '--store-id=' . $storeId,
             '--system-hotel-id=' . (string)$systemHotelId,
             '--output=' . $outputPath,
-            '--login-only=true',
+            '--session-probe-only=true',
             '--headless=true',
             '--login-timeout-ms=30000',
             '--sections=traffic',

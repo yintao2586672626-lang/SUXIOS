@@ -519,13 +519,14 @@ final class OtaProfileSessionProofConsumerTest extends TestCase
             new OtaProfileBindingService(self::$projectRoot),
             static fn(): DateTimeImmutable => $proofTime
         );
-        $service->recordVerified(
+        $service->recordCollectionPreflightVerified(
             $sourceId,
             10,
             $platform,
             $profileKey,
             true,
-            ['ok' => true, 'status' => 'logged_in']
+            ['ok' => true, 'status' => 'logged_in'],
+            ['status' => 'matched', 'validated_identifier' => $profileKey]
         );
         return $this->loadSource($sourceId);
     }

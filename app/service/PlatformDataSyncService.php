@@ -9,6 +9,7 @@ use app\service\platform\CtripBrowserProfileDataSourceAdapter;
 use app\service\platform\ManualImportDataSourceAdapter;
 use app\service\platform\MeituanBrowserProfileDataSourceAdapter;
 use RuntimeException;
+use think\facade\Cache;
 use think\facade\Db;
 
 final class PlatformDataSyncService
@@ -2806,15 +2807,51 @@ final class PlatformDataSyncService
         $payload = is_array($result['payload'] ?? null) ? $result['payload'] : [];
         $authStatus = is_array($payload['auth_status'] ?? null) ? $payload['auth_status'] : [];
         $authCode = strtolower(trim((string)($authStatus['status'] ?? '')));
+        $platform = strtolower(trim((string)($source['platform'] ?? '')));
+        $config = is_array($source['config'] ?? null) ? $source['config'] : [];
+        $profileKey = $this->otaBrowserProfileKey($platform, $config);
+        if ($profileKey === '') {
+            return false;
+        }
+        $sessionProbe = is_array($payload['session_probe'] ?? null) ? $payload['session_probe'] : [];
+        $probeStatus = strtolower(trim((string)($sessionProbe['status'] ?? '')));
+        $identityValidation = is_array($payload['platform_identity_validation'] ?? null)
+            ? $payload['platform_identity_validation']
+            : [];
+        $identityStatus = strtolower(trim((string)($identityValidation['status'] ?? '')));
+
+        $probeBlockStatuses = [
+            'anti_bot' => 'anti_bot',
+            'cookies_incomplete' => 'cookies_incomplete',
+            'platform_contract_drift' => 'platform_contract_drift',
+            'permission_denied' => 'permission_denied',
+            'weak_evidence' => 'capture_failed',
+            'probe_failed' => 'capture_failed',
+        ];
+        $authBlockStatuses = [
+            'anti_bot' => 'anti_bot',
+            'cookies_incomplete' => 'cookies_incomplete',
+            'platform_contract_drift' => 'platform_contract_drift',
+            'permission_denied' => 'permission_denied',
+            'capture_failed' => 'capture_failed',
+        ];
+        $sessionBlockStatus = $probeBlockStatuses[$probeStatus]
+            ?? $authBlockStatuses[$authCode]
+            ?? '';
+        if ($sessionBlockStatus !== '') {
+            $this->profileSessionProofService->recordProfileSessionBlocked(
+                (int)($source['id'] ?? 0),
+                (int)($source['system_hotel_id'] ?? 0),
+                $platform,
+                $profileKey,
+                $sessionBlockStatus,
+                trim((string)($sessionProbe['next_retry_at'] ?? ''))
+            );
+            return true;
+        }
         if (($authStatus['ok'] ?? null) === false
             && in_array($authCode, ['login_required', 'session_expired', 'login_expired', 'not_logged_in', 'unauthorized'], true)
         ) {
-            $platform = strtolower(trim((string)($source['platform'] ?? '')));
-            $config = is_array($source['config'] ?? null) ? $source['config'] : [];
-            $profileKey = $this->otaBrowserProfileKey($platform, $config);
-            if ($profileKey === '') {
-                return false;
-            }
             $this->profileSessionProofService->recordCollectionPreflightFailed(
                 (int)($source['id'] ?? 0),
                 (int)($source['system_hotel_id'] ?? 0),
@@ -2824,14 +2861,30 @@ final class PlatformDataSyncService
             );
             return true;
         }
+        if (in_array($identityStatus, ['mismatch', 'unverified', 'not_configured'], true)) {
+            $this->profileSessionProofService->recordProfileSessionBlocked(
+                (int)($source['id'] ?? 0),
+                (int)($source['system_hotel_id'] ?? 0),
+                $platform,
+                $profileKey,
+                $identityStatus === 'mismatch' ? 'identity_mismatch' : 'identity_unverified'
+            );
+            return true;
+        }
+        if (($result['status'] ?? '') !== 'success') {
+            $this->profileSessionProofService->recordProfileSessionBlocked(
+                (int)($source['id'] ?? 0),
+                (int)($source['system_hotel_id'] ?? 0),
+                $platform,
+                $profileKey,
+                'capture_failed'
+            );
+            return true;
+        }
         if (($authStatus['ok'] ?? null) !== true || !in_array($authCode, ['logged_in', 'authorized'], true)) {
             return false;
         }
-
-        $platform = strtolower(trim((string)($source['platform'] ?? '')));
-        $config = is_array($source['config'] ?? null) ? $source['config'] : [];
-        $profileKey = $this->otaBrowserProfileKey($platform, $config);
-        if ($profileKey === '') {
+        if (strtolower(trim((string)($identityValidation['status'] ?? ''))) !== 'matched') {
             return false;
         }
 
@@ -2841,7 +2894,8 @@ final class PlatformDataSyncService
             $platform,
             $profileKey,
             true,
-            $authStatus
+            $authStatus,
+            $identityValidation
         );
         return true;
     }
@@ -3092,6 +3146,29 @@ final class PlatformDataSyncService
         ) {
             return [];
         }
+        if ($this->browserProfileRiskControlReviewRequired($source)) {
+            return ['profile_risk_control_manual_review_required'];
+        }
+        $triggerType = strtolower(trim((string)($options['trigger_type'] ?? '')));
+        $blockingStatus = $this->profileSessionProofService->currentSessionBlockingStatus($source);
+        if ($triggerType === 'profile_login_after_login' && $blockingStatus === 'identity_unverified') {
+            return [];
+        }
+        if ($blockingStatus !== '') {
+            return [match ($blockingStatus) {
+                'platform_contract_drift' => 'profile_platform_contract_drift',
+                'permission_denied' => 'profile_permission_denied',
+                'cookies_incomplete' => 'profile_session_cookies_incomplete',
+                'identity_mismatch' => 'profile_hotel_identity_mismatch',
+                'identity_unverified' => 'profile_hotel_identity_unverified',
+                'capture_failed' => 'profile_session_probe_failed',
+                'session_expired', 'login_expired' => 'profile_session_expired',
+                default => 'profile_session_unverified',
+            }];
+        }
+        if ($triggerType === 'profile_login_after_login') {
+            return [];
+        }
         $reuseState = $this->profileSessionProofService->profileReuseState($source);
         if (!empty($reuseState['is_reusable'])) {
             return [];
@@ -3099,6 +3176,46 @@ final class PlatformDataSyncService
         return [($reuseState['status'] ?? '') === 'expired'
             ? 'profile_session_expired'
             : 'profile_session_unverified'];
+    }
+
+    /** @param array<string, mixed> $source */
+    private function browserProfileRiskControlReviewRequired(array $source): bool
+    {
+        $platform = strtolower(trim((string)($source['platform'] ?? '')));
+        $hotelId = (int)($source['system_hotel_id'] ?? 0);
+        $config = is_array($source['config'] ?? null) ? $source['config'] : $this->decodeConfig($source['config_json'] ?? []);
+        if (strtolower(trim((string)($config['current_session_status'] ?? ''))) === 'anti_bot') {
+            return true;
+        }
+        if ($this->profileSessionProofService->currentSessionBlockingStatus($source) !== '') {
+            return false;
+        }
+        $profileKey = $this->otaBrowserProfileKey($platform, $config);
+        if ($hotelId <= 0 || $profileKey === '') {
+            return false;
+        }
+        $cacheKey = 'platform_profile_status_' . $platform . '_' . $hotelId . '_'
+            . BrowserProfileCaptureRequestService::safeFilePart($profileKey);
+        try {
+            $cached = Cache::get($cacheKey, []);
+        } catch (\Throwable) {
+            return false;
+        }
+        if (!is_array($cached)
+            || strtolower(trim((string)($cached['status_code'] ?? ''))) !== 'anti_bot'
+        ) {
+            return false;
+        }
+        $cacheCheckedAt = trim((string)($cached['checked_at'] ?? ''));
+        $currentProbeAt = trim((string)($config['current_session_probe_at'] ?? ''));
+        if ($cacheCheckedAt !== '' && $currentProbeAt !== '') {
+            $cacheTimestamp = strtotime($cacheCheckedAt);
+            $probeTimestamp = strtotime($currentProbeAt);
+            if ($cacheTimestamp !== false && $probeTimestamp !== false && $cacheTimestamp < $probeTimestamp) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

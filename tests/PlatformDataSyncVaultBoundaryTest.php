@@ -469,13 +469,14 @@ final class PlatformDataSyncVaultBoundaryTest extends TestCase
             'update_time' => '2026-07-10 10:00:00',
         ]);
         $this->bindProfile(7, 101, 'ctrip', 'profile-101');
-        (new OtaProfileSessionProofService())->recordVerified(
+        (new OtaProfileSessionProofService())->recordCollectionPreflightVerified(
             $sourceId,
             101,
             'ctrip',
             'profile-101',
             true,
-            ['ok' => true, 'status' => 'logged_in']
+            ['ok' => true, 'status' => 'logged_in'],
+            ['status' => 'matched', 'validated_identifier' => 'profile-101']
         );
 
         $result = $service->syncDataSource($this->user(), $sourceId, [
@@ -544,13 +545,14 @@ final class PlatformDataSyncVaultBoundaryTest extends TestCase
             'update_time' => '2026-07-10 10:00:00',
         ]);
         $this->bindProfile(7, 101, 'ctrip', 'profile-101');
-        (new OtaProfileSessionProofService())->recordVerified(
+        (new OtaProfileSessionProofService())->recordCollectionPreflightVerified(
             $sourceId,
             101,
             'ctrip',
             'profile-101',
             true,
-            ['ok' => true, 'status' => 'logged_in']
+            ['ok' => true, 'status' => 'logged_in'],
+            ['status' => 'matched', 'validated_identifier' => 'profile-101']
         );
 
         $service->syncDataSource($this->user(), $sourceId, [
