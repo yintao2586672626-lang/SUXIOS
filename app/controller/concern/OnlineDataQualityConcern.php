@@ -5,6 +5,7 @@ namespace app\controller\concern;
 
 use app\model\OperationLog;
 use app\service\OnlineDataFieldFactService;
+use app\service\OnlineDataTrustStatusService;
 use think\Response;
 use think\facade\Db;
 
@@ -191,6 +192,9 @@ trait OnlineDataQualityConcern
                     }
                 }
                 $item['total_order_num'] = $rawTotalOrderNum > 0 ? $rawTotalOrderNum : $bookOrderNum;
+                $storageStatus = $this->buildOnlineDataStorageStatus($item);
+                $item['storage_status'] = $storageStatus['code'];
+                $item['storage_status_label'] = $storageStatus['label'];
                 $item['field_fact_status'] = $this->buildOnlineDataFieldFactStatus($item, $rawData);
                 $item['data_quality'] = $this->buildOnlineDataQuality($item);
             }
@@ -234,11 +238,16 @@ trait OnlineDataQualityConcern
                 continue;
             }
             $normalized[$value] = true;
-            if (count($normalized) >= 12) {
+            if (count($normalized) >= 50) {
                 break;
             }
         }
         return array_keys($normalized);
+    }
+
+    private function buildOnlineDataStorageStatus(array $row): array
+    {
+        return OnlineDataTrustStatusService::storageStatus($row);
     }
 
     private function buildOnlineDataQualitySummary(array $rows, array $scope = []): array

@@ -3252,17 +3252,17 @@ main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workb
 main[data-current-page="ai-workbench"] .dual-ota-temporal-axis {
     overflow: hidden;
     border: 1px solid var(--dual-border);
-    border-radius: 16px;
+    border-radius: 12px;
     background: var(--dual-surface);
-    box-shadow: 0 9px 22px rgba(45, 35, 19, .06);
+    box-shadow: 0 6px 14px rgba(45, 35, 19, .045);
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-temporal-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 18px;
-    padding: 15px 18px;
+    gap: 12px;
+    padding: 10px 14px;
     border-bottom: 1px solid rgba(189, 164, 121, .30);
     background: linear-gradient(90deg, rgba(11, 111, 98, .075), rgba(220, 197, 145, .10));
 }
@@ -3274,9 +3274,9 @@ main[data-current-page="ai-workbench"] .dual-ota-temporal-heading {
 main[data-current-page="ai-workbench"] .dual-ota-temporal-title {
     display: flex;
     align-items: center;
-    gap: 9px;
+    gap: 7px;
     color: var(--dual-text);
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 850;
 }
 
@@ -3284,14 +3284,14 @@ main[data-current-page="ai-workbench"] .dual-ota-temporal-icon {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    width: 24px;
+    height: 24px;
     border: 1px solid rgba(220, 197, 145, .42);
-    border-radius: 9px;
+    border-radius: 7px;
     background: var(--dual-teal-deep);
     color: #e8d8ad;
-    font-size: 11px;
-    box-shadow: 0 5px 12px rgba(8, 45, 38, .14);
+    font-size: 10px;
+    box-shadow: 0 4px 10px rgba(8, 45, 38, .12);
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-temporal-loading {
@@ -3301,10 +3301,10 @@ main[data-current-page="ai-workbench"] .dual-ota-temporal-loading {
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-temporal-subtitle {
-    margin: 4px 0 0 37px !important;
+    margin: 2px 0 0 31px !important;
     color: var(--dual-muted);
-    font-size: 12px;
-    line-height: 1.5;
+    font-size: 11px;
+    line-height: 1.35;
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-temporal-action {
@@ -3312,21 +3312,21 @@ main[data-current-page="ai-workbench"] .dual-ota-temporal-action {
     align-items: center;
     justify-content: center;
     flex: 0 0 auto;
-    min-height: 36px;
-    padding: 8px 13px;
+    min-height: 32px;
+    padding: 6px 11px;
     border: 1px solid rgba(11, 111, 98, .78);
-    border-radius: 9px;
+    border-radius: 8px;
     background: var(--dual-teal);
     color: #fff;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 800;
-    box-shadow: 0 7px 16px rgba(11, 111, 98, .16);
+    box-shadow: 0 5px 12px rgba(11, 111, 98, .14);
     transition: transform 180ms ease, background 180ms ease, box-shadow 180ms ease;
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-temporal-action:hover:not(:disabled) {
     background: #075e54;
-    box-shadow: 0 9px 20px rgba(11, 111, 98, .22);
+    box-shadow: 0 7px 16px rgba(11, 111, 98, .20);
     transform: translateY(-1px);
 }
 
@@ -3346,8 +3346,8 @@ main[data-current-page="ai-workbench"] .dual-ota-temporal-card {
     --temporal-accent: #a88a52;
     position: relative;
     min-width: 0;
-    min-height: 128px;
-    padding: 16px 18px 17px;
+    min-height: 92px;
+    padding: 10px 14px 11px;
     border-right: 1px solid rgba(189, 164, 121, .28);
     background: linear-gradient(180deg, rgba(168, 138, 82, .035), transparent 72%);
 }
@@ -3355,8 +3355,8 @@ main[data-current-page="ai-workbench"] .dual-ota-temporal-card {
 main[data-current-page="ai-workbench"] .dual-ota-temporal-card::before {
     position: absolute;
     top: 0;
-    right: 18px;
-    left: 18px;
+    right: 14px;
+    left: 14px;
     height: 2px;
     border-radius: 999px;
     content: "";
@@ -3394,23 +3394,23 @@ main[data-current-page="ai-workbench"] .dual-ota-temporal-label {
 main[data-current-page="ai-workbench"] .dual-ota-temporal-status {
     overflow: hidden;
     max-width: 58%;
-    padding: 3px 7px;
+    padding: 2px 6px;
     border: 1px solid color-mix(in srgb, var(--temporal-accent) 28%, transparent);
     border-radius: 999px;
     background: rgba(255, 255, 255, .72);
     color: #596579;
     font-size: 10px;
-    line-height: 1.2;
+    line-height: 1.15;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-temporal-value {
     display: block;
-    margin-top: 14px;
+    margin-top: 8px;
     overflow: hidden;
     color: var(--dual-text);
-    font-size: 18px;
+    font-size: 16px;
     font-variant-numeric: tabular-nums;
     font-weight: 900;
     line-height: 1.25;
@@ -3421,20 +3421,20 @@ main[data-current-page="ai-workbench"] .dual-ota-temporal-value {
 main[data-current-page="ai-workbench"] .dual-ota-temporal-detail {
     display: -webkit-box;
     overflow: hidden;
-    margin-top: 6px !important;
+    margin-top: 3px !important;
     color: var(--dual-muted);
-    font-size: 12px;
-    line-height: 1.55;
+    font-size: 11px;
+    line-height: 1.35;
     -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
+    -webkit-line-clamp: 1;
 }
 
 main[data-current-page="ai-workbench"] .dual-ota-temporal-review {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 18px;
-    padding: 10px 18px;
+    gap: 12px;
+    padding: 7px 14px;
     border-top: 1px solid rgba(189, 164, 121, .26);
     background: #f8f5ee;
 }
@@ -3449,7 +3449,7 @@ main[data-current-page="ai-workbench"] .dual-ota-temporal-review div {
 main[data-current-page="ai-workbench"] .dual-ota-temporal-review p {
     color: var(--dual-muted);
     font-size: 11px;
-    line-height: 1.5;
+    line-height: 1.35;
     text-align: right;
 }
 
@@ -12553,13 +12553,14 @@ main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workb
     }
 }
 
-/* AI 工作台指标卡动态：信息可读优先，不伪装成可点击按钮。 */
+/* AI 工作台指标卡动态：所有数据卡片可穿透到来源明细。 */
 main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric {
     --dual-metric-accent: #a88a52;
     position: relative;
     isolation: isolate;
     overflow: hidden;
-    cursor: default;
+    cursor: pointer;
+    outline: none;
     box-shadow: 0 1px 2px rgba(33, 28, 20, .025);
     transition:
         transform 200ms cubic-bezier(.2, .75, .25, 1),
@@ -12614,6 +12615,17 @@ main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workb
     transition: color 180ms ease, transform 200ms cubic-bezier(.2, .75, .25, 1);
 }
 
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric:focus-visible {
+    border-color: rgba(15, 107, 95, .72);
+    box-shadow: 0 0 0 3px rgba(15, 107, 95, .14), 0 10px 24px rgba(15, 107, 95, .12);
+    transform: translateY(-2px);
+}
+
+main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric:focus-visible::before {
+    opacity: 1;
+    transform: scaleX(1);
+}
+
 @media (hover: hover) and (pointer: fine) {
     main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric:hover {
         border-color: rgba(168, 138, 82, .58);
@@ -12659,6 +12671,10 @@ main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workb
     main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric::after,
     main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric > * {
         transition-duration: 1ms !important;
+    }
+
+    main[data-current-page="ai-workbench"] .dual-ota-home[data-testid="home-ai-workbench"] .dual-ota-system-metric:focus-visible {
+        transform: none;
     }
 }
 

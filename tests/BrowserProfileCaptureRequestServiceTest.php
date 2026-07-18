@@ -157,6 +157,11 @@ final class BrowserProfileCaptureRequestServiceTest extends TestCase
         $validPayload = [
             'auth_status' => ['ok' => true, 'status' => 'authorized'],
             'capture_gate' => ['status' => 'pass', 'section_statuses' => ['traffic' => 'returned']],
+            'platform_identity_validation' => [
+                'status' => 'matched',
+                'source_validation' => true,
+                'validated_identifier' => 'poi-1',
+            ],
         ];
         $validRows = [[
             'data_type' => 'traffic',
@@ -170,7 +175,24 @@ final class BrowserProfileCaptureRequestServiceTest extends TestCase
         self::assertSame('ready', BrowserProfileCaptureRequestService::assessMeituanPersistenceGate(
             $validPayload,
             $validRows,
-            '2026-07-11'
+            '2026-07-11',
+            ['poi-1']
+        )['status_code']);
+        self::assertSame('meituan_platform_identity_unverified', BrowserProfileCaptureRequestService::assessMeituanPersistenceGate(
+            [...$validPayload, 'platform_identity_validation' => []],
+            $validRows,
+            '2026-07-11',
+            ['poi-1']
+        )['status_code']);
+        self::assertSame('meituan_platform_identity_mismatch', BrowserProfileCaptureRequestService::assessMeituanPersistenceGate(
+            [...$validPayload, 'platform_identity_validation' => [
+                'status' => 'matched',
+                'source_validation' => true,
+                'validated_identifier' => 'poi-2',
+            ]],
+            $validRows,
+            '2026-07-11',
+            ['poi-1']
         )['status_code']);
         self::assertSame('meituan_auth_unverified', BrowserProfileCaptureRequestService::assessMeituanPersistenceGate(
             [...$validPayload, 'auth_status' => []],
@@ -201,6 +223,7 @@ final class BrowserProfileCaptureRequestServiceTest extends TestCase
             $method
         );
         self::assertStringContainsString("'persistence_gate' =>", $method);
+        self::assertStringContainsString('platform_identity_validation', (string)file_get_contents(dirname(__DIR__) . '/scripts/meituan_browser_capture.mjs'));
     }
 
     public function testSafeFilePartAndTimeoutsAreBounded(): void

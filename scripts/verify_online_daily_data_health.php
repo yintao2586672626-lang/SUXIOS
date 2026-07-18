@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+date_default_timezone_set('Asia/Shanghai');
+
 function read_env_map(string $path): array
 {
     if (!is_file($path)) {
@@ -150,7 +152,19 @@ try {
                    SUM(data_type IS NULL OR TRIM(data_type) = '') AS missing_data_type,
                    SUM(hotel_id IS NULL OR TRIM(hotel_id) = '') AS missing_hotel_id,
                    SUM(system_hotel_id IS NULL) AS missing_system_hotel_id,
-                   SUM(data_date > CURDATE()) AS future_date_rows,
+                    SUM(data_date > CURDATE()) AS future_date_rows,
+                    SUM(data_date > CURDATE() AND (
+                        data_type = 'traffic_forecast'
+                        OR data_period IN ('next_7_days', 'next_30_days', 'forecast', 'future_forecast')
+                    )) AS allowed_future_forecast_rows,
+                    SUM(data_date > CURDATE() AND NOT (
+                        data_type = 'traffic_forecast'
+                        OR data_period IN ('next_7_days', 'next_30_days', 'forecast', 'future_forecast')
+                    )) AS invalid_future_date_rows,
+                    SUM(data_period = 'next_30_days'
+                        AND COALESCE(snapshot_time, create_time, update_time) IS NOT NULL
+                        AND data_date > DATE_ADD(DATE(COALESCE(snapshot_time, create_time, update_time)), INTERVAL 30 DAY)
+                    ) AS forecast_rows_beyond_declared_window,
                    SUM(data_date = CURDATE()) AS today_rows,
                    SUM(raw_data IS NULL OR TRIM(raw_data) = '') AS missing_raw_data,
                    SUM(raw_data IS NOT NULL AND TRIM(raw_data) <> '' AND JSON_VALID(raw_data) = 0) AS invalid_raw_json,
@@ -176,8 +190,8 @@ try {
     if ((int)($summary['anomalies']['invalid_raw_json'] ?? 0) > 0) {
         $errors[] = 'online_daily_data contains invalid raw_data JSON.';
     }
-    if ((int)($summary['anomalies']['future_date_rows'] ?? 0) > 0) {
-        $errors[] = 'online_daily_data contains future data_date rows.';
+    if ((int)($summary['anomalies']['invalid_future_date_rows'] ?? 0) > 0) {
+        $errors[] = 'online_daily_data contains non-forecast future data_date rows.';
     }
     if ($strict && (int)($summary['duplicate_business_key']['extra_rows'] ?? 0) > 0) {
         $errors[] = 'online_daily_data contains duplicate business-key rows.';
@@ -197,6 +211,9 @@ try {
             . ' trace_duplicate_extra_rows=' . ($summary['duplicate_source_trace']['extra_rows'] ?? 0) . PHP_EOL;
         echo 'invalid_raw_json=' . ($summary['anomalies']['invalid_raw_json'] ?? 0)
             . ' future_date_rows=' . ($summary['anomalies']['future_date_rows'] ?? 0)
+            . ' allowed_future_forecast_rows=' . ($summary['anomalies']['allowed_future_forecast_rows'] ?? 0)
+            . ' invalid_future_date_rows=' . ($summary['anomalies']['invalid_future_date_rows'] ?? 0)
+            . ' forecast_rows_beyond_declared_window=' . ($summary['anomalies']['forecast_rows_beyond_declared_window'] ?? 0)
             . ' dimension_at_limit_rows=' . ($summary['anomalies']['dimension_at_limit_rows'] ?? 0) . PHP_EOL;
         foreach ($errors as $error) {
             echo 'ERROR: ' . $error . PHP_EOL;

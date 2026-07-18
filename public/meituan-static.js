@@ -124,6 +124,44 @@ window.SUXI_MEITUAN_STATIC = (() => {
 
     const getOnlineDataMetricNumber = (item, keys) => getOnlineDataMetricMaybeNumber(item, keys) ?? 0;
 
+    const parseMeituanOnlineRawObject = (value) => {
+        if (!value) return {};
+        if (typeof value === 'object' && !Array.isArray(value)) return value;
+        if (typeof value !== 'string') return {};
+        try {
+            const parsed = JSON.parse(value);
+            return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+        } catch (_error) {
+            return {};
+        }
+    };
+
+    const getMeituanNestedMetricMaybeNumber = (item, keys) => {
+        const rowValue = getOnlineDataMetricMaybeNumber(item, keys);
+        if (rowValue !== null) {
+            return rowValue;
+        }
+        const raw = parseMeituanOnlineRawObject(item?.raw_data);
+        const candidates = [
+            raw,
+            raw?.metrics,
+            raw?.summary,
+            raw?.reviewSummary,
+            raw?.review_summary,
+            raw?.data,
+        ];
+        for (const candidate of candidates) {
+            if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+                continue;
+            }
+            const value = getOnlineDataMetricMaybeNumber(candidate, keys);
+            if (value !== null) {
+                return value;
+            }
+        }
+        return null;
+    };
+
     const safeDivideMetric = (numerator, denominator) => {
         const top = Number(numerator);
         const bottom = Number(denominator);
@@ -161,12 +199,67 @@ window.SUXI_MEITUAN_STATIC = (() => {
     const isMeituanOverviewDataRow = (item) => item?.source === 'meituan' && item?.data_type === 'peer_rank';
     const isMeituanTrafficDataRow = (item) => item?.source === 'meituan' && ['traffic', 'traffic_analysis'].includes(item?.data_type);
     const isMeituanOrderDataRow = (item) => item?.source === 'meituan' && item?.data_type === 'order';
+    const isMeituanReviewDataRow = (item) => item?.source === 'meituan' && ['review', 'comment', 'comments'].includes(item?.data_type);
     const isMeituanAdsDataRow = (item) => item?.source === 'meituan' && item?.data_type === 'advertising';
+    const getMeituanReviewScoreMetricValue = (item) => {
+        const score = getMeituanNestedMetricMaybeNumber(item, [
+            'comment_score',
+            'commentScore',
+            'score',
+            'star',
+            'rating',
+            'rate',
+            'totalScore',
+            'overallScore',
+        ]);
+        return score !== null && score > 0 ? score : null;
+    };
+    const getMeituanReviewCountMetricValue = (item) => getMeituanNestedMetricMaybeNumber(item, [
+        'quantity',
+        'review_count',
+        'reviewCount',
+        'comment_count',
+        'commentCount',
+        'count',
+        'reviewTotal',
+        'review_total',
+        'commentTotal',
+        'comment_total',
+    ]);
+    const getMeituanBadReviewCountMetricValue = (item) => getMeituanNestedMetricMaybeNumber(item, [
+        'data_value',
+        'dataValue',
+        'bad_review_count',
+        'badReviewCount',
+        'negativeCommentCount',
+        'negative_count',
+        'negativeCount',
+        'badCount',
+        'lowScoreCount',
+        'noRecommendCount',
+    ]);
+    const buildMeituanReviewDisplayRow = (item) => {
+        const raw = parseMeituanOnlineRawObject(item?.raw_data);
+        return {
+            ...item,
+            review_score_value: getMeituanReviewScoreMetricValue(item),
+            review_count_value: getMeituanReviewCountMetricValue(item),
+            bad_review_count_value: getMeituanBadReviewCountMetricValue(item),
+            review_dimension_label: item?.dimension
+                || raw?.dimension
+                || raw?.dimName
+                || raw?.reviewDimension
+                || raw?.review_dimension
+                || '点评聚合',
+        };
+    };
 
     const buildMeituanDownloadData = (rows = []) => {
+        const allRows = [];
         const overviewRows = [];
         const trafficRows = [];
         const orderRows = [];
+        const reviewRows = [];
         const adsRows = [];
 
         const overviewHotels = new Set();
@@ -186,6 +279,12 @@ window.SUXI_MEITUAN_STATIC = (() => {
         let orderBookOrderAvailable = false;
         let orderQuantityAvailable = false;
         let orderAmountAvailable = false;
+        let reviewScoreSum = 0;
+        let reviewScoreCount = 0;
+        let reviewTotalCount = 0;
+        let reviewTotalAvailable = false;
+        let reviewBadCount = 0;
+        let reviewBadAvailable = false;
         let adsExposure = 0;
         let adsClick = 0;
         let adsExposureAvailable = false;
@@ -195,6 +294,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
             if (item?.source !== 'meituan') {
                 continue;
             }
+            allRows.push(item);
             if (isMeituanOverviewDataRow(item)) {
                 overviewRows.push(item);
                 const hotelKey = item?.system_hotel_id ?? item?.hotel_id ?? item?.hotel_name;
@@ -245,6 +345,26 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 }
             }
 
+            if (isMeituanReviewDataRow(item)) {
+                const reviewRow = buildMeituanReviewDisplayRow(item);
+                reviewRows.push(reviewRow);
+                const score = reviewRow.review_score_value;
+                if (score !== null) {
+                    reviewScoreSum += score;
+                    reviewScoreCount++;
+                }
+                const reviewCount = reviewRow.review_count_value;
+                if (reviewCount !== null) {
+                    reviewTotalCount += reviewCount;
+                    reviewTotalAvailable = true;
+                }
+                const badCount = reviewRow.bad_review_count_value;
+                if (badCount !== null) {
+                    reviewBadCount += badCount;
+                    reviewBadAvailable = true;
+                }
+            }
+
             if (isMeituanAdsDataRow(item)) {
                 adsRows.push(item);
                 const exposure = getMeituanExposureMetricValue(item);
@@ -267,6 +387,8 @@ window.SUXI_MEITUAN_STATIC = (() => {
         const adsClickValue = adsClickAvailable ? adsClick : null;
 
         return {
+            allRows,
+            allRowsCount: allRows.length,
             overviewRows,
             trafficRows,
             orderRows,
@@ -287,6 +409,11 @@ window.SUXI_MEITUAN_STATIC = (() => {
             orderBookOrder: orderBookOrderAvailable ? orderBookOrder : null,
             orderQuantity: orderQuantityAvailable ? orderQuantity : null,
             orderAmount: orderAmountAvailable ? orderAmount : null,
+            reviewRows,
+            reviewRowsCount: reviewRows.length,
+            reviewAverageScore: reviewScoreCount > 0 ? reviewScoreSum / reviewScoreCount : null,
+            reviewTotalCount: reviewTotalAvailable ? reviewTotalCount : null,
+            reviewBadCount: reviewBadAvailable ? reviewBadCount : null,
             adsRowsCount: adsRows.length,
             adsExposure: adsExposureValue,
             adsClick: adsClickValue,
@@ -4172,6 +4299,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         isMeituanOverviewDataRow,
         isMeituanTrafficDataRow,
         isMeituanOrderDataRow,
+        isMeituanReviewDataRow,
         isMeituanAdsDataRow,
         buildMeituanDownloadData,
         defaultMeituanAdsUrl,

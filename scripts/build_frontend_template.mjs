@@ -2,13 +2,19 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildFrontendTemplateRender } from './lib/frontend_template_build.mjs';
+import {
+  buildFrontendStartupRender,
+  buildFrontendTemplateRender,
+} from './lib/frontend_template_build.mjs';
 import { updateFrontendAssetVersion } from './lib/frontend_asset_version.mjs';
 import {
   acquireFrontendTemplateLock,
   writeFileAtomic,
 } from './lib/frontend_template_lock.mjs';
-import { loadFrontendTemplateSource } from './lib/frontend_template_source.mjs';
+import {
+  loadFrontendStartupTemplateSource,
+  loadFrontendTemplateSource,
+} from './lib/frontend_template_source.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const releaseLock = await acquireFrontendTemplateLock(repoRoot, { owner: 'build-frontend-template' });
@@ -16,6 +22,7 @@ try {
 const templatePath = path.join(repoRoot, 'resources/frontend/app-template.html');
 const indexPath = path.join(repoRoot, 'public/index.html');
 const renderPath = path.join(repoRoot, 'public/app-render.min.js');
+const startupRenderPath = path.join(repoRoot, 'public/app-startup-render.min.js');
 const runtimeVueSourcePath = path.join(repoRoot, 'node_modules/vue/dist/vue.runtime.global.prod.js');
 const runtimeVuePath = path.join(repoRoot, 'public/vue.runtime.global.prod.js');
 const templateSnapshotBuffer = fs.readFileSync(templatePath);
@@ -30,11 +37,18 @@ if (source.manifest.source_snapshot_sha256 !== templateSnapshotHash
 }
 
 const render = await buildFrontendTemplateRender(source.template);
+const startupSource = loadFrontendStartupTemplateSource(repoRoot);
+const startupRender = await buildFrontendStartupRender(startupSource.template);
 const runtimeVue = fs.readFileSync(runtimeVueSourcePath);
 const indexSource = fs.readFileSync(indexPath, 'utf8');
 const renderVersionUpdate = updateFrontendAssetVersion(indexSource, 'app-render.min.js', render);
-const runtimeVueVersionUpdate = updateFrontendAssetVersion(
+const startupRenderVersionUpdate = updateFrontendAssetVersion(
   renderVersionUpdate.html,
+  'app-startup-render.min.js',
+  startupRender,
+);
+const runtimeVueVersionUpdate = updateFrontendAssetVersion(
+  startupRenderVersionUpdate.html,
   'vue.runtime.global.prod.js',
   runtimeVue,
 );
@@ -56,20 +70,25 @@ function writeFileIfChanged(file, content) {
 }
 
 const renderChanged = writeFileIfChanged(renderPath, render);
+const startupRenderChanged = writeFileIfChanged(startupRenderPath, startupRender);
 const runtimeVueChanged = writeFileIfChanged(runtimeVuePath, runtimeVue);
 const indexChanged = writeFileIfChanged(indexPath, runtimeVueVersionUpdate.html);
 console.log(JSON.stringify({
   template: path.relative(repoRoot, templatePath),
   fragment_manifest: path.relative(repoRoot, source.manifestPath),
   render: path.relative(repoRoot, renderPath),
+  startup_render: path.relative(repoRoot, startupRenderPath),
   runtime_vue: path.relative(repoRoot, runtimeVuePath),
   fragment_count: source.fragments.length,
   template_bytes: source.templateBuffer.length,
   render_bytes: Buffer.byteLength(render),
+  startup_render_bytes: Buffer.byteLength(startupRender),
   runtime_vue_bytes: runtimeVue.length,
   render_changed: renderChanged,
+  startup_render_changed: startupRenderChanged,
   runtime_vue_changed: runtimeVueChanged,
   render_hash: renderVersionUpdate.hash,
+  startup_render_hash: startupRenderVersionUpdate.hash,
   runtime_vue_hash: runtimeVueVersionUpdate.hash,
   index_changed: indexChanged,
 }, null, 2));

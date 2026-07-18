@@ -649,6 +649,7 @@ class OperationManagementService
             ? array_values(array_filter($evidence, static fn(array $row): bool => (int)($row['task_id'] ?? 0) === $taskId))
             : $evidence;
         $latestEvidence = $taskEvidence[0] ?? [];
+        $roiEvidence = $this->latestExecutionRoiEvidence($taskEvidence);
         $evidenceSummary = $this->buildSafeExecutionEvidenceSummary($taskEvidence);
         $reviewStatus = (string)($task['result_status'] ?? 'observing');
         $stage = $this->executionFlowStage($intent, $task, count($taskEvidence), $reviewStatus);
@@ -693,6 +694,7 @@ class OperationManagementService
                 'target_value' => $task['target_value'] ?? [],
                 'current_value' => $task['current_value'] ?? [],
             ],
+            'assignment' => $this->buildExecutionWorkflowAssignment($intent),
             'evidence' => [
                 'count' => count($taskEvidence),
                 'latest' => $latestEvidence,
@@ -703,8 +705,26 @@ class OperationManagementService
                 'summary' => (string)($task['result_summary'] ?? ''),
                 'action_track_id' => (int)($task['action_track_id'] ?? 0),
             ],
-            'roi' => $this->buildExecutionRoi($intent, $task, $latestEvidence),
+            'roi' => $this->buildExecutionRoi($intent, $task, $roiEvidence),
             'next_action' => $this->buildExecutionNextAction($stage, $intent, $task),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function buildExecutionWorkflowAssignment(array $intent): array
+    {
+        $targetValue = $this->arrayValue($intent['target_value'] ?? []);
+        $schedule = $this->arrayValue($targetValue['workflow_schedule'] ?? []);
+        $assigneeId = (int)($schedule['assignee_id'] ?? $targetValue['assignee_id'] ?? 0);
+        $dueAt = trim((string)($schedule['due_at'] ?? $targetValue['due_at'] ?? ''));
+        $reviewAt = trim((string)($schedule['review_at'] ?? $targetValue['review_at'] ?? ''));
+
+        return [
+            'status' => $assigneeId > 0 && $dueAt !== '' && $reviewAt !== '' ? 'scheduled' : 'not_scheduled',
+            'assignee_id' => $assigneeId,
+            'due_at' => $dueAt,
+            'review_at' => $reviewAt,
+            'source_policy' => trim((string)($schedule['source_policy'] ?? '')),
         ];
     }
 
@@ -1066,8 +1086,14 @@ class OperationManagementService
         return ['task' => $taskUpdate, 'evidence' => $evidencePayload];
     }
 
-    public function createExecutionIntent(array $hotelIds, ?int $hotelId, array $input, int $createdBy, bool $trustedExpansionSource = false): array
-    {
+    public function createExecutionIntent(
+        array $hotelIds,
+        ?int $hotelId,
+        array $input,
+        int $createdBy,
+        bool $trustedExpansionSource = false,
+        ?string $trustedIdempotencyKey = null
+    ): array {
         $this->ensureExecutionTables();
         $payload = $this->buildExecutionIntentPayload($hotelIds, $hotelId, $input, $createdBy);
         $usesExpansionSource = $payload['source_module'] === 'expansion' || $payload['object_type'] === 'expansion';
@@ -1076,13 +1102,25 @@ class OperationManagementService
         ) {
             throw new \InvalidArgumentException('expansion execution intent must be created from the scoped expansion record endpoint');
         }
+        $trustedIdempotencyKey = $this->normalizeTrustedExecutionIntentIdempotencyKey($trustedIdempotencyKey);
         $idempotencyKey = null;
+        $usesExpansionIdempotency = false;
         if ($trustedExpansionSource && $payload['source_module'] === 'expansion' && $payload['object_type'] === 'expansion') {
+            if ($trustedIdempotencyKey !== null) {
+                throw new \InvalidArgumentException('expansion execution intent cannot override its idempotency key');
+            }
             if ((int)$payload['source_record_id'] <= 0) {
                 throw new \InvalidArgumentException('source_record_id is required for expansion execution intent');
             }
+            $usesExpansionIdempotency = true;
             $idempotencyKey = $this->expansionExecutionIntentIdempotencyKey($payload);
             $existingIntent = $this->replayExpansionExecutionIntent($idempotencyKey, $payload, $hotelIds);
+            if ($existingIntent !== null) {
+                return $existingIntent;
+            }
+        } elseif ($trustedIdempotencyKey !== null) {
+            $idempotencyKey = $trustedIdempotencyKey;
+            $existingIntent = $this->replayTrustedExecutionIntent($idempotencyKey, $payload, $hotelIds);
             if ($existingIntent !== null) {
                 return $existingIntent;
             }
@@ -1120,7 +1158,9 @@ class OperationManagementService
             );
         } catch (Throwable $e) {
             if ($idempotencyKey !== null) {
-                $existingIntent = $this->replayExpansionExecutionIntent($idempotencyKey, $payload, $hotelIds);
+                $existingIntent = $usesExpansionIdempotency
+                    ? $this->replayExpansionExecutionIntent($idempotencyKey, $payload, $hotelIds)
+                    : $this->replayTrustedExecutionIntent($idempotencyKey, $payload, $hotelIds);
                 if ($existingIntent !== null) {
                     return $existingIntent;
                 }
@@ -1487,7 +1527,7 @@ class OperationManagementService
         }
     }
 
-    public function reviewExecutionTask(int $taskId, array $hotelIds, array $input = []): array
+    public function reviewExecutionTask(int $taskId, array $hotelIds, array $input = [], int $reviewerId = 0): array
     {
         $this->assertExecutionPayloadHasNoCredentialMaterial($input);
         $this->ensureExecutionTables();
@@ -1501,13 +1541,18 @@ class OperationManagementService
         if (in_array((string)($task['result_status'] ?? ''), ['success', 'near_success', 'failed'], true)) {
             throw new \InvalidArgumentException('terminal execution review cannot transition');
         }
-        $evidenceCount = (int)Db::name('operation_execution_evidence')
+        $evidenceRows = Db::name('operation_execution_evidence')
             ->where('task_id', $taskId)
             ->whereNull('deleted_at')
-            ->count();
-        if ($evidenceCount <= 0) {
+            ->order('id', 'desc')
+            ->select()
+            ->toArray();
+        if ($evidenceRows === []) {
             throw new \InvalidArgumentException('execution evidence is required before review');
         }
+        $reviewReadbackEvidence = $this->normalizeExecutionReviewReadbackEvidence($input, $task, $reviewerId);
+        $hasReviewAttestation = $this->executionEvidenceHasOperatorAttestation($evidenceRows, $task)
+            || $reviewReadbackEvidence !== null;
 
         $expectedResultStatus = (string)($task['result_status'] ?? 'observing');
         $expectedResultSummary = (string)($task['result_summary'] ?? '');
@@ -1528,7 +1573,9 @@ class OperationManagementService
             $manualSummary,
             $actionTrackId,
             $expectedResultStatus,
-            $expectedResultSummary
+            $expectedResultSummary,
+            $reviewReadbackEvidence,
+            $hasReviewAttestation
         ): void {
             $summary = 'waiting for action tracking data';
             $resultStatus = 'observing';
@@ -1541,6 +1588,13 @@ class OperationManagementService
                     $summary = (string)($action['result_summary'] ?? $summary);
                     $resultStatus = (string)($action['result_status'] ?? $resultStatus);
                 }
+            }
+
+            if (in_array($resultStatus, ['success', 'near_success'], true) && !$hasReviewAttestation) {
+                throw new \InvalidArgumentException('operator-attested platform readback is required before success review');
+            }
+            if ($reviewReadbackEvidence !== null) {
+                $this->insertExecutionEvidence($reviewReadbackEvidence);
             }
 
             $this->assertExecutionPayloadHasNoCredentialMaterial($summary);
@@ -1562,6 +1616,120 @@ class OperationManagementService
         });
 
         return $this->executionTaskDetail($taskId, $hotelIds);
+    }
+
+    private function normalizeExecutionReviewReadbackEvidence(array $input, array $task, int $reviewerId): ?array
+    {
+        $raw = $this->arrayValue($input['readback_evidence'] ?? []);
+        if ($raw === []) {
+            return null;
+        }
+        if ($this->executionReadbackFlagIsTrue($raw['source_verified'] ?? false)
+            || strtolower(trim((string)($raw['verification_status'] ?? ''))) === 'source_verified'
+        ) {
+            throw new \InvalidArgumentException('source_verified cannot be submitted by the client; only operator_attested is supported');
+        }
+
+        $operatorAttested = $raw['operator_attested'] ?? $raw['readback_verified'] ?? false;
+        if (!$this->executionReadbackFlagIsTrue($operatorAttested)) {
+            throw new \InvalidArgumentException('readback_evidence.operator_attested must be true');
+        }
+
+        $sourceRef = trim((string)($raw['source_ref'] ?? $raw['receipt_path'] ?? ''));
+        if ($sourceRef === '') {
+            throw new \InvalidArgumentException('readback_evidence.source_ref is required');
+        }
+        $attestedAt = trim(str_replace('T', ' ', (string)($raw['operator_attested_at'] ?? $raw['readback_verified_at'] ?? '')));
+        $timestamp = strtotime($attestedAt);
+        if ($attestedAt === '' || $timestamp === false) {
+            throw new \InvalidArgumentException('readback_evidence.operator_attested_at must be a valid date-time');
+        }
+        if ($timestamp > time() + 300) {
+            throw new \InvalidArgumentException('readback_evidence.operator_attested_at cannot be in the future');
+        }
+        if ($reviewerId <= 0) {
+            throw new \InvalidArgumentException('operator attestation requires an authenticated reviewer');
+        }
+        $taskId = (int)($task['id'] ?? 0);
+        if ($taskId <= 0) {
+            throw new \InvalidArgumentException('operator attestation requires a persisted execution task');
+        }
+        $executedTimestamp = strtotime(trim((string)($task['executed_at'] ?? '')));
+        if ($executedTimestamp !== false && $timestamp < $executedTimestamp - 300) {
+            throw new \InvalidArgumentException('operator attestation must be recorded after task execution');
+        }
+        $attestedAt = date('Y-m-d H:i:s', $timestamp);
+        $remark = trim((string)($raw['remark'] ?? 'operator attested that the OTA platform result was manually re-read'));
+
+        return [
+            'task_id' => $taskId,
+            'evidence_type' => 'operator_attested_platform_readback',
+            'before' => [],
+            'after' => [],
+            'attachment_path' => $sourceRef,
+            'platform_response' => [
+                'mode' => 'operator_attested',
+                'verification_status' => 'operator_attested',
+                'operator_attested' => true,
+                'operator_attested_at' => $attestedAt,
+                'source_verified' => false,
+                'source_validation_status' => 'not_source_verified',
+                'source_ref' => $sourceRef,
+                'evidence_boundary' => 'operator_attested_platform_readback_no_ota_write',
+            ],
+            'remark' => $remark,
+            'created_by' => $reviewerId,
+            'created_at' => date('Y-m-d H:i:s'),
+        ];
+    }
+
+    /** @param array<int, array<string, mixed>> $rows */
+    private function executionEvidenceHasOperatorAttestation(array $rows, array $task): bool
+    {
+        $taskId = (int)($task['id'] ?? 0);
+        $executedTimestamp = strtotime(trim((string)($task['executed_at'] ?? '')));
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $createdTimestamp = strtotime(trim((string)($row['created_at'] ?? '')));
+            if ((int)($row['task_id'] ?? 0) !== $taskId
+                || strtolower(trim((string)($row['evidence_type'] ?? ''))) !== 'operator_attested_platform_readback'
+                || (int)($row['created_by'] ?? 0) <= 0
+                || $createdTimestamp === false
+            ) {
+                continue;
+            }
+            $response = $this->decodeJson((string)($row['platform_response_json'] ?? ''));
+            if (strtolower(trim((string)($response['mode'] ?? ''))) !== 'operator_attested'
+                || strtolower(trim((string)($response['verification_status'] ?? ''))) !== 'operator_attested'
+                || strtolower(trim((string)($response['source_validation_status'] ?? ''))) !== 'not_source_verified'
+                || !$this->executionReadbackFlagIsTrue($response['operator_attested'] ?? false)
+                || !array_key_exists('source_verified', $response)
+                || $response['source_verified'] !== false
+            ) {
+                continue;
+            }
+            $attestedAt = trim((string)($response['operator_attested_at'] ?? ''));
+            $attestedTimestamp = strtotime($attestedAt);
+            $sourceRef = trim((string)($response['source_ref'] ?? $row['attachment_path'] ?? ''));
+            if ($attestedAt !== ''
+                && $attestedTimestamp !== false
+                && $attestedTimestamp <= time() + 300
+                && $attestedTimestamp <= $createdTimestamp + 300
+                && ($executedTimestamp === false || $attestedTimestamp >= $executedTimestamp - 300)
+                && $sourceRef !== ''
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function executionReadbackFlagIsTrue(mixed $value): bool
+    {
+        return $value === true || $value === 1 || in_array(strtolower(trim((string)$value)), ['1', 'true', 'yes'], true);
     }
 
     public function tableExists(string $table): bool
@@ -1895,6 +2063,26 @@ class OperationManagementService
         }
 
         return 'review';
+    }
+
+    /**
+     * Review/readback evidence can be newer than the financial evidence used for ROI.
+     * Keep the newest row for display, but calculate ROI from the newest row that
+     * contains both before and after revenue facts.
+     */
+    private function latestExecutionRoiEvidence(array $taskEvidence): array
+    {
+        foreach ($taskEvidence as $evidence) {
+            $before = $this->arrayValue($evidence['before'] ?? []);
+            $after = $this->arrayValue($evidence['after'] ?? []);
+            $beforeRevenue = $this->firstNumericMetric($before, ['revenue', 'avg_revenue', 'amount', 'income']);
+            $afterRevenue = $this->firstNumericMetric($after, ['revenue', 'avg_revenue', 'amount', 'income']);
+            if ($beforeRevenue !== null && $afterRevenue !== null) {
+                return $evidence;
+            }
+        }
+
+        return $taskEvidence[0] ?? [];
     }
 
     private function buildExecutionRoi(array $intent, array $task, array $latestEvidence): array
@@ -2343,6 +2531,56 @@ class OperationManagementService
     private function expansionExecutionIntentIdempotencyKey(array $payload): string
     {
         return 'expansion:v1:' . (int)$payload['source_record_id'];
+    }
+
+    private function normalizeTrustedExecutionIntentIdempotencyKey(?string $value): ?string
+    {
+        if ($value === null || trim($value) === '') {
+            return null;
+        }
+        $value = trim($value);
+        if (preg_match('/^ota_diagnosis_action_[a-f0-9]{32}:attempt:[1-9][0-9]*$/D', $value) !== 1) {
+            throw new \InvalidArgumentException('trusted execution-intent idempotency key is invalid');
+        }
+        return $value;
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function replayTrustedExecutionIntent(string $idempotencyKey, array $payload, array $hotelIds): ?array
+    {
+        try {
+            $row = Db::name('operation_execution_intents')
+                ->where('idempotency_key', $idempotencyKey)
+                ->whereNull('deleted_at')
+                ->field('id,source_module,source_record_id,hotel_id,platform,object_type,action_type')
+                ->find();
+        } catch (Throwable $e) {
+            $message = strtolower($e->getMessage());
+            if (str_contains($message, 'unknown column')
+                || str_contains($message, 'no such column')
+                || str_contains($message, 'undefined column')
+            ) {
+                throw new \RuntimeException(
+                    'operation_execution_intents.idempotency_key is unavailable; run the 20260716 execution-intent idempotency migration first',
+                    500,
+                    $e
+                );
+            }
+            throw $e;
+        }
+
+        if (!$row) {
+            return null;
+        }
+        foreach (['source_module', 'source_record_id', 'hotel_id', 'platform', 'object_type', 'action_type'] as $field) {
+            if ((string)($row[$field] ?? '') !== (string)($payload[$field] ?? '')) {
+                throw new \RuntimeException('execution-intent idempotency key is already linked to a different request', 409);
+            }
+        }
+
+        $intent = $this->executionIntentDetail((int)$row['id'], $hotelIds);
+        $intent['idempotent_replay'] = true;
+        return $intent;
     }
 
     /** @param array<string, mixed> $payload */

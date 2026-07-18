@@ -1,4 +1,11 @@
 export const AUTHENTICATED_ASSET_MANIFEST_ID = 'suxi-authenticated-assets';
+export const AUTHENTICATED_ASSET_PHASE_STARTUP = 'startup';
+export const AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT = 'after-first-paint';
+
+const AUTHENTICATED_ASSET_PHASES = new Set([
+  AUTHENTICATED_ASSET_PHASE_STARTUP,
+  AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT,
+]);
 
 const authenticatedAssetManifestPattern = () => new RegExp(
   `<script\\s+type=["']application/json["']\\s+id=["']${AUTHENTICATED_ASSET_MANIFEST_ID}["'][^>]*>([\\s\\S]*?)<\\/script>`,
@@ -9,7 +16,7 @@ export function stripFrontendAssetQuery(reference = '') {
   return String(reference || '').split(/[?#]/, 1)[0];
 }
 
-export function extractAuthenticatedAssetReferences(html = '') {
+export function extractAuthenticatedAssetEntries(html = '') {
   const matches = [...String(html || '').matchAll(authenticatedAssetManifestPattern())];
   if (!matches.length) return [];
   if (matches.length !== 1) {
@@ -30,13 +37,37 @@ export function extractAuthenticatedAssetReferences(html = '') {
     throw new Error('Authenticated frontend asset manifest must not be empty.');
   }
 
-  const references = payload.map((item) => (
-    typeof item === 'string' ? item : item?.src
-  )).map((item) => String(item || '').trim()).filter(Boolean);
-  if (references.length !== payload.length) {
+  const entries = payload.map((item) => {
+    const src = String(typeof item === 'string' ? item : item?.src || '').trim();
+    const phase = String(
+      typeof item === 'string' ? AUTHENTICATED_ASSET_PHASE_STARTUP : item?.phase || AUTHENTICATED_ASSET_PHASE_STARTUP,
+    ).trim();
+    return { src, phase };
+  });
+  if (entries.some((entry) => !entry.src)) {
     throw new Error('Authenticated frontend asset manifest contains an empty asset reference.');
   }
-  return references;
+  const invalidPhase = entries.find((entry) => !AUTHENTICATED_ASSET_PHASES.has(entry.phase));
+  if (invalidPhase) {
+    throw new Error(`Authenticated frontend asset manifest contains an invalid phase: ${invalidPhase.phase}.`);
+  }
+  return entries;
+}
+
+export function extractAuthenticatedAssetReferences(html = '') {
+  return extractAuthenticatedAssetEntries(html).map((entry) => entry.src);
+}
+
+export function extractAuthenticatedStartupAssetReferences(html = '') {
+  return extractAuthenticatedAssetEntries(html)
+    .filter((entry) => entry.phase === AUTHENTICATED_ASSET_PHASE_STARTUP)
+    .map((entry) => entry.src);
+}
+
+export function extractAuthenticatedDeferredAssetReferences(html = '') {
+  return extractAuthenticatedAssetEntries(html)
+    .filter((entry) => entry.phase === AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT)
+    .map((entry) => entry.src);
 }
 
 export function resolveFrontendRuntimeAssetReferences(html = '') {

@@ -88,7 +88,8 @@ test('strong reminder is persistent, opens after login, and cannot be bulk-clear
   assert.match(appMain, /Number\(strongOtaReminderSnoozedUntil\.value\[strongOtaReminderGlobalSnoozeKey\] \|\| 0\) > now/);
   assert.match(appMain, /saveStrongOtaReminderSessionKeys\(strongOtaReminderDeferredKeys\.value\)/);
   assert.match(appMain, /saveStrongOtaReminderSnoozedUntil\(strongOtaReminderSnoozedUntil\.value\)/);
-  assert.match(appMain, /filter\(item => item\.backend_id && !item\.requires_resolution\)/);
+  assert.match(appMain, /const protectedBackendItems = globalNotificationBackendItems\.value\.filter\(item => \(\s*item\.backend_id && item\.requires_resolution\s*\)\)/);
+  assert.match(appMain, /blockedCount = Math\.max\(blockedCount, Number\(res\.data\?\.blocked_count \|\| 0\)\)/);
   assert.match(appMain, /scheduleInitialBackendNotificationRefresh = \(delayMs = 800\)/);
   assert.match(appMain, /strongOtaReminderOpen\.value = true/);
   assert.match(appMain, /await openHotelPlatformCardLogin\(hotel/);

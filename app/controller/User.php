@@ -657,6 +657,7 @@ class User extends Base
 
     private function appendUserHotelScope($user): array
     {
+        $userModel = $user instanceof UserModel ? $user : null;
         if ($user instanceof UserModel) {
             $user->hidden(['password']);
             $data = $user->toArray();
@@ -682,6 +683,14 @@ class User extends Base
         $data['hotel_scope_text'] = $this->userDataIsSuperAdmin($data)
             ? '全部门店'
             : $this->hotelScopeText($data['hotel_ids']);
+        $data['operation_execute_hotel_ids'] = [];
+        if ($userModel !== null && (int)($data['status'] ?? UserModel::STATUS_DISABLED) === UserModel::STATUS_ENABLED) {
+            foreach (array_values(array_unique(array_map('intval', $userModel->getPermittedHotelIds()))) as $hotelId) {
+                if ($hotelId > 0 && $userModel->hasHotelPermission($hotelId, 'operation.execute')) {
+                    $data['operation_execute_hotel_ids'][] = $hotelId;
+                }
+            }
+        }
 
         return $data;
     }

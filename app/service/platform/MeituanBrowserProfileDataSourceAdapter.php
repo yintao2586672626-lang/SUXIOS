@@ -164,8 +164,8 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         $payload['data_source_capture'] = [
             'platform' => 'meituan',
             'acquisition_method' => 'browser_profile',
-            'store_id' => $storeId,
-            'poi_id' => $poiId,
+            'requested_store_id_present' => $storeId !== '',
+            'requested_poi_id_present' => $poiId !== '',
             'capture_sections' => $sections,
             'requested_capture_sections' => $requestedSections,
             'data_date' => $dataDate,
@@ -205,6 +205,10 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
             ];
         }
 
+        $identityCheck = BrowserProfileCaptureRequestService::assessMeituanPlatformIdentity(
+            $payload,
+            [$storeId, $poiId]
+        );
         $gate = is_array($payload['capture_gate'] ?? null) ? $payload['capture_gate'] : [];
         if ($gate !== [] && ($gate['status'] ?? 'fail') !== 'pass') {
             if ($sections === 'ads') {
@@ -227,6 +231,9 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
                     ]),
                 ];
             }
+            if (($identityCheck['ok'] ?? false) !== true) {
+                return $this->platformIdentityFailureResult($payload, $runResult, $identityCheck);
+            }
             $failedIds = implode(',', array_map('strval', $gate['failed_check_ids'] ?? []));
             return [
                 'status' => 'failed',
@@ -234,8 +241,15 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
                 'payload' => $this->compactFailurePayload($payload, $runResult),
             ];
         }
+        if (($identityCheck['ok'] ?? false) !== true) {
+            return $this->platformIdentityFailureResult($payload, $runResult, $identityCheck);
+        }
 
-        $rows = $this->buildRows($payload, $source, $systemHotelId, $dataDate, $poiId !== '' ? $poiId : $storeId);
+        $validatedPlatformIdentifier = trim((string)(
+            $payload['platform_identity_validation']['validated_identifier']
+            ?? ''
+        ));
+        $rows = $this->buildRows($payload, $source, $systemHotelId, $dataDate, $validatedPlatformIdentifier);
         if (empty($rows)) {
             if (BrowserProfileCaptureRequestService::isConfirmedEmptyMeituanCaptureGate($gate)) {
                 $payload['rows'] = [];
@@ -354,7 +368,12 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
                 $row['source'] = 'meituan';
                 $row['platform'] = $row['platform'] ?? 'meituan';
                 $row['system_hotel_id'] = $row['system_hotel_id'] ?? $systemHotelId;
-                $row['hotel_id'] = $this->firstRowString($row, ['hotel_id', 'hotelId', 'poi_id', 'poiId', 'store_id', 'storeId'], $platformHotelId);
+                $row['poi_id'] = $this->firstRowString(
+                    $row,
+                    ['poi_id', 'poiId', 'store_id', 'storeId', 'shop_id', 'shopId'],
+                    $platformHotelId
+                );
+                $row['hotel_id'] = $this->firstRowString($row, ['hotel_id', 'hotelId'], $row['poi_id']);
                 $row['hotel_name'] = $row['hotel_name'] ?? $row['hotelName'] ?? $row['poi_name'] ?? $row['poiName'] ?? $source['name'] ?? '';
                 $row['data_date'] = $explicitDataDate !== '' ? $explicitDataDate : $dataDate;
                 if (trim((string)($row['date_source'] ?? $row['dateSource'] ?? '')) === '') {
@@ -482,11 +501,25 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         return [
             'auth_status' => $payload['auth_status'] ?? null,
             'capture_gate' => $payload['capture_gate'] ?? null,
+            'platform_identity_validation' => $payload['platform_identity_validation'] ?? null,
             'pages' => $payload['pages'] ?? [],
             'responses' => array_slice(is_array($payload['responses'] ?? null) ? $payload['responses'] : [], 0, 20),
             'output' => $payload['output'] ?? '',
             'stdout' => $this->trimLog((string)($runResult['stdout'] ?? '')),
             'stderr' => $this->trimLog((string)($runResult['stderr'] ?? '')),
+        ];
+    }
+
+    /** @param array<string, mixed> $identityCheck */
+    private function platformIdentityFailureResult(array $payload, array $runResult, array $identityCheck): array
+    {
+        $statusCode = (string)($identityCheck['status_code'] ?? 'meituan_platform_identity_unverified');
+        return [
+            'status' => 'failed',
+            'status_code' => $statusCode,
+            'error_code' => $statusCode,
+            'message' => $statusCode,
+            'payload' => $this->compactFailurePayload($payload, $runResult),
         ];
     }
 

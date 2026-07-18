@@ -285,10 +285,60 @@ final class BrowserProfileCaptureRequestService
 
     /**
      * @param array<string, mixed> $payload
+     * @param array<int, scalar|null> $expectedIdentifiers
+     * @return array{ok:bool,status_code:string,validation_status:string,source_validation:bool}
+     */
+    public static function assessMeituanPlatformIdentity(array $payload, array $expectedIdentifiers = []): array
+    {
+        $validation = is_array($payload['platform_identity_validation'] ?? null)
+            ? $payload['platform_identity_validation']
+            : [];
+        $status = strtolower(trim((string)($validation['status'] ?? '')));
+        $validatedIdentifier = trim((string)($validation['validated_identifier'] ?? ''));
+        $sourceValidation = ($validation['source_validation'] ?? false) === true;
+        if ($status !== 'matched' || !$sourceValidation || $validatedIdentifier === '') {
+            $mismatch = in_array($status, ['mismatch', 'ambiguous'], true);
+            return [
+                'ok' => false,
+                'status_code' => $mismatch ? 'meituan_platform_identity_mismatch' : 'meituan_platform_identity_unverified',
+                'validation_status' => $status !== '' ? $status : 'missing',
+                'source_validation' => false,
+            ];
+        }
+
+        $expected = [];
+        foreach ($expectedIdentifiers as $identifier) {
+            if (!is_scalar($identifier)) {
+                continue;
+            }
+            $identifier = trim((string)$identifier);
+            if ($identifier !== '') {
+                $expected[$identifier] = true;
+            }
+        }
+        if ($expected !== [] && !isset($expected[$validatedIdentifier])) {
+            return [
+                'ok' => false,
+                'status_code' => 'meituan_platform_identity_mismatch',
+                'validation_status' => 'expected_mismatch',
+                'source_validation' => false,
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'status_code' => 'ready',
+            'validation_status' => 'matched',
+            'source_validation' => true,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $payload
      * @param array<int, array<string, mixed>> $rows
      * @return array{ok:bool,status_code:string,mismatched_dates:array<int,string>,unverified_rows:array<int,string>,empty_confirmed:bool}
      */
-    public static function assessMeituanPersistenceGate(array $payload, array $rows, string $targetDate): array
+    public static function assessMeituanPersistenceGate(array $payload, array $rows, string $targetDate, array $expectedPlatformIdentifiers = []): array
     {
         $result = [
             'ok' => false,
@@ -313,6 +363,11 @@ final class BrowserProfileCaptureRequestService
         }
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $targetDate) !== 1) {
             $result['status_code'] = 'meituan_target_date_invalid';
+            return $result;
+        }
+        $identity = self::assessMeituanPlatformIdentity($payload, $expectedPlatformIdentifiers);
+        if (($identity['ok'] ?? false) !== true) {
+            $result['status_code'] = (string)($identity['status_code'] ?? 'meituan_platform_identity_unverified');
             return $result;
         }
 

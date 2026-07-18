@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   percentile,
+  resolveFrontendNetworkProfile,
   summarizeFrontendPerformance,
 } from '../../scripts/lib/frontend_performance_metrics.mjs';
 
@@ -9,6 +10,20 @@ test('percentile uses the nearest-rank value from finite samples', () => {
   assert.equal(percentile([50, 10, 30, 20, 40], 0.95), 50);
   assert.equal(percentile([10, Number.NaN, 20], 0.5), 10);
   assert.equal(percentile([], 0.95), null);
+});
+
+test('slow-4g profile is explicit and unknown profiles fail closed', () => {
+  assert.deepEqual(resolveFrontendNetworkProfile(), { name: 'none', conditions: null });
+  assert.deepEqual(resolveFrontendNetworkProfile('slow-4g'), {
+    name: 'slow-4g',
+    conditions: {
+      offline: false,
+      latency: 150,
+      downloadThroughput: 200_000,
+      uploadThroughput: 93_750,
+    },
+  });
+  assert.throws(() => resolveFrontendNetworkProfile('mystery-network'), /Unknown frontend network profile/);
 });
 
 test('summarizeFrontendPerformance reports navigation, paint, resources, and long tasks', () => {
@@ -25,6 +40,7 @@ test('summarizeFrontendPerformance reports navigation, paint, resources, and lon
       { name: 'first-contentful-paint', startTime: 140.7 },
     ],
     lcp: 420.2,
+    loginHandoff: { status: 'interactive', auth_to_interactive_ms: 612.7 },
     longTasks: [{ duration: 58.2 }, { duration: 91.6 }],
     resources: [
       { initiatorType: 'script', transferSize: 1200, duration: 30 },
@@ -47,5 +63,7 @@ test('summarizeFrontendPerformance reports navigation, paint, resources, and lon
     long_task_count: 2,
     long_task_total_ms: 150,
     longest_task_ms: 92,
+    login_handoff_status: 'interactive',
+    auth_to_interactive_ms: 613,
   });
 });

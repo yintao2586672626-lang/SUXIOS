@@ -7,6 +7,8 @@ use app\model\CompetitorDevice;
 use app\model\CompetitorHotel;
 use app\model\CompetitorPriceLog;
 use app\model\OperationLog;
+use app\service\CompetitorEventFeedService;
+use app\service\HotelScopeService;
 use think\facade\Db;
 use think\Response;
 
@@ -29,6 +31,60 @@ class CompetitorApi extends Base
 
     /** @var array<string, int> */
     private array $taskLockDepth = [];
+
+    public function events(): Response
+    {
+        $this->requireHotel();
+
+        $rawSystemHotelId = $this->request->get(
+            'system_hotel_id',
+            $this->request->get('store_id', '')
+        );
+        if (!is_scalar($rawSystemHotelId)
+            || preg_match('/^[1-9][0-9]*$/D', trim((string)$rawSystemHotelId)) !== 1
+        ) {
+            return $this->error('system_hotel_id/store_id must be a positive integer', 422);
+        }
+        $systemHotelId = (int)$rawSystemHotelId;
+        if (!$this->currentUser
+            || !(new HotelScopeService())->canAccessHotel(
+                $this->currentUser,
+                $systemHotelId,
+                'can_view_online_data'
+            )
+        ) {
+            return $this->error('无权查看此门店的竞争事件', 403);
+        }
+
+        try {
+            $result = (new CompetitorEventFeedService())->build(
+                $systemHotelId,
+                $this->request->get('platform', 'all'),
+                trim((string)$this->request->get('stay_date', $this->request->get('check_in_date', ''))),
+                trim((string)$this->request->get('collected_at_start', '')),
+                trim((string)$this->request->get('collected_at_end', '')),
+                (int)$this->request->get('limit', 200)
+            );
+
+            $message = match ((string)($result['status'] ?? '')) {
+                'empty' => '暂无匹配的携程/美团竞争事件',
+                'insufficient_evidence' => '竞争事件已读取，但证据不足',
+                'partial' => '竞争事件已读取，部分样本证据不足',
+                default => '携程/美团统一竞争事件已读取',
+            };
+            return $this->success($result, $message);
+        } catch (\InvalidArgumentException $exception) {
+            return $this->error($exception->getMessage(), 422);
+        } catch (\Throwable $exception) {
+            \think\facade\Log::error('Competitor event feed read failed.', [
+                'exception_type' => get_debug_type($exception),
+                'system_hotel_id' => $systemHotelId,
+            ]);
+            return $this->error('竞争事件读取失败', 500, [
+                'reason' => 'competitor_event_feed_read_failed',
+            ]);
+        }
+    }
 
     public function task(): Response
     {

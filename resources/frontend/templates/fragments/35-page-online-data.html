@@ -1318,8 +1318,11 @@
                                                     <option value="">全部类型</option>
                                                     <option value="business">经营</option>
                                                     <option value="traffic">流量</option>
-                                                    <option value="rank">排名</option>
+                                                    <option value="ranking">排名</option>
                                                     <option value="peer_rank">竞对榜单</option>
+                                                    <option value="competitor">竞对数据</option>
+                                                    <option value="order">订单</option>
+                                                    <option value="order_flow">订单流转</option>
                                                     <option value="search_keyword">搜索词</option>
                                                     <option value="traffic_analysis">流量分析</option>
                                                     <option value="traffic_forecast">未来预测</option>
@@ -1354,6 +1357,91 @@
                                             若两者不同，任务数表示本次写入/更新次数，明细数表示当前库内去重后的可展示行。
                                         </div>
                                     </div>
+
+                                    <section data-testid="competitor-event-feed-panel" class="overflow-hidden rounded-xl border border-[#e5dcc8] bg-white shadow-sm">
+                                        <div class="flex flex-col gap-3 border-b border-[#eee7d8] bg-[#fcfaf5] px-4 py-4 lg:flex-row lg:items-start lg:justify-between">
+                                            <div class="min-w-0">
+                                                <div class="flex flex-wrap items-center gap-2">
+                                                    <h5 class="font-semibold text-gray-900">携程 / 美团统一竞争事件流</h5>
+                                                    <span v-if="competitorEventFeed" data-testid="competitor-event-feed-status" :class="['rounded-md border px-2 py-0.5 text-xs', competitorEventQualityClass(competitorEventFeed.quality_status || competitorEventFeed.status)]">
+                                                        {{ competitorEventQualityText(competitorEventFeed.quality_status || competitorEventFeed.status) }}
+                                                    </span>
+                                                </div>
+                                                <p class="mt-1 text-xs text-gray-500">复用上方门店、平台和日期筛选；只读展示已入库的竞价与可订事件，不触发 OTA 采集或写入。</p>
+                                                <p data-testid="competitor-event-feed-date-scope" class="mt-1 text-xs text-[#6f572f]">{{ competitorEventFeedDateScopeText }}</p>
+                                            </div>
+                                            <button type="button" @click="loadCompetitorEventFeed" :disabled="competitorEventFeedLoading" class="shrink-0 rounded-lg border border-[#a88a52] bg-white px-3 py-2 text-sm text-[#6f572f] hover:bg-[#f8f3e8] disabled:cursor-not-allowed disabled:opacity-50">
+                                                <i :class="competitorEventFeedLoading ? 'fas fa-spinner fa-spin mr-1' : 'fas fa-sync-alt mr-1'"></i>{{ competitorEventFeedLoading ? '读取中' : '刷新事件' }}
+                                            </button>
+                                        </div>
+
+                                        <div v-if="competitorEventFeed" data-testid="competitor-event-feed-summary" class="flex flex-wrap gap-x-5 gap-y-1 border-b border-gray-100 px-4 py-3 text-xs text-gray-600">
+                                            <span>平台：{{ (competitorEventFeed.platforms || []).map(competitorEventPlatformText).join(' / ') || '未知' }}</span>
+                                            <span>门店：{{ getHotelName(competitorEventFeed.system_hotel_id) }}（ID {{ competitorEventFeed.system_hotel_id || competitorEventFeed.store_id || '未知' }}）</span>
+                                            <span>入住日：{{ competitorEventFeed.stay_date || '未知' }}</span>
+                                            <span>匹配 / 返回：{{ competitorEventFeed.sample_count === null || competitorEventFeed.sample_count === undefined ? '未知' : competitorEventFeed.sample_count }} / {{ competitorEventFeed.returned_event_count === null || competitorEventFeed.returned_event_count === undefined ? '未知' : competitorEventFeed.returned_event_count }}</span>
+                                            <span>质量：{{ competitorEventQualityText(competitorEventFeed.quality_status || competitorEventFeed.status) }}</span>
+                                            <span>回读已验证：{{ competitorEventFeed.readback_verified_count === null || competitorEventFeed.readback_verified_count === undefined ? '未知' : competitorEventFeed.readback_verified_count }}</span>
+                                        </div>
+                                        <div v-if="competitorEventFeed?.truncated" data-testid="competitor-event-feed-truncated" class="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">仅评估最新返回的 {{ competitorEventFeed.returned_event_count }} / {{ competitorEventFeed.sample_count }} 条匹配事件；更早事件未进入本窗口，当前状态按部分证据处理。</div>
+
+                                        <div v-if="competitorEventFeedLoading" data-testid="competitor-event-feed-loading" class="flex items-center justify-center gap-2 px-4 py-12 text-sm text-gray-500">
+                                            <i class="fas fa-spinner fa-spin text-[#a88a52]"></i>正在读取统一竞争事件…
+                                        </div>
+                                        <div v-else-if="competitorEventFeedError" data-testid="competitor-event-feed-error" class="m-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                                            <div class="font-medium">竞争事件读取失败</div>
+                                            <div class="mt-1 break-words text-xs">{{ competitorEventFeedError }}</div>
+                                        </div>
+                                        <div v-else-if="!onlineDataFilter.hotel_id || !competitorEventFeedStayDate" data-testid="competitor-event-feed-empty" class="px-4 py-10 text-center text-sm text-gray-500">
+                                            请选择单一门店和日期后查询竞争事件。
+                                        </div>
+                                        <div v-else-if="competitorEventFeedEvents.length === 0" data-testid="competitor-event-feed-empty" class="px-4 py-10 text-center text-sm text-gray-500">
+                                            <div>{{ competitorEventFeed?.status === 'insufficient_evidence' ? '事件表结构或回读证据不足，当前不能形成可用竞价事实。' : '当前门店、平台和入住日暂无匹配的竞争事件。' }}</div>
+                                            <div v-if="competitorEventFeed?.data_gaps?.length" class="mt-2 text-xs text-amber-700">证据缺口：{{ competitorEventFeed.data_gaps.join('、') }}</div>
+                                        </div>
+                                        <div v-else data-testid="competitor-event-feed-table" class="overflow-x-auto">
+                                            <table class="min-w-[1120px] w-full text-sm">
+                                                <thead class="bg-gray-50 text-xs text-gray-500">
+                                                    <tr>
+                                                        <th class="px-4 py-3 text-left">平台</th>
+                                                        <th class="px-4 py-3 text-left">门店 / 入住日</th>
+                                                        <th class="px-4 py-3 text-left">采集时间</th>
+                                                        <th class="px-4 py-3 text-left">价格 / 可订</th>
+                                                        <th class="px-4 py-3 text-left">质量 / 回读</th>
+                                                        <th class="px-4 py-3 text-left">来源</th>
+                                                        <th class="px-4 py-3 text-left">证据缺口</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-gray-100">
+                                                    <tr v-for="event in competitorEventFeedEvents" :key="`${event.platform}-${event.id}`" class="align-top hover:bg-gray-50/70">
+                                                        <td class="px-4 py-3 font-medium text-gray-900">{{ competitorEventPlatformText(event.platform) }}</td>
+                                                        <td class="px-4 py-3">
+                                                            <div class="font-medium text-gray-800">{{ getHotelName(event.system_hotel_id || event.store_id) }}</div>
+                                                            <div class="mt-0.5 text-xs text-gray-400">ID {{ event.system_hotel_id || event.store_id || '未知' }} · {{ event.stay_date || '未知' }}</div>
+                                                        </td>
+                                                        <td class="px-4 py-3 text-gray-700">{{ event.collected_at || '未知' }}</td>
+                                                        <td class="px-4 py-3">
+                                                            <div class="font-semibold text-gray-900">{{ event.price === null || event.price === undefined ? '未知' : '¥' + formatNumber(event.price) }}</div>
+                                                            <div class="mt-0.5 text-xs text-gray-500">{{ competitorEventAvailabilityText(event.availability) }}</div>
+                                                        </td>
+                                                        <td class="px-4 py-3">
+                                                            <span :class="['inline-flex rounded-md border px-2 py-0.5 text-xs', competitorEventQualityClass(event.quality_status)]">{{ competitorEventQualityText(event.quality_status) }}</span>
+                                                            <div :class="['mt-1 text-xs', event.readback_verified === true ? 'text-emerald-700' : 'text-amber-700']">{{ event.readback_verified === true ? '回读已验证' : '回读未验证' }}</div>
+                                                        </td>
+                                                        <td class="max-w-[260px] px-4 py-3">
+                                                            <div class="text-xs text-gray-500">{{ event.source_method || '未知方式' }}</div>
+                                                            <div class="mt-1 break-all text-xs text-gray-700" :title="event.source_ref || '来源引用未知'">{{ event.source_ref || '来源引用未知' }}</div>
+                                                        </td>
+                                                        <td class="max-w-[300px] px-4 py-3 text-xs leading-relaxed" :class="event.evidence_gaps?.length ? 'text-amber-700' : 'text-emerald-700'">{{ competitorEventEvidenceText(event) }}</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+
+                                        <div data-testid="competitor-event-feed-scope-notice" class="border-t border-[#eee7d8] bg-[#fcfaf5] px-4 py-3 text-xs leading-relaxed text-[#6f572f]">
+                                            {{ competitorEventFeed?.scope_notice || '仅表示携程/美团 OTA 渠道公开竞价与可订状态，不代表酒店总房态、真实剩余库存或全酒店经营事实；不形成自动评分。' }}
+                                        </div>
+                                    </section>
 
                                     <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
                                         <div v-for="card in onlineAnalysisSummaryCards" :key="card.key" class="border rounded-lg bg-white p-4">
@@ -1448,7 +1536,7 @@
                                         <div class="px-4 py-3 border-b flex items-center justify-between gap-3">
                                             <div>
                                                 <h5 class="font-medium text-gray-800">入库明细</h5>
-                                                <div class="text-xs text-gray-500">来自平台采集或导入的标准数据，当前筛选共 {{ onlineAnalysisPagination.total || onlineAnalysisRows.length }} 条，当前展示 {{ onlineAnalysisRows.length }} 条样本；完整口径以汇总指标为准。</div>
+                                                <div class="text-xs text-gray-500">当前筛选 {{ onlineAnalysisPagination.total || onlineAnalysisRows.length }} 条，展示 {{ onlineAnalysisRows.length }} 条；汇总已排除 {{ analysisData.summary?.excluded_untrusted_count || 0 }} 条未可信记录。</div>
                                                 <div v-if="onlineAnalysisQualitySummary" class="mt-1 text-xs text-amber-700">{{ onlineDataQualityScopeText(onlineAnalysisQualitySummary) }}</div>
                                             </div>
                                             <button @click="loadOnlineAnalysisRows({ force: true })" :disabled="onlineAnalysisRowsLoading" class="px-3 py-2 text-sm border rounded-lg hover:bg-gray-50 disabled:text-gray-400">
@@ -1491,6 +1579,7 @@
                                                                     {{ onlineAnalysisP0CaptureEvidenceStatusText(item) }}
                                                                 </span>
                                                             </div>
+                                                            <div class="mt-1">{{ onlineStorageStatusText(item) }}</div>
                                                         </td>
                                                         <td class="px-4 py-3 text-right">¥{{ formatNumber(item.amount) }}</td>
                                                         <td class="px-4 py-3 text-right">{{ formatNumber(item.quantity) }}</td>
@@ -2411,10 +2500,12 @@ Authorization: Bearer xxx"></textarea>
                                                 <option value="search_keyword">搜索词</option>
                                                 <option value="traffic_analysis">流量分析</option>
                                                 <option value="traffic_forecast">未来预测</option>
+                                                <option value="competitor">竞对数据</option>
                                                 <option value="advertising">广告</option>
                                                 <option value="quality">服务质量</option>
                                                 <option value="review">点评</option>
                                                 <option value="order">订单</option>
+                                                <option value="order_flow">订单流转</option>
                                             </select>
                                         </div>
                                         <div v-if="user?.is_super_admin">
@@ -2560,6 +2651,7 @@ Authorization: Bearer xxx"></textarea>
                                                     <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">订单</th>
                                                     <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">指标值</th>
                                                     <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">维度 / 字段</th>
+                                                    <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">入库状态</th>
                                                     <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">最近更新</th>
                                                     <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">操作</th>
                                                 </tr>
@@ -2585,6 +2677,9 @@ Authorization: Bearer xxx"></textarea>
                                                     <td class="px-4 py-3 text-right">{{ formatNumber(item.book_order_num) }}</td>
                                                     <td class="px-4 py-3 text-right">{{ formatNumber(item.data_value) }}</td>
                                                     <td class="px-4 py-3 text-sm text-gray-600 max-w-xs truncate" :title="item.dimension || '-'">{{ item.dimension || '-' }}</td>
+                                                    <td class="px-4 py-3 text-center whitespace-nowrap">
+                                                        <span :class="onlineStorageStatusClass(item)">{{ onlineStorageStatusText(item) }}</span>
+                                                    </td>
                                                     <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{{ item.update_time || item.create_time || '-' }}</td>
                                                     <td class="px-4 py-3 text-right whitespace-nowrap">
                                                         <button @click="openAutoFetchRecordAnalysis(item)" class="px-3 py-1.5 border rounded-lg text-sm text-blue-600 hover:bg-blue-50">
@@ -2593,7 +2688,7 @@ Authorization: Bearer xxx"></textarea>
                                                     </td>
                                                 </tr>
                                                 <tr v-if="onlineDataList.length === 0">
-                                                    <td colspan="12" class="px-4 py-8 text-center text-gray-500">暂无入库数据，请先完成平台采集或数据导入。</td>
+                                                    <td colspan="13" class="px-4 py-8 text-center text-gray-500">暂无入库数据，请先完成平台采集或数据导入。</td>
                                                 </tr>
                                             </tbody>
                                         </table>

@@ -129,6 +129,29 @@ final class OnlineDataHistoryDatabasePaginationTest extends TestCase
         self::assertSame(1, $result['summary']['today_records'], var_export($result, true));
     }
 
+    public function testLightweightHistoryStatusNeverPromotesStaleOrBindingFailureToSuccess(): void
+    {
+        Db::name('online_daily_data')->delete(true);
+        Db::name('online_daily_data')->insertAll([
+            $this->row(2, '2026-07-16 10:00:00', 'business', '', '{}', 'stale', 1),
+            $this->row(1, '2026-07-16 09:00:00', 'business', '', '{}', 'binding_missing', 1),
+        ]);
+
+        $subject = new class {
+            use OnlineDataHistoryConcern;
+        };
+        $method = new ReflectionMethod($subject, 'onlineHistoryLightweightStatusExpression');
+        $expression = $method->invoke($subject, self::columns());
+        $rows = Db::name('online_daily_data')
+            ->field('id')
+            ->fieldRaw($expression . ' AS projected_status')
+            ->order('id', 'desc')
+            ->select()
+            ->toArray();
+
+        self::assertSame(['unverified', 'failed'], array_column($rows, 'projected_status'));
+    }
+
     private static function createSchema(): void
     {
         Db::execute(<<<'SQL'

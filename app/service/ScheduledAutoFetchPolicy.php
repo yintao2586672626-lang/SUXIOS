@@ -6,10 +6,59 @@ namespace app\service;
 final class ScheduledAutoFetchPolicy
 {
     /**
+     * Keep every currently usable Profile source. When a platform has no
+     * usable source because the previous attempt changed it to a degraded
+     * state, retain one deterministic source so the bounded retry policy can
+     * actually retry it. Duplicate degraded sources are not fanned out.
+     *
+     * @param array<int, array<string, mixed>> $sources
+     * @return array<int, array<string, mixed>>
+     */
+    public function retryableProfileSources(array $sources): array
+    {
+        $activeStatuses = ['ready', 'success', 'partial_success'];
+        $degradedStatuses = ['failed', 'waiting_config'];
+        $active = [];
+        $activePlatforms = [];
+        $degradedByPlatform = [];
+
+        foreach ($sources as $source) {
+            if (!is_array($source)) {
+                continue;
+            }
+            $platform = strtolower(trim((string)($source['platform'] ?? '')));
+            $status = strtolower(trim((string)($source['status'] ?? '')));
+            if (!in_array($platform, ['ctrip', 'meituan'], true)) {
+                continue;
+            }
+            if (in_array($status, $activeStatuses, true)) {
+                $active[] = $source;
+                $activePlatforms[$platform] = true;
+                continue;
+            }
+            if (!in_array($status, $degradedStatuses, true)) {
+                continue;
+            }
+            $current = $degradedByPlatform[$platform] ?? null;
+            if (!is_array($current) || $this->profileSourceIsNewer($source, $current)) {
+                $degradedByPlatform[$platform] = $source;
+            }
+        }
+
+        foreach ($degradedByPlatform as $platform => $source) {
+            if (!isset($activePlatforms[$platform])) {
+                $active[] = $source;
+            }
+        }
+
+        return array_values($active);
+    }
+
+    /**
      * Build a bounded catch-up window without requiring the dispatcher to hit
      * the configured minute exactly.
      *
-     * @return array<int, array{slot_id: string, period: string, data_date: string, executed_key: string, retry_key: string, label: string, executed_message: string}>
+     * @return array<int, array{slot_id: string, period: string, data_date: string, executed_key: string, retry_key: string, label: string, executed_message: string, target_platforms?: array<int, string>}>
      */
     public function dueRuns(int $hotelId, array $status, \DateTimeImmutable $now): array
     {
@@ -44,6 +93,9 @@ final class ScheduledAutoFetchPolicy
                 'label' => 'historical',
                 'executed_message' => '历史固定数据今天已执行',
             ];
+            if (!empty($runsBySlot[$run['slot_id']]['target_platforms'])) {
+                $run['target_platforms'] = $runsBySlot[$run['slot_id']]['target_platforms'];
+            }
             $runsBySlot[$run['slot_id']] = $run;
         }
         if ($realtimeEnabled
@@ -59,6 +111,9 @@ final class ScheduledAutoFetchPolicy
                 'label' => 'realtime',
                 'executed_message' => "实时快照本 {$realtimeIntervalHours} 小时窗口已执行",
             ];
+            if (!empty($runsBySlot[$run['slot_id']]['target_platforms'])) {
+                $run['target_platforms'] = $runsBySlot[$run['slot_id']]['target_platforms'];
+            }
             $runsBySlot[$run['slot_id']] = $run;
         }
 
@@ -89,6 +144,7 @@ final class ScheduledAutoFetchPolicy
         }
         $failedPlatforms = array_values(array_unique($failedPlatforms));
         $successfulPlatforms = array_values(array_unique($successfulPlatforms));
+        $successfulPlatforms = array_values(array_diff($successfulPlatforms, $failedPlatforms));
         $producerSucceeded = !empty($result['success']);
         $complete = $producerSucceeded && $savedCount > 0 && $failedPlatforms === [];
         $partial = !$complete && ($savedCount > 0 || $successfulPlatforms !== []);
@@ -110,6 +166,12 @@ final class ScheduledAutoFetchPolicy
     public function normalizeDelayMinutes(mixed $value): int
     {
         return is_numeric($value) ? max(1, min(60, (int)$value)) : 5;
+    }
+
+    /** @return array<int, string> */
+    public function normalizePlatforms(mixed $platforms): array
+    {
+        return $this->platformList($platforms);
     }
 
     public function retryDue(array $state, int $maxAttempts, \DateTimeImmutable $now): bool
@@ -192,7 +254,7 @@ final class ScheduledAutoFetchPolicy
         return !empty($value);
     }
 
-    /** @return array{slot_id: string, period: string, data_date: string, executed_key: string, retry_key: string, label: string, executed_message: string}|null */
+    /** @return array{slot_id: string, period: string, data_date: string, executed_key: string, retry_key: string, label: string, executed_message: string, target_platforms?: array<int, string>}|null */
     private function pendingRunFromFailure(array $record, int $hotelId, \DateTimeImmutable $now): ?array
     {
         if (!empty($record['retry_exhausted'])) {
@@ -200,6 +262,7 @@ final class ScheduledAutoFetchPolicy
         }
         $slotId = trim((string)($record['slot_id'] ?? ''));
         $dataDate = trim((string)($record['data_date'] ?? ''));
+        $targetPlatforms = $this->platformList($record['failed_platforms'] ?? []);
         if (preg_match('/^historical:(\d{4}-\d{2}-\d{2})$/D', $slotId, $matches) === 1
             && $matches[1] === $dataDate
         ) {
@@ -212,7 +275,7 @@ final class ScheduledAutoFetchPolicy
             if ($ageSeconds < 0 || $ageSeconds > 7 * 86400) {
                 return null;
             }
-            return [
+            $run = [
                 'slot_id' => $slotId,
                 'period' => 'historical_daily',
                 'data_date' => $dataDate,
@@ -221,6 +284,10 @@ final class ScheduledAutoFetchPolicy
                 'label' => 'historical-retry',
                 'executed_message' => '历史补跑窗口已执行',
             ];
+            if ($targetPlatforms !== []) {
+                $run['target_platforms'] = $targetPlatforms;
+            }
+            return $run;
         }
         if (preg_match('/^realtime:(\d{4}-\d{2}-\d{2}):(\d{1,2})$/D', $slotId, $matches) === 1
             && $matches[1] === $dataDate
@@ -237,7 +304,7 @@ final class ScheduledAutoFetchPolicy
             if ($ageSeconds < 0 || $ageSeconds > 6 * 3600) {
                 return null;
             }
-            return [
+            $run = [
                 'slot_id' => $slotId,
                 'period' => 'realtime_snapshot',
                 'data_date' => $dataDate,
@@ -246,6 +313,10 @@ final class ScheduledAutoFetchPolicy
                 'label' => 'realtime-retry',
                 'executed_message' => '实时快照补跑窗口已执行',
             ];
+            if ($targetPlatforms !== []) {
+                $run['target_platforms'] = $targetPlatforms;
+            }
+            return $run;
         }
         return null;
     }
@@ -264,5 +335,16 @@ final class ScheduledAutoFetchPolicy
             }
         }
         return array_keys($normalized);
+    }
+
+    /** @param array<string, mixed> $candidate @param array<string, mixed> $current */
+    private function profileSourceIsNewer(array $candidate, array $current): bool
+    {
+        $candidateTime = trim((string)($candidate['last_sync_time'] ?? ''));
+        $currentTime = trim((string)($current['last_sync_time'] ?? ''));
+        if ($candidateTime !== $currentTime) {
+            return $candidateTime > $currentTime;
+        }
+        return (int)($candidate['id'] ?? PHP_INT_MAX) < (int)($current['id'] ?? PHP_INT_MAX);
     }
 }

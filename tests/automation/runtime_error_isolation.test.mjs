@@ -12,8 +12,8 @@ test('page runtime errors recover to a safe page instead of replacing the whole 
   assert.match(html, /currentPage\.value = 'compass'/);
   assert.match(html, /当前功能发生异常，已返回今日经营看板/);
 
-  const handlerStart = html.indexOf('suxiApp.config.errorHandler = (error, _instance, info) => {');
-  const handlerEnd = html.indexOf("suxiApp.config.globalProperties.aiModelConfigText", handlerStart);
+  const handlerStart = html.indexOf('app.config.errorHandler = (error, _instance, info) => {');
+  const handlerEnd = html.indexOf("app.config.globalProperties.aiModelConfigText", handlerStart);
   const handler = html.slice(handlerStart, handlerEnd);
 
   assert.ok(handlerStart > 0 && handlerEnd > handlerStart);

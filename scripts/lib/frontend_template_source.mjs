@@ -61,6 +61,27 @@ export const FRONTEND_TEMPLATE_FRAGMENT_DEFINITIONS = Object.freeze([
 
 export const FRONTEND_TEMPLATE_MANIFEST_RELATIVE_PATH = 'resources/frontend/templates/manifest.json';
 
+export const FRONTEND_STARTUP_RENDER_FRAGMENT_IDS = Object.freeze([
+  'app-shell',
+  'home-shell-open',
+  'page-compass-summary',
+  'page-ai-workbench',
+  'page-compass-detail',
+  'home-shell-card-close',
+  'home-shared-secondary',
+  'app-shell-close',
+  'global-toast',
+]);
+
+const FRONTEND_STARTUP_DEFERRED_PAGE_FALLBACK = `
+<div v-if="!['compass', 'ai-workbench'].includes(currentPage)" class="min-h-[50vh] flex items-center justify-center px-4" data-testid="deferred-page-loading">
+  <div class="max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+    <div class="mb-3 text-lg font-semibold text-slate-900">正在加载完整功能页面</div>
+    <p class="text-sm leading-6 text-slate-500">首页已可使用，目标页面资源正在后台加载，请稍候。</p>
+  </div>
+</div>
+`;
+
 const templatesRoot = (repoRoot) => path.resolve(repoRoot, 'resources/frontend/templates');
 const manifestPath = (repoRoot) => path.resolve(repoRoot, FRONTEND_TEMPLATE_MANIFEST_RELATIVE_PATH);
 
@@ -132,5 +153,30 @@ export function loadFrontendTemplateSource(repoRoot) {
     fragments,
     templateBuffer,
     template: templateBuffer.toString('utf8'),
+  };
+}
+
+export function loadFrontendStartupTemplateSource(repoRoot) {
+  const source = loadFrontendTemplateSource(repoRoot);
+  const fragmentsById = new Map(source.fragments.map((fragment) => [fragment.id, fragment]));
+  const fragments = FRONTEND_STARTUP_RENDER_FRAGMENT_IDS.map((id) => {
+    const fragment = fragmentsById.get(id);
+    if (!fragment) throw new Error(`Frontend startup render fragment is missing: ${id}`);
+    return fragment;
+  });
+  const shellCloseIndex = fragments.findIndex((fragment) => fragment.id === 'app-shell-close');
+  if (shellCloseIndex < 0) throw new Error('Frontend startup render must contain the app-shell-close fragment.');
+  const templateParts = fragments.map((fragment, index) => (
+    index === shellCloseIndex
+      ? `${FRONTEND_STARTUP_DEFERRED_PAGE_FALLBACK}${fragment.source}`
+      : fragment.source
+  ));
+  const template = templateParts.join('');
+  return {
+    manifest: source.manifest,
+    manifestPath: source.manifestPath,
+    fragments,
+    template,
+    templateBuffer: Buffer.from(template, 'utf8'),
   };
 }

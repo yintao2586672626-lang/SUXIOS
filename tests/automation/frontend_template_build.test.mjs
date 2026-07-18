@@ -8,6 +8,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
+  buildFrontendStartupRender,
   buildFrontendTemplateRender,
   FRONTEND_TEMPLATE_MINIFY_OPTIONS,
   inspectFrontendTemplateBuild,
@@ -19,6 +20,7 @@ import {
   writeFileAtomic,
 } from '../../scripts/lib/frontend_template_lock.mjs';
 import {
+  extractAuthenticatedAssetEntries,
   extractAuthenticatedAssetReferences,
   stripFrontendAssetQuery,
 } from '../../scripts/lib/frontend_authenticated_assets.mjs';
@@ -27,6 +29,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const templatePath = path.join(repoRoot, 'resources/frontend/app-template.html');
 const fragmentManifestPath = path.join(repoRoot, 'resources/frontend/templates/manifest.json');
 const renderPath = path.join(repoRoot, 'public/app-render.min.js');
+const startupRenderPath = path.join(repoRoot, 'public/app-startup-render.min.js');
 const runtimeVuePath = path.join(repoRoot, 'public/vue.runtime.global.prod.js');
 const compilerVuePath = path.join(repoRoot, 'public/vue.global.prod.js');
 const pinnedRuntimeVuePath = path.join(repoRoot, 'node_modules/vue/dist/vue.runtime.global.prod.js');
@@ -187,11 +190,20 @@ test('root template render and runtime-only Vue are deterministic pinned artifac
   return withTemplateTestLock('render-determinism-test', async () => {
   const template = fs.readFileSync(templatePath, 'utf8');
   const artifact = fs.readFileSync(renderPath, 'utf8');
+  const startupArtifact = fs.readFileSync(startupRenderPath, 'utf8');
   const runtimeVue = fs.readFileSync(runtimeVuePath, 'utf8');
   const pinnedRuntimeVue = fs.readFileSync(pinnedRuntimeVuePath, 'utf8');
   const rebuilt = await buildFrontendTemplateRender(template);
+  const { loadFrontendStartupTemplateSource } = await import('../../scripts/lib/frontend_template_source.mjs');
+  const startupSource = loadFrontendStartupTemplateSource(repoRoot);
+  const startupRebuilt = await buildFrontendStartupRender(startupSource.template);
 
   assert.equal(artifact, rebuilt);
+  assert.equal(startupArtifact, startupRebuilt);
+  assert.ok(Buffer.byteLength(startupArtifact) < Buffer.byteLength(artifact) * 0.2);
+  assert.match(startupSource.template, /data-testid="home-executive-answer"/);
+  assert.match(startupSource.template, /data-testid="deferred-page-loading"/);
+  assert.doesNotMatch(startupSource.template, /currentPage === 'ctrip-ebooking'/);
   assert.equal(runtimeVue, pinnedRuntimeVue);
   assert.ok(Buffer.byteLength(template) > 1_000_000);
   assert.ok(Buffer.byteLength(runtimeVue) < Buffer.byteLength(fs.readFileSync(compilerVuePath)) * 0.75);
@@ -209,6 +221,7 @@ test('authenticated asset manifest loads the hashed runtime Vue and render befor
   const appMain = fs.readFileSync(appMainPath, 'utf8');
   const hash = crypto.createHash('sha256').update(artifact).digest('hex').slice(0, 10);
   const authenticatedReferences = extractAuthenticatedAssetReferences(html);
+  const authenticatedEntries = extractAuthenticatedAssetEntries(html);
   const authenticatedAssets = authenticatedReferences.map(stripFrontendAssetQuery);
   const renderReference = authenticatedReferences.find(
     (reference) => stripFrontendAssetQuery(reference) === 'app-render.min.js',
@@ -217,14 +230,18 @@ test('authenticated asset manifest loads the hashed runtime Vue and render befor
   assert.match(html, /<div id="app" v-cloak><\/div>/);
   assert.doesNotMatch(html, /src="vue\.global\.prod\.js/);
   assert.equal(authenticatedAssets[0], 'vue.runtime.global.prod.js');
+  assert.equal(authenticatedAssets.at(-3), 'app-startup-render.min.js');
   assert.equal(authenticatedAssets.at(-2), 'app-render.min.js');
   assert.equal(authenticatedAssets.at(-1), 'app-main.min.js');
   assert.match(renderReference, new RegExp(`^app-render\\.min\\.js\\?v=[^"]*-h${hash}$`));
-  assert.match(appMain, /render:\s*requireSuxiAppRender\(\)/);
+  assert.equal(authenticatedEntries.find((entry) => stripFrontendAssetQuery(entry.src) === 'app-render.min.js')?.phase, 'after-first-paint');
+  assert.match(appMain, /const suxiActiveRender = shallowRef\(requireSuxiAppRender\(\)\)/);
+  assert.match(appMain, /return activeRender\.apply\(this, renderArgs\)/);
 
   const report = await inspectFrontendTemplateBuild(repoRoot, { lockHeld: true });
   assert.deepEqual(report.failures, []);
   assert.equal(report.metrics.render_hash, hash);
+  assert.ok(report.metrics.startup_render_gzip_bytes < 35_000);
   assert.ok(report.metrics.fragment_count >= 30);
   assert.equal(report.metrics.template_snapshot_matches, true);
   assert.equal(report.metrics.template_snapshot_pin_matches, true);

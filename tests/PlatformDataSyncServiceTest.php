@@ -2465,6 +2465,52 @@ final class PlatformDataSyncServiceTest extends TestCase
         }
     }
 
+    public function testMeituanBrowserProfileAdapterRejectsUnverifiedOrWrongMerchantIdentity(): void
+    {
+        $root = $this->createMeituanBrowserProfileTestRoot('store_001');
+
+        try {
+            $basePayload = [
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'capture_gate' => ['status' => 'pass'],
+                'traffic' => [[
+                    'poi_id' => '68471',
+                    'data_date' => '2026-07-11',
+                    'date_source' => 'row',
+                    'list_exposure' => 100,
+                ]],
+            ];
+
+            $unverified = new MeituanBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                ...$basePayload,
+                'platform_identity_validation' => [],
+            ]));
+            $unverifiedResult = $unverified->fetch($this->meituanBrowserProfileSource(), [
+                'interactive_browser' => false,
+                'data_date' => '2026-07-11',
+            ]);
+            self::assertSame('failed', $unverifiedResult['status']);
+            self::assertSame('meituan_platform_identity_unverified', $unverifiedResult['status_code']);
+
+            $wrongMerchant = new MeituanBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                ...$basePayload,
+                'platform_identity_validation' => [
+                    'status' => 'matched',
+                    'source_validation' => true,
+                    'validated_identifier' => 'wrong-poi',
+                ],
+            ]));
+            $wrongMerchantResult = $wrongMerchant->fetch($this->meituanBrowserProfileSource(), [
+                'interactive_browser' => false,
+                'data_date' => '2026-07-11',
+            ]);
+            self::assertSame('failed', $wrongMerchantResult['status']);
+            self::assertSame('meituan_platform_identity_mismatch', $wrongMerchantResult['status_code']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
     public function testMeituanAdsAgreementPageIsNotApplicableInsteadOfAWholeSourceFailure(): void
     {
         $root = $this->createMeituanBrowserProfileTestRoot('store_001');
@@ -2526,10 +2572,14 @@ final class PlatformDataSyncServiceTest extends TestCase
                 }
                 file_put_contents($outputPath, json_encode([
                     'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                    'platform_identity_validation' => [
+                        'status' => 'matched',
+                        'source_validation' => true,
+                        'validated_identifier' => '68471',
+                    ],
                     'capture_gate' => ['status' => 'pass'],
                     'traffic' => [
                         [
-                            'poi_id' => '68471',
                             'poi_name' => 'Meituan Demo Hotel',
                             'data_date' => '2026-07-04',
                             'date_source' => 'row',
@@ -2556,6 +2606,9 @@ final class PlatformDataSyncServiceTest extends TestCase
             self::assertContains('--data-date=2026-07-04', $capturedArgs);
             self::assertSame('2026-07-04', $result['payload']['data_source_capture']['data_date']);
             self::assertSame('2026-07-04', $result['payload']['rows'][0]['data_date']);
+            self::assertSame('68471', $result['payload']['rows'][0]['poi_id']);
+            self::assertArrayNotHasKey('store_id', $result['payload']['data_source_capture']);
+            self::assertArrayNotHasKey('poi_id', $result['payload']['data_source_capture']);
         } finally {
             $this->removeDirectory($root);
         }
@@ -2642,6 +2695,11 @@ final class PlatformDataSyncServiceTest extends TestCase
                 if ($outputPath !== '') {
                     file_put_contents($outputPath, json_encode([
                         'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                        'platform_identity_validation' => [
+                            'status' => 'matched',
+                            'source_validation' => true,
+                            'validated_identifier' => '68471',
+                        ],
                         'capture_gate' => ['status' => 'pass'],
                         'traffic' => [[
                             'poi_id' => '68471',
@@ -2697,6 +2755,11 @@ final class PlatformDataSyncServiceTest extends TestCase
                 }
                 file_put_contents($outputPath, json_encode([
                     'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                    'platform_identity_validation' => [
+                        'status' => 'matched',
+                        'source_validation' => true,
+                        'validated_identifier' => '68471',
+                    ],
                     'capture_gate' => ['status' => 'pass'],
                     'traffic' => [[
                         'poi_id' => '68471',
@@ -3086,18 +3149,53 @@ final class PlatformDataSyncServiceTest extends TestCase
         $receiptMethod->setAccessible(true);
         $matchMethod = new \ReflectionMethod($service, 'normalizedStoredValueMatches');
         $matchMethod->setAccessible(true);
+        $identityMethod = new \ReflectionMethod($service, 'normalizedRowIdentityKey');
+        $identityMethod->setAccessible(true);
 
-        $receipt = $receiptMethod->invoke($service, 2, 'readback_mismatch');
+        $receipt = $receiptMethod->invoke($service, 2, 'readback_mismatch', 'raw_data');
         self::assertSame(2, $receipt['attempted_count']);
         self::assertSame(0, $receipt['saved_count']);
         self::assertFalse($receipt['readback_verified']);
         self::assertTrue($receipt['rolled_back']);
         self::assertSame('readback_mismatch', $receipt['failure_reason']);
+        self::assertSame('raw_data', $receipt['mismatch_field']);
 
         self::assertTrue($matchMethod->invoke($service, '123.500', 123.5));
         self::assertFalse($matchMethod->invoke($service, '120.000', 123.5));
+        self::assertTrue($matchMethod->invoke($service, '4.9', 4.85, 'comment_score'));
+        self::assertFalse($matchMethod->invoke($service, '4.8', 4.85, 'comment_score'));
+        self::assertFalse($matchMethod->invoke($service, '4.9', 4.85, 'data_value'));
         self::assertTrue($matchMethod->invoke($service, '{"source":"ctrip","count":2}', '{"count":2,"source":"ctrip"}'));
         self::assertFalse($matchMethod->invoke($service, '{"source":"meituan"}', '{"source":"ctrip"}'));
+
+        $columns = array_fill_keys(['tenant_id', 'system_hotel_id', 'source', 'platform', 'hotel_id', 'data_type', 'data_date', 'dimension', 'compare_type'], true);
+        $firstIdentity = $identityMethod->invoke($service, [
+            'tenant_id' => 1,
+            'system_hotel_id' => 80,
+            'source' => 'ctrip',
+            'platform' => 'ctrip',
+            'hotel_id' => 'platform-hotel',
+            'data_type' => 'traffic',
+            'data_date' => '2026-07-16',
+            'dimension' => 'summary',
+            'compare_type' => '',
+            'source_trace_id' => 'trace-a',
+            'list_exposure' => 10,
+        ], $columns);
+        $duplicateIdentity = $identityMethod->invoke($service, [
+            'tenant_id' => 1,
+            'system_hotel_id' => 80,
+            'source' => 'ctrip',
+            'platform' => 'ctrip',
+            'hotel_id' => 'platform-hotel',
+            'data_type' => 'traffic',
+            'data_date' => '2026-07-16',
+            'dimension' => 'summary',
+            'compare_type' => '',
+            'source_trace_id' => 'trace-b',
+            'list_exposure' => 20,
+        ], $columns);
+        self::assertSame($firstIdentity, $duplicateIdentity);
     }
 
     private function ctripBrowserProfileSource(): array
@@ -3176,7 +3274,17 @@ final class PlatformDataSyncServiceTest extends TestCase
             if ($outputPath === '') {
                 return ['success' => false, 'message' => 'missing output path', 'stdout' => '', 'stderr' => ''];
             }
-            file_put_contents($outputPath, json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            $capturePayload = $payload;
+            if (($capturePayload['auth_status']['ok'] ?? false) === true
+                && !array_key_exists('platform_identity_validation', $capturePayload)
+            ) {
+                $capturePayload['platform_identity_validation'] = [
+                    'status' => 'matched',
+                    'source_validation' => true,
+                    'validated_identifier' => '68471',
+                ];
+            }
+            file_put_contents($outputPath, json_encode($capturePayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
             return ['success' => true, 'message' => 'ok', 'stdout' => '', 'stderr' => ''];
         };

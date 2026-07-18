@@ -120,13 +120,14 @@ if ($publicRoot !== false
         'jpg' => 'image/jpeg',
         'jpeg' => 'image/jpeg',
         'gif' => 'image/gif',
+        'avif' => 'image/avif',
         'webp' => 'image/webp',
         'ico' => 'image/x-icon',
         'woff' => 'font/woff',
         'woff2' => 'font/woff2',
         'ttf' => 'font/ttf',
     ];
-    $cacheableExtensions = ['css', 'js', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'woff', 'woff2', 'ttf', 'svg'];
+    $cacheableExtensions = ['css', 'js', 'png', 'jpg', 'jpeg', 'gif', 'avif', 'webp', 'ico', 'woff', 'woff2', 'ttf', 'svg'];
     $compressibleExtensions = ['css', 'html', 'js', 'json', 'map', 'svg'];
     $mtime = (int)filemtime($staticFile);
     $size = (int)filesize($staticFile);
@@ -144,6 +145,9 @@ if ($publicRoot !== false
         header('Cache-Control: public, max-age=2592000, immutable');
     } else {
         header('Cache-Control: no-cache');
+        if ($extension === 'html' && basename($staticFile) === 'index.html') {
+            header('Cloudflare-CDN-Cache-Control: public, max-age=60, stale-while-revalidate=30');
+        }
     }
 
     $notModified = $ifNoneMatch !== ''

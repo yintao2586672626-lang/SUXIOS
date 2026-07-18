@@ -649,7 +649,11 @@ final class AgentTest extends TestCase
             'execution_ready' => true,
             'can_request_execution_intent' => true,
             'evidence_refs' => ['online_daily_data#901'],
-        ], 77, 80]);
+        ], 77, 80, [
+            'assignee_id' => 9,
+            'due_at' => '2099-07-18T18:00',
+            'review_at' => '2099-07-19T10:00',
+        ]]);
 
         self::assertSame('ota_diagnosis_saved', $input['source_module']);
         self::assertSame(77, $input['source_record_id']);
@@ -661,6 +665,30 @@ final class AgentTest extends TestCase
         self::assertArrayNotHasKey('expected_delta', $input);
         self::assertSame('not_quantified', $input['evidence']['expected_delta_status']);
         self::assertSame(['online_daily_data#901'], $input['evidence']['evidence_refs']);
+        self::assertSame(9, $input['target_value']['assignee_id']);
+        self::assertSame('2099-07-18 18:00:00', $input['target_value']['due_at']);
+        self::assertSame('2099-07-19 10:00:00', $input['target_value']['review_at']);
+        self::assertSame($input['target_value']['workflow_schedule'], $input['evidence']['workflow_schedule']);
+    }
+
+    public function testOtaDiagnosisExecutionScheduleRequiresOwnerAndOrderedReviewTime(): void
+    {
+        $controller = $this->controller();
+        $valid = $this->invokeNonPublic($controller, 'normalizeOtaDiagnosisExecutionSchedule', [[
+            'assignee_id' => '7',
+            'due_at' => '2099-07-18T18:00',
+            'review_at' => '2099-07-19 09:30:00',
+        ]]);
+        self::assertSame(7, $valid['assignee_id']);
+        self::assertSame('2099-07-18 18:00:00', $valid['due_at']);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('review_at must not be earlier than due_at');
+        $this->invokeNonPublic($controller, 'normalizeOtaDiagnosisExecutionSchedule', [[
+            'assignee_id' => 7,
+            'due_at' => '2099-07-20 10:00:00',
+            'review_at' => '2099-07-19 10:00:00',
+        ]]);
     }
 
     public function testOtaDiagnosisSupersedeScopeUsesRequestedDatesAndSnapshotKeepsRecordStatus(): void
@@ -1312,7 +1340,16 @@ final class AgentTest extends TestCase
     {
         $controller = $this->controller();
         $action = ['id' => 'action-1'];
-        $input = ['action_type' => 'review_price', 'platform' => 'ctrip'];
+        $input = [
+            'action_type' => 'review_price',
+            'platform' => 'ctrip',
+            'target_value' => ['workflow_schedule' => [
+                'assignee_id' => 7,
+                'due_at' => '2099-07-18 18:00:00',
+                'review_at' => '2099-07-19 10:00:00',
+                'source_policy' => 'human_assigned_schedule_requires_manual_approval_and_readback_review',
+            ]],
+        ];
 
         $key = $this->invokeNonPublic($controller, 'otaDiagnosisActionIdempotencyKey', [31, 0, $action, $input]);
         self::assertSame(
@@ -1327,6 +1364,18 @@ final class AgentTest extends TestCase
             $key,
             $this->invokeNonPublic($controller, 'otaDiagnosisActionIdempotencyKey', [31, 0, ['id' => 'action-2'], $input])
         );
+        $rescheduled = $input;
+        $rescheduled['target_value']['workflow_schedule']['due_at'] = '2099-07-18 20:00:00';
+        self::assertNotSame(
+            $key,
+            $this->invokeNonPublic($controller, 'otaDiagnosisActionIdempotencyKey', [31, 0, $action, $rescheduled]),
+            'A changed persisted schedule must not reuse the old intent identity.'
+        );
+
+        $storedSchedule = $this->invokeNonPublic($controller, 'otaDiagnosisIntentWorkflowSchedule', [[
+            'target_value_json' => json_encode($input['target_value'], JSON_UNESCAPED_UNICODE),
+        ]]);
+        self::assertSame($input['target_value']['workflow_schedule'], $storedSchedule);
 
         foreach (['failed', 'failure', 'rejected', 'cancelled', 'canceled'] as $status) {
             self::assertTrue(

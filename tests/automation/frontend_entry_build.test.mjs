@@ -40,6 +40,7 @@ test('authenticated asset manifest loads only the hashed minified entry at the e
   assert.match(entryReference, new RegExp(`^app-main\\.min\\.js\\?v=[^"]*-h${hash}$`));
   assert.doesNotMatch(html, /(?:src="|\")app-main\.js\?/);
   assert.equal(authenticatedAssets[0], 'vue.runtime.global.prod.js');
+  assert.equal(authenticatedAssets.at(-3), 'app-startup-render.min.js');
   assert.equal(authenticatedAssets.at(-2), 'app-render.min.js');
   assert.equal(authenticatedAssets.at(-1), 'app-main.min.js');
 });

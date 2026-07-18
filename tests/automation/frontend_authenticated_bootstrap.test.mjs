@@ -3,20 +3,36 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import test from 'node:test';
 import {
+  extractAuthenticatedAssetEntries,
   extractAuthenticatedAssetReferences,
   stripFrontendAssetQuery,
 } from '../../scripts/lib/frontend_authenticated_assets.mjs';
 
 const index = fs.readFileSync('public/index.html', 'utf8');
 const bootstrap = fs.readFileSync('public/app-bootstrap.js', 'utf8');
+const appMain = fs.readFileSync('public/app-main.js', 'utf8');
 const style = fs.readFileSync('public/style.css', 'utf8');
 
 test('public login shell defers the authenticated application asset chain', () => {
   const references = extractAuthenticatedAssetReferences(index);
+  const entries = extractAuthenticatedAssetEntries(index);
   const assets = references.map(stripFrontendAssetQuery);
   assert.equal(assets[0], 'vue.runtime.global.prod.js');
+  assert.equal(assets.at(-3), 'app-startup-render.min.js');
   assert.equal(assets.at(-2), 'app-render.min.js');
   assert.equal(assets.at(-1), 'app-main.min.js');
+  assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'app-render.min.js')?.phase, 'after-first-paint');
+  for (const deferredAsset of [
+    'ctrip-search-opportunity-static.js',
+    'ota-browser-assist-static.js',
+    'user-admin-static.js',
+  ]) {
+    assert.equal(
+      entries.find((entry) => stripFrontendAssetQuery(entry.src) === deferredAsset)?.phase,
+      'after-first-paint',
+      `${deferredAsset} must stay off the authenticated first paint`,
+    );
+  }
   assert(assets.includes('ctrip-static.js'));
   assert(assets.includes('meituan-static.js'));
   assert(assets.includes('data-health-static.js'));
@@ -27,12 +43,19 @@ test('public login shell defers the authenticated application asset chain', () =
   assert.doesNotMatch(index, /<script defer src="(?:vue\.runtime|ctrip-static|meituan-static|data-health-static|app-render|min\.js|app-main)/);
 });
 
-test('login bootstrap preserves the existing auth contract without persisting passwords', () => {
+test('login bootstrap delegates remembered passwords to the browser credential store', () => {
   assert.match(bootstrap, /fetchJson\('\/api\/auth\/login'/);
   assert.match(bootstrap, /sessionStorage\.setItem\(AUTH_TOKEN_KEY/);
   assert.match(bootstrap, /localStorage\.removeItem\(LEGACY_PASSWORD_KEY\)/);
   assert.match(bootstrap, /remembered_username/);
-  assert.doesNotMatch(bootstrap, /setItem\([^\n]*password/i);
+  assert.match(bootstrap, /suxios_browser_password_save_v1/);
+  assert.match(bootstrap, /new PasswordCredentialCtor\(\{/);
+  assert.match(bootstrap, /LOGIN_PASSWORD_SAVE_TIMEOUT_MS = 1500/);
+  assert.match(bootstrap, /credentialStore\.store\(credential\)/);
+  assert.match(bootstrap, /status: 'timeout'/);
+  assert.match(bootstrap, /<span>记住密码<\/span>/);
+  assert.doesNotMatch(bootstrap, /localStorage\.setItem\([^,\n]+,\s*(?:payload\.)?password/i);
+  assert.doesNotMatch(bootstrap, /sessionStorage\.setItem\([^,\n]+,\s*(?:payload\.)?password/i);
   assert.match(bootstrap, /await loadAuthenticatedApp\(\)/);
   const submitBindingOffset = bootstrap.indexOf("form.addEventListener('submit'");
   const readyOffset = bootstrap.indexOf("form.dataset.suxiLoginReady = '1'");
@@ -41,15 +64,45 @@ test('login bootstrap preserves the existing auth contract without persisting pa
   const loadingMarkupOffset = bootstrap.indexOf('submit.innerHTML = loading', loadingGuardOffset);
   const loadingGuardEnd = bootstrap.indexOf('\n            }', loadingMarkupOffset);
   assert(loadingGuardOffset >= 0 && loadingMarkupOffset > loadingGuardOffset && loadingMarkupOffset < loadingGuardEnd);
+
+  const authSuccessOffset = bootstrap.indexOf("markLoginAuthSuccess({ source: 'public-login' })");
+  const passwordSaveOffset = bootstrap.indexOf('const passwordSavePromise = saveLoginPasswordWithBrowser', authSuccessOffset);
+  const appLoadOffset = bootstrap.indexOf('await loadAuthenticatedApp()', passwordSaveOffset);
+  assert(authSuccessOffset >= 0 && passwordSaveOffset > authSuccessOffset && appLoadOffset > passwordSaveOffset);
+  assert.doesNotMatch(bootstrap.slice(passwordSaveOffset, appLoadOffset), /await passwordSavePromise/);
 });
 
-test('authenticated startup downloads independent helpers in parallel behind explicit runtime and entry barriers', () => {
-  assert.match(bootstrap, /assetBaseName\(src\) === 'vue\.runtime\.global\.prod\.js'/);
-  assert.match(bootstrap, /assetBaseName\(src\) === 'app-main\.min\.js'/);
+test('login handoff exposes auth-success to interactive timing after a real paint boundary', () => {
+  assert.match(bootstrap, /window\.SUXI_LOGIN_HANDOFF_METRICS = snapshot/);
+  assert.match(bootstrap, /auth_to_interactive_ms:/);
+  assert.match(bootstrap, /suxi-login-auth-to-interactive/);
+  assert.match(bootstrap, /suxi:login-handoff-metric/);
+  assert.match(bootstrap, /await markLoginInteractiveAfterPaint\(\{ source: 'public-login' \}\)/);
+  assert.match(bootstrap, /window\.SUXI_MARK_LOGIN_AUTH_SUCCESS = markLoginAuthSuccess/);
+  assert.match(bootstrap, /window\.SUXI_MARK_LOGIN_INTERACTIVE_AFTER_PAINT = markLoginInteractiveAfterPaint/);
+});
+
+test('authenticated startup paints the home render before loading the full render', () => {
+  assert.match(bootstrap, /assetBaseName\(asset\.src\) === 'vue\.runtime\.global\.prod\.js'/);
+  assert.match(bootstrap, /assetBaseName\(asset\.src\) === 'app-main\.min\.js'/);
+  assert.match(bootstrap, /asset\.phase === ASSET_PHASE_STARTUP/);
+  assert.match(bootstrap, /asset\.phase === ASSET_PHASE_AFTER_FIRST_PAINT/);
   assert.match(bootstrap, /await loadScript\(runtime\);/);
   assert.match(bootstrap, /await Promise\.all\(prerequisites\.map\(\(src\) => loadScript\(src\)\)\);/);
   assert.match(bootstrap, /await loadScript\(entry\);/);
+  assert.match(bootstrap, /await waitForFirstAuthenticatedPaint\(\);/);
+  assert.match(bootstrap, /suxi:full-render-ready/);
+  assert.match(bootstrap, /void loadDeferredAuthenticatedAssets\(deferredAssets\);/);
   assert.doesNotMatch(bootstrap, /for \(const src of assets\)/);
+});
+
+test('deferred OTA and admin helpers resolve from their bundles only when invoked', () => {
+  assert.match(appMain, /const requireUserAdminStatic = \(key\) => \{/);
+  assert.match(appMain, /const requireCtripSearchOpportunityStatic = \(key\) => \(\.\.\.args\) => \{/);
+  assert.match(appMain, /const requireOtaBrowserAssistStatic = \(key\) => \(\.\.\.args\) => \{/);
+  assert.doesNotMatch(appMain, /const userAdminStatic = window\.SUXI_USER_ADMIN_STATIC;\s+if \(/);
+  assert.doesNotMatch(appMain, /const ctripSearchOpportunityStatic = window\.SUXI_CTRIP_SEARCH_OPPORTUNITY_STATIC;\s+if \(/);
+  assert.doesNotMatch(appMain, /const otaBrowserAssistStatic = window\.SUXI_OTA_BROWSER_ASSIST_STATIC;\s+if \(/);
 });
 
 test('public login feedback, support dialog, and hidden states remain accessible', () => {
@@ -75,6 +128,25 @@ test('public login reconciles browser autofill before deciding the submit state'
   assert.match(bootstrap, /window\.addEventListener\('focus', scheduleLoginAutofillSync\)/);
   assert.match(bootstrap, /form\.addEventListener\('focusin', scheduleLoginAutofillSync\)/);
   assert.match(bootstrap, /password\.addEventListener\('change', handleInput\)/);
+});
+
+test('public login keeps the same-origin transport warm without delaying submit', () => {
+  assert.match(bootstrap, /LOGIN_CONNECTION_WARMUP_INTERVAL_MS = 30000/);
+  assert.match(bootstrap, /LOGIN_CONNECTION_WARMUP_TIMEOUT_MS = 12000/);
+  assert.match(bootstrap, /fetchImpl\('\/api\/health', \{/);
+  assert.match(bootstrap, /credentials: 'omit'/);
+  assert.match(bootstrap, /cache: 'no-store'/);
+  assert.match(bootstrap, /priority: 'low'/);
+  assert.match(bootstrap, /\.catch\(\(\) => false\)/);
+  assert.match(bootstrap, /form\.addEventListener\('focusin', warmLoginConnection\)/);
+  assert.match(bootstrap, /window\.addEventListener\('focus', warmLoginConnection\)/);
+  assert.match(bootstrap, /loginConnectionWarmup\.stop\(\);[\s\S]*?await loadAuthenticatedApp\(\)/);
+
+  const submitStart = bootstrap.indexOf("form.addEventListener('submit'");
+  const loginRequest = bootstrap.indexOf("fetchJson('/api/auth/login'", submitStart);
+  const warmupAwait = bootstrap.indexOf('await warmLoginConnection', submitStart);
+  assert(submitStart >= 0 && loginRequest > submitStart, 'login request must stay inside the submit handler');
+  assert(warmupAwait < 0 || warmupAwait > loginRequest, 'connection warmup must never delay the login request');
 });
 
 test('dual OTA loss-chain grid follows the actual node count', () => {

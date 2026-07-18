@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS `ota_ctrip_review_order_matches` (
   `order_id` varchar(80) NOT NULL DEFAULT '',
   `guest_uid` char(32) NOT NULL DEFAULT '',
   `guest_name` varchar(120) NOT NULL DEFAULT '',
-  `match_status` varchar(40) NOT NULL DEFAULT 'unmatched' COMMENT 'found/person_locked/needs_ops/out_of_coverage/matched',
+  `match_status` varchar(40) NOT NULL DEFAULT 'unmatched' COMMENT 'confirmed/high_confidence/candidate/ambiguous/not_found/matched',
   `match_method` varchar(80) NOT NULL DEFAULT '',
   `confidence` varchar(30) NOT NULL DEFAULT 'none',
   `candidate_orders_json` longtext NOT NULL,

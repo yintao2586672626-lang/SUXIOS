@@ -2,11 +2,14 @@
                         <div class="bg-white rounded-lg shadow">
                             <div class="p-4 border-b">
                                 <h3 class="font-medium">美团数据</h3>
-                                <p class="mt-1 text-xs text-gray-500">按美团可获取的数据类型查看同行榜单、流量、订单流向、订单与广告结果。</p>
+                                <p class="mt-1 text-xs text-gray-500">按美团可获取的数据类型查看同行榜单、流量、订单流向、订单线索、点评与广告结果。</p>
                             </div>
                             <div class="p-6">
                                 <div data-testid="meituan-owner-navigation" class="mb-6 flex flex-col gap-3 border-b pb-4 lg:flex-row lg:items-center lg:justify-between">
                                     <div class="flex flex-wrap gap-2">
+                                        <button type="button" @click="openMeituanStoredDataTab('all')" :class="['rounded-lg px-4 py-2.5 text-sm font-semibold transition', onlineDataTab === 'meituan-download' &amp;&amp; downloadCenterTab === 'all' ? 'bg-slate-900 text-white shadow-sm' : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900']">
+                                            全部已存
+                                        </button>
                                         <button @click="openMeituanManualTab('meituan-ranking')" type="button" :class="['rounded-lg px-4 py-2.5 text-sm font-semibold transition', onlineDataTab === 'meituan-ranking' ? 'bg-slate-900 text-white shadow-sm' : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900']">
                                             <i class="fas fa-chart-line mr-1.5"></i>同行榜单
                                         </button>
@@ -17,7 +20,10 @@
                                             <i class="fas fa-exchange-alt mr-1.5"></i>订单流向
                                         </button>
                                         <button type="button" @click="openMeituanStoredDataTab('orders')" :class="['rounded-lg px-4 py-2.5 text-sm font-semibold transition', onlineDataTab === 'meituan-download' &amp;&amp; downloadCenterTab === 'orders' ? 'bg-slate-900 text-white shadow-sm' : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900']">
-                                            <i class="fas fa-receipt mr-1.5"></i>订单数据
+                                            <i class="fas fa-receipt mr-1.5"></i>订单线索
+                                        </button>
+                                        <button type="button" @click="openMeituanStoredDataTab('reviews')" :class="['rounded-lg px-4 py-2.5 text-sm font-semibold transition', onlineDataTab === 'meituan-download' &amp;&amp; downloadCenterTab === 'reviews' ? 'bg-slate-900 text-white shadow-sm' : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900']">
+                                            <i class="fas fa-star-half-alt mr-1.5"></i>美团点评
                                         </button>
                                         <button type="button" @click="openMeituanStoredDataTab('ads')" :class="['rounded-lg px-4 py-2.5 text-sm font-semibold transition', onlineDataTab === 'meituan-download' &amp;&amp; downloadCenterTab === 'ads' ? 'bg-slate-900 text-white shadow-sm' : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900']">
                                             <i class="fas fa-bullhorn mr-1.5"></i>广告数据
@@ -779,11 +785,8 @@
                                 <!-- 点评数据获取 -->
                                 <!-- 下载中心 -->
                                 <div v-if="onlineDataTab === 'meituan-download'">
-                                    <div class="mb-4 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-                                        这里按美团数据类型读取已入库记录；卡片统计仅对应当前筛选的当前页。没有数据或字段未返回时显示“-”，权威 0 会原样保留。
-                                    </div>
                                     <!-- 子Tab导航 -->
-                                    <div class="flex border-b mb-4">
+                                    <div class="flex flex-wrap border-b mb-4">
                                         <button @click="switchDownloadTab('overview')" :class="['px-6 py-3 font-medium', downloadCenterTab === 'overview' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                             <i class="fas fa-chart-line mr-2"></i>同行榜单明细
                                         </button>
@@ -791,7 +794,10 @@
                                             <i class="fas fa-chart-bar mr-2"></i>流量分析
                                         </button>
                                         <button @click="switchDownloadTab('orders')" :class="['px-6 py-3 font-medium', downloadCenterTab === 'orders' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
-                                            <i class="fas fa-receipt mr-2"></i>订单数据
+                                            <i class="fas fa-receipt mr-2"></i>订单线索
+                                        </button>
+                                        <button @click="switchDownloadTab('reviews')" :class="['px-6 py-3 font-medium', downloadCenterTab === 'reviews' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
+                                            <i class="fas fa-star-half-alt mr-2"></i>美团点评
                                         </button>
                                         <button @click="switchDownloadTab('ads')" :class="['px-6 py-3 font-medium', downloadCenterTab === 'ads' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                             <i class="fas fa-bullhorn mr-2"></i>广告数据
@@ -809,6 +815,17 @@
                                         <button @click="queryMeituanStoredData" class="px-4 py-2 bg-blue-500 text-white rounded-lg">
                                             <i class="fas fa-search mr-2"></i>查询
                                         </button>
+                                    </div>
+
+                                    <div v-if="downloadCenterTab === 'all'">
+                                        <div v-for="item in meituanDownloadData.allRows" :key="item.id" class="flex gap-3 border p-2 text-sm">
+                                            <span>{{ item.data_date || '-' }}</span>
+                                            <span class="font-medium">{{ item.hotel_name || '-' }}</span>
+                                            <span>{{ onlineAnalysisDataTypeText(item.data_type) }}</span>
+                                            <span>{{ onlineStorageStatusText(item) }}</span>
+                                            <button @click="viewOnlineDataDetail(item)">详情</button>
+                                        </div>
+                                        <div v-if="meituanDownloadData.allRowsCount === 0">暂无美团已存数据</div>
                                     </div>
 
                                     <!-- 同行榜单入库明细 -->
@@ -937,15 +954,15 @@
                                     </div>
 
 
-                                    <!-- 订单数据模块 -->
+                                    <!-- 订单线索模块 -->
                                     <div v-if="downloadCenterTab === 'orders'">
                                         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                                             <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                                                <div class="text-sm text-gray-500 mb-1">订单记录数</div>
+                                                <div class="text-sm text-gray-500 mb-1">线索记录数</div>
                                                 <div class="text-2xl font-bold text-blue-600">{{ meituanDownloadData.orderRowsCount }}</div>
                                             </div>
                                             <div class="bg-green-50 border border-green-200 rounded-lg p-4">
-                                                <div class="text-sm text-gray-500 mb-1">订单量</div>
+                                                <div class="text-sm text-gray-500 mb-1">订单线索量</div>
                                                 <div class="text-2xl font-bold text-green-600">{{ meituanDownloadData.orderBookOrder === null ? '-' : formatNumber(meituanDownloadData.orderBookOrder) }}</div>
                                             </div>
                                             <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
@@ -963,7 +980,7 @@
                                                     <tr class="bg-gray-50">
                                                         <th class="px-4 py-2 text-left border">酒店</th>
                                                         <th class="px-4 py-2 text-left border">日期</th>
-                                                        <th class="px-4 py-2 text-left border">订单数</th>
+                                                        <th class="px-4 py-2 text-left border">订单线索</th>
                                                         <th class="px-4 py-2 text-left border">间夜</th>
                                                         <th class="px-4 py-2 text-left border">金额</th>
                                                         <th class="px-4 py-2 text-left border">均价</th>
@@ -990,7 +1007,74 @@
                                                         </td>
                                                     </tr>
                                                     <tr v-if="meituanDownloadData.orderRowsCount === 0">
-                                                        <td colspan="8" class="px-4 py-8 text-center text-gray-400">暂无美团订单数据</td>
+                                                        <td colspan="8" class="px-4 py-8 text-center text-gray-400">暂无美团订单线索数据</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
+                                    <!-- 美团点评模块 -->
+                                    <div v-if="downloadCenterTab === 'reviews'">
+                                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                                            <div class="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">点评记录数</div>
+                                                <div class="text-2xl font-bold text-purple-600">{{ meituanDownloadData.reviewRowsCount }}</div>
+                                            </div>
+                                            <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">平均点评分</div>
+                                                <div class="text-2xl font-bold text-amber-600">{{ meituanDownloadData.reviewAverageScore === null ? '-' : toFixedSafe(meituanDownloadData.reviewAverageScore, 1) }}</div>
+                                            </div>
+                                            <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">点评总量</div>
+                                                <div class="text-2xl font-bold text-emerald-600">{{ meituanDownloadData.reviewTotalCount === null ? '-' : formatNumber(meituanDownloadData.reviewTotalCount) }}</div>
+                                            </div>
+                                            <div class="bg-rose-50 border border-rose-200 rounded-lg p-4">
+                                                <div class="text-sm text-gray-500 mb-1">低分/差评数</div>
+                                                <div class="text-2xl font-bold text-rose-600">{{ meituanDownloadData.reviewBadCount === null ? '-' : formatNumber(meituanDownloadData.reviewBadCount) }}</div>
+                                            </div>
+                                        </div>
+                                        <div class="mb-4 rounded-lg border border-purple-100 bg-purple-50 px-4 py-3 text-xs leading-5 text-purple-800">
+                                            点评页只读取已入库的美团 OTA 聚合指标：评分、点评数量、低分/差评数量和质量状态；不展示点评正文、客户姓名、手机号、订单号或匿名身份匹配候选。
+                                        </div>
+                                        <div class="overflow-x-auto table-container">
+                                            <table class="min-w-full bg-white border table-striped">
+                                                <thead>
+                                                    <tr class="bg-gray-50">
+                                                        <th class="px-4 py-2 text-left border">酒店</th>
+                                                        <th class="px-4 py-2 text-left border">日期</th>
+                                                        <th class="px-4 py-2 text-left border">点评分</th>
+                                                        <th class="px-4 py-2 text-left border">点评量</th>
+                                                        <th class="px-4 py-2 text-left border">低分/差评</th>
+                                                        <th class="px-4 py-2 text-left border">维度</th>
+                                                        <th class="px-4 py-2 text-left border">数据质量</th>
+                                                        <th class="px-4 py-2 text-left border">更新时间</th>
+                                                        <th class="px-4 py-2 text-left border">操作</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr v-for="item in meituanDownloadData.reviewRows" :key="item.id" class="border-b hover:bg-gray-50">
+                                                        <td class="px-4 py-2 border">{{ item.hotel_name }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.data_date }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.review_score_value === null ? '-' : toFixedSafe(item.review_score_value, 1) }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.review_count_value === null ? '-' : formatNumber(item.review_count_value) }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.bad_review_count_value === null ? '-' : formatNumber(item.bad_review_count_value) }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.review_dimension_label || '-' }}</td>
+                                                        <td class="px-4 py-2 border">
+                                                            <span class="rounded bg-slate-100 px-2 py-1 text-xs text-slate-700">{{ item.validation_status || '-' }}</span>
+                                                        </td>
+                                                        <td class="px-4 py-2 border">{{ item.update_time || item.create_time || '-' }}</td>
+                                                        <td class="px-4 py-2 border">
+                                                            <button @click="viewOnlineDataDetail(item)" class="text-blue-500 hover:text-blue-700 mr-2">
+                                                                <i class="fas fa-eye"></i>
+                                                            </button>
+                                                            <button v-if="user?.is_super_admin" @click="deleteOnlineDataItem(item.id)" class="text-red-500 hover:text-red-700">
+                                                                <i class="fas fa-trash"></i>
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                    <tr v-if="meituanDownloadData.reviewRowsCount === 0">
+                                                        <td colspan="9" class="px-4 py-8 text-center text-gray-400">当前筛选暂无美团点评聚合数据</td>
                                                     </tr>
                                                 </tbody>
                                             </table>

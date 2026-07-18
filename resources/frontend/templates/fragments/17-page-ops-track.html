@@ -187,7 +187,14 @@
                                                 <div class="font-medium text-gray-900">{{ operationExecutionSourceText(item) }}</div>
                                                 <div class="text-xs text-gray-400">{{ item.recommendation?.platform || '-' }} · {{ item.recommendation?.date_start || '-' }}</div>
                                             </td>
-                                            <td class="px-4 py-3">{{ operationExecutionActionText(item) }}</td>
+                                            <td class="px-4 py-3">
+                                                <div>{{ operationExecutionActionText(item) }}</div>
+                                                <div v-if="item.assignment?.status === 'scheduled'" data-testid="operation-execution-schedule-readback" class="mt-1 space-y-0.5 text-[11px] leading-4 text-gray-500">
+                                                    <div>负责人：用户 #{{ item.assignment.assignee_id }}</div>
+                                                    <div>截止：{{ item.assignment.due_at }}</div>
+                                                    <div>复核：{{ item.assignment.review_at }}</div>
+                                                </div>
+                                            </td>
                                             <td class="px-4 py-3">
                                                 <span :class="operationExecutionStatusClass(item.approval?.status)" class="px-2 py-1 rounded-full text-xs">{{ operationExecutionStatusLabel(item.approval?.status) }}</span>
                                                 <div v-if="item.approval?.blocked_reason" class="text-xs text-amber-700 mt-1">{{ item.approval.blocked_reason }}</div>
@@ -370,6 +377,23 @@
                                         <span class="text-xs font-medium text-slate-600">复盘说明</span>
                                         <textarea v-model.trim="operationReviewForm.summary" rows="5" placeholder="说明已完成什么、等待什么证据，以及当前不能判断的原因" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"></textarea>
                                     </label>
+                                    <div v-if="['success', 'near_success'].includes(operationReviewForm.status)" class="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4" data-testid="operation-review-readback-gate">
+                                        <label class="flex items-start gap-3 text-sm text-amber-900">
+                                            <input v-model="operationReviewForm.operator_attested" type="checkbox" class="mt-0.5 rounded border-amber-300 text-amber-600">
+                                            <span>我声明已在对应 OTA 平台人工复查，并确认本次执行结果与复盘结论一致。</span>
+                                        </label>
+                                        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                            <label class="block">
+                                                <span class="text-xs font-medium text-amber-900">截图 / 回执 / 来源记录 *</span>
+                                                <input v-model.trim="operationReviewForm.source_ref" placeholder="例如 screenshot#20260717-01" class="mt-1 w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm">
+                                            </label>
+                                            <label class="block">
+                                                <span class="text-xs font-medium text-amber-900">人工复查声明时间 *</span>
+                                                <input v-model="operationReviewForm.operator_attested_at" type="datetime-local" step="1" class="mt-1 w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm">
+                                            </label>
+                                        </div>
+                                        <p class="text-xs leading-5 text-amber-800">这里只记录操作者人工声明，不代表 OTA 来源已被服务端验证；不会自动向 OTA 写入价格、库存或活动。</p>
+                                    </div>
                                 </div>
                                 <div class="flex justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
                                     <button type="button" @click="closeOperationReviewModal" :disabled="operationLoading.actions" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 disabled:opacity-60">取消</button>

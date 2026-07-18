@@ -2928,11 +2928,13 @@ function p0_latest_sync_task(int $dataSourceId, string $targetDate): array
     }
 
     try {
-        $task = Db::name('platform_data_sync_tasks')
+        $tasks = Db::name('platform_data_sync_tasks')
             ->field(implode(',', $fields))
             ->where('data_source_id', $dataSourceId)
             ->order('id', 'desc')
-            ->find();
+            ->limit(30)
+            ->select()
+            ->toArray();
     } catch (Throwable $e) {
         return [
             'status' => 'task_read_failed',
@@ -2941,13 +2943,22 @@ function p0_latest_sync_task(int $dataSourceId, string $targetDate): array
             'sensitive_values_exposed' => false,
         ];
     }
-    if (!is_array($task) || $task === []) {
+    if ($tasks === []) {
         return [
             'status' => 'no_sync_task',
             'data_source_id' => $dataSourceId,
             'target_date' => $targetDate,
             'sensitive_values_exposed' => false,
         ];
+    }
+
+    $task = $tasks[0];
+    foreach ($tasks as $candidateTask) {
+        $candidateStats = json_decode((string)($candidateTask['stats_json'] ?? ''), true);
+        if (is_array($candidateStats) && p0_sync_task_target_date($candidateStats) === $targetDate) {
+            $task = $candidateTask;
+            break;
+        }
     }
 
     $stats = json_decode((string)($task['stats_json'] ?? ''), true);
@@ -5691,10 +5702,14 @@ function p0_platform_traffic_gate_next_steps(array $traffic): array
             'post_import_verifier_command' => (string)($bridge['post_import_verifier_command'] ?? ''),
             'manual_gates' => array_values(array_map('strval', (array)($bridge['manual_gates'] ?? []))),
         ];
-        $priority = (!empty($source['managed_by_p0']) ? 8 : 0)
-            + ((int)($source['data_source_id'] ?? 0) > 0 ? 4 : 0)
-            + (strtolower(trim((string)($source['profile_binding_status'] ?? ''))) === 'ready' ? 2 : 0)
-            + (in_array(strtolower(trim((string)($source['status'] ?? ''))), ['ready', 'success'], true) ? 1 : 0);
+        $latestSyncTask = p0_array($source['latest_sync_task'] ?? null);
+        $priority = (!empty($source['profile_flow_ready']) ? 64 : 0)
+            + (!empty($source['current_session_verified']) ? 32 : 0)
+            + (!empty($latestSyncTask['target_date_rows_proved']) ? 16 : 0)
+            + (in_array(strtolower(trim((string)($source['status'] ?? ''))), ['ready', 'success', 'partial_success'], true) ? 8 : 0)
+            + (strtolower(trim((string)($source['profile_binding_status'] ?? ''))) === 'ready' ? 4 : 0)
+            + (!empty($source['managed_by_p0']) ? 2 : 0)
+            + ((int)($source['data_source_id'] ?? 0) > 0 ? 1 : 0);
         if (!isset($stepsByHotel[$systemHotelId]) || $priority > (int)$stepPriorityByHotel[$systemHotelId]) {
             $stepsByHotel[$systemHotelId] = $step;
             $stepPriorityByHotel[$systemHotelId] = $priority;

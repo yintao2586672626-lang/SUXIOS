@@ -69,7 +69,7 @@ test('evaluateFrontendBudget passes metrics within every limit', () => {
   }), []);
 });
 
-test('entry metrics separate the public login shell while retaining the full authenticated startup cost', () => {
+test('entry metrics separate public shell, home startup, and after-paint authenticated assets', () => {
   const repoRoot = mkdtempSync(path.join(tmpdir(), 'suxi-frontend-budget-'));
   const publicRoot = path.join(repoRoot, 'public');
   mkdirSync(publicRoot, { recursive: true });
@@ -79,12 +79,13 @@ test('entry metrics separate the public login shell while retaining the full aut
       <div id="app"></div>
       <script type="application/json" id="suxi-authenticated-assets">[
         "vue.runtime.global.prod.js?v=1",
-        "app-render.min.js?v=1",
+        "app-startup-render.min.js?v=1",
+        {"src":"app-render.min.js?v=1","phase":"after-first-paint"},
         "app-main.min.js?v=1"
       ]</script>
       <script defer src="app-bootstrap.js?v=1"></script>
       </body></html>`);
-    for (const asset of ['shell.css', 'app-bootstrap.js', 'vue.runtime.global.prod.js', 'app-render.min.js', 'app-main.min.js']) {
+    for (const asset of ['shell.css', 'app-bootstrap.js', 'vue.runtime.global.prod.js', 'app-startup-render.min.js', 'app-render.min.js', 'app-main.min.js']) {
       writeFileSync(path.join(publicRoot, asset), `${asset}\n`.repeat(10));
     }
 
@@ -92,6 +93,7 @@ test('entry metrics separate the public login shell while retaining the full aut
     assert.deepEqual(metrics.public_shell_assets, ['shell.css', 'app-bootstrap.js']);
     assert.deepEqual(metrics.authenticated_assets, [
       'vue.runtime.global.prod.js',
+      'app-startup-render.min.js',
       'app-render.min.js',
       'app-main.min.js',
     ]);
@@ -99,9 +101,12 @@ test('entry metrics separate the public login shell while retaining the full aut
       'shell.css',
       'app-bootstrap.js',
       'vue.runtime.global.prod.js',
-      'app-render.min.js',
+      'app-startup-render.min.js',
       'app-main.min.js',
     ]);
+    assert.deepEqual(metrics.deferred_authenticated_assets, ['app-render.min.js']);
+    assert(metrics.deferred_authenticated_gzip_bytes > 0);
+    assert(metrics.full_authenticated_gzip_bytes > metrics.startup_gzip_bytes);
     assert(metrics.startup_gzip_bytes > metrics.public_shell_gzip_bytes);
   } finally {
     rmSync(repoRoot, { recursive: true, force: true });

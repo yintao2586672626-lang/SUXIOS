@@ -6558,6 +6558,9 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
     const onlineAnalysisDataTypeText = (type) => ({
         business: '经营',
         traffic: '流量',
+        competitor: '竞对数据',
+        order: '订单',
+        order_flow: '订单流转',
         rank: '排名',
         ranking: '排名',
         peer_rank: '竞对榜单',
@@ -6571,6 +6574,16 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         service_quality: '服务质量',
         psi: 'PSI',
     }[type] || type || '-');
+
+    const onlineStorageStatusClass = (item = {}) => {
+        const status = String(item?.storage_status || '').trim().toLowerCase();
+        const tone = status === 'success'
+            ? 'bg-emerald-100 text-emerald-700'
+            : (status === 'failed' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700');
+        return `inline-flex rounded-full px-2 py-1 text-xs font-medium ${tone}`;
+    };
+
+    const onlineStorageStatusText = (item = {}) => String(item?.storage_status_label || '').trim() || '未回读验证';
 
     const onlineAnalysisMetricText = (value, formatNumber = metric => String(metric ?? ''), prefix = '') => {
         if (value === null || value === undefined || value === '') return '-';
@@ -7086,6 +7099,8 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         onlineAnalysisFieldFactDetailText,
         onlineAnalysisSourceText,
         onlineAnalysisDataTypeText,
+        onlineStorageStatusClass,
+        onlineStorageStatusText,
         buildOnlineAnalysisSummaryCards,
         buildOnlineAnalysisMetricDefinitionRows,
         buildOnlineAnalysisChartConfig,

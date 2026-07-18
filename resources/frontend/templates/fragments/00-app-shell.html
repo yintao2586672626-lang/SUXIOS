@@ -73,9 +73,9 @@
 
                     <!-- 记住选项 -->
                     <div class="flex items-center text-sm">
-                        <label class="flex items-center text-slate-400 cursor-pointer hover:text-slate-200 transition">
-                            <input type="checkbox" v-model="rememberAccount" class="remember-checkbox mr-3">
-                            <span>记住账号</span>
+                        <label class="flex items-center text-slate-400 cursor-pointer hover:text-slate-200 transition" title="由浏览器密码管理器保存，宿析OS不存储明文密码">
+                            <input type="checkbox" v-model="rememberPassword" class="remember-checkbox mr-3">
+                            <span>记住密码</span>
                         </label>
                     </div>
 
@@ -304,8 +304,8 @@
                                     <div class="flex items-center justify-between gap-3 border-t border-gray-100 bg-gray-50 px-4 py-2">
                                         <span class="text-[11px] text-gray-400">显示最近 {{ globalNotificationVisibleItems.length }} 条 · 共 {{ globalNotificationTotalCount }} 条</span>
                                         <div class="flex items-center gap-3">
-                                            <button type="button" @click="markAllGlobalNotificationsRead" class="header-notification-footer-action text-xs text-gray-600 hover:text-blue-600">当前列表已读</button>
-                                            <button type="button" @click="clearGlobalNotifications" class="header-notification-footer-action text-xs text-gray-600 hover:text-red-600">清空普通提醒</button>
+                                            <button type="button" @click="markAllGlobalNotificationsRead" :disabled="globalNotificationLoading" class="header-notification-footer-action text-xs text-gray-600 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50">全部已读</button>
+                                            <button type="button" @click="clearGlobalNotifications" :disabled="globalNotificationLoading" class="header-notification-footer-action text-xs text-gray-600 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50">清空全部普通提醒</button>
                                         </div>
                                     </div>
                                 </div>

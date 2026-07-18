@@ -276,6 +276,27 @@
                                                             <div class="font-semibold text-gray-900">建议动作与阻断状态</div>
                                                             <span class="text-xs text-gray-400">人工确认后才进入运营执行</span>
                                                         </div>
+                                                        <div data-testid="ota-diagnosis-execution-schedule" class="mb-4 rounded-lg border border-blue-100 bg-blue-50 p-3">
+                                                            <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
+                                                                <label class="block">
+                                                                    <span class="text-xs font-medium text-blue-900">负责人 *</span>
+                                                                    <select v-model="otaDiagnosisExecutionSchedule.assignee_id" class="mt-1 w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm">
+                                                                        <option value="">请选择负责人</option>
+                                                                        <option v-if="!otaDiagnosisAssigneeOptions.length" value="" disabled>暂无具备本门店执行权限的用户</option>
+                                                                        <option v-for="candidate in otaDiagnosisAssigneeOptions" :key="candidate.id" :value="String(candidate.id)">{{ candidate.realname || candidate.username || ('用户 ' + candidate.id) }}</option>
+                                                                    </select>
+                                                                </label>
+                                                                <label class="block">
+                                                                    <span class="text-xs font-medium text-blue-900">执行截止时间 *</span>
+                                                                    <input v-model="otaDiagnosisExecutionSchedule.due_at" type="datetime-local" class="mt-1 w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm">
+                                                                </label>
+                                                                <label class="block">
+                                                                    <span class="text-xs font-medium text-blue-900">效果复核时间 *</span>
+                                                                    <input v-model="otaDiagnosisExecutionSchedule.review_at" type="datetime-local" class="mt-1 w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm">
+                                                                </label>
+                                                            </div>
+                                                            <div class="mt-2 text-[11px] leading-5 text-blue-700">排期随任务草稿保存并回读；未取得平台回读证据前，效果只能保持“继续观察”。</div>
+                                                        </div>
                                                         <div class="space-y-3">
                                                             <div v-for="row in otaDiagnosisActionRows" :key="row.id" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
                                                                 <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-2">

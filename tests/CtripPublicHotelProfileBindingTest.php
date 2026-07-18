@@ -162,6 +162,52 @@ final class CtripPublicHotelProfileBindingTest extends TestCase
         self::assertSame('available', $this->service()->listProfiles(10)[0]['capture_status']);
     }
 
+    public function testProfileReadbackAndSourceValidationRemainSeparateAndHistoryCanBeListed(): void
+    {
+        $service = $this->service();
+        $service->addByHotelId(10, '3456814', 'competitor', 91);
+        $latest = Db::name('ota_ctrip_entity_snapshots')->where('system_hotel_id', 10)->find();
+        self::assertIsArray($latest);
+        $older = $latest;
+        unset($older['id']);
+        $older['data_date'] = '2026-07-15';
+        $older['first_seen_at'] = '2026-07-15 20:00:00';
+        $older['last_seen_at'] = '2026-07-15 20:00:00';
+        $older['create_time'] = '2026-07-15 20:00:00';
+        $older['update_time'] = '2026-07-15 20:00:00';
+        Db::name('ota_ctrip_entity_snapshots')->insert($older);
+
+        $current = $service->listProfiles(10);
+        self::assertCount(1, $current);
+        self::assertTrue($current[0]['persistence_readback_verified']);
+        self::assertSame('source_observed', $current[0]['source_validation_status']);
+        self::assertArrayNotHasKey('readback_verified', $current[0]);
+
+        $history = $service->listProfiles(10, true);
+        self::assertCount(2, $history);
+        self::assertSame(['2026-07-16', '2026-07-15'], array_column($history, 'data_date'));
+    }
+
+    public function testStaleCaptureStatusSurvivesDatabaseReadback(): void
+    {
+        $service = $this->service();
+        $service->addByHotelId(10, '3456814', 'competitor', 91);
+        $row = Db::name('ota_ctrip_entity_snapshots')->where('system_hotel_id', 10)->find();
+        self::assertIsArray($row);
+        $attributes = json_decode((string)$row['attributes_json'], true);
+        self::assertIsArray($attributes);
+        $attributes['source_validation_status'] = 'stale';
+        Db::name('ota_ctrip_entity_snapshots')->where('id', (int)$row['id'])->update([
+            'capture_status' => 'stale',
+            'attributes_json' => json_encode($attributes, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ]);
+
+        $profile = $service->listProfiles(10)[0];
+        self::assertTrue($profile['persistence_readback_verified']);
+        self::assertSame('stale', $profile['capture_status']);
+        self::assertSame('stale', $profile['source_validation_status']);
+    }
+
     private function service(bool $fail = false): CtripPublicHotelProfileService
     {
         $html = <<<'HTML'

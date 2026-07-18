@@ -24,6 +24,7 @@ if (!function_exists('suxi_root_index_response')) {
             'Last-Modified' => $lastModified,
             'Vary' => 'Accept-Encoding',
             'Cache-Control' => 'no-cache',
+            'Cloudflare-CDN-Cache-Control' => 'public, max-age=60, stale-while-revalidate=30',
         ];
 
         $request = request();
@@ -223,6 +224,7 @@ Route::group('api/online-data', function () {
     Route::get('/competitor-summary', 'OnlineData/competitorSummary');
     Route::get('/ctrip/competitive-operations', 'OnlineData/ctripCompetitiveOperations');
     Route::get('/ctrip/public-profiles', 'OnlineData/ctripPublicProfiles');
+    Route::get('/public-page-diagnosis', 'OnlineData/otaPublicPageDiagnosis');
     Route::post('/ctrip/public-profiles/add', 'OnlineData/addCtripPublicProfile');
     Route::post('/ctrip/public-profiles/sync', 'OnlineData/syncCtripPublicProfiles');
     Route::post('/fetch-ctrip-traffic', 'OnlineData/fetchCtripTraffic');
@@ -529,6 +531,7 @@ Route::group('api/transfer', function () {
     Route::get('/records', 'TransferDecision/records');
 })->middleware(\app\middleware\Auth::class);
 // ==================== 竞对价格监控 API ====================
+Route::get('api/competitor/events', 'CompetitorApi/events')->middleware(\app\middleware\Auth::class);
 Route::post('api/competitor/task', 'CompetitorApi/task');
 Route::post('api/competitor/report', 'CompetitorApi/report');
 

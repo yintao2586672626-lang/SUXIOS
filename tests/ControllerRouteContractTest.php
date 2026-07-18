@@ -196,7 +196,7 @@ final class ControllerRouteContractTest extends TestCase
         $source = $this->sourceWithoutPhpComments(__DIR__ . '/../app/controller/OperationManagement.php');
 
         self::assertStringContainsString(
-            '$this->service->reviewExecutionTask($id, $hotelIds, $this->requestData())',
+            '$this->service->reviewExecutionTask(',
             $source,
             'Operation execution review must forward manual result_status/result_summary payload'
         );

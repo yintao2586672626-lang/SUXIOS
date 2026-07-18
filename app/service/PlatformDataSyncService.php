@@ -1761,10 +1761,12 @@ final class PlatformDataSyncService
             'attempted_count' => max(0, (int)($stats['attempted_count'] ?? 0)),
             'inserted_count' => max(0, (int)($stats['inserted_count'] ?? 0)),
             'updated_count' => max(0, (int)($stats['updated_count'] ?? 0)),
+            'deduplicated_count' => max(0, (int)($stats['deduplicated_count'] ?? 0)),
             'readback_count' => max(0, (int)($stats['readback_count'] ?? 0)),
             'readback_verified' => ($stats['readback_verified'] ?? false) === true,
             'rolled_back' => ($stats['rolled_back'] ?? false) === true,
             'failure_reason' => mb_substr(trim((string)($stats['failure_reason'] ?? '')), 0, 120),
+            'mismatch_field' => mb_substr(trim((string)($stats['mismatch_field'] ?? '')), 0, 80),
             'predecessor_task_id' => max(0, (int)($stats['predecessor_task_id'] ?? 0)),
             'recovery_context_status' => mb_substr(trim((string)($stats['recovery_context_status'] ?? '')), 0, 120),
             'payload_keys' => $this->sanitizeSyncTaskPayloadKeys($stats['payload_keys'] ?? []),
@@ -3286,7 +3288,7 @@ final class PlatformDataSyncService
             }
         }
         $saveReceipt = is_array($payload['_save_receipt'] ?? null) ? $payload['_save_receipt'] : [];
-        foreach (['attempted_count', 'inserted_count', 'updated_count', 'readback_count', 'readback_verified', 'rolled_back', 'failure_reason'] as $receiptKey) {
+        foreach (['attempted_count', 'inserted_count', 'updated_count', 'deduplicated_count', 'readback_count', 'readback_verified', 'rolled_back', 'failure_reason', 'mismatch_field'] as $receiptKey) {
             if (array_key_exists($receiptKey, $saveReceipt)) {
                 $stats[$receiptKey] = $saveReceipt[$receiptKey];
             }
@@ -4048,7 +4050,7 @@ final class PlatformDataSyncService
 
     /**
      * @param array<int, array<string, mixed>> $rows
-     * @return array{attempted_count:int,saved_count:int,inserted_count:int,updated_count:int,readback_count:int,readback_verified:bool,row_ids:array<int,int>}
+     * @return array{attempted_count:int,saved_count:int,inserted_count:int,updated_count:int,deduplicated_count:int,readback_count:int,readback_verified:bool,row_ids:array<int,int>}
      */
     private function saveNormalizedRows(array $rows): array
     {
@@ -4058,6 +4060,7 @@ final class PlatformDataSyncService
                 'saved_count' => 0,
                 'inserted_count' => 0,
                 'updated_count' => 0,
+                'deduplicated_count' => 0,
                 'readback_count' => 0,
                 'readback_verified' => true,
                 'row_ids' => [],
@@ -4074,6 +4077,7 @@ final class PlatformDataSyncService
                 $readback = 0;
                 $rowIds = [];
                 $readbackRows = [];
+                $preparedRows = [];
                 foreach ($rows as $row) {
                     $data = array_intersect_key($row, $columns);
                     if ($data === []) {
@@ -4082,7 +4086,11 @@ final class PlatformDataSyncService
                     }
                     $data = OnlineDailyDataPersistenceService::applyTenantScope($data, $columns);
                     $data = OnlineDailyDataPersistenceService::resetReadbackVerification($data, $columns);
+                    $preparedRows[$this->normalizedRowIdentityKey($data, $columns)] = $data;
+                }
+                $deduplicatedCount = max(0, $attempted - count($preparedRows));
 
+                foreach ($preparedRows as $data) {
                     $existing = $this->findNormalizedRowByCompleteIdentity($data, $columns);
                     if (is_array($existing)) {
                         $rowId = (int)($existing['id'] ?? 0);
@@ -4104,13 +4112,15 @@ final class PlatformDataSyncService
                         }
                     }
 
+                    $mismatchField = null;
                     $readbackRow = $rowId > 0
-                        ? $this->normalizedRowReadback($rowId, $data, $columns)
+                        ? $this->normalizedRowReadback($rowId, $data, $columns, $mismatchField)
                         : null;
                     if (!is_array($readbackRow)) {
                         $failureReceipt = $this->normalizedRowsRollbackReceipt(
                             $attempted,
-                            'normalized_rows_readback_mismatch_rolled_back'
+                            'normalized_rows_readback_mismatch_rolled_back',
+                            $mismatchField
                         );
                         throw new RuntimeException('normalized_rows_readback_mismatch_rolled_back');
                     }
@@ -4119,7 +4129,7 @@ final class PlatformDataSyncService
                     $readbackRows[] = $readbackRow;
                 }
 
-                if ($attempted !== $readback
+                if (count($preparedRows) !== $readback
                     || !OnlineDailyDataPersistenceService::markRowsReadbackVerified($readbackRows, $columns)) {
                     $failureReceipt = $this->normalizedRowsRollbackReceipt(
                         $attempted,
@@ -4133,8 +4143,9 @@ final class PlatformDataSyncService
                     'saved_count' => $readback,
                     'inserted_count' => $inserted,
                     'updated_count' => $updated,
+                    'deduplicated_count' => $deduplicatedCount,
                     'readback_count' => $readback,
-                    'readback_verified' => $attempted === $readback,
+                    'readback_verified' => count($preparedRows) === $readback,
                     'rolled_back' => false,
                     'failure_reason' => '',
                     'row_ids' => array_slice($rowIds, 0, 50),
@@ -4189,18 +4200,40 @@ final class PlatformDataSyncService
         return is_array($existing) ? $existing : null;
     }
 
+    /** @param array<string, mixed> $row @param array<string, bool> $columns */
+    private function normalizedRowIdentityKey(array $row, array $columns): string
+    {
+        $identity = [];
+        foreach ([
+            'tenant_id', 'system_hotel_id', 'data_source_id', 'source', 'platform',
+            'hotel_id', 'data_type', 'data_date', 'data_period', 'snapshot_bucket',
+            'dimension', 'compare_type',
+        ] as $field) {
+            if (!isset($columns[$field]) || !array_key_exists($field, $row)) {
+                continue;
+            }
+            $identity[$field] = $row[$field] === null ? null : (string)$row[$field];
+        }
+        if ($identity === []) {
+            throw new RuntimeException('normalized_row_identity_missing');
+        }
+        return json_encode($identity, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+    }
+
     /** @return array<string, mixed> */
-    private function normalizedRowsRollbackReceipt(int $attempted, string $reason): array
+    private function normalizedRowsRollbackReceipt(int $attempted, string $reason, ?string $mismatchField = null): array
     {
         return [
             'attempted_count' => max(0, $attempted),
             'saved_count' => 0,
             'inserted_count' => 0,
             'updated_count' => 0,
+            'deduplicated_count' => 0,
             'readback_count' => 0,
             'readback_verified' => false,
             'rolled_back' => true,
             'failure_reason' => $reason,
+            'mismatch_field' => trim((string)$mismatchField),
             'row_ids' => [],
         ];
     }
@@ -4209,10 +4242,12 @@ final class PlatformDataSyncService
      * @param array<string, mixed> $expected
      * @param array<string, bool> $columns
      */
-    private function normalizedRowReadback(int $rowId, array $expected, array $columns): ?array
+    private function normalizedRowReadback(int $rowId, array $expected, array $columns, ?string &$mismatchField = null): ?array
     {
+        $mismatchField = null;
         $stored = Db::name('online_daily_data')->where('id', $rowId)->find();
         if (!is_array($stored)) {
+            $mismatchField = '__row_missing__';
             return null;
         }
         foreach ($expected as $field => $expectedValue) {
@@ -4220,14 +4255,15 @@ final class PlatformDataSyncService
                 continue;
             }
             $storedValue = $stored[$field] ?? null;
-            if (!$this->normalizedStoredValueMatches($storedValue, $expectedValue)) {
+            if (!$this->normalizedStoredValueMatches($storedValue, $expectedValue, (string)$field)) {
+                $mismatchField = (string)$field;
                 return null;
             }
         }
         return $stored;
     }
 
-    private function normalizedStoredValueMatches(mixed $stored, mixed $expected): bool
+    private function normalizedStoredValueMatches(mixed $stored, mixed $expected, string $field = ''): bool
     {
         if ($expected === null) {
             return $stored === null;
@@ -4236,7 +4272,13 @@ final class PlatformDataSyncService
             return is_numeric($stored) && (int)$stored === $expected;
         }
         if (is_float($expected)) {
-            return is_numeric($stored) && abs((float)$stored - $expected) <= 0.005;
+            if (!is_numeric($stored)) {
+                return false;
+            }
+            if (in_array($field, ['comment_score', 'qunar_comment_score'], true)) {
+                return abs((float)$stored - round($expected, 1, PHP_ROUND_HALF_UP)) <= 0.000001;
+            }
+            return abs((float)$stored - $expected) <= 0.005001;
         }
         if (is_bool($expected)) {
             return (bool)$stored === $expected;

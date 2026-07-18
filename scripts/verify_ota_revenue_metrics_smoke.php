@@ -3,12 +3,15 @@ declare(strict_types=1);
 
 use app\service\OtaRevenueMetricService;
 use app\service\OtaStandardEtlService;
+use app\service\OnlineDataTrustStatusService;
 use think\App;
 use think\facade\Config;
 use think\facade\Db;
 use think\facade\Env;
 
 require __DIR__ . '/../vendor/autoload.php';
+
+date_default_timezone_set('Asia/Shanghai');
 
 $root = dirname(__DIR__);
 $endpoint = '/api/ota-standard/revenue-metrics';
@@ -138,6 +141,18 @@ function query_source_rows(array $columns, array $filters): array
     $fields = array_values(array_intersect($candidateFields, array_keys($columns)));
     $query = Db::name('online_daily_data')->field($fields ?: '*');
 
+    if (isset($columns['readback_verified'])) {
+        $query->where('readback_verified', 1);
+    }
+    if (isset($columns['validation_status'])) {
+        $blocked = OnlineDataTrustStatusService::quotedSqlList(OnlineDataTrustStatusService::blockingValidationStatuses());
+        $query->whereRaw("(`validation_status` IS NULL OR LOWER(TRIM(`validation_status`)) NOT IN ({$blocked}))");
+    }
+    if (isset($columns['status'])) {
+        $blocked = OnlineDataTrustStatusService::quotedSqlList(OnlineDataTrustStatusService::blockingRowStatuses());
+        $query->whereRaw("(`status` IS NULL OR LOWER(TRIM(`status`)) NOT IN ({$blocked}))");
+    }
+
     if (!empty($filters['source']) && isset($columns['source'])) {
         $query->where('source', (string)$filters['source']);
     }
@@ -195,11 +210,86 @@ function recommended_columns(): array
         'order_submit_num',
         'validation_status',
         'validation_flags',
+        'readback_verified',
+        'readback_verified_at',
         'data_source_id',
         'sync_task_id',
         'ingestion_method',
         'source_trace_id',
     ];
+}
+
+function has_bounded_metric_scope(array $filters): bool
+{
+    foreach (['system_hotel_id', 'hotel_id', 'start_date', 'end_date'] as $field) {
+        if (trim((string)($filters[$field] ?? '')) !== '') {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** @return array<string, mixed> */
+function latest_trusted_metric_scope(array $columns, array $filters): array
+{
+    $fields = array_values(array_intersect([
+        'id', 'system_hotel_id', 'hotel_id', 'data_date', 'source', 'data_type', 'update_time', 'create_time',
+    ], array_keys($columns)));
+    $query = Db::name('online_daily_data')->field($fields ?: '*');
+
+    if (isset($columns['readback_verified'])) {
+        $query->where('readback_verified', 1);
+    }
+    if (isset($columns['validation_status'])) {
+        $blocked = OnlineDataTrustStatusService::quotedSqlList(OnlineDataTrustStatusService::blockingValidationStatuses());
+        $query->whereRaw("(`validation_status` IS NULL OR LOWER(TRIM(`validation_status`)) NOT IN ({$blocked}))");
+    }
+    if (isset($columns['status'])) {
+        $blocked = OnlineDataTrustStatusService::quotedSqlList(OnlineDataTrustStatusService::blockingRowStatuses());
+        $query->whereRaw("(`status` IS NULL OR LOWER(TRIM(`status`)) NOT IN ({$blocked}))");
+    }
+    if (isset($columns['data_date'])) {
+        $query->where('data_date', '<=', date('Y-m-d'));
+    }
+    if (isset($columns['system_hotel_id'])) {
+        $query->where('system_hotel_id', '>', 0);
+    }
+    if (!empty($filters['source']) && isset($columns['source'])) {
+        $query->where('source', (string)$filters['source']);
+    }
+    if (!empty($filters['data_type']) && isset($columns['data_type'])) {
+        $query->where('data_type', (string)$filters['data_type']);
+    } elseif (isset($columns['data_type'])) {
+        $query->whereIn('data_type', ['business', 'order']);
+    }
+    if (isset($columns['compare_type'])) {
+        $query->whereNotIn('compare_type', ['competitor', 'competitor_avg', 'peer']);
+    }
+
+    $query->order('data_date', 'desc');
+    if (isset($columns['update_time'])) {
+        $query->order('update_time', 'desc');
+    } elseif (isset($columns['create_time'])) {
+        $query->order('create_time', 'desc');
+    }
+    if (isset($columns['id'])) {
+        $query->order('id', 'desc');
+    }
+    $row = $query->find();
+    if (!is_array($row) || trim((string)($row['data_date'] ?? '')) === '') {
+        return [];
+    }
+
+    $scope = [
+        'start_date' => (string)$row['data_date'],
+        'end_date' => (string)$row['data_date'],
+    ];
+    if ((int)($row['system_hotel_id'] ?? 0) > 0) {
+        $scope['system_hotel_id'] = (int)$row['system_hotel_id'];
+    } elseif (trim((string)($row['hotel_id'] ?? '')) !== '') {
+        $scope['hotel_id'] = (string)$row['hotel_id'];
+    }
+    return $scope;
 }
 
 function field_groups(): array
@@ -566,6 +656,18 @@ try {
         add_issue($issues, 'warning', 'missing_recommended_column', "{$sourceTable} is missing non-blocking trace or enrichment columns.", [
             'missing_columns' => $missingRecommended,
         ]);
+    }
+
+    if (!has_bounded_metric_scope($filters)) {
+        $autoScope = latest_trusted_metric_scope($columns, $filters);
+        if ($autoScope === []) {
+            add_issue($issues, 'error', 'bounded_scope_missing', 'No trusted hotel/date scope is available for the default smoke run.');
+            throw new RuntimeException('Cannot run an unbounded revenue metric smoke.');
+        }
+        $filters = array_merge($filters, $autoScope);
+        $result['filters'] = $filters;
+        $result['facts']['auto_scope'] = $autoScope;
+        add_check($checks, 'bounded_scope_selected', 'ok', 'Default smoke automatically selected the latest trusted hotel/date scope.', $autoScope);
     }
 
     $sourceRows = query_source_rows($columns, $filters);

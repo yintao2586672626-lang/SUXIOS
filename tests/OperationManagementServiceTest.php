@@ -774,6 +774,98 @@ final class OperationManagementServiceTest extends TestCase
         self::assertStringContainsString('execution task state changed; refresh before review', $source);
     }
 
+    public function testExecutionSuccessReviewRequiresStoredOperatorAttestationAndRejectsLegacyVerifiedClaims(): void
+    {
+        $service = new OperationManagementService();
+        $attested = $this->invokeNonPublic($service, 'executionEvidenceHasOperatorAttestation', [[[
+            'task_id' => 88,
+            'evidence_type' => 'operator_attested_platform_readback',
+            'created_by' => 7,
+            'created_at' => '2026-07-17 12:31:00',
+            'platform_response_json' => json_encode([
+                'mode' => 'operator_attested',
+                'verification_status' => 'operator_attested',
+                'operator_attested' => true,
+                'operator_attested_at' => '2026-07-17 12:30:00',
+                'source_verified' => false,
+                'source_validation_status' => 'not_source_verified',
+                'source_ref' => 'ota_receipt#123',
+            ], JSON_UNESCAPED_UNICODE),
+            'attachment_path' => '',
+        ]], ['id' => 88, 'executed_at' => '2026-07-17 12:00:00']]);
+        self::assertTrue($attested);
+
+        $legacyClientClaim = $this->invokeNonPublic($service, 'executionEvidenceHasOperatorAttestation', [[[
+            'task_id' => 88,
+            'evidence_type' => 'manual_platform_readback',
+            'created_by' => 7,
+            'created_at' => '2026-07-17 12:31:00',
+            'platform_response_json' => json_encode([
+                'readback_verified' => true,
+                'readback_verified_at' => '2026-07-17 12:30:00',
+                'source_ref' => 'client-claim#1',
+            ], JSON_UNESCAPED_UNICODE),
+            'attachment_path' => '',
+        ]], ['id' => 88, 'executed_at' => '2026-07-17 12:00:00']]);
+        self::assertFalse($legacyClientClaim);
+
+        $sourceVerifiedClaim = $this->invokeNonPublic($service, 'executionEvidenceHasOperatorAttestation', [[[
+            'task_id' => 88,
+            'evidence_type' => 'operator_attested_platform_readback',
+            'created_by' => 7,
+            'created_at' => '2026-07-17 12:31:00',
+            'platform_response_json' => json_encode([
+                'mode' => 'operator_attested',
+                'verification_status' => 'operator_attested',
+                'operator_attested' => true,
+                'operator_attested_at' => '2026-07-17 12:30:00',
+                'source_verified' => true,
+                'source_validation_status' => 'not_source_verified',
+                'source_ref' => 'client-claim#2',
+            ], JSON_UNESCAPED_UNICODE),
+            'attachment_path' => '',
+        ]], ['id' => 88, 'executed_at' => '2026-07-17 12:00:00']]);
+        self::assertFalse($sourceVerifiedClaim);
+    }
+
+    public function testReviewReadbackEvidenceNormalizesLegacyClientFieldAsOperatorAttestationWithoutOtaWrite(): void
+    {
+        $service = new OperationManagementService();
+        $payload = $this->invokeNonPublic($service, 'normalizeExecutionReviewReadbackEvidence', [[
+            'readback_evidence' => [
+                'readback_verified' => 'true',
+                'readback_verified_at' => '2026-07-17T12:30',
+                'source_ref' => 'screenshot#review-123',
+            ],
+        ], ['id' => 88, 'executed_at' => '2026-07-17 12:00:00'], 7]);
+
+        self::assertSame('operator_attested_platform_readback', $payload['evidence_type']);
+        self::assertSame(88, $payload['task_id']);
+        self::assertSame(7, $payload['created_by']);
+        self::assertSame('operator_attested', $payload['platform_response']['verification_status']);
+        self::assertTrue($payload['platform_response']['operator_attested']);
+        self::assertFalse($payload['platform_response']['source_verified']);
+        self::assertSame('not_source_verified', $payload['platform_response']['source_validation_status']);
+        self::assertArrayNotHasKey('readback_verified', $payload['platform_response']);
+        self::assertSame('operator_attested_platform_readback_no_ota_write', $payload['platform_response']['evidence_boundary']);
+    }
+
+    public function testReviewReadbackEvidenceRejectsClientClaimedSourceVerification(): void
+    {
+        $service = new OperationManagementService();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('source_verified cannot be submitted by the client');
+        $this->invokeNonPublic($service, 'normalizeExecutionReviewReadbackEvidence', [[
+            'readback_evidence' => [
+                'operator_attested' => true,
+                'operator_attested_at' => '2026-07-17T12:30',
+                'source_ref' => 'screenshot#review-123',
+                'source_verified' => true,
+            ],
+        ], ['id' => 88, 'executed_at' => '2026-07-17 12:00:00'], 7]);
+    }
+
     private function metricValue(array $summary, string $key): mixed
     {
         foreach ($summary['metrics'] as $metric) {

@@ -317,6 +317,8 @@ class OtaStandardEtlService
             'save_status',
             'validation_status',
             'validation_flags',
+            'readback_verified',
+            'readback_verified_at',
             'error_info',
             'failure_reason',
             'failed_reason',
@@ -331,6 +333,17 @@ class OtaStandardEtlService
         ], array_keys($columns)));
 
         $query = Db::name('online_daily_data')->field($fields ?: '*');
+        if (isset($columns['readback_verified'])) {
+            $query->where('readback_verified', 1);
+        }
+        if (isset($columns['validation_status'])) {
+            $blocked = OnlineDataTrustStatusService::quotedSqlList(OnlineDataTrustStatusService::blockingValidationStatuses());
+            $query->whereRaw("(`validation_status` IS NULL OR LOWER(TRIM(`validation_status`)) NOT IN ({$blocked}))");
+        }
+        if (isset($columns['status'])) {
+            $blocked = OnlineDataTrustStatusService::quotedSqlList(OnlineDataTrustStatusService::blockingRowStatuses());
+            $query->whereRaw("(`status` IS NULL OR LOWER(TRIM(`status`)) NOT IN ({$blocked}))");
+        }
         $this->applySystemHotelScopeFilter($query, $filters, $columns);
         $sourceFilter = trim((string)($filters['source'] ?? $filters['platform'] ?? ''));
         if ($sourceFilter !== '' && isset($columns['source'])) {
@@ -961,12 +974,12 @@ class OtaStandardEtlService
     {
         $failureReasons = [];
         $status = strtolower(trim((string)($row['status'] ?? $row['save_status'] ?? '')));
-        if (in_array($status, ['failed', 'fail', 'error'], true)) {
+        if (in_array($status, OnlineDataTrustStatusService::blockingRowStatuses(), true)) {
             $failureReasons[] = 'row_status_' . $status;
         }
 
         $validationStatus = strtolower(trim((string)($row['validation_status'] ?? '')));
-        if (in_array($validationStatus, ['abnormal', 'invalid', 'failed', 'unverified', 'mismatched', 'mismatch'], true)) {
+        if (in_array($validationStatus, OnlineDataTrustStatusService::blockingValidationStatuses(), true)) {
             $failureReasons[] = 'validation_status_' . $validationStatus;
             foreach ($this->validationFlagReasons($row['validation_flags'] ?? []) as $reason) {
                 $failureReasons[] = $reason;
@@ -975,6 +988,10 @@ class OtaStandardEtlService
             foreach ($this->blockingValidationFlagReasons($row['validation_flags'] ?? []) as $reason) {
                 $failureReasons[] = $reason;
             }
+        }
+
+        if (array_key_exists('readback_verified', $row) && (int)$row['readback_verified'] !== 1) {
+            $failureReasons[] = 'readback_unverified';
         }
 
         $sourceTraceId = $this->sourceTraceId($row);
@@ -1493,6 +1510,12 @@ class OtaStandardEtlService
         if (!preg_match('/^[A-Za-z0-9_]+$/', $table)) {
             return false;
         }
+        if (strtolower((string)Db::connect()->getConfig('type')) === 'sqlite') {
+            return Db::query(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+                [$table]
+            ) !== [];
+        }
         return !empty(Db::query("SHOW TABLES LIKE '" . addslashes($table) . "'"));
     }
 
@@ -1502,6 +1525,14 @@ class OtaStandardEtlService
     private function tableColumns(string $table): array
     {
         $columns = [];
+        if (strtolower((string)Db::connect()->getConfig('type')) === 'sqlite') {
+            foreach (Db::query('PRAGMA table_info(`' . $table . '`)') as $row) {
+                if (!empty($row['name'])) {
+                    $columns[(string)$row['name']] = true;
+                }
+            }
+            return $columns;
+        }
         foreach (Db::query('SHOW COLUMNS FROM `' . $table . '`') as $row) {
             if (!empty($row['Field'])) {
                 $columns[(string)$row['Field']] = true;

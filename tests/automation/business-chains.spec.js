@@ -1,4 +1,5 @@
 const { test, expect } = require('@playwright/test');
+const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const {
@@ -216,6 +217,37 @@ async function cleanupAll(cleanups) {
   }
 }
 
+function seedAiReportInputFixture(hotelContext) {
+  if (process.env.SUXI_E2E_ISOLATED_RUNNER !== '1') {
+    throw new Error('AI report traffic fixture requires the isolated E2E runner');
+  }
+  const php = process.env.SUXI_PHP || 'C:\\xampp\\php\\php.exe';
+  const helper = path.join(__dirname, 'e2e-isolation-helper.php');
+  const result = spawnSync(php, [helper, 'seed-ai-report-inputs'], {
+    cwd: path.resolve(__dirname, '..', '..'),
+    env: {
+      ...process.env,
+      SUXI_E2E_PREFIX: hotelContext.objectPrefix,
+      SUXI_E2E_HOTEL_ID: String(hotelContext.hotelId),
+    },
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  if (result.error || result.status !== 0) {
+    const detail = String(result.stderr || result.stdout || result.error?.message || '').trim().slice(0, 800);
+    const error = new Error(`AI report input fixture failed${detail ? `: ${detail}` : ''}`);
+    error.category = 'test-data-invalid';
+    throw error;
+  }
+  try {
+    return JSON.parse(String(result.stdout || '').trim());
+  } catch {
+    const error = new Error('AI report input fixture returned invalid JSON');
+    error.category = 'test-data-invalid';
+    throw error;
+  }
+}
+
 async function assertPages(page, modules) {
   for (const mod of modules) {
     await goModule(page, mod);
@@ -279,27 +311,15 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
       const dataDate = '2026-05-17';
       const baselineDate = '2026-05-16';
       const otaHotelId = `${hotelContext.objectPrefix}_ota`;
+      const trafficOtaHotelId = `${hotelContext.objectPrefix}_traffic_ota`;
 
-      const baselineSave = await api.post('/api/online-data/save-daily-data', {
-        system_hotel_id: hotelContext.hotelId,
-        data_date: baselineDate,
-        data: [{
-          hotelId: otaHotelId,
-          hotelName: hotelContext.hotelName,
-          dataDate: baselineDate,
-          amount: 150000,
-          quantity: 360,
-          bookOrderNum: 150,
-          commentScore: 4.8,
-          qunarCommentScore: 4.7,
-          exposure: 40000,
-          visitors: 8000,
-          views: 10000,
-          totalDetailNum: 10000,
-          qunarDetailVisitors: 8000,
-        }],
-      }, { label: 'OTA baseline daily import' });
-      expect(baselineSave.saved_count).toBeGreaterThan(0);
+      const reportInputFixture = seedAiReportInputFixture(hotelContext);
+      expect(reportInputFixture.readback_verified).toBe(true);
+      expect(Number(reportInputFixture.hotel_id)).toBe(hotelContext.hotelId);
+      expect(reportInputFixture.ota_hotel_id).toBe(trafficOtaHotelId);
+      expect(reportInputFixture.business_ota_hotel_id).toBe(otaHotelId);
+      expect(reportInputFixture.row_ids || []).toHaveLength(3);
+      expect(reportInputFixture.data_dates || []).toEqual([baselineDate, dataDate]);
 
       const save = await api.post('/api/online-data/save-daily-data', {
         system_hotel_id: hotelContext.hotelId,
@@ -313,11 +333,11 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
           bookOrderNum: 120,
           commentScore: 4.8,
           qunarCommentScore: 4.7,
-          exposure: 10000,
-          visitors: 2000,
-          views: 2500,
-          totalDetailNum: 2500,
-          qunarDetailVisitors: 2000,
+          listExposure: 10000,
+          detailExposure: 2500,
+          flowRate: 25,
+          orderFillingNum: 250,
+          orderSubmitNum: 120,
         }],
       }, { label: 'OTA daily import' });
       expect(save.saved_count).toBeGreaterThan(0);
@@ -326,7 +346,9 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
         params: { hotel_id: otaHotelId, start_date: dataDate, end_date: dataDate, page_size: 5 },
         label: 'OTA imported list',
       });
-      const row = (imported.list || []).find((item) => String(item.hotel_id) === otaHotelId);
+      const row = (imported.list || []).find((item) => (
+        String(item.hotel_id) === otaHotelId && String(item.data_type) === 'business'
+      ));
       expect(row).toBeTruthy();
       expect(Number(row.system_hotel_id)).toBe(hotelContext.hotelId);
       expect(Number(row.readback_verified)).toBe(1);
@@ -346,8 +368,8 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
       });
       expect(fullData.summary.data_status).toBe('ok');
       expect(Number(fullData.summary.revenue)).toBeGreaterThanOrEqual(120000);
-      expect(fullData.ota.data_status).not.toBe('ok');
-      expect(Number(fullData.ota.exposure)).toBe(0);
+      expect(fullData.ota.data_status).toBe('ok');
+      expect(Number(fullData.ota.exposure)).toBe(10000);
 
       const rootCause = await api.post('/api/operation/root-cause', {
         hotel_id: hotelContext.hotelId,
@@ -355,6 +377,10 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
         problem_type: 'orders_down',
       }, { label: 'operation root cause' });
       expect(rootCause.conclusion || rootCause.main_problem).toBeTruthy();
+      expect(
+        (rootCause.candidate_factors || []).some((item) => (item?.code || item?.type) === 'traffic_down'),
+        JSON.stringify(rootCause),
+      ).toBe(true);
 
       const strategy = await api.post('/api/operation/strategy-simulation', {
         hotel_id: hotelContext.hotelId,
@@ -371,18 +397,82 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
       expect(strategy.execution_intent).toBeNull();
       expect(strategy.execution_intent_status).toBe('blocked_by_insufficient_baseline');
 
-      const report = await api.post('/api/ai-daily-reports/generate', {
+      await goModule(page, MODULE.AI_DAILY_REPORT);
+      const generationTask = await api.post('/api/ai-daily-reports/generate', {
         hotel_id: hotelContext.hotelId,
         report_date: dataDate,
         use_llm: false,
-      }, { label: 'AI daily report generation' });
+        background: true,
+      }, { label: 'AI daily report background generation' });
+      expect(String(generationTask.task_id || '')).toMatch(/^airpt_/);
+      expect(Number(generationTask.hotel_id)).toBe(hotelContext.hotelId);
+      expect(generationTask.report_date).toBe(dataDate);
+
+      let completedGenerationTask = generationTask;
+      await expect.poll(async () => {
+        completedGenerationTask = await api.get(`/api/ai-daily-reports/tasks/${generationTask.task_id}`, {
+          label: 'AI daily report background task polling',
+        });
+        return completedGenerationTask.done;
+      }, {
+        message: 'AI daily report background task should reach a terminal state',
+        timeout: 45000,
+        intervals: [100, 250, 500, 1000],
+      }).toBe(true);
+      expect(completedGenerationTask.status, JSON.stringify(completedGenerationTask)).toBe('succeeded');
+      expect(completedGenerationTask.model_status).toBe('not_requested');
+      const reportId = Number(completedGenerationTask.result_report_id || 0);
+      expect(reportId).toBeGreaterThan(0);
+
+      const report = await api.get(`/api/ai-daily-reports/${reportId}`, {
+        label: 'AI daily report exact id and hotel readback',
+      });
       expect(Number(report.id)).toBeGreaterThan(0);
+      expect(Number(report.id)).toBe(reportId);
+      expect(Number(report.hotel_id)).toBe(hotelContext.hotelId);
+      expect(report.report_date).toBe(dataDate);
       expect(report.generation_mode).toBe('rule');
       expect(report.model_status).toBe('not_requested');
-      const blockedActions = report.recommended_actions || [];
-      expect(blockedActions.length).toBeGreaterThan(0);
-      expect(blockedActions.every((item) => item?.can_create_execution_intent === false)).toBe(true);
-      expect(blockedActions.every((item) => String(item?.blocked_reason || '').trim() !== '')).toBe(true);
+      const reportActions = report.recommended_actions || [];
+      const executableActionIndex = reportActions.findIndex((item) => item?.can_create_execution_intent === true);
+      expect(executableActionIndex, JSON.stringify(reportActions)).toBeGreaterThanOrEqual(0);
+
+      const judgmentComment = `${hotelContext.objectPrefix}_ai_report_useful`;
+      const judgedReport = await api.post(`/api/ai-daily-reports/${report.id}/human-judgments`, {
+        target_type: 'report_usefulness',
+        decision: 'accepted',
+        comment: judgmentComment,
+      }, { label: 'AI daily report human judgment save' });
+      expect((judgedReport.human_judgments || []).some((item) => (
+        item?.target_type === 'report_usefulness'
+          && item?.decision === 'accepted'
+          && item?.comment === judgmentComment
+      ))).toBe(true);
+
+      const judgedReadback = await api.get(`/api/ai-daily-reports/${report.id}`, {
+        label: 'AI daily report human judgment readback',
+      });
+      expect(Number(judgedReadback.id)).toBe(reportId);
+      expect(Number(judgedReadback.hotel_id)).toBe(hotelContext.hotelId);
+      expect((judgedReadback.human_judgments || []).some((item) => (
+        item?.target_type === 'report_usefulness'
+          && item?.decision === 'accepted'
+          && item?.comment === judgmentComment
+      ))).toBe(true);
+
+      const reportActionBridge = await api.post(
+        `/api/ai-daily-reports/${report.id}/actions/${executableActionIndex}/execution-intent`,
+        {},
+        { label: 'AI daily report executable action intent' },
+      );
+      expect(Number(reportActionBridge.report_id)).toBe(reportId);
+      expect(Number(reportActionBridge.action_index)).toBe(executableActionIndex);
+      const reportActionIntent = reportActionBridge.execution_intent || {};
+      expect(Number(reportActionIntent.id)).toBeGreaterThan(0);
+      expect(Number(reportActionIntent.hotel_id)).toBe(hotelContext.hotelId);
+      expect(reportActionIntent.source_module).toBe('ai_daily_report');
+      expect(reportActionIntent.status).toBe('pending_approval');
+      expect(reportActionIntent.tasks || []).toHaveLength(0);
 
       const intent = await api.post('/api/operation/execution-intents', {
         hotel_id: hotelContext.hotelId,
@@ -440,6 +530,12 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
       const reviewed = await api.post(`/api/operation/execution-tasks/${task.id}/review`, {
         result_status: 'success',
         result_summary: `${hotelContext.objectPrefix}_manual_effect_review`,
+        readback_evidence: {
+          operator_attested: true,
+          operator_attested_at: new Date().toISOString(),
+          source_ref: `${hotelContext.objectPrefix}_isolated_readback_receipt`,
+          remark: 'isolated local E2E readback proof; no OTA write',
+        },
       }, { label: 'manual effect review' });
       expect(reviewed.result_status).toBe('success');
 
@@ -471,8 +567,9 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
       });
       const actionReadback = reportReadback.recommended_actions || [];
       expect(actionReadback.length).toBeGreaterThan(0);
-      expect(actionReadback.every((item) => item?.can_create_execution_intent === false)).toBe(true);
-      expect(actionReadback.some((item) => Number(item?.execution_intent_id || 0) > 0)).toBe(false);
+      expect(actionReadback[executableActionIndex]?.can_create_execution_intent).toBe(true);
+      expect(Number(actionReadback[executableActionIndex]?.execution_intent_id || 0)).toBe(Number(reportActionIntent.id));
+      expect(actionReadback[executableActionIndex]?.execution_status).toBe('pending_approval');
 
       const deletedForRestore = await api.post('/api/online-data/delete-data', {
         id: row.id,
@@ -511,7 +608,9 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
 
       await goModule(page, MODULE.AI_DAILY_REPORT);
       await goModule(page, MODULE.EXECUTION_TRACKING);
-      const closedLoopRow = page.getByTestId('page-ops-track').locator('tbody tr').filter({ hasText: '1 条' }).first();
+      const closedLoopRow = page.getByTestId('page-ops-track').locator('tbody tr').filter({
+        hasText: `${hotelContext.objectPrefix}_manual_effect_review`,
+      }).first();
       await expect(closedLoopRow).toBeVisible({ timeout: 5000 });
       await expect(closedLoopRow).toContainText('300');
 

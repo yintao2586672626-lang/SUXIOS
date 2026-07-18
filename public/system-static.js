@@ -378,17 +378,29 @@ window.SUXI_SYSTEM_STATIC = (() => {
         { key: 'actions', label: '操作' },
     ];
     const rememberedUsernameStorageKey = 'remembered_username';
+    const browserPasswordSavePreferenceKey = 'suxios_browser_password_save_v1';
+    const browserPasswordSaveTimeoutMs = 1500;
     const legacyRememberedPasswordStorageKey = 'remembered_password';
     const createLoginForm = ({ username = '' } = {}) => ({
         username: String(username || ''),
         password: '',
     });
     const getRememberedLoginAccount = (storage) => {
-        const username = String(storage?.getItem?.(rememberedUsernameStorageKey) || '');
-        storage?.removeItem?.(legacyRememberedPasswordStorageKey);
+        let username = '';
+        let remember = false;
+        try {
+            username = String(storage?.getItem?.(rememberedUsernameStorageKey) || '');
+            remember = !!username && storage?.getItem?.(browserPasswordSavePreferenceKey) === '1';
+            storage?.removeItem?.(legacyRememberedPasswordStorageKey);
+            if (!username) storage?.removeItem?.(browserPasswordSavePreferenceKey);
+        } catch (error) {
+            // 浏览器禁用站点存储时保持空表单，不阻断登录。
+            username = '';
+            remember = false;
+        }
         return {
             username,
-            remember: !!username,
+            remember,
             form: createLoginForm({ username }),
         };
     };
@@ -690,13 +702,88 @@ window.SUXI_SYSTEM_STATIC = (() => {
         payload.username && payload.password ? '' : '请输入用户名和密码'
     );
     const applyRememberedLoginAccount = ({ storage, username = '', remember = false } = {}) => {
-        if (remember) {
-            storage?.setItem?.(rememberedUsernameStorageKey, String(username || ''));
+        try {
             storage?.removeItem?.(legacyRememberedPasswordStorageKey);
-            return;
+            if (remember) {
+                storage?.setItem?.(rememberedUsernameStorageKey, String(username || ''));
+                storage?.setItem?.(browserPasswordSavePreferenceKey, '1');
+                return;
+            }
+            storage?.removeItem?.(rememberedUsernameStorageKey);
+            storage?.removeItem?.(browserPasswordSavePreferenceKey);
+        } catch (error) {
+            // 非敏感偏好存储不可用时不影响已经成功的登录。
         }
-        storage?.removeItem?.(rememberedUsernameStorageKey);
-        storage?.removeItem?.(legacyRememberedPasswordStorageKey);
+    };
+    const saveLoginPasswordWithBrowser = async ({
+        username = '',
+        password = '',
+        remember = false,
+        credentialStore = typeof navigator !== 'undefined' ? navigator.credentials : null,
+        PasswordCredentialCtor = typeof PasswordCredential !== 'undefined' ? PasswordCredential : null,
+        timeoutMs = browserPasswordSaveTimeoutMs,
+    } = {}) => {
+        if (!remember) return { status: 'not_requested', message: '', level: 'info' };
+        const normalizedUsername = String(username || '').trim();
+        const normalizedPassword = String(password || '');
+        if (!normalizedUsername || !normalizedPassword) {
+            return { status: 'invalid', message: '密码未保存：用户名或密码为空', level: 'warning' };
+        }
+        if (typeof PasswordCredentialCtor !== 'function' || typeof credentialStore?.store !== 'function') {
+            return {
+                status: 'unsupported',
+                message: '当前浏览器不支持自动保存密码，请在浏览器密码管理器中手动保存',
+                level: 'warning',
+            };
+        }
+        let credential;
+        try {
+            credential = new PasswordCredentialCtor({
+                id: normalizedUsername,
+                name: normalizedUsername,
+                password: normalizedPassword,
+            });
+        } catch (error) {
+            return {
+                status: 'failed',
+                message: '密码未保存，请在浏览器密码管理器中重试',
+                level: 'warning',
+            };
+        }
+        const normalizedTimeoutMs = Number.isFinite(Number(timeoutMs))
+            ? Math.max(1, Number(timeoutMs))
+            : browserPasswordSaveTimeoutMs;
+        return new Promise((resolve) => {
+            let settled = false;
+            const finish = (result) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timeoutId);
+                resolve(result);
+            };
+            const timeoutId = setTimeout(() => finish({
+                status: 'timeout',
+                message: '浏览器密码管理器未及时确认，登录不受影响',
+                level: 'warning',
+            }), normalizedTimeoutMs);
+
+            Promise.resolve()
+                .then(() => credentialStore.store(credential))
+                .then(
+                    () => finish({ status: 'saved', message: '密码已由浏览器密码管理器保存', level: 'success' }),
+                    (error) => finish(error?.name === 'NotAllowedError'
+                        ? {
+                            status: 'declined',
+                            message: '浏览器未保存密码；可在密码管理器中手动保存',
+                            level: 'warning',
+                        }
+                        : {
+                            status: 'failed',
+                            message: '密码未保存，请在浏览器密码管理器中重试',
+                            level: 'warning',
+                        }),
+                );
+        });
     };
     const createHotelForm = ({ hotel = null, operatorName = '', code = '', parsedDescription = {} } = {}) => {
         if (hotel) {
@@ -752,6 +839,38 @@ window.SUXI_SYSTEM_STATIC = (() => {
         if (hasCtrip) return 'ctrip_only';
         if (hasMeituan) return 'meituan_only';
         return 'none';
+    };
+    const buildHotelOtaStrategyReview = ({
+        active = true,
+        strategy = 'none',
+        ctripSourcePresent = false,
+        meituanSourcePresent = false,
+    } = {}) => {
+        const hidden = {
+            visible: false,
+            candidate_strategy: '',
+            available_platform: '',
+            missing_platform: '',
+            badge_text: '',
+            detail: '',
+        };
+        const normalizedStrategy = String(strategy || '').trim();
+        const hasCtrip = !!ctripSourcePresent;
+        const hasMeituan = !!meituanSourcePresent;
+        if (!active || normalizedStrategy !== 'dual' || hasCtrip === hasMeituan) return hidden;
+
+        const availablePlatform = hasCtrip ? 'ctrip' : 'meituan';
+        const missingPlatform = hasCtrip ? 'meituan' : 'ctrip';
+        const availableLabel = hasCtrip ? '携程' : '美团';
+        const missingLabel = hasCtrip ? '美团' : '携程';
+        return {
+            visible: true,
+            candidate_strategy: `${availablePlatform}_only`,
+            available_platform: availablePlatform,
+            missing_platform: missingPlatform,
+            badge_text: `待确认：仅${availableLabel}？`,
+            detail: `当前双渠道策略只找到${availableLabel}接入配置，${missingLabel}尚无接入配置；请按真实经营渠道确认，系统不会自动修改。`,
+        };
     };
     const buildHotelVerifiedOtaState = (rows = []) => {
         const verified = new Set((Array.isArray(rows) ? rows : [])
@@ -2024,11 +2143,13 @@ window.SUXI_SYSTEM_STATIC = (() => {
         buildLoginRequestPayload,
         validateLoginRequestPayload,
         applyRememberedLoginAccount,
+        saveLoginPasswordWithBrowser,
         createHotelForm,
         normalizeHotelIdentityName,
         buildHotelSavePayload,
         selectedHotelOtaPlatforms,
         hotelOtaStrategyFromPlatforms,
+        buildHotelOtaStrategyReview,
         buildHotelVerifiedOtaState,
         buildHotelOtaStatusBadges,
         createHotelMergeForm,

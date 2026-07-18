@@ -23,6 +23,8 @@ test('Meituan stored-data download keeps each data type in its own tab', () => {
 
   const result = api.buildMeituanDownloadData(rows);
 
+  assert.deepEqual(Array.from(result.allRows, row => row.id), [1, 2, 3, 4, 5, 6, 7]);
+  assert.equal(result.allRowsCount, 7);
   assert.deepEqual(Array.from(result.overviewRows, row => row.id), [1]);
   assert.deepEqual(Array.from(result.trafficRows, row => row.id), [4, 5]);
   assert.deepEqual(Array.from(result.orderRows, row => row.id), [6]);

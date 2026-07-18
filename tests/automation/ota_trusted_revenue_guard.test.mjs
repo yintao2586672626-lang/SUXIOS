@@ -16,4 +16,7 @@ test('OTA ETL has explicit competitor, provenance, hotel-binding, and manual-ove
   assert.match(source, /system_hotel_id_missing/);
   assert.match(source, /manual_override_unverified/);
   assert.match(source, /hotel_binding|wrong_hotel|mismatch/);
+  assert.match(source, /readback_verified/);
+  assert.match(source, /readback_unverified/);
+  assert.match(source, /blockingValidationStatuses/);
 });

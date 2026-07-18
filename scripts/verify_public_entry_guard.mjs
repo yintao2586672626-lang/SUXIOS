@@ -7,6 +7,9 @@ import { inspectFrontendEntryBuild } from './lib/frontend_entry_build.mjs';
 import { inspectTailwindRuntimeBuild } from './lib/frontend_tailwind_build.mjs';
 import { inspectFrontendTemplateBuild } from './lib/frontend_template_build.mjs';
 import {
+  AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT,
+  AUTHENTICATED_ASSET_PHASE_STARTUP,
+  extractAuthenticatedAssetEntries,
   extractAuthenticatedAssetReferences,
   stripFrontendAssetQuery,
 } from './lib/frontend_authenticated_assets.mjs';
@@ -18,6 +21,7 @@ const appMainPath = path.join(repoRoot, 'public/app-main.js');
 const appMainRuntimePath = path.join(repoRoot, 'public/app-main.min.js');
 const appTemplatePath = path.join(repoRoot, 'resources/frontend/app-template.html');
 const appRenderRuntimePath = path.join(repoRoot, 'public/app-render.min.js');
+const appStartupRenderRuntimePath = path.join(repoRoot, 'public/app-startup-render.min.js');
 const publicRouterPath = path.join(repoRoot, 'public/router.php');
 const systemStaticPath = path.join(repoRoot, 'public/system-static.js');
 const revenueAiStaticPath = path.join(repoRoot, 'public/revenue-ai-static.js');
@@ -90,7 +94,9 @@ if (!fs.existsSync(indexPath)) {
   const stat = fs.statSync(indexPath);
   const htmlContent = fs.readFileSync(indexPath, 'utf8');
   let authenticatedAssetReferences = [];
+  let authenticatedAssetEntries = [];
   try {
+    authenticatedAssetEntries = extractAuthenticatedAssetEntries(htmlContent);
     authenticatedAssetReferences = extractAuthenticatedAssetReferences(htmlContent);
   } catch (error) {
     failures.push(error.message);
@@ -109,6 +115,7 @@ if (!fs.existsSync(indexPath)) {
   const appMainRuntimeContent = fs.existsSync(appMainRuntimePath) ? fs.readFileSync(appMainRuntimePath, 'utf8') : '';
   const appTemplateContent = fs.existsSync(appTemplatePath) ? fs.readFileSync(appTemplatePath, 'utf8') : '';
   const appRenderRuntimeContent = fs.existsSync(appRenderRuntimePath) ? fs.readFileSync(appRenderRuntimePath, 'utf8') : '';
+  const appStartupRenderRuntimeContent = fs.existsSync(appStartupRenderRuntimePath) ? fs.readFileSync(appStartupRenderRuntimePath, 'utf8') : '';
   const appTemplateSemanticContent = appTemplateContent
     .replaceAll('&amp;', '&')
     .replaceAll('&gt;', '>')
@@ -168,10 +175,14 @@ if (!fs.existsSync(indexPath)) {
   if (!appRenderRuntimeContent) {
     failures.push('public/app-render.min.js is missing or empty.');
   }
+  if (!appStartupRenderRuntimeContent) {
+    failures.push('public/app-startup-render.min.js is missing or empty.');
+  }
   if (/const\s+suxiApp\s*=\s*createApp\(/.test(htmlContent)) {
     failures.push('public/index.html must not inline the main Vue bootstrap after entry externalization.');
   }
-  if (!/const\s+suxiApp\s*=\s*createApp\(/.test(appMainContent)) {
+  if (!/const mountSuxiApp = \(\) =>/.test(appMainContent)
+    || !/configureSuxiApp\(createApp\(suxiRootComponent\)\)/.test(appMainContent)) {
     failures.push('public/app-main.js must contain the main Vue bootstrap.');
   }
   if (appMainContent && appMainRuntimeContent) {
@@ -202,6 +213,13 @@ if (!fs.existsSync(indexPath)) {
   if (!appBootstrapReference.includes(`h${appBootstrapHash}`)) {
     failures.push('public/index.html must use the current public/app-bootstrap.js content hash in its immutable cache version.');
   }
+  const systemStaticHash = systemStaticContent
+    ? crypto.createHash('sha256').update(systemStaticContent).digest('hex').slice(0, 10)
+    : '';
+  const systemStaticReference = runtimeAssetReference('system-static.js');
+  if (!systemStaticReference.includes(`h${systemStaticHash}`)) {
+    failures.push('public/index.html must use the current public/system-static.js content hash in its immutable cache version.');
+  }
   const loginSubmitBindingOffset = appBootstrapContent.indexOf("form.addEventListener('submit'");
   const loginReadyOffset = appBootstrapContent.indexOf("form.dataset.suxiLoginReady = '1';");
   if (appBootstrapContent && (loginSubmitBindingOffset < 0 || loginReadyOffset <= loginSubmitBindingOffset)) {
@@ -213,9 +231,27 @@ if (!fs.existsSync(indexPath)) {
     failures.push('public/app-bootstrap.js must not replace login button contents during unchanged autofill-state polling.');
   }
   if (runtimeAssetPaths[0] !== 'vue.runtime.global.prod.js'
+    || runtimeAssetPaths.at(-3) !== 'app-startup-render.min.js'
     || runtimeAssetPaths.at(-2) !== 'app-render.min.js'
     || runtimeAssetPaths.at(-1) !== 'app-main.min.js') {
-    failures.push('public/index.html must keep runtime Vue first, the precompiled render before app-main, and app-main last in the authenticated asset chain.');
+    failures.push('public/index.html must keep runtime Vue first and end with startup render, deferred full render, then app-main.');
+  }
+  const phaseFor = (assetName) => authenticatedAssetEntries.find(
+    (entry) => stripFrontendAssetQuery(entry.src) === assetName,
+  )?.phase;
+  if (phaseFor('app-startup-render.min.js') !== AUTHENTICATED_ASSET_PHASE_STARTUP
+    || phaseFor('app-main.min.js') !== AUTHENTICATED_ASSET_PHASE_STARTUP
+    || phaseFor('app-render.min.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT) {
+    failures.push('public/index.html must load the home startup render and app-main before deferring the full render until after first paint.');
+  }
+  if (!appBootstrapContent.includes("window.dispatchEvent(new CustomEvent('suxi:full-render-ready'")
+    || !appMainContent.includes("window.addEventListener('suxi:full-render-ready', handleSuxiFullRenderReady")
+    || !appMainContent.includes('const suxiRenderCaches = new WeakMap();')
+    || !appMainContent.includes('suxiActiveRender.value = fullRender;')
+    || !appMainContent.includes('suxiApp?.unmount();')
+    || !appMainContent.includes('window.SUXI_INITIAL_PAGE_OVERRIDE = targetPage;')
+    || !appMainContent.includes('requestSuxiFullRenderForPage = (page) => {')) {
+    failures.push('The authenticated bootstrap must remount deferred full pages through isolated render caches.');
   }
 
 if (!runtimeAssetPaths.includes('system-static.js')
@@ -334,16 +370,17 @@ if (!runtimeAssetPaths.includes('system-static.js')
     failures.push('public/index.html must lazy-load the admin-only Ctrip profile-field config panel from public/components/online-data/ctrip-profile-field-config-panel.js.');
   }
 
-  if (!content.includes('const suxiApp = createApp({')
+  if (!content.includes('let suxiApp = null;')
     || !content.includes('const renderSuxiStartupError = (error) => {')
     || !content.includes('let recoverSuxiRuntimeError = null;')
     || !content.includes('recoverSuxiRuntimeError = ({ error, info }) => {')
     || !content.includes('const isFatalStartupError = /setup function|app errorHandler|app warnHandler|app unmount cleanup function/i.test')
     || !content.includes("currentPage.value = 'compass';")
     || !content.includes('当前功能发生异常，已返回今日经营看板')
-    || !content.includes('suxiApp.config.errorHandler = (error, _instance, info) => {')
+    || !content.includes('app.config.errorHandler = (error, _instance, info) => {')
     || !content.includes("recovered = typeof recoverSuxiRuntimeError === 'function'")
     || !content.includes('if (recovered) return;')
+    || !content.includes('suxiApp = configureSuxiApp(createApp(suxiRootComponent));')
     || !content.includes("suxiApp.mount('#app');")) {
     failures.push('public/index.html must isolate recoverable Vue runtime errors while preserving an explicit fatal startup surface.');
   }
@@ -390,7 +427,6 @@ if (!runtimeAssetPaths.includes('system-static.js')
     failures.push('public/index.html operation-log user filter must render invalid or partial user rows safely.');
   }
   const vueRuntimeReference = runtimeAssetReference('vue.runtime.global.prod.js');
-  const systemStaticReference = runtimeAssetReference('system-static.js');
   if (!vueRuntimeReference.includes('?v=') || !systemStaticReference.includes('?v=')) {
     failures.push('public/index.html must version core Vue/system static assets so P0 entry fixes are not hidden by stale browser cache.');
   }
@@ -1092,7 +1128,7 @@ if (!runtimeAssetPaths.includes('system-static.js')
     || !content.includes('const homeSecondaryPanelsReady = ref(false);')
     || !content.includes('const scheduleHomeSecondaryPanelsReady = (delayMs = HOME_SECONDARY_PANEL_DELAY_MS) => {')
     || !content.includes('clearHomeSecondaryPanelsReadyTimer();\n                    homeSecondaryPanelsReady.value = false;\n                    destroyHomeTrendChart();')
-    || !content.includes("homeSecondaryPanelsReady.value = false;\n                    scheduleHomeSecondaryPanelsReady();\n                    runPageLoadOnce(newPage, 'main', () => loadCompassData());")
+    || !/homeSecondaryPanelsReady\.value = false;\s+scheduleHomeSecondaryPanelsReady\(\);[\s\S]{0,320}?runPageLoadOnce\(newPage, 'main', \(\) => loadCompassData\(\)\);/.test(content)
     || !/<div v-if="homeSecondaryPanelsReady"[^>]*data-testid="daily-ops-monitor-card"/.test(content)
     || !/<div v-if="homeSecondaryPanelsReady"[^>]*data-testid="home-weather-demand-card"/.test(content)
     || !/<div v-if="homeSecondaryPanelsReady"[^>]*data-testid="home-market-signal-card"/.test(content)
@@ -2258,12 +2294,15 @@ if (!runtimeAssetPaths.includes('system-static.js')
     || !content.includes("requireAppSystemStatic('buildLoginRequestPayload')")
     || !content.includes("requireAppSystemStatic('validateLoginRequestPayload')")
     || !content.includes("requireAppSystemStatic('applyRememberedLoginAccount')")
+    || !content.includes("requireAppSystemStatic('saveLoginPasswordWithBrowser')")
     || !content.includes('const rememberedLogin = getRememberedLoginAccount(localStorage);')
     || !content.includes('const loginForm = ref(rememberedLogin.form);')
     || !content.includes('const payload = buildLoginRequestPayload(loginForm.value);')
     || !content.includes('const validationError = validateLoginRequestPayload(payload);')
-    || !content.includes('applyRememberedLoginAccount({')) {
-    failures.push('public/index.html must use system-static.js helpers for login form defaults, cached auth, pagination, payloads, validation, and remembered-account storage.');
+    || !content.includes('applyRememberedLoginAccount({')
+    || !content.includes('const passwordSavePromise = saveLoginPasswordWithBrowser({')
+    || content.includes('await saveLoginPasswordWithBrowser({')) {
+    failures.push('public/index.html must use system-static.js helpers for login form defaults, cached auth, pagination, payloads, validation, and browser-owned password storage.');
   }
   if (content.includes("requireAppSystemStatic('createRegisterForm')")
     || content.includes("request('/auth/register'")
@@ -2295,8 +2334,9 @@ if (!runtimeAssetPaths.includes('system-static.js')
     || !systemStaticContent.includes('const buildClientPagination = (rows, page, pageSize) => {')
     || !systemStaticContent.includes('const buildLoginRequestPayload = (form = {}) => ({')
     || !systemStaticContent.includes('const validateLoginRequestPayload = (payload = {}) => (')
-    || !systemStaticContent.includes('const applyRememberedLoginAccount = ({ storage, username = \'\', remember = false } = {}) => {')) {
-    failures.push('public/system-static.js must own login form defaults, cached auth, pagination, payload normalization, validation, and remembered-account storage policy.');
+    || !systemStaticContent.includes('const applyRememberedLoginAccount = ({ storage, username = \'\', remember = false } = {}) => {')
+    || !systemStaticContent.includes('const saveLoginPasswordWithBrowser = async ({')) {
+    failures.push('public/system-static.js must own login form defaults, cached auth, pagination, payload normalization, validation, and browser password-manager policy.');
   }
   if (systemStaticContent.includes('const createRegisterForm = () => ({')
     || systemStaticContent.includes('buildRegisterRequestPayload')
@@ -3385,6 +3425,13 @@ if (!fs.existsSync(publicRouterPath)) {
   failures.push('public/router.php is missing.');
 } else {
   const routerSource = fs.readFileSync(publicRouterPath, 'utf8');
+  if (!routerSource.includes("'avif' => 'image/avif'")
+    || !routerSource.includes("'gif', 'avif', 'webp'")) {
+    failures.push('public/router.php must serve the AVIF login background with image/avif and the immutable static cache policy.');
+  }
+  if (!routerSource.includes("Cloudflare-CDN-Cache-Control: public, max-age=60, stale-while-revalidate=30")) {
+    failures.push('public/router.php must keep browser revalidation separate from the short Cloudflare edge cache policy for index.html.');
+  }
   if (!routerSource.includes("'runtime' . DIRECTORY_SEPARATOR . 'static-gzip'")) {
     failures.push('public/router.php must cache gzip output under runtime/static-gzip to avoid repeated CPU compression on large local assets.');
   }

@@ -83,6 +83,12 @@ try {
   dedupeReviews(payload);
   dedupeOrders(payload);
   dedupeImSessions(payload);
+  payload.source_status = buildCaptureSourceStatus(payload);
+  payload.capture_status = resolveCaptureStatus(payload.source_status);
+  payload.missing_sources = Object.entries(payload.source_status)
+    .filter(([, status]) => status.status !== 'available')
+    .map(([source]) => source);
+  sanitizeCapturePayloadForStorage(payload);
   await writeFile(outputPath, JSON.stringify(payload, null, 2), 'utf8');
 
   console.log(JSON.stringify({
@@ -1229,9 +1235,151 @@ function readPath(value, path) {
 
 function summarize(data) {
   return {
+    capture_status: data.capture_status || 'unknown',
     reviews: data.reviews.length,
     orders: data.orders.length,
     im_sessions: data.im_sessions.length,
+    im_order_links: data.im_sessions.filter(session => String(session.orderId || '').trim()).length,
     responses: data.responses.length,
+    missing_sources: Array.isArray(data.missing_sources) ? data.missing_sources : [],
+    source_status: data.source_status || {},
   };
+}
+
+function buildCaptureSourceStatus(data) {
+  const pageByName = new Map((data.pages || []).map(page => [String(page.name || ''), page]));
+  const reviews = data.reviews || [];
+  const orders = data.orders || [];
+  const imSessions = data.im_sessions || [];
+  const imOrderLinks = imSessions.filter(session => String(session.orderId || '').trim()).length;
+
+  return {
+    ctrip_reviews: buildSourceStatus(
+      reviews.length,
+      reviews.length ? [] : uniqueReasons([
+        pageFailureReason(pageByName.get('comments'), 'comments_page_failed'),
+        commentRequestTemplate ? '' : 'comment_api_template_not_observed',
+        hasResponseError(data.responses, 'reviews') ? 'comment_api_request_failed' : '',
+        'no_review_rows_detected',
+      ])
+    ),
+    ctrip_orders: buildSourceStatus(
+      orders.length,
+      orders.length ? [] : uniqueReasons([
+        pageFailureReason(pageByName.get('orders'), 'orders_page_failed'),
+        orderRequestTemplate ? '' : 'order_api_template_not_observed',
+        hasResponseError(data.responses, 'orders') ? 'order_api_request_failed' : '',
+        'no_order_rows_detected',
+      ])
+    ),
+    ctrip_im_sessions: buildSourceStatus(
+      imSessions.length,
+      imSessions.length ? [] : uniqueReasons([
+        pageFailureReason(pageByName.get('im'), 'im_page_failed'),
+        imGroupRequestTemplate ? '' : 'im_group_api_template_not_observed',
+        imMessageRequestTemplate ? '' : 'im_message_api_template_not_observed',
+        imGroups.length ? '' : 'no_im_groups_detected',
+        hasResponseError(data.responses, 'im_sessions') ? 'im_session_api_request_failed' : '',
+        'no_im_sessions_detected',
+      ])
+    ),
+    ctrip_im_order_links: buildSourceStatus(
+      imOrderLinks,
+      imOrderLinks ? [] : uniqueReasons([
+        imSessions.length ? 'im_sessions_missing_platform_order_id' : 'im_sessions_unavailable',
+        'group_to_order_link_not_captured',
+      ])
+    ),
+  };
+}
+
+function buildSourceStatus(count, reasons) {
+  return {
+    status: count > 0 ? 'available' : 'collection_failed',
+    count,
+    reasons: count > 0 ? [] : reasons,
+  };
+}
+
+function resolveCaptureStatus(sourceStatus) {
+  const statuses = Object.values(sourceStatus || {}).map(item => item.status);
+  if (statuses.length && statuses.every(status => status === 'available')) {
+    return 'available';
+  }
+  if (statuses.some(status => status === 'available')) {
+    return 'partial';
+  }
+  return 'collection_failed';
+}
+
+function pageFailureReason(page, fallback) {
+  if (!page || page.ok !== false) {
+    return '';
+  }
+  return String(page.error || fallback).trim() || fallback;
+}
+
+function hasResponseError(responses, section) {
+  return (responses || []).some(response => response && response.section === section && (response.error || Number(response.status || 0) >= 400));
+}
+
+function uniqueReasons(reasons) {
+  return Array.from(new Set(reasons.map(reason => String(reason || '').trim()).filter(Boolean)));
+}
+
+function sanitizeCapturePayloadForStorage(data) {
+  data.page_url = redactEvidenceUrl(data.page_url);
+  data.pages = (data.pages || []).map(page => ({ ...page, url: redactEvidenceUrl(page && page.url) }));
+  data.responses = (data.responses || []).map(response => ({ ...response, url: redactEvidenceUrl(response && response.url) }));
+  data.xhr_urls = (data.xhr_urls || []).map(redactEvidenceUrl);
+  data.reviews = (data.reviews || []).map(review => ({
+    review_id: stringValue(review.review_id),
+    score: normalizeScore(review.score),
+    content: stringValue(review.content),
+    reply: stringValue(review.reply),
+    has_reply: booleanValue(review.has_reply),
+    is_negative: booleanValue(review.is_negative),
+    user_name: stringValue(review.user_name),
+    room_type: stringValue(review.room_type),
+    check_in_date: stringValue(review.check_in_date),
+    comment_time: stringValue(review.comment_time),
+    tags: normalizeTags(review.tags),
+    _source_url: redactEvidenceUrl(review._source_url),
+    _capture_source: stringValue(review._capture_source),
+  }));
+  data.orders = (data.orders || []).map(order => ({
+    orderId: stringValue(order.orderId),
+    arrivalDate: stringValue(order.arrivalDate),
+    departureDate: stringValue(order.departureDate),
+    roomName: stringValue(order.roomName),
+    orderStatus: stringValue(order.orderStatus),
+    source_platform: 'ctrip',
+    _source_url: redactEvidenceUrl(order._source_url),
+    _capture_source: stringValue(order._capture_source),
+  }));
+  data.im_sessions = (data.im_sessions || []).map(session => ({
+    groupId: stringValue(session.groupId),
+    orderId: stringValue(session.orderId),
+    arrivalDate: stringValue(session.arrivalDate),
+    roomName: stringValue(session.roomName),
+    message_time_min: stringValue(session.message_time_min),
+    message_time_max: stringValue(session.message_time_max),
+    source: stringValue(session.source),
+    _source_url: redactEvidenceUrl(session._source_url),
+    members: [],
+    identity_fields_stored: false,
+  }));
+}
+
+function redactEvidenceUrl(value) {
+  const text = stringValue(value);
+  if (!text) {
+    return '';
+  }
+  try {
+    const url = new URL(text);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return text.split(/[?#]/, 1)[0];
+  }
 }

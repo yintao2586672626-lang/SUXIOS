@@ -24,8 +24,8 @@
                                     <button @click="openCtripManualTab('ctrip-ads')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-ads' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         广告数据
                                     </button>
-                                    <button type="button" disabled data-testid="ctrip-review-match-policy-disabled" title="隐私策略已停用该能力：不会反查匿名住客身份，也不会执行评价与订单自动绑定。" class="px-6 py-3 font-medium text-gray-400 cursor-not-allowed">
-                                        评价匹配（隐私保护停用）
+                                    <button type="button" data-testid="ctrip-review-order-evidence-tab" @click="openCtripManualTab('ctrip-review-match')" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-review-match' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']" title="只匹配授权订单证据，不反查匿名住客身份。">
+                                        点评订单证据
                                     </button>
                                     <button @click="switchToDownloadCenter" :class="['px-6 py-3 font-medium', onlineDataTab === 'ctrip-download' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500']">
                                         入库记录
@@ -778,10 +778,7 @@
                                     </div>
 
                                     <div v-if="selectedCtripHotelId" class="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                                        <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm"><div class="text-xs text-gray-500">档案总数</div><div class="mt-1 text-2xl font-semibold text-gray-900">{{ ctripPublicProfileSummary.total }}</div></div>
-                                        <div class="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4"><div class="text-xs text-emerald-700">本店档案</div><div class="mt-1 text-2xl font-semibold text-emerald-900">{{ ctripPublicProfileSummary.self }}</div></div>
-                                        <div class="rounded-xl border border-blue-100 bg-blue-50/50 p-4"><div class="text-xs text-blue-700">竞品档案</div><div class="mt-1 text-2xl font-semibold text-blue-900">{{ ctripPublicProfileSummary.competitors }}</div></div>
-                                        <div :class="['rounded-xl border p-4', ctripPublicProfileSummary.failed ? 'border-red-100 bg-red-50/60' : 'border-gray-200 bg-gray-50']"><div :class="['text-xs', ctripPublicProfileSummary.failed ? 'text-red-700' : 'text-gray-500']">采集失败</div><div :class="['mt-1 text-2xl font-semibold', ctripPublicProfileSummary.failed ? 'text-red-900' : 'text-gray-900']">{{ ctripPublicProfileSummary.failed }}</div></div>
+                                        <div v-for="card in ctripPublicProfileSummaryCards" :key="card.key" :class="['rounded-xl border p-4', card.className]"><div class="text-xs opacity-70">{{ card.label }}</div><div class="mt-1 text-2xl font-semibold">{{ card.value }}</div></div>
                                     </div>
 
                                     <div v-if="ctripPublicProfileLoading" data-testid="ctrip-public-profile-loading" class="rounded-xl border border-gray-200 bg-white p-8 text-center text-sm text-gray-500 shadow-sm">
@@ -811,15 +808,10 @@
                                             </div>
                                             <div class="p-4 sm:p-5">
                                                 <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                                                    <div class="rounded-lg bg-gray-50 p-3"><div class="text-[11px] text-gray-500">客房总数</div><div class="mt-1 text-lg font-semibold text-gray-900">{{ profile.fields?.room_count || '未获取' }}</div><div class="text-[10px] text-gray-400">静态资料</div></div>
-                                                    <div class="rounded-lg bg-gray-50 p-3"><div class="text-[11px] text-gray-500">星钻级</div><div class="mt-1 text-sm font-semibold text-gray-900">{{ ctripPublicProfileGradeText(profile) }}</div></div>
-                                                    <div class="rounded-lg bg-gray-50 p-3"><div class="text-[11px] text-gray-500">公开评分</div><div class="mt-1 text-lg font-semibold text-gray-900">{{ profile.fields?.rating ?? '未获取' }}</div></div>
-                                                    <div class="rounded-lg bg-gray-50 p-3"><div class="text-[11px] text-gray-500">设施数</div><div class="mt-1 text-lg font-semibold text-gray-900">{{ ctripPublicProfileFacilityCount(profile) || '未获取' }}</div></div>
+                                                    <div v-for="metric in ctripPublicProfileMetricCards(profile)" :key="metric[0]" class="rounded-lg bg-gray-50 p-3"><div class="text-[11px] text-gray-500">{{ metric[1] }}</div><div class="mt-1 text-lg font-semibold text-gray-900">{{ metric[2] }}</div><div v-if="metric[3]" class="text-[10px] text-gray-400">{{ metric[3] }}</div></div>
                                                 </div>
                                                 <dl class="mt-4 grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
-                                                    <div><dt class="text-xs text-gray-400">开业 / 装修</dt><dd class="mt-0.5 text-gray-700">{{ profile.fields?.opening_year || '未获取' }} / {{ profile.fields?.renovation_year || '未获取' }}</dd></div>
-                                                    <div><dt class="text-xs text-gray-400">品牌 / 类型</dt><dd class="mt-0.5 text-gray-700">{{ profile.fields?.brand_name || '未获取' }} / {{ profile.fields?.hotel_type || '未获取' }}</dd></div>
-                                                    <div class="sm:col-span-2"><dt class="text-xs text-gray-400">地址</dt><dd class="mt-0.5 leading-5 text-gray-700">{{ profile.fields?.address || '未获取' }}</dd></div>
+                                                    <div v-for="row in ctripPublicProfileDetailRows(profile)" :key="row[0]" :class="row[3] ? 'sm:col-span-2' : ''"><dt class="text-xs text-gray-400">{{ row[1] }}</dt><dd class="mt-0.5 leading-5 text-gray-700">{{ row[2] }}</dd></div>
                                                 </dl>
                                                 <div v-if="ctripPublicProfileHighlights(profile).length" class="mt-4 flex flex-wrap gap-1.5">
                                                     <span v-for="item in ctripPublicProfileHighlights(profile)" :key="'highlight-' + item" class="rounded-full border border-amber-100 bg-amber-50 px-2 py-1 text-[11px] text-amber-800">{{ item }}</span>
@@ -836,6 +828,54 @@
                                         </article>
                                     </div>
 
+                                    <section data-testid="ota-public-page-diagnosis-panel" class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                                        <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+                                            <div class="max-w-3xl">
+                                                <div class="flex flex-wrap items-center gap-2">
+                                                    <h4 class="text-base font-semibold text-gray-900">OTA 公开页十二维证据诊断</h4>
+                                                    <span v-if="otaPublicPageDiagnosisPayload" :class="['rounded-full border px-2 py-0.5 text-xs font-medium', otaPublicPageDiagnosisStatusClass(otaPublicPageDiagnosisPayload.status)]">{{ otaPublicPageDiagnosisStatusText(otaPublicPageDiagnosisPayload.status) }}</span>
+                                                </div>
+                                                <p class="mt-1 text-xs leading-5 text-gray-500">按门店、平台和业务日期读取已保存的公开页事实。数据库回读与 OTA 来源验证分开显示；诊断评分不计算。</p>
+                                            </div>
+                                            <div class="grid grid-cols-1 gap-2 sm:grid-cols-[130px_150px_auto] sm:items-end">
+                                                <label class="text-xs text-gray-500">平台<select v-model="otaPublicPageDiagnosisFilter.platform" data-testid="ota-public-page-platform" :disabled="otaPublicPageDiagnosisLoading" class="mt-1 w-full rounded-lg border border-gray-300 bg-white px-2.5 py-2 text-sm text-gray-800"><option value="ctrip">携程</option><option value="meituan">美团</option></select></label>
+                                                <label class="text-xs text-gray-500">业务日期<input v-model="otaPublicPageDiagnosisFilter.business_date" data-testid="ota-public-page-business-date" type="date" :disabled="otaPublicPageDiagnosisLoading" class="mt-1 w-full rounded-lg border border-gray-300 px-2.5 py-2 text-sm text-gray-800"></label>
+                                                <button type="button" data-testid="ota-public-page-diagnose" @click="loadOtaPublicPageDiagnosis" :disabled="!selectedCtripHotelId || otaPublicPageDiagnosisLoading" class="inline-flex items-center justify-center rounded-lg bg-emerald-800 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-gray-300">{{ otaPublicPageDiagnosisLoading ? '读取中' : '读取证据' }}</button>
+                                            </div>
+                                        </div>
+
+                                        <div v-if="otaPublicPageDiagnosisError" data-testid="ota-public-page-diagnosis-error" class="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{{ otaPublicPageDiagnosisError }}</div>
+                                        <div v-if="otaPublicPageDiagnosisLoading" data-testid="ota-public-page-diagnosis-loading" class="mt-4 rounded-lg border border-gray-200 bg-gray-50 px-4 py-6 text-center text-sm text-gray-500"><i class="fas fa-spinner fa-spin mr-2 text-emerald-700"></i>正在按所选日期回读公开页证据</div>
+                                        <div v-else-if="!selectedCtripHotelId" data-testid="ota-public-page-diagnosis-empty" class="mt-4 rounded-lg border border-dashed border-gray-300 px-4 py-6 text-center text-sm text-gray-500">请先在本页上方选择系统门店。</div>
+                                        <div v-else-if="otaPublicPageDiagnosisPayload" class="mt-4 space-y-4">
+                                            <div class="flex flex-wrap gap-x-5 gap-y-1 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                                                <span>维度 {{ otaPublicPageDiagnosisCoverage.observed_dimension_count || 0 }} / {{ otaPublicPageDiagnosisCoverage.dimension_count || 12 }}</span>
+                                                <span>字段 {{ otaPublicPageDiagnosisCoverage.observed_field_count || 0 }} / {{ otaPublicPageDiagnosisCoverage.expected_field_count || 36 }}</span>
+                                                <span>来源已验证 {{ otaPublicPageDiagnosisCoverage.verified_field_count || 0 }} 个</span>
+                                                <span>覆盖率 {{ otaPublicPageDiagnosisCoverage.coverage_rate ?? 0 }}%</span>
+                                            </div>
+                                            <div v-if="otaPublicPageDiagnosisPayload.platform_source_status === 'public_profile_source_not_connected'" class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">美团公开页证据源尚未接入；12 个维度保持未知，不借用携程或内部经营数据。</div>
+                                            <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                                                <article v-for="dimension in otaPublicPageDiagnosisDimensions" :key="dimension.key" data-testid="ota-public-page-dimension" class="rounded-lg border border-gray-200 p-3">
+                                                    <div class="flex items-start justify-between gap-3"><span class="text-sm font-semibold text-gray-900">{{ dimension.label }} <small class="font-normal text-gray-400">{{ dimension.observed_field_count }} / {{ dimension.expected_field_count }}</small></span><span :class="['rounded-full border px-2 py-0.5 text-[11px]', otaPublicPageDiagnosisDimensionClass(dimension.status)]">{{ dimension.status === 'verified' ? '字段齐全' : (dimension.status === 'partial' ? '部分证据' : '未知') }}</span></div>
+                                                    <div v-if="dimension.facts?.length" class="mt-2 space-y-1 text-xs">
+                                                        <div v-for="fact in dimension.facts" :key="fact.platform_hotel_id + '-' + fact.field_key" class="break-words rounded bg-gray-50 px-2 py-1.5 text-gray-700"><b>{{ fact.field_key }}</b>：{{ otaPublicPageDiagnosisFactValue(fact.observed_value) }}<span class="ml-2 text-[10px] text-gray-400">{{ fact.quality_status }} · {{ fact.source_validation_status }} · {{ fact.persistence_readback_status }} · {{ fact.source_locator }}</span></div>
+                                                    </div>
+                                                    <div v-if="dimension.unknown_fields?.length" class="mt-2 text-[11px] leading-5 text-amber-700">未知字段：{{ dimension.unknown_fields.join('、') }}</div>
+                                                </article>
+                                            </div>
+                                            <div data-testid="ota-public-page-sources" class="rounded-lg border border-gray-200 p-3">
+                                                <div class="text-sm font-semibold text-gray-900">来源与回读凭据</div>
+                                                <div v-if="otaPublicPageDiagnosisSources.length" class="mt-2 space-y-1 text-xs text-gray-600">
+                                                    <div v-for="source in otaPublicPageDiagnosisSources" :key="source.response_ref || source.platform_hotel_id" class="break-all rounded bg-gray-50 px-2 py-1.5"><a v-if="source.source_url" :href="source.source_url" target="_blank" rel="noopener noreferrer" class="font-medium text-emerald-700 hover:underline">{{ source.source_url }}</a><span> · 采集 {{ source.collected_at || '未记录' }} · 响应 {{ source.response_ref || '未记录' }} · 截图 {{ source.screenshot_ref || '未提供' }} · 保存回读 {{ source.persistence_readback_status }} · 来源验证 {{ source.source_validation_status }}</span></div>
+                                                </div>
+                                                <div v-else class="mt-2 text-xs text-gray-500">所选日期没有带来源网址、采集时间和响应引用的持久化证据。</div>
+                                            </div>
+                                            <div class="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-800">{{ otaPublicPageDiagnosisPayload.next_action }} · {{ otaPublicPageDiagnosisPayload.scope_notice }}</div>
+                                        </div>
+                                        <div v-else data-testid="ota-public-page-diagnosis-empty" class="mt-4 rounded-lg border border-dashed border-gray-300 px-4 py-6 text-center text-sm text-gray-500">选择平台和业务日期后读取 12 维公开页证据。</div>
+                                    </section>
+
                                     <section data-testid="ctrip-competitive-operations-panel" class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
                                         <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
                                             <div class="max-w-3xl">
@@ -848,7 +888,7 @@
                                             <div class="grid grid-cols-1 gap-2 sm:grid-cols-[145px_145px_auto] sm:items-end">
                                                 <label class="text-xs text-gray-500">开始日期<input v-model="ctripCompetitiveOperationsRange.start_date" type="date" :disabled="ctripCompetitiveOperationsLoading" class="mt-1 w-full rounded-lg border border-gray-300 px-2.5 py-2 text-sm text-gray-800 focus:border-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-100 disabled:bg-gray-100"></label>
                                                 <label class="text-xs text-gray-500">结束日期<input v-model="ctripCompetitiveOperationsRange.end_date" type="date" :disabled="ctripCompetitiveOperationsLoading" class="mt-1 w-full rounded-lg border border-gray-300 px-2.5 py-2 text-sm text-gray-800 focus:border-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-100 disabled:bg-gray-100"></label>
-                                                <button type="button" data-testid="ctrip-competitive-operations-refresh" @click="loadCtripCompetitiveOperations" :disabled="!selectedCtripHotelId || ctripCompetitiveOperationsLoading" class="inline-flex items-center justify-center rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-300"><i :class="ctripCompetitiveOperationsLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-sync-alt mr-2'"></i>{{ ctripCompetitiveOperationsLoading ? '读取中' : '读取经营视图' }}</button>
+                                                <button type="button" data-testid="ctrip-competitive-operations-refresh" @click="loadCtripCompetitionWorkspace" :disabled="!selectedCtripHotelId || ctripCompetitiveOperationsLoading || competitorEventFeedLoading" class="inline-flex items-center justify-center rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-300"><i :class="ctripCompetitiveOperationsLoading || competitorEventFeedLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-sync-alt mr-2'"></i>{{ ctripCompetitiveOperationsLoading || competitorEventFeedLoading ? '读取中' : '读取经营与价格事件' }}</button>
                                             </div>
                                         </div>
 
@@ -856,31 +896,15 @@
                                         <div v-if="ctripCompetitiveOperationsLoading" class="mt-4 rounded-lg border border-gray-200 bg-gray-50 px-4 py-6 text-center text-sm text-gray-500"><i class="fas fa-spinner fa-spin mr-2 text-amber-700"></i>正在按门店和日期读取竞争圈证据</div>
                                         <div v-else-if="ctripCompetitiveOperationsPayload" class="mt-4 space-y-4">
                                             <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                                                <div class="rounded-lg border border-gray-200 bg-gray-50 p-3"><div class="text-xs text-gray-500">经营记录</div><div class="mt-1 text-xl font-semibold text-gray-900">{{ formatOptionalNumber(ctripCompetitiveOperationsCoverage.business_row_count, '未返回') }}</div></div>
-                                                <div class="rounded-lg border border-gray-200 bg-gray-50 p-3"><div class="text-xs text-gray-500">流量记录</div><div class="mt-1 text-xl font-semibold text-gray-900">{{ formatOptionalNumber(ctripCompetitiveOperationsCoverage.traffic_row_count, '未返回') }}</div></div>
-                                                <div class="rounded-lg border border-emerald-100 bg-emerald-50/60 p-3"><div class="text-xs text-emerald-700">可用于诊断</div><div class="mt-1 text-xl font-semibold text-emerald-900">{{ formatOptionalNumber(ctripCompetitiveOperationsCoverage.decision_eligible_row_count, '未返回') }}</div></div>
-                                                <div class="rounded-lg border border-amber-100 bg-amber-50/60 p-3"><div class="text-xs text-amber-700">排除记录</div><div class="mt-1 text-xl font-semibold text-amber-900">{{ formatOptionalNumber(ctripCompetitiveOperationsCoverage.excluded_from_decision_count, '未返回') }}</div></div>
+                                                <div v-for="card in ctripCompetitiveOperationsCoverageCards" :key="card.key" :class="['rounded-lg border p-3', card.className]"><div class="text-xs opacity-70">{{ card.label }}</div><div class="mt-1 text-xl font-semibold">{{ card.value }}</div></div>
                                             </div>
 
                                             <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                                                <div class="rounded-lg border border-gray-200 p-4">
-                                                    <div class="flex items-center justify-between gap-3"><h5 class="text-sm font-semibold text-gray-900">最新经营对比</h5><span class="text-xs text-gray-400">{{ ctripCompetitiveOperationsComparison.latest_date || '日期未返回' }}</span></div>
+                                                <div v-for="panel in ctripCompetitiveOperationsMetricPanels" :key="panel.key" class="rounded-lg border border-gray-200 p-4">
+                                                    <div class="flex items-center justify-between gap-3"><h5 class="text-sm font-semibold text-gray-900">{{ panel.title }}</h5><span v-if="panel.note" class="text-xs text-gray-400">{{ panel.note }}</span></div>
                                                     <div class="mt-3 grid grid-cols-3 gap-2 text-xs">
                                                         <div class="text-gray-400">指标</div><div class="text-right text-gray-400">本店</div><div class="text-right text-gray-400">竞品均值</div>
-                                                        <div class="text-gray-600">成交金额</div><div class="text-right font-medium text-gray-900">{{ formatOptionalNumber(ctripCompetitiveOperationsComparison.self?.amount, '未获取') }}</div><div class="text-right text-gray-700">{{ formatOptionalNumber(ctripCompetitiveOperationsComparison.competitor_average?.amount, '未获取') }}</div>
-                                                        <div class="text-gray-600">间夜</div><div class="text-right font-medium text-gray-900">{{ formatOptionalNumber(ctripCompetitiveOperationsComparison.self?.room_nights, '未获取') }}</div><div class="text-right text-gray-700">{{ formatOptionalNumber(ctripCompetitiveOperationsComparison.competitor_average?.room_nights, '未获取') }}</div>
-                                                        <div class="text-gray-600">订单</div><div class="text-right font-medium text-gray-900">{{ formatOptionalNumber(ctripCompetitiveOperationsComparison.self?.orders, '未获取') }}</div><div class="text-right text-gray-700">{{ formatOptionalNumber(ctripCompetitiveOperationsComparison.competitor_average?.orders, '未获取') }}</div>
-                                                        <div class="text-gray-600">ADR</div><div class="text-right font-medium text-gray-900">{{ formatOptionalNumber(ctripCompetitiveOperationsComparison.self?.adr, '未获取') }}</div><div class="text-right text-gray-700">{{ formatOptionalNumber(ctripCompetitiveOperationsComparison.competitor_average?.adr, '未获取') }}</div>
-                                                    </div>
-                                                </div>
-                                                <div class="rounded-lg border border-gray-200 p-4">
-                                                    <h5 class="text-sm font-semibold text-gray-900">流量漏斗对比</h5>
-                                                    <div class="mt-3 grid grid-cols-3 gap-2 text-xs">
-                                                        <div class="text-gray-400">指标</div><div class="text-right text-gray-400">本店</div><div class="text-right text-gray-400">竞品均值</div>
-                                                        <div class="text-gray-600">列表曝光</div><div class="text-right font-medium text-gray-900">{{ formatOptionalNumber(ctripCompetitiveOperationsFunnel.self?.list_exposure, '未获取') }}</div><div class="text-right text-gray-700">{{ formatOptionalNumber(ctripCompetitiveOperationsFunnel.competitor_average?.list_exposure, '未获取') }}</div>
-                                                        <div class="text-gray-600">详情进入率</div><div class="text-right font-medium text-gray-900">{{ formatOptionalPercent(ctripCompetitiveOperationsFunnel.self?.detail_entry_rate, '未获取') }}</div><div class="text-right text-gray-700">{{ formatOptionalPercent(ctripCompetitiveOperationsFunnel.competitor_average?.detail_entry_rate, '未获取') }}</div>
-                                                        <div class="text-gray-600">下单进入率</div><div class="text-right font-medium text-gray-900">{{ formatOptionalPercent(ctripCompetitiveOperationsFunnel.self?.order_entry_rate, '未获取') }}</div><div class="text-right text-gray-700">{{ formatOptionalPercent(ctripCompetitiveOperationsFunnel.competitor_average?.order_entry_rate, '未获取') }}</div>
-                                                        <div class="text-gray-600">提交率</div><div class="text-right font-medium text-gray-900">{{ formatOptionalPercent(ctripCompetitiveOperationsFunnel.self?.submit_rate, '未获取') }}</div><div class="text-right text-gray-700">{{ formatOptionalPercent(ctripCompetitiveOperationsFunnel.competitor_average?.submit_rate, '未获取') }}</div>
+                                                        <template v-for="row in panel.rows" :key="panel.key + '-' + row[0]"><div class="text-gray-600">{{ row[0] }}</div><div class="text-right font-medium text-gray-900">{{ row[1] }}</div><div class="text-right text-gray-700">{{ row[2] }}</div></template>
                                                     </div>
                                                 </div>
                                             </div>
@@ -892,6 +916,19 @@
                                             <div class="rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2 text-xs leading-5 text-amber-900">数据边界：{{ ctripCompetitiveOperationsPayload.scope_notice || '携程 OTA 竞争圈口径，不代表全酒店或 PMS 经营事实。' }}</div>
                                         </div>
                                         <div v-else-if="selectedCtripHotelId" class="mt-4 rounded-lg border border-dashed border-gray-300 bg-gray-50 px-4 py-6 text-center text-sm text-gray-500">尚未读取竞争圈经营视图。</div>
+                                    </section>
+
+                                    <section data-testid="ctrip-competitor-event-feed-panel" class="rounded-xl border border-gray-200 bg-white p-4">
+                                        <div class="flex items-start justify-between gap-3">
+                                            <div><h4 class="font-semibold text-gray-900">携程竞价事件</h4><p class="mt-1 text-xs text-gray-500">门店 {{ selectedCtripHotelId || '未选择' }} · 入住日 {{ ctripCompetitiveOperationsRange.end_date || '未选择' }} · 已入库 OTA 事件；不代表酒店总房态、真实剩余库存或全酒店经营事实。</p></div>
+                                            <button type="button" @click="openCtripCompetitorEventWorkspace" class="btn-secondary text-xs">完整事件流</button>
+                                        </div>
+                                        <div v-if="competitorEventFeedLoading" data-testid="ctrip-competitor-event-feed-loading" class="py-5 text-center text-sm text-gray-500">正在读取携程价格事件</div>
+                                        <div v-else-if="competitorEventFeedError" data-testid="ctrip-competitor-event-feed-error" class="mt-3 text-sm text-red-700">{{ competitorEventFeedError }}</div>
+                                        <div v-else-if="!selectedCtripHotelId || !ctripCompetitiveOperationsRange.end_date" data-testid="ctrip-competitor-event-feed-empty" class="py-5 text-center text-sm text-gray-500">请选择门店和结束日期。</div>
+                                        <div v-else-if="!ctripCompetitorEventFeedMatchesSelection || ctripCompetitorEventRows.length === 0" data-testid="ctrip-competitor-event-feed-empty" class="py-5 text-center text-sm text-gray-500">{{ ctripCompetitorEventFeedMatchesSelection &amp;&amp; competitorEventFeed?.status === 'insufficient_evidence' ? '事件证据不足，不能用于决策。' : '暂无匹配的携程价格事件。' }}</div>
+                                        <div v-else class="mt-3 flex flex-wrap gap-3 text-xs text-gray-600"><span>质量：{{ competitorEventQualityText(competitorEventFeed.quality_status || competitorEventFeed.status) }}</span><span>匹配 / 返回：{{ competitorEventFeed.sample_count }} / {{ competitorEventFeed.returned_event_count }}</span></div>
+                                        <div v-if="competitorEventFeed?.truncated" data-testid="ctrip-competitor-event-feed-truncated" class="mt-2 text-xs text-amber-800">仅返回最新事件，当前按部分证据处理。</div>
                                     </section>
 
                                     <div v-if="ctripPublicProfilePayload?.scope_notice" class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs leading-5 text-gray-500">数据边界：{{ ctripPublicProfilePayload.scope_notice }}</div>
@@ -1734,9 +1771,9 @@
                                         <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
                                             <div>
                                                 <h4 class="text-lg font-semibold text-gray-900">携程评价订单匹配</h4>
-                                                <p class="text-sm text-gray-500 mt-1">携程 OTA 渠道口径 · 展示点评治理规则、授权数据状态和匹配边界。</p>
+                                                <p class="text-sm text-gray-500 mt-1">携程 OTA 渠道口径 · 用订单号、入住日、房型、退房时间与 IM 订单链接形成可审计证据链。</p>
                                                 <div class="mt-3 flex flex-wrap gap-2 text-xs">
-                                                    <span class="px-2 py-1 rounded border border-emerald-100 bg-emerald-50 text-emerald-700">规则校验</span>
+                                                    <span class="px-2 py-1 rounded border border-emerald-100 bg-emerald-50 text-emerald-700">订单证据</span>
                                                     <span class="px-2 py-1 rounded border border-blue-100 bg-blue-50 text-blue-700">状态汇总</span>
                                                     <span class="px-2 py-1 rounded border border-amber-100 bg-amber-50 text-amber-700">异常待核</span>
                                                 </div>
@@ -1755,68 +1792,33 @@
                                         <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
                                             <div>
                                                 <h5 class="font-semibold text-gray-900">携程点评-订单匹配台</h5>
-                                                <p class="text-sm text-gray-500 mt-1">单条点评只做规则校验和边界提示；不反查匿名用户身份。</p>
+                                                <p class="text-sm text-gray-500 mt-1">可匹配授权订单；不会猜测、还原或暴力反查匿名用户身份。</p>
                                             </div>
                                             <div class="flex flex-wrap gap-2">
                                                 <button type="button" @click="checkCtripReviewMatchClosure" :disabled="!!ctripReviewMatchLoading" class="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-white disabled:text-gray-400 whitespace-nowrap">
                                                     <i class="fas fa-check-circle mr-1"></i>{{ ctripReviewMatchLoading === '验证完成状态' ? '刷新中' : '刷新状态' }}
                                                 </button>
                                                 <button type="button" @click="runCtripReviewMatchAutomation" :disabled="!!ctripReviewMatchLoading" class="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-800 disabled:bg-gray-400 whitespace-nowrap">
-                                                    <i class="fas fa-link mr-1"></i>{{ ctripReviewMatchLoading === '规则校验' ? '校验中' : '校验规则' }}
+                                                    <i class="fas fa-link mr-1"></i>{{ ctripReviewMatchLoading === '执行自动匹配' ? '匹配中' : '执行匹配' }}
                                                 </button>
                                             </div>
                                         </div>
 
-                                        <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3">
-                                            <div class="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                                                <div class="text-xs text-gray-500">点评</div>
-                                                <div class="text-lg font-semibold text-gray-900">{{ ctripReviewMatchResult?.data?.summary?.review_count ?? '-' }}</div>
-                                                <div class="text-[11px] text-gray-400 mt-1">已授权点评</div>
-                                            </div>
-                                            <div class="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                                                <div class="text-xs text-gray-500">身份缓存</div>
-                                                <div class="text-lg font-semibold text-gray-900">{{ ctripReviewMatchResult?.data?.summary?.im_session_count ?? '-' }}</div>
-                                                <div class="text-[11px] text-gray-400 mt-1">客人身份</div>
-                                            </div>
-                                            <div class="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                                                <div class="text-xs text-gray-500">订单池</div>
-                                                <div class="text-lg font-semibold text-gray-900">{{ ctripReviewMatchResult?.data?.summary?.order_count ?? '-' }}</div>
-                                                <div class="text-[11px] text-gray-400 mt-1">携程订单缓存</div>
-                                            </div>
-                                            <div class="rounded-lg border border-emerald-100 bg-emerald-50 p-3">
-                                                <div class="text-xs text-emerald-600">已匹配</div>
-                                                <div class="text-lg font-semibold text-emerald-700">{{ ctripReviewMatchResult?.data?.summary?.matched_count ?? '-' }}</div>
-                                                <div class="text-[11px] text-emerald-600 mt-1">已确认订单</div>
-                                            </div>
-                                            <div class="rounded-lg border border-blue-100 bg-blue-50 p-3">
-                                                <div class="text-xs text-blue-600">待确认</div>
-                                                <div class="text-lg font-semibold text-blue-700">{{ ctripReviewMatchResult?.data?.summary?.person_locked_count ?? '-' }}</div>
-                                                <div class="text-[11px] text-blue-600 mt-1">已锁客人</div>
-                                            </div>
-                                            <div class="rounded-lg border border-amber-100 bg-amber-50 p-3">
-                                                <div class="text-xs text-amber-600">需人工</div>
-                                                <div class="text-lg font-semibold text-amber-700">{{ ctripReviewMatchResult?.data?.summary?.needs_ops_count ?? '-' }}</div>
-                                                <div class="text-[11px] text-amber-600 mt-1">证据不足</div>
-                                            </div>
-                                        </div>
-
-                                        <div class="grid grid-cols-1 xl:grid-cols-2 gap-3">
-                                            <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                                                <div class="text-xs font-medium text-slate-700">边界</div>
-                                                <div class="text-sm text-slate-600 mt-1">只处理已授权 Profile 与入库数据，不展示匹配细节。</div>
-                                            </div>
-                                            <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                                                <div class="text-xs font-medium text-slate-700">当前状态</div>
-                                                <div class="text-sm text-slate-600 mt-1">{{ ctripReviewMatchResult?.data?.status || '未刷新' }}</div>
-                                            </div>
+                                        <div class="flex flex-wrap gap-x-4 gap-y-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                                            <span>点评 <b>{{ ctripReviewMatchResult?.data?.summary?.review_count ?? '-' }}</b></span>
+                                            <span>订单 <b>{{ ctripReviewMatchResult?.data?.summary?.order_count ?? '-' }}</b></span>
+                                            <span class="text-emerald-700">定案 <b>{{ ctripReviewMatchResult?.data?.summary?.matched_count ?? '-' }}</b></span>
+                                            <span class="text-blue-700">候选 <b>{{ ctripReviewMatchResult?.data?.summary?.candidate_count ?? '-' }}</b></span>
+                                            <span class="text-rose-700">歧义 <b>{{ ctripReviewMatchResult?.data?.summary?.ambiguous_count ?? '-' }}</b></span>
+                                            <span>未找到 <b>{{ ctripReviewMatchResult?.data?.summary?.not_found_count ?? '-' }}</b></span>
+                                            <span>状态 <b>{{ ctripReviewMatchResult?.data?.status || '未刷新' }}</b></span>
+                                            <span class="text-slate-500">PMS/IM可选；不保存客人身份字段</span>
                                         </div>
 
                                         <div v-if="ctripReviewMatchResult?.data?.missing_sources?.length" class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
-                                            缺少数据：{{ ctripReviewMatchResult.data.missing_sources.join(' / ') }}。先同步点评、身份缓存和订单池，再执行匹配。
+                                            缺少数据：{{ ctripReviewMatchResult.data.missing_sources.join(' / ') }}。先同步点评和携程订单池；PMS详情与IM订单链接不是运行前提。
                                         </div>
-                                        <div v-if="ctripReviewMatchResult?.data?.source_status" class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                                            缓存状态：点评 {{ ctripReviewMatchResult.data.source_status.source_tables?.ctrip_reviews ?? 0 }} / 身份 {{ ctripReviewMatchResult.data.source_status.source_tables?.ctrip_im_sessions ?? 0 }} / 订单 {{ ctripReviewMatchResult.data.source_status.source_tables?.ctrip_orders ?? 0 }} / 结果 {{ ctripReviewMatchResult.data.source_status.source_tables?.ctrip_review_order_matches ?? '-' }}。
-                                        </div>
+                                        <pre v-if="ctripReviewMatchResult?.data?.auto_capture?.capture_source_status" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 whitespace-pre-wrap">{{ JSON.stringify(ctripReviewMatchResult.data.auto_capture.capture_source_status, null, 2) }}</pre>
                                         <div v-if="ctripReviewMatchResult?.data?.governance_rule_checks?.length" class="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-800">
                                             <div class="font-medium">点评治理规则</div>
                                             <div class="mt-2 flex flex-col gap-1">
@@ -1830,8 +1832,7 @@
                                         <div class="border border-gray-100 rounded-lg overflow-hidden">
                                             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2 px-3 py-2 bg-gray-50 border-b">
                                                 <div>
-                                                    <div class="text-sm font-medium text-gray-900">点评治理结果</div>
-                                                    <div class="text-xs text-gray-500">点击点评右侧按钮只校验规则，页面不展示候选过程。</div>
+                                                    <div class="text-sm font-medium text-gray-900">点评订单候选与证据链</div>
                                                 </div>
                                                 <span class="text-xs text-gray-400">最多显示 30 条</span>
                                             </div>
@@ -1847,6 +1848,7 @@
                                                                 <div class="flex flex-wrap items-center gap-2">
                                                                     <div class="font-medium text-gray-900">{{ sample.source_username || '未取到用户名' }}</div>
                                                                     <span v-if="sample.score" class="text-xs text-blue-600">{{ sample.score }} 分</span>
+                                                                    <span v-if="sample.match_score !== null" class="text-xs font-medium text-emerald-700">匹配 {{ sample.match_score }} 分</span>
                                                                     <span class="text-xs text-gray-400">{{ sample.review_date || sample.updated_at || '-' }}</span>
                                                                 </div>
                                                                 <p class="mt-1 text-sm text-gray-700 leading-6 break-words">{{ sample.content || '点评内容未入库' }}</p>
@@ -1867,13 +1869,23 @@
                                                                 <span v-else-if="sample.candidate_order_id" class="inline-flex items-center rounded border border-blue-100 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
                                                                     候选：{{ sample.candidate_order_id }}<template v-if="sample.candidate_arrival_date"> / {{ sample.candidate_arrival_date }}</template>
                                                                 </span>
-                                                                <span v-if="sample.guest_name" class="inline-flex items-center rounded border border-emerald-100 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
-                                                                    客人：{{ sample.guest_name }}
-                                                                </span>
                                                             </div>
                                                             <button type="button" @click="lookupCtripReviewOrderMatch(sample)" :disabled="!!ctripReviewMatchLoading || !sample.comment_id" class="w-full px-3 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-800 disabled:bg-gray-400">
                                                                 <i class="fas fa-search mr-1"></i>{{ ctripReviewMatchLookupLoadingCommentId === sample.comment_id ? '查询中' : (sample.order_id ? '已查到订单' : (sample.candidate_order_id ? '复核候选订单' : '查订单')) }}
                                                             </button>
+                                                            <div v-if="sample.window_used || sample.reason" class="rounded border border-slate-200 bg-slate-50 px-2 py-2 text-xs text-slate-600">
+                                                                <div v-if="sample.window_used">窗口：{{ sample.window_used }}</div>
+                                                                <div v-if="sample.reason" class="mt-1">原因：{{ sample.reason }}</div>
+                                                            </div>
+                                                            <div v-if="Object.keys(sample.score_breakdown || {}).length" class="rounded border border-blue-100 bg-blue-50 px-2 py-2 text-xs text-blue-700 leading-5">
+                                                                房型 {{ sample.score_breakdown.room_score ?? 0 }} / 日期 {{ sample.score_breakdown.date_score ?? 0 }} / 状态 {{ sample.score_breakdown.status_score ?? 0 }} / 金额 {{ sample.score_breakdown.amount_score ?? 0 }} / 详情 {{ sample.score_breakdown.detail_review_score ?? 0 }}
+                                                            </div>
+                                                            <div v-if="sample.review_flags?.length" class="rounded border border-rose-100 bg-rose-50 px-2 py-2 text-xs text-rose-700">
+                                                                重点复核：{{ sample.review_flags.join('；') }}
+                                                            </div>
+                                                            <div v-if="sample.missing_evidence?.length" class="rounded border border-amber-100 bg-amber-50 px-2 py-2 text-xs text-amber-700">
+                                                                缺失证据：{{ sample.missing_evidence.join('；') }}
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </article>
@@ -1898,7 +1910,7 @@
                                                 <p class="text-xs text-gray-500 mt-1">仅用于授权数据补录或单条复核；不会复制宿析登录 token 到 OTA 页面。</p>
                                             </div>
                                             <button type="button" @click="copyCtripReviewMatchPayloadTemplate" :disabled="!!ctripReviewMatchLoading" class="px-3 py-2 border border-emerald-300 text-emerald-700 rounded-lg text-sm hover:bg-emerald-50 disabled:text-gray-400 whitespace-nowrap">
-                                                <i class="fas fa-copy mr-1"></i>复制疑似下单人补录模板
+                                                <i class="fas fa-copy mr-1"></i>复制订单证据补录模板
                                             </button>
                                         </div>
                                     </div>
@@ -1919,8 +1931,8 @@
                                                     <input v-model="ctripReviewMatchForm.commentId" class="w-full px-3 py-2 border rounded-lg" placeholder="携程评价ID">
                                                 </div>
                                                 <div>
-                                                    <label class="block text-xs text-gray-500 mb-1">评价用户名</label>
-                                                    <input v-model="ctripReviewMatchForm.userName" class="w-full px-3 py-2 border rounded-lg" placeholder="如 M519352****">
+                                                    <label class="block text-xs text-gray-500 mb-1">平台展示名（仅留痕）</label>
+                                                    <input v-model="ctripReviewMatchForm.userName" class="w-full px-3 py-2 border rounded-lg" placeholder="不用于身份反查">
                                                 </div>
                                                 <div>
                                                     <label class="block text-xs text-gray-500 mb-1">入住日期</label>
@@ -1938,7 +1950,7 @@
                                             <div class="flex items-center justify-between gap-3">
                                                 <div>
                                                     <h5 class="font-semibold text-gray-900">2. IM 会话</h5>
-                                                    <p class="text-xs text-gray-500 mt-1">来自已授权携程会话，核心字段是会话ID和成员身份。</p>
+                                                    <p class="text-xs text-gray-500 mt-1">来自已授权携程会话，只保存 groupId、orderId、日期和房型；成员身份不会入库。</p>
                                                 </div>
                                                 <button type="button" @click="saveCtripReviewImSession" :disabled="!!ctripReviewMatchLoading" class="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 disabled:bg-gray-400 whitespace-nowrap">
                                                     <i class="fas fa-comments mr-1"></i>保存IM
@@ -1962,8 +1974,7 @@
                                                     <input v-model="ctripReviewMatchForm.imRoomName" class="w-full px-3 py-2 border rounded-lg" placeholder="可选">
                                                 </div>
                                             </div>
-                                            <textarea v-model="ctripReviewMatchForm.rawImSessionJson" rows="4" class="w-full px-3 py-2 border rounded-lg font-mono text-xs" placeholder="可选：粘贴携程会话 JSON，系统会优先读取其中的成员身份"></textarea>
-                                            <textarea v-model="ctripReviewMatchForm.imMembersJson" rows="4" class="w-full px-3 py-2 border rounded-lg font-mono text-xs" placeholder="members JSON 数组，如 [{&quot;uid&quot;:&quot;379875...&quot;,&quot;nickName&quot;:&quot;刘玉&quot;,&quot;avatar&quot;:&quot;&quot;,&quot;roleType&quot;:&quot;guest&quot;}]"></textarea>
+                                            <textarea v-model="ctripReviewMatchForm.rawImSessionJson" rows="4" class="w-full px-3 py-2 border rounded-lg font-mono text-xs" placeholder="可选：粘贴携程会话 JSON；成员、姓名、UID 和头像会被丢弃"></textarea>
                                         </div>
                                     </div>
 
@@ -1972,7 +1983,7 @@
                                             <div class="flex items-center justify-between gap-3">
                                                 <div>
                                                     <h5 class="font-semibold text-gray-900">3. 订单池</h5>
-                                                    <p class="text-xs text-gray-500 mt-1">保存可匹配的携程订单，后续按客人身份、入住日期、房型做候选。</p>
+                                                    <p class="text-xs text-gray-500 mt-1">保存授权订单号、入住/离店日期、房型与状态，按独立证据组生成候选。</p>
                                                 </div>
                                                 <button type="button" @click="saveCtripOrderForMatch" :disabled="!!ctripReviewMatchLoading" class="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 disabled:bg-gray-400 whitespace-nowrap">
                                                     <i class="fas fa-receipt mr-1"></i>保存订单
@@ -1982,14 +1993,6 @@
                                                 <div>
                                                     <label class="block text-xs text-gray-500 mb-1">订单号</label>
                                                     <input v-model="ctripReviewMatchForm.orderId" class="w-full px-3 py-2 border rounded-lg" placeholder="携程订单号">
-                                                </div>
-                                                <div>
-                                                    <label class="block text-xs text-gray-500 mb-1">客人姓名</label>
-                                                    <input v-model="ctripReviewMatchForm.guestName" class="w-full px-3 py-2 border rounded-lg" placeholder="如 刘玉">
-                                                </div>
-                                                <div>
-                                                    <label class="block text-xs text-gray-500 mb-1">客人 UID</label>
-                                                    <input v-model="ctripReviewMatchForm.guestUid" class="w-full px-3 py-2 border rounded-lg" placeholder="可选，优先用于匹配">
                                                 </div>
                                                 <div>
                                                     <label class="block text-xs text-gray-500 mb-1">入住日期</label>
@@ -2004,7 +2007,7 @@
                                                     <input v-model="ctripReviewMatchForm.orderRoomName" class="w-full px-3 py-2 border rounded-lg" placeholder="可选">
                                                 </div>
                                             </div>
-                                            <textarea v-model="ctripReviewMatchForm.rawOrderJson" rows="4" class="w-full px-3 py-2 border rounded-lg font-mono text-xs" placeholder="可选：粘贴订单 JSON，如 {&quot;orderId&quot;:&quot;&quot;,&quot;guestName&quot;:&quot;&quot;,&quot;arrivalDate&quot;:&quot;&quot;,&quot;roomName&quot;:&quot;&quot;}"></textarea>
+                                            <textarea v-model="ctripReviewMatchForm.rawOrderJson" rows="4" class="w-full px-3 py-2 border rounded-lg font-mono text-xs" placeholder="可选：粘贴订单 JSON；姓名、UID、电话等身份字段不会入库"></textarea>
                                         </div>
 
                                         <div class="border rounded-lg bg-white p-4 space-y-4">
@@ -2014,7 +2017,7 @@
                                             </div>
                                             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                                                 <button type="button" @click="lookupCtripReviewOrderMatch" :disabled="!!ctripReviewMatchLoading" class="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-800 disabled:bg-gray-400">
-                                                    <i class="fas fa-search mr-1"></i>校验规则
+                                                    <i class="fas fa-search mr-1"></i>匹配订单证据
                                                 </button>
                                                 <button type="button" @click="bindCtripReviewOrderMatch" :disabled="!!ctripReviewMatchLoading" class="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 disabled:text-gray-400">
                                                     <i class="fas fa-link mr-1"></i>人工绑定
@@ -2033,11 +2036,13 @@
                                             <div v-if="ctripReviewMatchResult" class="text-sm text-gray-600 bg-gray-50 border rounded-lg p-3">
                                                 <div>{{ ctripReviewMatchResult?.message || '已返回匹配结果' }}</div>
                                                 <div v-if="ctripReviewMatchResult?.data?.order_id" class="mt-1 text-gray-900">
-                                                    订单：{{ ctripReviewMatchResult.data.order_id }}<span v-if="ctripReviewMatchResult.data.guest_name"> / 客人：{{ ctripReviewMatchResult.data.guest_name }}</span>
+                                                    订单：{{ ctripReviewMatchResult.data.order_id }}
                                                 </div>
                                                 <div v-else-if="ctripReviewMatchResult?.data?.candidate_order_id" class="mt-1 text-gray-900">
-                                                    候选订单：{{ ctripReviewMatchResult.data.candidate_order_id }}<span v-if="ctripReviewMatchResult.data.guest_name"> / 客人：{{ ctripReviewMatchResult.data.guest_name }}</span>
+                                                    候选订单：{{ ctripReviewMatchResult.data.candidate_order_id }}
                                                 </div>
+                                                <div v-if="ctripReviewMatchResult?.data?.reason" class="mt-1 text-xs text-gray-500">原因：{{ ctripReviewMatchResult.data.reason }}</div>
+                                                <div v-if="ctripReviewMatchResult?.data?.missing_evidence?.length" class="mt-1 text-xs text-amber-700">缺少证据：{{ ctripReviewMatchResult.data.missing_evidence.join(' / ') }}</div>
                                             </div>
                                             <div v-else="" class="text-sm text-gray-400 bg-gray-50 border border-dashed rounded-lg p-6 text-center">
                                                 暂无匹配结果
@@ -2276,8 +2281,17 @@
                                                         <option value="all">全部</option>
                                                         <option value="business">经营数据</option>
                                                         <option value="traffic">流量数据</option>
+                                                        <option value="ranking">排名数据</option>
+                                                        <option value="peer_rank">竞对榜单</option>
+                                                        <option value="search_keyword">搜索词</option>
+                                                        <option value="traffic_analysis">流量分析</option>
+                                                        <option value="traffic_forecast">未来预测</option>
                                                         <option value="competitor">竞对数据</option>
                                                         <option value="advertising">广告数据</option>
+                                                        <option value="quality">服务质量</option>
+                                                        <option value="review">点评数据</option>
+                                                        <option value="order">订单数据</option>
+                                                        <option value="order_flow">订单流转</option>
                                                     </select>
                                                 </div>
                                                 <div>

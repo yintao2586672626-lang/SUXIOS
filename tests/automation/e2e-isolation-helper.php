@@ -201,7 +201,11 @@ function e2eCount(string $prefix): array
     foreach ([
         'online_daily_data' => ['online_daily_data', 'system_hotel_id'],
         'temporal_forecast_snapshots' => ['temporal_forecast_snapshots', 'system_hotel_id'],
+        'analysis_reference_set_versions' => ['analysis_reference_set_versions', 'system_hotel_id'],
         'ai_daily_reports' => 'ai_daily_reports',
+        'ai_report_generation_tasks' => 'ai_report_generation_tasks',
+        'ai_report_input_cache' => 'ai_report_input_cache',
+        'ai_report_human_reviews' => 'ai_report_human_reviews',
         'operation_action_tracks' => 'operation_action_tracks',
         'operation_execution_intents' => 'operation_execution_intents',
         'operation_execution_tasks' => 'operation_execution_tasks',
@@ -362,6 +366,117 @@ function e2eSeed(string $prefix): array
     return $seed;
 }
 
+/** @return array<string, mixed> */
+function e2eSeedAiReportInputs(string $prefix): array
+{
+    $names = e2eNames($prefix);
+    $hotelId = (int)getenv('SUXI_E2E_HOTEL_ID');
+    $hotel = $hotelId > 0
+        ? Db::name('hotels')->where('id', $hotelId)->field('id,name,tenant_id')->find()
+        : Db::name('hotels')->where('name', $names['hotel_name'])->field('id,name,tenant_id')->find();
+    if (!is_array($hotel)
+        || (int)($hotel['id'] ?? 0) <= 0
+        || (string)($hotel['name'] ?? '') !== $names['hotel_name']) {
+        throw new RuntimeException('Isolated E2E hotel is missing for AI report traffic fixture');
+    }
+
+    $hotelId = (int)$hotel['id'];
+    $trafficOtaHotelId = $prefix . '_traffic_ota';
+    $businessOtaHotelId = $prefix . '_ota';
+    $now = date('Y-m-d H:i:s');
+    $fixtures = [
+        ['date' => '2026-05-16', 'data_type' => 'traffic', 'hotel_id' => $trafficOtaHotelId, 'list_exposure' => 40000, 'detail_exposure' => 10000, 'flow_rate' => 25.0, 'order_filling_num' => 300, 'order_submit_num' => 150],
+        ['date' => '2026-05-17', 'data_type' => 'traffic', 'hotel_id' => $trafficOtaHotelId, 'list_exposure' => 10000, 'detail_exposure' => 2500, 'flow_rate' => 25.0, 'order_filling_num' => 250, 'order_submit_num' => 120],
+        ['date' => '2026-05-17', 'data_type' => 'business', 'hotel_id' => $businessOtaHotelId, 'amount' => 120000, 'quantity' => 300, 'book_order_num' => 120],
+    ];
+
+    $rowIds = Db::transaction(function () use ($fixtures, $hotel, $hotelId, $names, $prefix, $now): array {
+        $ids = [];
+        foreach ($fixtures as $fixture) {
+            $date = (string)$fixture['date'];
+            $dataType = (string)$fixture['data_type'];
+            $otaHotelId = (string)$fixture['hotel_id'];
+            $traceId = $prefix . '_' . $dataType . '_' . str_replace('-', '', $date);
+            $payload = e2eFilterPayload('online_daily_data', [
+                'tenant_id' => (int)($hotel['tenant_id'] ?? 0) ?: $hotelId,
+                'system_hotel_id' => $hotelId,
+                'hotel_id' => $otaHotelId,
+                'hotel_name' => $names['hotel_name'],
+                'data_date' => $date,
+                'source' => 'ctrip',
+                'platform' => 'ctrip',
+                'data_type' => $dataType,
+                'dimension' => '',
+                'compare_type' => 'self',
+                'amount' => $fixture['amount'] ?? null,
+                'quantity' => $fixture['quantity'] ?? null,
+                'book_order_num' => $fixture['book_order_num'] ?? null,
+                'list_exposure' => $fixture['list_exposure'] ?? null,
+                'detail_exposure' => $fixture['detail_exposure'] ?? null,
+                'flow_rate' => $fixture['flow_rate'] ?? null,
+                'order_filling_num' => $fixture['order_filling_num'] ?? null,
+                'order_submit_num' => $fixture['order_submit_num'] ?? null,
+                'data_value' => $fixture['list_exposure'] ?? $fixture['amount'] ?? 0,
+                'raw_data' => json_encode([
+                    'synthetic' => true,
+                    'scope' => 'isolated_e2e_fixture',
+                    'source_trace_id' => $traceId,
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+                'validation_status' => 'normal',
+                'validation_flags' => '[]',
+                'ingestion_method' => 'isolated_e2e_fixture',
+                'source_trace_id' => $traceId,
+                'data_period' => 'historical_daily',
+                'snapshot_time' => $date . ' 23:59:59',
+                'snapshot_bucket' => str_replace('-', '', $date),
+                'is_final' => 1,
+                'readback_verified' => 0,
+                'readback_verified_at' => null,
+                'create_time' => $now,
+                'update_time' => $now,
+            ]);
+            $rowId = (int)Db::name('online_daily_data')->insertGetId($payload);
+            $stored = Db::name('online_daily_data')->where('id', $rowId)->find();
+            if (!is_array($stored)
+                || (int)($stored['system_hotel_id'] ?? 0) !== $hotelId
+                || (string)($stored['hotel_id'] ?? '') !== $otaHotelId
+                || (string)($stored['data_date'] ?? '') !== $date
+                || (string)($stored['source'] ?? '') !== 'ctrip'
+                || (string)($stored['data_type'] ?? '') !== $dataType
+                || ($dataType === 'traffic' && (
+                    (int)($stored['list_exposure'] ?? -1) !== (int)$fixture['list_exposure']
+                    || (int)($stored['detail_exposure'] ?? -1) !== (int)$fixture['detail_exposure']
+                ))
+                || ($dataType === 'business' && (
+                    (float)($stored['amount'] ?? -1) !== (float)$fixture['amount']
+                    || (int)($stored['book_order_num'] ?? -1) !== (int)$fixture['book_order_num']
+                ))) {
+                throw new RuntimeException('Isolated AI report input fixture readback failed');
+            }
+            Db::name('online_daily_data')->where('id', $rowId)->update([
+                'readback_verified' => 1,
+                'readback_verified_at' => $now,
+            ]);
+            $verified = Db::name('online_daily_data')->where('id', $rowId)->find();
+            if (!is_array($verified) || (int)($verified['readback_verified'] ?? 0) !== 1) {
+                throw new RuntimeException('Isolated AI report traffic fixture verification writeback failed');
+            }
+            $ids[] = $rowId;
+        }
+        return $ids;
+    });
+
+    return [
+        'hotel_id' => $hotelId,
+        'ota_hotel_id' => $trafficOtaHotelId,
+        'business_ota_hotel_id' => $businessOtaHotelId,
+        'row_ids' => $rowIds,
+        'data_dates' => array_values(array_unique(array_column($fixtures, 'date'))),
+        'readback_verified' => count($rowIds) === count($fixtures),
+        'source_scope' => 'synthetic_isolated_e2e_ctrip_channel_fixture',
+    ];
+}
+
 /** @return array<string, int> */
 function e2eDeletePrefixedRows(string $prefix): array
 {
@@ -387,6 +502,59 @@ function e2eDeletePrefixedRows(string $prefix): array
     return $deleted;
 }
 
+/** @return array<string, int> */
+function e2eDeleteAiReportArtifacts(int $hotelId): array
+{
+    if ($hotelId <= 0) {
+        return [];
+    }
+
+    $taskIds = [];
+    if (e2eHasColumn('ai_report_generation_tasks', 'hotel_id')
+        && e2eHasColumn('ai_report_generation_tasks', 'task_id')) {
+        $taskIds = array_values(array_filter(array_map(
+            'strval',
+            Db::name('ai_report_generation_tasks')->where('hotel_id', $hotelId)->column('task_id')
+        ), static fn(string $taskId): bool => preg_match('/^airpt_[A-Za-z0-9_\-]{16,90}$/D', $taskId) === 1));
+    }
+
+    $deleted = [];
+    foreach ([
+        ['ai_report_human_reviews', 'hotel_id'],
+        ['analysis_reference_set_versions', 'system_hotel_id'],
+        ['ai_report_input_cache', 'hotel_id'],
+        ['ai_report_generation_tasks', 'hotel_id'],
+    ] as [$table, $column]) {
+        if (!e2eHasColumn($table, $column)) {
+            continue;
+        }
+        $count = (int)Db::name($table)->where($column, $hotelId)->delete();
+        if ($count > 0) {
+            $deleted[$table] = $count;
+        }
+    }
+
+    $runtime = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'ai_report_tasks';
+    $removedLogs = 0;
+    foreach ($taskIds as $taskId) {
+        foreach (['.stdout.log', '.stderr.log', '.log'] as $suffix) {
+            $path = $runtime . DIRECTORY_SEPARATOR . $taskId . $suffix;
+            if (!is_file($path) || is_link($path)) {
+                continue;
+            }
+            if (!unlink($path)) {
+                throw new RuntimeException('Failed to remove isolated AI report task log');
+            }
+            $removedLogs++;
+        }
+    }
+    if ($removedLogs > 0) {
+        $deleted['ai_report_task_logs'] = $removedLogs;
+    }
+
+    return $deleted;
+}
+
 /** @return array<string, mixed> */
 function e2eCleanup(string $prefix): array
 {
@@ -398,6 +566,7 @@ function e2eCleanup(string $prefix): array
     }
     if ($hotelRows !== []) {
         $hotelId = (int)$hotelRows[0]['id'];
+        $deleted = array_merge($deleted, e2eDeleteAiReportArtifacts($hotelId));
         e2eSetProtectedModules($hotelId, false);
         $result = (new HotelCascadeDeletionService())->delete($hotelId);
         $deleted['hotel_cascade_rows'] = (int)($result['deleted_rows'] ?? 0) + 1;
@@ -464,6 +633,7 @@ try {
         $result = match ($action) {
             'count' => e2eCount($prefix),
             'seed' => e2eSeed($prefix),
+            'seed-ai-report-inputs' => e2eSeedAiReportInputs($prefix),
             'cleanup' => e2eCleanup($prefix),
             default => throw new RuntimeException('Unknown E2E isolation action'),
         };

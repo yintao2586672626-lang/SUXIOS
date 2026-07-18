@@ -7,6 +7,44 @@ import {
   filterMeituanCumulativeRowsByTargetDate,
   filterMeituanEventRowsByTargetDate,
 } from '../../scripts/lib/meituan_capture_gate.mjs';
+import {
+  collectMeituanPlatformIdentifiers,
+  evaluateMeituanPlatformIdentity,
+  extractMeituanRequestPlatformIdentifiers,
+  isMeituanOwnHotelPayloadKey,
+} from '../../scripts/lib/meituan_platform_identity.mjs';
+
+test('Meituan source identity requires one OTA-observed identifier matching the bound store', () => {
+  const requestIdentifiers = extractMeituanRequestPlatformIdentifiers(
+    'https://example.test/traffic?poiId=poi-1',
+    '{"filters":{"shopId":"poi-1"}}',
+  );
+  assert.deepEqual(requestIdentifiers, ['poi-1']);
+  assert.deepEqual(collectMeituanPlatformIdentifiers({ data: { poi_id: 'poi-1' } }), ['poi-1']);
+  assert.equal(isMeituanOwnHotelPayloadKey('traffic'), true);
+  assert.equal(isMeituanOwnHotelPayloadKey('peerRank'), false);
+
+  const matched = evaluateMeituanPlatformIdentity(['store-1', 'poi-1'], requestIdentifiers);
+  assert.equal(matched.status, 'matched');
+  assert.equal(matched.source_validation, true);
+  assert.equal(matched.validated_identifier, 'poi-1');
+
+  const mismatch = evaluateMeituanPlatformIdentity(['poi-1'], ['poi-2']);
+  assert.equal(mismatch.status, 'mismatch');
+  assert.equal(mismatch.source_validation, false);
+
+  const ambiguous = evaluateMeituanPlatformIdentity(['poi-1'], ['poi-1', 'poi-2']);
+  assert.equal(ambiguous.status, 'ambiguous');
+  assert.equal(ambiguous.source_validation, false);
+});
+
+test('collector never promotes the configured Profile key into OTA source identity', () => {
+  const source = readFileSync('scripts/meituan_browser_capture.mjs', 'utf8');
+  assert.match(source, /platform_identity_validation/);
+  assert.match(source, /evaluateMeituanPlatformIdentity/);
+  assert.doesNotMatch(source, /next\.storeId\s*=\s*storeId/);
+  assert.doesNotMatch(source, /next\.store_id\s*=\s*storeId/);
+});
 
 test('capture normalizer applies traffic-card parsing only to traffic and date evidence to ads rows', () => {
   const source = readFileSync('scripts/meituan_browser_capture.mjs', 'utf8');
@@ -29,6 +67,15 @@ test('capture normalizer applies traffic-card parsing only to traffic and date e
   assert.match(source, /compare_type: 'self'/);
   assert.match(source, /is_self: true/);
   assert.doesNotMatch(source, /dom:orders:target_date_summary'[\s\S]{0,500}_dom_text/);
+});
+
+test('headless login check retries the neutral eBooking entry before reporting login required', () => {
+  const source = readFileSync('scripts/meituan_browser_capture.mjs', 'utf8');
+  const ensureBlock = source.slice(source.indexOf('async function ensureLoggedIn'), source.indexOf('async function bringLoginPageToFront'));
+
+  assert.match(ensureBlock, /if \(isHeadlessMode\(\)\) \{[\s\S]*page\.goto\(URLS\.login/);
+  assert.match(ensureBlock, /page\.waitForLoadState\('networkidle'/);
+  assert.match(ensureBlock, /if \(await looksLoggedIn\(page\)\) \{[\s\S]*status: 'logged_in'/);
 });
 
 test('drops untargeted event summaries while keeping target-date review evidence', () => {

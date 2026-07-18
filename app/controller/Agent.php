@@ -14,6 +14,7 @@ use app\model\CompetitorAnalysis;
 use app\model\OperationLog;
 use app\model\SystemConfig;
 use app\model\AiModelConfig;
+use app\model\User as UserModel;
 use app\service\AgentClosureReadinessService;
 use app\service\CompetitorPriceReadinessService;
 use app\service\FeasibilityReportService;
@@ -370,7 +371,8 @@ class Agent extends Base
         }
 
         try {
-            $result = Db::transaction(function () use ($id, $actionIndex): array {
+            $scheduleInput = $this->request->post();
+            $result = Db::transaction(function () use ($id, $actionIndex, $scheduleInput): array {
                 $log = Db::name('agent_logs')
                     ->where('id', $id)
                     ->where('action', 'ota_diagnosis')
@@ -413,7 +415,11 @@ class Agent extends Base
                     throw new \RuntimeException('saved OTA diagnosis hotel scope mismatch', 409);
                 }
 
-                $intentInput = $this->buildOtaDiagnosisExecutionIntentInput($snapshot, $action, $id, $hotelId);
+                $intentInput = $this->buildOtaDiagnosisExecutionIntentInput($snapshot, $action, $id, $hotelId, $scheduleInput);
+                $this->assertOtaDiagnosisExecutionAssigneeScope(
+                    (int)($intentInput['target_value']['assignee_id'] ?? 0),
+                    $hotelId
+                );
                 $idempotencyKey = $this->otaDiagnosisActionIdempotencyKey($id, $actionIndex, $action, $intentInput);
                 $existing = $this->findOtaDiagnosisActionIntent(
                     $id,
@@ -421,7 +427,8 @@ class Agent extends Base
                     $actionIndex,
                     $idempotencyKey,
                     $action,
-                    (string)$intentInput['action_type']
+                    (string)$intentInput['action_type'],
+                    (array)($intentInput['target_value']['workflow_schedule'] ?? [])
                 );
                 $retryableTerminal = is_array($existing)
                     && $this->isRetryableOtaDiagnosisIntentTerminal((string)($existing['status'] ?? ''));
@@ -432,6 +439,7 @@ class Agent extends Base
                 $intentInput['evidence']['action_idempotency_key'] = $idempotencyKey;
                 $intentInput['evidence']['intent_attempt'] = $retryAttempt;
                 $intentInput['evidence']['retry_of_intent_id'] = $retryableTerminal ? (int)($existing['id'] ?? 0) : 0;
+                $atomicIdempotencyKey = $idempotencyKey . ':attempt:' . $retryAttempt;
 
                 $reused = is_array($existing) && !$retryableTerminal;
                 $intent = $reused
@@ -440,8 +448,18 @@ class Agent extends Base
                         [$hotelId],
                         $hotelId,
                         $intentInput,
-                        (int)($this->currentUser->id ?? 0)
+                        (int)($this->currentUser->id ?? 0),
+                        false,
+                        $atomicIdempotencyKey
                     );
+                $reused = $reused || ($intent['idempotent_replay'] ?? false) === true;
+                $persistedSchedule = $this->otaDiagnosisIntentWorkflowSchedule($intent);
+                if ($persistedSchedule === [] && !$reused) {
+                    $persistedSchedule = (array)($intentInput['target_value']['workflow_schedule'] ?? []);
+                }
+                if ($persistedSchedule === []) {
+                    throw new \RuntimeException('OTA diagnosis execution intent schedule readback failed');
+                }
                 if (!$reused
                     && ((int)($intent['id'] ?? 0) <= 0
                         || (string)($intent['status'] ?? '') !== 'pending_approval'
@@ -456,6 +474,7 @@ class Agent extends Base
                 $actionItems[$actionIndex]['execution_idempotency_key'] = $idempotencyKey;
                 $actionItems[$actionIndex]['execution_attempt'] = $retryAttempt;
                 $actionItems[$actionIndex]['execution_retry_of_intent_id'] = $retryableTerminal ? (int)($existing['id'] ?? 0) : 0;
+                $actionItems[$actionIndex]['execution_schedule'] = $persistedSchedule;
                 $snapshot['action_items'] = $actionItems;
                 $context['diagnosis_result'] = $snapshot;
                 $newContext = json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -480,6 +499,7 @@ class Agent extends Base
                     'retry_created' => $retryableTerminal,
                     'idempotency_key' => $idempotencyKey,
                     'intent_attempt' => $retryAttempt,
+                    'execution_schedule' => $persistedSchedule,
                     'hotel_id' => $hotelId,
                 ];
             });
@@ -512,6 +532,7 @@ class Agent extends Base
             'action_item_id' => trim((string)($action['id'] ?? '')),
             'action_type' => trim((string)($input['action_type'] ?? '')),
             'platform' => trim((string)($input['platform'] ?? '')),
+            'workflow_schedule' => (array)($input['target_value']['workflow_schedule'] ?? []),
         ];
         return 'ota_diagnosis_action_' . substr(hash(
             'sha256',
@@ -529,7 +550,8 @@ class Agent extends Base
         int $actionIndex,
         string $idempotencyKey,
         array $action,
-        string $actionType
+        string $actionType,
+        array $workflowSchedule
     ): ?array {
         if (!$this->tableExists('operation_execution_intents')) {
             return null;
@@ -542,28 +564,76 @@ class Agent extends Base
             ->whereNull('deleted_at');
         if ($linkedId > 0) {
             $linked = (clone $query)->where('id', $linkedId)->find();
-            if (is_array($linked)) {
+            if (is_array($linked) && $this->otaDiagnosisIntentMatchesIdentity(
+                $linked,
+                $idempotencyKey,
+                $actionIndex,
+                $action,
+                $workflowSchedule
+            )) {
                 return $linked;
             }
         }
 
-        $actionItemId = trim((string)($action['id'] ?? ''));
         foreach ($query->where('action_type', $actionType)->order('id', 'desc')->select()->toArray() as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
-            $evidence = json_decode((string)($row['evidence_json'] ?? ''), true);
-            $evidence = is_array($evidence) ? $evidence : [];
-            $storedKey = trim((string)($evidence['action_idempotency_key'] ?? ''));
-            $storedActionItemId = trim((string)($evidence['action_item_id'] ?? ''));
-            if (($storedKey !== '' && hash_equals($idempotencyKey, $storedKey))
-                || ($storedKey === '' && (int)($evidence['action_index'] ?? -1) === $actionIndex)
-                || ($storedKey === '' && $actionItemId !== '' && hash_equals($actionItemId, $storedActionItemId))
-            ) {
+            if (is_array($row) && $this->otaDiagnosisIntentMatchesIdentity(
+                $row,
+                $idempotencyKey,
+                $actionIndex,
+                $action,
+                $workflowSchedule
+            )) {
                 return $row;
             }
         }
         return null;
+    }
+
+    /** @param array<string, mixed> $intent @param array<string, mixed> $action */
+    private function otaDiagnosisIntentMatchesIdentity(
+        array $intent,
+        string $idempotencyKey,
+        int $actionIndex,
+        array $action,
+        array $workflowSchedule
+    ): bool {
+        $evidence = json_decode((string)($intent['evidence_json'] ?? ''), true);
+        $evidence = is_array($evidence) ? $evidence : [];
+        $storedKey = trim((string)($evidence['action_idempotency_key'] ?? ''));
+        if ($storedKey !== '') {
+            return hash_equals($idempotencyKey, $storedKey);
+        }
+
+        $actionItemId = trim((string)($action['id'] ?? ''));
+        $storedActionItemId = trim((string)($evidence['action_item_id'] ?? ''));
+        $legacyActionMatches = (int)($evidence['action_index'] ?? -1) === $actionIndex
+            || ($actionItemId !== '' && $storedActionItemId !== '' && hash_equals($actionItemId, $storedActionItemId));
+
+        return $legacyActionMatches
+            && $this->otaDiagnosisIntentWorkflowSchedule($intent) === $workflowSchedule;
+    }
+
+    /** @param array<string, mixed> $intent @return array<string, mixed> */
+    private function otaDiagnosisIntentWorkflowSchedule(array $intent): array
+    {
+        $targetValue = $intent['target_value'] ?? null;
+        if (!is_array($targetValue)) {
+            $targetValue = json_decode((string)($intent['target_value_json'] ?? ''), true);
+        }
+        $targetValue = is_array($targetValue) ? $targetValue : [];
+        $schedule = is_array($targetValue['workflow_schedule'] ?? null)
+            ? $targetValue['workflow_schedule']
+            : [];
+        if ($schedule === [] && (int)($targetValue['assignee_id'] ?? 0) > 0) {
+            $schedule = [
+                'assignee_id' => (int)$targetValue['assignee_id'],
+                'due_at' => trim((string)($targetValue['due_at'] ?? '')),
+                'review_at' => trim((string)($targetValue['review_at'] ?? '')),
+                'source_policy' => 'human_assigned_schedule_requires_manual_approval_and_readback_review',
+            ];
+        }
+
+        return $schedule;
     }
 
     private function isRetryableOtaDiagnosisIntentTerminal(string $status): bool
@@ -581,6 +651,7 @@ class Agent extends Base
     /** @param array<string, mixed> $existing @param array<string, mixed> $snapshot @param array<string, mixed> $input */
     private function otaDiagnosisIntentSummary(array $existing, int $hotelId, array $snapshot, array $input): array
     {
+        $targetValue = json_decode((string)($existing['target_value_json'] ?? ''), true);
         return [
             'id' => (int)($existing['id'] ?? 0),
             'status' => (string)($existing['status'] ?? ''),
@@ -589,6 +660,8 @@ class Agent extends Base
             'platform' => (string)($existing['platform'] ?? $snapshot['platform'] ?? ''),
             'source_module' => (string)($existing['source_module'] ?? $input['source_module']),
             'source_record_id' => (int)($existing['source_record_id'] ?? 0),
+            'target_value' => is_array($targetValue) ? $targetValue : [],
+            'workflow_schedule' => $this->otaDiagnosisIntentWorkflowSchedule($existing),
         ];
     }
 
@@ -3686,7 +3759,13 @@ class Agent extends Base
         return $snapshot;
     }
 
-    private function buildOtaDiagnosisExecutionIntentInput(array $snapshot, array $action, int $recordId, int $hotelId): array
+    private function buildOtaDiagnosisExecutionIntentInput(
+        array $snapshot,
+        array $action,
+        int $recordId,
+        int $hotelId,
+        array $scheduleInput = []
+    ): array
     {
         $platform = strtolower(trim((string)($snapshot['platform'] ?? '')));
         if (!in_array($platform, ['ctrip', 'meituan', 'qunar'], true)) {
@@ -3734,6 +3813,7 @@ class Agent extends Base
             }
         }
         $priority = strtolower(trim((string)($snapshot['priority'] ?? 'medium')));
+        $workflowSchedule = $this->normalizeOtaDiagnosisExecutionSchedule($scheduleInput);
 
         return [
             'source_module' => 'ota_diagnosis_saved',
@@ -3750,6 +3830,10 @@ class Agent extends Base
                 'target_metric' => $targetMetric,
                 'action_text' => $actionText,
                 'measurement_policy' => 'target_not_quantified_until_manual_confirmation',
+                'assignee_id' => $workflowSchedule['assignee_id'],
+                'due_at' => $workflowSchedule['due_at'],
+                'review_at' => $workflowSchedule['review_at'],
+                'workflow_schedule' => $workflowSchedule,
             ],
             'evidence' => [
                 'evidence_refs' => $evidenceRefs,
@@ -3765,11 +3849,59 @@ class Agent extends Base
                 'diagnosis_summary' => (string)($snapshot['core_conclusion'] ?? $snapshot['diagnosis']['summary'] ?? ''),
                 'metric_scope' => 'ota_channel',
                 'expected_delta_status' => 'not_quantified',
+                'workflow_schedule' => $workflowSchedule,
             ],
             'expected_metric' => $targetMetric,
             'risk_level' => $priority === 'high' ? 'high' : ($priority === 'low' ? 'low' : 'medium'),
             'status' => 'pending_approval',
         ];
+    }
+
+    /** @return array{assignee_id:int,due_at:string,review_at:string,source_policy:string} */
+    private function normalizeOtaDiagnosisExecutionSchedule(array $input): array
+    {
+        $assigneeId = (int)($input['assignee_id'] ?? 0);
+        if ($assigneeId <= 0) {
+            throw new \InvalidArgumentException('assignee_id is required before creating an execution intent');
+        }
+
+        $dueAt = $this->normalizeOtaDiagnosisExecutionDateTime((string)($input['due_at'] ?? ''), 'due_at');
+        $reviewAt = $this->normalizeOtaDiagnosisExecutionDateTime((string)($input['review_at'] ?? ''), 'review_at');
+        if (strtotime($reviewAt) < strtotime($dueAt)) {
+            throw new \InvalidArgumentException('review_at must not be earlier than due_at');
+        }
+
+        return [
+            'assignee_id' => $assigneeId,
+            'due_at' => $dueAt,
+            'review_at' => $reviewAt,
+            'source_policy' => 'human_assigned_schedule_requires_manual_approval_and_readback_review',
+        ];
+    }
+
+    private function normalizeOtaDiagnosisExecutionDateTime(string $value, string $field): string
+    {
+        $value = trim(str_replace('T', ' ', $value));
+        if ($value === '') {
+            throw new \InvalidArgumentException($field . ' is required before creating an execution intent');
+        }
+        $timestamp = strtotime($value);
+        if ($timestamp === false) {
+            throw new \InvalidArgumentException($field . ' must be a valid date-time');
+        }
+
+        return date('Y-m-d H:i:s', $timestamp);
+    }
+
+    private function assertOtaDiagnosisExecutionAssigneeScope(int $assigneeId, int $hotelId): void
+    {
+        $assignee = UserModel::where('id', $assigneeId)->where('status', UserModel::STATUS_ENABLED)->find();
+        if (!$assignee) {
+            throw new \InvalidArgumentException('assignee_id must reference an enabled user');
+        }
+        if (!$assignee->hasHotelPermission($hotelId, 'operation.execute')) {
+            throw new \InvalidArgumentException('assignee_id lacks operation.execute permission for the diagnosis hotel');
+        }
     }
 
     private function classifyOtaDiagnosisExecutionAction(string $action): array

@@ -50,6 +50,16 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         self::assertCount(2, $withRetry);
         self::assertSame('realtime-retry', $withRetry[0]['label']);
         self::assertSame('realtime:2026-07-16:10', $withRetry[0]['slot_id']);
+        self::assertSame([], $withRetry[0]['target_platforms'] ?? []);
+
+        $status['failed_records'][0]['failed_platforms'] = ['meituan'];
+        $targetedRetry = $this->policy->dueRuns(58, $status, $this->time('2026-07-16 10:37:00'));
+        $targetedRealtime = array_values(array_filter(
+            $targetedRetry,
+            static fn(array $run): bool => $run['slot_id'] === 'realtime:2026-07-16:10'
+        ));
+        self::assertCount(1, $targetedRealtime);
+        self::assertSame(['meituan'], $targetedRealtime[0]['target_platforms'] ?? []);
     }
 
     public function testOutcomeRequiresRowsAndNoFailedConfiguredPlatform(): void
@@ -78,9 +88,31 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         self::assertSame(['meituan'], $partial['failed_platforms']);
         self::assertSame(['ctrip'], $partial['successful_platforms']);
 
+        $producerPartial = $this->policy->classifyOutcome([
+            'success' => true,
+            'saved_count' => 8,
+            'failed_platforms' => ['meituan'],
+            'successful_platforms' => ['ctrip', 'meituan'],
+        ]);
+        self::assertFalse($producerPartial['complete']);
+        self::assertSame('partial_success', $producerPartial['status']);
+        self::assertSame(['meituan'], $producerPartial['failed_platforms']);
+        self::assertSame(['ctrip'], $producerPartial['successful_platforms']);
+
         $empty = $this->policy->classifyOutcome(['success' => true, 'saved_count' => 0]);
         self::assertFalse($empty['complete']);
         self::assertSame('failed', $empty['status']);
+
+        $failedPlatformRetry = $this->policy->classifyOutcome([
+            'success' => true,
+            'saved_count' => 2,
+            'platform_results' => [
+                ['platform' => 'meituan', 'success' => true, 'saved_count' => 2],
+            ],
+        ]);
+        self::assertTrue($failedPlatformRetry['complete']);
+        self::assertSame(['meituan'], $failedPlatformRetry['successful_platforms']);
+        self::assertSame([], $failedPlatformRetry['failed_platforms']);
     }
 
     public function testRetryStateUsesBoundedBackoffAndFailsClosedWhenExhausted(): void
@@ -104,6 +136,31 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         self::assertFalse($this->policy->retryDue($third, 3, $this->time('2026-07-16 11:30:00')));
     }
 
+    public function testDegradedProfileSourceRemainsRetryableWithoutDuplicatingPlatform(): void
+    {
+        $sources = [
+            ['id' => 25, 'platform' => 'ctrip', 'status' => 'failed', 'last_sync_time' => '2026-07-17 17:38:06'],
+            ['id' => 68, 'platform' => 'meituan', 'status' => 'waiting_config', 'last_sync_time' => '2026-07-17 17:38:11'],
+            ['id' => 101, 'platform' => 'meituan', 'status' => 'waiting_config', 'last_sync_time' => '2026-07-15 09:28:44'],
+        ];
+
+        $retryable = $this->policy->retryableProfileSources($sources);
+
+        self::assertSame([25, 68], array_column($retryable, 'id'));
+    }
+
+    public function testUsableProfileSourcesTakePriorityOverDegradedDuplicates(): void
+    {
+        $sources = [
+            ['id' => 68, 'platform' => 'meituan', 'status' => 'partial_success', 'last_sync_time' => '2026-07-15 19:47:14'],
+            ['id' => 101, 'platform' => 'meituan', 'status' => 'waiting_config', 'last_sync_time' => '2026-07-17 09:28:44'],
+        ];
+
+        $retryable = $this->policy->retryableProfileSources($sources);
+
+        self::assertSame([68], array_column($retryable, 'id'));
+    }
+
     public function testCliAndHttpDispatchersSharePolicyAndOnlyMarkCompleteRunsExecuted(): void
     {
         $command = (string)file_get_contents(dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php');
@@ -121,6 +178,13 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         self::assertStringNotContainsString('$ranLockedTask', $controller);
         self::assertStringContainsString("'status' => \$outcome['status']", $command);
         self::assertStringContainsString("'status' => \$outcome['status']", $controller);
+        self::assertStringContainsString("\$run['target_platforms'] ?? []", $command);
+        self::assertStringContainsString("'target_platforms' => \$schedulePolicy->normalizePlatforms(\$run['target_platforms'] ?? [])", $controller);
+        self::assertStringContainsString("in_array('ctrip', \$targetPlatforms, true)", $controller);
+        self::assertStringContainsString("in_array('meituan', \$targetPlatforms, true)", $controller);
+        self::assertStringContainsString("!== 'success' || \$sourceSavedCount <= 0", $command);
+        self::assertStringContainsString("!isset(\$failedPlatforms[\$platform])", $command);
+        self::assertStringContainsString("return \$savedCount > 0 ? 'partial_success' : 'failed';", $controller);
     }
 
     private function time(string $value): \DateTimeImmutable

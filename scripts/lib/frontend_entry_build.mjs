@@ -3,6 +3,9 @@ import { gzipSync } from 'node:zlib';
 import { minify } from 'terser';
 import { readFrontendAssetVersion } from './frontend_asset_version.mjs';
 import {
+  AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT,
+  AUTHENTICATED_ASSET_PHASE_STARTUP,
+  extractAuthenticatedAssetEntries,
   requireUniqueFrontendRuntimeAssetReference,
   resolveFrontendRuntimeAssetReferences,
   stripFrontendAssetQuery,
@@ -55,6 +58,12 @@ export async function inspectFrontendEntryBuild({ source, artifact, html }) {
     failures.push(error.message);
   }
   const runtimeAssets = runtimeAssetReferences.map(stripFrontendAssetQuery);
+  let runtimeAssetEntries = [];
+  try {
+    runtimeAssetEntries = extractAuthenticatedAssetEntries(html);
+  } catch (error) {
+    failures.push(error.message);
+  }
 
   if (artifact !== rebuilt) failures.push('public/app-main.min.js is stale or was not generated with the pinned build contract.');
   if (!(artifactBytes < sourceBytes * 0.7)) failures.push('The runtime entry must remain below 70% of the canonical source size.');
@@ -66,9 +75,18 @@ export async function inspectFrontendEntryBuild({ source, artifact, html }) {
     failures.push('public/index.html must not load the canonical unminified source at runtime.');
   }
   if (runtimeAssets[0] !== 'vue.runtime.global.prod.js'
+    || runtimeAssets.at(-3) !== 'app-startup-render.min.js'
     || runtimeAssets.at(-2) !== 'app-render.min.js'
     || runtimeAssets.at(-1) !== 'app-main.min.js') {
-    failures.push('The authenticated startup chain must keep runtime Vue first, the render before app-main, and app-main last.');
+    failures.push('The authenticated asset chain must keep runtime Vue first and end with startup render, deferred full render, then app-main.');
+  }
+  const phaseFor = (assetName) => runtimeAssetEntries.find(
+    (entry) => stripFrontendAssetQuery(entry.src) === assetName,
+  )?.phase;
+  if (phaseFor('app-startup-render.min.js') !== AUTHENTICATED_ASSET_PHASE_STARTUP
+    || phaseFor('app-main.min.js') !== AUTHENTICATED_ASSET_PHASE_STARTUP
+    || phaseFor('app-render.min.js') !== AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT) {
+    failures.push('The app entry must use the home startup render before deferring the full render until after first paint.');
   }
   try {
     new Function(artifact);

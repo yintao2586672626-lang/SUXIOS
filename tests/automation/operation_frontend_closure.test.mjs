@@ -112,4 +112,12 @@ test('effect review uses an in-page form and preserves the observing state when 
   const reviewFlow = appMain.slice(start, end);
   assert.match(reviewFlow, /operationReviewModalOpen\.value = true/);
   assert.match(reviewFlow, /result_summary: resultSummary \|\| '继续观察，等待次日收益或ROI证据'/);
+  assert.match(reviewFlow, /readback_evidence:/);
+  assert.match(reviewFlow, /operator_attested: true/);
+  assert.match(reviewFlow, /verification_status: 'operator_attested'/);
+  assert.doesNotMatch(reviewFlow, /readback_verified: true/);
+  assert.match(reviewFlow, /必须提交人工平台复查声明/);
+  assert.match(trackPage, /data-testid="operation-review-readback-gate"/);
+  assert.match(trackPage, /不代表 OTA 来源已被服务端验证/);
+  assert.match(trackPage, /不会自动向 OTA 写入价格、库存或活动/);
 });

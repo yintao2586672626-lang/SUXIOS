@@ -44,7 +44,7 @@
         })();
     </script>
     <link href="tailwind.min.css?v=20260717-login-usability-hfc91eeef7d" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20260717-login-usability-h8bf0df9109">
+    <link rel="stylesheet" href="style.css?v=20260718-ai-workbench-temporal-h9c53406ff6">
     <link rel="stylesheet" href="ai-custom.css?v=20260628-static-router-fix">
     <script>
         (() => {
@@ -99,19 +99,32 @@
             "vue.runtime.global.prod.js?v=20260713-runtime-h039d03af6b",
             "shared-components.js?v=20260628-static-router-fix",
             "ctrip-static.js?v=20260716-manual-fetch-progress-ha505c8d046",
-            "ctrip-search-opportunity-static.js?v=20260713-percentage-points-h4247608158",
-            "meituan-static.js?v=20260716-manual-fetch-progress-h1431b5a835",
-            "ota-browser-assist-static.js?v=20260629-browser-assist",
-            "data-health-static.js?v=20260716-manual-fetch-progress-h5e74a27739",
-            "system-static.js?v=20260716-login-flow-haab6ad7bfd",
-            "user-admin-static.js?v=20260716-login-flow-h611f67d3ff",
+            {
+                "src": "ctrip-search-opportunity-static.js?v=20260713-percentage-points-h4247608158",
+                "phase": "after-first-paint"
+            },
+            "meituan-static.js?v=20260716-manual-fetch-progress-h3d4b56cc83",
+            {
+                "src": "ota-browser-assist-static.js?v=20260629-browser-assist",
+                "phase": "after-first-paint"
+            },
+            "data-health-static.js?v=20260716-manual-fetch-progress-hff7cfe2672",
+            "system-static.js?v=20260717-hotel-ota-strategy-review-h51b8c9772f",
+            {
+                "src": "user-admin-static.js?v=20260716-login-flow-h611f67d3ff",
+                "phase": "after-first-paint"
+            },
             "compass-static.js?v=20260716-truth-h84d7e78eac",
             "home-static.js?v=20260628-static-router-fix",
             "dual-ota-home-static.js?v=20260716-truthful-missing-values-hdd53cf70b0",
-            "app-render.min.js?v=20260717-ai-daily-result-h6542df6904",
-            "app-main.min.js?v=20260716-login-flow-hbaa210d351"
+            "app-startup-render.min.js?v=20260717-home-first-hba0ea9ceaa",
+            {
+                "src": "app-render.min.js?v=20260717-ai-daily-result-hdc916ae07a",
+                "phase": "after-first-paint"
+            },
+            "app-main.min.js?v=20260716-login-flow-h9391dacc5a"
         ]
     </script>
-    <script defer src="app-bootstrap.js?v=20260717-login-usability-h8db4d95400" onerror="window.SUXI_RENDER_ASSET_LOAD_ERROR('app-bootstrap.js')"></script>
+    <script defer src="app-bootstrap.js?v=20260717-login-warmup-h1314d8dd44" onerror="window.SUXI_RENDER_ASSET_LOAD_ERROR('app-bootstrap.js')"></script>
 </body>
 </html>

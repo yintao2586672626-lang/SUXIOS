@@ -27,6 +27,12 @@ import {
   filterMeituanCumulativeRowsByTargetDate,
   filterMeituanEventRowsByTargetDate,
 } from './lib/meituan_capture_gate.mjs';
+import {
+  collectMeituanPlatformIdentifiers,
+  evaluateMeituanPlatformIdentity,
+  extractMeituanRequestPlatformIdentifiers,
+  isMeituanOwnHotelPayloadKey,
+} from './lib/meituan_platform_identity.mjs';
 import { fail, parseArgs, safeName, timestamp, waitForEnter } from './lib/shared_helpers.mjs';
 
 const URLS = {
@@ -60,8 +66,8 @@ await mkdir(reportDir, { recursive: true });
 await mkdir(assetDir, { recursive: true });
 
 const payload = {
-  store_id: storeId,
-  poi_id: String(args.poiId || ''),
+  store_id: '',
+  poi_id: '',
   poi_name: String(args.poiName || ''),
   system_hotel_id: args.systemHotelId ? Number(args.systemHotelId) : null,
   default_data_date: defaultDataDate,
@@ -91,6 +97,7 @@ const payload = {
 const observedOrderFlowRequestUrls = new Set();
 const pendingResponseCaptures = new Set();
 const requestQueryEvidence = new WeakMap();
+const observedPlatformIdentifiers = new Set();
 let activeOrderQueryEvidence = null;
 let orderQueryEpoch = 0;
 
@@ -145,15 +152,49 @@ try {
   }
 
   await waitForPendingResponseCaptures(page);
+  const platformIdentityValidation = loginOnly
+    ? {
+        schema_version: 1,
+        status: 'not_checked_login_only',
+        source_validation: false,
+        evidence_source: 'none',
+        expected_identifier_count: 0,
+        observed_identifier_count: 0,
+        matched_identifier_count: 0,
+        mismatched_identifier_count: 0,
+        validated_identifier: '',
+      }
+    : evaluateMeituanPlatformIdentity(
+        [storeId, String(args.poiId || '')],
+        Array.from(observedPlatformIdentifiers),
+      );
+  payload.platform_identity_validation = platformIdentityValidation;
+  if (platformIdentityValidation.status === 'matched') {
+    payload.poi_id = platformIdentityValidation.validated_identifier;
+    if (!String(args.poiId || '').trim() || platformIdentityValidation.validated_identifier === storeId) {
+      payload.store_id = platformIdentityValidation.validated_identifier;
+    }
+  }
   Object.assign(payload, filterMeituanCumulativeRowsByTargetDate(payload, defaultDataDate));
   if (wantsSection('order_flow')) {
     payload.order_flow = filterMeituanOrderFlowRowsByPeriod(payload.order_flow, dataPeriod);
   }
   Object.assign(payload, filterMeituanEventRowsByTargetDate(payload, defaultDataDate, captureSections));
   dedupePayloadRows(payload);
-  payload.capture_gate = loginOnly
+  const sectionGate = loginOnly
     ? { status: loginStatus.ok ? 'pass' : 'fail', failed_check_ids: loginStatus.ok ? [] : ['auth_login_required'], mode: 'login_only' }
     : evaluateMeituanCaptureGate(payload, captureSections, { targetDate: defaultDataDate });
+  payload.capture_gate = !loginOnly && platformIdentityValidation.status !== 'matched'
+    ? {
+        ...sectionGate,
+        status: 'fail',
+        failed_check_ids: Array.from(new Set([
+          ...(Array.isArray(sectionGate.failed_check_ids) ? sectionGate.failed_check_ids : []),
+          `platform_hotel_identity_${platformIdentityValidation.status}`,
+        ])),
+        platform_identity_status: platformIdentityValidation.status,
+      }
+    : sectionGate;
   if (payload.capture_gate.status !== 'pass') {
     process.exitCode = 2;
   }
@@ -182,6 +223,17 @@ async function ensureLoggedIn(page) {
 
   if (!(await looksLoggedIn(page))) {
     if (isHeadlessMode()) {
+      // The comment-management route can render an empty SPA shell in
+      // headless mode even when the persisted merchant session is valid.
+      // Re-check through the neutral eBooking entry, which redirects an
+      // authenticated Profile to the merchant home page, before declaring
+      // that human login is required.
+      await page.goto(URLS.login, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => null);
+      await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => null);
+      await page.waitForTimeout(3000);
+      if (await looksLoggedIn(page)) {
+        return { ok: true, status: 'logged_in', url: page.url(), message: 'Meituan profile is logged in.' };
+      }
       return {
         ok: false,
         status: 'login_required',
@@ -692,6 +744,14 @@ async function captureMeituanResponse(response, target) {
     const safeBody = sanitizeOtaPayloadForStorage(body, section);
     const supplementalMeta = meituanSupplementalResponseMeta(url, requestDateEvidence);
     const targetPayloadKey = meituanPayloadKeyForResponse(url, safeBody, section);
+    for (const identifier of extractMeituanRequestPlatformIdentifiers(url, requestPayload)) {
+      observedPlatformIdentifiers.add(identifier);
+    }
+    if (isMeituanOwnHotelPayloadKey(targetPayloadKey)) {
+      for (const identifier of collectMeituanPlatformIdentifiers(safeBody)) {
+        observedPlatformIdentifiers.add(identifier);
+      }
+    }
     const normalizedRows = normalizeCapturedList(safeBody, section, '', requestDateEvidence);
     const rows = meituanRowsForPayloadKey(targetPayloadKey, safeBody, normalizedRows, supplementalMeta);
     const responseEvidence = buildOtaCaptureEvidence('meituan', { url, section, captureSource: `xhr:${section}` });
@@ -746,22 +806,9 @@ function wantsSection(section) {
 }
 
 function withMeituanPlatformIdentifier(row) {
-  const next = { ...(row || {}) };
-  const hasPlatformIdentifier = [
-    next.poiId,
-    next.poi_id,
-    next.storeId,
-    next.store_id,
-    next.shopId,
-    next.shop_id,
-    next.partnerId,
-    next.partner_id,
-  ].some(value => String(value || '').trim() !== '');
-  if (!hasPlatformIdentifier) {
-    next.storeId = storeId;
-    next.store_id = storeId;
-  }
-  return next;
+  // Preserve only identifiers actually present in the OTA response. The
+  // configured Profile key is routing context, not source identity evidence.
+  return { ...(row || {}) };
 }
 
 function meituanRowsForPayloadKey(payloadKey, safeBody, normalizedRows, meta) {

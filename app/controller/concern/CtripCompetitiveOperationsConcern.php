@@ -5,6 +5,7 @@ namespace app\controller\concern;
 
 use app\service\CtripCompetitiveOperationsService;
 use app\service\CtripPublicHotelProfileService;
+use app\service\OtaPublicPageDiagnosisService;
 use think\Response;
 
 trait CtripCompetitiveOperationsConcern
@@ -64,6 +65,41 @@ trait CtripCompetitiveOperationsConcern
             ]);
             return $this->error('携程酒店档案读取失败', 500, [
                 'reason' => 'ctrip_public_profiles_read_failed',
+            ]);
+        }
+    }
+
+    public function otaPublicPageDiagnosis(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_view_online_data');
+
+        try {
+            $systemHotelId = $this->ctripCompetitiveSystemHotelId($this->request->get('system_hotel_id', $this->request->get('hotel_id', null)));
+            if (!$this->currentUserCanViewCtripCompetitiveHotel($systemHotelId)) {
+                return $this->error('无权查看此门店的 OTA 公开页诊断', 403);
+            }
+            $platform = strtolower(trim((string)$this->request->get('platform', 'ctrip')));
+            $businessDate = trim((string)$this->request->get('business_date', date('Y-m-d')));
+            $profiles = $platform === 'ctrip'
+                ? (new CtripPublicHotelProfileService())->listProfiles($systemHotelId, true)
+                : [];
+            $result = (new OtaPublicPageDiagnosisService())->build(
+                $systemHotelId,
+                $platform,
+                $businessDate,
+                $profiles
+            );
+
+            return $this->success($result, 'OTA 公开页证据诊断已生成');
+        } catch (\InvalidArgumentException $exception) {
+            return $this->error($exception->getMessage(), 422);
+        } catch (\Throwable $exception) {
+            \think\facade\Log::error('OTA public-page diagnosis read failed.', [
+                'exception_type' => get_debug_type($exception),
+            ]);
+            return $this->error('OTA 公开页证据诊断读取失败', 500, [
+                'reason' => 'ota_public_page_diagnosis_read_failed',
             ]);
         }
     }

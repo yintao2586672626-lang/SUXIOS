@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller\concern;
 
 use app\service\CtripTrafficDisplayService;
+use app\service\OnlineDataTrustStatusService;
 use think\Response;
 use think\facade\Db;
 
@@ -672,13 +673,19 @@ trait OnlineDataHistoryConcern
         }
 
         $conditions = [];
+        $failedRowStatuses = "'" . implode("','", OnlineDataTrustStatusService::FAILED_ROW_STATUSES) . "'";
+        $unverifiedRowStatuses = "'" . implode("','", OnlineDataTrustStatusService::UNVERIFIED_ROW_STATUSES) . "'";
+        $failedValidationStatuses = "'" . implode("','", OnlineDataTrustStatusService::FAILED_VALIDATION_STATUSES) . "'";
+        $unverifiedValidationStatuses = "'" . implode("','", OnlineDataTrustStatusService::UNVERIFIED_VALIDATION_STATUSES) . "'";
+        $partialValidationStatuses = "'" . implode("','", OnlineDataTrustStatusService::PARTIAL_VALIDATION_STATUSES) . "'";
         if (isset($columns['status'])) {
-            $conditions[] = "WHEN LOWER(TRIM(COALESCE(`status`, ''))) IN ('failed', 'fail', 'error') THEN 'failed'";
+            $conditions[] = "WHEN LOWER(TRIM(COALESCE(`status`, ''))) IN ({$failedRowStatuses}) THEN 'failed'";
+            $conditions[] = "WHEN LOWER(TRIM(COALESCE(`status`, ''))) IN ({$unverifiedRowStatuses}) THEN 'unverified'";
         }
         if (isset($columns['validation_status'])) {
-            $conditions[] = "WHEN LOWER(TRIM(COALESCE(`validation_status`, ''))) IN ('abnormal', 'failed', 'error') THEN 'failed'";
-            $conditions[] = "WHEN LOWER(TRIM(COALESCE(`validation_status`, ''))) = 'unverified' THEN 'unverified'";
-            $conditions[] = "WHEN LOWER(TRIM(COALESCE(`validation_status`, ''))) IN ('partial', 'warning') THEN 'partial'";
+            $conditions[] = "WHEN LOWER(TRIM(COALESCE(`validation_status`, ''))) IN ({$failedValidationStatuses}) THEN 'failed'";
+            $conditions[] = "WHEN LOWER(TRIM(COALESCE(`validation_status`, ''))) IN ({$unverifiedValidationStatuses}) THEN 'unverified'";
+            $conditions[] = "WHEN LOWER(TRIM(COALESCE(`validation_status`, ''))) IN ({$partialValidationStatuses}) THEN 'partial'";
         }
 
         if (isset($columns['readback_verified'])) {
@@ -833,10 +840,12 @@ trait OnlineDataHistoryConcern
             $failedRecords = $this->countOnlineHistoryDistinctGroups($failedQuery, $groupKeyExpression);
         } else {
             if (isset($columns['status'])) {
-                $failedConditions[] = "LOWER(TRIM(COALESCE(`status`, ''))) IN ('failed', 'fail', 'error')";
+                $failedRowStatuses = "'" . implode("','", OnlineDataTrustStatusService::FAILED_ROW_STATUSES) . "'";
+                $failedConditions[] = "LOWER(TRIM(COALESCE(`status`, ''))) IN ({$failedRowStatuses})";
             }
             if (isset($columns['validation_status'])) {
-                $failedConditions[] = "LOWER(TRIM(COALESCE(`validation_status`, ''))) IN ('abnormal', 'failed', 'error')";
+                $failedValidationStatuses = "'" . implode("','", OnlineDataTrustStatusService::FAILED_VALIDATION_STATUSES) . "'";
+                $failedConditions[] = "LOWER(TRIM(COALESCE(`validation_status`, ''))) IN ({$failedValidationStatuses})";
             }
             if ($failedConditions !== []) {
                 $failedQuery = (clone $query)->whereRaw('(' . implode(' OR ', $failedConditions) . ')');
@@ -1421,10 +1430,19 @@ trait OnlineDataHistoryConcern
             '去哪儿' => ['qunar', 'Qunar'],
             '经营数据' => ['business'],
             '流量数据' => ['traffic'],
+            '排名数据' => ['ranking', 'rank'],
+            '竞对榜单' => ['peer_rank'],
+            '搜索词' => ['search_keyword'],
+            '流量分析' => ['traffic_analysis'],
+            '未来预测' => ['traffic_forecast'],
+            '预测数据' => ['traffic_forecast'],
             '竞对数据' => ['competitor', 'competitor_avg'],
             '竞争圈' => ['competitor', 'competitor_avg'],
             '点评数据' => ['review', 'comment'],
             '广告数据' => ['advertising', 'ad'],
+            '服务质量' => ['quality', 'service', 'service_quality'],
+            '订单数据' => ['order'],
+            '订单流转' => ['order_flow'],
         ];
 
         foreach ($labelMap as $label => $values) {
@@ -1879,27 +1897,32 @@ trait OnlineDataHistoryConcern
         return [
             'business' => '经营数据',
             'traffic' => '流量数据',
+            'ranking' => '排名数据',
+            'rank' => '排名数据',
+            'peer_rank' => '竞对榜单',
+            'search_keyword' => '搜索词',
+            'traffic_analysis' => '流量分析',
+            'traffic_forecast' => '未来预测',
             'competitor' => '竞对数据',
             'review' => '点评数据',
             'advertising' => '广告数据',
+            'quality' => '服务质量',
+            'service' => '服务质量',
+            'service_quality' => '服务质量',
+            'order' => '订单数据',
+            'order_flow' => '订单流转',
         ][$dataType] ?? $dataType;
     }
 
     private function resolveHistoryStatus(array $row, string $rawData): string
     {
-        $status = strtolower((string)($row['status'] ?? ''));
-        if (in_array($status, ['failed', 'fail', 'error'], true)) {
-            return 'failed';
+        $rowClass = OnlineDataTrustStatusService::classifyRowStatus($row['status'] ?? '');
+        $validationClass = OnlineDataTrustStatusService::classifyValidationStatus($row['validation_status'] ?? '');
+        if ($rowClass !== 'usable') {
+            return $rowClass;
         }
-        $validationStatus = strtolower(trim((string)($row['validation_status'] ?? '')));
-        if (in_array($validationStatus, ['abnormal', 'failed', 'error'], true)) {
-            return 'failed';
-        }
-        if ($validationStatus === 'warning') {
-            return 'partial';
-        }
-        if (in_array($validationStatus, ['unverified', 'partial'], true)) {
-            return $validationStatus;
+        if ($validationClass !== 'usable') {
+            return $validationClass;
         }
         if ($rawData !== '') {
             $decoded = json_decode($rawData, true);
@@ -1983,6 +2006,19 @@ trait OnlineDataHistoryConcern
         $metrics = [];
 
         $dataType = strtolower(trim((string)($row['data_type'] ?? '')));
+        if ($dataType === 'traffic_forecast') {
+            $dataValue = $row['data_value'] ?? null;
+            if ($dataValue !== null && $dataValue !== '' && is_numeric($dataValue)) {
+                $dimension = strtolower(trim((string)($row['dimension'] ?? '')));
+                $label = [
+                    'flow_forecast_1' => 'T+1预测',
+                    'flow_forecast_2' => 'T+2预测',
+                    'flow_forecast_3' => 'T+3预测',
+                ][$dimension] ?? '预测值';
+                return $label . ' ' . number_format((float)$dataValue, 2);
+            }
+        }
+
         if (in_array($dataType, ['review', 'comment', 'comments'], true)) {
             $commentCount = $row['quantity'] ?? $raw['comment_count'] ?? $raw['commentCount'] ?? null;
             if ($commentCount !== null && $commentCount !== '') {

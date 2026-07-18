@@ -189,15 +189,20 @@ function ctrip_review_match_closure_valid_im_session_count(int $systemHotelId): 
 {
     $rows = Db::name('ota_ctrip_im_sessions')
         ->where('system_hotel_id', $systemHotelId)
-        ->field('group_id, members_json')
+        ->field('group_id, order_id, match_status')
         ->select()
         ->toArray();
 
     $count = 0;
     foreach ($rows as $row) {
         $groupId = (string)($row['group_id'] ?? '');
-        $members = ctrip_review_match_closure_decode_json((string)($row['members_json'] ?? ''));
-        if (!ctrip_review_match_closure_valid_group_key($groupId) || !ctrip_review_match_closure_valid_member_list($members)) {
+        $orderId = trim((string)($row['order_id'] ?? ''));
+        $status = trim((string)($row['match_status'] ?? ''));
+        if (
+            !ctrip_review_match_closure_valid_group_key($groupId)
+            || $orderId === ''
+            || !in_array($status, ['usable_order_link', 'usable'], true)
+        ) {
             continue;
         }
         $count++;
@@ -266,12 +271,14 @@ try {
     $systemHotelId = (int)$options['system_hotel_id'];
     $counts = ctrip_review_match_closure_table_counts($systemHotelId);
     $statusCounts = ctrip_review_match_closure_status_counts($systemHotelId);
-    $matchedCount = (int)($statusCounts['found'] ?? 0) + (int)($statusCounts['matched'] ?? 0);
+    $matchedCount = (int)($statusCounts['confirmed'] ?? 0)
+        + (int)($statusCounts['high_confidence'] ?? 0)
+        + (int)($statusCounts['found'] ?? 0)
+        + (int)($statusCounts['matched'] ?? 0);
 
     $missingSources = [];
     foreach ([
         'ctrip_reviews',
-        'ctrip_im_sessions',
         'ctrip_orders',
     ] as $key) {
         if (($counts[$key] ?? 0) <= 0) {
@@ -291,14 +298,15 @@ try {
         'match_status_counts' => $statusCounts,
         'required' => [
             'min_matched' => (int)$options['min_matched'],
-            'required_sources' => ['ctrip_reviews', 'ctrip_im_sessions', 'ctrip_orders'],
-            'accepted_match_statuses' => ['found', 'matched'],
+            'required_sources' => ['ctrip_reviews', 'ctrip_orders'],
+            'optional_sources' => ['ctrip_im_sessions', 'pms_order_details'],
+            'accepted_match_statuses' => ['confirmed', 'high_confidence', 'found', 'matched'],
         ],
         'missing_sources' => array_values(array_unique($missingSources)),
         'next_commands' => $ready ? [] : ctrip_review_match_closure_next_commands($systemHotelId),
         'next_action' => $ready
             ? '携程评价匹配闭环已由真实入库数据证明'
-            : '导入真实授权的携程评价明细、IM members 和订单池，并执行入库匹配后重跑本验证',
+            : '导入真实授权的携程评价和携程订单池后重跑；IM订单链接与PMS详情是可选增强证据',
     ], $ready ? 0 : 2);
 } catch (Throwable $e) {
     ctrip_review_match_closure_finish([

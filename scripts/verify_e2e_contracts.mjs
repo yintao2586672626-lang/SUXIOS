@@ -122,6 +122,7 @@ requireText('public/index.html', "requireAppSystemStatic('getRememberedLoginAcco
 requireText('public/index.html', "requireAppSystemStatic('buildLoginRequestPayload')", 'entry uses extracted login payload builder');
 requireText('public/index.html', "requireAppSystemStatic('validateLoginRequestPayload')", 'entry uses extracted login validation');
 requireText('public/index.html', "requireAppSystemStatic('applyRememberedLoginAccount')", 'entry uses extracted remembered login account writer');
+requireText('public/index.html', "requireAppSystemStatic('saveLoginPasswordWithBrowser')", 'entry uses the browser password manager helper');
 requireNoText('resources/frontend/app-template.html', 'data-testid="open-register"', 'login page does not expose a self-registration entry');
 requireNoText('resources/frontend/app-template.html', 'data-testid="register-submit"', 'login page does not expose a self-registration submit action');
 requireNoText('resources/frontend/app-template.html', 'data-testid="register-username"', 'login page does not expose self-registration fields');
@@ -648,7 +649,7 @@ requireText('public/index.html', "review_collection_policy: 'explicit_review_mat
 requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', 'ctrip_comment_browser_capture.mjs', 'Ctrip review order automation can run dedicated authorized review capture');
 requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', 'explicit_review_match_authorized_profile_or_existing_cache', 'Ctrip review order automation reports the explicit review-match collection policy');
 requireText('public/index.html', '携程点评-订单匹配台', 'Ctrip review order main UI exposes the matching workbench');
-requireText('public/index.html', '单条点评只做规则校验和边界提示；不反查匿名用户身份。', 'Ctrip review order main UI keeps matching details hidden');
+requireText('public/index.html', '可匹配授权订单；不会猜测、还原或暴力反查匿名用户身份。', 'Ctrip review order main UI separates order evidence from anonymous identity lookup');
 requireText('public/index.html', '点评治理结果', 'Ctrip review order main UI renders review governance cards');
 requireText('public/index.html', '@click="lookupCtripReviewOrderMatch(sample)"', 'Ctrip review order main UI can look up one review card directly');
 requireText('public/index.html', 'governance_rule_checks', 'Ctrip review order main UI renders governance rule checks from policy responses');
@@ -683,7 +684,7 @@ requireText('route/app.php', "Route::post('/ctrip-review-matches/identity-previe
 requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', 'public function previewCtripReviewOrdererIdentity()', 'Ctrip review order API exposes read-only page identity preview');
 requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', "'policy' => 'authorized_page_identity_preview_only'", 'Ctrip review order page preview is explicitly read-only');
 requireText('public/index.html', '@click="copyCtripReviewMatchPayloadTemplate"', 'Ctrip review order UI exposes a bounded payload-template copy action');
-requireText('public/index.html', '授权页脚本已禁用，避免把宿析登录 token 暴露到 OTA 页面。', 'Ctrip review order UI explains that token-bearing page scripts are disabled');
+requireText('public/index.html', '姓名、UID、头像和 IM members 不会入库。', 'Ctrip review order UI explains the identity-storage boundary');
 requireNoText('public/index.html', 'buildCtripReviewOrdererAssistScript', 'Ctrip review order UI must not build a token-bearing page assist script');
 requireNoText('public/index.html', 'token: authToken', 'Ctrip review order UI must not copy the main login token into OTA page config');
 requireNoText('public/index.html', "Authorization: String(config.token || '')", 'Ctrip review order UI must not generate an Authorization header from copied page config');
@@ -701,7 +702,7 @@ requireNoText('app/controller/concern/CookieEndpointConcern.php', "$authHeaderJs
 requireNoText('app/controller/concern/CookieEndpointConcern.php', "headers:{'Authorization':{$authHeaderJson}}", 'legacy Cookie bookmarklets must not send current login Authorization header');
 requireNoText('app/controller/concern/MeituanConfigConcern.php', 'for(var i=0;i<localStorage.length;i++)', 'Meituan legacy bookmarklet must not read OTA localStorage');
 requireNoText('app/controller/concern/MeituanConfigConcern.php', "headers:{'Authorization':'{$token}'}", 'Meituan legacy bookmarklet must not embed current login Authorization header');
-requireText('public/index.html', '疑似下单人', 'Ctrip review order UI keeps probabilistic identity label');
+requireNoText('public/index.html', '疑似下单人', 'Ctrip review order UI does not expose probabilistic identity labels');
 requireText('public/index.html', '展开高级补录/复核', 'Ctrip review order keeps manual operations behind an advanced panel');
 requireNoText('public/index.html', "ctripReviewMatchResult.data.next_commands", 'Ctrip review order main UI does not render closure commands');
 requireNoText('public/index.html', "@click=\"copyToClipboard(command)\"", 'Ctrip review order main UI does not expose command copy buttons');
@@ -1637,7 +1638,8 @@ requireText('public/system-static.js', 'const createLoginForm', 'system static b
 requireText('public/system-static.js', 'const getRememberedLoginAccount', 'system static reads remembered login account and clears legacy password');
 requireText('public/system-static.js', 'const buildLoginRequestPayload', 'system static builds login request payloads');
 requireText('public/system-static.js', 'const validateLoginRequestPayload', 'system static validates login request payloads');
-requireText('public/system-static.js', 'const applyRememberedLoginAccount', 'system static writes remembered login account without persisting passwords');
+requireText('public/system-static.js', 'const applyRememberedLoginAccount', 'system static writes the non-secret browser password-save preference');
+requireText('public/system-static.js', 'const saveLoginPasswordWithBrowser', 'system static delegates password saving to the browser credential store');
 requireNoText('public/system-static.js', 'createRegisterForm', 'system static no longer ships public registration form helpers');
 requireNoText('public/app-main.js', "request('/auth/register'", 'entry never submits public registration requests');
 requireNoText('public/app-main.js', 'registerMode', 'entry no longer carries public registration state');
@@ -7541,6 +7543,7 @@ try {
   const buildLoginRequestPayload = context.window.SUXI_SYSTEM_STATIC?.buildLoginRequestPayload;
   const validateLoginRequestPayload = context.window.SUXI_SYSTEM_STATIC?.validateLoginRequestPayload;
   const applyRememberedLoginAccount = context.window.SUXI_SYSTEM_STATIC?.applyRememberedLoginAccount;
+  const saveLoginPasswordWithBrowser = context.window.SUXI_SYSTEM_STATIC?.saveLoginPasswordWithBrowser;
   const createHotelForm = context.window.SUXI_SYSTEM_STATIC?.createHotelForm;
   const buildHotelSavePayload = context.window.SUXI_SYSTEM_STATIC?.buildHotelSavePayload;
   const buildHotelOtaCtripConfigSavePayload = context.window.SUXI_SYSTEM_STATIC?.buildHotelOtaCtripConfigSavePayload;
@@ -7643,12 +7646,13 @@ try {
     || typeof getRememberedLoginAccount !== 'function'
     || typeof buildLoginRequestPayload !== 'function'
     || typeof validateLoginRequestPayload !== 'function'
-    || typeof applyRememberedLoginAccount !== 'function') {
+    || typeof applyRememberedLoginAccount !== 'function'
+    || typeof saveLoginPasswordWithBrowser !== 'function') {
     checks.push({
       file: 'public/system-static.js',
       label: 'system static exports login form helpers',
       ok: false,
-      detail: 'createLoginForm/getRememberedLoginAccount/buildLoginRequestPayload/validateLoginRequestPayload/applyRememberedLoginAccount',
+      detail: 'createLoginForm/getRememberedLoginAccount/buildLoginRequestPayload/validateLoginRequestPayload/applyRememberedLoginAccount/saveLoginPasswordWithBrowser',
     });
   } else {
     const storageMap = new Map([
@@ -7663,24 +7667,43 @@ try {
     const remembered = getRememberedLoginAccount(storage);
     const loginPayload = buildLoginRequestPayload({ username: ' manager01 ', password: 'secret123' });
     applyRememberedLoginAccount({ storage, username: loginPayload.username, remember: true });
+    const rememberedAfterSave = getRememberedLoginAccount(storage);
     const rememberedPasswordAfterSave = storageMap.has('remembered_password');
+    let storedCredential = null;
+    class TestPasswordCredential {
+      constructor(data) {
+        Object.assign(this, data);
+      }
+    }
+    const passwordSaveResult = await saveLoginPasswordWithBrowser({
+      username: loginPayload.username,
+      password: loginPayload.password,
+      remember: true,
+      PasswordCredentialCtor: TestPasswordCredential,
+      credentialStore: { store: async credential => { storedCredential = credential; } },
+    });
     applyRememberedLoginAccount({ storage, username: loginPayload.username, remember: false });
     checks.push({
       file: 'public/system-static.js',
-      label: 'system static login helpers preserve account-only storage and explicit validation',
+      label: 'system static login helpers use browser-owned password storage and keep project storage secret-free',
       ok: remembered.username === 'manager01'
-        && remembered.remember === true
+        && remembered.remember === false
         && remembered.form.username === 'manager01'
         && remembered.form.password === ''
+        && rememberedAfterSave.remember === true
         && !storageMap.has('remembered_password')
         && createLoginForm({ username: 'u1' }).password === ''
         && loginPayload.username === ' manager01 '
         && loginPayload.password === 'secret123'
         && validateLoginRequestPayload(loginPayload) === ''
         && validateLoginRequestPayload({ username: '', password: 'secret123' }).includes('用户名')
+        && passwordSaveResult.status === 'saved'
+        && storedCredential?.id === 'manager01'
+        && storedCredential?.password === 'secret123'
         && rememberedPasswordAfterSave === false
-        && !storageMap.has('remembered_username'),
-      detail: 'login helper samples and remembered_password cleanup',
+        && !storageMap.has('remembered_username')
+        && !storageMap.has('suxios_browser_password_save_v1'),
+      detail: 'browser credential store delegation and remembered_password cleanup',
     });
   }
   checks.push({

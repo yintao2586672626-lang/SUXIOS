@@ -41,6 +41,87 @@ final class OnlineDataTest extends TestCase
         return $reflection->newInstanceWithoutConstructor();
     }
 
+    public function testStoredOnlineDataOnlyPassesAfterReadbackVerification(): void
+    {
+        $controller = $this->controller();
+
+        self::assertSame(
+            ['code' => 'success', 'label' => '已入库并回读'],
+            $this->invokeNonPublic($controller, 'buildOnlineDataStorageStatus', [[
+                'validation_status' => 'normal',
+                'readback_verified' => 1,
+            ]])
+        );
+        self::assertSame(
+            ['code' => 'unverified', 'label' => '未回读验证'],
+            $this->invokeNonPublic($controller, 'buildOnlineDataStorageStatus', [[
+                'validation_status' => 'normal',
+                'readback_verified' => 0,
+            ]])
+        );
+        self::assertSame(
+            ['code' => 'failed', 'label' => '入库校验失败'],
+            $this->invokeNonPublic($controller, 'buildOnlineDataStorageStatus', [[
+                'validation_status' => 'failed',
+                'readback_verified' => 1,
+            ]])
+        );
+
+        foreach (['invalid', 'collection_failed', 'permission_denied', 'binding_missing', 'mismatch'] as $status) {
+            self::assertSame(
+                ['code' => 'failed', 'label' => '入库校验失败'],
+                $this->invokeNonPublic($controller, 'buildOnlineDataStorageStatus', [[
+                    'validation_status' => $status,
+                    'readback_verified' => 1,
+                ]]),
+                $status
+            );
+            self::assertSame(
+                'failed',
+                $this->invokeNonPublic($controller, 'resolveHistoryStatus', [[
+                    'validation_status' => $status,
+                    'readback_verified' => 1,
+                ], '{}']),
+                $status
+            );
+        }
+
+        self::assertSame(
+            ['code' => 'unverified', 'label' => '未回读验证'],
+            $this->invokeNonPublic($controller, 'buildOnlineDataStorageStatus', [[
+                'validation_status' => 'stale',
+                'readback_verified' => 1,
+            ]])
+        );
+        self::assertSame(
+            'unverified',
+            $this->invokeNonPublic($controller, 'resolveHistoryStatus', [[
+                'validation_status' => 'stale',
+                'readback_verified' => 1,
+            ], '{}'])
+        );
+    }
+
+    public function testStoredForecastDataHasReadableHistoryLabelAndMetric(): void
+    {
+        $controller = $this->controller();
+
+        self::assertSame('未来预测', $this->invokeNonPublic($controller, 'historyDataTypeLabel', ['traffic_forecast']));
+        self::assertSame('订单流转', $this->invokeNonPublic($controller, 'historyDataTypeLabel', ['order_flow']));
+        self::assertSame(
+            'T+1预测 29.00',
+            $this->invokeNonPublic($controller, 'buildHistoryMetricSummary', [[
+                'data_type' => 'traffic_forecast',
+                'dimension' => 'flow_forecast_1',
+                'data_value' => '29.00',
+            ], ''])
+        );
+        self::assertContains(
+            'traffic_forecast',
+            $this->invokeNonPublic($controller, 'expandOnlineHistoryKeywordTerms', ['未来预测'])
+        );
+    }
+
     public function testOtaConfigMaintenanceAllowsBetaManagerForOwnHotelOnly(): void
     {
         $controller = $this->controller();

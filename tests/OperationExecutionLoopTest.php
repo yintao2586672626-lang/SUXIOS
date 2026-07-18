@@ -355,7 +355,17 @@ final class OperationExecutionLoopTest extends TestCase
             'date_start' => '2026-05-27',
             'date_end' => '2026-05-29',
             'current_value_json' => json_encode(['avg_revenue' => 1000], JSON_UNESCAPED_UNICODE),
-            'target_value_json' => json_encode(['campaign_type' => 'discount', 'budget' => 200, 'target_metric' => 'revenue'], JSON_UNESCAPED_UNICODE),
+            'target_value_json' => json_encode([
+                'campaign_type' => 'discount',
+                'budget' => 200,
+                'target_metric' => 'revenue',
+                'workflow_schedule' => [
+                    'assignee_id' => 9,
+                    'due_at' => '2026-05-27 18:00:00',
+                    'review_at' => '2026-05-28 10:00:00',
+                    'source_policy' => 'human_assigned_schedule_requires_manual_approval_and_readback_review',
+                ],
+            ], JSON_UNESCAPED_UNICODE),
             'evidence_json' => json_encode(['recommendation' => 'boost conversion'], JSON_UNESCAPED_UNICODE),
             'expected_metric' => 'revenue',
             'expected_delta' => 15,
@@ -390,6 +400,10 @@ final class OperationExecutionLoopTest extends TestCase
         self::assertSame('strategy_simulation#22', $item['recommendation']['source']);
         self::assertSame('approved', $item['approval']['status']);
         self::assertSame('executed', $item['execution']['status']);
+        self::assertSame('scheduled', $item['assignment']['status']);
+        self::assertSame(9, $item['assignment']['assignee_id']);
+        self::assertSame('2026-05-27 18:00:00', $item['assignment']['due_at']);
+        self::assertSame('2026-05-28 10:00:00', $item['assignment']['review_at']);
         self::assertSame(1, $item['evidence']['count']);
         self::assertSame('success', $item['review']['status']);
         self::assertSame(1, $item['evidence_summary']['count']);
@@ -405,6 +419,56 @@ final class OperationExecutionLoopTest extends TestCase
         self::assertSame(1, $summary['evidence_ready']);
         self::assertSame(1, $summary['roi_ready']);
         self::assertSame(50.0, $summary['avg_roi']);
+    }
+
+    public function testNewerReadbackEvidenceDoesNotReplaceFinancialEvidenceForRoi(): void
+    {
+        $service = new OperationManagementService();
+
+        $item = $service->buildExecutionFlowItem([
+            'id' => 12,
+            'source_module' => 'ai_daily_report',
+            'source_record_id' => 23,
+            'hotel_id' => 7,
+            'platform' => 'ctrip',
+            'object_type' => 'campaign',
+            'action_type' => 'promotion',
+            'date_start' => '2026-07-16',
+            'date_end' => '2026-07-16',
+            'target_value_json' => json_encode(['budget' => 200], JSON_UNESCAPED_UNICODE),
+            'status' => 'approved',
+        ], [[
+            'id' => 32,
+            'intent_id' => 12,
+            'hotel_id' => 7,
+            'execution_mode' => 'manual',
+            'status' => 'executed',
+            'result_status' => 'success',
+        ]], [[
+            'id' => 41,
+            'task_id' => 32,
+            'evidence_type' => 'manual_finance',
+            'before_json' => json_encode(['revenue' => 1000], JSON_UNESCAPED_UNICODE),
+            'after_json' => json_encode(['revenue' => 1300, 'cost' => 200], JSON_UNESCAPED_UNICODE),
+            'platform_response_json' => json_encode(['source' => 'finance_review'], JSON_UNESCAPED_UNICODE),
+        ], [
+            'id' => 42,
+            'task_id' => 32,
+            'evidence_type' => 'manual_platform_readback',
+            'before_json' => json_encode([], JSON_UNESCAPED_UNICODE),
+            'after_json' => json_encode([], JSON_UNESCAPED_UNICODE),
+            'platform_response_json' => json_encode([
+                'readback_verified' => true,
+                'readback_source' => 'ctrip_ebooking_manual_check',
+                'readback_at' => '2026-07-17 09:30:00',
+            ], JSON_UNESCAPED_UNICODE),
+        ]]);
+
+        self::assertSame(2, $item['evidence']['count']);
+        self::assertSame('manual_platform_readback', $item['evidence']['latest']['evidence_type']);
+        self::assertSame('ready', $item['roi']['status']);
+        self::assertSame(50.0, $item['roi']['value']);
+        self::assertSame(300.0, $item['roi']['incremental_revenue']);
     }
 
     public function testExecutionFlowSummaryExposesMoneyAndConversionRates(): void

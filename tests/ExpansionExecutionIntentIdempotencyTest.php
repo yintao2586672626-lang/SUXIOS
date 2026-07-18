@@ -101,6 +101,41 @@ final class ExpansionExecutionIntentIdempotencyTest extends TestCase
         );
     }
 
+    public function testTrustedOtaDiagnosisKeyUsesTheDatabaseUniqueConstraint(): void
+    {
+        $service = new OperationManagementService();
+        $input = [
+            'source_module' => 'ota_diagnosis_saved',
+            'source_record_id' => 91,
+            'hotel_id' => 7,
+            'platform' => 'ctrip',
+            'object_type' => 'campaign',
+            'action_type' => 'ota_operation_follow_up',
+            'date_start' => '2026-07-17',
+            'date_end' => '2026-07-17',
+            'target_value' => [
+                'target_metric' => 'book_order_num',
+                'workflow_schedule' => [
+                    'assignee_id' => 3,
+                    'due_at' => '2026-07-18 18:00:00',
+                    'review_at' => '2026-07-19 10:00:00',
+                ],
+            ],
+            'evidence' => ['evidence_refs' => ['ota-public-profile#91']],
+            'expected_metric' => 'book_order_num',
+            'status' => 'pending_approval',
+        ];
+        $key = 'ota_diagnosis_action_' . str_repeat('a', 32) . ':attempt:1';
+
+        $first = $service->createExecutionIntent([7], 7, $input, 3, false, $key);
+        $second = $service->createExecutionIntent([7], 7, $input, 3, false, $key);
+
+        self::assertSame($first['id'], $second['id']);
+        self::assertTrue($second['idempotent_replay']);
+        self::assertSame(1, (int)Db::name('operation_execution_intents')->count());
+        self::assertSame($key, Db::name('operation_execution_intents')->value('idempotency_key'));
+    }
+
     public function testSchemaAndControllerExposeTheConcurrencyContract(): void
     {
         $migration = file_get_contents(__DIR__ . '/../database/migrations/20260716_add_execution_intent_idempotency_key.sql');

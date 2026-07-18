@@ -3,9 +3,20 @@
     const AUTH_TOKEN_KEY = 'token';
     const AUTH_USER_CACHE_KEY = 'suxios_auth_user_cache_v1';
     const REMEMBERED_USERNAME_KEY = 'remembered_username';
+    const PASSWORD_SAVE_PREFERENCE_KEY = 'suxios_browser_password_save_v1';
     const LEGACY_PASSWORD_KEY = 'remembered_password';
     const LOGIN_AUTOFILL_SYNC_DELAYS = Object.freeze([0, 100, 300, 800, 1600, 3000, 5000, 8000, 12000]);
+    const LOGIN_CONNECTION_WARMUP_INTERVAL_MS = 30000;
+    const LOGIN_CONNECTION_WARMUP_TIMEOUT_MS = 12000;
+    const LOGIN_CONNECTION_WARMUP_MIN_GAP_MS = 15000;
+    const LOGIN_PASSWORD_SAVE_TIMEOUT_MS = 1500;
+    const LOGIN_HANDOFF_EVENT = 'suxi:login-handoff-metric';
+    const ASSET_PHASE_STARTUP = 'startup';
+    const ASSET_PHASE_AFTER_FIRST_PAINT = 'after-first-paint';
     let authenticatedAppPromise = null;
+    let deferredAuthenticatedAssetsPromise = null;
+    let loginHandoffStartedAt = null;
+    let loginHandoffMetrics = null;
 
     const appRoot = () => document.getElementById('app');
 
@@ -37,7 +48,16 @@
         if (!Array.isArray(assets) || !assets.length) {
             throw new Error('完整应用资源清单为空');
         }
-        return assets.map((item) => String(typeof item === 'string' ? item : item?.src || '').trim()).filter(Boolean);
+        return assets.map((item) => ({
+            src: String(typeof item === 'string' ? item : item?.src || '').trim(),
+            phase: String(typeof item === 'string' ? ASSET_PHASE_STARTUP : item?.phase || ASSET_PHASE_STARTUP).trim(),
+        })).map((item) => {
+            if (!item.src) throw new Error('完整应用资源清单包含空资源地址');
+            if (![ASSET_PHASE_STARTUP, ASSET_PHASE_AFTER_FIRST_PAINT].includes(item.phase)) {
+                throw new Error(`完整应用资源清单包含未知加载阶段：${item.phase}`);
+            }
+            return item;
+        });
     };
 
     const assetBaseName = (src = '') => String(src || '').split(/[?#]/, 1)[0];
@@ -66,19 +86,128 @@
         document.body.appendChild(script);
     });
 
+    const waitForFirstAuthenticatedPaint = () => new Promise((resolve) => {
+        if (typeof window.requestAnimationFrame !== 'function') {
+            window.setTimeout(resolve, 0);
+            return;
+        }
+        window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
+    });
+
+    const browserPerformance = typeof performance !== 'undefined' ? performance : null;
+    const monotonicNow = () => (
+        typeof browserPerformance?.now === 'function' ? browserPerformance.now() : Date.now()
+    );
+
+    const publishLoginHandoffMetrics = () => {
+        if (!loginHandoffMetrics) return null;
+        const snapshot = { ...loginHandoffMetrics };
+        window.SUXI_LOGIN_HANDOFF_METRICS = snapshot;
+        try {
+            window.dispatchEvent(new CustomEvent(LOGIN_HANDOFF_EVENT, { detail: snapshot }));
+        } catch (error) {
+            // Metrics remain readable from the global snapshot when events are unavailable.
+        }
+        return snapshot;
+    };
+
+    const markLoginAuthSuccess = ({ source = 'public-login' } = {}) => {
+        loginHandoffStartedAt = monotonicNow();
+        loginHandoffMetrics = {
+            source,
+            status: 'loading',
+            auth_success_epoch_ms: Date.now(),
+            interactive_epoch_ms: null,
+            auth_to_interactive_ms: null,
+        };
+        try {
+            browserPerformance?.mark?.('suxi-login-auth-success');
+        } catch (error) {
+            // Performance marks are optional observability only.
+        }
+        return publishLoginHandoffMetrics();
+    };
+
+    const markLoginInteractive = ({ source = '' } = {}) => {
+        if (!loginHandoffMetrics || loginHandoffMetrics.status !== 'loading' || loginHandoffStartedAt === null) {
+            return null;
+        }
+        const durationMs = Math.max(0, monotonicNow() - loginHandoffStartedAt);
+        loginHandoffMetrics = {
+            ...loginHandoffMetrics,
+            source: source || loginHandoffMetrics.source,
+            status: 'interactive',
+            interactive_epoch_ms: Date.now(),
+            auth_to_interactive_ms: Math.round(durationMs * 10) / 10,
+        };
+        try {
+            browserPerformance?.mark?.('suxi-login-interactive');
+            browserPerformance?.measure?.(
+                'suxi-login-auth-to-interactive',
+                'suxi-login-auth-success',
+                'suxi-login-interactive',
+            );
+        } catch (error) {
+            // Performance marks are optional observability only.
+        }
+        return publishLoginHandoffMetrics();
+    };
+
+    const markLoginHandoffFailed = (error) => {
+        if (!loginHandoffMetrics || loginHandoffMetrics.status !== 'loading') return null;
+        loginHandoffMetrics = {
+            ...loginHandoffMetrics,
+            status: 'failed',
+            failure: String(error?.message || error || 'authenticated app load failed'),
+        };
+        return publishLoginHandoffMetrics();
+    };
+
+    const markLoginInteractiveAfterPaint = async (metadata = {}) => {
+        await waitForFirstAuthenticatedPaint();
+        return markLoginInteractive(metadata);
+    };
+
+    const loadDeferredAuthenticatedAssets = (assets = []) => {
+        if (deferredAuthenticatedAssetsPromise) return deferredAuthenticatedAssetsPromise;
+        deferredAuthenticatedAssetsPromise = (async () => {
+            if (!assets.length) return [];
+            await waitForFirstAuthenticatedPaint();
+            try {
+                await Promise.all(assets.map((asset) => loadScript(asset.src)));
+                window.dispatchEvent(new CustomEvent('suxi:full-render-ready', {
+                    detail: { assets: assets.map((asset) => assetBaseName(asset.src)) },
+                }));
+                return assets;
+            } catch (error) {
+                const failedAsset = String(error?.message || '').split(' ')[0] || 'deferred authenticated asset';
+                window.dispatchEvent(new CustomEvent('suxi:full-render-error', {
+                    detail: { asset: failedAsset, message: error?.message || String(error) },
+                }));
+                throw error;
+            }
+        })();
+        deferredAuthenticatedAssetsPromise.catch(() => {});
+        return deferredAuthenticatedAssetsPromise;
+    };
+
     const loadAuthenticatedApp = () => {
         if (authenticatedAppPromise) return authenticatedAppPromise;
         authenticatedAppPromise = (async () => {
             const assets = authenticatedAssets();
-            const runtimeIndex = assets.findIndex((src) => assetBaseName(src) === 'vue.runtime.global.prod.js');
-            const entryIndex = assets.findIndex((src) => assetBaseName(src) === 'app-main.min.js');
+            const startupAssets = assets.filter((asset) => asset.phase === ASSET_PHASE_STARTUP);
+            const deferredAssets = assets.filter((asset) => asset.phase === ASSET_PHASE_AFTER_FIRST_PAINT);
+            const runtimeIndex = startupAssets.findIndex((asset) => assetBaseName(asset.src) === 'vue.runtime.global.prod.js');
+            const entryIndex = startupAssets.findIndex((asset) => assetBaseName(asset.src) === 'app-main.min.js');
             if (runtimeIndex < 0 || entryIndex < 0) {
                 throw new Error('完整应用资源清单缺少 Vue 运行时或应用入口');
             }
 
-            const runtime = assets[runtimeIndex];
-            const entry = assets[entryIndex];
-            const prerequisites = assets.filter((_, index) => index !== runtimeIndex && index !== entryIndex);
+            const runtime = startupAssets[runtimeIndex].src;
+            const entry = startupAssets[entryIndex].src;
+            const prerequisites = startupAssets
+                .filter((_, index) => index !== runtimeIndex && index !== entryIndex)
+                .map((asset) => asset.src);
             try {
                 // Vue must exist before the precompiled render executes. The
                 // independent helpers can download together; app-main remains
@@ -88,6 +217,7 @@
                 await loadScript(runtime);
                 await Promise.all(prerequisites.map((src) => loadScript(src)));
                 await loadScript(entry);
+                void loadDeferredAuthenticatedAssets(deferredAssets);
             } catch (error) {
                 const failedAsset = String(error?.message || '').split(' ')[0] || 'authenticated asset';
                 window.SUXI_RENDER_ASSET_LOAD_ERROR?.(failedAsset);
@@ -130,7 +260,7 @@
                             <p id="public-login-caps-lock" class="login-caps-lock" role="status" aria-live="polite" hidden><i class="fas fa-arrow-up" aria-hidden="true"></i><span>大写锁定已开启，请注意密码大小写</span></p>
                         </div>
                         <div id="public-login-error" class="login-error flex items-center gap-3" role="alert" aria-live="assertive" aria-atomic="true" hidden><i class="fas fa-exclamation-circle" aria-hidden="true"></i><span></span></div>
-                        <div class="flex items-center text-sm"><label class="flex items-center text-slate-400 cursor-pointer hover:text-slate-200 transition"><input id="public-login-remember" type="checkbox" class="remember-checkbox mr-3"><span>记住账号（不保存密码）</span></label></div>
+                        <div class="flex items-center text-sm"><label class="flex items-center text-slate-400 cursor-pointer hover:text-slate-200 transition" title="由浏览器密码管理器保存，宿析OS不存储明文密码"><input id="public-login-remember" type="checkbox" class="remember-checkbox mr-3"><span>记住密码</span></label></div>
                         <button id="public-login-submit" type="submit" data-testid="login-submit" class="btn-login w-full py-3.5 text-base flex items-center justify-center gap-2" disabled><i class="fas fa-sign-in-alt"></i><span>进入决策中心</span></button>
                     </form>
                     <div class="login-card-foot"><button id="public-login-support-open" type="button" data-testid="login-support-open" class="director-entry-link" aria-haspopup="dialog" aria-expanded="false">账号登录遇到问题？联系管理员</button></div>
@@ -172,7 +302,7 @@
         }
     };
 
-    const persistLoginSuccess = ({ token, user, username, remember }) => {
+    const persistLoginSuccess = ({ token, user }) => {
         const normalizedToken = String(token || '').trim();
         if (!normalizedToken) throw new Error('登录成功但未返回有效会话，请重新登录');
         try {
@@ -183,12 +313,96 @@
         try {
             localStorage.removeItem(AUTH_TOKEN_KEY);
             localStorage.removeItem(LEGACY_PASSWORD_KEY);
-            if (remember) localStorage.setItem(REMEMBERED_USERNAME_KEY, username);
-            else localStorage.removeItem(REMEMBERED_USERNAME_KEY);
         } catch (error) {
-            // 记住账号失败不阻断当前会话。
+            // 旧密码清理失败不阻断当前会话。
         }
         setCachedAuthUser(user);
+    };
+
+    const applyPasswordSavePreference = ({ username = '', remember = false } = {}) => {
+        try {
+            localStorage.removeItem(LEGACY_PASSWORD_KEY);
+            if (remember) {
+                localStorage.setItem(REMEMBERED_USERNAME_KEY, String(username || ''));
+                localStorage.setItem(PASSWORD_SAVE_PREFERENCE_KEY, '1');
+                return;
+            }
+            localStorage.removeItem(REMEMBERED_USERNAME_KEY);
+            localStorage.removeItem(PASSWORD_SAVE_PREFERENCE_KEY);
+        } catch (error) {
+            // 非敏感偏好保存失败不阻断当前会话。
+        }
+    };
+
+    const saveLoginPasswordWithBrowser = async ({
+        username = '',
+        password = '',
+        remember = false,
+        credentialStore = typeof navigator !== 'undefined' ? navigator.credentials : null,
+        PasswordCredentialCtor = typeof PasswordCredential !== 'undefined' ? PasswordCredential : null,
+        timeoutMs = LOGIN_PASSWORD_SAVE_TIMEOUT_MS,
+    } = {}) => {
+        if (!remember) return { status: 'not_requested', message: '', level: 'info' };
+        const normalizedUsername = String(username || '').trim();
+        const normalizedPassword = String(password || '');
+        if (!normalizedUsername || !normalizedPassword) {
+            return { status: 'invalid', message: '密码未保存：用户名或密码为空', level: 'warning' };
+        }
+        if (typeof PasswordCredentialCtor !== 'function' || typeof credentialStore?.store !== 'function') {
+            return {
+                status: 'unsupported',
+                message: '当前浏览器不支持自动保存密码，请在浏览器密码管理器中手动保存',
+                level: 'warning',
+            };
+        }
+        let credential;
+        try {
+            credential = new PasswordCredentialCtor({
+                id: normalizedUsername,
+                name: normalizedUsername,
+                password: normalizedPassword,
+            });
+        } catch (error) {
+            return {
+                status: 'failed',
+                message: '密码未保存，请在浏览器密码管理器中重试',
+                level: 'warning',
+            };
+        }
+        const normalizedTimeoutMs = Number.isFinite(Number(timeoutMs))
+            ? Math.max(1, Number(timeoutMs))
+            : LOGIN_PASSWORD_SAVE_TIMEOUT_MS;
+        return new Promise((resolve) => {
+            let settled = false;
+            const finish = (result) => {
+                if (settled) return;
+                settled = true;
+                window.clearTimeout(timeoutId);
+                resolve(result);
+            };
+            const timeoutId = window.setTimeout(() => finish({
+                status: 'timeout',
+                message: '浏览器密码管理器未及时确认，登录不受影响',
+                level: 'warning',
+            }), normalizedTimeoutMs);
+
+            Promise.resolve()
+                .then(() => credentialStore.store(credential))
+                .then(
+                    () => finish({ status: 'saved', message: '密码已由浏览器密码管理器保存', level: 'success' }),
+                    (error) => finish(error?.name === 'NotAllowedError'
+                        ? {
+                            status: 'declined',
+                            message: '浏览器未保存密码；可在密码管理器中手动保存',
+                            level: 'warning',
+                        }
+                        : {
+                            status: 'failed',
+                            message: '密码未保存，请在浏览器密码管理器中重试',
+                            level: 'warning',
+                        }),
+                );
+        });
     };
 
     const fetchJson = async (url, options = {}, timeoutMs = 15000) => {
@@ -201,6 +415,73 @@
         } finally {
             window.clearTimeout(timer);
         }
+    };
+
+    const createLoginConnectionWarmup = ({
+        fetchImpl = window.fetch.bind(window),
+        nowImpl = Date.now,
+        setTimeoutImpl = window.setTimeout.bind(window),
+        clearTimeoutImpl = window.clearTimeout.bind(window),
+        setIntervalImpl = window.setInterval.bind(window),
+        clearIntervalImpl = window.clearInterval.bind(window),
+        isVisible = () => document.visibilityState !== 'hidden',
+    } = {}) => {
+        let stopped = false;
+        let intervalId = null;
+        let timeoutId = null;
+        let controller = null;
+        let inFlight = null;
+        let lastStartedAt = 0;
+
+        const warm = ({ force = false } = {}) => {
+            const now = nowImpl();
+            if (stopped || !isVisible()) return Promise.resolve(false);
+            if (inFlight) return inFlight;
+            if (!force && lastStartedAt > 0 && now - lastStartedAt < LOGIN_CONNECTION_WARMUP_MIN_GAP_MS) {
+                return Promise.resolve(false);
+            }
+
+            lastStartedAt = now;
+            controller = new AbortController();
+            timeoutId = setTimeoutImpl(() => controller?.abort(), LOGIN_CONNECTION_WARMUP_TIMEOUT_MS);
+            inFlight = Promise.resolve(fetchImpl('/api/health', {
+                method: 'GET',
+                credentials: 'omit',
+                cache: 'no-store',
+                priority: 'low',
+                signal: controller.signal,
+            }))
+                .then((response) => Boolean(response?.ok))
+                .catch(() => false)
+                .finally(() => {
+                    if (timeoutId !== null) clearTimeoutImpl(timeoutId);
+                    timeoutId = null;
+                    controller = null;
+                    inFlight = null;
+                });
+            return inFlight;
+        };
+
+        const start = () => {
+            if (stopped || intervalId !== null) return;
+            void warm({ force: true });
+            intervalId = setIntervalImpl(() => {
+                void warm({ force: true });
+            }, LOGIN_CONNECTION_WARMUP_INTERVAL_MS);
+        };
+
+        const stop = () => {
+            if (stopped) return;
+            stopped = true;
+            if (intervalId !== null) clearIntervalImpl(intervalId);
+            intervalId = null;
+            if (timeoutId !== null) clearTimeoutImpl(timeoutId);
+            timeoutId = null;
+            controller?.abort();
+            controller = null;
+        };
+
+        return { start, stop, warm };
     };
 
     const renderLoginShell = () => {
@@ -227,12 +508,18 @@
         const supportCopy = document.getElementById('public-login-support-copy');
         let loading = false;
         let supportContact = '';
+        const loginConnectionWarmup = createLoginConnectionWarmup();
+        const warmLoginConnection = () => {
+            void loginConnectionWarmup.warm();
+        };
 
         try {
             const remembered = localStorage.getItem(REMEMBERED_USERNAME_KEY) || '';
+            const passwordSavePreferred = localStorage.getItem(PASSWORD_SAVE_PREFERENCE_KEY) === '1';
             localStorage.removeItem(LEGACY_PASSWORD_KEY);
             username.value = remembered;
-            remember.checked = Boolean(remembered);
+            remember.checked = Boolean(remembered) && passwordSavePreferred;
+            if (!remembered && passwordSavePreferred) localStorage.removeItem(PASSWORD_SAVE_PREFERENCE_KEY);
         } catch (error) {
             // 浏览器存储不可用时仍允许登录。
         }
@@ -273,16 +560,22 @@
             autofillSyncTimers = LOGIN_AUTOFILL_SYNC_DELAYS.map((delay) => window.setTimeout(updateSubmit, delay));
         };
         const handleLoginVisibilityChange = () => {
-            if (document.visibilityState === 'visible') scheduleLoginAutofillSync();
+            if (document.visibilityState !== 'visible') return;
+            scheduleLoginAutofillSync();
+            warmLoginConnection();
         };
         username.addEventListener('input', handleInput);
         username.addEventListener('change', handleInput);
         password.addEventListener('input', handleInput);
         password.addEventListener('change', handleInput);
         form.addEventListener('focusin', scheduleLoginAutofillSync);
+        form.addEventListener('focusin', warmLoginConnection);
         window.addEventListener('pageshow', scheduleLoginAutofillSync);
+        window.addEventListener('pageshow', warmLoginConnection);
         window.addEventListener('focus', scheduleLoginAutofillSync);
+        window.addEventListener('focus', warmLoginConnection);
         document.addEventListener('visibilitychange', handleLoginVisibilityChange);
+        window.addEventListener('pagehide', loginConnectionWarmup.stop, { once: true });
         password.addEventListener('keydown', (event) => { capsLock.hidden = !event.getModifierState?.('CapsLock'); });
         password.addEventListener('keyup', (event) => { capsLock.hidden = !event.getModifierState?.('CapsLock'); });
         password.addEventListener('blur', () => { capsLock.hidden = true; });
@@ -360,15 +653,42 @@
                 if (responsePayload?.code !== 200 || !responsePayload?.data?.token || !responsePayload?.data?.user) {
                     throw new Error(responsePayload?.message || responsePayload?.msg || '登录失败，请检查用户名和密码');
                 }
+                markLoginAuthSuccess({ source: 'public-login' });
                 persistLoginSuccess({
                     token: responsePayload.data.token,
                     user: responsePayload.data.user,
+                });
+                loginConnectionWarmup.stop();
+                const passwordSavePromise = saveLoginPasswordWithBrowser({
                     username: payload.username,
+                    password: payload.password,
                     remember: remember.checked,
                 });
+                password.value = '';
+                void passwordSavePromise.then((passwordSaveResult) => {
+                    const passwordSaved = passwordSaveResult.status === 'saved';
+                    remember.checked = passwordSaved;
+                    applyPasswordSavePreference({
+                        username: payload.username,
+                        remember: passwordSaved,
+                    });
+                    const result = {
+                        status: passwordSaveResult.status,
+                        message: passwordSaveResult.message,
+                        level: passwordSaveResult.level,
+                    };
+                    window.SUXI_LOGIN_PASSWORD_SAVE_RESULT = result;
+                    try {
+                        window.dispatchEvent(new CustomEvent('suxi:login-password-save-result', { detail: result }));
+                    } catch (error) {
+                        // app-main will consume the global result after mounting.
+                    }
+                }).catch(() => {});
                 submit.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>正在加载经营系统...</span>';
                 await loadAuthenticatedApp();
+                await markLoginInteractiveAfterPaint({ source: 'public-login' });
             } catch (error) {
+                markLoginHandoffFailed(error);
                 loading = false;
                 const message = error?.name === 'AbortError'
                     ? '登录请求超时，请检查网络后重试'
@@ -380,6 +700,7 @@
         updateSubmit();
         form.dataset.suxiLoginReady = '1';
         scheduleLoginAutofillSync();
+        loginConnectionWarmup.start();
     };
 
     const start = async () => {
@@ -396,5 +717,9 @@
     };
 
     window.SUXI_LOAD_AUTHENTICATED_APP = loadAuthenticatedApp;
+    window.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSETS = () => deferredAuthenticatedAssetsPromise;
+    window.SUXI_MARK_LOGIN_AUTH_SUCCESS = markLoginAuthSuccess;
+    window.SUXI_MARK_LOGIN_INTERACTIVE = markLoginInteractive;
+    window.SUXI_MARK_LOGIN_INTERACTIVE_AFTER_PAINT = markLoginInteractiveAfterPaint;
     start();
 })();

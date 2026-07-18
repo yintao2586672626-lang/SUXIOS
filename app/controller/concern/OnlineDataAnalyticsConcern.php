@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller\concern;
 
 use app\service\OnlineDailyDataPersistenceService;
+use app\service\OnlineDataTrustStatusService;
 use app\service\OnlineTrafficDataExtractionService;
 use think\Response;
 use think\facade\Db;
@@ -121,7 +122,22 @@ trait OnlineDataAnalyticsConcern
 
         $this->applyDataTypeFilter($query, $dataType);
 
+        $columns = $this->getOnlineDailyDataColumns();
+        $scopedRecordCount = (int)(clone $query)->count();
+        if (isset($columns['readback_verified'])) {
+            $query->where('readback_verified', 1);
+        }
+        if (isset($columns['validation_status'])) {
+            $blocked = OnlineDataTrustStatusService::quotedSqlList(OnlineDataTrustStatusService::blockingValidationStatuses());
+            $query->whereRaw("(`validation_status` IS NULL OR LOWER(TRIM(`validation_status`)) NOT IN ({$blocked}))");
+        }
+        if (isset($columns['status'])) {
+            $blocked = OnlineDataTrustStatusService::quotedSqlList(OnlineDataTrustStatusService::blockingRowStatuses());
+            $query->whereRaw("(`status` IS NULL OR LOWER(TRIM(`status`)) NOT IN ({$blocked}))");
+        }
+
         $data = $query->order('data_date', 'asc')->select()->toArray();
+        $excludedUntrustedCount = max(0, $scopedRecordCount - count($data));
 
         // 按维度聚合数据
         $aggregated = $this->aggregateByDimension($data, $dimension);
@@ -150,6 +166,10 @@ trait OnlineDataAnalyticsConcern
             'total_data_value' => $totalDataValue,
             'total_orders' => $totalOrders,
             'total_record_count' => count($data),
+            'scoped_record_count' => $scopedRecordCount,
+            'trusted_record_count' => count($data),
+            'excluded_untrusted_count' => $excludedUntrustedCount,
+            'trust_policy' => 'readback_verified_and_validation_usable',
             'avg_score' => $validScores !== [] ? array_sum($validScores) / count($validScores) : null,
             'period_count' => $periodCount, // 维度周期数（天数/周数/月数）
             'hotel_count' => count(array_unique(array_filter(array_map([$this, 'onlineDataHotelKey'], $data), static fn($value): bool => $value !== ''))),
@@ -165,7 +185,9 @@ trait OnlineDataAnalyticsConcern
             'total_orders' => $totalOrders === null,
             'avg_score' => $validScores === [],
         ]));
-        $summary['data_status'] = $summary['data_gaps'] === [] ? 'ok' : 'partial';
+        $summary['data_status'] = $data === [] && $excludedUntrustedCount > 0
+            ? 'blocked'
+            : ($summary['data_gaps'] === [] && $excludedUntrustedCount === 0 ? 'ok' : 'partial');
 
         // 图表数据
         $chartData = $this->buildChartData($aggregated, $dimension);

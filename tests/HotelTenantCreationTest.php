@@ -127,6 +127,65 @@ final class HotelTenantCreationTest extends TestCase
         }
     }
 
+    public function testOtaChannelStrategyCanBeSelectedOnCreateAndChangedAfterwards(): void
+    {
+        $this->createSchema(true);
+
+        $user = new User();
+        $user->id = 9001;
+        $user->role_id = Role::SUPER_ADMIN;
+        $controller = new HotelTenantCreationHarness(self::$app, [
+            'name' => 'Editable OTA hotel',
+            'code' => 'OTA-EDIT',
+            'status' => 1,
+            'ota_channel_strategy' => 'ctrip_only',
+        ]);
+        $controller->useUser($user);
+
+        $created = $this->json($controller->create());
+        $hotelId = (int)$created['data']['id'];
+
+        self::assertSame(200, $created['code']);
+        self::assertSame('ctrip_only', $created['data']['ota_channel_strategy']);
+        self::assertSame('ctrip_only', Db::name('hotels')->where('id', $hotelId)->value('ota_channel_strategy'));
+
+        $controller->replacePayload([
+            'name' => 'Editable OTA hotel',
+            'code' => 'OTA-EDIT',
+            'status' => 1,
+            'ota_channel_strategy' => 'dual',
+        ]);
+        $updated = $this->json($controller->update($hotelId));
+
+        self::assertSame(200, $updated['code']);
+        self::assertSame('dual', $updated['data']['ota_channel_strategy']);
+        self::assertSame('dual', Db::name('hotels')->where('id', $hotelId)->value('ota_channel_strategy'));
+
+        $controller->replacePayload([
+            'name' => 'Editable OTA hotel',
+            'code' => 'OTA-EDIT',
+            'status' => 1,
+        ]);
+        $legacyUpdate = $this->json($controller->update($hotelId));
+
+        self::assertSame(200, $legacyUpdate['code']);
+        self::assertSame('dual', $legacyUpdate['data']['ota_channel_strategy']);
+        self::assertSame('dual', Db::name('hotels')->where('id', $hotelId)->value('ota_channel_strategy'));
+    }
+
+    public function testInvalidOtaChannelStrategyIsRejectedWithoutCreatingHotel(): void
+    {
+        $this->createSchema(true);
+
+        $response = $this->createHotel('Invalid OTA hotel', null, [
+            'ota_channel_strategy' => 'unsupported_platform',
+        ]);
+        $payload = $this->json($response);
+
+        self::assertSame(422, $payload['code']);
+        self::assertSame(0, Db::name('hotels')->count());
+    }
+
     private function createSchema(bool $withTenantId, int $tenantIdDefault = 0): void
     {
         $tenantColumn = $withTenantId ? "tenant_id INTEGER NOT NULL DEFAULT {$tenantIdDefault}," : '';
@@ -195,9 +254,10 @@ final class HotelTenantCreationTest extends TestCase
         )');
     }
 
-    private function createHotel(string $name, ?User $user = null): Response
+    /** @param array<string, mixed> $payload */
+    private function createHotel(string $name, ?User $user = null, array $payload = []): Response
     {
-        $controller = new HotelTenantCreationHarness(self::$app, ['name' => $name]);
+        $controller = new HotelTenantCreationHarness(self::$app, array_merge(['name' => $name], $payload));
         if ($user === null) {
             $user = new User();
             $user->id = 9001;
@@ -244,6 +304,12 @@ final class HotelTenantCreationHarness extends HotelController
     public function useUser(User $user): void
     {
         $this->currentUser = $user;
+    }
+
+    /** @param array<string, mixed> $payload */
+    public function replacePayload(array $payload): void
+    {
+        $this->payload = $payload;
     }
 
     protected function requestData(): array

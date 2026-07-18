@@ -1,7 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from '@playwright/test';
-import { summarizeFrontendPerformance } from './lib/frontend_performance_metrics.mjs';
+import {
+  resolveFrontendNetworkProfile,
+  summarizeFrontendPerformance,
+} from './lib/frontend_performance_metrics.mjs';
 
 const options = Object.fromEntries(process.argv.slice(2).map((argument) => {
   const [key, ...rest] = argument.replace(/^--/, '').split('=');
@@ -10,11 +13,17 @@ const options = Object.fromEntries(process.argv.slice(2).map((argument) => {
 const baseURL = options.url || process.env.E2E_BASE_URL || 'http://127.0.0.1:8080/';
 const label = String(options.label || 'frontend').replace(/[^a-zA-Z0-9._-]+/g, '-');
 const authenticated = options.authenticated === '1';
+const networkProfile = resolveFrontendNetworkProfile(options.network || 'none');
 const outputDir = path.resolve('output', 'performance');
 
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
 const page = await context.newPage();
+if (networkProfile.conditions) {
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('Network.enable');
+  await cdp.send('Network.emulateNetworkConditions', networkProfile.conditions);
+}
 await page.addInitScript(() => {
   window.__SUXI_PERFORMANCE = { lcp: null, longTasks: [] };
   try {
@@ -81,6 +90,7 @@ const snapshot = await page.evaluate(() => ({
   })),
   lcp: window.__SUXI_PERFORMANCE?.lcp ?? null,
   longTasks: window.__SUXI_PERFORMANCE?.longTasks || [],
+  loginHandoff: window.SUXI_LOGIN_HANDOFF_METRICS || null,
 }));
 const result = {
   schema_version: 1,
@@ -92,7 +102,9 @@ const result = {
   authentication_status: authenticationStatus,
   authentication_blocker: authenticationBlocker,
   started_at: startedAt,
+  network_profile: networkProfile.name,
   auth_transition_ms: authTransitionMs,
+  login_handoff: snapshot.loginHandoff,
   metrics: summarizeFrontendPerformance(snapshot),
   largest_resources: [...snapshot.resources]
     .sort((left, right) => Number(right.transferSize || 0) - Number(left.transferSize || 0))

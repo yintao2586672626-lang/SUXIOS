@@ -2,7 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { gzipSync } from 'node:zlib';
 import {
+  extractAuthenticatedDeferredAssetReferences,
   extractAuthenticatedAssetReferences,
+  extractAuthenticatedStartupAssetReferences,
   stripFrontendAssetQuery,
 } from './frontend_authenticated_assets.mjs';
 
@@ -73,13 +75,27 @@ export function collectFrontendEntryMetrics(repoRoot) {
     .map(stripFrontendAssetQuery)
     .filter(isLocalAsset);
   const uniqueAuthenticatedReferences = [...new Set(authenticatedReferences)];
+  const startupAuthenticatedReferences = extractAuthenticatedStartupAssetReferences(html)
+    .map(stripFrontendAssetQuery)
+    .filter(isLocalAsset);
+  const uniqueStartupAuthenticatedReferences = [...new Set(startupAuthenticatedReferences)];
+  const deferredAuthenticatedReferences = extractAuthenticatedDeferredAssetReferences(html)
+    .map(stripFrontendAssetQuery)
+    .filter(isLocalAsset);
+  const uniqueDeferredAuthenticatedReferences = [...new Set(deferredAuthenticatedReferences)];
   const uniqueStartupReferences = [...new Set([
+    ...uniquePublicShellReferences,
+    ...uniqueStartupAuthenticatedReferences,
+  ])];
+  const uniqueFullAuthenticatedReferences = [...new Set([
     ...uniquePublicShellReferences,
     ...uniqueAuthenticatedReferences,
   ])];
   const publicShellFiles = [indexPath, ...uniquePublicShellReferences.map((reference) => path.join(publicRoot, reference))];
   const startupFiles = [indexPath, ...uniqueStartupReferences.map((reference) => path.join(publicRoot, reference))];
-  const missing = startupFiles.filter((file) => !fs.existsSync(file));
+  const fullAuthenticatedFiles = [indexPath, ...uniqueFullAuthenticatedReferences.map((reference) => path.join(publicRoot, reference))];
+  const deferredAuthenticatedFiles = uniqueDeferredAuthenticatedReferences.map((reference) => path.join(publicRoot, reference));
+  const missing = fullAuthenticatedFiles.filter((file) => !fs.existsSync(file));
   if (missing.length) throw new Error(`Missing startup assets: ${missing.join(', ')}`);
   const inlineScriptBytes = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)]
     .reduce((total, match) => total + Buffer.byteLength(match[1]), 0);
@@ -90,12 +106,16 @@ export function collectFrontendEntryMetrics(repoRoot) {
     index_bytes: index.length,
     public_shell_gzip_bytes: publicShellFiles.reduce((total, file) => total + gzipSync(fs.readFileSync(file), { level: 6 }).length, 0),
     startup_gzip_bytes: startupFiles.reduce((total, file) => total + gzipSync(fs.readFileSync(file), { level: 6 }).length, 0),
+    full_authenticated_gzip_bytes: fullAuthenticatedFiles.reduce((total, file) => total + gzipSync(fs.readFileSync(file), { level: 6 }).length, 0),
+    deferred_authenticated_gzip_bytes: deferredAuthenticatedFiles.reduce((total, file) => total + gzipSync(fs.readFileSync(file), { level: 6 }).length, 0),
     inline_script_bytes: inlineScriptBytes,
     blocking_script_count: blockingScriptCount,
     public_shell_asset_count: uniquePublicShellReferences.length,
     public_shell_assets: uniquePublicShellReferences,
     authenticated_asset_count: uniqueAuthenticatedReferences.length,
     authenticated_assets: uniqueAuthenticatedReferences,
+    deferred_authenticated_asset_count: uniqueDeferredAuthenticatedReferences.length,
+    deferred_authenticated_assets: uniqueDeferredAuthenticatedReferences,
     startup_asset_count: uniqueStartupReferences.length,
     startup_assets: uniqueStartupReferences,
   };

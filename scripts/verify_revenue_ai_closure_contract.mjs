@@ -605,7 +605,11 @@ includesAll('scripts/report_revenue_ai_ctrip_input_readiness.php', 'Ctrip input 
   'competitor_analysis',
   'competitor_price_log',
   'ctrip_input_readiness_apply_ctrip_platform_filter',
-  "whereIn('ota_platform', [1, '1', 'ctrip'])",
+  "whereIn($column, [1, '1', 'ctrip', 'xc'])",
+  "where('store_id', $hotelId)",
+  "where('readback_verified', 1)",
+  "whereIn('validation_status', ['available', 'normal', 'ok', 'valid', 'verified'])",
+  "whereNotNull('comparison_key')",
   'This report reads counts and aggregate Ctrip traffic trend only; it does not expose raw Ctrip rows.',
   'No OTA price write is allowed by this report.',
 ]);

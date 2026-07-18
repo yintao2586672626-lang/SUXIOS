@@ -150,6 +150,21 @@ final class OtaTrustedRevenueGuardTest extends TestCase
         self::assertContains('system_hotel_id_missing', $trace['failure_reasons']);
     }
 
+    public function testExplicitUnverifiedReadbackAndStaleValidationCannotBecomeTrusted(): void
+    {
+        $dataset = (new OtaStandardEtlService())->buildDatasetFromRows([
+            $this->row([
+                'readback_verified' => 0,
+                'validation_status' => 'stale',
+            ]),
+        ]);
+        $trace = $dataset['fact_ota_daily'][0]['source_trace'];
+
+        self::assertFalse($trace['saved_success']);
+        self::assertContains('readback_unverified', $trace['failure_reasons']);
+        self::assertContains('validation_status_stale', $trace['failure_reasons']);
+    }
+
     /** @return array<string, mixed> */
     private function row(array $overrides = []): array
     {

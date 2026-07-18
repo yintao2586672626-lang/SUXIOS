@@ -983,6 +983,10 @@ trait AutoFetchConcern
 
     private function hasMeituanFetchConfigForHotel(int $hotelId): bool
     {
+        if ($this->hasEnabledMeituanBrowserProfileDataSources($hotelId)) {
+            return true;
+        }
+
         $fetchConfig = $this->resolveMeituanFetchConfigForHotel($hotelId);
         $apiStatus = $this->meituanAutoFetchConfigStatus($fetchConfig, $hotelId);
         if (!empty($apiStatus['api_configured']) || $this->meituanProfileExistsForConfig($fetchConfig)) {
@@ -1037,6 +1041,11 @@ trait AutoFetchConcern
     private function hasEnabledCtripBrowserProfileDataSources(int $hotelId): bool
     {
         return $this->listEnabledCtripBrowserProfileDataSources($hotelId) !== [];
+    }
+
+    private function hasEnabledMeituanBrowserProfileDataSources(int $hotelId): bool
+    {
+        return $this->listEnabledBrowserProfileDataSources($hotelId, 'meituan') !== [];
     }
 
     private function autoFetchLightConfigListCacheKey(string $platform): string
@@ -3406,7 +3415,7 @@ trait AutoFetchConcern
             return $status;
         }
         if ($status === 'partial_success') {
-            return $savedCount > 0 ? 'success' : 'failed';
+            return $savedCount > 0 ? 'partial_success' : 'failed';
         }
         return in_array($status, ['failed', 'waiting_config'], true) ? 'failed' : ($savedCount > 0 ? 'success' : 'failed');
     }
@@ -3415,6 +3424,7 @@ trait AutoFetchConcern
     {
         return [
             'success' => '成功',
+            'partial_success' => '部分成功',
             'failed' => '失败',
             'skipped' => '跳过',
             'pending' => '待执行',
@@ -4066,6 +4076,7 @@ trait AutoFetchConcern
                         $result = $this->executeAutoFetch($hotelId, $run['data_date'], array_merge($baseOptions, [
                             'data_period' => $run['period'],
                             'snapshot_time' => date('Y-m-d H:i:s'),
+                            'target_platforms' => $schedulePolicy->normalizePlatforms($run['target_platforms'] ?? []),
                         ]));
                     } catch (\Throwable $e) {
                         \think\facade\Log::error('Cron OTA collection execution failed', [
@@ -4078,7 +4089,7 @@ trait AutoFetchConcern
                             'message' => 'scheduled_fetch_exception:' . get_debug_type($e),
                             'saved_count' => 0,
                             'platform_results' => [],
-                            'failed_platforms' => ['ctrip', 'meituan'],
+                            'failed_platforms' => $schedulePolicy->normalizePlatforms($run['target_platforms'] ?? []) ?: ['ctrip', 'meituan'],
                         ];
                     }
                     $outcome = $schedulePolicy->classifyOutcome($result);
@@ -4171,8 +4182,11 @@ trait AutoFetchConcern
         $totalSaved = 0;
         $attempted = 0;
         $successCount = 0;
+        $targetPlatforms = (new ScheduledAutoFetchPolicy())->normalizePlatforms($options['target_platforms'] ?? []);
+        $fetchCtrip = $targetPlatforms === [] || in_array('ctrip', $targetPlatforms, true);
+        $fetchMeituan = $targetPlatforms === [] || in_array('meituan', $targetPlatforms, true);
 
-        if ($this->hasCtripFetchConfigForHotel($hotelId)) {
+        if ($fetchCtrip && $this->hasCtripFetchConfigForHotel($hotelId)) {
             $attempted++;
             $this->updateAutoFetchRunningPlatformProgress($hotelId, 'ctrip', 'running', [
                 'message' => '正在采集携程 Profile 与业务接口',
@@ -4197,7 +4211,7 @@ trait AutoFetchConcern
             if (!empty($result['success'])) {
                 $successCount++;
             }
-        } else {
+        } elseif ($fetchCtrip) {
             $this->updateAutoFetchRunningPlatformProgress($hotelId, 'ctrip', 'skipped', [
                 'message' => '未配置携程凭证',
             ]);
@@ -4212,7 +4226,7 @@ trait AutoFetchConcern
             ];
         }
 
-        if ($this->hasMeituanFetchConfigForHotel($hotelId)) {
+        if ($fetchMeituan && $this->hasMeituanFetchConfigForHotel($hotelId)) {
             $attempted++;
             $this->updateAutoFetchRunningPlatformProgress($hotelId, 'meituan', 'running', [
                 'message' => '正在采集美团 Profile 与业务接口',
@@ -4237,7 +4251,7 @@ trait AutoFetchConcern
             if (!empty($result['success'])) {
                 $successCount++;
             }
-        } else {
+        } elseif ($fetchMeituan) {
             $message = '未配置美团 Partner ID / POI ID / Cookies';
             $this->updateAutoFetchRunningPlatformProgress($hotelId, 'meituan', 'skipped', [
                 'message' => $message,
@@ -4272,6 +4286,7 @@ trait AutoFetchConcern
                 'platform_results' => $platformResults,
                 'timing' => $this->mergeAutoFetchPlatformTiming($platformResults),
                 'ctrip_section_concurrency' => $options['ctrip_section_concurrency'],
+                'target_platforms' => $targetPlatforms,
             ];
         }
 
@@ -4285,6 +4300,7 @@ trait AutoFetchConcern
             'platform_results' => $platformResults,
             'timing' => $this->mergeAutoFetchPlatformTiming($platformResults),
             'ctrip_section_concurrency' => $options['ctrip_section_concurrency'],
+            'target_platforms' => $targetPlatforms,
         ];
     }
 
@@ -6506,7 +6522,11 @@ trait AutoFetchConcern
         $persistenceGate = BrowserProfileCaptureRequestService::assessMeituanPersistenceGate(
             $payload,
             $rows,
-            $dataDate
+            $dataDate,
+            [
+                $profileIdentity['store_id'] ?? null,
+                $profileIdentity['poi_id'] ?? null,
+            ]
         );
         if (($persistenceGate['ok'] ?? false) !== true) {
             return [

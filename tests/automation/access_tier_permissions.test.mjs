@@ -118,6 +118,34 @@ assert.equal(systemStaticApi.hotelOtaStrategyFromPlatforms(['ctrip']), 'ctrip_on
 assert.equal(systemStaticApi.hotelOtaStrategyFromPlatforms(['meituan']), 'meituan_only');
 assert.equal(systemStaticApi.hotelOtaStrategyFromPlatforms(['ctrip', 'meituan']), 'dual');
 assert.equal(systemStaticApi.hotelOtaStrategyFromPlatforms([]), 'none');
+const ctripOnlyStrategyReview = systemStaticApi.buildHotelOtaStrategyReview({
+  active: true,
+  strategy: 'dual',
+  ctripSourcePresent: true,
+  meituanSourcePresent: false,
+});
+assert.equal(ctripOnlyStrategyReview.visible, true, 'one-sided dual-channel setup must become a review candidate');
+assert.equal(ctripOnlyStrategyReview.candidate_strategy, 'ctrip_only');
+assert.equal(ctripOnlyStrategyReview.badge_text, '待确认：仅携程？');
+assert.match(ctripOnlyStrategyReview.detail, /只找到携程接入配置[\s\S]*不会自动修改/);
+assert.equal(systemStaticApi.buildHotelOtaStrategyReview({
+  active: true,
+  strategy: 'dual',
+  ctripSourcePresent: true,
+  meituanSourcePresent: true,
+}).visible, false, 'dual-channel hotels with both sources must not be flagged');
+assert.equal(systemStaticApi.buildHotelOtaStrategyReview({
+  active: true,
+  strategy: 'ctrip_only',
+  ctripSourcePresent: true,
+  meituanSourcePresent: false,
+}).visible, false, 'confirmed single-channel hotels must not be flagged');
+assert.equal(systemStaticApi.buildHotelOtaStrategyReview({
+  active: false,
+  strategy: 'dual',
+  ctripSourcePresent: true,
+  meituanSourcePresent: false,
+}).visible, false, 'inactive hotels must not create active strategy-review work');
 assert.deepEqual(
   JSON.parse(JSON.stringify(systemStaticApi.buildHotelVerifiedOtaState([
     { platform: 'ctrip', level: 'ready', sessionVerified: true, storeIdentitySaved: true },
@@ -205,6 +233,17 @@ assert.doesNotMatch(indexHtml, />账号异常<\/span>/, 'capture failures must n
 assert.match(indexHtml, /账号待补只统计已勾选的适用渠道；未勾选的平台不展示、不计入。/, 'hotel account filter should keep pending work scoped to selected OTA platforms');
 assert.match(indexHtml, /const todo = activeHotels\.filter\(h => hotelAccountHealthKey\(h\) === 'todo'\)\.length;/, 'todo count should only reflect account collection readiness');
 assert.match(indexHtml, /适用 OTA 渠道（可多选）[\s\S]*hotelFormChannelSelected\('ctrip'\)[\s\S]*toggleHotelFormChannel\('ctrip'\)[\s\S]*携程[\s\S]*hotelFormChannelSelected\('meituan'\)[\s\S]*toggleHotelFormChannel\('meituan'\)[\s\S]*美团/, 'hotel form must expose independently selectable OTA channels');
+assert.match(indexHtml, /勾选结果保存后会在门店列表回显[\s\S]*登录与采集状态另行验证/, 'hotel form must explain saved applicability separately from verified platform state');
+assert.equal((indexHtml.match(/data-testid="hotel-ota-applicability"/g) || []).length, 2, 'desktop and mobile hotel lists must echo the saved OTA applicability');
+assert.equal((indexHtml.match(/@click="openHotelModal\(hotel\)"[^>]*data-testid="hotel-ota-applicability"/g) || []).length, 2, 'desktop and mobile applicability badges must open hotel editing');
+assert.match(indexHtml, /hotelOtaApplicabilityBadgeText\(hotel\)/, 'hotel list must expose saved applicability or a compact review candidate');
+assert.match(indexHtml, /none: '未选渠道'[\s\S]*ctrip_only: '仅携程'[\s\S]*dual: '携程 \+ 美团'[\s\S]*meituan_only: '仅美团'/, 'applicability labels must describe exact selected platforms');
+assert.match(indexHtml, /if \(key === 'strategy-review'\)[\s\S]*hotelOtaStrategyReview\(hotel\)\.visible/, 'hotel filters must isolate channel-strategy review candidates');
+assert.match(indexHtml, /strategyReview: count\('strategy-review'\)/, 'problem queue must count strategy review candidates');
+assert.match(indexHtml, /applyHotelQuickFilter\('strategy-review', '1'\)[\s\S]*渠道待确认[\s\S]*hotelProblemQueueOverview\.strategyReview/, 'problem queue must expose a strategy-review action and count');
+assert.match(indexHtml, /'strategy-review': \{[\s\S]*渠道策略待确认[\s\S]*不会自动修改/, 'strategy-review results must state that candidates are not automatic business decisions');
+assert.match(indexHtml, /const buildHotelOtaStrategyReview = requireSystemStatic\('buildHotelOtaStrategyReview'\)/, 'SPA must consume the tested strategy-review helper');
+assert.match(indexHtml, /hotelOtaStrategyReview, hotelOtaApplicabilityBadgeText, hotelOtaApplicabilityBadgeClass, hotelOtaApplicabilityBadgeTitle/, 'strategy-review helpers must be available to the hotel template');
 assert.match(indexHtml, /const hotelPlatformApplicable = \(hotel = \{\}, platform = ''\) => \{[\s\S]*ctrip_only[\s\S]*key === 'ctrip'[\s\S]*meituan_only[\s\S]*key === 'meituan'/, 'OTA strategy must define which platform is applicable for account readiness');
 assert.match(indexHtml, /const hotelApplicablePlatformBindingRows = \(hotel = \{\}\) => \{[\s\S]*hotelPlatformBindingRows\(hotel\)\.filter\(row => hotelPlatformApplicable\(hotel, row\.platform\)\)/, 'account health rows must filter out non-applicable OTA platforms');
 assert.match(indexHtml, /const hotelAccountHealthKey = \(hotel = \{\}\) => \{[\s\S]*if \(rows\.length === 0\) return 'todo';/, 'empty applicable OTA platform rows must not be treated as ready');

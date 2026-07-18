@@ -571,7 +571,7 @@ final class CtripPublicHotelProfileService
     /**
      * @return array<int,array<string,mixed>>
      */
-    public function listProfiles(int $systemHotelId): array
+    public function listProfiles(int $systemHotelId, bool $includeHistory = false): array
     {
         if ($systemHotelId <= 0) {
             return [];
@@ -593,7 +593,7 @@ final class CtripPublicHotelProfileService
             $captureStatus = strtolower(trim((string)($row['capture_status'] ?? '')));
             if ($otaHotelId === ''
                 || in_array($captureStatus, ['collection_failed', 'failed', 'error'], true)
-                || isset($profiles[$otaHotelId])
+                || (!$includeHistory && isset($profiles[$otaHotelId]))
             ) {
                 continue;
             }
@@ -611,10 +611,46 @@ final class CtripPublicHotelProfileService
             $attributes['capture_status'] = (string)($row['capture_status'] ?? ($attributes['capture_status'] ?? ''));
             $attributes['data_date'] = (string)($row['data_date'] ?? '');
             $attributes['last_seen_at'] = (string)($row['last_seen_at'] ?? '');
-            $profiles[$otaHotelId] = $attributes;
+            $attributes['saved_at'] = (string)($row['update_time'] ?? $row['create_time'] ?? $row['last_seen_at'] ?? '');
+            $attributes['persistence_readback_verified'] = true;
+            $attributes['persistence_readback_status'] = 'readback_verified';
+            $attributes['source_validation_status'] = $this->publicProfileSourceValidationStatus(
+                $attributes,
+                (string)$attributes['capture_status']
+            );
+            $attributes['response_ref'] = 'ota_ctrip_entity_snapshots#' . (int)($row['id'] ?? 0);
+            $profiles[$includeHistory ? (string)$attributes['snapshot_id'] : $otaHotelId] = $attributes;
         }
 
         return array_values($profiles);
+    }
+
+    private function publicProfileSourceValidationStatus(array $attributes, string $captureStatus): string
+    {
+        $captureStatus = strtolower(trim($captureStatus));
+        $explicit = strtolower(trim((string)($attributes['source_validation_status'] ?? $attributes['validation_status'] ?? '')));
+        if (in_array($captureStatus, ['collection_failed', 'failed', 'error'], true)
+            || $explicit === 'collection_failed'
+        ) {
+            return 'collection_failed';
+        }
+        if ($captureStatus === 'stale' || $explicit === 'stale') {
+            return 'stale';
+        }
+        if ($captureStatus === 'partial' || $explicit === 'partial') {
+            return 'partial';
+        }
+        if ($captureStatus === 'available' && in_array($explicit, ['verified', 'source_verified'], true)) {
+            return 'source_verified';
+        }
+        if ($captureStatus === 'available') {
+            if ($explicit === 'unverified') {
+                return 'unverified';
+            }
+            return 'source_observed';
+        }
+
+        return in_array($explicit, ['source_observed', 'unverified'], true) ? $explicit : 'unverified';
     }
 
     /**

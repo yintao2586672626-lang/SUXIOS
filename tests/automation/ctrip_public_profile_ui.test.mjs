@@ -47,8 +47,9 @@ test('Ctrip competition-circle operations are reachable from the public-profile 
   assert.match(panel, /data-testid="ctrip-competitive-operations-panel"/);
   assert.match(panel, /data-testid="ctrip-competitive-operations-refresh"/);
   assert.match(panel, /携程 OTA 竞争圈口径/);
-  assert.match(panel, /可用于诊断/);
-  assert.match(panel, /排除记录/);
+  assert.match(panel, /v-for="card in ctripCompetitiveOperationsCoverageCards"/);
+  assert.match(source, /label: '可用于诊断'/);
+  assert.match(source, /label: '排除记录'/);
   assert.match(source, /const loadCtripCompetitiveOperations = async/);
   assert.match(source, /\/online-data\/ctrip\/competitive-operations\?system_hotel_id=/);
   assert.match(source, /start_date=\$\{encodeURIComponent\(startDate\)\}/);
@@ -73,4 +74,24 @@ test('ID-only backend route persists a dedicated public binding and retains comp
   assert.match(service, /archived_self/);
   assert.match(service, /isAllowedFinalUrl\(\$finalUrl, \$otaHotelId\)/);
   assert.match(service, /if \(\$this->looksBlocked\(\$body\)\)/);
+});
+
+test('public-page diagnosis exposes platform/date controls and truthful twelve-dimensional evidence states', () => {
+  const source = read('public/app-main.js');
+  const template = read('resources/frontend/templates/fragments/24-page-ctrip-ebooking.html');
+
+  assert.match(source, /\/online-data\/public-page-diagnosis\?system_hotel_id=/);
+  assert.match(template, /data-testid="ota-public-page-diagnosis-panel"/);
+  assert.match(template, /data-testid="ota-public-page-platform"/);
+  assert.match(template, /data-testid="ota-public-page-business-date"/);
+  assert.match(template, /data-testid="ota-public-page-diagnose"/);
+  assert.match(template, /data-testid="ota-public-page-diagnosis-loading"/);
+  assert.match(template, /data-testid="ota-public-page-diagnosis-error"/);
+  assert.match(template, /data-testid="ota-public-page-diagnosis-empty"/);
+  assert.match(template, /data-testid="ota-public-page-dimension"/);
+  assert.match(template, /data-testid="ota-public-page-sources"/);
+  assert.match(template, /数据库回读与 OTA 来源验证分开显示/);
+  assert.match(template, /诊断评分/);
+  assert.match(template, /来源已验证/);
+  assert.match(template, /不计算/);
 });

@@ -266,6 +266,17 @@ trait OnlineDataRequestConcern
             throw new \RuntimeException('meituan_profile_source_invalid', 409);
         }
 
+        $identityCheck = BrowserProfileCaptureRequestService::assessMeituanPlatformIdentity($payload, [
+            $storedConfig['store_id'] ?? $storedConfig['storeId'] ?? null,
+            $storedConfig['poi_id'] ?? $storedConfig['poiId'] ?? null,
+        ]);
+        if (($identityCheck['ok'] ?? false) !== true) {
+            throw new \RuntimeException(
+                (string)($identityCheck['status_code'] ?? 'meituan_platform_identity_unverified'),
+                409
+            );
+        }
+
         $identity = (new MeituanManualIdentityService())->resolveCapturedPayloadIdentity($payload, $storedConfig);
         $payload['store_id'] = $identity['store_id'];
         $payload['poi_id'] = $identity['poi_id'];
@@ -472,8 +483,11 @@ trait OnlineDataRequestConcern
         } catch (\Throwable $e) {
             $status = $e->getCode() >= 400 && $e->getCode() < 600 ? $e->getCode() : 409;
             return $this->error($e->getMessage(), $status, [
-                'status_code' => $e->getMessage() === 'meituan_platform_identity_mismatch'
-                    ? 'meituan_platform_identity_mismatch'
+                'status_code' => in_array($e->getMessage(), [
+                    'meituan_platform_identity_mismatch',
+                    'meituan_platform_identity_unverified',
+                ], true)
+                    ? $e->getMessage()
                     : 'meituan_profile_binding_blocked',
                 'capture_gate' => $gate,
                 'output' => $outputPath,

@@ -99,7 +99,8 @@ class AutoFetchOnlineData extends Command
                             $ctripSectionConcurrency,
                             (string)($status['ctrip_config_id'] ?? ''),
                             (string)($status['ctrip_request_url'] ?? ''),
-                            (string)($status['ctrip_node_id'] ?? '')
+                            (string)($status['ctrip_node_id'] ?? ''),
+                            (new ScheduledAutoFetchPolicy())->normalizePlatforms($run['target_platforms'] ?? [])
                         );
                     } catch (\Throwable $e) {
                         Log::error('Scheduled OTA collection execution failed', [
@@ -111,7 +112,7 @@ class AutoFetchOnlineData extends Command
                             'success' => false,
                             'message' => 'scheduled_fetch_exception:' . get_debug_type($e),
                             'saved_count' => 0,
-                            'failed_platforms' => ['ctrip', 'meituan'],
+                            'failed_platforms' => (new ScheduledAutoFetchPolicy())->normalizePlatforms($run['target_platforms'] ?? []) ?: ['ctrip', 'meituan'],
                             'successful_platforms' => [],
                         ];
                     }
@@ -173,14 +174,16 @@ class AutoFetchOnlineData extends Command
         int $ctripSectionConcurrency = 3,
         string $ctripConfigId = '',
         string $ctripRequestUrl = '',
-        string $ctripNodeId = ''
+        string $ctripNodeId = '',
+        array $targetPlatforms = []
     ): array
     {
         $startedAt = microtime(true);
         $dataPeriod = $this->normalizeOnlineDailyDataPeriod($dataPeriod) ?: 'historical_daily';
         $snapshotTime = $this->normalizeDateTime($snapshotTime) ?? date('Y-m-d H:i:s');
         $ctripSectionConcurrency = $this->normalizeCtripSectionConcurrency($ctripSectionConcurrency);
-        $profileResult = $this->syncBrowserProfileSources($hotelId, $dataDate, $browserHeadless, $dataPeriod, $snapshotTime, $ctripSectionConcurrency);
+        $targetPlatforms = (new ScheduledAutoFetchPolicy())->normalizePlatforms($targetPlatforms);
+        $profileResult = $this->syncBrowserProfileSources($hotelId, $dataDate, $browserHeadless, $dataPeriod, $snapshotTime, $ctripSectionConcurrency, $targetPlatforms);
         if ($profileResult['attempted']) {
             return [
                 'success' => (bool)$profileResult['success'],
@@ -202,11 +205,11 @@ class AutoFetchOnlineData extends Command
             'saved_count' => 0,
             'data_period' => $dataPeriod,
             'timing' => $this->ensureTotalTiming([], $startedAt),
-            'failed_platforms' => ['ctrip'],
+            'failed_platforms' => $targetPlatforms ?: ['ctrip', 'meituan'],
         ];
     }
 
-    private function syncBrowserProfileSources(int $hotelId, string $dataDate, bool $browserHeadless = true, string $dataPeriod = 'historical_daily', ?string $snapshotTime = null, int $ctripSectionConcurrency = 3): array
+    private function syncBrowserProfileSources(int $hotelId, string $dataDate, bool $browserHeadless = true, string $dataPeriod = 'historical_daily', ?string $snapshotTime = null, int $ctripSectionConcurrency = 3, array $targetPlatforms = []): array
     {
         $dataPeriod = $this->normalizeOnlineDailyDataPeriod($dataPeriod) ?: 'historical_daily';
         $snapshotTime = $this->normalizeDateTime($snapshotTime) ?? date('Y-m-d H:i:s');
@@ -214,13 +217,22 @@ class AutoFetchOnlineData extends Command
         try {
             $sources = Db::name('platform_data_sources')
                 ->where('enabled', 1)
-                ->whereIn('status', ['ready', 'success', 'partial_success'])
+                ->whereIn('status', ['ready', 'success', 'partial_success', 'failed', 'waiting_config'])
                 ->where('system_hotel_id', $hotelId)
                 ->whereIn('platform', ['ctrip', 'meituan'])
                 ->where('ingestion_method', 'browser_profile')
-                ->field('id,platform,system_hotel_id')
+                ->field('id,platform,status,last_sync_time,system_hotel_id')
                 ->select()
                 ->toArray();
+            $policy = new ScheduledAutoFetchPolicy();
+            $sources = $policy->retryableProfileSources($sources);
+            $targetPlatforms = $policy->normalizePlatforms($targetPlatforms);
+            if ($targetPlatforms !== []) {
+                $sources = array_values(array_filter(
+                    $sources,
+                    static fn(array $source): bool => in_array(strtolower(trim((string)($source['platform'] ?? ''))), $targetPlatforms, true)
+                ));
+            }
         } catch (\Throwable $e) {
             Log::warning('Read browser Profile data-source metadata failed', [
                 'hotel_id' => $hotelId,
@@ -273,7 +285,7 @@ class AutoFetchOnlineData extends Command
                 $timing = $this->sumTiming($timing, $result['timing']);
             }
             $savedByPlatform[$platform] = ($savedByPlatform[$platform] ?? 0) + $sourceSavedCount;
-            if (!in_array((string)($result['status'] ?? ''), ['success', 'partial_success'], true) || $sourceSavedCount <= 0) {
+            if (strtolower(trim((string)($result['status'] ?? ''))) !== 'success' || $sourceSavedCount <= 0) {
                 $failedCount++;
                 $failedPlatforms[$platform] = true;
             }
@@ -293,7 +305,11 @@ class AutoFetchOnlineData extends Command
                 'data_period' => $dataPeriod,
                 'timing' => $timing,
                 'failed_platforms' => array_keys($failedPlatforms),
-                'successful_platforms' => array_keys(array_filter($savedByPlatform, static fn(int $count): bool => $count > 0)),
+                'successful_platforms' => array_keys(array_filter(
+                    $savedByPlatform,
+                    static fn(int $count, string $platform): bool => $count > 0 && !isset($failedPlatforms[$platform]),
+                    ARRAY_FILTER_USE_BOTH
+                )),
             ];
         }
 

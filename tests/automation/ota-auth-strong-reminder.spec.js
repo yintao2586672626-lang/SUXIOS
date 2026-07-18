@@ -156,7 +156,8 @@ test('OTA Cookie reminder auto-closes while keeping the top banner', async ({ pa
   await expect(modal).toBeHidden();
 
   await page.getByTestId('header-notification-trigger').click();
-  await page.getByRole('button', { name: '清空普通提醒' }).click();
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button', { name: '清空全部普通提醒' }).click();
   await expect(banner).toBeVisible();
   await expect.poll(() => clearRequestCount).toBe(0);
 });

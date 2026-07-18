@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 
 const tempDir = mkdtempSync(path.join(tmpdir(), 'suxi-profile-source-'));
 const inputPath = path.join(tempDir, 'verifier.json');
@@ -97,3 +98,10 @@ try {
 } finally {
   rmSync(tempDir, { recursive: true, force: true });
 }
+
+const verifierSource = readFileSync('scripts/verify_p0_ota_field_loop_closure.php', 'utf8');
+
+assert.match(verifierSource, /profile_flow_ready'\]\) \? 64/);
+assert.match(verifierSource, /current_session_verified'\]\) \? 32/);
+assert.match(verifierSource, /\['ready', 'success', 'partial_success'\]/);
+assert.match(verifierSource, /->limit\(30\)[\s\S]*p0_sync_task_target_date\(\$candidateStats\) === \$targetDate/);
