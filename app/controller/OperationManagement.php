@@ -68,10 +68,28 @@ class OperationManagement extends Base
                 return $this->error('请选择需要标记已读的预警', 422);
             }
 
-            [$hotelIds] = $this->resolveHotelScope();
+            [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
             return $this->success(['updated' => $this->service->markAlertsRead($ids, $hotelIds)]);
         } catch (Throwable $e) {
             return $this->error($this->safeErrorMessage($e, '标记预警已读失败'), 500);
+        }
+    }
+
+    public function alertExecutionIntent(int $id): Response
+    {
+        try {
+            if ($id <= 0) {
+                return $this->error('预警ID无效', 422);
+            }
+
+            [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
+            return $this->success($this->service->createExecutionIntentFromAlert(
+                $id,
+                $hotelIds,
+                (int)($this->currentUser->id ?? 0)
+            ));
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, '预警转任务失败'), $this->operationThrowableStatus($e));
         }
     }
 
@@ -79,7 +97,10 @@ class OperationManagement extends Base
     {
         try {
             $input = $this->request->post();
-            [$hotelIds, $hotelId] = $this->resolveHotelScope((int)($input['hotel_id'] ?? 0));
+            [$hotelIds, $hotelId] = $this->resolveHotelScope(
+                (int)($input['hotel_id'] ?? 0),
+                !empty($input['create_execution_order']) ? 'operation.execute' : 'operation.view'
+            );
             $strategyType = (string)($input['strategy_type'] ?? '');
             $allowed = ['price_adjust', 'promotion', 'room_inventory', 'competitor_follow', 'holiday_strategy'];
             if (!in_array($strategyType, $allowed, true)) {
@@ -126,7 +147,7 @@ class OperationManagement extends Base
                 }
             }
 
-            [$hotelIds, $hotelId] = $this->resolveHotelScope((int)($input['hotel_id'] ?? 0));
+            [$hotelIds, $hotelId] = $this->resolveHotelScope((int)($input['hotel_id'] ?? 0), 'operation.execute');
             $input['start_date'] = $this->normalizeDate((string)$input['start_date']);
             if (!empty($input['end_date'])) {
                 $input['end_date'] = $this->normalizeDate((string)$input['end_date']);
@@ -156,7 +177,7 @@ class OperationManagement extends Base
                 return $this->error('策略动作ID无效', 422);
             }
 
-            [$hotelIds] = $this->resolveHotelScope();
+            [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
             if (!$this->service->finishAction($id, $hotelIds)) {
                 return $this->error('策略动作不存在或无权限操作', 404);
             }
@@ -234,7 +255,7 @@ class OperationManagement extends Base
     {
         try {
             $input = $this->requestData();
-            [$hotelIds, $hotelId] = $this->resolveHotelScope((int)($input['hotel_id'] ?? 0));
+            [$hotelIds, $hotelId] = $this->resolveHotelScope((int)($input['hotel_id'] ?? 0), 'operation.execute');
             $userId = (int)($this->currentUser->id ?? 0);
 
             return $this->success($this->service->createExecutionIntent($hotelIds, $hotelId, $input, $userId));
@@ -251,7 +272,7 @@ class OperationManagement extends Base
             }
 
             $input = $this->requestData();
-            [$hotelIds] = $this->resolveHotelScope();
+            [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
             $approved = !array_key_exists('approved', $input) || filter_var($input['approved'], FILTER_VALIDATE_BOOL);
             $remark = trim((string)($input['remark'] ?? ''));
             $userId = (int)($this->currentUser->id ?? 0);
@@ -269,7 +290,7 @@ class OperationManagement extends Base
                 return $this->error('execution task id is invalid', 422);
             }
 
-            [$hotelIds] = $this->resolveHotelScope();
+            [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
             $userId = (int)($this->currentUser->id ?? 0);
 
             return $this->success($this->service->executeExecutionTask($id, $hotelIds, $this->requestData(), $userId));
@@ -285,7 +306,7 @@ class OperationManagement extends Base
                 return $this->error('execution task id is invalid', 422);
             }
 
-            [$hotelIds] = $this->resolveHotelScope();
+            [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
             $userId = (int)($this->currentUser->id ?? 0);
 
             return $this->success($this->service->addExecutionEvidence($id, $hotelIds, $this->requestData(), $userId));
@@ -301,7 +322,7 @@ class OperationManagement extends Base
                 return $this->error('execution task id is invalid', 422);
             }
 
-            [$hotelIds] = $this->resolveHotelScope();
+            [$hotelIds] = $this->resolveHotelScope(0, 'operation.execute');
             return $this->success($this->service->reviewExecutionTask(
                 $id,
                 $hotelIds,
@@ -313,21 +334,24 @@ class OperationManagement extends Base
         }
     }
 
-    private function resolveHotelScope(int $inputHotelId = 0): array
+    private function resolveHotelScope(int $inputHotelId = 0, string $capability = 'operation.view'): array
     {
         if (!$this->currentUser) {
             throw new \RuntimeException('未登录');
         }
 
         $hotelId = $inputHotelId > 0 ? $inputHotelId : (int)$this->request->param('hotel_id', 0);
-        $permitted = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
+        $permitted = array_values(array_filter(
+            array_map('intval', $this->currentUser->getPermittedHotelIds()),
+            fn(int $hotelId): bool => $hotelId > 0 && $this->currentUser->hasHotelPermission($hotelId, $capability)
+        ));
         if (empty($permitted)) {
-            throw new \RuntimeException('暂无可访问酒店');
+            throw new \RuntimeException($capability === 'operation.execute' ? '暂无可执行运营操作的酒店' : '暂无可访问酒店');
         }
 
         if ($hotelId > 0) {
             if (!in_array($hotelId, $permitted, true)) {
-                throw new \RuntimeException('无权查看该酒店数据');
+                throw new \RuntimeException($capability === 'operation.execute' ? '无权限执行该酒店运营操作' : '无权查看该酒店数据');
             }
             return [[$hotelId], $hotelId];
         }
@@ -436,7 +460,7 @@ class OperationManagement extends Base
         if ($message === '未登录') {
             return 401;
         }
-        if (in_array($message, ['暂无可访问酒店', '无权查看该酒店数据'], true)) {
+        if (in_array($message, ['暂无可访问酒店', '无权查看该酒店数据', '暂无可执行运营操作的酒店', '无权限执行该酒店运营操作'], true)) {
             return 403;
         }
         if (str_contains(strtolower($message), 'not found')) {

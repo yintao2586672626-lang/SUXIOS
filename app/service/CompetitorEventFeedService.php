@@ -21,13 +21,15 @@ final class CompetitorEventFeedService
         'meituan' => ['meituan', 'mt'],
     ];
     private const DECISION_ELIGIBLE_STATUSES = ['available', 'normal', 'ok', 'valid', 'verified'];
+    private const AVAILABILITY_STATUSES = ['available', 'bookable', 'unavailable', 'sold_out'];
+    private const BOOKABLE_STATUSES = ['available', 'bookable'];
     private const REQUIRED_COLUMNS = [
         'id', 'tenant_id', 'store_id', 'hotel_id', 'ota_hotel_id', 'platform', 'price',
         'collected_at', 'fetch_time', 'source_method', 'source_ref', 'validation_status',
         'readback_verified', 'check_in_date', 'check_out_date', 'nights', 'adults',
         'children', 'room_type_key', 'ota_product_id', 'rate_plan_key', 'package_name',
         'breakfast', 'cancellation_policy', 'payment_mode', 'tax_fee_included',
-        'price_basis', 'currency', 'availability', 'comparison_key',
+        'price_basis', 'currency', 'availability', 'availability_scope_key', 'comparison_key',
     ];
 
     /**
@@ -90,6 +92,7 @@ final class CompetitorEventFeedService
             ->limit($limit)
             ->select()
             ->toArray();
+        $rows = $this->attachCompetitorHotelNames($rows, $systemHotelId);
 
         return $this->buildFromRows(
             $rows,
@@ -158,16 +161,39 @@ final class CompetitorEventFeedService
             $timeOrder = strcmp((string)$leftTime, (string)$rightTime);
             return $timeOrder !== 0 ? $timeOrder : ((int)$left['id'] <=> (int)$right['id']);
         });
+        $events = $this->attachTimelineTransitions($events);
 
         $returnedCount = count($events);
         $sampleCount = $matchedCount !== null ? max($returnedCount, $matchedCount) : $returnedCount;
-        $decisionEligibleCount = count(array_filter(
+        $priceEvidenceEligibleCount = count(array_filter(
             $events,
-            static fn(array $event): bool => ($event['decision_eligible'] ?? false) === true
+            static fn(array $event): bool => ($event['price_evidence_eligible'] ?? false) === true
+        ));
+        $availabilityEvidenceEligibleCount = count(array_filter(
+            $events,
+            static fn(array $event): bool => ($event['availability_evidence_eligible'] ?? false) === true
+        ));
+        $evidenceEligibleCount = count(array_filter(
+            $events,
+            static fn(array $event): bool => ($event['event_eligible'] ?? false) === true
         ));
         $readbackVerifiedCount = count(array_filter(
             $events,
             static fn(array $event): bool => ($event['readback_verified'] ?? false) === true
+        ));
+        $identityBoundCount = count(array_filter(
+            $events,
+            static fn(array $event): bool => preg_match(
+                '/^[1-9][0-9]{0,19}$/D',
+                (string)($event['ota_hotel_id'] ?? '')
+            ) === 1
+        ));
+        $targetIdentityBoundCount = count(array_filter(
+            $events,
+            static fn(array $event): bool => preg_match(
+                '/^[1-9][0-9]{0,19}$/D',
+                (string)($event['target_ota_hotel_id'] ?? '')
+            ) === 1
         ));
 
         $qualityStatusCounts = [];
@@ -185,24 +211,39 @@ final class CompetitorEventFeedService
         }
         ksort($qualityStatusCounts);
 
-        $status = $this->feedStatus($sampleCount, $decisionEligibleCount, $returnedCount);
+        $status = $this->feedStatus($sampleCount, $evidenceEligibleCount, $returnedCount);
         $truncated = $sampleCount > $returnedCount;
         $decisionGate = match (true) {
             $status === 'empty' => 'no_matching_events',
+            $status === 'insufficient_evidence' && $returnedCount > 0
+                && $identityBoundCount === 0 && $targetIdentityBoundCount > 0
+                => 'observation_identity_unverified',
+            $status === 'insufficient_evidence' && $returnedCount > 0 && $identityBoundCount === 0
+                => 'competitor_identity_binding_missing',
             $status === 'insufficient_evidence' => 'no_readback_verified_comparable_events',
             $truncated => 'returned_window_only_matching_events_truncated',
             $status === 'partial' => 'some_events_excluded_from_decision',
-            default => 'verified_comparable_events_only',
+            $priceEvidenceEligibleCount === 0 && $availabilityEvidenceEligibleCount > 0 => 'verified_availability_events_only',
+            default => 'verified_price_and_availability_events',
         };
-        $dataGaps = match ($status) {
-            'empty' => ['no_matching_competitor_price_events'],
-            'insufficient_evidence' => ['no_readback_verified_comparable_events'],
-            'partial' => ['some_events_excluded_from_decision'],
+        $dataGaps = match (true) {
+            $status === 'empty' => ['no_matching_competitor_price_events'],
+            $status === 'insufficient_evidence' && $returnedCount > 0
+                && $identityBoundCount === 0 && $targetIdentityBoundCount > 0
+                => ['observation_ota_identity_unverified'],
+            $status === 'insufficient_evidence' && $returnedCount > 0 && $identityBoundCount === 0
+                => ['competitor_ota_identity_binding_missing'],
+            $status === 'insufficient_evidence' => ['no_readback_verified_comparable_events'],
+            $status === 'partial' => ['some_events_excluded_from_decision'],
             default => [],
         };
+        if ($returnedCount > 0 && $priceEvidenceEligibleCount === 0) {
+            $dataGaps[] = 'no_comparable_bookable_price_events';
+        }
         if ($truncated) {
             $dataGaps = array_values(array_unique(['matching_events_truncated', ...$dataGaps]));
         }
+        $dataGaps = $this->uniqueGaps($dataGaps);
         $platformSummaries = [];
         foreach ($platforms as $platform) {
             $platformEvents = array_values(array_filter(
@@ -211,7 +252,15 @@ final class CompetitorEventFeedService
             ));
             $platformEligible = count(array_filter(
                 $platformEvents,
-                static fn(array $event): bool => ($event['decision_eligible'] ?? false) === true
+                static fn(array $event): bool => ($event['event_eligible'] ?? false) === true
+            ));
+            $platformPriceEligible = count(array_filter(
+                $platformEvents,
+                static fn(array $event): bool => ($event['price_evidence_eligible'] ?? false) === true
+            ));
+            $platformAvailabilityEligible = count(array_filter(
+                $platformEvents,
+                static fn(array $event): bool => ($event['availability_evidence_eligible'] ?? false) === true
             ));
             $platformStatus = $this->feedStatus(count($platformEvents), $platformEligible, count($platformEvents));
             if ($truncated && $platformStatus === 'available') {
@@ -221,7 +270,10 @@ final class CompetitorEventFeedService
                 'platform' => $platform,
                 'status' => $platformStatus,
                 'sample_count' => count($platformEvents),
-                'decision_eligible_sample_count' => $platformEligible,
+                'evidence_eligible_sample_count' => $platformEligible,
+                'availability_evidence_eligible_sample_count' => $platformAvailabilityEligible,
+                'price_evidence_eligible_sample_count' => $platformPriceEligible,
+                'decision_eligible_sample_count' => $platformPriceEligible,
                 'readback_verified_count' => count(array_filter(
                     $platformEvents,
                     static fn(array $event): bool => ($event['readback_verified'] ?? false) === true
@@ -246,9 +298,14 @@ final class CompetitorEventFeedService
             ],
             'sample_count' => $sampleCount,
             'returned_event_count' => $returnedCount,
-            'decision_eligible_sample_count' => $decisionEligibleCount,
+            'evidence_eligible_sample_count' => $evidenceEligibleCount,
+            'availability_evidence_eligible_sample_count' => $availabilityEvidenceEligibleCount,
+            'price_evidence_eligible_sample_count' => $priceEvidenceEligibleCount,
+            'decision_eligible_sample_count' => $priceEvidenceEligibleCount,
             'decision_eligible_count_scope' => $truncated ? 'latest_returned_events_only' : 'all_matching_events',
             'readback_verified_count' => $readbackVerifiedCount,
+            'identity_bound_sample_count' => $identityBoundCount,
+            'target_identity_bound_sample_count' => $targetIdentityBoundCount,
             'truncated' => $truncated,
             'summary_scope' => $truncated ? 'latest_returned_events_only' : 'all_matching_events',
             'quality_status_counts' => $qualityStatusCounts,
@@ -341,20 +398,51 @@ final class CompetitorEventFeedService
         $sourceMethod = $this->nullableText($row['source_method'] ?? null, 40);
         $sourceRef = $this->safeSourceReference($row['source_ref'] ?? null);
         $availability = $this->nullableText(strtolower(trim((string)($row['availability'] ?? ''))), 32);
+        $otaHotelId = $this->nullableText($row['ota_hotel_id'] ?? null, 80);
+        $targetOtaHotelId = $this->nullableText($row['competitor_ota_hotel_id'] ?? null, 80);
+        if ($targetOtaHotelId === null || preg_match('/^[1-9][0-9]{0,19}$/D', $targetOtaHotelId) !== 1) {
+            $targetOtaHotelId = null;
+        }
+        $availabilityScopeKey = $this->nullableHash($row['availability_scope_key'] ?? null);
         $comparisonKey = $this->nullableHash($row['comparison_key'] ?? null);
         $price = is_numeric($row['price'] ?? null) && (float)$row['price'] > 0
             ? (float)$row['price']
             : null;
 
-        $gaps = [];
-        if ($collectedAt === null) $gaps[] = 'collected_at_missing';
-        if ($sourceMethod === null) $gaps[] = 'source_method_missing';
-        if ($sourceRef === null) $gaps[] = 'source_ref_missing_or_redacted';
-        if (!$readbackVerified) $gaps[] = 'readback_unverified';
-        if (!in_array($validationStatus, self::DECISION_ELIGIBLE_STATUSES, true)) $gaps[] = 'validation_status_not_eligible';
-        if ($comparisonKey === null) $gaps[] = 'comparison_key_missing';
-        if ($price === null) $gaps[] = 'price_missing';
-        if (!in_array($availability, ['available', 'bookable'], true)) $gaps[] = 'ota_channel_bookable_status_missing';
+        $commonGaps = [];
+        if ($collectedAt === null) $commonGaps[] = 'collected_at_missing';
+        if ($sourceMethod === null) $commonGaps[] = 'source_method_missing';
+        if ($sourceRef === null) $commonGaps[] = 'source_ref_missing_or_redacted';
+        if (!$readbackVerified) $commonGaps[] = 'readback_unverified';
+        if ($otaHotelId === null || preg_match('/^[1-9][0-9]{0,19}$/D', $otaHotelId) !== 1) {
+            $commonGaps[] = 'ota_hotel_id_missing_or_unverified';
+        }
+
+        $availabilityGaps = $commonGaps;
+        // A public availability observation can be complete even when room-rate
+        // terms are partial. The dedicated scope key proves the stay/search
+        // dimensions; incomplete/partial only blocks price decision evidence.
+        if (!in_array($validationStatus, [...self::DECISION_ELIGIBLE_STATUSES, 'incomplete', 'partial'], true)) {
+            $availabilityGaps[] = 'validation_status_not_eligible';
+        }
+        if ($availabilityScopeKey === null) $availabilityGaps[] = 'availability_scope_key_missing';
+        if (!in_array($availability, self::AVAILABILITY_STATUSES, true)) {
+            $availabilityGaps[] = 'ota_channel_availability_status_missing';
+        }
+        $priceGaps = $commonGaps;
+        if (!in_array($validationStatus, self::DECISION_ELIGIBLE_STATUSES, true)) {
+            $priceGaps[] = 'validation_status_not_eligible';
+        }
+        if ($comparisonKey === null) $priceGaps[] = 'comparison_key_missing';
+        if ($price === null) $priceGaps[] = 'price_missing';
+        if (!in_array($availability, self::BOOKABLE_STATUSES, true)) {
+            $priceGaps[] = 'ota_channel_bookable_status_missing';
+        }
+        $availabilityEvidenceEligible = $availabilityGaps === [];
+        $priceEvidenceEligible = $priceGaps === [];
+        $gaps = in_array($availability, ['unavailable', 'sold_out'], true)
+            ? $availabilityGaps
+            : ($this->uniqueGaps([...$availabilityGaps, ...$priceGaps]));
 
         return [
             'id' => (int)($row['id'] ?? 0),
@@ -362,7 +450,12 @@ final class CompetitorEventFeedService
             'system_hotel_id' => $systemHotelId,
             'store_id' => $systemHotelId,
             'competitor_hotel_id' => (int)($row['hotel_id'] ?? 0) > 0 ? (int)$row['hotel_id'] : null,
-            'ota_hotel_id' => $this->nullableText($row['ota_hotel_id'] ?? null, 80),
+            'competitor_hotel_name' => $this->nullableText($row['competitor_hotel_name'] ?? null, 160),
+            'ota_hotel_id' => $otaHotelId,
+            'target_ota_hotel_id' => $targetOtaHotelId,
+            'identity_status' => preg_match('/^[1-9][0-9]{0,19}$/D', (string)$otaHotelId) === 1
+                ? 'observation_identity_verified'
+                : ($targetOtaHotelId !== null ? 'target_bound_observation_unverified' : 'target_binding_missing'),
             'stay_date' => $stayDate,
             'check_out_date' => $this->storedDate($row['check_out_date'] ?? null),
             'collected_at' => $collectedAt,
@@ -370,6 +463,8 @@ final class CompetitorEventFeedService
             'price' => $price,
             'currency' => $this->currency($row['currency'] ?? null),
             'availability' => $availability,
+            'availability_scope_key' => $availabilityScopeKey,
+            'comparison_key' => $comparisonKey,
             'room_type_key' => $this->nullableText($row['room_type_key'] ?? null, 160),
             'ota_product_id' => $this->nullableText($row['ota_product_id'] ?? null, 120),
             'rate_plan_key' => $this->nullableText($row['rate_plan_key'] ?? null, 160),
@@ -387,9 +482,228 @@ final class CompetitorEventFeedService
             'validation_status' => $validationStatus,
             'quality_status' => $qualityStatus,
             'readback_verified' => $readbackVerified,
-            'decision_eligible' => $gaps === [],
+            'availability_evidence_eligible' => $availabilityEvidenceEligible,
+            'price_evidence_eligible' => $priceEvidenceEligible,
+            'event_eligible' => $availabilityEvidenceEligible || $priceEvidenceEligible,
+            'decision_eligible' => $priceEvidenceEligible,
+            'availability_evidence_gaps' => $this->uniqueGaps($availabilityGaps),
+            'price_evidence_gaps' => $this->uniqueGaps($priceGaps),
             'evidence_gaps' => $gaps,
         ];
+    }
+
+    /** @param array<int,array<string,mixed>> $rows @return array<int,array<string,mixed>> */
+    private function attachCompetitorHotelNames(array $rows, int $systemHotelId): array
+    {
+        $hotelIds = array_values(array_unique(array_filter(array_map(
+            static fn(array $row): int => (int)($row['hotel_id'] ?? 0),
+            $rows
+        ), static fn(int $hotelId): bool => $hotelId > 0)));
+        if ($hotelIds === []) {
+            return $rows;
+        }
+
+        try {
+            $targets = Db::name('competitor_hotel')
+                ->where('store_id', $systemHotelId)
+                ->whereIn('id', $hotelIds)
+                ->field('id,hotel_name,hotel_code')
+                ->select()
+                ->toArray();
+        } catch (\Throwable) {
+            return $rows;
+        }
+
+        $names = [];
+        $otaHotelIds = [];
+        foreach ($targets as $target) {
+            $targetId = (int)($target['id'] ?? 0);
+            $targetName = trim((string)($target['hotel_name'] ?? ''));
+            if ($targetId > 0 && $targetName !== '') {
+                $names[$targetId] = $targetName;
+            }
+            $targetOtaHotelId = trim((string)($target['hotel_code'] ?? ''));
+            if ($targetId > 0 && preg_match('/^[1-9][0-9]{0,19}$/D', $targetOtaHotelId) === 1) {
+                $otaHotelIds[$targetId] = $targetOtaHotelId;
+            }
+        }
+        foreach ($rows as &$row) {
+            $hotelId = (int)($row['hotel_id'] ?? 0);
+            if ($hotelId > 0 && isset($names[$hotelId])) {
+                $row['competitor_hotel_name'] = $names[$hotelId];
+            }
+            if ($hotelId > 0 && isset($otaHotelIds[$hotelId])) {
+                $row['competitor_ota_hotel_id'] = $otaHotelIds[$hotelId];
+            }
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    /** @param array<int,array<string,mixed>> $events @return array<int,array<string,mixed>> */
+    private function attachTimelineTransitions(array $events): array
+    {
+        $previousAvailabilityByScope = [];
+        $previousPriceByScope = [];
+        foreach ($events as &$event) {
+            $event['previous_event_id'] = null;
+            $event['previous_price'] = null;
+            $event['previous_availability'] = null;
+            $event['price_change_amount'] = null;
+            $event['price_change_percent'] = null;
+            $event['event_type'] = 'unverified_observation';
+            $event['secondary_event_type'] = null;
+            $event['previous_price_event_id'] = null;
+            $event['event_evidence_gaps'] = $event['evidence_gaps'] ?? [];
+
+            $identity = (string)($event['competitor_hotel_id'] ?? $event['ota_hotel_id'] ?? '');
+            $availabilityScopeKey = (string)($event['availability_scope_key'] ?? '');
+            $comparisonKey = (string)($event['comparison_key'] ?? '');
+            if ($identity === '' || ($availabilityScopeKey === '' && $comparisonKey === '')) {
+                $event['event_eligible'] = false;
+                continue;
+            }
+
+            $platform = (string)($event['platform'] ?? '');
+            $surfaceKey = hash('sha256', json_encode([
+                $event['source_method'] ?? null,
+                $event['source_ref'] ?? null,
+                $event['room_type_key'] ?? null,
+                $event['ota_product_id'] ?? null,
+                $event['rate_plan_key'] ?? null,
+                $event['price_basis'] ?? null,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+            $availabilityScope = $availabilityScopeKey === ''
+                ? null
+                : implode('|', [$platform, $identity, $availabilityScopeKey, $surfaceKey]);
+            $priceScope = $comparisonKey === ''
+                ? null
+                : implode('|', [$platform, $identity, $comparisonKey, $surfaceKey]);
+            $previousAvailabilityEvent = $availabilityScope === null
+                ? null
+                : ($previousAvailabilityByScope[$availabilityScope] ?? null);
+            $previousPriceEvent = $priceScope === null
+                ? null
+                : ($previousPriceByScope[$priceScope] ?? null);
+            $currentAvailability = (string)($event['availability'] ?? '');
+            $currentPrice = $event['price'] ?? null;
+            $availabilityTransitionType = null;
+            if ($previousAvailabilityEvent !== null) {
+                $previousAvailabilityValue = (string)($previousAvailabilityEvent['availability'] ?? '');
+                $previousBookable = in_array($previousAvailabilityValue, self::BOOKABLE_STATUSES, true);
+                $currentBookable = in_array($currentAvailability, self::BOOKABLE_STATUSES, true);
+                if ($currentAvailability !== $previousAvailabilityValue
+                    && ($previousBookable !== $currentBookable || (!$previousBookable && !$currentBookable))
+                ) {
+                    $availabilityTransitionType = match (true) {
+                        $previousBookable && $currentAvailability === 'sold_out' => 'became_sold_out',
+                        $previousBookable && !$currentBookable => 'became_unavailable',
+                        !$previousBookable && $currentBookable => 'became_available',
+                        default => 'availability_changed',
+                    };
+                }
+            }
+            $priceTransitionType = null;
+            $priceChange = null;
+            $priceChangePercent = null;
+            if ($previousPriceEvent !== null
+                && is_numeric($currentPrice)
+                && is_numeric($previousPriceEvent['price'] ?? null)
+                && abs((float)$currentPrice - (float)$previousPriceEvent['price']) >= 0.001
+            ) {
+                $priceChange = round((float)$currentPrice - (float)$previousPriceEvent['price'], 2);
+                $priceTransitionType = $priceChange > 0 ? 'price_increased' : 'price_decreased';
+                $priceChangePercent = (float)$previousPriceEvent['price'] > 0
+                    ? round($priceChange / (float)$previousPriceEvent['price'] * 100, 2)
+                    : null;
+            }
+
+            if ($previousAvailabilityEvent === null && $previousPriceEvent === null) {
+                $event['event_type'] = 'first_observation';
+                $event['event_eligible'] = ($event['availability_evidence_eligible'] ?? false) === true
+                    || ($event['price_evidence_eligible'] ?? false) === true;
+                $event['event_evidence_gaps'] = $event['evidence_gaps'] ?? [];
+            } elseif ($availabilityTransitionType !== null && $previousAvailabilityEvent !== null) {
+                $previous = $previousAvailabilityEvent;
+                $previousAvailability = (string)($previous['availability'] ?? '');
+                $event['previous_event_id'] = (int)($previous['id'] ?? 0) ?: null;
+                $event['previous_price'] = $previous['price'] ?? null;
+                $event['previous_availability'] = $previousAvailability;
+                $event['event_type'] = $availabilityTransitionType;
+                $availabilityTransitionEligible = ($previous['availability_evidence_eligible'] ?? false) === true
+                    && ($event['availability_evidence_eligible'] ?? false) === true;
+                $event['event_eligible'] = $availabilityTransitionEligible;
+                $event['event_evidence_gaps'] = $event['availability_evidence_gaps'] ?? [];
+                if (($previous['availability_evidence_eligible'] ?? false) !== true) {
+                    $event['event_evidence_gaps'][] = 'previous_availability_evidence_not_eligible';
+                }
+                if ($priceTransitionType !== null && $previousPriceEvent !== null) {
+                    $event['secondary_event_type'] = $priceTransitionType;
+                    $event['previous_price_event_id'] = (int)($previousPriceEvent['id'] ?? 0) ?: null;
+                    $event['previous_price'] = $previousPriceEvent['price'];
+                    $event['price_change_amount'] = $priceChange;
+                    $event['price_change_percent'] = $priceChangePercent;
+                    $priceTransitionEligible = ($previousPriceEvent['price_evidence_eligible'] ?? false) === true
+                        && ($event['price_evidence_eligible'] ?? false) === true;
+                    $event['event_eligible'] = $availabilityTransitionEligible || $priceTransitionEligible;
+                    $event['event_evidence_gaps'] = [
+                        ...$event['event_evidence_gaps'],
+                        ...($event['price_evidence_gaps'] ?? []),
+                    ];
+                    if (($previousPriceEvent['price_evidence_eligible'] ?? false) !== true) {
+                        $event['event_evidence_gaps'][] = 'previous_price_evidence_not_eligible';
+                    }
+                }
+            } elseif ($priceTransitionType !== null && $previousPriceEvent !== null) {
+                $previous = $previousPriceEvent;
+                $previousPrice = $previous['price'];
+                $event['previous_event_id'] = (int)($previous['id'] ?? 0) ?: null;
+                $event['previous_price_event_id'] = $event['previous_event_id'];
+                $event['previous_price'] = $previousPrice;
+                $event['previous_availability'] = $previous['availability'] ?? null;
+                $event['event_type'] = $priceTransitionType;
+                $event['price_change_amount'] = $priceChange;
+                $event['price_change_percent'] = $priceChangePercent;
+                $event['event_eligible'] = ($previous['price_evidence_eligible'] ?? false) === true
+                    && ($event['price_evidence_eligible'] ?? false) === true;
+                $event['event_evidence_gaps'] = $event['price_evidence_gaps'] ?? [];
+                if (($previous['price_evidence_eligible'] ?? false) !== true) {
+                    $event['event_evidence_gaps'][] = 'previous_price_evidence_not_eligible';
+                }
+            } else {
+                $previous = $previousAvailabilityEvent ?? $previousPriceEvent;
+                $event['previous_event_id'] = (int)($previous['id'] ?? 0) ?: null;
+                $event['previous_price'] = $previous['price'] ?? null;
+                $event['previous_availability'] = $previous['availability'] ?? null;
+                $event['event_type'] = 'no_change';
+                $event['event_eligible'] = (($previousAvailabilityEvent['availability_evidence_eligible'] ?? false) === true
+                        && ($event['availability_evidence_eligible'] ?? false) === true)
+                    || (($previousPriceEvent['price_evidence_eligible'] ?? false) === true
+                        && ($event['price_evidence_eligible'] ?? false) === true);
+                $event['event_evidence_gaps'] = $event['evidence_gaps'] ?? [];
+                if (($previous['event_eligible'] ?? false) !== true) {
+                    $event['event_evidence_gaps'][] = 'previous_event_not_eligible';
+                }
+            }
+
+            $event['event_evidence_gaps'] = $this->uniqueGaps($event['event_evidence_gaps']);
+            if ($availabilityScope !== null) {
+                $previousAvailabilityByScope[$availabilityScope] = $event;
+            }
+            if ($priceScope !== null && is_numeric($currentPrice) && (float)$currentPrice > 0) {
+                $previousPriceByScope[$priceScope] = $event;
+            }
+        }
+        unset($event);
+
+        return $events;
+    }
+
+    /** @param array<int,string> $gaps @return array<int,string> */
+    private function uniqueGaps(array $gaps): array
+    {
+        return array_values(array_unique(array_filter(array_map('strval', $gaps), static fn(string $gap): bool => $gap !== '')));
     }
 
     private function feedStatus(int $sampleCount, int $decisionEligibleCount, int $returnedCount): string
@@ -541,8 +855,13 @@ final class CompetitorEventFeedService
             'observed_collected_at_range' => ['start' => null, 'end' => null],
             'sample_count' => null,
             'returned_event_count' => 0,
+            'evidence_eligible_sample_count' => 0,
+            'availability_evidence_eligible_sample_count' => 0,
+            'price_evidence_eligible_sample_count' => 0,
             'decision_eligible_sample_count' => 0,
             'readback_verified_count' => 0,
+            'identity_bound_sample_count' => 0,
+            'target_identity_bound_sample_count' => 0,
             'truncated' => false,
             'summary_scope' => 'schema_unavailable',
             'quality_status_counts' => [],

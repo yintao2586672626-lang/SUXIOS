@@ -41,6 +41,34 @@ final class OperationAuditClassifierTest extends TestCase
         self::assertNull($this->classifier->classify('DELETE', '/api/online-data/delete-ctrip-config?id=8'));
     }
 
+    public function testClassifiesFailuresForManualAndAuthPathsWithoutChangingSuccessDeduplication(): void
+    {
+        self::assertNull($this->classifier->classify('PUT', '/api/users/12'));
+        self::assertNull($this->classifier->classify('POST', '/api/auth/changePassword'));
+        self::assertNull($this->classifier->classify('POST', '/api/online-data/save-ctrip-config'));
+        self::assertNull($this->classifier->classify('POST', '/api/online-data/save-meituan-config'));
+        self::assertNull($this->classifier->classify('POST', '/api/admin/competitor-devices'));
+
+        $manualFailure = $this->classifier->classifyFailure('PUT', '/api/users/12');
+        self::assertIsArray($manualFailure);
+        self::assertSame('user', $manualFailure['module']);
+        self::assertSame('save_form', $manualFailure['action']);
+        self::assertSame('api/users/12', $manualFailure['path']);
+
+        $authFailure = $this->classifier->classifyFailure('POST', '/api/auth/changePassword');
+        self::assertIsArray($authFailure);
+        self::assertSame('auth', $authFailure['module']);
+        self::assertSame('save_form', $authFailure['action']);
+        self::assertSame('api/auth/changepassword', $authFailure['path']);
+
+        self::assertIsArray($this->classifier->classifyFailure('POST', '/api/online-data/save-ctrip-config'));
+        self::assertIsArray($this->classifier->classifyFailure('POST', '/api/online-data/save-meituan-config'));
+        self::assertIsArray($this->classifier->classifyFailure('POST', '/api/admin/competitor-devices'));
+
+        self::assertNull($this->classifier->classifyFailure('GET', '/api/health'));
+        self::assertNull($this->classifier->classifyFailure('GET', '/api/operation-logs'));
+    }
+
     public function testSkipsUnsupportedPathsAndMethods(): void
     {
         self::assertNull($this->classifier->classify('GET', '/api/not-a-module'));

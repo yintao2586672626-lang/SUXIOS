@@ -189,6 +189,11 @@ final class RevenuePricingRecommendationServiceTest extends TestCase
         ]);
         self::assertSame(15.0, $enriched[0]['price_change_percent']);
         self::assertSame('pricing_ready', $enriched[0]['pricing_readiness']['stage']);
+        self::assertSame('P1', $enriched[0]['decision_recommendation']['priority']);
+        self::assertSame('ota_channel', $enriched[0]['decision_recommendation']['data_basis']['scope']);
+        self::assertSame('ota_revenue', $enriched[0]['decision_recommendation']['expected_effect']['metric']);
+        self::assertNotSame('', $enriched[0]['decision_recommendation']['risk']['summary']);
+        self::assertArrayHasKey('recommendation_quality', $enriched[0]);
     }
 
     public function testElasticityEstimateReturnsBacktestHitRate(): void

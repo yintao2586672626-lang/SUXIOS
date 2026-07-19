@@ -57,6 +57,16 @@ class PermissionService
         $protected = $this->isProtectedCapability($capability);
 
         if ($user->isSuperAdmin()) {
+            if ($hotelId !== null && !$this->hotelScopeService->canAccessHotel($user, $hotelId, $capability)) {
+                return [
+                    'allowed' => false,
+                    'reason' => 'hotel_scope_denied',
+                    'capability' => $capability,
+                    'hotel_id' => $hotelId,
+                    'protected' => $protected,
+                ];
+            }
+
             return [
                 'allowed' => true,
                 'reason' => 'super_admin',

@@ -3,9 +3,12 @@ declare(strict_types=1);
 
 namespace app\controller\concern;
 
+use app\model\User as UserModel;
 use app\service\CtripCompetitiveOperationsService;
 use app\service\CtripPublicHotelProfileService;
+use app\service\OperationManagementService;
 use app\service\OtaPublicPageDiagnosisService;
+use app\service\ProtectedCapabilityService;
 use think\Response;
 
 trait CtripCompetitiveOperationsConcern
@@ -100,6 +103,143 @@ trait CtripCompetitiveOperationsConcern
             ]);
             return $this->error('OTA 公开页证据诊断读取失败', 500, [
                 'reason' => 'ota_public_page_diagnosis_read_failed',
+            ]);
+        }
+    }
+
+    public function createOtaPublicPageDiagnosisExecutionIntent(): Response
+    {
+        $this->checkPermission();
+        $this->checkActionPermission('can_view_online_data');
+
+        try {
+            $data = $this->requestData();
+            $systemHotelId = $this->ctripCompetitiveSystemHotelId($data['system_hotel_id'] ?? $data['hotel_id'] ?? null);
+            if (!$this->currentUserCanViewCtripCompetitiveHotel($systemHotelId)) {
+                return $this->error('无权查看此门店的 OTA 公开页诊断', 403);
+            }
+            if (!$this->currentUserCanExecuteOtaPublicPageTask($systemHotelId)) {
+                return $this->error('无权限将此门店的公开页诊断转为运营任务', 403);
+            }
+
+            $platform = strtolower(trim((string)($data['platform'] ?? 'ctrip')));
+            $businessDate = trim((string)($data['business_date'] ?? date('Y-m-d')));
+            $profiles = $platform === 'ctrip'
+                ? (new CtripPublicHotelProfileService())->listProfiles($systemHotelId, true)
+                : [];
+            $diagnosisService = new OtaPublicPageDiagnosisService();
+            $diagnosis = $diagnosisService->build($systemHotelId, $platform, $businessDate, $profiles);
+            $schedule = [
+                'assignee_id' => (int)($data['assignee_id'] ?? 0),
+                'due_at' => trim((string)($data['due_at'] ?? '')),
+                'review_at' => trim((string)($data['review_at'] ?? '')),
+            ];
+            $assignee = UserModel::where('id', $schedule['assignee_id'])
+                ->where('status', UserModel::STATUS_ENABLED)
+                ->find();
+            if (!$assignee) {
+                throw new \InvalidArgumentException('负责人必须是已启用用户');
+            }
+            if (!$assignee->hasHotelPermission($systemHotelId, 'operation.execute')) {
+                throw new \InvalidArgumentException('负责人无权执行此门店的运营任务');
+            }
+            $draft = $diagnosisService->buildExecutionIntentDraft($diagnosis, $schedule);
+            $intent = (new OperationManagementService())->createExecutionIntent(
+                [$systemHotelId],
+                $systemHotelId,
+                $draft['input'],
+                (int)($this->currentUser->id ?? 0),
+                false,
+                $draft['idempotency_key']
+            );
+            $intentId = (int)($intent['id'] ?? 0);
+            $targetValue = is_array($intent['target_value'] ?? null) ? $intent['target_value'] : [];
+            $persistedSchedule = is_array($targetValue['workflow_schedule'] ?? null)
+                ? $targetValue['workflow_schedule']
+                : [];
+            $expectedSchedule = $draft['input']['target_value']['workflow_schedule'];
+            $reusedExistingIntent = ($intent['idempotent_replay'] ?? false) === true;
+            $intentStatus = strtolower(trim((string)($intent['status'] ?? '')));
+            if ($intentId <= 0
+                || (int)($intent['hotel_id'] ?? 0) !== $systemHotelId
+                || (string)($intent['source_module'] ?? '') !== 'ota_diagnosis'
+                || (int)($intent['source_record_id'] ?? 0) !== (int)$draft['source_record_id']
+            ) {
+                throw new \RuntimeException('operation execution intent readback mismatch', 500);
+            }
+            if (!$reusedExistingIntent && ($persistedSchedule !== $expectedSchedule || $intentStatus !== 'pending_approval')) {
+                throw new \RuntimeException('new operation execution intent readback mismatch', 500);
+            }
+            if ($reusedExistingIntent && $intentStatus === '') {
+                throw new \RuntimeException('existing operation execution intent status is missing', 500);
+            }
+            $assignmentReadbackStatus = $persistedSchedule === $expectedSchedule
+                ? 'readback_verified'
+                : 'existing_schedule_preserved';
+            $intentStatusLabel = match ($intentStatus) {
+                'pending_approval' => '待审批',
+                'approved' => '已审批',
+                'rejected' => '已驳回',
+                'executing' => '执行中',
+                'completed' => '已完成',
+                'failed' => '执行失败',
+                'cancelled' => '已取消',
+                default => $intentStatus,
+            };
+            $message = !$reusedExistingIntent
+                ? '公开页诊断已转为待审批运营任务草稿'
+                : ($intentStatus === 'pending_approval'
+                    ? ($assignmentReadbackStatus === 'existing_schedule_preserved'
+                        ? '已打开现有运营任务草稿，保留原排期'
+                        : '已打开现有运营任务草稿')
+                    : '已打开现有运营记录（' . $intentStatusLabel . '）');
+            $operationSurfaceAuthorization = ['allowed' => false, 'reason' => 'operation_capability_unavailable'];
+            try {
+                $protectedCapabilityService = new ProtectedCapabilityService();
+                $operationCapability = $protectedCapabilityService->classifyPath(
+                    'GET',
+                    'api/operation/execution-intents/' . $intentId
+                );
+                if ($operationCapability !== null && $this->currentUser !== null) {
+                    $operationSurfaceAuthorization = $protectedCapabilityService->authorizeContext(
+                        $this->currentUser,
+                        $operationCapability,
+                        [
+                            'hotel_id' => $systemHotelId,
+                            'system_hotel_id' => $systemHotelId,
+                        ]
+                    );
+                }
+            } catch (\Throwable) {
+                $operationSurfaceAuthorization = ['allowed' => false, 'reason' => 'operation_access_check_failed'];
+            }
+
+            return $this->success([
+                'diagnosis' => $diagnosis,
+                'execution_intent' => $intent,
+                'execution_intent_readback_status' => 'readback_verified',
+                'assignment_readback_status' => $assignmentReadbackStatus,
+                'execution_intent_status' => $intentStatus,
+                'execution_intent_is_pending_approval' => $intentStatus === 'pending_approval',
+                'operation_surface_accessible' => ($operationSurfaceAuthorization['allowed'] ?? false) === true,
+                'operation_surface_status' => ($operationSurfaceAuthorization['allowed'] ?? false) === true
+                    ? 'available'
+                    : (string)($operationSurfaceAuthorization['reason'] ?? 'unavailable'),
+                'reused_existing_intent' => $reusedExistingIntent,
+            ], $message);
+        } catch (\InvalidArgumentException $exception) {
+            return $this->error($exception->getMessage(), 422);
+        } catch (\Throwable $exception) {
+            \think\facade\Log::error('OTA public-page diagnosis execution-intent create failed.', [
+                'exception_type' => get_debug_type($exception),
+                'exception_code' => (int)$exception->getCode(),
+            ]);
+            $statusCode = (int)$exception->getCode();
+            if (!in_array($statusCode, [409, 500, 503], true)) {
+                $statusCode = 500;
+            }
+            return $this->error('OTA 公开页诊断转任务失败', $statusCode, [
+                'reason' => 'ota_public_page_diagnosis_execution_intent_create_failed',
             ]);
         }
     }
@@ -220,5 +360,13 @@ trait CtripCompetitiveOperationsConcern
             ? array_map('intval', (array)$user->getPermittedHotelIds())
             : [];
         return in_array($systemHotelId, $permittedIds, true);
+    }
+
+    private function currentUserCanExecuteOtaPublicPageTask(int $systemHotelId): bool
+    {
+        $user = $this->currentUser ?? null;
+        return $user !== null
+            && method_exists($user, 'hasHotelPermission')
+            && $user->hasHotelPermission($systemHotelId, 'operation.execute');
     }
 }

@@ -299,6 +299,65 @@
         return current && typeof current === 'object' ? current : {};
     };
 
+    const revenueAiTruthStatusLabel = (status) => ({
+        verified: '已验证',
+        partial: '部分数据',
+        unverified: '未验证',
+        collection_failed: '采集失败',
+    }[String(status || '').toLowerCase()] || '未验证');
+
+    const revenueAiTruthStatusTone = (status) => ({
+        verified: 'ok',
+        partial: 'partial',
+        unverified: 'unverified',
+        collection_failed: 'failed',
+    }[String(status || '').toLowerCase()] || 'unverified');
+
+    const revenueAiTruthRangeText = (range = {}, fallback = '-') => {
+        const start = String(range?.start || '').trim();
+        const end = String(range?.end || '').trim();
+        if (!start && !end) return fallback;
+        if (!start || !end || start === end) return start || end;
+        return `${start} 至 ${end}`;
+    };
+
+    const revenueAiMetricTruthLines = (truth = {}) => {
+        const hotels = Array.isArray(truth?.hotels) ? truth.hotels : [];
+        const hotelText = hotels.map((hotel) => {
+            const name = String(hotel?.name || '').trim();
+            const id = Number(hotel?.system_hotel_id || 0);
+            return name || (id > 0 ? `门店#${id}` : '');
+        }).filter(Boolean).join('、') || '-';
+        const platforms = Array.isArray(truth?.platforms) ? truth.platforms : [];
+        const platformText = platforms.map(revenueAiChannelLabel).filter(Boolean).join('、') || '-';
+        const source = truth?.source && typeof truth.source === 'object' ? truth.source : {};
+        const methods = Array.isArray(source.methods) ? source.methods.filter(Boolean).map(String) : [];
+        const sourceParts = [String(source.table || '').trim(), ...methods];
+        const sourceText = [...new Set(sourceParts.filter(Boolean))].join(' / ') || '-';
+        const persistence = truth?.persistence && typeof truth.persistence === 'object' ? truth.persistence : {};
+        const recordCount = Number(persistence.record_count || 0);
+        const storedCount = Number(persistence.stored_count || 0);
+        const readbackCount = Number(persistence.readback_verified_count || 0);
+        const storedText = recordCount > 0
+            ? `入库 ${storedCount}/${recordCount}；回读 ${readbackCount}/${recordCount}`
+            : '无可核验入库记录';
+        const failureReason = String(truth?.failure_reason || '').trim();
+        return [
+            { key: 'hotel', label: '门店', value: hotelText },
+            { key: 'platform', label: '平台', value: platformText },
+            { key: 'date', label: '日期', value: revenueAiTruthRangeText(truth?.date_range) },
+            { key: 'source', label: '来源', value: sourceText },
+            { key: 'collected', label: '采集时间', value: revenueAiTruthRangeText(truth?.collected_at_range) },
+            { key: 'persistence', label: '入库', value: storedText },
+            { key: 'failure', label: '失败原因', value: failureReason || '无' },
+            { key: 'scope', label: '口径', value: String(truth?.scope_label || 'OTA渠道指标，不代表全酒店经营') },
+        ];
+    };
+
+    const revenueAiMetricTruthSummary = (truth = {}) => revenueAiMetricTruthLines(truth)
+        .map((line) => `${line.label}：${line.value}`)
+        .join('；');
+
     const revenueAiClosureIssueRows = (items = [], fallbackType = 'missing') => {
         const rows = Array.isArray(items) ? items : [];
         return rows.slice(0, 6).map((item, index) => {
@@ -317,6 +376,9 @@
 
     const revenueAiClosureMetricChip = (metric = {}, label = '', key = '') => {
         const status = metric?.status || 'unknown';
+        const truth = metric?.truth && typeof metric.truth === 'object' ? metric.truth : {};
+        const hasTruthStatus = ['verified', 'partial', 'unverified', 'collection_failed'].includes(String(truth?.status || '').toLowerCase());
+        const truthStatus = hasTruthStatus ? String(truth.status).toLowerCase() : '';
         const reasons = Array.isArray(metric?.failure_reasons) ? metric.failure_reasons.filter(Boolean) : [];
         const reason = metric?.reason || reasons[0] || (status !== 'ok' ? status : '');
         return {
@@ -324,9 +386,12 @@
             label,
             value: revenueAiClosureValueText(metric),
             status,
-            statusLabel: revenueAiStatusLabel(status),
-            className: revenueAiStatusClass(status),
+            statusLabel: hasTruthStatus ? revenueAiTruthStatusLabel(truthStatus) : revenueAiStatusLabel(status),
+            className: revenueAiStatusClass(hasTruthStatus ? revenueAiTruthStatusTone(truthStatus) : status),
             reasonText: reason ? revenueAiReasonText(reason) : '',
+            truthStatus,
+            truthSummary: revenueAiMetricTruthSummary(truth),
+            truthLines: revenueAiMetricTruthLines(truth),
         };
     };
 
@@ -503,15 +568,22 @@
             const metric = metrics[definition.key] || {};
             const reason = overviewError ? 'overview_request_failed' : (metric.reason || (overview ? '' : 'overview_not_loaded'));
             const status = overviewError ? 'failed' : (metric.status || (overview ? 'unknown' : 'not_loaded'));
+            const truth = metric?.truth && typeof metric.truth === 'object' ? metric.truth : {};
+            const hasTruthStatus = ['verified', 'partial', 'unverified', 'collection_failed'].includes(String(truth?.status || '').toLowerCase());
+            const truthStatus = overviewError ? 'collection_failed' : (hasTruthStatus ? String(truth.status).toLowerCase() : '');
             return {
                 key: definition.key,
                 label: metric.label || definition.label,
                 display: metricDisplayText(metric),
-                statusLabel: revenueAiStatusLabel(status),
-                className: revenueAiStatusClass(status),
-                reasonText: metric.display_reason || revenueAiReasonText(reason),
+                statusLabel: overviewError || hasTruthStatus ? revenueAiTruthStatusLabel(truthStatus) : revenueAiStatusLabel(status),
+                className: revenueAiStatusClass(overviewError || hasTruthStatus ? revenueAiTruthStatusTone(truthStatus) : status),
+                metricStatusLabel: revenueAiStatusLabel(status),
+                reasonText: truth?.failure_reason || metric.display_reason || revenueAiReasonText(reason),
                 scopeLabel: revenueAiScopeLabel(metric.scope || overview?.scope || 'ota'),
                 dateBasisLabel: revenueAiDateBasisLabel(metric.date_basis || overview?.date_basis || 'data_date'),
+                truthStatus,
+                truthLines: revenueAiMetricTruthLines(truth),
+                truthSummary: revenueAiMetricTruthSummary(truth),
                 target_page: metric.target_page || 'online-data',
                 target_tab: metric.target_tab || 'data-health',
                 target_platform: metric.target_platform || '',
@@ -2382,10 +2454,222 @@
         };
     };
 
+    const competitorMicroscopeObject = (value) => {
+        if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+        if (typeof value !== 'string' || !value.trim()) return {};
+        try {
+            const parsed = JSON.parse(value);
+            return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+        } catch (_error) {
+            return {};
+        }
+    };
+
+    const competitorMicroscopeNumber = (value) => {
+        if (value === null || value === undefined || value === '') return null;
+        const number = Number(value);
+        return Number.isFinite(number) ? number : null;
+    };
+
+    const competitorMicroscopeAverage = (values) => {
+        const valid = values.map(competitorMicroscopeNumber).filter(value => value !== null && value > 0);
+        return valid.length ? Number((valid.reduce((sum, value) => sum + value, 0) / valid.length).toFixed(2)) : null;
+    };
+
+    const competitorMicroscopeName = (row = {}) => {
+        const metadata = competitorMicroscopeObject(row.competitor_data);
+        return String(
+            row.competitor_name
+            || row.competitor_hotel?.name
+            || metadata.competitor_name
+            || (Number(row.competitor_hotel_id || 0) > 0 ? `竞对 #${Number(row.competitor_hotel_id)}` : '未知竞对')
+        ).trim();
+    };
+
+    const competitorMicroscopeKey = (row = {}) => {
+        const id = Number(row.competitor_hotel_id || 0);
+        return id > 0 ? `id:${id}` : `name:${competitorMicroscopeName(row).toLowerCase()}`;
+    };
+
+    const competitorMicroscopeSourceStatus = (row = {}) => {
+        const metadata = competitorMicroscopeObject(row.competitor_data);
+        const evidenceStatus = String(metadata.evidence_status || row.evidence_status || '').toLowerCase();
+        const sourceMethod = String(metadata.source_method || row.source_method || '').toLowerCase();
+        const validationStatus = String(metadata.validation_status || row.validation_status || '').toLowerCase();
+        const readback = metadata.readback_verified ?? row.readback_verified;
+        const readbackVerified = readback === true || readback === 1 || ['1', 'true', 'verified'].includes(String(readback).toLowerCase());
+        const operatorProvided = evidenceStatus === 'operator_provided' || /(?:^|[_\-\s])manual(?:$|[_\-\s])/.test(sourceMethod);
+        const verified = !operatorProvided
+            && readbackVerified
+            && ['verified', 'available', 'normal', 'ok', 'valid'].includes(validationStatus);
+        if (verified) return 'verified';
+        if (operatorProvided) return 'operator_provided';
+        return 'unverified';
+    };
+
+    const competitorMicroscopeRow = (row = {}, roomTypeName = '') => {
+        const ourPrice = competitorMicroscopeNumber(row.our_price);
+        const competitorPrice = competitorMicroscopeNumber(row.competitor_price);
+        const gap = ourPrice !== null && competitorPrice !== null ? Number((ourPrice - competitorPrice).toFixed(2)) : null;
+        const explicitGapPercent = competitorMicroscopeNumber(row.diff_percent ?? row.price_gap_percent);
+        const gapPercent = explicitGapPercent !== null
+            ? explicitGapPercent
+            : (gap !== null && competitorPrice > 0 ? Number((gap / competitorPrice * 100).toFixed(2)) : null);
+        return {
+            ...row,
+            competitor_key: competitorMicroscopeKey(row),
+            competitor_name: competitorMicroscopeName(row),
+            room_type_name: String(row.room_type_name || row.room_type?.name || roomTypeName || '未知房型'),
+            our_price: ourPrice,
+            competitor_price: competitorPrice,
+            price_gap: gap,
+            price_gap_percent: gapPercent,
+            source_status: competitorMicroscopeSourceStatus(row),
+        };
+    };
+
+    const buildCompetitorMicroscope = (analysis = {}, requestedKey = '') => {
+        const matrix = competitorMicroscopeObject(analysis?.price_matrix);
+        const rows = [];
+        Object.entries(matrix).forEach(([roomTypeName, competitorRows]) => {
+            const entries = competitorRows && typeof competitorRows === 'object' ? Object.values(competitorRows) : [];
+            entries.forEach(row => {
+                if (row && typeof row === 'object') rows.push(competitorMicroscopeRow(row, roomTypeName));
+            });
+        });
+
+        const grouped = new Map();
+        rows.forEach(row => {
+            if (!grouped.has(row.competitor_key)) grouped.set(row.competitor_key, []);
+            grouped.get(row.competitor_key).push(row);
+        });
+        const options = Array.from(grouped.entries()).map(([key, groupRows]) => {
+            const gapValues = groupRows
+                .map(row => competitorMicroscopeNumber(row.price_gap_percent))
+                .filter(value => value !== null);
+            const sourceStatuses = new Set(groupRows.map(row => row.source_status));
+            const sourceStatus = sourceStatuses.size === 1
+                ? Array.from(sourceStatuses)[0]
+                : (sourceStatuses.has('verified') ? 'partial' : (sourceStatuses.has('operator_provided') ? 'operator_provided' : 'unverified'));
+            return {
+                key,
+                competitorId: Number(groupRows[0]?.competitor_hotel_id || 0),
+                name: groupRows[0]?.competitor_name || '未知竞对',
+                sampleCount: groupRows.length,
+                roomTypeCount: new Set(groupRows.map(row => row.room_type_name)).size,
+                maxAbsGapPercent: gapValues.length ? Number(Math.max(...gapValues.map(Math.abs)).toFixed(2)) : null,
+                sourceStatus,
+            };
+        }).sort((left, right) => {
+            const gapCompare = Number(right.maxAbsGapPercent ?? -1) - Number(left.maxAbsGapPercent ?? -1);
+            if (gapCompare !== 0) return gapCompare;
+            if (right.sampleCount !== left.sampleCount) return right.sampleCount - left.sampleCount;
+            return left.name.localeCompare(right.name, 'zh-CN');
+        });
+
+        const selectedKey = options.some(option => option.key === requestedKey)
+            ? requestedKey
+            : (options[0]?.key || '');
+        if (!selectedKey) {
+            return {
+                status: 'empty',
+                selectedKey: '',
+                options: [],
+                detail: null,
+                scopeNotice: '仅比较同平台、同日期的 OTA 渠道价格样本；缺少样本时不形成竞对结论。',
+            };
+        }
+
+        const selectedOption = options.find(option => option.key === selectedKey);
+        const selectedRows = (grouped.get(selectedKey) || []).slice().sort((left, right) => (
+            Math.abs(Number(right.price_gap_percent ?? -1)) - Math.abs(Number(left.price_gap_percent ?? -1))
+        ));
+        const avgOurPrice = competitorMicroscopeAverage(selectedRows.map(row => row.our_price));
+        const avgCompetitorPrice = competitorMicroscopeAverage(selectedRows.map(row => row.competitor_price));
+        const priceGap = avgOurPrice !== null && avgCompetitorPrice !== null
+            ? Number((avgOurPrice - avgCompetitorPrice).toFixed(2))
+            : null;
+        const priceGapPercent = priceGap !== null && avgCompetitorPrice > 0
+            ? Number((priceGap / avgCompetitorPrice * 100).toFixed(2))
+            : null;
+
+        const trends = analysis?.trends && typeof analysis.trends === 'object' ? analysis.trends : {};
+        const rawTrendRows = Array.isArray(trends[String(selectedOption.competitorId)])
+            ? trends[String(selectedOption.competitorId)]
+            : (Array.isArray(trends[selectedOption.competitorId]) ? trends[selectedOption.competitorId] : []);
+        const trendGroups = new Map();
+        rawTrendRows.forEach(rawRow => {
+            if (!rawRow || typeof rawRow !== 'object' || competitorMicroscopeKey(rawRow) !== selectedKey) return;
+            const row = competitorMicroscopeRow(rawRow);
+            const date = String(row.analysis_date || '').trim();
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+            if (!trendGroups.has(date)) trendGroups.set(date, []);
+            trendGroups.get(date).push(row);
+        });
+        const trend = Array.from(trendGroups.entries()).sort(([left], [right]) => left.localeCompare(right)).map(([date, dayRows]) => {
+            const ourPrice = competitorMicroscopeAverage(dayRows.map(row => row.our_price));
+            const competitorPrice = competitorMicroscopeAverage(dayRows.map(row => row.competitor_price));
+            const gap = ourPrice !== null && competitorPrice !== null ? Number((ourPrice - competitorPrice).toFixed(2)) : null;
+            return {
+                date,
+                ourPrice,
+                competitorPrice,
+                gap,
+                gapPercent: gap !== null && competitorPrice > 0 ? Number((gap / competitorPrice * 100).toFixed(2)) : null,
+                sampleCount: dayRows.length,
+            };
+        });
+        const firstTrendGap = trend[0]?.gapPercent ?? null;
+        const lastTrendGap = trend[trend.length - 1]?.gapPercent ?? null;
+        const trendChange = trend.length > 1 && firstTrendGap !== null && lastTrendGap !== null
+            ? Number((lastTrendGap - firstTrendGap).toFixed(2))
+            : null;
+        const sourceStatusText = {
+            verified: '来源与回读已验证',
+            operator_provided: '人工提供样本',
+            partial: '部分来源已验证',
+            unverified: '来源未验证',
+        }[selectedOption.sourceStatus] || '来源未验证';
+        const sourceStatusClass = {
+            verified: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+            operator_provided: 'border-blue-200 bg-blue-50 text-blue-700',
+            partial: 'border-amber-200 bg-amber-50 text-amber-700',
+            unverified: 'border-gray-200 bg-gray-50 text-gray-600',
+        }[selectedOption.sourceStatus] || 'border-gray-200 bg-gray-50 text-gray-600';
+        const dataGaps = [];
+        if (avgOurPrice === null || avgCompetitorPrice === null) dataGaps.push('current_comparable_price_missing');
+        if (trend.length === 0) dataGaps.push('seven_day_trend_missing');
+        if (!['verified'].includes(selectedOption.sourceStatus)) dataGaps.push(`source_${selectedOption.sourceStatus}`);
+
+        return {
+            status: 'ready',
+            selectedKey,
+            options,
+            detail: {
+                ...selectedOption,
+                avgOurPrice,
+                avgCompetitorPrice,
+                priceGap,
+                priceGapPercent,
+                trendChange,
+                trend,
+                rows: selectedRows,
+                sourceStatusText,
+                sourceStatusClass,
+                dataGaps,
+                metricScope: 'ota_channel',
+            },
+            scopeNotice: '仅比较当前门店与所选竞对在同平台、同日期、已显示房型样本中的 OTA 公开价格；人工样本和未验证来源不会升级为全酒店经营结论。',
+        };
+    };
+
     window.SUXI_REVENUE_AI_STATIC = Object.freeze({
         revenueAiStatusTone,
         revenueAiStatusClass,
         revenueAiStatusLabel,
+        revenueAiTruthStatusLabel,
+        revenueAiMetricTruthLines,
+        revenueAiMetricTruthSummary,
         revenueAiReasonText,
         revenueAiScopeLabel,
         revenueAiDateBasisLabel,
@@ -2447,5 +2731,6 @@
         buildRevenueAiExecutionIntentOpenRow,
         resolveRevenueAiReviewNavigation,
         buildRevenueAiReviewNavigationState,
+        buildCompetitorMicroscope,
     });
 }());

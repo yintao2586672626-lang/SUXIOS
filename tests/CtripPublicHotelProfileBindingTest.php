@@ -121,6 +121,64 @@ final class CtripPublicHotelProfileBindingTest extends TestCase
         self::assertSame('4567890', $bulk['profiles'][0]['ota_hotel_id']);
     }
 
+    public function testOfficialCompetitorIdUpgradesOneExactPublicNameTargetWithoutDuplicate(): void
+    {
+        $targetId = (int)Db::name('competitor_hotel')->insertGetId([
+            'tenant_id' => 1,
+            'store_id' => 10,
+            'platform' => 'xc',
+            'city' => '',
+            'hotel_name' => ' 公开测试酒店 ',
+            'hotel_code' => 'public-name:unique-test',
+            'status' => 1,
+        ]);
+
+        $result = $this->service()->addByHotelId(10, '4567890', 'competitor', 91);
+
+        self::assertSame('available', $result['status']);
+        self::assertSame(1, (int)Db::name('competitor_hotel')->where('store_id', 10)->count());
+        $target = Db::name('competitor_hotel')->where('id', $targetId)->find();
+        self::assertIsArray($target);
+        self::assertSame('4567890', $target['hotel_code']);
+        self::assertSame('公开测试酒店', $target['hotel_name']);
+    }
+
+    public function testOfficialCompetitorIdDoesNotGuessBetweenDuplicatePublicNameTargets(): void
+    {
+        Db::name('competitor_hotel')->insertAll([
+            [
+                'tenant_id' => 1,
+                'store_id' => 10,
+                'platform' => 'xc',
+                'city' => '',
+                'hotel_name' => '公开测试酒店',
+                'hotel_code' => 'public-name:ambiguous-a',
+                'status' => 1,
+            ],
+            [
+                'tenant_id' => 1,
+                'store_id' => 10,
+                'platform' => 'xc',
+                'city' => '',
+                'hotel_name' => ' 公开测试酒店 ',
+                'hotel_code' => 'public-name:ambiguous-b',
+                'status' => 1,
+            ],
+        ]);
+
+        $this->service()->addByHotelId(10, '4567890', 'competitor', 91);
+
+        self::assertSame(3, (int)Db::name('competitor_hotel')->where('store_id', 10)->count());
+        self::assertSame(1, (int)Db::name('competitor_hotel')
+            ->where('store_id', 10)
+            ->where('hotel_code', '4567890')
+            ->count());
+        self::assertSame(2, (int)Db::name('competitor_hotel')
+            ->where('store_id', 10)
+            ->where('hotel_code', 'like', 'public-name:%')
+            ->count());
+    }
+
     public function testCollectionFailureStillKeepsCompetitorIdForRetry(): void
     {
         $service = $this->service(true);

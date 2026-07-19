@@ -78,15 +78,64 @@ export function sanitizeOtaObservedUrl(value) {
 
 export function sanitizeOtaObservedRoute(value) {
   try {
-    const parsed = new URL(String(value || ''));
+    const raw = String(value || '').trim();
+    const parsed = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw.replace(/^\/+/, '')}`);
+    const hostname = parsed.hostname.toLowerCase();
+    if (!hostname.includes('.') || hostname.includes('..') || !/^[a-z0-9.-]+$/.test(hostname)) {
+      return '';
+    }
+    let redactNextSegment = false;
     const path = parsed.pathname
       .split('/')
-      .map(segment => (/^\d+$/.test(segment) || /^[0-9a-f]{16,}$/i.test(segment) ? ':id' : segment))
+      .map(segment => {
+        if (redactNextSegment) {
+          redactNextSegment = false;
+          return ':redacted';
+        }
+        const decoded = safeDecodeRouteSegment(segment);
+        if (/^(?:access[-_]?token|refresh[-_]?token|spidertoken|spiderkey|token|mtgsig|signature|ticket|authorization|proxy[-_]?authorization|cookie|api[-_]?key|password|secret|sid)$/i.test(decoded)) {
+          redactNextSegment = true;
+          return decoded.toLowerCase();
+        }
+        if (/^(?:access[-_]?token|refresh[-_]?token|spidertoken|spiderkey|token|mtgsig|signature|ticket|authorization|proxy[-_]?authorization|cookie|api[-_]?key|password|secret|sid)=/i.test(decoded)) {
+          return `${decoded.split('=', 1)[0].toLowerCase()}=:redacted`;
+        }
+        const identifierLike = /^\d+$/.test(decoded)
+          || /^[0-9a-f]{16,}$/i.test(decoded)
+          || /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(decoded);
+        return identifierLike ? ':id' : segment;
+      })
       .join('/');
-    return `${parsed.hostname.toLowerCase()}${path}`.slice(0, 320);
+    return `${hostname}${path}`.slice(0, 320);
   } catch {
     return '';
   }
+}
+
+export function recordOtaSessionProbeCandidateDiagnostic(diagnostics, classified, observedUrl) {
+  if (!diagnostics || typeof diagnostics !== 'object' || classified?.classification !== 'candidate_drift') {
+    return diagnostics;
+  }
+
+  diagnostics.candidate_drift_response_count = Math.min(
+    20,
+    nonNegativeInteger(diagnostics.candidate_drift_response_count) + 1,
+  );
+  const safeRoute = sanitizeOtaObservedRoute(observedUrl);
+  if (safeRoute) {
+    diagnostics.candidate_route_samples = appendBoundedUnique(
+      diagnostics.candidate_route_samples,
+      safeRoute,
+    );
+  }
+  const reasonId = sanitizeSessionProbeDiagnosticId(classified?.reason);
+  if (reasonId) {
+    diagnostics.candidate_reason_ids = appendBoundedUnique(
+      diagnostics.candidate_reason_ids,
+      reasonId,
+    );
+  }
+  return diagnostics;
 }
 
 export function otaSessionCookieInjectionDomains(platform) {
@@ -346,6 +395,7 @@ export function evaluateOtaSessionProbe(platform, input = {}, options = {}) {
       recognized_response_count: successfulApiResponseCount,
       candidate_response_count: candidateDriftResponseCount,
       candidate_route_samples: responseDiagnostics.candidate_route_samples,
+      candidate_reason_ids: responseDiagnostics.candidate_reason_ids,
       sensitive_values_exposed: false,
     },
   };
@@ -424,7 +474,30 @@ function normalizeResponseDiagnostics(value) {
       : [])
       .map(sanitizeOtaObservedRoute)
       .filter(Boolean))].slice(0, 20),
+    candidate_reason_ids: [...new Set((Array.isArray(diagnostics.candidate_reason_ids)
+      ? diagnostics.candidate_reason_ids
+      : [])
+      .map(sanitizeSessionProbeDiagnosticId)
+      .filter(Boolean))].slice(0, 20),
   };
+}
+
+function appendBoundedUnique(values, value) {
+  const current = Array.isArray(values) ? values : [];
+  return [...new Set([...current, value])].slice(0, 20);
+}
+
+function sanitizeSessionProbeDiagnosticId(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return /^[a-z][a-z0-9_.:-]{0,79}$/.test(normalized) ? normalized : '';
+}
+
+function safeDecodeRouteSegment(value) {
+  try {
+    return decodeURIComponent(String(value || ''));
+  } catch {
+    return String(value || '');
+  }
 }
 
 function normalizePlatform(platform) {

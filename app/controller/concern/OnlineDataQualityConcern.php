@@ -173,22 +173,28 @@ trait OnlineDataQualityConcern
                     $decodedRawData = json_decode($item['raw_data'], true);
                     $rawData = is_array($decodedRawData) ? $decodedRawData : [];
                     if ($rawData) {
-                        $rawTotalOrderNum = intval($rawData['totalOrderNum'] ?? $rawData['total_order_num'] ?? 0);
+                        // Browser/Profile persistence keeps the sanitized source row under
+                        // raw_data.row. Merge it only for safe display projections while
+                        // retaining the full envelope for field-fact/trust evaluation below.
+                        $displayRawData = isset($rawData['row']) && is_array($rawData['row'])
+                            ? array_merge($rawData, $rawData['row'])
+                            : $rawData;
+                        $rawTotalOrderNum = intval($displayRawData['totalOrderNum'] ?? $displayRawData['total_order_num'] ?? 0);
                         // 添加排名字段
-                        $item['amount_rank'] = $rawData['amountRank'] ?? null;
-                        $item['quantity_rank'] = $rawData['quantityRank'] ?? null;
-                        $item['book_order_num_rank'] = $rawData['bookOrderNumRank'] ?? null;
-                        $item['comment_score_rank'] = $rawData['commentScoreRank'] ?? null;
-                        $item['total_detail_num'] = $rawData['totalDetailNum'] ?? $item['total_detail_num'] ?? null;
-                        $item['convertion_rate'] = $rawData['convertionRate'] ?? $item['convertion_rate'] ?? null;
-                        $item['qunar_comment_score'] = $rawData['qunarCommentScore'] ?? $item['qunar_comment_score'] ?? null;
-                        $item['qunar_detail_visitors'] = $rawData['qunarDetailVisitors'] ?? $item['qunar_detail_visitors'] ?? null;
-                        $item['qunar_detail_cr'] = $rawData['qunarDetailCR'] ?? $item['qunar_detail_cr'] ?? null;
-                        $item['rank'] = $rawData['rank'] ?? $rawData['ranking'] ?? $item['rank'] ?? null;
-                        $item['rank_percent'] = $rawData['percent'] ?? $rawData['rankPercent'] ?? $rawData['rank_percent'] ?? $item['rank_percent'] ?? null;
-                        $item['rank_type'] = $rawData['rankType'] ?? $rawData['rank_type'] ?? $item['rank_type'] ?? null;
-                        $item['rank_metric'] = $rawData['dimension'] ?? $rawData['dimName'] ?? $item['rank_metric'] ?? null;
-                        $item['metric_status'] = $rawData['metricStatus'] ?? $rawData['metric_status'] ?? $item['metric_status'] ?? null;
+                        $item['amount_rank'] = $displayRawData['amountRank'] ?? null;
+                        $item['quantity_rank'] = $displayRawData['quantityRank'] ?? null;
+                        $item['book_order_num_rank'] = $displayRawData['bookOrderNumRank'] ?? null;
+                        $item['comment_score_rank'] = $displayRawData['commentScoreRank'] ?? null;
+                        $item['total_detail_num'] = $displayRawData['totalDetailNum'] ?? $item['total_detail_num'] ?? null;
+                        $item['convertion_rate'] = $displayRawData['convertionRate'] ?? $item['convertion_rate'] ?? null;
+                        $item['qunar_comment_score'] = $displayRawData['qunarCommentScore'] ?? $item['qunar_comment_score'] ?? null;
+                        $item['qunar_detail_visitors'] = $displayRawData['qunarDetailVisitors'] ?? $item['qunar_detail_visitors'] ?? null;
+                        $item['qunar_detail_cr'] = $displayRawData['qunarDetailCR'] ?? $item['qunar_detail_cr'] ?? null;
+                        $item['rank'] = $displayRawData['rank'] ?? $displayRawData['ranking'] ?? $item['rank'] ?? null;
+                        $item['rank_percent'] = $displayRawData['percent'] ?? $displayRawData['rankPercent'] ?? $displayRawData['rank_percent'] ?? $item['rank_percent'] ?? null;
+                        $item['rank_type'] = $displayRawData['rankType'] ?? $displayRawData['rank_type'] ?? $item['rank_type'] ?? null;
+                        $item['rank_metric'] = $displayRawData['dimension'] ?? $displayRawData['dimName'] ?? $item['rank_metric'] ?? null;
+                        $item['metric_status'] = $displayRawData['metricStatus'] ?? $displayRawData['metric_status'] ?? $item['metric_status'] ?? null;
                     }
                 }
                 $item['total_order_num'] = $rawTotalOrderNum > 0 ? $rawTotalOrderNum : $bookOrderNum;
@@ -197,6 +203,7 @@ trait OnlineDataQualityConcern
                 $item['storage_status_label'] = $storageStatus['label'];
                 $item['field_fact_status'] = $this->buildOnlineDataFieldFactStatus($item, $rawData);
                 $item['data_quality'] = $this->buildOnlineDataQuality($item);
+                $item['truth'] = OnlineDataTrustStatusService::truthEnvelope($item, $item['field_fact_status']);
             }
 
             return $this->success([

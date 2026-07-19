@@ -83,6 +83,10 @@ final class HotelTenantCreationTest extends TestCase
         self::assertGreaterThan(0, $hotelId);
         self::assertSame($hotelId, (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id'));
         self::assertSame($hotelId, (int)$payload['data']['tenant_id']);
+        $audit = Db::name('operation_logs')->where('action', 'create')->find();
+        self::assertIsArray($audit);
+        self::assertSame($hotelId, (int)$audit['hotel_id']);
+        self::assertSame($hotelId, (int)$audit['tenant_id']);
     }
 
     public function testCreateRemainsCompatibleWhenTenantIdColumnDoesNotExist(): void
@@ -107,6 +111,7 @@ final class HotelTenantCreationTest extends TestCase
 
         self::assertSame(77, (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id'));
         self::assertSame(77, (int)$payload['data']['tenant_id']);
+        self::assertSame(77, (int)Db::name('operation_logs')->where('action', 'create')->value('tenant_id'));
     }
 
     public function testCreateRollsBackHotelPermissionAndLogWhenPermissionGrantFails(): void
@@ -207,6 +212,7 @@ final class HotelTenantCreationTest extends TestCase
         )");
         Db::execute('CREATE TABLE operation_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tenant_id INTEGER,
             user_id INTEGER,
             hotel_id INTEGER,
             module VARCHAR(50),

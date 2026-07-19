@@ -321,7 +321,8 @@ assert.doesNotMatch(indexHtml, /todo:\s*'待办'/, 'hotel account health text sh
 assert.doesNotMatch(indexHtml, /user\?\.role_id\s*<=\s*2/, '用户管理入口不能继续用 role_id <= 2 放开内测用户');
 
 assert.match(userModel, /public function canManageUser\(\): bool[\s\S]*return \$this->isSuperAdmin\(\);/, '用户管理必须仅管理员可用');
-assert.match(userModel, /public function canManageOwnHotels\(\): bool[\s\S]*new PermissionService\(\)\)->roleAllows\(\$this, 'can_manage_own_hotels'\)/, 'hotel creation must follow the centralized runtime role policy instead of role-id shortcuts');
+assert.match(userModel, /public function canManageOwnHotels\(\): bool[\s\S]*\$this->permissionService\(\)->roleAllows\(\$this, 'can_manage_own_hotels'\)/, 'hotel creation must follow the centralized runtime role policy instead of role-id shortcuts');
+assert.match(userModel, /private function permissionService\(\): PermissionService[\s\S]*new PermissionService\(\$this->hotelScopeService\(\)\)/, 'memoized permission checks must share the same per-user hotel-scope service');
 assert.match(userModel, /public function isBetaUser\(\): bool[\s\S]*Role::HOTEL_MANAGER/, 'beta-user checks must recognize custom level-2 roles consistently with the front-end issue guide');
 assert.match(userModel, /private function enabledRole\(\): \?Role[\s\S]*Role::STATUS_ENABLED/, 'role identity helpers must require an enabled role record');
 assert.doesNotMatch(userModel, /public function isHotelManager\(\): bool[\s\S]*if \(\(int\)\$this->role_id === Role::HOTEL_MANAGER\) \{\s*return true;\s*\}/, 'hotel-manager identity must not bypass disabled role records by fixed role id');

@@ -117,6 +117,51 @@ final class SecurityMonitoringServiceTest extends TestCase
         self::assertSame(1, $overview['risk_users'][0]['automated_logins']);
     }
 
+    public function testAccountAndPermissionChangesRemainVisibleAsHighRiskEvents(): void
+    {
+        $actions = [
+            ['auth', 'change_password'],
+            ['auth', 'reset_password'],
+            ['user', 'batch_hotel_assignment'],
+            ['role', 'update'],
+            ['competitor_device', 'rotate_token'],
+            ['competitor_device', 'status'],
+        ];
+        $rows = [];
+        foreach ($actions as $index => [$module, $action]) {
+            $rows[] = [
+                'id' => $index + 1,
+                'user_id' => 1,
+                'hotel_id' => 118,
+                'module' => $module,
+                'action' => $action,
+                'description' => $action,
+                'ip' => '127.0.0.1',
+                'user_agent' => 'Chrome/140',
+                'create_time' => '2026-07-19 10:00:0' . $index,
+                'error_info' => '',
+                'extra_data' => null,
+            ];
+        }
+
+        $overview = (new SecurityMonitoringService())->buildOverviewFromRows(
+            [],
+            $rows,
+            [],
+            [['id' => 1, 'username' => 'admin', 'realname' => '管理员', 'role_id' => 1, 'role_name' => 'admin', 'role_display_name' => '超级管理员']],
+            ['days' => 1]
+        );
+
+        $events = array_values(array_filter(
+            $overview['latest_events'],
+            static fn(array $event): bool => $event['category'] === 'account_security_change'
+        ));
+        self::assertCount(count($actions), $events);
+        foreach ($events as $event) {
+            self::assertSame('high', $event['risk_level']);
+        }
+    }
+
     public function testAccountActivityCountsOnlyEnabledNonAdminSuccessfulLogins(): void
     {
         $overview = (new SecurityMonitoringService())->buildOverviewFromRows(

@@ -321,6 +321,203 @@ window.SUXI_SIMULATION_STATIC = (() => {
             hasDataGap: false,
         };
     };
+    const transferTruthStatusLabel = (status = '') => ({
+        verified: '已验证',
+        partial: '部分数据',
+        unverified: '未验证',
+        collection_failed: '采集失败',
+    }[String(status || '').trim().toLowerCase()] || '未验证');
+    const transferFiniteMetric = (value) => {
+        if (value === null || value === undefined || value === '') return null;
+        const number = Number(value);
+        return Number.isFinite(number) ? number : null;
+    };
+    const transferMetricFailureReason = (...reasons) => [...new Set(reasons
+        .flatMap(reason => String(reason || '').split(/[；;]/))
+        .map(reason => reason.trim())
+        .filter(Boolean))]
+        .join('；');
+    const transferSnapshotHotelTruth = (snapshot = {}) => {
+        const hotelId = transferFiniteMetric(snapshot?.hotel_id);
+        const hotelName = String(snapshot?.hotel_name || '').trim();
+        return hotelId !== null || hotelName
+            ? [{ system_hotel_id: hotelId !== null && hotelId > 0 ? hotelId : null, name: hotelName }]
+            : [];
+    };
+    const buildTransferOtaMetricTruth = (snapshot = {}, metricKey = '', observed = false) => {
+        const base = snapshot?.truth_context && typeof snapshot.truth_context === 'object'
+            ? snapshot.truth_context
+            : {};
+        const rawStatus = String(base.status || 'unverified').trim().toLowerCase();
+        const allowedStatus = ['verified', 'partial', 'unverified', 'collection_failed'].includes(rawStatus)
+            ? rawStatus
+            : 'unverified';
+        const verifiedRowCount = Math.max(0, transferFiniteMetric(base.included_verified_count) ?? 0);
+        const sourceRecordCount = Math.max(0, transferFiniteMetric(base?.persistence?.record_count) ?? 0);
+        const status = observed
+            ? allowedStatus
+            : (allowedStatus === 'collection_failed'
+                ? 'collection_failed'
+                : (verifiedRowCount > 0 || sourceRecordCount > 0 ? 'partial' : 'unverified'));
+        const sourceMethods = Array.isArray(base.source_methods) ? base.source_methods.filter(Boolean) : [];
+        const sourceTable = String(base.source_table || base?.source?.table || 'online_daily_data').trim();
+        const missingReason = observed ? '' : `${metricKey || 'ota_metric'}_value_not_observed`;
+        const failureReason = transferMetricFailureReason(base.failure_reason, missingReason);
+
+        return {
+            ...base,
+            status,
+            status_label: transferTruthStatusLabel(status),
+            calculation_status: observed ? 'calculated' : 'missing',
+            metric_scope: 'ota_channel',
+            scope_label: 'OTA渠道汇总，不代表全酒店经营',
+            hotels: Array.isArray(base.hotels) && base.hotels.length
+                ? base.hotels
+                : transferSnapshotHotelTruth(snapshot),
+            platforms: Array.isArray(base.platforms) && base.platforms.length
+                ? base.platforms
+                : (Array.isArray(base?.scope?.platforms) ? base.scope.platforms : []),
+            date_range: base.date_range && typeof base.date_range === 'object'
+                ? base.date_range
+                : (snapshot?.current_window || {}),
+            source_methods: sourceMethods,
+            source: {
+                ...(base.source && typeof base.source === 'object' ? base.source : {}),
+                table: sourceTable,
+                methods: sourceMethods,
+            },
+            collected_at_range: base.collected_at_range && typeof base.collected_at_range === 'object'
+                ? base.collected_at_range
+                : {},
+            persistence: base.persistence && typeof base.persistence === 'object'
+                ? base.persistence
+                : {
+                    record_count: 0,
+                    stored_count: 0,
+                    readback_verified_count: 0,
+                    excluded_untrusted_count: 0,
+                },
+            failure_reason: failureReason,
+        };
+    };
+    const buildTransferDailyReportMetricTruth = (snapshot = {}, metricKey = '', observed = false) => {
+        const sourceCount = Math.max(0, transferFiniteMetric(snapshot?.source_counts?.daily_reports) ?? 0);
+        const status = observed ? 'partial' : 'unverified';
+        const missingReason = observed ? '' : `${metricKey || 'daily_report_metric'}_value_not_observed`;
+        return {
+            status,
+            status_label: transferTruthStatusLabel(status),
+            calculation_status: observed ? 'calculated' : 'missing',
+            metric_scope: 'whole_hotel_operating_report',
+            scope_label: '全酒店经营日报口径；与OTA渠道数据分开，当前未完成外部来源核验',
+            hotels: transferSnapshotHotelTruth(snapshot),
+            platforms: ['internal'],
+            date_range: snapshot?.current_window || {},
+            source_methods: ['daily_report'],
+            source: {
+                table: 'daily_reports',
+                methods: ['daily_report'],
+            },
+            collected_at_range: {},
+            persistence: {
+                record_count: sourceCount,
+                stored_count: sourceCount,
+                readback_verified_count: sourceCount,
+                excluded_untrusted_count: 0,
+            },
+            failure_reason: transferMetricFailureReason(
+                sourceCount > 0 ? 'daily_report_collection_time_not_returned；daily_report_source_not_externally_verified' : 'whole_hotel_daily_report_rows_missing',
+                missingReason
+            ),
+        };
+    };
+    const buildTransferSourceMetricRows = ({
+        snapshot = null,
+        formatWan = value => value === null ? '—' : `${value}万元`,
+        aiRound = (value, digits = 0) => Number(Number(value).toFixed(digits)),
+    } = {}) => {
+        if (!snapshot || typeof snapshot !== 'object') return [];
+        const current = snapshot.current && typeof snapshot.current === 'object' ? snapshot.current : {};
+        const dailyReportCount = Math.max(
+            0,
+            transferFiniteMetric(snapshot?.source_counts?.daily_reports)
+                ?? transferFiniteMetric(current.daily_report_days)
+                ?? 0
+        );
+        const dailyRevenue = transferFiniteMetric(current.revenue);
+        const roomNights = transferFiniteMetric(current.room_nights);
+        const adr = transferFiniteMetric(current.adr);
+        const occupancyRate = transferFiniteMetric(current.occupancy_rate);
+        const dailyRevenueObserved = dailyReportCount > 0 && dailyRevenue !== null;
+        const adrObserved = dailyReportCount > 0 && roomNights !== null && roomNights > 0 && adr !== null;
+        const occupancyObserved = dailyReportCount > 0 && occupancyRate !== null;
+        const otaRevenue = transferFiniteMetric(current.ota_channel_revenue);
+        const otaOrders = transferFiniteMetric(current.ota_channel_orders);
+        const otaRoomNights = transferFiniteMetric(current.ota_channel_room_nights);
+        const otaRevenueObserved = current.ota_channel_revenue_observed === true && otaRevenue !== null;
+        const otaOrdersObserved = current.ota_channel_orders_observed === true && otaOrders !== null;
+        const otaRoomNightsObserved = current.ota_channel_room_nights_observed === true && otaRoomNights !== null;
+        const row = ({ key, label, sourceLabel, observed, value, truth }) => ({
+            key,
+            label,
+            sourceLabel,
+            value: observed ? value : '—',
+            calculationStatus: observed ? 'calculated' : 'missing',
+            calculationStatusLabel: observed ? '已计算' : '缺失',
+            truth,
+        });
+
+        return [
+            row({
+                key: 'whole_hotel_revenue',
+                label: '近30天营收',
+                sourceLabel: '全酒店经营日报',
+                observed: dailyRevenueObserved,
+                value: dailyRevenueObserved ? formatWan(dailyRevenue / 10000) : '—',
+                truth: buildTransferDailyReportMetricTruth(snapshot, 'whole_hotel_revenue', dailyRevenueObserved),
+            }),
+            row({
+                key: 'whole_hotel_adr',
+                label: 'ADR',
+                sourceLabel: '全酒店经营日报',
+                observed: adrObserved,
+                value: adrObserved ? `¥${aiRound(adr, 0)}` : '—',
+                truth: buildTransferDailyReportMetricTruth(snapshot, 'whole_hotel_adr', adrObserved),
+            }),
+            row({
+                key: 'whole_hotel_occupancy_rate',
+                label: '入住率',
+                sourceLabel: '全酒店经营日报',
+                observed: occupancyObserved,
+                value: occupancyObserved ? `${aiRound(occupancyRate, 1)}%` : '—',
+                truth: buildTransferDailyReportMetricTruth(snapshot, 'whole_hotel_occupancy_rate', occupancyObserved),
+            }),
+            row({
+                key: 'ota_channel_revenue',
+                label: '近30天渠道营收',
+                sourceLabel: 'OTA渠道',
+                observed: otaRevenueObserved,
+                value: otaRevenueObserved ? formatWan(otaRevenue / 10000) : '—',
+                truth: buildTransferOtaMetricTruth(snapshot, 'ota_channel_revenue', otaRevenueObserved),
+            }),
+            row({
+                key: 'ota_channel_orders',
+                label: '渠道订单',
+                sourceLabel: 'OTA渠道',
+                observed: otaOrdersObserved,
+                value: otaOrdersObserved ? `${aiRound(otaOrders, 0)}单` : '—',
+                truth: buildTransferOtaMetricTruth(snapshot, 'ota_channel_orders', otaOrdersObserved),
+            }),
+            row({
+                key: 'ota_channel_room_nights',
+                label: '渠道间夜',
+                sourceLabel: 'OTA渠道',
+                observed: otaRoomNightsObserved,
+                value: otaRoomNightsObserved ? `${aiRound(otaRoomNights, 2)}间夜` : '—',
+                truth: buildTransferOtaMetricTruth(snapshot, 'ota_channel_room_nights', otaRoomNightsObserved),
+            }),
+        ];
+    };
     const buildTransferDecisionLayerRows = ({
         snapshot = null,
         sourceDate = '',
@@ -1076,6 +1273,7 @@ window.SUXI_SIMULATION_STATIC = (() => {
         transferTimingNumberFields,
         transferTimingDataFields,
         buildTransferTimingDataCheck,
+        buildTransferSourceMetricRows,
         buildTransferDecisionLayerRows,
         applyDefinedFields,
         buildTransferPricingPayload,

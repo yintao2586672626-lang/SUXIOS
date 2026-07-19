@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace app\model;
 
+use app\service\SensitiveValueCipher;
+use RuntimeException;
 use think\Model;
 
 /**
@@ -10,6 +12,8 @@ use think\Model;
  */
 class SystemConfig extends Model
 {
+    public const SENSITIVE_RESPONSE_SENTINEL = '[REDACTED]';
+
     // 表名
     protected $name = 'system_config';
 
@@ -23,6 +27,11 @@ class SystemConfig extends Model
     private const PROTECTED_OTA_KEYS = [
         'ctrip_config_list' => true,
         'meituan_config_list' => true,
+    ];
+    private const SENSITIVE_KEYS = [
+        self::KEY_WECHAT_MINI_SECRET => true,
+        self::KEY_NOTIFY_EMAIL_PASS => true,
+        self::KEY_AMAP_WEB_API_KEY => true,
     ];
     private const DEFAULT_PROTECTED_CAPABILITY_MODULES = [
         'collection_health',
@@ -82,6 +91,7 @@ class SystemConfig extends Model
     const KEY_NOTIFY_EMAIL_PORT = 'notify_email_port';
     const KEY_NOTIFY_EMAIL_USER = 'notify_email_user';
     const KEY_NOTIFY_EMAIL_PASS = 'notify_email_pass';
+    const KEY_AMAP_WEB_API_KEY = 'amap_web_api_key';
 
     /**
      * 获取配置值
@@ -102,7 +112,7 @@ class SystemConfig extends Model
         }
         $config = self::where('config_key', $key)->field('config_value')->find();
         $found = $config !== null;
-        $value = $found ? $config->config_value : null;
+        $value = $found ? self::decodeValueFromStorage($key, $config->config_value) : null;
         self::$valueCache[$key] = ['found' => $found, 'value' => $value];
         self::writeDurableValueCache($key, $found, $value);
 
@@ -114,9 +124,14 @@ class SystemConfig extends Model
      */
     public static function setValue(string $key, $value, string $description = ''): bool
     {
+        $key = trim($key);
+        if ($key === '') {
+            throw new RuntimeException('System config key cannot be empty.');
+        }
+        $storedValue = self::encodeValueForStorage($key, $value);
         $config = self::where('config_key', $key)->find();
         if ($config) {
-            $config->config_value = $value;
+            $config->config_value = $storedValue;
             $saved = $config->save();
             if ($saved) {
                 self::$valueCache[$key] = ['found' => true, 'value' => $value];
@@ -126,7 +141,7 @@ class SystemConfig extends Model
         } else {
             $config = new self();
             $config->config_key = $key;
-            $config->config_value = $value;
+            $config->config_value = $storedValue;
             $config->description = $description;
             $saved = $config->save();
             if ($saved) {
@@ -145,9 +160,11 @@ class SystemConfig extends Model
         $configs = self::select();
         $result = [];
         foreach ($configs as $config) {
-            $result[$config->config_key] = $config->config_value;
-            self::$valueCache[$config->config_key] = ['found' => true, 'value' => $config->config_value];
-            self::writeDurableValueCache((string)$config->config_key, true, $config->config_value);
+            $key = (string)$config->config_key;
+            $value = self::decodeValueFromStorage($key, $config->config_value);
+            $result[$key] = $value;
+            self::$valueCache[$key] = ['found' => true, 'value' => $value];
+            self::writeDurableValueCache($key, true, $value);
         }
         return $result;
     }
@@ -180,10 +197,12 @@ class SystemConfig extends Model
         $configs = self::whereIn('config_key', $missingKeys)->select();
         $foundKeys = [];
         foreach ($configs as $config) {
-            $result[$config->config_key] = $config->config_value;
-            self::$valueCache[$config->config_key] = ['found' => true, 'value' => $config->config_value];
-            self::writeDurableValueCache((string)$config->config_key, true, $config->config_value);
-            $foundKeys[$config->config_key] = true;
+            $key = (string)$config->config_key;
+            $value = self::decodeValueFromStorage($key, $config->config_value);
+            $result[$key] = $value;
+            self::$valueCache[$key] = ['found' => true, 'value' => $value];
+            self::writeDurableValueCache($key, true, $value);
+            $foundKeys[$key] = true;
         }
         foreach ($missingKeys as $key) {
             if (!isset($foundKeys[$key])) {
@@ -193,6 +212,74 @@ class SystemConfig extends Model
         }
 
         return $result;
+    }
+
+    public static function isSensitiveKey(string $key): bool
+    {
+        return isset(self::SENSITIVE_KEYS[strtolower(trim($key))]);
+    }
+
+    public static function encodeValueForStorage(
+        string $key,
+        $value,
+        ?SensitiveValueCipher $cipher = null
+    ) {
+        if (!self::isSensitiveKey($key) || $value === null || $value === '') {
+            return $value;
+        }
+        if (!is_scalar($value)) {
+            throw new RuntimeException('Sensitive system config values must be scalar.');
+        }
+
+        $plaintext = (string)$value;
+        $cipher ??= SensitiveValueCipher::fromEnvironment();
+        if ($cipher->isEncrypted($plaintext)) {
+            $plaintext = $cipher->decrypt($plaintext, self::sensitiveScope($key));
+        }
+        return $cipher->encrypt($plaintext, self::sensitiveScope($key));
+    }
+
+    public static function decodeValueFromStorage(
+        string $key,
+        $value,
+        ?SensitiveValueCipher $cipher = null
+    ) {
+        if (!self::isSensitiveKey($key) || $value === null || $value === '') {
+            return $value;
+        }
+        if (!is_scalar($value)) {
+            throw new RuntimeException('Stored sensitive system config value is invalid.');
+        }
+
+        $stored = (string)$value;
+        if (!SensitiveValueCipher::hasEnvelopePrefix($stored)) {
+            return $stored;
+        }
+        $cipher ??= SensitiveValueCipher::fromEnvironment();
+        return $cipher->decrypt($stored, self::sensitiveScope($key));
+    }
+
+    public static function valueForResponse(string $key, $value)
+    {
+        if (!self::isSensitiveKey($key) || $value === null || $value === '') {
+            return $value;
+        }
+        return self::SENSITIVE_RESPONSE_SENTINEL;
+    }
+
+    public static function shouldPreserveSensitiveInput(string $key, $value): bool
+    {
+        return self::isSensitiveKey($key)
+            && is_string($value)
+            && (
+                trim($value) === ''
+                || hash_equals(self::SENSITIVE_RESPONSE_SENTINEL, trim($value))
+            );
+    }
+
+    private static function sensitiveScope(string $key): string
+    {
+        return 'system-config:' . strtolower(trim($key));
     }
 
     /**
@@ -260,6 +347,26 @@ class SystemConfig extends Model
                 cache('system_config_value_' . sha1($key), null);
             } catch (\Throwable $e) {
                 // Runtime cache availability must not block protected cache clearing.
+            }
+        }
+    }
+
+    /** @param array<int|string, mixed> $keys */
+    public static function clearValueCaches(array $keys): void
+    {
+        $keys = array_values(array_unique(array_filter(array_map(
+            static fn($key): string => trim((string)$key),
+            $keys
+        ), static fn(string $key): bool => $key !== '')));
+        foreach ($keys as $key) {
+            unset(self::$valueCache[$key]);
+            if (!self::shouldUseDurableValueCache($key)) {
+                continue;
+            }
+            try {
+                cache(self::durableValueCacheKey($key), null);
+            } catch (\Throwable $e) {
+                // Cache cleanup must not replace the original transaction failure.
             }
         }
     }

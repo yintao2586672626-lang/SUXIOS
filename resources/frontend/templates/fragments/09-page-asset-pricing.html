@@ -122,13 +122,14 @@
                                                 <div class="text-xs text-gray-500 mb-1">接盘判断</div>
                                                 <div class="text-sm font-medium text-gray-800">{{ transferPricingAiEvaluation.decision }}</div>
                                             </div>
-                                            <div v-if="transferPricingAiEvaluation.recommendations.length" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                            <div v-if="transferPricingAiEvaluation.recommendations.length" class="grid grid-cols-1 md:grid-cols-2 gap-3">
                                                 <div v-for="item in transferPricingAiEvaluation.recommendations" :key="item.priority + item.title" class="rounded-lg border border-gray-100 bg-gray-50 p-4">
                                                     <div class="flex items-center gap-2 mb-2">
                                                         <span class="px-2 py-0.5 rounded bg-white border border-gray-200 text-xs text-gray-600">{{ item.priority }}</span>
                                                         <span class="font-semibold text-gray-800">{{ item.title }}</span>
                                                     </div>
-                                                    <div class="text-sm text-gray-600">{{ item.detail }}</div>
+                                                    <div class="text-sm text-gray-700"><span class="font-medium">建议动作：</span>{{ item.action || item.detail }}</div>
+                                                    <ai-decision-quality-details :item="item"></ai-decision-quality-details>
                                                 </div>
                                             </div>
                                             <div v-if="transferPricingAiEvaluation.watch_points.length" class="overflow-x-auto">

@@ -345,7 +345,7 @@ final class PlatformDataSyncService
                 'storage_table' => 'online_daily_data',
                 'storage_field' => 'flow_rate',
                 'missing_state' => 'field_missing',
-                'source_keys' => ['flow_rate', 'flowRate', 'cvr', 'conversion_rate', 'conversionRate', 'convertionRate', 'avgConversionsRate', 'orderConversionRate', 'dealRate'],
+                'source_keys' => ['flow_rate', 'flowRate', 'intentionPerExposure', 'cvr', 'conversion_rate', 'conversionRate', 'convertionRate', 'avgConversionsRate', 'orderConversionRate', 'dealRate'],
             ],
             [
                 'metric_key' => 'order_filling_num',
@@ -4716,7 +4716,7 @@ final class PlatformDataSyncService
         $dataType = $this->normalizeDataType($dataType);
         $keys = $dataType === 'advertising'
             ? ['flow_rate', 'flowRate', 'ctr']
-            : ['flow_rate', 'flowRate', 'cvr', 'conversion_rate', 'conversionRate', 'convertionRate', 'avgConversionsRate', 'orderConversionRate', 'dealRate'];
+            : ['flow_rate', 'flowRate', 'intentionPerExposure', 'cvr', 'conversion_rate', 'conversionRate', 'convertionRate', 'avgConversionsRate', 'orderConversionRate', 'dealRate'];
         return $this->nullableNumericValue($row, $keys) ?? ($preserveMissing ? null : 0.0);
     }
 

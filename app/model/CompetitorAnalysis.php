@@ -197,10 +197,14 @@ class CompetitorAnalysis extends Model
     /**
      * 获取价格趋势（最近7天）
      */
-    public static function getPriceTrend(int $hotelId, int $competitorId, int $roomTypeId = 0)
+    public static function getPriceTrend(int $hotelId, int $competitorId, int $roomTypeId = 0, ?string $endDate = null)
     {
-        $endDate = date('Y-m-d');
-        $startDate = date('Y-m-d', strtotime('-7 days'));
+        $endTimestamp = $endDate !== null ? strtotime($endDate) : false;
+        if ($endTimestamp === false) {
+            $endTimestamp = time();
+        }
+        $endDate = date('Y-m-d', $endTimestamp);
+        $startDate = date('Y-m-d', strtotime('-6 days', $endTimestamp));
         
         $query = self::where('hotel_id', $hotelId)
             ->where('competitor_hotel_id', $competitorId)

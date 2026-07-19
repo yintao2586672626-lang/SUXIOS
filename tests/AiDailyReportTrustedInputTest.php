@@ -319,6 +319,98 @@ final class AiDailyReportTrustedInputTest extends TestCase
         self::assertStringContainsString("Db::name('hotels')->where('id', \$hotelId)->value('tenant_id')", $source);
         self::assertStringNotContainsString("\$data['tenant_id'] = \$hotelId", $source);
     }
+
+    public function testTrustedOtaSnapshotDoesNotUpgradeAnUnverifiedDailyReportSource(): void
+    {
+        $service = new AiDailyReportService();
+        $normalize = new ReflectionMethod($service, 'normalizeReportRow');
+        $normalize->setAccessible(true);
+
+        $result = $normalize->invoke($service, [
+            'id' => 11,
+            'hotel_id' => 7,
+            'report_date' => '2026-07-15',
+            'summary' => 'Fixture report with mixed source scopes.',
+            'model_status' => 'not_requested',
+            'yesterday_result_json' => '{}',
+            'abnormal_metrics_json' => '[]',
+            'competitor_changes_json' => '[]',
+            'data_gaps_json' => '[]',
+            'recommended_actions_json' => json_encode([[
+                'title' => '复核携程标准房价',
+                'action' => '复核携程标准房在目标日期的房价，并由人工确认是否调整。',
+            ]], JSON_UNESCAPED_UNICODE),
+            'source_refs_json' => json_encode([
+                [
+                    'key' => 'online_daily_data#42',
+                    'source' => 'ctrip',
+                    'platform' => 'Ctrip',
+                    'scope' => 'ota_channel',
+                    'data_date' => '2026-07-15',
+                    'validation_status' => 'available',
+                    'readback_verified' => true,
+                    'readback_verified_at' => '2026-07-16 09:00:00',
+                ],
+                [
+                    'key' => 'daily_reports#7',
+                    'source' => 'daily_reports',
+                    'scope' => 'whole_hotel_daily_report',
+                    'data_date' => '2026-07-15',
+                    'validation_status' => 'recorded',
+                    'ingestion_method' => 'daily_report',
+                ],
+            ], JSON_UNESCAPED_UNICODE),
+            'snapshot_json' => json_encode([
+                'input_trust' => ['readback_verified' => true],
+                'report_scope' => ['hotel_id' => 7, 'report_date' => '2026-07-15'],
+            ], JSON_UNESCAPED_UNICODE),
+        ]);
+
+        $refsBySource = array_column(
+            $result['recommended_actions'][0]['data_basis']['refs'],
+            null,
+            'source'
+        );
+        self::assertSame('ota_channel', $refsBySource['ctrip']['scope']);
+        self::assertContains($refsBySource['ctrip']['quality_status'], ['verified', 'readback_verified']);
+        self::assertSame('whole_hotel_daily_report', $refsBySource['daily_reports']['scope']);
+        self::assertSame('unverified', $refsBySource['daily_reports']['quality_status']);
+        self::assertSame('partial', $result['recommended_actions'][0]['data_basis']['status']);
+    }
+
+    public function testYesterdayMetricsPreserveUpstreamMetricScopes(): void
+    {
+        $service = new AiDailyReportService();
+        $collect = new ReflectionMethod($service, 'collectYesterdayResult');
+        $collect->setAccessible(true);
+
+        $result = $collect->invoke($service, [
+            'revenue' => 1200,
+            'orders' => 8,
+            'room_nights' => 6,
+            'adr' => 200,
+            'source_scope' => 'mixed_whole_hotel_and_ota_channel',
+            'metric_scopes' => [
+                'revenue' => ['whole_hotel_daily_report'],
+                'orders' => ['whole_hotel_daily_report', 'ota_channel'],
+                'room_nights' => ['whole_hotel_daily_report'],
+            ],
+        ], [
+            'exposure' => 500,
+            'visitors' => 80,
+        ], '2026-07-15');
+
+        self::assertSame('mixed_whole_hotel_and_ota_channel', $result['source_scope']);
+        self::assertSame(
+            ['whole_hotel_daily_report', 'ota_channel'],
+            $result['metric_scopes']['orders']
+        );
+        $metrics = array_column($result['metrics'], null, 'key');
+        self::assertSame('mixed_whole_hotel_and_ota_channel', $metrics['orders']['metric_scope']);
+        self::assertSame(['whole_hotel_daily_report', 'ota_channel'], $metrics['orders']['metric_scopes']);
+        self::assertSame('ota_channel', $metrics['exposure']['metric_scope']);
+        self::assertSame(['ota_channel'], $metrics['exposure']['metric_scopes']);
+    }
 }
 
 final class TrustedInputCountingLlmClient extends LlmClient

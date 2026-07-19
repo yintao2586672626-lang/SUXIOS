@@ -814,7 +814,26 @@ final class OtaFailureNotificationService
         ?int $actorUserId,
         string $deliveryStatus
     ): void {
+        $tenantId = $hotelId;
+        try {
+            $hotelColumns = $this->tableColumns('hotels');
+            if (isset($hotelColumns['tenant_id'])) {
+                $resolvedTenantId = (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id');
+                if ($resolvedTenantId > 0) {
+                    $tenantId = $resolvedTenantId;
+                }
+            }
+        } catch (Throwable) {
+            // Keep the system hotel id as a legacy-schema fallback.
+        }
+
         $extra = json_encode([
+            'audit_schema_version' => 1,
+            'audit_type' => 'acquisition',
+            'outcome' => 'failed',
+            'actor_user_id' => $actorUserId,
+            'tenant_id' => $tenantId,
+            'hotel_id' => $hotelId,
             'delivery_status' => $deliveryStatus,
             'platform' => $platform,
             'reason_code' => $reasonCode,
@@ -825,11 +844,13 @@ final class OtaFailureNotificationService
             $columns = $this->tableColumns('operation_logs');
             if ($columns !== []) {
                 $data = [
+                    'tenant_id' => $tenantId,
                     'user_id' => $actorUserId,
                     'hotel_id' => $hotelId,
                     'module' => 'online_data',
                     'action' => 'ota_failure_notification_' . $deliveryStatus,
                     'description' => 'OTA采集失败通知未送达，已记录明确投递状态',
+                    'error_info' => 'delivery_status:' . $deliveryStatus,
                     'extra_data' => $extra,
                     'create_time' => date('Y-m-d H:i:s'),
                 ];

@@ -61,12 +61,18 @@ class SecurityMonitoringService
                 ->whereBetween('create_time', [$startAt, $endAt])
                 ->where(function ($query): void {
                     $query->where('module', 'security')
+                        ->whereOr('module', 'role')
+                        ->whereOr('module', 'competitor_device')
                         ->whereOr('error_info', '<>', '')
                         ->whereOr('action', 'like', '%delete%')
                         ->whereOr('action', 'like', '%clear%')
                         ->whereOr('action', 'like', '%archive%')
                         ->whereOr('action', 'like', '%export%')
                         ->whereOr('action', 'like', '%config%')
+                        ->whereOr('action', 'change_password')
+                        ->whereOr('action', 'reset_password')
+                        ->whereOr('action', 'batch_hotel_assignment')
+                        ->whereOr('action', 'rotate_token')
                         ->whereOr('action', 'save_cookies')
                         ->whereOr('action', 'save_data_source');
                 })
@@ -267,6 +273,15 @@ class SecurityMonitoringService
             } elseif ($module === 'security' && $action === 'protected_access_denied') {
                 $stats['access_denied_count']++;
                 $event = $this->operationEvent($row, $identity, 'medium', 'protected_access_denied', '受保护接口访问被拒绝', $path ?: '账号缺少所需权限或酒店范围不匹配');
+            } elseif ($this->isAccountSecurityAction($module, $action)) {
+                $event = $this->operationEvent(
+                    $row,
+                    $identity,
+                    'high',
+                    'account_security_change',
+                    '账号凭据/角色权限/门店授权发生变更',
+                    (string)($row['description'] ?? '')
+                );
             } elseif ($this->isDestructiveAction($action)) {
                 $stats['destructive_count']++;
                 if ($errorInfo === '') {
@@ -845,6 +860,22 @@ class SecurityMonitoringService
     private function isConfigAction(string $action): bool
     {
         return str_contains($action, 'config') || in_array($action, ['save_cookies', 'save_data_source'], true);
+    }
+
+    private function isAccountSecurityAction(string $module, string $action): bool
+    {
+        if ($module === 'role') {
+            return true;
+        }
+        if ($module === 'competitor_device' && in_array($action, ['create', 'rotate_token', 'status'], true)) {
+            return true;
+        }
+
+        return in_array($action, [
+            'change_password',
+            'reset_password',
+            'batch_hotel_assignment',
+        ], true);
     }
 
     /** @return array<string, mixed> */

@@ -57,7 +57,10 @@ test('session probes observe only response metadata and never collect response b
     assert.match(source, /if \(authOnly\) \{\s*registerSessionProbeResponseObserver\(page\);\s*\} else \{\s*registerResponseCapture\(page, payload/);
     const observer = extractFunction(source, 'registerSessionProbeResponseObserver');
     assert.match(observer, /classifyOtaSessionProbeResponse\(/, `${name} probe must use the diagnostic protected-endpoint classifier`);
-    assert.match(observer, /candidate_drift_response_count/, `${name} probe must retain bounded drift counts`);
+    assert.match(source, /candidate_drift_response_count:\s*0/, `${name} probe must retain bounded drift counts`);
+    assert.match(observer, /recordOtaSessionProbeCandidateDiagnostic\(sessionProbeResponseDiagnostics, classified, response\.url\(\)\)/, `${name} probe must pass candidate metadata through the shared redactor`);
+    assert.match(source, /candidate_route_samples:\s*\[\]/, `${name} probe must retain bounded sanitized route samples`);
+    assert.match(source, /candidate_reason_ids:\s*\[\]/, `${name} probe must retain classifier reason IDs`);
     assert.doesNotMatch(observer, /response\.text\(|postData\(|responses\.push|rows\.push|data:/, `${name} probe observer must not retain business payloads`);
   }
 });

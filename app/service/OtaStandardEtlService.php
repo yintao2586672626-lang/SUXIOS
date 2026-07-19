@@ -327,6 +327,7 @@ class OtaStandardEtlService
             'ingestion_method',
             'source_trace_id',
             'data_period',
+            'collected_at',
             'snapshot_time',
             'snapshot_bucket',
             'is_final',
@@ -1023,10 +1024,16 @@ class OtaStandardEtlService
             'sync_task_id' => $row['sync_task_id'] ?? null,
             'ingestion_method' => (string)($row['ingestion_method'] ?? ''),
             'hotel_key' => $hotelKey,
+            'system_hotel_id' => max(0, (int)($row['system_hotel_id'] ?? 0)) ?: null,
+            'platform_hotel_id' => trim((string)($row['hotel_id'] ?? '')),
+            'hotel_name' => trim((string)($row['hotel_name'] ?? '')),
             'platform' => $source,
             'data_type' => $dataType,
             'date_key' => $date,
+            'collected_at' => $this->traceCollectionTimestamp($row),
             'updated_at' => $this->traceTimestamp($row),
+            'stored' => isset($row['id']) && trim((string)$row['id']) !== '',
+            'readback_verified' => (int)($row['readback_verified'] ?? 0) === 1,
             'saved_success' => empty($failureReasons),
             'failure_reasons' => array_values(array_unique($failureReasons)),
         ];
@@ -1122,6 +1129,40 @@ class OtaStandardEtlService
             $value = trim((string)($row[$field] ?? ''));
             if ($value !== '') {
                 return $value;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Collection time is kept distinct from database update time. Missing
+     * capture evidence stays null so downstream truth status cannot be
+     * promoted by a persistence timestamp.
+     *
+     * @param array<string, mixed> $row
+     */
+    private function traceCollectionTimestamp(array $row): ?string
+    {
+        $raw = $this->decodeJson($row['raw_data'] ?? []);
+        $meta = is_array($raw['meta'] ?? null) ? $raw['meta'] : [];
+        $capture = is_array($raw['capture_evidence'] ?? null) ? $raw['capture_evidence'] : [];
+        foreach ([
+            $row['collected_at'] ?? null,
+            $row['snapshot_time'] ?? null,
+            $raw['collected_at'] ?? null,
+            $raw['collectedAt'] ?? null,
+            $raw['captured_at'] ?? null,
+            $raw['capturedAt'] ?? null,
+            $raw['fetched_at'] ?? null,
+            $raw['fetch_time'] ?? null,
+            $meta['collected_at'] ?? null,
+            $meta['captured_at'] ?? null,
+            $capture['collected_at'] ?? null,
+            $capture['captured_at'] ?? null,
+        ] as $value) {
+            $text = trim((string)($value ?? ''));
+            if ($text !== '') {
+                return $text;
             }
         }
         return null;

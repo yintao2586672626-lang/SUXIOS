@@ -483,30 +483,54 @@ final class ManualOnlineFetchTaskService
             return '';
         }
 
-        $allowedHosts = ['127.0.0.1', 'localhost', '::1'];
-        foreach ([
-            (string)($_SERVER['SERVER_NAME'] ?? ''),
-            (string)(getenv('APP_URL') ?: ''),
-            (string)($_ENV['APP_URL'] ?? ''),
-        ] as $candidate) {
-            $candidateHost = str_contains($candidate, '://')
-                ? (string)(parse_url($candidate, PHP_URL_HOST) ?: '')
-                : $candidate;
-            $candidateHost = strtolower(trim($candidateHost, " \t\n\r\0\x0B[]"));
-            if ($candidateHost !== '' && preg_match('/^[a-z0-9.-]+$/', $candidateHost) === 1) {
-                $allowedHosts[] = $candidateHost;
-            }
-        }
-        if (!in_array($host, array_values(array_unique($allowedHosts)), true)) {
+        $port = isset($parts['port']) ? (int)$parts['port'] : ($scheme === 'https' ? 443 : 80);
+        if ($port <= 0 || $port > 65535) {
             return '';
         }
 
-        $port = isset($parts['port']) ? (int)$parts['port'] : null;
-        if ($port !== null && ($port <= 0 || $port > 65535)) {
+        // Authorization is forwarded to this URL, so trust an exact origin
+        // only. The request Host/SERVER_NAME is attacker-controlled and must
+        // never expand this allowlist.
+        $allowedOrigins = [
+            'http://127.0.0.1:8080',
+            'http://localhost:8080',
+            'http://::1:8080',
+        ];
+        foreach ([
+            (string)(getenv('APP_URL') ?: ''),
+            (string)($_ENV['APP_URL'] ?? ''),
+        ] as $candidate) {
+            $candidateParts = parse_url(trim($candidate));
+            if (!is_array($candidateParts)
+                || isset($candidateParts['user'])
+                || isset($candidateParts['pass'])
+                || isset($candidateParts['query'])
+                || isset($candidateParts['fragment'])
+            ) {
+                continue;
+            }
+            $candidateScheme = strtolower(trim((string)($candidateParts['scheme'] ?? '')));
+            $candidateHost = strtolower(trim((string)($candidateParts['host'] ?? ''), '[]'));
+            $candidatePort = isset($candidateParts['port'])
+                ? (int)$candidateParts['port']
+                : ($candidateScheme === 'https' ? 443 : 80);
+            if (in_array($candidateScheme, ['http', 'https'], true)
+                && $candidateHost !== ''
+                && ($candidateHost === '::1' || preg_match('/^[a-z0-9.-]+$/', $candidateHost) === 1)
+                && $candidatePort > 0
+                && $candidatePort <= 65535
+            ) {
+                $allowedOrigins[] = $candidateScheme . '://' . $candidateHost . ':' . $candidatePort;
+            }
+        }
+        $origin = $scheme . '://' . $host . ':' . $port;
+        if (!in_array($origin, array_values(array_unique($allowedOrigins)), true)) {
             return '';
         }
+
+        $explicitPort = isset($parts['port']) ? (int)$parts['port'] : null;
         $hostForUrl = str_contains($host, ':') ? '[' . $host . ']' : $host;
-        return $scheme . '://' . $hostForUrl . ($port !== null ? ':' . $port : '') . $path;
+        return $scheme . '://' . $hostForUrl . ($explicitPort !== null ? ':' . $explicitPort : '') . $path;
     }
 
     private function updateTaskStatus(string $taskId, array $changes): array

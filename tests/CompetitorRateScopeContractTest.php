@@ -49,5 +49,14 @@ final class CompetitorRateScopeContractTest extends TestCase
             'SOURCE ./database/migrations/20260717_add_competitor_rate_comparability.sql;',
             $init
         );
+        $availabilityMigration = (string)file_get_contents(
+            $root . '/database/migrations/20260719_allow_competitor_availability_events.sql'
+        );
+        self::assertStringContainsString('MODIFY COLUMN `price` DECIMAL(10,2) NULL DEFAULT NULL', $availabilityMigration);
+        self::assertStringContainsString('`availability_scope_key`', $availabilityMigration);
+        self::assertStringContainsString(
+            'SOURCE ./database/migrations/20260719_allow_competitor_availability_events.sql;',
+            $init
+        );
     }
 }

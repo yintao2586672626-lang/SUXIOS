@@ -2788,6 +2788,43 @@ final class PlatformDataSyncServiceTest extends TestCase
         }
     }
 
+    public function testMeituanBrowserProfileAdapterDropsUnverifiedForecastButKeepsVerifiedCoreRows(): void
+    {
+        $root = $this->createMeituanBrowserProfileTestRoot('store_001');
+
+        try {
+            $adapter = new MeituanBrowserProfileDataSourceAdapter($root, 'node', $this->captureRunner([
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'capture_gate' => ['status' => 'pass'],
+                'traffic' => [[
+                    'poi_id' => '68471',
+                    'dataDate' => '2026-07-18',
+                    'date_source' => 'request.query.startDate',
+                    'list_exposure' => 1200,
+                ]],
+                'trafficForecast' => [[
+                    'poi_id' => '68471',
+                    'dataDate' => '2026-07-18',
+                    'date_source' => 'capture_context.default_data_date',
+                    'forecast_type' => '1',
+                ]],
+            ]));
+
+            $result = $adapter->fetch($this->meituanBrowserProfileSource(), [
+                'interactive_browser' => false,
+                'capture_sections' => 'traffic',
+                'data_date' => '2026-07-18',
+            ]);
+
+            self::assertSame('success', $result['status']);
+            self::assertSame(['traffic'], array_column($result['payload']['rows'], 'data_type'));
+            self::assertSame(1, $result['payload']['sync_summary']['dropped_unverified_supplemental_count']);
+            self::assertSame('unverified_supplemental_rows_dropped', $result['payload']['collection_warnings'][0]['status_code']);
+        } finally {
+            $this->removeDirectory($root);
+        }
+    }
+
     public function testMeituanBrowserProfileAdapterNeverInjectsStoredCookies(): void
     {
         $root = $this->createMeituanBrowserProfileTestRoot('store_001');
@@ -3051,6 +3088,44 @@ final class PlatformDataSyncServiceTest extends TestCase
         } finally {
             $this->removeDirectory($root);
         }
+    }
+
+    public function testMeituanMyHotelFunnelAliasesPersistAsCoreTrafficFacts(): void
+    {
+        $source = $this->meituanBrowserProfileSource();
+        $rows = (new PlatformDataSyncService())->normalizeRowsFromPayload([
+            'rows' => [[
+                'poi_id' => '68471',
+                'poi_name' => 'Meituan Demo Hotel',
+                'data_date' => '2026-07-18',
+                'data_type' => 'traffic',
+                'exposureUV' => 81,
+                'intentionUV' => 14,
+                'payOrderCnt' => 2,
+                'intentionPerExposure' => '17.28%',
+                'payOrderPerIntention' => '14.29%',
+                '_source_path' => 'data.myHotel',
+                'source_trace_id' => 'meituan:flow-analysis-trace',
+                'source_url_hash' => str_repeat('f', 64),
+            ]],
+        ], $source, 90);
+
+        self::assertCount(1, $rows);
+        self::assertSame('traffic', $rows[0]['data_type']);
+        self::assertSame(81, $rows[0]['list_exposure']);
+        self::assertSame(14, $rows[0]['detail_exposure']);
+        self::assertSame(2, $rows[0]['order_submit_num']);
+        self::assertSame(17.28, $rows[0]['flow_rate']);
+        self::assertNull($rows[0]['order_filling_num']);
+
+        $raw = json_decode((string)$rows[0]['raw_data'], true);
+        self::assertIsArray($raw);
+        $facts = array_column($raw['field_facts'] ?? [], null, 'metric_key');
+        self::assertSame('data.myHotel.exposureUV', $facts['list_exposure']['source_path'] ?? '');
+        self::assertSame('data.myHotel.intentionUV', $facts['detail_exposure']['source_path'] ?? '');
+        self::assertSame('data.myHotel.intentionPerExposure', $facts['flow_rate']['source_path'] ?? '');
+        self::assertSame('data.myHotel.payOrderCnt', $facts['order_submit_num']['source_path'] ?? '');
+        self::assertSame('missing', $facts['order_filling_num']['status'] ?? '');
     }
 
     public function testMeituanBrowserProfileAdapterMapsUnifiedResourcePayloads(): void

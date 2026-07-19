@@ -338,25 +338,27 @@ window.SUXI_EXPANSION_STATIC = (() => {
         return num === null ? '--' : `${aiRound(num * 100, 1)}%`;
     };
     const formatFeasibilityPayback = (value) => value === null || value === undefined || value === ''
-        ? '不可回本'
+        ? '--'
         : `${aiRound(value, 1)}个月`;
     const buildFeasibilityInputCards = ({ project = {}, simulationParams = {} } = {}) => {
-        const rooms = toNumber(project.room_count);
-        const area = toNumber(project.property_area);
-        const rent = toNumber(project.monthly_rent);
-        const decoration = toNumber(project.decoration_budget);
-        const transfer = toNumber(project.transfer_fee);
-        const perRoomArea = rooms > 0 && area > 0 ? `${aiRound(area / rooms, 1)}㎡/间` : '面积待补全';
-        const rentPerRoom = rooms > 0 && rent > 0 ? `${formatCurrency(rent / rooms)}/间/月` : '租金待补全';
-        const investmentPerRoom = rooms > 0 && (decoration + transfer) > 0
+        const rooms = toDisplayNumber(project.room_count);
+        const area = toDisplayNumber(project.property_area);
+        const rent = toDisplayNumber(project.monthly_rent);
+        const decoration = toDisplayNumber(project.decoration_budget);
+        const transfer = toDisplayNumber(project.transfer_fee);
+        const budgetObserved = decoration !== null && transfer !== null;
+        const budget = budgetObserved ? decoration + transfer : null;
+        const perRoomArea = rooms !== null && rooms > 0 && area !== null && area > 0 ? `${aiRound(area / rooms, 1)}㎡/间` : '面积待补全';
+        const rentPerRoom = rooms !== null && rooms > 0 && rent !== null ? `${formatCurrency(rent / rooms)}/间/月` : '租金待补全';
+        const investmentPerRoom = rooms !== null && rooms > 0 && budget !== null
             ? `${formatCurrency((decoration + transfer) / rooms)}/间`
             : '预算待补全';
 
         return [
-            { label: '项目规模', value: rooms > 0 ? `${rooms}间` : '--', meta: perRoomArea },
-            { label: '月租金', value: rent > 0 ? formatCurrency(rent) : '--', meta: rentPerRoom },
-            { label: '装转预算', value: decoration + transfer > 0 ? formatCurrency(decoration + transfer) : '--', meta: investmentPerRoom },
-            { label: '智算参数', value: `${formatCurrency(simulationParams.adr)} / ${aiRound(simulationParams.occupancyRate, 1)}%`, meta: 'ADR / OCC' },
+            { label: '项目规模', value: rooms !== null && rooms > 0 ? `${rooms}间` : '--', meta: perRoomArea, truthKeys: ['room_count', 'property_area'] },
+            { label: '月租金', value: rent === null ? '--' : formatCurrency(rent), meta: rentPerRoom, truthKeys: ['monthly_rent'] },
+            { label: '装转预算', value: budget === null ? '--' : formatCurrency(budget), meta: investmentPerRoom, truthKeys: ['decoration_budget', 'transfer_fee'] },
+            { label: '智算参数', value: `${formatCurrency(simulationParams.adr)} / ${aiRound(simulationParams.occupancyRate, 1)}%`, meta: 'ADR / OCC', truthKeys: ['adr', 'occ'] },
         ];
     };
     const buildFeasibilityReportCards = (report = null) => {
@@ -364,10 +366,10 @@ window.SUXI_EXPANSION_STATIC = (() => {
         const summary = report.summary || {};
         const market = report.market_judgement || {};
         return [
-            { label: '总投资', value: formatCurrency(summary.total_investment), meta: '含装修与筹开投入' },
-            { label: '回本周期', value: formatFeasibilityPayback(summary.payback_months), meta: '模型现金流测算' },
-            { label: '市场评分', value: market.market_score ?? '--', meta: '智略市场判断' },
-            { label: '竞争强度', value: market.competition_level || '--', meta: market.recommended_model || '定位待判断' },
+            { label: '总投资', value: formatCurrency(summary.total_investment), meta: '含装修与筹开投入', metricKey: 'summary.total_investment' },
+            { label: '回本周期', value: formatFeasibilityPayback(summary.payback_months), meta: '模型现金流测算', metricKey: 'summary.payback_months' },
+            { label: '市场评分', value: market.market_score ?? '--', meta: '智略市场判断', metricKey: 'market_judgement.market_score' },
+            { label: '竞争强度', value: market.competition_level || '--', meta: market.recommended_model || '定位待判断', metricKey: 'market_judgement.competition_level' },
         ];
     };
     const buildFeasibilityAiEmpowerment = (report = null) => {

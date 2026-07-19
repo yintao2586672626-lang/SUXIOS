@@ -250,6 +250,15 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
             ?? ''
         ));
         $rows = $this->buildRows($payload, $source, $systemHotelId, $dataDate, $validatedPlatformIdentifier);
+        $supplementalFilter = BrowserProfileCaptureRequestService::filterUnverifiedMeituanSupplementalRows($rows, $dataDate);
+        $rows = $supplementalFilter['rows'];
+        if ($supplementalFilter['dropped_count'] > 0) {
+            $payload['collection_warnings'][] = [
+                'status_code' => 'unverified_supplemental_rows_dropped',
+                'data_types' => $supplementalFilter['dropped_types'],
+                'dropped_count' => $supplementalFilter['dropped_count'],
+            ];
+        }
         if (empty($rows)) {
             if (BrowserProfileCaptureRequestService::isConfirmedEmptyMeituanCaptureGate($gate)) {
                 $payload['rows'] = [];
@@ -313,6 +322,7 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
         $payload['rows'] = $rows;
         $payload['sync_summary'] = [
             'row_count' => count($rows),
+            'dropped_unverified_supplemental_count' => (int)$supplementalFilter['dropped_count'],
             'business_count' => $this->countPayloadSections($payload, ['businessData', 'business_data', 'business', 'overview']),
             'peer_rank_count' => $this->countPayloadSections($payload, ['peerRank', 'peer_rank', 'rankings', 'competitorRank']),
             'flow_analysis_count' => $this->countPayloadSections($payload, ['flowAnalysis', 'flow_analysis', 'trafficAnalysis', 'traffic_analysis']),

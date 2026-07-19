@@ -435,42 +435,74 @@ class LlmClient
 
     private function sendOnce(string $url, array $config, string $payloadJson, array $options): array
     {
-        $context = stream_context_create([
-            'http' => [
-                'method' => 'POST',
-                'header' => implode("\r\n", [
-                    'Content-Type: application/json',
-                    'Authorization: Bearer ' . $config['api_key'],
-                ]),
-                'content' => $payloadJson,
-                'timeout' => $this->transportTimeoutSeconds($options),
-                'ignore_errors' => true,
-            ],
-        ]);
-
-        $transportErrors = [];
-        set_error_handler(static function (int $severity, string $message) use (&$transportErrors): bool {
-            $transportErrors[] = $message;
-            return true;
-        });
         try {
-            $response = file_get_contents($url, false, $context);
-        } finally {
-            restore_error_handler();
+            $target = (new OutboundUrlGuard())->validate($url);
+        } catch (\Throwable $e) {
+            return [
+                'response' => false,
+                'http_status' => 0,
+                'error' => 'Outbound LLM URL is not allowed',
+            ];
         }
-        $statusCode = $this->httpStatus($http_response_header ?? []);
-        $error = '';
-        if ($response === false) {
-            $error = $this->sanitize(
-                $transportErrors !== [] ? implode('; ', $transportErrors) : 'Network request failed'
-            );
+        if (!function_exists('curl_init')) {
+            return [
+                'response' => false,
+                'http_status' => 0,
+                'error' => 'Network request component is unavailable',
+            ];
         }
+
+        $ch = curl_init((string)$target['url']);
+        if ($ch === false) {
+            return ['response' => false, 'http_status' => 0, 'error' => 'Network request failed'];
+        }
+        curl_setopt_array($ch, $this->buildCurlOptions($target, $config, $payloadJson, $options));
+        $response = curl_exec($ch);
+        $statusCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErrorNumber = curl_errno($ch);
+        curl_close($ch);
+
+        $error = $response === false
+            ? ($curlErrorNumber === CURLE_OPERATION_TIMEDOUT ? 'Network request timed out' : 'Network request failed')
+            : '';
 
         return [
             'response' => $response,
             'http_status' => $statusCode,
             'error' => $error,
         ];
+    }
+
+    /**
+     * @param array{url:string,host:string,port:int,addresses:array<int,string>,curl_resolve:array<int,string>} $target
+     * @return array<int, mixed>
+     */
+    private function buildCurlOptions(array $target, array $config, string $payloadJson, array $options): array
+    {
+        $timeout = $this->transportTimeoutSeconds($options);
+        $curlOptions = [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_MAXREDIRS => 0,
+            CURLOPT_CONNECTTIMEOUT => min(10, $timeout),
+            CURLOPT_TIMEOUT => $timeout,
+            CURLOPT_POST => true,
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'Authorization: Bearer ' . (string)($config['api_key'] ?? ''),
+            ],
+            CURLOPT_POSTFIELDS => $payloadJson,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_RESOLVE => $target['curl_resolve'],
+        ];
+        if (defined('CURLOPT_PROTOCOLS') && defined('CURLPROTO_HTTPS')) {
+            $curlOptions[CURLOPT_PROTOCOLS] = CURLPROTO_HTTPS;
+        }
+        if (defined('CURLOPT_REDIR_PROTOCOLS') && defined('CURLPROTO_HTTPS')) {
+            $curlOptions[CURLOPT_REDIR_PROTOCOLS] = CURLPROTO_HTTPS;
+        }
+        return $curlOptions;
     }
 
     private function transportTimeoutSeconds(array $options): int

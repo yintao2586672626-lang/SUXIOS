@@ -87,6 +87,9 @@ final class SecurityInputGuardTest extends TestCase
         self::assertFalse($this->invokeNonPublic($controller, 'isValidReportPrice', [0.0]));
         self::assertFalse($this->invokeNonPublic($controller, 'isValidReportPrice', [-1.0]));
         self::assertTrue($this->invokeNonPublic($controller, 'isValidReportPrice', [388.0]));
+        self::assertTrue($this->invokeNonPublic($controller, 'allowsMissingPriceForAvailability', ['sold_out']));
+        self::assertTrue($this->invokeNonPublic($controller, 'allowsMissingPriceForAvailability', ['unavailable']));
+        self::assertFalse($this->invokeNonPublic($controller, 'allowsMissingPriceForAvailability', ['bookable']));
     }
 
     public function testCompetitorRateContextRequiresComparablePublicRateDimensions(): void
@@ -117,8 +120,55 @@ final class SecurityInputGuardTest extends TestCase
         self::assertSame(0, $complete['tax_fee_included']);
         self::assertSame('CNY', $complete['currency']);
         self::assertSame('https://hotels.example.com/100', $complete['source_ref']);
+        self::assertSame(64, strlen($complete['availability_scope_key']));
         self::assertSame(64, strlen($complete['comparison_key']));
         self::assertSame(64, strlen($complete['content_hash']));
+
+        $soldOut = $this->invokeNonPublic($controller, 'normalizeCompetitorRateContext', [[
+            'ota_hotel_id' => 'ctrip-100',
+            'collected_at' => '2026-07-17 11:20:30',
+            'source_method' => 'local_browser_profile',
+            'source_ref' => 'https://hotels.example.com/100',
+            'check_in_date' => '2026-07-20',
+            'check_out_date' => '2026-07-22',
+            'adults' => 2,
+            'children' => 0,
+            'room_type_key' => 'standard-room',
+            'rate_plan_key' => 'public-flex',
+            'breakfast' => 'none',
+            'cancellation_policy' => 'free-before-18',
+            'payment_mode' => 'pay-at-hotel',
+            'tax_fee_included' => false,
+            'price_basis' => 'room_per_night',
+            'currency' => 'cny',
+            'availability' => 'sold_out',
+        ], 'ctrip', null]);
+        self::assertSame('valid', $soldOut['validation_status']);
+        self::assertSame($complete['availability_scope_key'], $soldOut['availability_scope_key']);
+        self::assertSame($complete['comparison_key'], $soldOut['comparison_key']);
+
+        $otherSurface = $this->invokeNonPublic($controller, 'normalizeCompetitorRateContext', [[
+            'ota_hotel_id' => 'ctrip-100',
+            'collected_at' => '2026-07-17 11:25:30',
+            'source_method' => 'local_browser_profile',
+            'source_ref' => 'https://hotels.example.com/100/other-surface',
+            'check_in_date' => '2026-07-20',
+            'check_out_date' => '2026-07-22',
+            'adults' => 2,
+            'children' => 0,
+            'room_type_key' => 'other-room',
+            'ota_product_id' => 'other-product',
+            'rate_plan_key' => 'public-flex',
+            'breakfast' => 'none',
+            'cancellation_policy' => 'free-before-18',
+            'payment_mode' => 'pay-at-hotel',
+            'tax_fee_included' => false,
+            'price_basis' => 'room_per_night',
+            'currency' => 'cny',
+            'availability' => 'available',
+        ], 'ctrip', 388.0]);
+        self::assertNotSame($complete['availability_scope_key'], $otherSurface['availability_scope_key']);
+        self::assertNotSame($complete['comparison_key'], $otherSurface['comparison_key']);
 
         $incomplete = $this->invokeNonPublic($controller, 'normalizeCompetitorRateContext', [[
             'check_in_date' => '2026-07-20',

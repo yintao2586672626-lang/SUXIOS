@@ -236,6 +236,38 @@ test('Meituan flow conversion becomes traffic_analysis supplemental data', () =>
   assert.notEqual(rows[0].data_type, 'traffic');
 });
 
+test('Meituan myHotel funnel response becomes a truthful core traffic row', () => {
+  const rows = normalizeMeituanFlowAnalysisRows({
+    data: {
+      indexName: {
+        exposureUV: '曝光人数',
+        intentionUV: '浏览人数',
+        payOrderCnt: '支付订单数',
+      },
+      myHotel: {
+        exposureUV: 81,
+        intentionUV: 14,
+        payOrderCnt: 2,
+        intentionPerExposure: '17.28%',
+        payOrderPerIntention: '14.29%',
+      },
+    },
+  }, {
+    dateRange: '0',
+    defaultDataDate: '2026-07-18',
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].data_type, 'traffic');
+  assert.equal(rows[0]._source_path, 'data.myHotel');
+  assert.equal(rows[0].exposureUV, 81);
+  assert.equal(rows[0].intentionUV, 14);
+  assert.equal(rows[0].payOrderCnt, 2);
+  assert.equal(rows[0].intentionPerExposure, '17.28%');
+  assert.equal(rows[0].browse_pay_rate, 14.29);
+  assert.equal(rows[0].order_filling_num, undefined);
+});
+
 test('Meituan order flow response expands verified summary and hotel detail rows', () => {
   const rows = normalizeMeituanOrderFlowRows({
     status: 0,

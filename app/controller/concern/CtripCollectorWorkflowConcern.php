@@ -21,8 +21,9 @@ trait CtripCollectorWorkflowConcern
             $row = Db::name('platform_data_sources')
                 ->field('id,system_hotel_id,platform,status,enabled,config_json')
                 ->where('id', $sourceId)
+                ->where('platform', 'ctrip')
                 ->find();
-            if (!$row) {
+            if (!$row || !$this->canAccessCtripCollectorSource($row)) {
                 return $this->error('Ctrip data source not found.', 404);
             }
             $config = json_decode((string)($row['config_json'] ?? ''), true);
@@ -32,5 +33,14 @@ trait CtripCollectorWorkflowConcern
 
         $contract = (new CtripCollectorWorkflowService())->buildContract($source, $query);
         return $this->success($contract, 'Ctrip collector contract loaded.');
+    }
+
+    /** @param array<string, mixed> $source */
+    private function canAccessCtripCollectorSource(array $source): bool
+    {
+        $hotelId = (int)($source['system_hotel_id'] ?? 0);
+        return strtolower(trim((string)($source['platform'] ?? ''))) === 'ctrip'
+            && $hotelId > 0
+            && $this->currentUserCanViewOnlineDataHotel($hotelId);
     }
 }

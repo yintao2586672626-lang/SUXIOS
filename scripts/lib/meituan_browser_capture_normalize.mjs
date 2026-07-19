@@ -274,6 +274,23 @@ export function normalizeMeituanFlowAnalysisRows(value, options = {}) {
     ['data'],
     [],
   ]);
+  const myHotel = data?.myHotel;
+  if (myHotel && typeof myHotel === 'object' && !Array.isArray(myHotel)) {
+    const exposure = numberish(myHotel.exposureUV);
+    const visitors = numberish(myHotel.intentionUV);
+    const paidOrders = numberish(myHotel.payOrderCnt);
+    const exposureToVisitRate = numberish(myHotel.intentionPerExposure);
+    if ([exposure, visitors, paidOrders, exposureToVisitRate].some(metric => metric !== undefined)) {
+      return [decorateSupplementalRow({
+        ...data,
+        ...myHotel,
+        analysis_type: 'conversion_funnel',
+        dimension: 'flow_conversion',
+        data_value: exposure,
+        browse_pay_rate: numberish(myHotel.payOrderPerIntention),
+      }, 'traffic', 'data.myHotel', options)];
+    }
+  }
   if (analysisType === 'conversion') {
     return [decorateSupplementalRow({
       ...(data || {}),

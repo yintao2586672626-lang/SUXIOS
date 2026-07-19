@@ -5,6 +5,7 @@ namespace Tests;
 
 use app\service\LlmClient;
 use app\service\LlmEndpoint;
+use app\service\OutboundUrlGuard;
 use PHPUnit\Framework\TestCase;
 use Tests\Support\ReflectionHelper;
 
@@ -293,6 +294,30 @@ final class LlmClientTest extends TestCase
         self::assertStringContainsString('retries exhausted', strtolower($message));
         self::assertStringContainsString('retry later', strtolower($message));
         self::assertStringNotContainsString('must-not-be-retained', $message);
+    }
+
+    public function testTransportPinsTheValidatedPublicAddressAndDisablesRedirects(): void
+    {
+        if (!extension_loaded('curl')) {
+            self::markTestSkipped('cURL extension is unavailable');
+        }
+
+        $target = (new OutboundUrlGuard(
+            static fn(string $host): array => $host === 'llm.example.com' ? ['93.184.216.34'] : []
+        ))->validate('https://llm.example.com/v1/chat/completions');
+        $options = $this->invokeNonPublic(new LlmClient(), 'buildCurlOptions', [
+            $target,
+            ['api_key' => 'unit-test-key'],
+            '{"model":"unit-test"}',
+            ['timeout' => 9],
+        ]);
+
+        self::assertSame(['llm.example.com:443:93.184.216.34'], $options[CURLOPT_RESOLVE]);
+        self::assertFalse($options[CURLOPT_FOLLOWLOCATION]);
+        self::assertSame(0, $options[CURLOPT_MAXREDIRS]);
+        self::assertTrue($options[CURLOPT_SSL_VERIFYPEER]);
+        self::assertSame(2, $options[CURLOPT_SSL_VERIFYHOST]);
+        self::assertSame(9, $options[CURLOPT_TIMEOUT]);
     }
 
     public function testDebugIncludesRetryMetadataWithoutMaskingFailure(): void

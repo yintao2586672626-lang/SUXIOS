@@ -225,6 +225,7 @@ Route::group('api/online-data', function () {
     Route::get('/ctrip/competitive-operations', 'OnlineData/ctripCompetitiveOperations');
     Route::get('/ctrip/public-profiles', 'OnlineData/ctripPublicProfiles');
     Route::get('/public-page-diagnosis', 'OnlineData/otaPublicPageDiagnosis');
+    Route::post('/public-page-diagnosis/execution-intent', 'OnlineData/createOtaPublicPageDiagnosisExecutionIntent');
     Route::post('/ctrip/public-profiles/add', 'OnlineData/addCtripPublicProfile');
     Route::post('/ctrip/public-profiles/sync', 'OnlineData/syncCtripPublicProfiles');
     Route::post('/fetch-ctrip-traffic', 'OnlineData/fetchCtripTraffic');
@@ -478,6 +479,7 @@ Route::group('api/operation', function () {
     Route::post('/root-cause', 'OperationManagement/rootCause');
     Route::get('/alerts', 'OperationManagement/alerts');
     Route::post('/alerts/read', 'OperationManagement/alertsRead');
+    Route::post('/alerts/:id/execution-intent', 'OperationManagement/alertExecutionIntent');
     Route::post('/strategy-simulation', 'OperationManagement/strategySimulation');
     Route::post('/execution-intents/:id/approve', 'OperationManagement/approveExecutionIntent');
     Route::post('/execution-tasks/:id/execute', 'OperationManagement/executeExecutionTask');
@@ -532,6 +534,8 @@ Route::group('api/transfer', function () {
 })->middleware(\app\middleware\Auth::class);
 // ==================== 竞对价格监控 API ====================
 Route::get('api/competitor/events', 'CompetitorApi/events')->middleware(\app\middleware\Auth::class);
+Route::get('api/competitor/targets', 'CompetitorApi/targets')->middleware(\app\middleware\Auth::class);
+Route::post('api/competitor/manual-observation', 'CompetitorApi/manualObservation')->middleware(\app\middleware\Auth::class);
 Route::post('api/competitor/task', 'CompetitorApi/task');
 Route::post('api/competitor/report', 'CompetitorApi/report');
 
@@ -551,6 +555,9 @@ Route::group('api/admin/competitor-price-logs', function () {
 
 Route::group('api/admin/competitor-devices', function () {
     Route::get('/', 'admin.CompetitorDeviceController/index');
+    Route::post('/', 'admin.CompetitorDeviceController/create');
+    Route::post('/:id/rotate-token', 'admin.CompetitorDeviceController/rotateToken');
+    Route::put('/:id/status', 'admin.CompetitorDeviceController/updateStatus');
 })->middleware(\app\middleware\Auth::class);
 
 // ==================== 企业微信机器人 ====================

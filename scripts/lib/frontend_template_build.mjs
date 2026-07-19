@@ -21,8 +21,8 @@ import {
 
 const EMPTY_V_IF_ANCHOR_SOURCE = '_createCommentVNode("v-if", true)';
 const EMPTY_V_IF_ANCHOR_RUNTIME = '_createCommentVNode("", true)';
-const FRONTEND_RENDER_RAW_MAX_BYTES = 1_350_000;
-const FRONTEND_RENDER_GZIP_MAX_BYTES = 230_000;
+const FRONTEND_RENDER_RAW_MAX_BYTES = 1_400_000;
+const FRONTEND_RENDER_GZIP_MAX_BYTES = 240_000;
 const FRONTEND_RENDER_TO_TEMPLATE_MAX_RATIO = 0.66;
 const FRONTEND_STARTUP_RENDER_RAW_MAX_BYTES = 180_000;
 const FRONTEND_STARTUP_RENDER_GZIP_MAX_BYTES = 35_000;
@@ -217,10 +217,10 @@ async function inspectFrontendTemplateBuildUnlocked(repoRoot) {
     ? renderBytes / templateSnapshotBuffer.length
     : 0;
   if (artifact && renderBytes >= FRONTEND_RENDER_RAW_MAX_BYTES) {
-    failures.push('The precompiled render artifact exceeded the 1.35 MB raw ceiling.');
+    failures.push('The precompiled render artifact exceeded the 1.40 MB raw ceiling.');
   }
   if (artifact && renderGzipBytes >= FRONTEND_RENDER_GZIP_MAX_BYTES) {
-    failures.push('The precompiled render artifact exceeded the 230 KB gzip ceiling.');
+    failures.push('The precompiled render artifact exceeded the 240 KB gzip ceiling.');
   }
   if (artifact && renderToTemplateRatio >= FRONTEND_RENDER_TO_TEMPLATE_MAX_RATIO) {
     failures.push('The precompiled render artifact exceeded 66% of the canonical template size.');

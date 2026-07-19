@@ -329,7 +329,15 @@ class Hotel extends Base
                 $this->grantCurrentUserHotelPermission($hotel);
             }
 
-            OperationLog::record('hotel', 'create', '创建酒店: ' . $hotel->name, $this->currentUser->id ?? null);
+            OperationLog::record(
+                'hotel',
+                'create',
+                '创建酒店: ' . $hotel->name,
+                $this->currentUser->id ?? null,
+                (int)$hotel->id,
+                null,
+                ['tenant_id' => (int)($hotel->tenant_id ?? $hotel->id)]
+            );
         });
 
         return $this->success($hotel, '创建成功');
@@ -560,6 +568,7 @@ class Hotel extends Base
             return $this->error('酒店不存在');
         }
         $hotelName = (string)$hotel->name;
+        $hotelTenantId = (int)($hotel->tenant_id ?? 0);
         $service = new HotelCascadeDeletionService();
         try {
             $preview = $service->preview($id);
@@ -605,14 +614,16 @@ class Hotel extends Base
             'delete',
             '删除酒店及关联数据: ' . $hotelName,
             $this->currentUser->id ?? null,
-            null,
+            $id,
             null,
             [
+                'tenant_id' => $hotelTenantId > 0 ? $hotelTenantId : $id,
                 'deleted_hotel_id' => $id,
                 'deleted_hotel_name' => $hotelName,
                 'deleted_rows' => (int)($result['deleted_rows'] ?? 0),
                 'users_detached' => (int)($result['users_detached'] ?? 0),
                 'config_entries_deleted' => (int)($result['config_entries_deleted'] ?? 0),
+                'preserved_audit_rows' => (int)($result['preserved_audit_rows'] ?? 0),
             ]
         );
 
@@ -757,11 +768,13 @@ class Hotel extends Base
 
         if ($existing) {
             $existing->save($payload);
+            $this->currentUser->resetAuthorizationContext();
             return;
         }
 
         $payload['create_time'] = date('Y-m-d H:i:s');
         UserHotelPermission::create($payload);
+        $this->currentUser->resetAuthorizationContext();
     }
 
     private function ensureHotelCanBeDeleted(int $hotelId, bool $ignoreCurrentUserHotelPermission = false): array

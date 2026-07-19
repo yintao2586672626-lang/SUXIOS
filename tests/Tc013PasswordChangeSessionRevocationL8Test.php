@@ -23,9 +23,11 @@ final class Tc013PasswordChangeSessionRevocationL8Test extends TestCase
 {
     private const PRIMARY_USER_ID = 130131;
     private const OTHER_USER_ID = 130132;
+    private const ADMIN_USER_ID = 130133;
     private const PRIMARY_OLD_PASSWORD = 'Tc013-Old!A7';
     private const PRIMARY_NEW_PASSWORD = 'Tc013-New!B8';
     private const OTHER_PASSWORD = 'Tc013-Other!C9';
+    private const ADMIN_PASSWORD = 'Tc013-Admin!D0';
     private const FAILURE_TRIGGER = 'tc013_forced_password_save_failure';
 
     /** @var array<string, mixed> */
@@ -149,6 +151,7 @@ final class Tc013PasswordChangeSessionRevocationL8Test extends TestCase
         Db::name('users')->insertAll([
             $this->userRow(self::PRIMARY_USER_ID, 'tc013_primary', self::PRIMARY_OLD_PASSWORD),
             $this->userRow(self::OTHER_USER_ID, 'tc013_other', self::OTHER_PASSWORD),
+            $this->userRow(self::ADMIN_USER_ID, 'tc013_admin', self::ADMIN_PASSWORD),
         ]);
     }
 
@@ -299,6 +302,138 @@ final class Tc013PasswordChangeSessionRevocationL8Test extends TestCase
             401,
             'A legacy token issued before a password change must remain revoked'
         );
+    }
+
+    public function testLegacyTokenCannotUpgradeAfterAdministratorPasswordResetAudit(): void
+    {
+        $legacyToken = 'tc013_legacy_before_admin_reset';
+        $this->seedLegacyToken($legacyToken, self::PRIMARY_USER_ID);
+        Db::name('operation_logs')->insert([
+            'user_id' => self::ADMIN_USER_ID,
+            'module' => 'auth',
+            'action' => 'reset_password',
+            'description' => 'isolated administrator password reset',
+            'extra_data' => json_encode([
+                'operator_user_id' => self::ADMIN_USER_ID,
+                'target_user_id' => self::PRIMARY_USER_ID,
+            ], JSON_UNESCAPED_SLASHES),
+            'create_time' => date('Y-m-d H:i:s'),
+        ]);
+
+        $resetAudit = Db::name('operation_logs')->where('action', 'reset_password')->find();
+        self::assertSame(self::ADMIN_USER_ID, (int)($resetAudit['user_id'] ?? 0));
+        $resetExtra = json_decode((string)($resetAudit['extra_data'] ?? ''), true);
+        self::assertIsArray($resetExtra);
+        self::assertSame(self::PRIMARY_USER_ID, (int)($resetExtra['target_user_id'] ?? 0));
+
+        $this->assertTokenStatus(
+            $legacyToken,
+            401,
+            'A legacy token issued before an administrator password reset must remain revoked'
+        );
+    }
+
+    public function testLegacyTokenCannotUpgradeAfterHistoricalAdministratorResetAuditShape(): void
+    {
+        $legacyToken = 'tc013_legacy_before_historical_admin_reset';
+        $this->seedLegacyToken($legacyToken, self::PRIMARY_USER_ID);
+        Db::name('operation_logs')->insert([
+            // Historical rows used user_id for the reset target and had no target_user_id envelope.
+            'user_id' => self::PRIMARY_USER_ID,
+            'module' => 'auth',
+            'action' => 'reset_password',
+            'description' => 'historical administrator password reset',
+            'create_time' => date('Y-m-d H:i:s'),
+        ]);
+
+        $this->assertTokenStatus(
+            $legacyToken,
+            401,
+            'A legacy token issued before a historical-format administrator reset must remain revoked'
+        );
+    }
+
+    public function testMiddlewareRecordsSanitizedTerminalAuditForManualPathHttpFailure(): void
+    {
+        $token = 'tc013_manual_failure_audit';
+        $requestId = 'tc013_manual_failure_request';
+        $secret = 'Tc013-DoNotPersist!Http';
+        $this->seedToken($token, self::PRIMARY_USER_ID);
+        $request = $this->authenticatedRequest(
+            $token,
+            'PUT',
+            '/api/users/' . self::PRIMARY_USER_ID,
+            $requestId,
+            ['password' => $secret, 'status' => 0]
+        );
+
+        $response = (new AuthMiddleware())->handle(
+            $request,
+            static fn(Request $_request): Response => json(['code' => 422, 'message' => 'validation failed'], 422)
+        );
+
+        self::assertSame(422, $response->getCode());
+        $audit = Db::name('operation_logs')->order('id', 'desc')->find();
+        self::assertIsArray($audit);
+        self::assertSame('user', $audit['module']);
+        self::assertSame('save_form', $audit['action']);
+        self::assertSame('HTTP 422', $audit['error_info']);
+        $extra = json_decode((string)$audit['extra_data'], true);
+        self::assertIsArray($extra);
+        self::assertSame('failed', $extra['outcome'] ?? null);
+        self::assertSame(422, $extra['http_status'] ?? null);
+        self::assertSame($requestId, $extra['request_id'] ?? null);
+        self::assertSame('http_response_failure', $extra['reason_code'] ?? null);
+        self::assertSame('***', $extra['params']['password'] ?? null, json_encode($extra, JSON_UNESCAPED_SLASHES));
+        self::assertStringNotContainsString($secret, json_encode($audit, JSON_UNESCAPED_SLASHES));
+    }
+
+    public function testMiddlewareRecordsSafeTerminalAuditBeforeRethrowingControllerException(): void
+    {
+        $token = 'tc013_controller_exception_audit';
+        $requestId = 'tc013_exception_failure_request';
+        $secret = 'Tc013-DoNotPersist!Exception';
+        $exceptionMessage = 'controller exploded with private detail ' . $secret;
+        $this->seedToken($token, self::PRIMARY_USER_ID);
+        $request = $this->authenticatedRequest(
+            $token,
+            'POST',
+            '/api/auth/changePassword',
+            $requestId,
+            ['old_password' => $secret, 'new_password' => $secret]
+        );
+
+        $caught = null;
+        try {
+            (new AuthMiddleware())->handle(
+                $request,
+                static function (Request $_request) use ($exceptionMessage): Response {
+                    throw new RuntimeException($exceptionMessage);
+                }
+            );
+        } catch (Throwable $exception) {
+            $caught = $exception;
+        }
+
+        self::assertInstanceOf(RuntimeException::class, $caught);
+        self::assertSame($exceptionMessage, $caught->getMessage());
+        $audit = Db::name('operation_logs')->order('id', 'desc')->find();
+        self::assertIsArray($audit);
+        self::assertSame('auth', $audit['module']);
+        self::assertSame('save_form', $audit['action']);
+        self::assertSame('controller_exception', $audit['error_info']);
+        $extra = json_decode((string)$audit['extra_data'], true);
+        self::assertIsArray($extra);
+        self::assertSame('failed', $extra['outcome'] ?? null);
+        self::assertSame(500, $extra['http_status'] ?? null);
+        self::assertSame($requestId, $extra['request_id'] ?? null);
+        self::assertSame('controller_exception', $extra['reason_code'] ?? null);
+        self::assertSame(RuntimeException::class, $extra['exception_type'] ?? null);
+        self::assertSame('***', $extra['params']['old_password'] ?? null, json_encode($extra, JSON_UNESCAPED_SLASHES));
+        self::assertSame('***', $extra['params']['new_password'] ?? null, json_encode($extra, JSON_UNESCAPED_SLASHES));
+        $encodedAudit = json_encode($audit, JSON_UNESCAPED_SLASHES);
+        self::assertStringNotContainsString($exceptionMessage, $encodedAudit);
+        self::assertStringNotContainsString($secret, $encodedAudit);
     }
 
     /**
@@ -472,6 +607,33 @@ final class Tc013PasswordChangeSessionRevocationL8Test extends TestCase
         ];
         self::assertTrue(Cache::set('token_' . $token, $tokenData, 3600));
         self::assertTrue(Cache::set('user_token_' . $userId, $token, 3600));
+    }
+
+    /** @param array<string, mixed> $post */
+    private function authenticatedRequest(
+        string $token,
+        string $method,
+        string $url,
+        string $requestId,
+        array $post
+    ): Request {
+        $path = trim((string)parse_url($url, PHP_URL_PATH), '/');
+
+        $request = (new Request())
+            ->setMethod($method)
+            ->setUrl($url)
+            ->setBaseUrl($url)
+            ->setPathinfo($path)
+            ->withServer(['REQUEST_METHOD' => $method])
+            ->withHeader([
+                'Authorization' => 'Bearer ' . $token,
+                'Accept' => 'application/json',
+                'Content-Type' => 'application/json',
+                'User-Agent' => 'tc013-isolated-phpunit',
+                'X-Request-ID' => $requestId,
+            ]);
+
+        return $request->withInput((string)json_encode($post, JSON_UNESCAPED_SLASHES));
     }
 
     private function assertTokenStatus(string $token, int $expectedStatus, string $message): ?User

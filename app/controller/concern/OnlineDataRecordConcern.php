@@ -27,14 +27,10 @@ trait OnlineDataRecordConcern
             return $this->error('数据不存在');
         }
 
-        // 权限检查：非超级管理员只能修改自己酒店的数据
-        $permittedHotelIds = null;
-        if (!$this->currentUser->isSuperAdmin()) {
-            $permittedHotelIds = $this->currentUser->getPermittedHotelIds();
-            if (!in_array($data['system_hotel_id'], $permittedHotelIds)) {
-                return $this->error('无权修改该数据');
-            }
-        }
+        // 写权限必须落到目标门店，不能把其他门店的授权提升成全局权限。
+        $hotelId = (int)($data['system_hotel_id'] ?? 0);
+        $this->checkHotelActionPermission($hotelId, 'can_fetch_online_data');
+        $permittedHotelIds = $this->currentUser->isSuperAdmin() ? null : [$hotelId];
 
         // 人工修改必须留下明确的未复核标记，不能继续继承平台事实的可信状态。
         $updateData = [];
@@ -130,14 +126,10 @@ trait OnlineDataRecordConcern
             return $this->error('数据不存在');
         }
 
-        // 权限检查：非超级管理员只能删除自己酒店的数据
-        $permittedHotelIds = null;
-        if (!$this->currentUser->isSuperAdmin()) {
-            $permittedHotelIds = $this->currentUser->getPermittedHotelIds();
-            if (!in_array($data['system_hotel_id'], $permittedHotelIds)) {
-                return $this->error('无权删除该数据');
-            }
-        }
+        // 删除权限必须落到目标门店，不能把其他门店的授权提升成全局权限。
+        $hotelId = (int)($data['system_hotel_id'] ?? 0);
+        $this->checkHotelActionPermission($hotelId, 'can_delete_online_data');
+        $permittedHotelIds = $this->currentUser->isSuperAdmin() ? null : [$hotelId];
 
         try {
             $result = (new OnlineDataCorrectionLedgerService())->delete(
@@ -173,9 +165,7 @@ trait OnlineDataRecordConcern
             return $this->error('无效的数据ID');
         }
 
-        $permittedHotelIds = $this->currentUser->isSuperAdmin()
-            ? null
-            : $this->currentUser->getPermittedHotelIds();
+        $permittedHotelIds = $this->permittedHotelIdsForAction('can_delete_online_data');
 
         try {
             $result = (new OnlineDataCorrectionLedgerService())->batchDelete(
@@ -185,7 +175,24 @@ trait OnlineDataRecordConcern
                 trim((string)$this->request->post('reason', 'manual_batch_delete'))
             );
             $deletedCount = (int)($result['deleted_count'] ?? 0);
-            OperationLog::record('online_data', 'batch_delete', '批量删除线上数据: ' . $deletedCount . '条', $this->currentUser->id);
+            $systemHotelIds = array_values(array_map('intval', (array)($result['system_hotel_ids'] ?? [])));
+            $tenantIds = array_values(array_map('intval', (array)($result['tenant_ids'] ?? [])));
+            OperationLog::record(
+                'online_data',
+                'batch_delete',
+                '批量删除线上数据: ' . $deletedCount . '条',
+                $this->currentUser->id,
+                count($systemHotelIds) === 1 ? $systemHotelIds[0] : null,
+                null,
+                [
+                    'outcome' => 'success',
+                    'online_data_ids' => array_values(array_map('intval', (array)($result['ids'] ?? []))),
+                    'ledger_ids' => array_values(array_map('intval', (array)($result['ledger_ids'] ?? []))),
+                    'system_hotel_ids' => $systemHotelIds,
+                    'tenant_ids' => $tenantIds,
+                    'deleted_count' => $deletedCount,
+                ]
+            );
             return $this->success($result, '删除成功，已生成可恢复账本');
         } catch (\Throwable $e) {
             return $this->error('删除失败: ' . $e->getMessage());
@@ -201,7 +208,12 @@ trait OnlineDataRecordConcern
         $pageSize = max(1, min(100, (int)$this->request->param('page_size', 20)));
         $query = Db::name('online_data_correction_ledger');
         if (!$this->currentUser->isSuperAdmin()) {
-            $query->whereIn('system_hotel_id', $this->currentUser->getPermittedHotelIds());
+            $permittedHotelIds = $this->permittedHotelIdsForAction('can_delete_online_data') ?? [];
+            if ($permittedHotelIds === []) {
+                $query->whereRaw('1 = 0');
+            } else {
+                $query->whereIn('system_hotel_id', $permittedHotelIds);
+            }
         }
         $total = (int)(clone $query)->count();
         $rows = $query
@@ -236,9 +248,7 @@ trait OnlineDataRecordConcern
         if ($ledgerId <= 0) {
             return $this->error('无效的恢复账本ID');
         }
-        $permittedHotelIds = $this->currentUser->isSuperAdmin()
-            ? null
-            : $this->currentUser->getPermittedHotelIds();
+        $permittedHotelIds = $this->permittedHotelIdsForAction('can_delete_online_data');
         try {
             $result = (new OnlineDataCorrectionLedgerService())->restore(
                 $ledgerId,
@@ -249,7 +259,15 @@ trait OnlineDataRecordConcern
                 'online_data',
                 'restore',
                 '从更正账本恢复线上数据ID: ' . (int)($result['id'] ?? 0),
-                $this->currentUser->id
+                $this->currentUser->id,
+                (int)($result['system_hotel_id'] ?? 0) ?: null,
+                null,
+                [
+                    'outcome' => 'success',
+                    'tenant_id' => (int)($result['tenant_id'] ?? 0) ?: null,
+                    'online_data_id' => (int)($result['id'] ?? 0),
+                    'ledger_id' => (int)($result['ledger_id'] ?? 0),
+                ]
             );
             return $this->success($result, '数据已恢复并完成回读校验');
         } catch (\Throwable $e) {

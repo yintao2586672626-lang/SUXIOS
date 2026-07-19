@@ -2947,8 +2947,6 @@ trait OnlineDataManualFetchConcern
             }
             $derivedAnalysis = CtripTrafficDisplayService::buildAppTrafficDerivedAnalysis($trafficRows);
 
-            OperationLog::record('online_data', 'fetch_ctrip_traffic', '获取携程流量数据', $this->currentUser->id, $systemHotelId);
-
             $responsePayload = [
                 'data' => $responseData,
                 'decoded_data' => $responseData,
@@ -2979,6 +2977,23 @@ trait OnlineDataManualFetchConcern
                     $responsePayload
                 );
             }
+
+            $actorId = (int)($this->currentUser->id ?? 0);
+            OperationLog::record('online_data', 'fetch_ctrip_traffic', 'OTA traffic collection completed', $actorId, $systemHotelId, null, [
+                'audit_type' => 'operation',
+                'actor_id' => $actorId,
+                'tenant_id' => $this->otaCredentialTenantIdForHotel($systemHotelId),
+                'system_hotel_id' => $systemHotelId,
+                'platform' => strtolower($platform),
+                'config_id' => trim((string)($requestData['config_id'] ?? '')),
+                'status' => $persistenceState['persistence_status'],
+                'outcome' => 'success',
+                'auto_save' => $autoSave,
+                'processed_count' => $persistenceState['processed_count'],
+                'saved_count' => $persistenceState['saved_count'],
+                'readback_count' => $persistenceState['readback_count'],
+                'readback_verified' => $persistenceState['readback_verified'],
+            ]);
 
             return $this->success(
                 $responsePayload,
@@ -3361,8 +3376,6 @@ trait OnlineDataManualFetchConcern
                 'meituan_traffic'
             );
 
-            OperationLog::record('online_data', 'fetch_meituan_traffic', '获取美团流量数据', $this->currentUser->id, $systemHotelId ? (int)$systemHotelId : null);
-
             if ($this->isTruthyRequestValue($requestData['background_task'] ?? false) && $systemHotelId) {
                 $displayDataDate = $startDate === $endDate ? $startDate : $startDate . ' 至 ' . $endDate;
                 $this->recordAutoFetchNotification((int)$systemHotelId, $persistenceState['persisted'], '美团流量手动获取完成', $displayDataDate, [
@@ -3382,6 +3395,23 @@ trait OnlineDataManualFetchConcern
                     $persistenceState
                 );
             }
+
+            $actorId = (int)($this->currentUser->id ?? 0);
+            OperationLog::record('online_data', 'fetch_meituan_traffic', 'OTA traffic collection completed', $actorId, $systemHotelId, null, [
+                'audit_type' => 'operation',
+                'actor_id' => $actorId,
+                'tenant_id' => $this->otaCredentialTenantIdForHotel($systemHotelId),
+                'system_hotel_id' => $systemHotelId,
+                'platform' => 'meituan',
+                'config_id' => trim((string)($requestData['config_id'] ?? '')),
+                'status' => $persistenceState['persistence_status'],
+                'outcome' => 'success',
+                'auto_save' => $autoSave,
+                'processed_count' => $persistenceState['processed_count'],
+                'saved_count' => $persistenceState['saved_count'],
+                'readback_count' => $persistenceState['saved_count'],
+                'readback_verified' => $autoSave ? $persistenceState['persisted'] : false,
+            ]);
 
             return $this->success([
                 'data' => $responseData,

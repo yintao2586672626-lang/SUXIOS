@@ -263,6 +263,12 @@ final class Tc315InvestmentFeasibilityL8Test extends TestCase
             {
                 return $this->permittedHotelIds;
             }
+
+            public function hasHotelPermission(int $hotelId, string $permission): bool
+            {
+                return $permission === 'can_use_investment'
+                    && in_array($hotelId, $this->permittedHotelIds, true);
+            }
         });
 
         $resolveScope = new ReflectionMethod(InvestmentDecision::class, 'resolveHotelScope');

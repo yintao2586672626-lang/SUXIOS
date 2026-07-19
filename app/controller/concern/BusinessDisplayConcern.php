@@ -3828,7 +3828,10 @@ trait BusinessDisplayConcern
     private function buildMeituanCompetitorSummaryPayload(string $hotelId, $currentUser = null, bool $includeByHotel = false): array
     {
         $range = $this->normalizeMeituanCompetitorSummaryRange((string)$this->request->get('range', ''));
-        $targetDate = $this->resolveMeituanCompetitorSummaryTargetDate($range);
+        $targetDate = $this->resolveMeituanCompetitorSummaryTargetDate(
+            $range,
+            (string)$this->request->get('target_date', '')
+        );
         $latest = $this->findLatestMeituanCompetitorStoredRow($hotelId, $currentUser, $targetDate);
         if (empty($latest)) {
             $payload = $this->emptyMeituanCompetitorSummaryPayload([
@@ -3869,8 +3872,16 @@ trait BusinessDisplayConcern
         return in_array($range, ['realtime', 'yesterday'], true) ? $range : '';
     }
 
-    private function resolveMeituanCompetitorSummaryTargetDate(string $range): string
+    private function resolveMeituanCompetitorSummaryTargetDate(string $range, string $requestedTargetDate = ''): string
     {
+        $requestedTargetDate = trim($requestedTargetDate);
+        if ($requestedTargetDate !== '') {
+            $parsed = \DateTimeImmutable::createFromFormat('!Y-m-d', $requestedTargetDate);
+            if (!$parsed || $parsed->format('Y-m-d') !== $requestedTargetDate) {
+                throw new \InvalidArgumentException('target_date must use YYYY-MM-DD');
+            }
+            return $requestedTargetDate;
+        }
         return $range === 'yesterday' ? date('Y-m-d', strtotime('-1 day')) : '';
     }
 

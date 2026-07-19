@@ -82,3 +82,66 @@ test('opening AI coverage counts every suggestion even when the visible list is 
   assert.equal(coverage.hint, '8/10 项带AI建议');
   assert.equal(missing.value, 2);
 });
+
+test('opening overview keeps missing checklist ratios distinct from real zero', () => {
+  const api = loadOperationStaticApi();
+  const truth = {
+    status: 'unverified',
+    status_label: '未验证',
+    metric_scope: 'opening_project',
+    failure_reason: '检查清单尚未生成',
+  };
+  const data = {
+    project: { overall_score: null, risk_level: 'medium', opening_date: '2026-08-01' },
+    truth_context: truth,
+    metrics: {
+      days_left: 13,
+      overall_score: null,
+      total_tasks: 0,
+      completed_tasks: 0,
+      completion_rate: null,
+      core_tasks: 0,
+      core_completed_tasks: 0,
+      core_completion_rate: null,
+      high_risk_count: 0,
+      overdue_count: 0,
+      ai_penetration_rate: null,
+      ai_covered_tasks: 0,
+      metric_truth: {
+        completion_rate: { ...truth, calculation_status: 'missing' },
+      },
+    },
+  };
+
+  const cards = api.buildOpeningOverviewCards(data);
+  const score = cards.find(card => card.metricKey === 'overall_score');
+  const completion = cards.find(card => card.metricKey === 'completion_rate');
+  const riskCount = cards.find(card => card.metricKey === 'high_risk_count');
+  const category = api.buildOpeningCategoryProgressCards([{
+    category: 'OTA上线配置',
+    total: 0,
+    done: 0,
+    completion_rate: null,
+    truth: { ...truth, calculation_status: 'missing' },
+  }])[0];
+
+  assert.equal(score.value, '—');
+  assert.equal(completion.value, '—');
+  assert.equal(completion.progress, null);
+  assert.equal(completion.truth.calculation_status, 'missing');
+  assert.equal(riskCount.value, 0, 'a stored zero count remains a real zero');
+  assert.equal(category.progress, null);
+  assert.equal(category.truth.status, 'unverified');
+});
+
+test('execution review action stays unavailable until the recorded review date', () => {
+  const api = loadOperationStaticApi();
+  const item = {
+    execution: { status: 'executed', task_id: 35 },
+    review: { status: 'observing', is_available: false },
+  };
+
+  assert.equal(api.operationCanReviewExecution(item), false);
+  item.review.is_available = true;
+  assert.equal(api.operationCanReviewExecution(item), true);
+});

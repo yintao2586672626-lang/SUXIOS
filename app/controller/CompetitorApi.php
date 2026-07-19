@@ -7,15 +7,15 @@ use app\model\CompetitorDevice;
 use app\model\CompetitorHotel;
 use app\model\CompetitorPriceLog;
 use app\model\OperationLog;
+use app\service\CompetitorDeviceAuthService;
 use app\service\CompetitorEventFeedService;
+use app\service\CompetitorManualObservationService;
 use app\service\HotelScopeService;
 use think\facade\Db;
 use think\Response;
 
 class CompetitorApi extends Base
 {
-    private const TASK_TOKEN_ENV = 'COMPETITOR_TASK_TOKEN';
-    private const REPORT_TOKEN_ENV = 'COMPETITOR_REPORT_TOKEN';
     private const TASK_ASSIGNMENT_TTL_SECONDS = 7200;
     private const COMPLETED_REPORT_TTL_SECONDS = 7200;
     private const SCREENSHOT_MAX_BYTES = 2 * 1024 * 1024;
@@ -46,8 +46,9 @@ class CompetitorApi extends Base
             return $this->error('system_hotel_id/store_id must be a positive integer', 422);
         }
         $systemHotelId = (int)$rawSystemHotelId;
+        $scope = new HotelScopeService();
         if (!$this->currentUser
-            || !(new HotelScopeService())->canAccessHotel(
+            || !$scope->canAccessHotel(
                 $this->currentUser,
                 $systemHotelId,
                 'can_view_online_data'
@@ -64,6 +65,11 @@ class CompetitorApi extends Base
                 trim((string)$this->request->get('collected_at_start', '')),
                 trim((string)$this->request->get('collected_at_end', '')),
                 (int)$this->request->get('limit', 200)
+            );
+            $result['can_collect_manual_observation'] = $scope->hotelPermissionAllows(
+                $this->currentUser,
+                $systemHotelId,
+                'ota.collect'
             );
 
             $message = match ((string)($result['status'] ?? '')) {
@@ -86,10 +92,177 @@ class CompetitorApi extends Base
         }
     }
 
+    public function targets(): Response
+    {
+        $this->requireHotel();
+
+        $rawSystemHotelId = $this->request->get(
+            'system_hotel_id',
+            $this->request->get('store_id', '')
+        );
+        if (!is_scalar($rawSystemHotelId)
+            || preg_match('/^[1-9][0-9]*$/D', trim((string)$rawSystemHotelId)) !== 1
+        ) {
+            return $this->error('system_hotel_id/store_id must be a positive integer', 422);
+        }
+        $systemHotelId = (int)$rawSystemHotelId;
+        if (!$this->currentUser
+            || !(new HotelScopeService())->canAccessHotel(
+                $this->currentUser,
+                $systemHotelId,
+                'can_view_online_data'
+            )
+        ) {
+            return $this->error('无权查看此门店的竞品目标', 403);
+        }
+
+        $platform = strtolower(trim((string)$this->request->get('platform', 'all')));
+        $platformAliases = match ($platform) {
+            'all', '' => ['xc', 'ctrip', 'mt', 'meituan'],
+            'xc', 'ctrip' => ['xc', 'ctrip'],
+            'mt', 'meituan' => ['mt', 'meituan'],
+            default => null,
+        };
+        if ($platformAliases === null) {
+            return $this->error('platform only supports ctrip/xc and meituan/mt', 422);
+        }
+
+        $targets = CompetitorHotel::where('store_id', $systemHotelId)
+            ->where('status', 1)
+            ->whereIn('platform', $platformAliases)
+            ->field('id,store_id,platform,city,hotel_name,hotel_code,status')
+            ->order('platform', 'asc')
+            ->order('id', 'asc')
+            ->select()
+            ->toArray();
+        $targets = array_map(static function (array $target): array {
+            $platform = strtolower(trim((string)($target['platform'] ?? '')));
+            $canonicalPlatform = in_array($platform, ['xc', 'ctrip'], true) ? 'ctrip' : 'meituan';
+            $hotelCode = trim((string)($target['hotel_code'] ?? ''));
+            $otaHotelId = preg_match('/^[1-9][0-9]{0,19}$/D', $hotelCode) === 1 ? $hotelCode : null;
+            return [
+                'id' => (int)($target['id'] ?? 0),
+                'system_hotel_id' => (int)($target['store_id'] ?? 0),
+                'platform' => $canonicalPlatform,
+                'city' => trim((string)($target['city'] ?? '')),
+                'hotel_name' => trim((string)($target['hotel_name'] ?? '')),
+                'ota_hotel_id' => $otaHotelId,
+                'identity_status' => $otaHotelId !== null ? 'ota_hotel_id_configured' : 'public_name_only',
+            ];
+        }, $targets);
+
+        return $this->success([
+            'system_hotel_id' => $systemHotelId,
+            'platform' => $platform === '' ? 'all' : $platform,
+            'targets' => $targets,
+            'target_count' => count($targets),
+            'scope_notice' => '竞品目标仅属于当前宿析门店和携程/美团 OTA 渠道，不代表全酒店市场事实。',
+        ], '竞品目标已读取');
+    }
+
+    public function manualObservation(): Response
+    {
+        $this->requireHotel();
+        $data = $this->requestData();
+        $rawSystemHotelId = $data['system_hotel_id'] ?? $data['store_id'] ?? '';
+        $rawCompetitorHotelId = $data['competitor_hotel_id'] ?? $data['hotel_id'] ?? '';
+        if (!is_scalar($rawSystemHotelId)
+            || preg_match('/^[1-9][0-9]*$/D', trim((string)$rawSystemHotelId)) !== 1
+            || !is_scalar($rawCompetitorHotelId)
+            || preg_match('/^[1-9][0-9]*$/D', trim((string)$rawCompetitorHotelId)) !== 1
+        ) {
+            return $this->error('system_hotel_id and competitor_hotel_id must be positive integers', 422);
+        }
+        $systemHotelId = (int)$rawSystemHotelId;
+        $competitorHotelId = (int)$rawCompetitorHotelId;
+        $scope = new HotelScopeService();
+        if (!$this->currentUser
+            || !$scope->hotelPermissionAllows($this->currentUser, $systemHotelId, 'ota.collect')
+        ) {
+            return $this->error('无权为此门店保存 OTA 竞品观测', 403);
+        }
+
+        try {
+            $saved = (new CompetitorManualObservationService())->persist(
+                $systemHotelId,
+                $competitorHotelId,
+                (int)$this->currentUser->id,
+                $data
+            );
+            $record = is_array($saved['record'] ?? null) ? $saved['record'] : [];
+            $stayDate = trim((string)($record['check_in_date'] ?? ''));
+            $collectedAt = trim((string)($record['collected_at'] ?? ''));
+            $feed = (new CompetitorEventFeedService())->build(
+                $systemHotelId,
+                (string)($saved['canonical_platform'] ?? ''),
+                $stayDate,
+                $collectedAt,
+                $collectedAt,
+                500
+            );
+            $event = null;
+            foreach ((array)($feed['events'] ?? []) as $candidate) {
+                if ((int)($candidate['id'] ?? 0) === (int)$saved['id']) {
+                    $event = $candidate;
+                    break;
+                }
+            }
+            if (!is_array($event) || ($event['readback_verified'] ?? false) !== true) {
+                throw new \RuntimeException('已保存观测未能进入可回读事件流');
+            }
+
+            OperationLog::record(
+                'competitor',
+                'manual_observation',
+                '人工核验并保存 OTA 公开竞品观测: ' . $competitorHotelId,
+                (int)$this->currentUser->id,
+                $systemHotelId,
+                null,
+                [
+                    'audit_type' => 'acquisition',
+                    'outcome' => 'success',
+                    'system_hotel_id' => $systemHotelId,
+                    'competitor_hotel_id' => $competitorHotelId,
+                    'platform' => (string)($saved['canonical_platform'] ?? ''),
+                    'price_log_id' => (int)$saved['id'],
+                    'idempotent_replay' => (bool)$saved['idempotent_replay'],
+                    'readback_verified' => true,
+                    'availability_evidence_eligible' => (bool)($event['availability_evidence_eligible'] ?? false),
+                    'price_evidence_eligible' => (bool)($event['price_evidence_eligible'] ?? false),
+                ]
+            );
+
+            return $this->success([
+                'id' => (int)$saved['id'],
+                'idempotent_replay' => (bool)$saved['idempotent_replay'],
+                'readback_verified' => true,
+                'availability_evidence_eligible' => (bool)($event['availability_evidence_eligible'] ?? false),
+                'price_evidence_eligible' => (bool)($event['price_evidence_eligible'] ?? false),
+                'decision_eligible' => (bool)($event['price_evidence_eligible'] ?? false),
+                'event' => $event,
+                'scope_notice' => '人工核验的 OTA 公开起价只形成渠道可售事件；同口径信息不完整时不进入收益定价。',
+            ], (bool)$saved['idempotent_replay'] ? '相同观测已存在，已完成回读' : '真实公开观测已保存并回读');
+        } catch (\InvalidArgumentException $exception) {
+            return $this->error($exception->getMessage(), 422, [
+                'reason' => 'competitor_manual_observation_invalid',
+            ]);
+        } catch (\Throwable $exception) {
+            \think\facade\Log::error('Competitor manual observation persistence failed.', [
+                'exception_type' => get_debug_type($exception),
+                'system_hotel_id' => $systemHotelId,
+                'competitor_hotel_id' => $competitorHotelId,
+            ]);
+            return $this->error('真实竞品观测保存或回读失败', 500, [
+                'reason' => 'competitor_manual_observation_persistence_failed',
+            ]);
+        }
+    }
+
     public function task(): Response
     {
-        $deviceId = (string)$this->request->post('device_id', '');
-        $platform = (string)$this->request->post('platform', '');
+        $deviceId = trim((string)$this->request->post('device_id', ''));
+        $platform = trim((string)$this->request->post('platform', ''));
+        $storeId = (int)$this->request->post('store_id', 0);
         $token = $this->extractTaskToken();
 
         $rateLimitResponse = $this->enforceExternalRateLimit('task', $this->externalRateLimitIdentity($deviceId, $platform), 30, 60);
@@ -97,64 +270,56 @@ class CompetitorApi extends Base
             return $rateLimitResponse;
         }
 
-        $expectedToken = $this->getTaskToken();
-        if ($expectedToken === '') {
-            OperationLog::record('competitor', 'task_denied', '竞对任务领取失败: 未配置Token', null, null, 'missing_task_token', [
-                'audit_type' => 'operation',
-                'device_id' => $this->sanitizeExternalAuditText($deviceId),
-                'platform' => $this->sanitizeExternalAuditText($platform),
-            ]);
-            return $this->apiError('未配置COMPETITOR_TASK_TOKEN', 403);
-        }
-
-        if ($token === '' || !hash_equals($expectedToken, $token)) {
-            OperationLog::record('competitor', 'task_denied', '竞对任务领取失败: token无效', null, null, 'invalid_task_token', [
-                'audit_type' => 'operation',
-                'device_id' => $this->sanitizeExternalAuditText($deviceId),
-                'platform' => $this->sanitizeExternalAuditText($platform),
-            ]);
-            return $this->apiError('token无效', 403);
-        }
-        if ($deviceId === '' || $platform === '') {
+        if ($deviceId === '' || $platform === '' || $storeId <= 0) {
             OperationLog::record('competitor', 'task_denied', '竞对任务领取失败: 参数不完整', null, null, 'invalid_task_payload', [
                 'audit_type' => 'operation',
+                'outcome' => 'denied',
                 'device_id' => $this->sanitizeExternalAuditText($deviceId),
                 'platform' => $this->sanitizeExternalAuditText($platform),
+                'requested_store_id' => $storeId,
             ]);
             return $this->apiError('参数不完整', 400);
         }
         if (!in_array($platform, CompetitorHotel::platformCodes(), true)) {
             OperationLog::record('competitor', 'task_denied', '竞对任务领取失败: 平台不受支持', null, null, 'unsupported_platform', [
                 'audit_type' => 'operation',
+                'outcome' => 'denied',
                 'device_id' => $this->sanitizeExternalAuditText($deviceId),
                 'platform' => $this->sanitizeExternalAuditText($platform),
+                'requested_store_id' => $storeId,
             ]);
             return $this->apiError('平台不受支持', 400);
         }
 
-        $now = date('Y-m-d H:i:s');
-        $oneHourAgo = date('Y-m-d H:i:s', strtotime('-1 hour'));
-
-        // 更新设备在线时间
-        $device = CompetitorDevice::where('device_id', $deviceId)->find();
-        if ($device && (int)$device->status !== 1) {
-            OperationLog::record('competitor', 'task_denied', '竞对任务领取失败: 设备已停用', null, null, 'device_disabled', [
+        $device = (new CompetitorDeviceAuthService())->findAuthorizedBinding(
+            $deviceId,
+            $platform,
+            $storeId,
+            $token
+        );
+        if (!$device) {
+            OperationLog::record('competitor', 'task_denied', '竞对任务领取失败: 设备绑定或Token无效', null, null, 'device_binding_invalid', [
                 'audit_type' => 'operation',
+                'outcome' => 'denied',
                 'device_id' => $this->sanitizeExternalAuditText($deviceId),
                 'platform' => $this->sanitizeExternalAuditText($platform),
+                'requested_store_id' => $storeId,
             ]);
-            return $this->apiError('设备已停用', 403);
+            return $this->apiError('设备未绑定该门店、已停用或Token无效', 403);
         }
-        if (!$device) {
-            $device = new CompetitorDevice();
-            $device->device_id = $deviceId;
-            $device->name = $deviceId;
-            $device->status = 1;
-        }
+
+        $now = date('Y-m-d H:i:s');
+        $oneHourAgo = date('Y-m-d H:i:s', strtotime('-1 hour'));
         $device->last_time = $now;
         $device->save();
 
-        $query = CompetitorHotel::where('status', 1)->where('platform', $platform);
+        $tenantId = (int)$device->tenant_id;
+        $bindingId = (int)$device->id;
+        $tokenVersion = max(1, (int)$device->token_version);
+        $query = CompetitorHotel::where('status', 1)
+            ->where('platform', $platform)
+            ->where('store_id', $storeId)
+            ->where('tenant_id', $tenantId);
 
         // 同一酒店每小时只抓1次
         $query->whereNotExists(function ($sub) use ($oneHourAgo, $platform) {
@@ -167,24 +332,38 @@ class CompetitorApi extends Base
 
         $list = $query->limit(5)->select()->toArray();
 
-        $data = array_map(function ($item) {
+        $defaultCheckInDate = date('Y-m-d', strtotime('+1 day'));
+        $defaultCheckOutDate = date('Y-m-d', strtotime('+2 days'));
+        $data = array_map(function ($item) use ($defaultCheckInDate, $defaultCheckOutDate) {
             return [
                 'store_id' => (int)$item['store_id'],
                 'hotel_id' => (int)$item['id'],
                 'city' => $item['city'],
                 'hotel_name' => $item['hotel_name'],
                 'platform' => $item['platform'],
+                'ota_hotel_id' => trim((string)($item['hotel_code'] ?? '')),
+                'capture_scope' => [
+                    'check_in_date' => $defaultCheckInDate,
+                    'check_out_date' => $defaultCheckOutDate,
+                    'adults' => 2,
+                    'children' => 0,
+                    'currency' => 'CNY',
+                    'price_basis' => 'per_room_per_night',
+                    'availability_values' => ['available', 'bookable', 'unavailable', 'sold_out'],
+                ],
             ];
         }, $list);
 
         // Claim each task before returning it. A task owned by another active
         // device is skipped, so concurrent pollers never receive the same job.
-        $data = array_values(array_filter($data, function (array $item) use ($deviceId): bool {
+        $data = array_values(array_filter($data, function (array $item) use ($deviceId, $bindingId, $tokenVersion): bool {
             return $this->rememberTaskAssignment(
                 $deviceId,
                 (string)($item['platform'] ?? ''),
                 (int)($item['store_id'] ?? 0),
-                (int)($item['hotel_id'] ?? 0)
+                (int)($item['hotel_id'] ?? 0),
+                $bindingId,
+                $tokenVersion
             );
         }));
 
@@ -193,30 +372,46 @@ class CompetitorApi extends Base
             $storeId = (int)($item['store_id'] ?? 0);
             $hotelId = (int)($item['hotel_id'] ?? 0);
             $itemPlatform = (string)($item['platform'] ?? '');
-            if (!$this->rememberTaskAssignment($deviceId, $itemPlatform, $storeId, $hotelId)) {
+            if (!$this->rememberTaskAssignment($deviceId, $itemPlatform, $storeId, $hotelId, $bindingId, $tokenVersion)) {
                 foreach ($rememberedAssignments as $assignment) {
                     cache($this->taskAssignmentCacheKey(
                         $deviceId,
                         (string)$assignment['platform'],
                         (int)$assignment['store_id'],
-                        (int)$assignment['hotel_id']
+                        (int)$assignment['hotel_id'],
+                        $bindingId,
+                        $tokenVersion
                     ), null);
                 }
-                OperationLog::record('competitor', 'task_denied', '竞对任务领取失败: 无法保存设备任务归属', null, null, 'task_assignment_unavailable', [
+                OperationLog::record('competitor', 'task_denied', '竞对任务领取失败: 无法保存设备任务归属', null, $storeId, 'task_assignment_unavailable', [
                     'audit_type' => 'operation',
+                    'outcome' => 'failed',
+                    'tenant_id' => $tenantId,
                     'device_id' => $this->sanitizeExternalAuditText($deviceId),
                     'platform' => $this->sanitizeExternalAuditText($platform),
+                    'store_id' => $storeId,
+                    'binding_id' => $bindingId,
+                    'token_version' => $tokenVersion,
                 ]);
                 return $this->apiError('任务归属暂不可用，请稍后重试', 503);
             }
             $rememberedAssignments[] = $item;
         }
 
-        OperationLog::record('competitor', 'task', '领取竞对采集任务: ' . count($data) . '条', null, null, null, [
+        OperationLog::record('competitor', 'task', '领取竞对采集任务: ' . count($data) . '条', null, $storeId, null, [
             'audit_type' => 'acquisition',
+            'outcome' => 'success',
+            'tenant_id' => $tenantId,
             'device_id' => $this->sanitizeExternalAuditText($deviceId),
             'platform' => $this->sanitizeExternalAuditText($platform),
+            'store_id' => $storeId,
+            'binding_id' => $bindingId,
+            'token_version' => $tokenVersion,
             'task_count' => count($data),
+            'target_competitor_hotel_ids' => array_values(array_map(
+                static fn(array $item): int => (int)($item['hotel_id'] ?? 0),
+                $data
+            )),
         ]);
 
         return json(['code' => 200, 'message' => 'ok', 'data' => $data]);
@@ -243,83 +438,123 @@ class CompetitorApi extends Base
     {
         $storeId = (int)$this->request->post('store_id', 0);
         $hotelId = (int)$this->request->post('hotel_id', 0);
-        $platform = (string)$this->request->post('platform', '');
-        $city = (string)$this->request->post('city', '');
+        $platform = trim((string)$this->request->post('platform', ''));
+        $city = trim((string)$this->request->post('city', ''));
         $priceText = (string)$this->request->post('price_text', '');
         $base64 = (string)$this->request->post('base64', '');
-        $deviceId = (string)$this->request->post('device_id', '');
+        $deviceId = trim((string)$this->request->post('device_id', ''));
 
         $rateLimitResponse = $this->enforceExternalRateLimit('report', $this->externalRateLimitIdentity($deviceId, $platform), 60, 60);
         if ($rateLimitResponse !== null) {
             return $rateLimitResponse;
         }
 
-        $expectedToken = $this->getReportToken();
-        if ($expectedToken === '') {
-            OperationLog::record('competitor', 'report_denied', '竞对价格上报失败: 未配置Token', null, $hotelId > 0 ? $hotelId : null, 'missing_report_token', [
-                'audit_type' => 'operation',
-                'device_id' => $this->sanitizeExternalAuditText($deviceId),
-                'platform' => $this->sanitizeExternalAuditText($platform),
-            ]);
-            return $this->apiError('未配置COMPETITOR_REPORT_TOKEN', 403);
-        }
-
-        if (!$this->isValidReportToken($expectedToken)) {
-            OperationLog::record('competitor', 'report_denied', '竞对价格上报失败: report_token无效', null, $hotelId > 0 ? $hotelId : null, 'invalid_report_token', [
-                'audit_type' => 'operation',
-                'device_id' => $this->sanitizeExternalAuditText($deviceId),
-                'platform' => $this->sanitizeExternalAuditText($platform),
-            ]);
-            return $this->apiError('report_token无效', 403);
-        }
-
         if ($storeId <= 0 || $hotelId <= 0 || $platform === '' || $city === '' || $deviceId === '') {
-            OperationLog::record('competitor', 'report_denied', '竞对价格上报失败: 参数不完整', null, $hotelId > 0 ? $hotelId : null, 'invalid_report_payload', [
+            OperationLog::record('competitor', 'report_denied', '竞对价格上报失败: 参数不完整', null, null, 'invalid_report_payload', [
                 'audit_type' => 'operation',
+                'outcome' => 'denied',
                 'device_id' => $this->sanitizeExternalAuditText($deviceId),
                 'platform' => $this->sanitizeExternalAuditText($platform),
-                'store_id' => $storeId,
+                'requested_store_id' => $storeId,
+                'competitor_hotel_id' => $hotelId,
             ]);
             return $this->apiError('参数不完整', 400);
         }
-
-        $device = CompetitorDevice::where('device_id', $deviceId)->find();
-        if (!$device || (int)$device->status !== 1) {
-            OperationLog::record('competitor', 'report_denied', '竞对价格上报失败: 设备未登记或已停用', null, $hotelId, 'device_not_active', [
+        if (!in_array($platform, CompetitorHotel::platformCodes(), true)) {
+            OperationLog::record('competitor', 'report_denied', '竞对价格上报失败: 平台不受支持', null, null, 'unsupported_platform', [
                 'audit_type' => 'operation',
+                'outcome' => 'denied',
+                'device_id' => $this->sanitizeExternalAuditText($deviceId),
+                'platform' => $this->sanitizeExternalAuditText($platform),
+                'requested_store_id' => $storeId,
+                'competitor_hotel_id' => $hotelId,
+            ]);
+            return $this->apiError('平台不受支持', 400);
+        }
+
+        $device = CompetitorDevice::where('device_id', $deviceId)
+            ->where('platform', $platform)
+            ->where('store_id', $storeId)
+            ->where('status', 1)
+            ->whereNull('revoked_at')
+            ->find();
+        if (!$device) {
+            OperationLog::record('competitor', 'report_denied', '竞对价格上报失败: 设备未登记或已停用', null, null, 'device_not_active', [
+                'audit_type' => 'operation',
+                'outcome' => 'denied',
+                'device_id' => $this->sanitizeExternalAuditText($deviceId),
+                'platform' => $this->sanitizeExternalAuditText($platform),
+                'requested_store_id' => $storeId,
+                'competitor_hotel_id' => $hotelId,
+            ]);
+            return $this->apiError('设备未绑定该门店或已停用', 403);
+        }
+
+        $expectedToken = (string)($device->token_hash ?? '');
+        if (!$this->isValidReportToken($expectedToken)) {
+            OperationLog::record('competitor', 'report_denied', '竞对价格上报失败: 设备Token无效', null, $storeId, 'invalid_report_token', [
+                'audit_type' => 'operation',
+                'outcome' => 'denied',
+                'tenant_id' => (int)$device->tenant_id,
                 'device_id' => $this->sanitizeExternalAuditText($deviceId),
                 'platform' => $this->sanitizeExternalAuditText($platform),
                 'store_id' => $storeId,
+                'competitor_hotel_id' => $hotelId,
             ]);
-            return $this->apiError('设备未登记或已停用，请先领取任务', 403);
+            return $this->apiError('设备Token无效', 403);
+        }
+        if (!(new CompetitorDeviceAuthService())->bindingScopeIsActive($device)) {
+            OperationLog::record('competitor', 'report_denied', '竞对价格上报失败: 设备绑定权限已失效', null, $storeId, 'device_scope_inactive', [
+                'audit_type' => 'operation',
+                'outcome' => 'denied',
+                'tenant_id' => (int)$device->tenant_id,
+                'device_id' => $this->sanitizeExternalAuditText($deviceId),
+                'platform' => $this->sanitizeExternalAuditText($platform),
+                'store_id' => $storeId,
+                'competitor_hotel_id' => $hotelId,
+            ]);
+            return $this->apiError('设备绑定用户已无该门店采集权限', 403);
         }
 
+        $tenantId = (int)$device->tenant_id;
+        $bindingId = (int)$device->id;
+        $tokenVersion = max(1, (int)$device->token_version);
         $target = CompetitorHotel::where('id', $hotelId)
+            ->where('tenant_id', $tenantId)
             ->where('store_id', $storeId)
             ->where('platform', $platform)
             ->where('status', 1)
             ->find();
         if (!$target) {
-            OperationLog::record('competitor', 'report_denied', '竞对价格上报失败: 竞对酒店不存在或未启用', null, $hotelId, 'competitor_hotel_not_found', [
+            OperationLog::record('competitor', 'report_denied', '竞对价格上报失败: 竞对酒店不存在或未启用', null, $storeId, 'competitor_hotel_not_found', [
                 'audit_type' => 'operation',
+                'outcome' => 'denied',
+                'tenant_id' => $tenantId,
                 'device_id' => $this->sanitizeExternalAuditText($deviceId),
                 'platform' => $this->sanitizeExternalAuditText($platform),
                 'store_id' => $storeId,
+                'competitor_hotel_id' => $hotelId,
             ]);
             return $this->apiError('竞对酒店不存在或未启用', 403);
         }
 
         $city = (string)($target->city ?? $city);
-        $price = $this->extractPrice($priceText);
-        if (!$this->isValidReportPrice($price)) {
-            OperationLog::record('competitor', 'report_denied', '竞对价格上报失败: 未识别到有效价格', null, $hotelId, 'invalid_report_price', [
+        $availability = strtolower(trim((string)$this->request->post('availability', '')));
+        $extractedPrice = $this->extractPrice($priceText);
+        $price = $this->isValidReportPrice($extractedPrice) ? $extractedPrice : null;
+        if ($price === null && !$this->allowsMissingPriceForAvailability($availability)) {
+            OperationLog::record('competitor', 'report_denied', '竞对事件上报失败: 可订状态未识别到有效价格', null, $storeId, 'invalid_report_price', [
                 'audit_type' => 'operation',
+                'outcome' => 'denied',
+                'tenant_id' => $tenantId,
                 'device_id' => $this->sanitizeExternalAuditText($deviceId),
                 'platform' => $this->sanitizeExternalAuditText($platform),
                 'store_id' => $storeId,
+                'competitor_hotel_id' => $hotelId,
                 'price_text' => $this->sanitizeExternalAuditText($priceText),
+                'availability' => $this->sanitizeExternalAuditText($availability),
             ]);
-            return $this->apiError('未识别到有效竞对价格', 400);
+            return $this->apiError('可订事件必须包含有效竞对价格；仅售罄或不可订事件可不含价格', 400);
         }
         $rateContext = $this->normalizeCompetitorRateContext([
             'ota_hotel_id' => $this->request->post('ota_hotel_id', ''),
@@ -340,13 +575,26 @@ class CompetitorApi extends Base
             'tax_fee_included' => $this->request->post('tax_fee_included', null),
             'price_basis' => $this->request->post('price_basis', ''),
             'currency' => $this->request->post('currency', ''),
-            'availability' => $this->request->post('availability', ''),
+            'availability' => $availability,
         ], $platform, $price);
 
-        $reportFingerprint = $this->reportFingerprint($deviceId, $platform, $storeId, $hotelId, $price, $base64);
-        if (!$this->hasTaskAssignment($deviceId, $platform, $storeId, $hotelId)) {
-            $completedReport = $this->completedReport($deviceId, $platform, $storeId, $hotelId, $reportFingerprint);
+        $reportFingerprint = $this->reportFingerprint($deviceId, $platform, $storeId, $hotelId, $price, $base64, $availability);
+        if (!$this->hasTaskAssignment($deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion)) {
+            $completedReport = $this->completedReport($deviceId, $platform, $storeId, $hotelId, $reportFingerprint, $bindingId, $tokenVersion);
             if ($completedReport !== null) {
+                OperationLog::record('competitor', 'report_replayed', '竞对价格上报命中幂等结果', null, $storeId, null, [
+                    'audit_type' => 'operation',
+                    'outcome' => 'success',
+                    'tenant_id' => $tenantId,
+                    'device_id' => $this->sanitizeExternalAuditText($deviceId),
+                    'platform' => $this->sanitizeExternalAuditText($platform),
+                    'store_id' => $storeId,
+                    'competitor_hotel_id' => $hotelId,
+                    'binding_id' => $bindingId,
+                    'token_version' => $tokenVersion,
+                    'price_log_id' => (int)$completedReport['id'],
+                    'idempotent_replay' => true,
+                ]);
                 return json([
                     'code' => 200,
                     'message' => 'ok',
@@ -357,11 +605,16 @@ class CompetitorApi extends Base
                 ]);
             }
 
-            OperationLog::record('competitor', 'report_denied', '竞对价格上报失败: 设备未领取该任务或任务已过期', null, $hotelId, 'task_assignment_missing', [
+            OperationLog::record('competitor', 'report_denied', '竞对价格上报失败: 设备未领取该任务或任务已过期', null, $storeId, 'task_assignment_missing', [
                 'audit_type' => 'operation',
+                'outcome' => 'denied',
+                'tenant_id' => $tenantId,
                 'device_id' => $this->sanitizeExternalAuditText($deviceId),
                 'platform' => $this->sanitizeExternalAuditText($platform),
                 'store_id' => $storeId,
+                'competitor_hotel_id' => $hotelId,
+                'binding_id' => $bindingId,
+                'token_version' => $tokenVersion,
             ]);
             return $this->apiError('该任务未由当前设备领取或已过期，请重新领取任务', 403);
         }
@@ -371,21 +624,39 @@ class CompetitorApi extends Base
             try {
                 $screenshotPath = $this->saveBase64Image($base64);
             } catch (\InvalidArgumentException $e) {
-                OperationLog::record('competitor', 'report_denied', '竞对价格上报失败: 截图格式不合规', null, $hotelId, 'invalid_report_screenshot', [
+                OperationLog::record('competitor', 'report_denied', '竞对价格上报失败: 截图格式不合规', null, $storeId, 'invalid_report_screenshot', [
                     'audit_type' => 'operation',
+                    'outcome' => 'denied',
+                    'tenant_id' => $tenantId,
                     'device_id' => $this->sanitizeExternalAuditText($deviceId),
                     'platform' => $this->sanitizeExternalAuditText($platform),
                     'store_id' => $storeId,
+                    'competitor_hotel_id' => $hotelId,
+                    'binding_id' => $bindingId,
+                    'token_version' => $tokenVersion,
                 ]);
                 $status = $e->getCode() >= 400 && $e->getCode() <= 599 ? $e->getCode() : 400;
                 return $this->apiError($e->getMessage(), $status);
             }
         }
 
-        if (!$this->consumeTaskAssignment($deviceId, $platform, $storeId, $hotelId)) {
+        if (!$this->consumeTaskAssignment($deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion)) {
             $this->removeSavedScreenshot($screenshotPath);
-            $completedReport = $this->completedReport($deviceId, $platform, $storeId, $hotelId, $reportFingerprint);
+            $completedReport = $this->completedReport($deviceId, $platform, $storeId, $hotelId, $reportFingerprint, $bindingId, $tokenVersion);
             if ($completedReport !== null) {
+                OperationLog::record('competitor', 'report_replayed', '竞对价格上报命中幂等结果', null, $storeId, null, [
+                    'audit_type' => 'operation',
+                    'outcome' => 'success',
+                    'tenant_id' => $tenantId,
+                    'device_id' => $this->sanitizeExternalAuditText($deviceId),
+                    'platform' => $this->sanitizeExternalAuditText($platform),
+                    'store_id' => $storeId,
+                    'competitor_hotel_id' => $hotelId,
+                    'binding_id' => $bindingId,
+                    'token_version' => $tokenVersion,
+                    'price_log_id' => (int)$completedReport['id'],
+                    'idempotent_replay' => true,
+                ]);
                 return json([
                     'code' => 200,
                     'message' => 'ok',
@@ -395,6 +666,17 @@ class CompetitorApi extends Base
                     ],
                 ]);
             }
+            OperationLog::record('competitor', 'report_denied', '竞对价格上报失败: 任务正在处理或已完成', null, $storeId, 'task_assignment_conflict', [
+                'audit_type' => 'operation',
+                'outcome' => 'denied',
+                'tenant_id' => $tenantId,
+                'device_id' => $this->sanitizeExternalAuditText($deviceId),
+                'platform' => $this->sanitizeExternalAuditText($platform),
+                'store_id' => $storeId,
+                'competitor_hotel_id' => $hotelId,
+                'binding_id' => $bindingId,
+                'token_version' => $tokenVersion,
+            ]);
             return $this->apiError('该任务正在处理或已完成，请勿重复上报', 409);
         }
 
@@ -422,8 +704,12 @@ class CompetitorApi extends Base
                     ->where('store_id', $storeId)
                     ->where('hotel_id', $hotelId)
                     ->find();
+                $readbackPrice = $readback ? $readback->getData('price') : null;
+                $priceReadbackMatches = $price === null
+                    ? $readbackPrice === null
+                    : is_numeric($readbackPrice) && abs((float)$readbackPrice - $price) < 0.001;
                 $readbackVerified = $readback
-                    && abs((float)$readback->price - $price) < 0.001
+                    && $priceReadbackMatches
                     && (string)($readback->content_hash ?? '') === (string)$rateContext['content_hash'];
                 $log->readback_verified = $readbackVerified ? 1 : 0;
                 if (!$readbackVerified) {
@@ -433,25 +719,67 @@ class CompetitorApi extends Base
                 $log->save();
             }
         } catch (\Throwable $e) {
-            $this->rememberTaskAssignment($deviceId, $platform, $storeId, $hotelId);
+            $this->rememberTaskAssignment($deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion);
             $this->removeSavedScreenshot($screenshotPath);
+            try {
+                OperationLog::record('competitor', 'report_failed', '竞对价格上报持久化失败', null, $storeId, 'report_persist_failed:' . get_debug_type($e), [
+                    'audit_type' => 'operation',
+                    'outcome' => 'failed',
+                    'tenant_id' => $tenantId,
+                    'device_id' => $this->sanitizeExternalAuditText($deviceId),
+                    'platform' => $this->sanitizeExternalAuditText($platform),
+                    'store_id' => $storeId,
+                    'competitor_hotel_id' => $hotelId,
+                    'binding_id' => $bindingId,
+                    'token_version' => $tokenVersion,
+                    'failure_stage' => 'persistence',
+                ]);
+            } catch (\Throwable $auditError) {
+                \think\facade\Log::error('Competitor report audit persistence failed.', [
+                    'exception_type' => get_debug_type($auditError),
+                    'store_id' => $storeId,
+                    'competitor_hotel_id' => $hotelId,
+                ]);
+            }
             throw $e;
         }
 
-        $this->rememberCompletedReport($deviceId, $platform, $storeId, $hotelId, $reportFingerprint, (int)$log->id);
+        $this->rememberCompletedReport($deviceId, $platform, $storeId, $hotelId, $reportFingerprint, (int)$log->id, $bindingId, $tokenVersion);
 
         // 更新设备在线时间
         $device->last_time = date('Y-m-d H:i:s');
         $device->save();
 
-        OperationLog::record('competitor', 'report', '上报竞对价格: ' . $hotelId, null, $hotelId, null, [
+        $comparabilityReady = $this->competitorRateComparabilitySchemaReady();
+        $readbackVerified = !$comparabilityReady || (int)($log->readback_verified ?? 0) === 1;
+        $auditError = $readbackVerified ? null : 'saved_row_readback_mismatch';
+        OperationLog::record('competitor', $auditError === null ? 'report' : 'report_failed', '上报竞对价格/可售事件: ' . $hotelId, null, $storeId, $auditError, [
             'audit_type' => 'operation',
+            'outcome' => $auditError === null ? 'success' : 'failed',
+            'tenant_id' => $tenantId,
             'device_id' => $this->sanitizeExternalAuditText($deviceId),
             'platform' => $this->sanitizeExternalAuditText($platform),
             'store_id' => $storeId,
+            'competitor_hotel_id' => $hotelId,
+            'binding_id' => $bindingId,
+            'token_version' => $tokenVersion,
             'price' => $price,
             'price_log_id' => (int)$log->id,
+            'validation_status' => $comparabilityReady
+                ? (string)($log->validation_status ?? 'unverified')
+                : 'schema_pending',
+            'readback_verified' => $readbackVerified,
         ]);
+
+        $availabilityEvidenceEligible = $comparabilityReady
+            && (string)($log->validation_status ?? '') === 'valid'
+            && (int)($log->readback_verified ?? 0) === 1
+            && trim((string)($log->availability_scope_key ?? '')) !== ''
+            && $this->isValidAvailabilityStatus((string)($log->availability ?? ''));
+        $priceEvidenceEligible = $availabilityEvidenceEligible
+            && $this->isBookableAvailability((string)($log->availability ?? ''))
+            && trim((string)($log->comparison_key ?? '')) !== ''
+            && $price !== null;
 
         return json(['code' => 200, 'message' => 'ok', 'data' => [
             'id' => $log->id,
@@ -461,10 +789,9 @@ class CompetitorApi extends Base
             'readback_verified' => $this->competitorRateComparabilitySchemaReady()
                 ? (int)($log->readback_verified ?? 0) === 1
                 : false,
-            'decision_eligible' => $this->competitorRateComparabilitySchemaReady()
-                && (string)($log->validation_status ?? '') === 'valid'
-                && (int)($log->readback_verified ?? 0) === 1
-                && trim((string)($log->comparison_key ?? '')) !== '',
+            'availability_evidence_eligible' => $availabilityEvidenceEligible,
+            'price_evidence_eligible' => $priceEvidenceEligible,
+            'decision_eligible' => $priceEvidenceEligible,
         ]]);
     }
 
@@ -472,7 +799,7 @@ class CompetitorApi extends Base
     {
         $token = $this->extractReportToken();
 
-        return $token !== '' && hash_equals($expectedToken, $token);
+        return (new CompetitorDeviceAuthService())->verifyTokenHash($token, $expectedToken);
     }
 
     private function extractTaskToken(): string
@@ -485,47 +812,67 @@ class CompetitorApi extends Base
         return trim((string)$this->request->header('X-Report-Token', ''));
     }
 
-    private function getReportToken(): string
+    private function taskAssignmentCacheKey(
+        string $deviceId,
+        string $platform,
+        int $storeId,
+        int $hotelId,
+        int $bindingId = 0,
+        int $tokenVersion = 0
+    ): string
     {
-        return trim((string)env(self::REPORT_TOKEN_ENV, ''));
-    }
-
-    private function getTaskToken(): string
-    {
-        return trim((string)env(self::TASK_TOKEN_ENV, ''));
-    }
-
-    private function taskAssignmentCacheKey(string $deviceId, string $platform, int $storeId, int $hotelId): string
-    {
-        return 'competitor_task_assignment_' . $this->hashScopeValues([
+        return 'competitor_task_assignment_v2_' . $this->hashScopeValues([
             trim($deviceId),
             trim($platform),
             (string)$storeId,
             (string)$hotelId,
+            (string)$bindingId,
+            (string)$tokenVersion,
         ]);
     }
 
     private function taskOwnershipCacheKey(string $platform, int $storeId, int $hotelId): string
     {
-        return 'competitor_task_owner_' . $this->hashScopeValues([
+        return 'competitor_task_owner_v2_' . $this->hashScopeValues([
             trim($platform),
             (string)$storeId,
             (string)$hotelId,
         ]);
     }
 
-    private function completedReportCacheKey(string $deviceId, string $platform, int $storeId, int $hotelId): string
+    private function completedReportCacheKey(
+        string $deviceId,
+        string $platform,
+        int $storeId,
+        int $hotelId,
+        int $bindingId = 0,
+        int $tokenVersion = 0
+    ): string
     {
-        return $this->taskAssignmentCacheKey($deviceId, $platform, $storeId, $hotelId) . '_completed';
+        return $this->taskAssignmentCacheKey(
+            $deviceId,
+            $platform,
+            $storeId,
+            $hotelId,
+            $bindingId,
+            $tokenVersion
+        ) . '_completed';
     }
 
-    private function rememberTaskAssignment(string $deviceId, string $platform, int $storeId, int $hotelId): bool
+    private function rememberTaskAssignment(
+        string $deviceId,
+        string $platform,
+        int $storeId,
+        int $hotelId,
+        int $bindingId = 0,
+        int $tokenVersion = 0
+    ): bool
     {
         if ($deviceId === '' || $platform === '' || $storeId <= 0 || $hotelId <= 0) {
             return false;
         }
 
-        return $this->withTaskAssignmentLock($platform, $storeId, $hotelId, function () use ($deviceId, $platform, $storeId, $hotelId): bool {
+        return $this->withTaskAssignmentLock($platform, $storeId, $hotelId, function () use ($deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion): bool {
             $ownerKey = $this->taskOwnershipCacheKey($platform, $storeId, $hotelId);
             $owner = cache($ownerKey);
             if (is_array($owner)
@@ -539,13 +886,15 @@ class CompetitorApi extends Base
                 'platform' => $platform,
                 'store_id' => $storeId,
                 'hotel_id' => $hotelId,
+                'binding_id' => $bindingId,
+                'token_version' => $tokenVersion,
                 'issued_at' => time(),
             ];
             if (!cache($ownerKey, $assignment, self::TASK_ASSIGNMENT_TTL_SECONDS)) {
                 return false;
             }
             $stored = cache(
-                $this->taskAssignmentCacheKey($deviceId, $platform, $storeId, $hotelId),
+                $this->taskAssignmentCacheKey($deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion),
                 $assignment,
                 self::TASK_ASSIGNMENT_TTL_SECONDS
             );
@@ -553,14 +902,21 @@ class CompetitorApi extends Base
                 cache($ownerKey, null);
                 return false;
             }
-            cache($this->completedReportCacheKey($deviceId, $platform, $storeId, $hotelId), null);
+            cache($this->completedReportCacheKey($deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion), null);
             return true;
         });
     }
 
-    private function hasTaskAssignment(string $deviceId, string $platform, int $storeId, int $hotelId): bool
+    private function hasTaskAssignment(
+        string $deviceId,
+        string $platform,
+        int $storeId,
+        int $hotelId,
+        int $bindingId = 0,
+        int $tokenVersion = 0
+    ): bool
     {
-        $assignment = cache($this->taskAssignmentCacheKey($deviceId, $platform, $storeId, $hotelId));
+        $assignment = cache($this->taskAssignmentCacheKey($deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion));
         $owner = cache($this->taskOwnershipCacheKey($platform, $storeId, $hotelId));
 
         return is_array($assignment)
@@ -569,17 +925,28 @@ class CompetitorApi extends Base
             && hash_equals((string)($owner['device_id'] ?? ''), $deviceId)
             && hash_equals((string)($assignment['platform'] ?? ''), $platform)
             && (int)($assignment['store_id'] ?? 0) === $storeId
-            && (int)($assignment['hotel_id'] ?? 0) === $hotelId;
+            && (int)($assignment['hotel_id'] ?? 0) === $hotelId
+            && (int)($assignment['binding_id'] ?? -1) === $bindingId
+            && (int)($assignment['token_version'] ?? -1) === $tokenVersion
+            && (int)($owner['binding_id'] ?? -1) === $bindingId
+            && (int)($owner['token_version'] ?? -1) === $tokenVersion;
     }
 
-    private function consumeTaskAssignment(string $deviceId, string $platform, int $storeId, int $hotelId): bool
+    private function consumeTaskAssignment(
+        string $deviceId,
+        string $platform,
+        int $storeId,
+        int $hotelId,
+        int $bindingId = 0,
+        int $tokenVersion = 0
+    ): bool
     {
-        return $this->withTaskAssignmentLock($platform, $storeId, $hotelId, function () use ($deviceId, $platform, $storeId, $hotelId): bool {
-            if (!$this->hasTaskAssignment($deviceId, $platform, $storeId, $hotelId)) {
+        return $this->withTaskAssignmentLock($platform, $storeId, $hotelId, function () use ($deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion): bool {
+            if (!$this->hasTaskAssignment($deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion)) {
                 return false;
             }
             $assignmentDeleted = (bool)cache(
-                $this->taskAssignmentCacheKey($deviceId, $platform, $storeId, $hotelId),
+                $this->taskAssignmentCacheKey($deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion),
                 null
             );
             $ownerDeleted = (bool)cache($this->taskOwnershipCacheKey($platform, $storeId, $hotelId), null);
@@ -621,15 +988,17 @@ class CompetitorApi extends Base
         string $platform,
         int $storeId,
         int $hotelId,
-        float $price,
-        string $base64
+        ?float $price,
+        string $base64,
+        string $availability = ''
     ): string {
         return $this->hashScopeValues([
             $deviceId,
             $platform,
             (string)$storeId,
             (string)$hotelId,
-            number_format($price, 2, '.', ''),
+            $price === null ? 'price:null' : number_format($price, 2, '.', ''),
+            strtolower(trim($availability)),
             $base64 === '' ? '' : hash('sha256', $base64),
         ]);
     }
@@ -651,9 +1020,11 @@ class CompetitorApi extends Base
         int $storeId,
         int $hotelId,
         string $fingerprint,
-        int $logId
+        int $logId,
+        int $bindingId = 0,
+        int $tokenVersion = 0
     ): void {
-        cache($this->completedReportCacheKey($deviceId, $platform, $storeId, $hotelId), [
+        cache($this->completedReportCacheKey($deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion), [
             'fingerprint' => $fingerprint,
             'id' => $logId,
             'completed_at' => time(),
@@ -666,9 +1037,11 @@ class CompetitorApi extends Base
         string $platform,
         int $storeId,
         int $hotelId,
-        string $fingerprint
+        string $fingerprint,
+        int $bindingId = 0,
+        int $tokenVersion = 0
     ): ?array {
-        $completed = cache($this->completedReportCacheKey($deviceId, $platform, $storeId, $hotelId));
+        $completed = cache($this->completedReportCacheKey($deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion));
         if (!is_array($completed)
             || (int)($completed['id'] ?? 0) <= 0
             || !hash_equals((string)($completed['fingerprint'] ?? ''), $fingerprint)) {
@@ -769,7 +1142,7 @@ class CompetitorApi extends Base
     }
 
     /** @return array<string,mixed> */
-    private function normalizeCompetitorRateContext(array $input, string $platform, float $price): array
+    private function normalizeCompetitorRateContext(array $input, string $platform, ?float $price): array
     {
         $string = fn(string $key, int $limit): string => $this->limitExternalText((string)($input[$key] ?? ''), $limit);
         $checkIn = $this->normalizeExternalDate((string)($input['check_in_date'] ?? ''));
@@ -808,45 +1181,66 @@ class CompetitorApi extends Base
             'availability' => $availability,
         ];
 
-        $missing = [];
-        foreach ([
-            'collected_at', 'source_method', 'source_ref', 'check_in_date', 'check_out_date',
-            'room_type_key', 'rate_plan_key', 'breakfast', 'cancellation_policy',
-            'payment_mode', 'price_basis', 'currency', 'availability',
-        ] as $field) {
+        $availabilityMissing = [];
+        foreach (['collected_at', 'source_method', 'source_ref', 'check_in_date', 'check_out_date', 'currency', 'availability'] as $field) {
             if ($context[$field] === null || trim((string)$context[$field]) === '') {
-                $missing[] = $field;
+                $availabilityMissing[] = $field;
             }
         }
         if ($nights === null || $nights <= 0) {
-            $missing[] = 'valid_stay_window';
+            $availabilityMissing[] = 'valid_stay_window';
         }
         if ($adults === null || $adults <= 0) {
-            $missing[] = 'adults';
+            $availabilityMissing[] = 'adults';
         }
         if ($children === null || $children < 0) {
-            $missing[] = 'children';
+            $availabilityMissing[] = 'children';
         }
-        if ($taxIncluded === null) {
-            $missing[] = 'tax_fee_included';
-        }
-        if (!in_array($availability, ['available', 'bookable'], true)) {
-            $missing[] = 'ota_channel_bookable_status';
+        if (!$this->isValidAvailabilityStatus($availability)) {
+            $availabilityMissing[] = 'ota_channel_availability_status';
         }
 
+        $rateDimensionMissing = $availabilityMissing;
+        foreach (['room_type_key', 'rate_plan_key', 'breakfast', 'cancellation_policy', 'payment_mode', 'price_basis'] as $field) {
+            if ($context[$field] === null || trim((string)$context[$field]) === '') {
+                $rateDimensionMissing[] = $field;
+            }
+        }
+        if ($taxIncluded === null) {
+            $rateDimensionMissing[] = 'tax_fee_included';
+        }
+
+        $availabilityFields = [
+            strtolower(trim($platform)), $context['ota_hotel_id'], $context['source_method'],
+            $context['source_ref'], $checkIn, $checkOut, $context['room_type_key'],
+            $context['ota_product_id'], $context['rate_plan_key'], $context['price_basis'],
+            $currency, $adults, $children,
+        ];
         $comparisonFields = [
-            strtolower(trim($platform)), $checkIn, $checkOut, $context['room_type_key'],
+            strtolower(trim($platform)), $context['ota_hotel_id'], $context['source_method'],
+            $context['source_ref'], $checkIn, $checkOut, $context['room_type_key'],
+            $context['ota_product_id'],
             $context['rate_plan_key'], $context['breakfast'], $context['cancellation_policy'],
-            $context['payment_mode'], $taxIncluded, $context['price_basis'], $currency,
+            $context['payment_mode'], $context['package_name'], $taxIncluded, $context['price_basis'], $currency,
             $adults, $children,
         ];
-        $context['comparison_key'] = $missing === []
+        $context['availability_scope_key'] = $availabilityMissing === []
+            ? hash('sha256', implode('|', array_map(static fn(mixed $value): string => strtolower(trim((string)$value)), $availabilityFields)))
+            : '';
+        $context['comparison_key'] = $rateDimensionMissing === []
             ? hash('sha256', implode('|', array_map(static fn(mixed $value): string => strtolower(trim((string)$value)), $comparisonFields)))
             : '';
-        $context['validation_status'] = $missing === [] ? 'valid' : 'incomplete';
-        $context['failure_reason'] = $missing === []
+        $requiredMissing = $this->isBookableAvailability($availability)
+            ? $rateDimensionMissing
+            : $availabilityMissing;
+        if ($this->isBookableAvailability($availability) && !$this->isValidReportPrice((float)$price)) {
+            $requiredMissing[] = 'price';
+        }
+        $requiredMissing = array_values(array_unique($requiredMissing));
+        $context['validation_status'] = $requiredMissing === [] ? 'valid' : 'incomplete';
+        $context['failure_reason'] = $requiredMissing === []
             ? ''
-            : 'missing_comparability_fields:' . implode(',', array_values(array_unique($missing)));
+            : 'missing_event_evidence_fields:' . implode(',', $requiredMissing);
         $context['content_hash'] = hash('sha256', json_encode(
             ['platform' => strtolower(trim($platform)), 'price' => $price, 'context' => $context],
             JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
@@ -863,6 +1257,7 @@ class CompetitorApi extends Base
         }
         try {
             $ready = !empty(Db::query("SHOW COLUMNS FROM `competitor_price_log` LIKE 'comparison_key'"))
+                && !empty(Db::query("SHOW COLUMNS FROM `competitor_price_log` LIKE 'availability_scope_key'"))
                 && !empty(Db::query("SHOW COLUMNS FROM `competitor_price_log` LIKE 'readback_verified'"));
         } catch (\Throwable) {
             $ready = false;
@@ -952,6 +1347,21 @@ class CompetitorApi extends Base
     private function isValidReportPrice(float $price): bool
     {
         return $price > 0.0;
+    }
+
+    private function isValidAvailabilityStatus(string $availability): bool
+    {
+        return in_array(strtolower(trim($availability)), ['available', 'bookable', 'unavailable', 'sold_out'], true);
+    }
+
+    private function isBookableAvailability(string $availability): bool
+    {
+        return in_array(strtolower(trim($availability)), ['available', 'bookable'], true);
+    }
+
+    private function allowsMissingPriceForAvailability(string $availability): bool
+    {
+        return in_array(strtolower(trim($availability)), ['unavailable', 'sold_out'], true);
     }
 
     private function normalizePriceText(string $text): string

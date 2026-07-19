@@ -12,6 +12,7 @@ use Throwable;
 class ExpansionService
 {
     private LlmClient $client;
+    private AiDecisionQualityService $decisionQualityService;
     private bool $tableEnsured = false;
 
     private const TASKS = [
@@ -24,9 +25,10 @@ class ExpansionService
         '运营交接',
     ];
 
-    public function __construct(?LlmClient $client = null)
+    public function __construct(?LlmClient $client = null, ?AiDecisionQualityService $decisionQualityService = null)
     {
         $this->client = $client ?: new LlmClient();
+        $this->decisionQualityService = $decisionQualityService ?? new AiDecisionQualityService();
     }
 
     public function evaluateMarket(array $input): array
@@ -1023,6 +1025,17 @@ class ExpansionService
     {
         $input = $this->decodeJson($row['input_json'] ?? '');
         $result = $this->decodeJson($row['result_json'] ?? '');
+        $recordType = (string)($row['record_type'] ?? '');
+        if ($recordType === 'market' && is_array($result['ai_evaluation'] ?? null)) {
+            $result['ai_evaluation'] = $this->normalizeMarketAiEvaluation($result['ai_evaluation'], [
+                'decision_quality_context' => $this->expansionDecisionQualityContext($input, $result, 'market'),
+            ]);
+        }
+        if ($recordType === 'benchmark' && is_array($result['ai_evaluation'] ?? null)) {
+            $result['ai_evaluation'] = $this->normalizeBenchmarkAiEvaluation($result['ai_evaluation'], [
+                'decision_quality_context' => $this->expansionDecisionQualityContext($input, $result, 'benchmark'),
+            ]);
+        }
         $record = [
             'id' => (int)$row['id'],
             'record_type' => (string)($row['record_type'] ?? ''),
@@ -1108,13 +1121,14 @@ class ExpansionService
                 'source' => 'llm',
                 'model_key' => $modelKey,
                 'generated_at' => date('Y-m-d H:i:s'),
+                'decision_quality_context' => $this->expansionDecisionQualityContext($input, $result, 'market'),
             ]);
         } catch (Throwable $e) {
-            return $this->buildFallbackMarketAiEvaluation($result, $modelKey, $e->getMessage());
+            return $this->buildFallbackMarketAiEvaluation($input, $result, $modelKey, $e->getMessage());
         }
     }
 
-    private function buildFallbackMarketAiEvaluation(array $result, string $modelKey, string $reason): array
+    private function buildFallbackMarketAiEvaluation(array $input, array $result, string $modelKey, string $reason): array
     {
         $score = (int)($result['market_heat_score'] ?? 0);
         $riskLevel = (string)($result['investment_risk_level'] ?? '中风险');
@@ -1122,7 +1136,7 @@ class ExpansionService
         $suggestions = $this->stringList($result['ai_operation_suggestions'] ?? []);
         $risks = $this->stringList($result['not_recommended_risks'] ?? []);
 
-        return [
+        return $this->normalizeMarketAiEvaluation([
             'source' => 'fallback',
             'model_key' => $modelKey,
             'generated_at' => date('Y-m-d H:i:s'),
@@ -1164,7 +1178,9 @@ class ExpansionService
             'assumptions' => ['AI模型不可用时启用本地规则兜底。', '尚未接入真实市场、竞品和 OTA 复核数据。'],
             'error' => mb_substr(trim($reason), 0, 120),
             'risk_points' => $risks,
-        ];
+        ], [
+            'decision_quality_context' => $this->expansionDecisionQualityContext($input, $result, 'market'),
+        ]);
     }
 
     private function normalizeMarketAiEvaluation(mixed $raw, array $defaults = []): array
@@ -1173,6 +1189,14 @@ class ExpansionService
             $raw = [];
         }
 
+        $decisionQualityContext = is_array($defaults['decision_quality_context'] ?? null)
+            ? $defaults['decision_quality_context']
+            : $this->expansionDecisionQualityContext([], [], 'market');
+        $recommendations = $this->decisionQualityService->enrichRecommendations(
+            $this->normalizeAiRecommendationItems($raw['recommendations'] ?? []),
+            $decisionQualityContext
+        );
+
         return [
             'source' => trim((string)($raw['source'] ?? $defaults['source'] ?? '')),
             'model_key' => trim((string)($raw['model_key'] ?? $raw['modelKey'] ?? $defaults['model_key'] ?? '')),
@@ -1180,7 +1204,8 @@ class ExpansionService
             'summary' => $this->cleanAiText((string)($raw['summary'] ?? ''), 300),
             'decision' => $this->cleanAiText((string)($raw['decision'] ?? ''), 160),
             'market_judgement' => $this->normalizeMarketJudgement($raw['market_judgement'] ?? $raw['marketJudgement'] ?? []),
-            'recommendations' => $this->normalizeAiRecommendationItems($raw['recommendations'] ?? []),
+            'recommendations' => $recommendations,
+            'recommendation_quality' => $this->decisionQualityService->summarize($recommendations, $decisionQualityContext),
             'watch_points' => $this->normalizeAiWatchPointItems($raw['watch_points'] ?? $raw['watchPoints'] ?? []),
             'assumptions' => $this->stringList($raw['assumptions'] ?? []),
             'error' => $this->cleanAiText((string)($raw['error'] ?? ''), 120),
@@ -1220,11 +1245,11 @@ class ExpansionService
             if (!in_array($priority, ['P0', 'P1', 'P2'], true)) {
                 $priority = 'P1';
             }
-            $normalized[] = [
+            $normalized[] = array_merge($item, [
                 'priority' => $priority,
                 'title' => $title !== '' ? $this->cleanAiText($title, 80) : '市场评估建议',
                 'detail' => $this->cleanAiText($detail, 220),
-            ];
+            ]);
         }
 
         return array_slice($normalized, 0, 5);
@@ -1357,6 +1382,7 @@ class ExpansionService
     {
         if (($result['source'] ?? '') === 'synthetic_rule_scenario') {
             return $this->buildFallbackBenchmarkAiEvaluation(
+                $input,
                 $result,
                 $modelKey,
                 '竞品细化指标不完整，当前仅生成规则情景草案，未调用AI标杆复核。'
@@ -1384,13 +1410,14 @@ class ExpansionService
                 'source' => 'llm',
                 'model_key' => $modelKey,
                 'generated_at' => date('Y-m-d H:i:s'),
+                'decision_quality_context' => $this->expansionDecisionQualityContext($input, $result, 'benchmark'),
             ]);
         } catch (Throwable $e) {
-            return $this->buildFallbackBenchmarkAiEvaluation($result, $modelKey, $e->getMessage());
+            return $this->buildFallbackBenchmarkAiEvaluation($input, $result, $modelKey, $e->getMessage());
         }
     }
 
-    private function buildFallbackBenchmarkAiEvaluation(array $result, string $modelKey, string $reason): array
+    private function buildFallbackBenchmarkAiEvaluation(array $input, array $result, string $modelKey, string $reason): array
     {
         $isSyntheticScenario = ($result['source'] ?? '') === 'synthetic_rule_scenario';
         $benchmarks = is_array($result['recommended_benchmarks'] ?? null) ? $result['recommended_benchmarks'] : [];
@@ -1437,7 +1464,7 @@ class ExpansionService
             array_slice($avoidPoints, 0, 3)
         );
 
-        return [
+        return $this->normalizeBenchmarkAiEvaluation([
             'source' => 'fallback',
             'model_key' => $modelKey,
             'generated_at' => date('Y-m-d H:i:s'),
@@ -1458,7 +1485,9 @@ class ExpansionService
                 ? ['当前为基于用户输入及默认假设生成的规则情景，非真实竞品样本。', '竞品细化指标不完整，未生成真实样本匹配度。']
                 : ['AI模型不可用时启用本地标杆选模兜底。', '用户录入的竞品汇总指标仍需可追溯样本复核。'],
             'error' => mb_substr(trim($reason), 0, 120),
-        ];
+        ], [
+            'decision_quality_context' => $this->expansionDecisionQualityContext($input, $result, 'benchmark'),
+        ]);
     }
 
     private function normalizeBenchmarkAiEvaluation(mixed $raw, array $defaults = []): array
@@ -1467,6 +1496,14 @@ class ExpansionService
             $raw = [];
         }
 
+        $decisionQualityContext = is_array($defaults['decision_quality_context'] ?? null)
+            ? $defaults['decision_quality_context']
+            : $this->expansionDecisionQualityContext([], [], 'benchmark');
+        $recommendations = $this->decisionQualityService->enrichRecommendations(
+            $this->normalizeAiRecommendationItems($raw['recommendations'] ?? []),
+            $decisionQualityContext
+        );
+
         return [
             'source' => trim((string)($raw['source'] ?? $defaults['source'] ?? '')),
             'model_key' => trim((string)($raw['model_key'] ?? $raw['modelKey'] ?? $defaults['model_key'] ?? '')),
@@ -1474,10 +1511,38 @@ class ExpansionService
             'summary' => $this->cleanAiText((string)($raw['summary'] ?? ''), 300),
             'decision' => $this->cleanAiText((string)($raw['decision'] ?? ''), 160),
             'model_judgement' => $this->normalizeBenchmarkJudgement($raw['model_judgement'] ?? $raw['modelJudgement'] ?? []),
-            'recommendations' => $this->normalizeAiRecommendationItems($raw['recommendations'] ?? []),
+            'recommendations' => $recommendations,
+            'recommendation_quality' => $this->decisionQualityService->summarize($recommendations, $decisionQualityContext),
             'watch_points' => $this->normalizeAiWatchPointItems($raw['watch_points'] ?? $raw['watchPoints'] ?? []),
             'assumptions' => $this->stringList($raw['assumptions'] ?? []),
             'error' => $this->cleanAiText((string)($raw['error'] ?? ''), 120),
+        ];
+    }
+
+    private function expansionDecisionQualityContext(array $input, array $result, string $scenario): array
+    {
+        $source = trim((string)($result['source'] ?? ''));
+        return [
+            'scope' => 'investment_scenario',
+            'data_basis' => [
+                [
+                    'ref' => 'expansion_user_input_snapshot',
+                    'source' => 'user_provided_project_inputs',
+                    'scope' => 'investment_scenario',
+                    'quality_status' => 'user_provided_unverified',
+                    'summary' => '城市、物业、租金、房量、客群及竞品汇总来自当前录入，需保留人工来源凭证。',
+                ],
+                [
+                    'ref' => 'expansion_' . $scenario . '_result',
+                    'source' => $source !== '' ? $source : 'deterministic_expansion_result',
+                    'scope' => 'investment_scenario',
+                    'quality_status' => $source === 'verified_source_data' ? 'verified' : 'derived_unverified',
+                    'summary' => '当前评估结果由录入数据和规则初筛派生，不代表真实市场热度或投资成功率。',
+                ],
+            ],
+            'basis_summary' => (string)($result['decision'] ?? $result['summary'] ?? ''),
+            'default_risk_level' => (string)($result['investment_risk_level'] ?? 'medium'),
+            'review_window' => '进入投决会前，以真实竞品样本、租约、经营流水和同口径OTA渠道数据复核',
         ];
     }
 

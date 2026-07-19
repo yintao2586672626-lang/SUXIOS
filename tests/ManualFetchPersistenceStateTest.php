@@ -127,6 +127,29 @@ final class ManualFetchPersistenceStateTest extends TestCase
         self::assertStringContainsString("(int)(\$stored['readback_verified'] ?? 0) !== 1", $adsSource);
     }
 
+    public function testTrafficSuccessAuditRunsOnlyAfterTheTerminalPersistenceGate(): void
+    {
+        $harness = $this->harness();
+        foreach ([
+            ['executeCtripTrafficFetch', 'fetch_ctrip_traffic'],
+            ['executeMeituanTrafficFetch', 'fetch_meituan_traffic'],
+        ] as [$methodName, $action]) {
+            $source = $this->methodSource($harness, $methodName);
+            $failureGate = strpos($source, "if (\$autoSave && !\$persistenceState['persisted'])");
+            $successAudit = strpos($source, "OperationLog::record('online_data', '{$action}'");
+
+            self::assertNotFalse($failureGate, "{$methodName} must retain the persistence failure gate.");
+            self::assertNotFalse($successAudit, "{$methodName} must emit a terminal success audit.");
+            self::assertGreaterThan(
+                $failureGate,
+                $successAudit,
+                "{$methodName} must not log success before persistence/readback failure is ruled out."
+            );
+            self::assertStringContainsString("'outcome' => 'success'", substr($source, (int)$successAudit));
+            self::assertStringContainsString("'status' => \$persistenceState['persistence_status']", substr($source, (int)$successAudit));
+        }
+    }
+
     private function harness(): object
     {
         return new class {
@@ -140,5 +163,20 @@ final class ManualFetchPersistenceStateTest extends TestCase
         $method = new ReflectionMethod($harness, $name);
         $method->setAccessible(true);
         return $method;
+    }
+
+    private function methodSource(object $harness, string $name): string
+    {
+        $method = $this->stateMethod($harness, $name);
+        $fileName = $method->getFileName();
+        self::assertIsString($fileName);
+        $lines = file($fileName);
+        self::assertIsArray($lines);
+
+        return implode('', array_slice(
+            $lines,
+            $method->getStartLine() - 1,
+            $method->getEndLine() - $method->getStartLine() + 1
+        ));
     }
 }

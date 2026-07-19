@@ -3,8 +3,11 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use app\controller\OnlineData;
 use app\service\DailyWorkbenchPatrolService;
+use app\service\Phase3OperationEffectLoopService;
 use PHPUnit\Framework\TestCase;
+use ReflectionClass;
 
 final class DailyWorkbenchPatrolServiceTest extends TestCase
 {
@@ -131,15 +134,102 @@ final class DailyWorkbenchPatrolServiceTest extends TestCase
         self::assertSame('success', $item['operation_execution']['review_status']);
     }
 
+    public function testHotelScopedReadersDoNotExposeAnotherHotelSnapshot(): void
+    {
+        $service = new DailyWorkbenchPatrolService();
+        $hotelSeven = $this->writeSnapshot($service, 7, 'North Hotel');
+        $hotelEight = $this->writeSnapshot($service, 8, 'South Hotel');
+
+        self::assertSame($hotelSeven['run_id'], $service->latestForHotel(7)['run_id']);
+        self::assertSame($hotelEight['run_id'], $service->latestForHotel(8)['run_id']);
+        self::assertNull($service->findByRunIdForHotel($hotelEight['run_id'], 7));
+        self::assertContains($hotelSeven['run_id'], array_column($service->listForHotel(7, 30), 'run_id'));
+        self::assertNotContains($hotelEight['run_id'], array_column($service->listForHotel(7, 30), 'run_id'));
+        self::assertSame('manual_ready', $service->healthForHotel(7, '2099-12-31')['status']);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('selected hotel scope');
+        $service->markdownReportForHotel(7, $hotelEight['run_id']);
+    }
+
+    public function testCronPayloadIsSplitIntoSingleHotelSnapshots(): void
+    {
+        $reflection = new ReflectionClass(OnlineData::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+        $split = $reflection->getMethod('splitDailyWorkbenchPatrolPayloadsByHotel');
+        $split->setAccessible(true);
+
+        $payloads = $split->invoke($controller, [
+            'scope' => [
+                'target_date' => '2099-12-31',
+                'hotel_id' => null,
+                'requested_hotel_limit' => 30,
+                'returned_hotel_count' => 2,
+            ],
+            'rows' => [[
+                'hotel_id' => 7,
+                'hotel_name' => 'North Hotel',
+                'target_date' => '2099-12-31',
+                'status' => 'complete',
+                'next_action' => ['action_code' => 'north_action', 'priority' => 'high'],
+            ], [
+                'hotel_id' => 8,
+                'hotel_name' => 'South Hotel',
+                'target_date' => '2099-12-31',
+                'status' => 'incomplete',
+                'next_action' => ['action_code' => 'south_action', 'priority' => 'medium'],
+            ]],
+        ]);
+
+        self::assertCount(2, $payloads);
+        self::assertSame(7, $payloads[0]['scope']['hotel_id']);
+        self::assertSame(8, $payloads[1]['scope']['hotel_id']);
+        self::assertSame(1, $payloads[0]['scope']['returned_hotel_count']);
+        self::assertSame(1, $payloads[1]['scope']['returned_hotel_count']);
+        self::assertSame([7], array_column($payloads[0]['rows'], 'hotel_id'));
+        self::assertSame([8], array_column($payloads[1]['rows'], 'hotel_id'));
+        self::assertSame([7], array_column($payloads[0]['next_actions'], 'hotel_id'));
+        self::assertSame([8], array_column($payloads[1]['next_actions'], 'hotel_id'));
+    }
+
+    public function testHotelScopedSnapshotRejectsRowsFromAnotherHotel(): void
+    {
+        $service = new DailyWorkbenchPatrolService();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('crosses the selected hotel scope');
+        $service->write([
+            'scope' => ['target_date' => '2099-12-31', 'hotel_id' => 7],
+            'summary' => ['hotel_count' => 1],
+            'rows' => [['hotel_id' => 8, 'hotel_name' => 'South Hotel']],
+            'next_actions' => [],
+        ]);
+    }
+
+    public function testPhase3ScopedBuildRejectsAnotherHotelRunId(): void
+    {
+        $patrolService = new DailyWorkbenchPatrolService();
+        $this->writeSnapshot($patrolService, 7, 'North Hotel');
+        $hotelEight = $this->writeSnapshot($patrolService, 8, 'South Hotel');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('snapshot not found');
+        (new Phase3OperationEffectLoopService())->build([
+            'run_id' => $hotelEight['run_id'],
+            'scope_hotel_id' => 7,
+            'metric_window' => [],
+        ]);
+    }
+
     /** @return array<string, mixed> */
-    private function writeSnapshot(DailyWorkbenchPatrolService $service): array
+    private function writeSnapshot(DailyWorkbenchPatrolService $service, int $hotelId = 7, string $hotelName = 'North Hotel'): array
     {
         $dateDir = $this->baseDir . DIRECTORY_SEPARATOR . '20991231';
         $dateDirExisted = is_dir($dateDir);
         $snapshot = $service->write([
             'scope' => [
                 'target_date' => '2099-12-31',
-                'hotel_id' => 7,
+                'hotel_id' => $hotelId,
                 'requested_hotel_limit' => 1,
             ],
             'summary' => [
@@ -147,13 +237,13 @@ final class DailyWorkbenchPatrolServiceTest extends TestCase
                 'high_priority_action_count' => 1,
             ],
             'rows' => [[
-                'hotel_id' => 7,
-                'hotel_name' => 'North Hotel',
+                'hotel_id' => $hotelId,
+                'hotel_name' => $hotelName,
                 'target_date' => '2099-12-31',
             ]],
             'next_actions' => [[
-                'hotel_id' => 7,
-                'hotel_name' => 'North Hotel',
+                'hotel_id' => $hotelId,
+                'hotel_name' => $hotelName,
                 'question_key' => 'conversion_gap',
                 'action_code' => 'price_adjust',
                 'priority' => 'high',

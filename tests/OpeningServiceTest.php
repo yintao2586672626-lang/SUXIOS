@@ -173,6 +173,32 @@ final class OpeningServiceTest extends TestCase
         self::assertStringContainsString('不代表 AI 渗透率', $metrics['metrics']['legacy_field_definitions']['ai_penetration_rate']);
     }
 
+    public function testMetricsKeepUndefinedRatesMissingWhenChecklistDoesNotExist(): void
+    {
+        $metrics = $this->invokeNonPublic(new OpeningService(), 'calculateMetrics', [
+            array_merge($this->project(), [
+                'id' => 9,
+                'hotel_id' => 7,
+                'updated_at' => '2026-07-19 08:30:00',
+            ]),
+            [],
+            false,
+        ]);
+
+        self::assertNull($metrics['project']['overall_score']);
+        self::assertSame('no_tasks', $metrics['project']['overall_score_status']);
+        self::assertSame('medium', $metrics['project']['risk_level']);
+        self::assertNull($metrics['metrics']['completion_rate']);
+        self::assertNull($metrics['metrics']['core_completion_rate']);
+        self::assertSame('no_tasks', $metrics['metrics']['data_status']);
+        self::assertSame('unverified', $metrics['truth_context']['status']);
+        self::assertTrue($metrics['truth_context']['persistence']['readback_verified']);
+        self::assertStringContainsString('检查清单尚未生成', $metrics['truth_context']['failure_reason']);
+        self::assertSame('missing', $metrics['metrics']['metric_truth']['completion_rate']['calculation_status']);
+        self::assertNull($metrics['category_progress'][0]['completion_rate']);
+        self::assertSame('missing', $metrics['category_progress'][0]['truth']['calculation_status']);
+    }
+
     public function testAiPenetrationRateIsZeroBeforeProgressStarts(): void
     {
         $service = new OpeningService();
@@ -216,17 +242,26 @@ final class OpeningServiceTest extends TestCase
         $service = new OpeningService();
 
         self::assertTrue($this->invokeNonPublic($service, 'canAccessOwnedProject', [
-            ['created_by' => 12],
+            ['created_by' => 12, 'hotel_id' => 7],
+            [7],
             12,
             false,
         ]));
         self::assertFalse($this->invokeNonPublic($service, 'canAccessOwnedProject', [
-            ['created_by' => 12],
+            ['created_by' => 12, 'hotel_id' => 7],
+            [7],
             13,
             false,
         ]));
+        self::assertFalse($this->invokeNonPublic($service, 'canAccessOwnedProject', [
+            ['created_by' => 12, 'hotel_id' => 8],
+            [7],
+            12,
+            false,
+        ]));
         self::assertTrue($this->invokeNonPublic($service, 'canAccessOwnedProject', [
-            ['created_by' => 12],
+            ['created_by' => 12, 'hotel_id' => 99],
+            [],
             13,
             true,
         ]));
@@ -263,6 +298,25 @@ final class OpeningServiceTest extends TestCase
 
         $this->expectException(\InvalidArgumentException::class);
         $service->buildExecutionIntentInput(['id' => 1, 'hotel_id' => 0, 'project_name' => 'Opening Project']);
+    }
+
+    public function testSavedOpeningChecklistReportsBindingMissingWithoutInventingHotelScope(): void
+    {
+        $metrics = $this->invokeNonPublic(new OpeningService(), 'calculateMetrics', [
+            array_merge($this->project(), [
+                'id' => 72,
+                'hotel_id' => 0,
+                'updated_at' => '2026-07-19 08:30:00',
+            ]),
+            $this->tasks(),
+            false,
+        ]);
+
+        self::assertSame('binding_missing', $metrics['truth_context']['status']);
+        self::assertSame('未绑定门店', $metrics['truth_context']['status_label']);
+        self::assertNull($metrics['truth_context']['hotel_id']);
+        self::assertSame([], $metrics['truth_context']['hotels']);
+        self::assertStringContainsString('项目未绑定目标门店', $metrics['truth_context']['failure_reason']);
     }
 
     public function testBuildExecutionIntentInputUsesOpeningProjectScope(): void

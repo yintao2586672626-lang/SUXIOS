@@ -19,13 +19,18 @@ class RevenuePricingRecommendationService
     private const CTRIP_COMPETITOR_PLATFORM_VALUES = [CompetitorAnalysis::PLATFORM_CTRIP, '1', 'ctrip'];
 
     private TrustedOtaFactRepository $trustedOtaFacts;
+    private AiDecisionQualityService $decisionQualityService;
 
     /** @var array<string, array<string, mixed>> */
     private array $hotelSignalCache = [];
 
-    public function __construct(?TrustedOtaFactRepository $trustedOtaFacts = null)
+    public function __construct(
+        ?TrustedOtaFactRepository $trustedOtaFacts = null,
+        ?AiDecisionQualityService $decisionQualityService = null
+    )
     {
         $this->trustedOtaFacts = $trustedOtaFacts ?? new TrustedOtaFactRepository();
+        $this->decisionQualityService = $decisionQualityService ?? new AiDecisionQualityService();
     }
 
     /**
@@ -370,8 +375,96 @@ class RevenuePricingRecommendationService
             $row = $this->normalizeSuggestionDisplayFields($row);
             $id = (int)($row['id'] ?? 0);
             $row['pricing_readiness'] = $this->buildSuggestionReadiness($row, $executionItemsByRecordId[$id] ?? null);
+            $row = $this->enrichSuggestionDecisionQuality($row);
             return $row;
         }, $rows);
+    }
+
+    /** @return array<string, mixed> */
+    private function enrichSuggestionDecisionQuality(array $row): array
+    {
+        $factors = is_array($row['factors'] ?? null) ? $row['factors'] : [];
+        $signals = is_array($factors['signals'] ?? null) ? $factors['signals'] : [];
+        $evidenceSources = [];
+        foreach (['demand_forecast', 'pickup', 'elasticity', 'competitor', 'inventory', 'backtest', 'holiday'] as $key) {
+            $signal = is_array($signals[$key] ?? null) ? $signals[$key] : [];
+            if ($signal === []) {
+                continue;
+            }
+            $source = trim((string)($signal['source'] ?? $key));
+            $signalDate = trim((string)($signal['data_date'] ?? $signal['source_date'] ?? $signal['target_date'] ?? ''));
+            $signalId = (int)($signal['id'] ?? 0);
+            $evidenceSources[] = [
+                'ref' => $source . '#' . ($signalId > 0 ? $signalId : ($signalDate !== '' ? $signalDate : $key)),
+                'source' => $source,
+                'date' => $signalDate,
+                'scope' => 'ota_channel',
+                'quality_status' => (string)($signal['data_status'] ?? 'unverified'),
+                'metric_keys' => array_values(array_filter(array_keys($signal), static fn(string $field): bool => !in_array($field, ['raw_data', 'source_metadata'], true))),
+                'summary' => $this->pricingSignalSummary($key, $signal),
+            ];
+        }
+
+        $hotelId = (int)($row['hotel_id'] ?? 0);
+        $targetDate = trim((string)($row['suggestion_date'] ?? ''));
+        $roomType = is_array($row['room_type'] ?? null) ? $row['room_type'] : [];
+        $roomName = trim((string)($roomType['name'] ?? $row['room_type_name'] ?? '目标房型'));
+        $currentPrice = $this->toFloat($row['current_price'] ?? 0);
+        $suggestedPrice = $this->toFloat($row['suggested_price'] ?? 0);
+        $riskLevel = strtolower(trim((string)($factors['risk_level'] ?? $row['risk_level'] ?? 'medium')));
+        $readiness = is_array($row['pricing_readiness'] ?? null) ? $row['pricing_readiness'] : [];
+        $context = [
+            'scope' => 'ota_channel',
+            'hotel_id' => $hotelId,
+            'platform' => 'ctrip',
+            'data_date' => $targetDate,
+            'basis_summary' => trim((string)($row['reason'] ?? '')) ?: '依据当前房型的需求、竞价、库存、拾取、弹性与日历信号生成。',
+            'evidence_sources' => $evidenceSources,
+            'default_priority' => $riskLevel === 'high' ? 'P0' : 'P1',
+            'default_risk_level' => $riskLevel,
+            'review_window' => '人工执行后观察7天，并按同酒店、同携程房型、同入住日口径复核订单、间夜、ADR与渠道收入',
+        ];
+        $action = sprintf(
+            '人工复核后，将%s在%s的携程目标价从¥%s调整为¥%s；本建议不自动写入OTA。',
+            $roomName,
+            $targetDate !== '' ? $targetDate : '目标日',
+            rtrim(rtrim(number_format($currentPrice, 2, '.', ''), '0'), '.'),
+            rtrim(rtrim(number_format($suggestedPrice, 2, '.', ''), '0'), '.')
+        );
+        $recommendations = $this->decisionQualityService->enrichRecommendations([[
+            'title' => $roomName . '携程调价建议',
+            'action' => $action,
+            'priority' => $riskLevel === 'high' ? 'P0' : 'P1',
+            'reason' => (string)$context['basis_summary'],
+            'action_type' => 'price_adjustment',
+            'recommendation_type' => 'operation',
+            'expected_metric' => 'ota_revenue',
+            'expected_effect' => [
+                'status' => 'verification_target',
+                'metric' => 'ota_revenue',
+                'direction' => 'verify',
+                'summary' => '预期验证目标价盘对携程订单、间夜、ADR与渠道收入组合的影响；没有同口径复盘前不承诺提升幅度。',
+            ],
+            'risk' => [
+                'level' => $riskLevel !== '' ? $riskLevel : 'medium',
+                'summary' => '调价可能牺牲ADR或订单转化；房型、入住日、早餐和取消政策不可比也会造成错误判断。',
+                'controls' => array_values((array)($factors['review_checklist'] ?? $row['review_checklist'] ?? [])),
+            ],
+            'can_create_execution_intent' => ($readiness['ready_for_review'] ?? false) === true,
+            'blocked_reason' => ($readiness['ready_for_review'] ?? false) === true ? '' : (string)($readiness['notice'] ?? ''),
+        ]], $context);
+
+        $row['decision_recommendation'] = $recommendations[0] ?? [];
+        $row['recommendation_quality'] = $this->decisionQualityService->summarize($recommendations, $context);
+        return $row;
+    }
+
+    /** @return string */
+    private function pricingSignalSummary(string $key, array $signal): string
+    {
+        $status = trim((string)($signal['data_status'] ?? 'unverified'));
+        $source = trim((string)($signal['source'] ?? $key));
+        return $source . '（' . $status . '）';
     }
 
     public function buildEffectReviewReadiness(array $suggestion, array $before, array $after, ?string $today = null): array

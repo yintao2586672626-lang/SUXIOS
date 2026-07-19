@@ -153,7 +153,8 @@
                                                             <span class="mt-0.5 shrink-0 rounded bg-cyan-50 px-1.5 py-0.5 text-[11px] font-semibold text-cyan-700 border border-cyan-100">{{ item.priority }}</span>
                                                             <div>
                                                                 <div class="font-medium text-gray-800">{{ item.title }}</div>
-                                                                <div class="text-xs leading-5 text-gray-600">{{ item.detail }}</div>
+                                                                <div class="text-xs leading-5 text-gray-600"><span class="font-semibold">动作：</span>{{ item.action || item.detail }}</div>
+                                                                <ai-decision-quality-details :item="item"></ai-decision-quality-details>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -187,7 +188,8 @@
                                                         <span class="px-1.5 py-0.5 rounded border border-cyan-200 bg-white text-[11px] font-semibold text-cyan-700">{{ item?.priority || 'P1' }}</span>
                                                         <span class="font-medium text-gray-800">{{ item?.title || '行动建议' }}</span>
                                                     </div>
-                                                    <p class="mt-1 leading-relaxed text-gray-700">{{ item?.detail || '' }}</p>
+                                                    <p class="mt-1 leading-relaxed text-gray-700"><span class="font-medium">建议动作：</span>{{ item?.action || item?.detail || '' }}</p>
+                                                    <ai-decision-quality-details :item="item"></ai-decision-quality-details>
                                                 </div>
                                             </div>
                                         </div>

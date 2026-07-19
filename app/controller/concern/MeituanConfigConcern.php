@@ -167,7 +167,20 @@ trait MeituanConfigConcern
             $isUpdate,
             $scope
         );
-        OperationLog::record('online_data', 'save_meituan_config', '保存美团配置元数据', (int)($this->currentUser->id ?? 0));
+        $actorId = (int)($this->currentUser->id ?? 0);
+        $tenantId = $this->otaCredentialTenantIdForHotel($systemHotelId);
+        OperationLog::record('online_data', 'save_meituan_config', 'OTA credential metadata saved', $actorId, $systemHotelId, null, [
+            'audit_type' => 'security',
+            'lifecycle_action' => 'save',
+            'actor_id' => $actorId,
+            'tenant_id' => $tenantId,
+            'system_hotel_id' => $systemHotelId,
+            'platform' => 'meituan',
+            'config_id' => (string)($saved['config_id'] ?? $saved['id'] ?? $id),
+            'credential_ref' => (int)($saved['credential_ref'] ?? 0),
+            'status' => (string)($saved['credential_status'] ?? ''),
+            'outcome' => 'success',
+        ]);
 
         return $saved;
     }
@@ -249,7 +262,20 @@ trait MeituanConfigConcern
             $expectedScope = trim((string)($list[$id]['scope'] ?? ''));
             $deleted = $this->deleteMeituanConfigMetadata($id, $systemHotelId, $expectedScope);
             $this->clearAutoFetchLightConfigListCache('meituan');
-            OperationLog::record('online_data', 'delete_meituan_config', '删除美团配置元数据', (int)($this->currentUser->id ?? 0));
+            $actorId = (int)($this->currentUser->id ?? 0);
+            $tenantId = $this->otaCredentialTenantIdForHotel($systemHotelId);
+            OperationLog::record('online_data', 'delete_meituan_config', 'OTA credential revoked', $actorId, $systemHotelId, null, [
+                'audit_type' => 'security',
+                'lifecycle_action' => 'revoke',
+                'actor_id' => $actorId,
+                'tenant_id' => $tenantId,
+                'system_hotel_id' => $systemHotelId,
+                'platform' => 'meituan',
+                'config_id' => (string)($deleted['config_id'] ?? $deleted['id'] ?? $id),
+                'credential_ref' => (int)($deleted['credential_ref'] ?? 0),
+                'status' => (string)($deleted['credential_status'] ?? ''),
+                'outcome' => 'success',
+            ]);
             return $this->success($deleted, '删除成功');
         } catch (HttpException $e) {
             return $this->error($e->getMessage(), $e->getStatusCode());

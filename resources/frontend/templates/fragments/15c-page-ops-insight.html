@@ -55,7 +55,16 @@
                                             <div class="mt-3 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-900"><span class="font-semibold">建议动作：</span>{{ operationAlertSuggestion(alert) || '先确认影响范围和责任模块，再安排处理。' }}</div>
                                             <div class="mt-2 text-xs text-gray-400">来源：{{ alert.source || 'rule' }} · 类型：{{ alert.alert_type || 'unknown' }}</div>
                                         </div>
-                                        <button v-if="alert.status !== 'read'" type="button" @click="markOperationAlertsRead([alert.id])" class="shrink-0 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">标记已读</button>
+                                        <div class="flex shrink-0 flex-col items-stretch gap-2 sm:flex-row lg:flex-col">
+                                            <button v-if="alert.task_bridge?.linked" type="button" data-testid="operation-alert-open-task" @click="openOperationAlertTask(alert)" class="rounded-lg border border-[#dcc591] bg-[#fcfaf5] px-3 py-2 text-sm font-semibold text-[#6f572f] hover:bg-[#f8f3e8]">
+                                                <i class="fas fa-tasks mr-1.5"></i>查看待审批任务 #{{ alert.task_bridge.intent_id }}
+                                            </button>
+                                            <button v-else-if="alert.task_bridge?.can_convert" type="button" data-testid="operation-alert-create-task" @click="createOperationAlertTask(alert)" :disabled="isOperationAlertTaskLoading(alert)" class="rounded-lg bg-[#6f572f] px-3 py-2 text-sm font-semibold text-white hover:bg-[#594625] disabled:cursor-wait disabled:opacity-60" title="创建待人工审批的运营任务，不自动执行或写入 OTA">
+                                                <i :class="[isOperationAlertTaskLoading(alert) ? 'fas fa-spinner fa-spin' : 'fas fa-share-square', 'mr-1.5']"></i>{{ isOperationAlertTaskLoading(alert) ? '转任务中...' : '直接转任务' }}
+                                            </button>
+                                            <span v-else-if="alert.task_bridge?.unavailable_reason" data-testid="operation-alert-task-unavailable" class="max-w-[220px] rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">{{ alert.task_bridge.unavailable_reason }}</span>
+                                            <button v-if="alert.status !== 'read'" type="button" @click="markOperationAlertsRead([alert.id])" class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">标记已读</button>
+                                        </div>
                                     </div>
                                 </article>
                             </section>

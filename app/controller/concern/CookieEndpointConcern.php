@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller\concern;
 
 use app\model\OperationLog;
+use app\model\CompetitorDevice;
 use think\Response;
 
 trait CookieEndpointConcern
@@ -356,6 +357,11 @@ trait CookieEndpointConcern
         usort($logs, static fn(array $a, array $b): int => strcmp((string)($b['create_time'] ?? ''), (string)($a['create_time'] ?? '')));
         $logs = array_slice($logs, 0, 100);
 
+        $activeCompetitorBindingCount = (int)CompetitorDevice::where('status', 1)
+            ->whereNull('revoked_at')
+            ->where('token_hash', '<>', '')
+            ->count();
+
         return $this->success([
             'period' => [
                 'start_date' => $startDate,
@@ -388,18 +394,20 @@ trait CookieEndpointConcern
                 $this->buildPublicEndpointSecurityRow('competitor_task', $logs, [
                     'method' => 'POST',
                     'path' => '/api/competitor/task',
-                    'auth' => 'X-Task-Token header only',
+                    'auth' => 'binding-scoped X-Task-Token header only',
                     'rate_limit' => ['limit' => 30, 'window_seconds' => 60],
-                    'token_configured' => trim((string)\think\facade\Env::get('COMPETITOR_TASK_TOKEN', '')) !== '',
+                    'token_configured' => $activeCompetitorBindingCount > 0,
+                    'active_binding_count' => $activeCompetitorBindingCount,
                     'failure_actions' => ['task_denied', 'external_rate_limited'],
                     'failure_scope' => 'task',
                 ]),
                 $this->buildPublicEndpointSecurityRow('competitor_report', $logs, [
                     'method' => 'POST',
                     'path' => '/api/competitor/report',
-                    'auth' => 'X-Report-Token header only',
+                    'auth' => 'binding-scoped X-Report-Token header only',
                     'rate_limit' => ['limit' => 60, 'window_seconds' => 60],
-                    'token_configured' => trim((string)\think\facade\Env::get('COMPETITOR_REPORT_TOKEN', '')) !== '',
+                    'token_configured' => $activeCompetitorBindingCount > 0,
+                    'active_binding_count' => $activeCompetitorBindingCount,
                     'failure_actions' => ['report_denied', 'external_rate_limited'],
                     'failure_scope' => 'report',
                 ]),

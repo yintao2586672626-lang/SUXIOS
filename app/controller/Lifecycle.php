@@ -33,8 +33,10 @@ class Lifecycle extends Base
 
     private function investmentStage(): array
     {
-        $countRead = $this->readInt(fn() => Db::name('feasibility_reports')->whereNull('deleted_at')->count());
-        $latestRead = $this->readRow(fn() => Db::name('feasibility_reports')->whereNull('deleted_at')->order('id', 'desc')->find());
+        $reportQuery = fn() => $this->withCurrentUser(Db::name('feasibility_reports'), 'created_by')
+            ->whereNull('deleted_at');
+        $countRead = $this->readInt(fn() => $reportQuery()->count());
+        $latestRead = $this->readRow(fn() => $reportQuery()->order('id', 'desc')->find());
         $count = $countRead['value'];
         $latest = is_array($latestRead['value']) ? $latestRead['value'] : [];
 
@@ -47,7 +49,10 @@ class Lifecycle extends Base
 
     private function openingStage(array $hotelIds): array
     {
-        $projectQuery = fn() => Db::name('opening_projects');
+        $projectQuery = fn() => $this->withCurrentUser(
+            $this->withHotelIds(Db::name('opening_projects'), $hotelIds, 'hotel_id'),
+            'created_by'
+        );
         $projectIdsRead = $this->readArray(fn() => $projectQuery()->column('id'));
         $projectIds = $projectIdsRead['value'];
         $taskQuery = function () use ($projectIds) {
@@ -121,7 +126,10 @@ class Lifecycle extends Base
 
     private function transferStage(array $hotelIds): array
     {
-        $simulationsRead = $this->readInt(fn() => Db::name('strategy_simulation_records')->count());
+        $simulationsRead = $this->readInt(fn() => $this->withCurrentUser(
+            Db::name('strategy_simulation_records'),
+            'created_by'
+        )->count());
         $competitorLogsRead = $this->readInt(fn() => $this->withHotelIds(Db::name('competitor_price_log'), $hotelIds, 'store_id')->count());
         $simulations = $simulationsRead['value'];
         $competitorLogs = $competitorLogsRead['value'];
@@ -169,7 +177,21 @@ class Lifecycle extends Base
             return [];
         }
         $ids = array_map('intval', $this->currentUser->getPermittedHotelIds());
+        $ids = array_values(array_filter(
+            $ids,
+            fn(int $hotelId): bool => $hotelId > 0
+                && $this->currentUser->hasHotelPermission($hotelId, 'can_use_investment')
+        ));
         return empty($ids) ? [0] : $ids;
+    }
+
+    private function withCurrentUser($query, string $field)
+    {
+        if (!$this->currentUser || $this->currentUser->isSuperAdmin()) {
+            return $query;
+        }
+        $userId = (int)($this->currentUser->id ?? 0);
+        return $userId > 0 ? $query->where($field, $userId) : $query->whereRaw('1 = 0');
     }
 
     private function withHotelIds($query, array $hotelIds, string $field)

@@ -7,6 +7,7 @@ return [
     'commands' => [
         'db:init' => 'app\command\InitDatabase',
         'migrate:ota-credentials' => 'app\command\MigrateOtaCredentials',
+        'migrate:sensitive-storage' => 'app\command\MigrateSensitiveStorage',
         'migrate:online-data' => 'app\command\MigrateOnlineData',
         'migrate:login-logs' => 'app\command\MigrateLoginLogs',
         'migrate:notification-recipients' => 'app\command\MigrateNotificationRecipients',

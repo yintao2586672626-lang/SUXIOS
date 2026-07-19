@@ -6,6 +6,7 @@ namespace app\service;
 class OperationAuditClassifier
 {
     private const AUDITED_PREFIXES = [
+        'api/auth' => ['module' => 'auth', 'label' => 'authentication'],
         'api/admin/competitor-wechat-robot' => ['module' => 'competitor', 'label' => 'competitor wechat robot'],
         'api/admin/competitor-hotels' => ['module' => 'competitor', 'label' => 'competitor hotels'],
         'admin/competitor-wechat-robot' => ['module' => 'competitor', 'label' => 'competitor wechat robot'],
@@ -42,6 +43,11 @@ class OperationAuditClassifier
         'api/operation-logs',
     ];
 
+    private const FAILURE_EXCLUDED_PREFIXES = [
+        'api/health',
+        'api/operation-logs',
+    ];
+
     private const MANUAL_LOGGED_PATHS = [
         'api/online-data/fetch-ctrip',
         'api/online-data/fetch-meituan',
@@ -72,6 +78,7 @@ class OperationAuditClassifier
         'api/monthly-tasks',
         'api/report-configs',
         'api/admin/competitor-hotels',
+        'api/admin/competitor-devices',
         'api/ai-config/models',
         'admin/competitor-wechat-robot',
     ];
@@ -86,6 +93,8 @@ class OperationAuditClassifier
         'api/compass/layout',
         'compass/save-layout',
         'api/online-data/save-cookies',
+        'api/online-data/save-ctrip-config',
+        'api/online-data/save-meituan-config',
         'api/online-data/save-meituan-config-item',
         'api/online-data/delete-meituan-config',
         'api/online-data/save-meituan-comment-config',
@@ -176,6 +185,27 @@ class OperationAuditClassifier
             return null;
         }
 
+        return $this->classifyPath($method, $path);
+    }
+
+    public function classifyFailure(string $method, string $uri): ?array
+    {
+        $path = $this->normalizePath($uri);
+        if ($path === '') {
+            return null;
+        }
+
+        foreach (self::FAILURE_EXCLUDED_PREFIXES as $prefix) {
+            if ($this->pathMatchesPrefix($path, $prefix)) {
+                return null;
+            }
+        }
+
+        return $this->classifyPath(strtoupper($method), $path);
+    }
+
+    private function classifyPath(string $method, string $path): ?array
+    {
         foreach (self::AUDITED_PREFIXES as $prefix => $meta) {
             if (!$this->pathMatchesPrefix($path, $prefix)) {
                 continue;

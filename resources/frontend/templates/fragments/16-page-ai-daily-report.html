@@ -194,11 +194,20 @@
                                         <div class="mt-1 text-[11px] text-gray-400">{{ card.hint }}</div>
                                     </div>
                                 </div>
-                                <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mt-4">
-                                    <div v-for="metric in aiDailyReportMetricCards" :key="metric.key" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                                        <div class="text-xs text-gray-500">{{ metric.label || metric.key }}</div>
-                                        <div class="text-xl font-bold text-gray-900 mt-1">{{ aiDailyReportMetricValue(metric) }}</div>
-                                        <div class="text-[11px] text-gray-400 mt-2 truncate">{{ metric.source_ref }}</div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mt-4">
+                                    <div v-for="metric in aiDailyReportMetricCards" :key="metric.key" :data-testid="`ai-daily-report-metric-${metric.key}`" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                                        <div class="flex flex-wrap items-start justify-between gap-2">
+                                            <div class="text-xs font-medium text-gray-600">{{ metric.label || metric.key }}</div>
+                                            <span :data-testid="`ai-daily-report-metric-${metric.key}-truth-status`" :class="onlineTruthStatusClass(metric.truth)">{{ onlineTruthStatusText(metric.truth) }}</span>
+                                        </div>
+                                        <div :data-testid="`ai-daily-report-metric-${metric.key}-value`" class="text-xl font-bold text-gray-900 mt-1">{{ aiDailyReportMetricValue(metric) }}</div>
+                                        <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                                            <span class="rounded-full border px-2 py-0.5 text-[11px]" :class="metric.calculationStatusClass">{{ metric.calculationStatusText }}</span>
+                                            <span class="rounded-full border border-indigo-100 bg-indigo-50 px-2 py-0.5 text-[11px] text-indigo-700">{{ metric.scopeText }}</span>
+                                            <span v-if="metric.resultTypeCode === 'derived'" class="rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">派生指标</span>
+                                        </div>
+                                        <div class="mt-2 break-all text-[11px] text-gray-400">来源引用：{{ metric.sourceRefsText }}</div>
+                                        <div :data-testid="`ai-daily-report-metric-${metric.key}-truth-detail`" class="mt-2 text-[11px] leading-5 text-gray-500">{{ metric.truthDetailText }}</div>
                                     </div>
                                 </div>
                                 <div class="grid grid-cols-1 xl:grid-cols-3 gap-4 mt-4">
@@ -256,26 +265,25 @@
                                         </div>
                                     </div>
                                     <div class="grid grid-cols-12 bg-gray-50 text-xs text-gray-500 px-4 py-3">
-                                        <div class="col-span-4">关注事项</div>
-                                        <div class="col-span-3">原因/来源</div>
-                                        <div class="col-span-2">预期指标</div>
-                                        <div class="col-span-2">状态</div>
+                                        <div class="col-span-4">优先级/建议动作</div>
+                                        <div class="col-span-6">数据依据 / 预期效果 / 风险</div>
+                                        <div class="col-span-1">状态</div>
                                         <div class="col-span-1 text-right">操作</div>
                                     </div>
                                     <div v-for="(action, index) in aiDailyReportActions" :key="(action.title || 'action') + index" class="grid grid-cols-12 gap-3 px-4 py-3 border-t border-gray-100 text-sm">
                                         <div class="col-span-12 md:col-span-4">
                                             <div class="flex flex-wrap items-center gap-2">
+                                                <span class="rounded border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-[11px] font-semibold text-blue-700">{{ action.priority || 'P1' }}</span>
                                                 <div class="font-medium text-gray-900">{{ action.title || ('事项' + (index + 1)) }}</div>
                                                 <span v-if="aiDailyReportActionIsInvestigationOnly(action)" class="rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700">调查项 · 不可执行</span>
                                             </div>
                                             <div class="text-xs text-gray-500 mt-1 leading-relaxed">{{ action.action }}</div>
                                         </div>
-                                        <div class="col-span-12 md:col-span-3 text-gray-600">
-                                            <div class="line-clamp-2">{{ action.reason || '-' }}</div>
-                                            <div class="text-xs text-gray-400 mt-1">{{ aiDailyReportActionSources(action) }}</div>
+                                        <div class="col-span-12 md:col-span-6">
+                                            <ai-decision-quality-details :item="action"></ai-decision-quality-details>
+                                            <div class="mt-1 text-[11px] text-gray-400">来源：{{ aiDailyReportActionSources(action) }}</div>
                                         </div>
-                                        <div class="col-span-6 md:col-span-2 text-gray-600">{{ action.expected_metric || '-' }}</div>
-                                        <div class="col-span-6 md:col-span-2">
+                                        <div class="col-span-6 md:col-span-1">
                                             <span :class="aiDailyReportActionStatusClass(action)" class="rounded-full px-2 py-1 text-xs">{{ aiDailyReportActionStatusText(action) }}</span>
                                             <div v-if="action.action_readiness?.next_action" class="mt-1 text-[11px] text-gray-400 line-clamp-1">
                                                 {{ action.action_readiness.next_action }}
@@ -284,7 +292,7 @@
                                                 {{ aiDailyReportActionBlockedText(action) }}
                                             </div>
                                         </div>
-                                        <div class="col-span-12 md:col-span-1 md:text-right">
+                                        <div class="col-span-6 md:col-span-1 md:text-right">
                                             <button @click="handleAiDailyReportActionPrimary(action, index)" :disabled="operationLoading.aiDailyReport || revenueAiStaticLoading || !revenueAiStaticReady || action.execution_intent_id" class="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700 disabled:opacity-50">{{ aiDailyReportActionButtonText(action) }}</button>
                                         </div>
                                     </div>

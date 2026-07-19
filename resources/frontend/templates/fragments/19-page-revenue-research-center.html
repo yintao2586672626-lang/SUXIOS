@@ -116,9 +116,13 @@
                                             <p class="line-clamp-4 text-sm leading-relaxed text-gray-700" :title="revenueResearchRunFor(product.key).result.result?.summary || '本次未返回可展示的研究摘要。'">{{ revenueResearchRunFor(product.key).result.result?.summary || '本次未返回可展示的研究摘要。' }}</p>
                                             <div v-if="revenueResearchForecastCards(revenueResearchRunFor(product.key).result).length" class="grid grid-cols-1 md:grid-cols-3 gap-3">
                                                 <div v-for="card in revenueResearchForecastCards(revenueResearchRunFor(product.key).result)" :key="card.label" class="rounded-lg bg-blue-50 border border-blue-100 p-3">
-                                                    <div class="text-xs text-blue-700 mb-1">{{ card.label }}</div>
+                                                    <div class="mb-1 flex items-start justify-between gap-2">
+                                                        <div class="text-xs text-blue-700">{{ card.label }}</div>
+                                                        <span :class="card.truthClass">{{ card.truthStatus }}</span>
+                                                    </div>
                                                     <div class="text-lg font-semibold text-blue-950">{{ card.value }}</div>
                                                     <div class="text-xs text-blue-700 mt-1">{{ card.note }}</div>
+                                                    <div class="mt-2 border-t border-blue-100 pt-2 text-[11px] leading-5 text-blue-800" data-testid="revenue-research-forecast-truth">{{ card.truthDetail }}</div>
                                                 </div>
                                             </div>
                                             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -149,10 +153,13 @@
                                                 </div>
                                                 <div class="rounded-lg bg-green-50 border border-green-100 p-3">
                                                     <div class="font-medium text-green-900 text-xs mb-2">建议动作</div>
-                                                    <div v-if="!(revenueResearchRunFor(product.key).result.result?.recommended_actions || []).length" class="text-xs text-green-700">等待模型生成建议动作</div>
-                                                    <div v-for="action in (revenueResearchRunFor(product.key).result.result?.recommended_actions || []).slice(0, 4)" :key="action" class="text-xs text-green-800 leading-relaxed mb-1">
-                                                        {{ action }}
+                                                    <div v-if="!(revenueResearchRunFor(product.key).result.result?.decision_recommendations || []).length &amp;&amp; !(revenueResearchRunFor(product.key).result.result?.recommended_actions || []).length" class="text-xs text-green-700">等待模型生成建议动作</div>
+                                                    <div v-for="action in (revenueResearchRunFor(product.key).result.result?.decision_recommendations || []).slice(0, 4)" :key="action.priority + action.title" class="mb-2 rounded border border-green-100 bg-white/70 p-2 text-xs leading-5 text-green-900">
+                                                        <div class="flex items-center gap-2"><span class="rounded border border-green-200 px-1.5 py-0.5 text-[10px] font-semibold">{{ action.priority }}</span><strong>{{ action.title }}</strong></div>
+                                                        <div><span class="font-semibold">建议动作：</span>{{ action.action }}</div>
+                                                        <ai-decision-quality-details :item="action"></ai-decision-quality-details>
                                                     </div>
+                                                    <div v-if="!(revenueResearchRunFor(product.key).result.result?.decision_recommendations || []).length &amp;&amp; (revenueResearchRunFor(product.key).result.result?.recommended_actions || []).length" class="rounded border border-amber-100 bg-amber-50 p-2 text-xs text-amber-800">历史建议结构不完整：{{ revenueResearchRunFor(product.key).result.result.recommended_actions.slice(0, 4).join('；') }}</div>
                                                 </div>
                                             </div>
                                             <div v-if="(revenueResearchRunFor(product.key).result.web_sources || []).length" class="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-blue-700">

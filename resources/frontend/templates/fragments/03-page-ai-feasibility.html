@@ -40,12 +40,20 @@
                                         <h3>项目输入</h3>
                                         <p>位置、规模、投资成本及显式填写的预期经营假设</p>
                                     </div>
-                                    <span class="feasibility-count-badge">15项</span>
+                                    <span class="feasibility-count-badge">16项</span>
                                 </div>
                                 <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                                     <label class="feasibility-field xl:col-span-2">
                                         <span>项目名称</span>
                                         <input v-model="aiProject.project_name" class="input-field w-full">
+                                    </label>
+                                    <label class="feasibility-field">
+                                        <span>目标门店（真实性边界）</span>
+                                        <select v-model="aiFeasibilityHotelId" class="input-field w-full" data-testid="feasibility-target-hotel">
+                                            <option value="">未绑定门店（仅未验证情景）</option>
+                                            <option v-for="hotel in aiFeasibilityHotelOptions" :key="hotel.id" :value="String(hotel.id)">{{ hotel.name }}</option>
+                                        </select>
+                                        <small class="mt-1 block text-xs text-amber-700">只有绑定门店后，系统才读取该门店的经营与 OTA 证据；未绑定不会跨门店汇总。</small>
                                     </label>
                                     <label class="feasibility-field">
                                         <span>城市</span>
@@ -248,7 +256,8 @@
                                             <span>{{ item.priority }}</span>
                                             <div>
                                                 <strong>{{ item.title }}</strong>
-                                                <p>{{ item.detail }}</p>
+                                                <p><b>建议动作：</b>{{ item.action || item.detail }}</p>
+                                                <ai-decision-quality-details :item="item"></ai-decision-quality-details>
                                             </div>
                                         </div>
                                     </div>

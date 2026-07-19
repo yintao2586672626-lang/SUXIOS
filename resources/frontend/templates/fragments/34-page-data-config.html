@@ -210,6 +210,8 @@
                                 </div>
                             </div>
                         </div>
+
+                        <competitor-device-management v-if="user && user.is_super_admin" :ctx="$root"></competitor-device-management>
                     </div>
 
                     <!-- 线上数据获取 -->

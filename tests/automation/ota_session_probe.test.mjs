@@ -6,6 +6,7 @@ import {
   isRecognizedOtaSessionProbeResponse,
   OTA_SESSION_PROBE_CONTRACT_VERSION,
   otaSessionCookieInjectionDomains,
+  recordOtaSessionProbeCandidateDiagnostic,
   sanitizeOtaObservedRoute,
   sanitizeOtaObservedUrl,
   summarizeOtaSessionCookies,
@@ -411,6 +412,55 @@ test('candidate endpoints block while protected APIs can safely anchor renamed S
   assert.equal(cookieDrift.drift_diagnostics.status, 'none');
   assert.deepEqual(cookieDrift.drift_diagnostics.signal_ids, []);
   assert.deepEqual(cookieDrift.drift_diagnostics.advisory_signal_ids, ['session_cookie_name_fallback']);
+});
+
+test('Ctrip and Meituan observers can retain bounded candidate routes and reason IDs without URL secrets', () => {
+  for (const platform of ['ctrip', 'meituan']) {
+    const host = platform === 'ctrip' ? 'ebooking.ctrip.com' : 'eb.meituan.com';
+    const diagnostics = {
+      candidate_drift_response_count: 0,
+      candidate_route_samples: [],
+      candidate_reason_ids: [],
+    };
+    for (let index = 0; index < 25; index += 1) {
+      const url = `https://${host}/api/v999/new-contract/route-${index}/token/must-not-leak?access_token=secret-${index}#cookie`;
+      const classified = classifyOtaSessionProbeResponse(platform, {
+        url,
+        status: 200,
+        resource_type: 'fetch',
+        content_type: 'application/json',
+      });
+      assert.equal(classified.classification, 'candidate_drift');
+      recordOtaSessionProbeCandidateDiagnostic(diagnostics, classified, url);
+    }
+
+    assert.equal(diagnostics.candidate_drift_response_count, 20);
+    assert.equal(diagnostics.candidate_route_samples.length, 20);
+    assert.deepEqual(diagnostics.candidate_reason_ids, ['unknown_business_json_route']);
+    assert.match(diagnostics.candidate_route_samples[0], /\/token\/:redacted$/);
+    assert.equal(JSON.stringify(diagnostics).includes('must-not-leak'), false);
+    assert.equal(JSON.stringify(diagnostics).includes('secret-'), false);
+    assert.equal(JSON.stringify(diagnostics).includes('?'), false);
+    assert.equal(JSON.stringify(diagnostics).includes('#'), false);
+    assert.equal(
+      sanitizeOtaObservedRoute(`https://${host}/api/v999/store/550e8400-e29b-41d4-a716-446655440000?token=secret`),
+      `${host}/api/v999/store/:id`,
+    );
+
+    const normalized = evaluateOtaSessionProbe(platform, {
+      auth_status: { ok: true, status: 'logged_in' },
+      url: platform === 'ctrip'
+        ? 'https://ebooking.ctrip.com/home/mainland'
+        : 'https://me.meituan.com/ebooking/merchant/comment-manage-react',
+      cookie_summary: { platform_cookie_count: 1, session_cookie_count: 1 },
+      identity_status: 'matched',
+      response_diagnostics: diagnostics,
+    }, { now: fixedNow });
+    assert.equal(normalized.status, 'platform_contract_drift');
+    assert.equal(normalized.drift_diagnostics.candidate_route_samples.length, 20);
+    assert.deepEqual(normalized.drift_diagnostics.candidate_reason_ids, ['unknown_business_json_route']);
+    assert.equal(JSON.stringify(normalized).includes('must-not-leak'), false);
+  }
 });
 
 test('HTTP access and rate-limit responses stay distinguishable without response bodies', () => {

@@ -9,10 +9,12 @@ use Throwable;
 class QuantSimulationService
 {
     private LlmClient $client;
+    private AiDecisionQualityService $decisionQualityService;
 
-    public function __construct(?LlmClient $client = null)
+    public function __construct(?LlmClient $client = null, ?AiDecisionQualityService $decisionQualityService = null)
     {
         $this->client = $client ?: new LlmClient();
+        $this->decisionQualityService = $decisionQualityService ?? new AiDecisionQualityService();
     }
 
     public function calculateAndSave(array $payload, int $userId): array
@@ -211,7 +213,7 @@ class QuantSimulationService
             + (float)$input['otherInvestment'];
         $revPAR = $adr * $occupancyRate;
         $paybackMonths = $monthlyNetCashflow > 0 ? $totalInvestment / $monthlyNetCashflow : null;
-        $rentRatio = $monthlyRevenue > 0 ? (float)$input['monthlyRent'] / $monthlyRevenue : 0;
+        $rentRatio = $monthlyRevenue > 0 ? (float)$input['monthlyRent'] / $monthlyRevenue : null;
         $breakEvenOccupancy = $this->calculateBreakEvenOccupancy(
             $fixedMonthlyCost,
             (float)$input['otherIncome'],
@@ -230,7 +232,7 @@ class QuantSimulationService
             'totalInvestment' => round($totalInvestment, 2),
             'revPAR' => round($revPAR, 2),
             'paybackMonths' => $paybackMonths === null ? null : round($paybackMonths, 2),
-            'rentRatio' => round($rentRatio, 4),
+            'rentRatio' => $rentRatio === null ? null : round($rentRatio, 4),
             'breakEvenOccupancy' => round($breakEvenOccupancy, 4),
             'riskLevel' => $this->calculateRiskLevel($monthlyNetCashflow, $paybackMonths, $rentRatio, $breakEvenOccupancy),
         ];
@@ -408,11 +410,16 @@ class QuantSimulationService
 
     private function buildRiskHints(array $result): array
     {
-        $rentRisk = $result['rentRatio'] >= 0.4
-            ? ['riskLevel' => '高风险', 'content' => '租金占比超过40%，需压降租金或提高ADR。', 'className' => 'bg-red-50 border-red-100 text-red-800']
-            : ($result['rentRatio'] >= 0.3
-                ? ['riskLevel' => '中高风险', 'content' => '租金占比超过30%，需持续压降租金或提高ADR。', 'className' => 'bg-orange-50 border-orange-100 text-orange-800']
-                : ['riskLevel' => '低风险', 'content' => '租金占比处于相对可控区间。', 'className' => 'bg-green-50 border-green-100 text-green-800']);
+        $rentRatio = isset($result['rentRatio']) && is_numeric($result['rentRatio'])
+            ? (float)$result['rentRatio']
+            : null;
+        $rentRisk = $rentRatio === null
+            ? ['riskLevel' => '高风险', 'content' => '月收入为0，租金占比不可计算，不能按0%判断租金安全。', 'className' => 'bg-red-50 border-red-100 text-red-800']
+            : ($rentRatio >= 0.4
+                ? ['riskLevel' => '高风险', 'content' => '租金占比超过40%，需压降租金或提高ADR。', 'className' => 'bg-red-50 border-red-100 text-red-800']
+                : ($rentRatio >= 0.3
+                    ? ['riskLevel' => '中高风险', 'content' => '租金占比超过30%，需持续压降租金或提高ADR。', 'className' => 'bg-orange-50 border-orange-100 text-orange-800']
+                    : ['riskLevel' => '低风险', 'content' => '租金占比处于相对可控区间。', 'className' => 'bg-green-50 border-green-100 text-green-800']));
 
         $paybackRisk = $result['paybackMonths'] === null
             ? ['riskLevel' => '高风险', 'content' => '当前月净现金流为负，项目暂不可回本。', 'className' => 'bg-red-50 border-red-100 text-red-800']
@@ -460,19 +467,22 @@ class QuantSimulationService
                 'source' => 'llm',
                 'model_key' => $modelKey,
                 'generated_at' => date('Y-m-d H:i:s'),
+                'decision_quality_context' => $this->quantDecisionQualityContext($input, $result, $scenarios, $riskHints),
             ]);
         } catch (Throwable $e) {
-            return $this->buildFallbackModelAnalysis($result, $scenarios, $riskHints, $modelKey, $e->getMessage());
+            return $this->buildFallbackModelAnalysis($input, $result, $scenarios, $riskHints, $modelKey, $e->getMessage());
         }
     }
 
-    private function buildFallbackModelAnalysis(array $result, array $scenarios, array $riskHints, string $modelKey, string $reason): array
+    private function buildFallbackModelAnalysis(array $input, array $result, array $scenarios, array $riskHints, string $modelKey, string $reason): array
     {
         $basePayback = $result['paybackMonths'] ?? null;
         $paybackText = $basePayback === null ? '暂不可回本' : round((float)$basePayback, 1) . '个月';
         $riskLevel = (string)($result['riskLevel'] ?? '中风险');
         $netCashflow = (float)($result['monthlyNetCashflow'] ?? 0);
-        $rentRatio = (float)($result['rentRatio'] ?? 0);
+        $rentRatio = isset($result['rentRatio']) && is_numeric($result['rentRatio'])
+            ? (float)$result['rentRatio']
+            : null;
         $breakEven = (float)($result['breakEvenOccupancy'] ?? 0);
 
         $decision = ($riskLevel === '高风险' || $netCashflow <= 0)
@@ -484,7 +494,7 @@ class QuantSimulationService
             $scenarios
         );
 
-        return [
+        return $this->normalizeModelAnalysis([
             'source' => 'fallback',
             'model_key' => $modelKey,
             'generated_at' => date('Y-m-d H:i:s'),
@@ -515,7 +525,7 @@ class QuantSimulationService
                 ],
                 [
                     'metric' => '租金占比',
-                    'threshold' => round($rentRatio * 100, 1) . '%',
+                    'threshold' => $rentRatio === null ? '不可计算（月收入为0）' : round($rentRatio * 100, 1) . '%',
                     'action' => '超过30%需重谈租金或提高ADR，超过40%按高风险处理。',
                 ],
                 [
@@ -533,7 +543,9 @@ class QuantSimulationService
                 ]
             ))),
             'error' => mb_substr(trim($reason), 0, 120),
-        ];
+        ], [
+            'decision_quality_context' => $this->quantDecisionQualityContext($input, $result, $scenarios, $riskHints),
+        ]);
     }
 
     private function modelAnalysisSchema(): array
@@ -585,6 +597,7 @@ class QuantSimulationService
 
     private function normalizeInput(array $raw): array
     {
+        $this->requireNumericAlias($raw, ['roomCount', 'room_count'], 'roomCount', false);
         $input = [
             'roomCount' => $this->number($raw, 'roomCount', 'room_count'),
             'adr' => $this->number($raw, 'adr', 'adr'),
@@ -810,9 +823,9 @@ class QuantSimulationService
         return $values;
     }
 
-    private function calculateRiskLevel(float $monthlyNetCashflow, ?float $paybackMonths, float $rentRatio, float $breakEvenOccupancy): string
+    private function calculateRiskLevel(float $monthlyNetCashflow, ?float $paybackMonths, ?float $rentRatio, float $breakEvenOccupancy): string
     {
-        if ($monthlyNetCashflow <= 0 || $paybackMonths === null || $breakEvenOccupancy >= 0.65) {
+        if ($monthlyNetCashflow <= 0 || $paybackMonths === null || $rentRatio === null || $breakEvenOccupancy >= 0.65) {
             return '高风险';
         }
         if ($rentRatio >= 0.4 || $paybackMonths > 30) {
@@ -834,33 +847,143 @@ class QuantSimulationService
         $result = $this->decodeJson($row['result_json'] ?? '');
         $scenarios = $this->decodeJson($row['scenarios_json'] ?? '');
         $riskHints = $this->decodeJson($row['risk_hints_json'] ?? '');
-        $modelAnalysis = $this->normalizeModelAnalysis($result['modelAnalysis'] ?? $result['model_analysis'] ?? []);
+        $modelAnalysis = $this->normalizeModelAnalysis(
+            $result['modelAnalysis'] ?? $result['model_analysis'] ?? [],
+            ['decision_quality_context' => $this->quantDecisionQualityContext($input, $result, $scenarios, $riskHints)]
+        );
+        $truthContext = $this->quantRecordTruthContext($row);
+        $metricTruth = $this->quantMetricTruth($result, $truthContext);
+        $resultNumber = static function (string $key) use ($result): ?float {
+            if (!array_key_exists($key, $result) || !is_numeric($result[$key])) {
+                return null;
+            }
+            $value = (float)$result[$key];
+            return is_finite($value) ? $value : null;
+        };
         $record = [
             'id' => (int)$row['id'],
             'project_name' => (string)($row['project_name'] ?? ''),
-            'monthly_net_cashflow' => (float)($row['monthly_net_cashflow'] ?? 0),
+            'monthly_net_cashflow' => $resultNumber('monthlyNetCashflow'),
             'payback_months' => $row['payback_months'] === null ? null : (float)$row['payback_months'],
             'risk_level' => (string)($row['risk_level'] ?? ''),
             'created_by' => (int)($row['created_by'] ?? 0),
             'created_at' => (string)($row['created_at'] ?? ''),
             'summary' => [
-                'monthlyRevenue' => (float)($result['monthlyRevenue'] ?? 0),
-                'monthlyNetCashflow' => (float)($result['monthlyNetCashflow'] ?? 0),
+                'monthlyRevenue' => $resultNumber('monthlyRevenue'),
+                'monthlyNetCashflow' => $resultNumber('monthlyNetCashflow'),
                 'paybackMonths' => $result['paybackMonths'] ?? null,
                 'riskLevel' => (string)($result['riskLevel'] ?? ($row['risk_level'] ?? '')),
             ],
+            'truth_context' => $truthContext,
+            'summary_metric_truth' => array_intersect_key($metricTruth, array_flip([
+                'monthlyRevenue',
+                'monthlyNetCashflow',
+                'paybackMonths',
+            ])),
             'execution_readiness' => (new SimulationExecutionReadinessService())->buildQuantReadiness($input, $result, $scenarios, $riskHints),
         ];
 
         if ($withDetail) {
+            foreach ($scenarios as $index => $scenario) {
+                if (!is_array($scenario)) {
+                    continue;
+                }
+                $scenarios[$index]['metric_truth'] = $this->quantMetricTruth($scenario, $truthContext);
+            }
             $record['input'] = $input;
             $record['result'] = $result;
             $record['scenarios'] = $scenarios;
             $record['risk_hints'] = $riskHints;
             $record['model_analysis'] = $modelAnalysis;
+            $record['metric_truth'] = $metricTruth;
+            $record['input_truth_context'] = array_merge($truthContext, [
+                'source_methods' => ['user_input'],
+                'source' => array_merge($truthContext['source'], [
+                    'methods' => ['user_input'],
+                    'caliber' => 'user_provided_investment_scenario',
+                ]),
+                'calculation_status' => 'not_applicable',
+            ]);
         }
 
         return $record;
+    }
+
+    /** @return array<string, mixed> */
+    private function quantRecordTruthContext(array $row): array
+    {
+        $recordId = (int)($row['id'] ?? 0);
+        $createdAt = trim((string)($row['created_at'] ?? ''));
+        $date = preg_match('/^\d{4}-\d{2}-\d{2}/', $createdAt) === 1
+            ? substr($createdAt, 0, 10)
+            : null;
+
+        return [
+            'status' => 'unverified',
+            'status_label' => '未验证',
+            'metric_scope' => 'investment_scenario',
+            'scope_label' => '投资情景测算，不是OTA数据，也不是全酒店经营实绩',
+            'hotels' => [],
+            'hotel_id' => null,
+            'platforms' => ['not_applicable'],
+            'date_range' => ['start' => $date, 'end' => $date],
+            'source_methods' => ['user_input', 'deterministic_formula'],
+            'source' => [
+                'table' => 'quant_simulation_records',
+                'row_ids' => $recordId > 0 ? [$recordId] : [],
+                'trace_ids' => [],
+                'methods' => ['user_input', 'deterministic_formula'],
+                'caliber' => 'investment_scenario',
+            ],
+            'collected_at_range' => ['start' => null, 'end' => null],
+            'collection_time_applicability' => 'not_applicable_manual_input',
+            'calculated_at' => $createdAt !== '' ? $createdAt : null,
+            'persistence' => [
+                'stored' => $recordId > 0,
+                'readback_verified' => $recordId > 0,
+                'stored_count' => $recordId > 0 ? 1 : 0,
+                'readback_verified_count' => $recordId > 0 ? 1 : 0,
+            ],
+            'failure_reason' => '输入为人工录入且未提供可核验经营或财务来源；记录未绑定目标门店，不能作为真实经营或OTA数据。',
+            'data_gaps' => [
+                'target_hotel_missing',
+                'user_input_source_unverified',
+                'collection_time_not_applicable',
+            ],
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $result
+     * @param array<string, mixed> $truthContext
+     * @return array<string, array<string, mixed>>
+     */
+    private function quantMetricTruth(array $result, array $truthContext): array
+    {
+        $metrics = [];
+        foreach ([
+            'availableRoomNights',
+            'roomRevenue',
+            'monthlyRevenue',
+            'otaCommission',
+            'monthlyCost',
+            'monthlyNetCashflow',
+            'totalInvestment',
+            'revPAR',
+            'paybackMonths',
+            'rentRatio',
+            'breakEvenOccupancy',
+        ] as $metricKey) {
+            $value = array_key_exists($metricKey, $result) ? $result[$metricKey] : null;
+            $calculated = $value !== null && is_numeric($value) && is_finite((float)$value);
+            $metrics[$metricKey] = array_merge($truthContext, [
+                'metric_key' => $metricKey,
+                'calculation_status' => $calculated ? 'calculated' : 'missing',
+                'value_observed' => $calculated,
+                'calculation_basis' => 'deterministic_formula_from_user_input',
+            ]);
+        }
+        return $metrics;
     }
 
     private function normalizeModelAnalysis(mixed $raw, array $defaults = []): array
@@ -869,7 +992,13 @@ class QuantSimulationService
             $raw = [];
         }
 
-        $recommendations = $this->normalizeRecommendationItems($raw['recommendations'] ?? []);
+        $decisionQualityContext = is_array($defaults['decision_quality_context'] ?? null)
+            ? $defaults['decision_quality_context']
+            : $this->quantDecisionQualityContext([], [], [], []);
+        $recommendations = $this->decisionQualityService->enrichRecommendations(
+            $this->normalizeRecommendationItems($raw['recommendations'] ?? []),
+            $decisionQualityContext
+        );
         $watchPoints = $this->normalizeWatchPointItems($raw['watch_points'] ?? $raw['watchPoints'] ?? []);
         $assumptions = $this->stringList($raw['assumptions'] ?? []);
 
@@ -880,9 +1009,36 @@ class QuantSimulationService
             'summary' => trim((string)($raw['summary'] ?? '')),
             'decision' => trim((string)($raw['decision'] ?? '')),
             'recommendations' => $recommendations,
+            'recommendation_quality' => $this->decisionQualityService->summarize($recommendations, $decisionQualityContext),
             'watch_points' => $watchPoints,
             'assumptions' => $assumptions,
             'error' => mb_substr(trim((string)($raw['error'] ?? '')), 0, 120),
+        ];
+    }
+
+    private function quantDecisionQualityContext(array $input, array $result, array $scenarios, array $riskHints): array
+    {
+        return [
+            'scope' => 'investment_scenario',
+            'data_basis' => [
+                [
+                    'ref' => 'quant_user_input_snapshot',
+                    'source' => 'user_provided_financial_inputs',
+                    'scope' => 'investment_scenario',
+                    'quality_status' => 'user_provided_unverified',
+                    'summary' => '房量、ADR、入住率、成本和投资额来自当前录入，未自动等同于真实经营实绩。',
+                ],
+                [
+                    'ref' => 'quant_deterministic_result',
+                    'source' => 'deterministic_formula_and_scenarios',
+                    'scope' => 'investment_scenario',
+                    'quality_status' => 'derived_unverified',
+                    'summary' => '公式结果和三情景由当前输入派生；输入真实性仍需外部证据复核。',
+                ],
+            ],
+            'basis_summary' => '基于当前录入、规则公式、三情景结果和风险提示生成。',
+            'default_risk_level' => (string)($result['riskLevel'] ?? 'medium'),
+            'review_window' => '进入投决前，以真实流水、租约、成本单据和同口径经营样本复核三情景结果',
         ];
     }
 
@@ -906,11 +1062,11 @@ class QuantSimulationService
             if (!in_array($priority, ['P0', 'P1', 'P2'], true)) {
                 $priority = 'P1';
             }
-            $normalized[] = [
+            $normalized[] = array_merge($item, [
                 'priority' => $priority,
                 'title' => $title !== '' ? $title : '经营建议',
                 'detail' => $detail,
-            ];
+            ]);
         }
 
         return array_slice($normalized, 0, 5);
@@ -962,25 +1118,40 @@ class QuantSimulationService
 
     private function number(array $raw, string $camel, string $snake): float
     {
-        return round((float)($raw[$camel] ?? $raw[$snake] ?? 0), 4);
+        foreach (array_values(array_unique([$camel, $snake])) as $key) {
+            if (!array_key_exists($key, $raw)) {
+                continue;
+            }
+            $value = $raw[$key];
+            if (!is_numeric($value) || !is_finite((float)$value)) {
+                throw new \InvalidArgumentException($camel . '必须是有效数字');
+            }
+            return round((float)$value, 4);
+        }
+
+        return 0.0;
     }
 
     private function roomRevenueGroup(array $raw, array $baseInput): array
     {
         $values = [];
-        $hasDetail = false;
+        $detailAliases = [];
         foreach ($this->roomRevenueSegments() as $segment) {
             foreach ([
                 $segment['daysKey'] => $segment['daysSnake'],
                 $segment['adrKey'] => $segment['adrSnake'],
                 $segment['occupancyKey'] => $segment['occupancySnake'],
             ] as $camel => $snake) {
-                if (array_key_exists($camel, $raw) || array_key_exists($snake, $raw)) {
-                    $hasDetail = true;
-                }
+                $detailAliases[] = [(string)$camel, (string)$snake];
                 $values[$camel] = $this->number($raw, (string)$camel, (string)$snake);
             }
         }
+        $hasDetail = $this->requireNumericGroup(
+            $raw,
+            [['adr'], ['occupancyRate', 'occupancy_rate']],
+            $detailAliases,
+            '客房收入'
+        );
 
         if (!$hasDetail) {
             $adr = (float)$baseInput['adr'];
@@ -998,13 +1169,17 @@ class QuantSimulationService
     private function otherIncomeGroup(array $raw, array $baseInput): array
     {
         $values = [];
-        $hasDetail = false;
+        $detailAliases = [];
         foreach ($this->otherIncomeFields() as $field) {
-            if (array_key_exists($field['key'], $raw) || array_key_exists($field['snake'], $raw)) {
-                $hasDetail = true;
-            }
+            $detailAliases[] = [$field['key'], $field['snake']];
             $values[$field['key']] = $this->number($raw, $field['key'], $field['snake']);
         }
+        $hasDetail = $this->requireNumericGroup(
+            $raw,
+            [['otherIncome', 'other_income']],
+            $detailAliases,
+            '其他收入'
+        );
 
         if (!$hasDetail) {
             foreach ($this->otherIncomeFields() as $field) {
@@ -1018,13 +1193,17 @@ class QuantSimulationService
     private function investmentGroup(array $raw, string $totalCamel, string $totalSnake, array $detailFields): array
     {
         $detailValues = [];
-        $hasDetail = false;
+        $detailAliases = [];
         foreach ($detailFields as $camel => $snake) {
-            if (array_key_exists($camel, $raw) || array_key_exists($snake, $raw)) {
-                $hasDetail = true;
-            }
+            $detailAliases[] = [(string)$camel, (string)$snake];
             $detailValues[$camel] = $this->number($raw, (string)$camel, (string)$snake);
         }
+        $hasDetail = $this->requireNumericGroup(
+            $raw,
+            [[$totalCamel, $totalSnake]],
+            $detailAliases,
+            $totalCamel
+        );
 
         if (!$hasDetail) {
             $legacyTotal = $this->number($raw, $totalCamel, $totalSnake);
@@ -1046,18 +1225,22 @@ class QuantSimulationService
     private function otaCommissionGroup(array $raw, array $baseInput): array
     {
         $values = [];
-        $hasDetail = false;
+        $detailAliases = [];
         foreach ($this->otaCommissionChannels() as $channel) {
             foreach ([
                 $channel['shareKey'] => $channel['shareSnake'],
                 $channel['rateKey'] => $channel['rateSnake'],
             ] as $camel => $snake) {
-                if (array_key_exists($camel, $raw) || array_key_exists($snake, $raw)) {
-                    $hasDetail = true;
-                }
+                $detailAliases[] = [(string)$camel, (string)$snake];
                 $values[$camel] = $this->number($raw, (string)$camel, (string)$snake);
             }
         }
+        $hasDetail = $this->requireNumericGroup(
+            $raw,
+            [['otaCommissionRate', 'ota_commission_rate']],
+            $detailAliases,
+            'OTA佣金'
+        );
 
         if (!$hasDetail) {
             $legacyRate = (float)$baseInput['otaCommissionRate'];
@@ -1069,6 +1252,66 @@ class QuantSimulationService
 
         $values['otaCommissionRate'] = $this->weightedOtaCommissionRate($values);
         return $values;
+    }
+
+    /**
+     * A group may use either its legacy summary fields or its complete detail fields.
+     * Once any detail field is supplied, every detail field must be explicit so that
+     * an omitted value is never silently treated as a real zero.
+     *
+     * @param array<int, array<int, string>> $summaryAliases
+     * @param array<int, array<int, string>> $detailAliases
+     */
+    private function requireNumericGroup(
+        array $raw,
+        array $summaryAliases,
+        array $detailAliases,
+        string $label
+    ): bool {
+        $hasDetail = false;
+        foreach ($detailAliases as $aliases) {
+            if ($this->hasAnyAlias($raw, $aliases)) {
+                $hasDetail = true;
+                break;
+            }
+        }
+
+        $required = $hasDetail ? $detailAliases : $summaryAliases;
+        foreach ($required as $aliases) {
+            $field = (string)($aliases[0] ?? $label);
+            $this->requireNumericAlias($raw, $aliases, $field, true);
+        }
+
+        return $hasDetail;
+    }
+
+    /** @param array<int, string> $aliases */
+    private function requireNumericAlias(array $raw, array $aliases, string $label, bool $zeroAllowed): void
+    {
+        foreach (array_values(array_unique($aliases)) as $key) {
+            if (!array_key_exists($key, $raw)) {
+                continue;
+            }
+            $value = $raw[$key];
+            if (!is_numeric($value) || !is_finite((float)$value)) {
+                throw new \InvalidArgumentException($label . '必须是有效数字');
+            }
+            return;
+        }
+
+        $suffix = $zeroAllowed ? '；无该项请显式填0' : '';
+        throw new \InvalidArgumentException($label . '缺失' . $suffix);
+    }
+
+    /** @param array<int, string> $aliases */
+    private function hasAnyAlias(array $raw, array $aliases): bool
+    {
+        foreach (array_values(array_unique($aliases)) as $key) {
+            if (array_key_exists($key, $raw)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function weightedOtaCommissionRate(array $input): float

@@ -279,12 +279,19 @@ window.SUXI_OTA_DIAGNOSIS_STATIC = (() => {
         const missingEvidence = normalizeOtaDiagnosisArray(item.missing_evidence);
         const evidenceRefs = normalizeOtaDiagnosisArray(item.evidence_refs);
         const requiredEvidence = normalizeOtaDiagnosisArray(item.required_evidence);
+        const dataBasis = item.data_basis && typeof item.data_basis === 'object' ? item.data_basis : {};
+        const expectedEffect = item.expected_effect && typeof item.expected_effect === 'object' ? item.expected_effect : {};
+        const risk = item.risk && typeof item.risk === 'object' ? item.risk : {};
+        const quality = item.decision_quality && typeof item.decision_quality === 'object' ? item.decision_quality : {};
         const status = superseded
             ? 'superseded'
             : (item.status || (item.execution_ready ? 'pending_human_confirmation' : 'blocked'));
         return {
             index,
             id: item.id || `ota_action_${index + 1}`,
+            qualityItem: item,
+            priority: item.priority || 'P1',
+            title: item.title || `建议${index + 1}`,
             action: item.action || item.title || '-',
             status,
             statusText: superseded ? '已被新诊断替代' : otaDiagnosisDecisionStatusText(status),
@@ -292,6 +299,13 @@ window.SUXI_OTA_DIAGNOSIS_STATIC = (() => {
             executionReady: !superseded && item.execution_ready === true,
             canCreateIntent: !superseded && item.execution_ready === true && item.can_request_execution_intent !== false,
             evidenceText: evidenceRefs.length ? evidenceRefs.slice(0, 3).join('、') : '-',
+            dataBasisText: dataBasis.summary || dataBasis.quality_note || '未提供可追溯依据',
+            dataBasisMeta: [dataBasis.scope, dataBasis.platform, dataBasis.date].filter(Boolean).join(' · ') || '范围/日期待核验',
+            expectedEffectText: expectedEffect.summary || '未定义效果指标',
+            expectedMetricText: expectedEffect.metric_label || expectedEffect.metric || item.expected_metric || '待定义指标',
+            riskLevel: risk.level || item.risk_level || 'unverified',
+            riskText: risk.summary || '未提供风险说明',
+            qualityStatus: quality.status || 'legacy_incomplete',
             requiredText: requiredEvidence.length ? requiredEvidence.join('、') : '-',
             missingText: missingEvidence.map(evidence => evidence.label || evidence.code || '').filter(Boolean).slice(0, 3).join('、') || '',
             blockedReason: superseded ? '该保存记录仅供审计回看，不能再转入运营执行。' : (item.blocked_reason || ''),

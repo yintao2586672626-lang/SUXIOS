@@ -102,7 +102,8 @@
                                                             <span class="px-1.5 py-0.5 rounded bg-cyan-50 text-cyan-700 text-xs">{{ item.priority }}</span>
                                                             <span class="font-medium text-gray-800">{{ item.title }}</span>
                                                         </div>
-                                                        <div class="text-gray-600">{{ item.detail }}</div>
+                                                        <div class="text-gray-700"><span class="font-medium">建议动作：</span>{{ item.action || item.detail }}</div>
+                                                        <ai-decision-quality-details :item="item"></ai-decision-quality-details>
                                                     </div>
                                                 </div>
                                             </div>

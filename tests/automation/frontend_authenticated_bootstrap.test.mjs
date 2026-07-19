@@ -96,6 +96,37 @@ test('authenticated startup paints the home render before loading the full rende
   assert.doesNotMatch(bootstrap, /for \(const src of assets\)/);
 });
 
+test('authenticated login leaves the first workbench request burst to one owner', () => {
+  const helperStart = appMain.indexOf('const activateAiWorkbenchAfterLogin = () => {');
+  const helperEnd = appMain.indexOf('\n            const isVisibleOnlineDataTab', helperStart);
+  const helper = appMain.slice(helperStart, helperEnd);
+  assert(helperStart >= 0 && helperEnd > helperStart, 'workbench activation helper must exist');
+  assert.match(helper, /const pageChanged = currentPage\.value !== targetPage/);
+  assert.match(helper, /currentPage\.value = targetPage;\s*if \(pageChanged\) \{[\s\S]*?return;/);
+  assert.match(helper, /runPageLoadOnce\(targetPage, 'main', \(\) => loadCompassData\(\{ skipOtaBackground: true \}\)\)/);
+
+  const loginStart = appMain.indexOf('const handleLogin = async () => {');
+  const loginEnd = appMain.indexOf('\n            const loadLoginSupportContact', loginStart);
+  const loginFlow = appMain.slice(loginStart, loginEnd);
+  assert.match(loginFlow, /activateAiWorkbenchAfterLogin\(\)/);
+  assert.match(loginFlow, /applyDefaultReportHotel\(\{ suppressDashboardRefresh: true \}\)/);
+  assert.doesNotMatch(loginFlow, /scheduleInitialCompassLoad|scheduleDualOtaWorkbenchAutoFetch/);
+
+  const mountedStart = appMain.indexOf('onMounted(() => {');
+  const mountedEnd = appMain.indexOf('\n            onUnmounted', mountedStart);
+  const mountedFlow = appMain.slice(mountedStart, mountedEnd);
+  assert.match(mountedFlow, /if \(isCompassDataPage\(\)\) \{\s*activateAiWorkbenchAfterLogin\(\);\s*\}/);
+  assert.match(mountedFlow, /applyDefaultReportHotel\(\{ suppressDashboardRefresh: true \}\)/);
+  assert.doesNotMatch(mountedFlow, /scheduleInitialCompassLoad|scheduleDualOtaWorkbenchAutoFetch/);
+  assert.doesNotMatch(appMain, /const scheduleInitialCompassLoad =/);
+
+  const pageWatcherStart = appMain.indexOf('watch(currentPage, (newPage) => {');
+  const pageWatcherEnd = appMain.indexOf('\n            watch(onlineDataTab', pageWatcherStart);
+  const pageWatcher = appMain.slice(pageWatcherStart, pageWatcherEnd);
+  assert.match(pageWatcher, /loadCompassData\(\{ skipOtaBackground: true \}\)/);
+  assert.match(appMain, /if \(options\.skipOtaBackground !== true\) \{[\s\S]*?loadLatestCtripData[\s\S]*?loadCompetitorSummary/);
+});
+
 test('deferred OTA and admin helpers resolve from their bundles only when invoked', () => {
   assert.match(appMain, /const requireUserAdminStatic = \(key\) => \{/);
   assert.match(appMain, /const requireCtripSearchOpportunityStatic = \(key\) => \(\.\.\.args\) => \{/);

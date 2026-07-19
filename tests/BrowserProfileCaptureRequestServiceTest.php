@@ -123,6 +123,46 @@ final class BrowserProfileCaptureRequestServiceTest extends TestCase
         );
     }
 
+    public function testFiltersOnlyUnverifiedSupplementalForecastRows(): void
+    {
+        $rows = [
+            [
+                'data_type' => 'traffic',
+                'data_date' => '2026-07-18',
+                'raw_data' => json_encode([
+                    'dataDate' => '2026-07-18',
+                    'date_source' => 'request.query.startDate',
+                    'list_exposure' => 1200,
+                ]),
+            ],
+            [
+                'data_type' => 'traffic_forecast',
+                'data_date' => '2026-07-18',
+                'date_source' => 'capture_context.default_data_date',
+                'forecast_type' => '1',
+            ],
+            [
+                'data_type' => 'order',
+                'data_date' => '2026-07-18',
+                'raw_data' => json_encode([
+                    'dataDate' => '2026-07-18',
+                    'date_source' => 'capture_context.default_data_date',
+                    'order_count' => 2,
+                ]),
+            ],
+        ];
+
+        $filtered = BrowserProfileCaptureRequestService::filterUnverifiedMeituanSupplementalRows($rows, '2026-07-18');
+
+        self::assertSame(1, $filtered['dropped_count']);
+        self::assertSame(['traffic_forecast'], $filtered['dropped_types']);
+        self::assertSame(['traffic', 'order'], array_column($filtered['rows'], 'data_type'));
+        self::assertSame(
+            ['order:1'],
+            BrowserProfileCaptureRequestService::unverifiedMeituanTargetDateRows($filtered['rows'], '2026-07-18')
+        );
+    }
+
     public function testSanitizedEventHashesRemainValidDateEvidence(): void
     {
         $rows = [

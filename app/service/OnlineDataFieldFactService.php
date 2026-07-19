@@ -87,7 +87,7 @@ final class OnlineDataFieldFactService
                 'metric_key' => 'flow_rate',
                 'normalized_field' => 'flow_rate',
                 'storage_field' => 'flow_rate',
-                'source_keys' => ['flow_rate', 'flowRate', 'conversion_rate', 'conversionRate', 'convertionRate', 'convertRate', 'transforRate', 'transferRate', 'transRate', 'cvr', 'listTransforDetailRate', 'orderRate'],
+                'source_keys' => ['flow_rate', 'flowRate', 'intentionPerExposure', 'conversion_rate', 'conversionRate', 'convertionRate', 'convertRate', 'transforRate', 'transferRate', 'transRate', 'cvr', 'listTransforDetailRate', 'orderRate'],
             ],
             [
                 'metric_key' => 'order_filling_num',

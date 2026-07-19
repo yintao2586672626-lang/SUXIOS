@@ -30,11 +30,17 @@ class AiDailyReportService
 
     private OperationManagementService $operationService;
     private LlmClient $llmClient;
+    private AiDecisionQualityService $decisionQualityService;
 
-    public function __construct(?OperationManagementService $operationService = null, ?LlmClient $llmClient = null)
+    public function __construct(
+        ?OperationManagementService $operationService = null,
+        ?LlmClient $llmClient = null,
+        ?AiDecisionQualityService $decisionQualityService = null
+    )
     {
         $this->operationService = $operationService ?? new OperationManagementService();
         $this->llmClient = $llmClient ?? new LlmClient();
+        $this->decisionQualityService = $decisionQualityService ?? new AiDecisionQualityService();
     }
 
     public static function promptVersion(): string
@@ -1137,7 +1143,7 @@ class AiDailyReportService
         }
     }
 
-    private function enrichRecommendedActions(array $actions, array $executionItems): array
+    private function enrichRecommendedActions(array $actions, array $executionItems, array $context = []): array
     {
         $result = [];
         foreach ($actions as $index => $action) {
@@ -1150,7 +1156,7 @@ class AiDailyReportService
             $result[] = $action;
         }
 
-        return $result;
+        return $this->decisionQualityService->enrichRecommendations($result, $context);
     }
 
     private function executionItemForAction(array $action, array $executionItems, int $actionIndex): array
@@ -1431,23 +1437,25 @@ class AiDailyReportService
                 if (!is_array($evidence) || trim((string)($evidence['source_ref'] ?? '')) === '') {
                     continue;
                 }
-                $platform = $this->evidenceOtaPlatform($evidence);
-                $platformLabel = match ($platform) {
-                    'ctrip' => '携程',
-                    'meituan' => '美团',
-                    'qunar' => '去哪儿',
-                    default => 'OTA',
-                };
-                $platformScope = match ($platform) {
-                    'ctrip' => 'Ctrip OTA channel fact',
-                    'meituan' => 'Meituan OTA channel fact',
-                    'qunar' => 'Qunar OTA channel fact',
-                    default => 'OTA channel fact (platform unknown)',
+                $sourceRefKey = (string)$evidence['source_ref'];
+                $sourceRefContext = array_merge($evidence, ['key' => $sourceRefKey]);
+                $metricScope = $this->sourceRefMetricScope($sourceRefContext);
+                $platform = $metricScope === 'ota_channel' ? $this->evidenceOtaPlatform($evidence) : '';
+                $sourceLabel = match ($metricScope) {
+                    'whole_hotel_daily_report' => '全酒店经营日报',
+                    'manual_input' => '人工录入',
+                    'local_operating_source' => '本地经营来源',
+                    default => match ($platform) {
+                        'ctrip' => '携程',
+                        'meituan' => '美团',
+                        'qunar' => '去哪儿',
+                        default => '来源待核验',
+                    },
                 };
                 $sourceRefs[] = [
-                    'key' => (string)$evidence['source_ref'],
-                    'label' => $platformLabel . $moduleLabel,
-                    'scope' => $platformScope,
+                    'key' => $sourceRefKey,
+                    'label' => $sourceLabel . $moduleLabel,
+                    'scope' => $metricScope,
                     'source' => (string)($evidence['source'] ?? ''),
                     'platform' => (string)($evidence['platform'] ?? ''),
                     'endpoint_id' => (string)($evidence['endpoint_id'] ?? ''),
@@ -1678,6 +1686,186 @@ class AiDailyReportService
             return 'qunar';
         }
         return '';
+    }
+
+    /** @param array<string, mixed> $sourceRef */
+    private function sourceRefKey(array $sourceRef): string
+    {
+        foreach (['ref', 'key', 'source_ref'] as $field) {
+            $value = trim((string)($sourceRef[$field] ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+        return trim((string)($sourceRef['source'] ?? ''));
+    }
+
+    /** @param array<string, mixed> $sourceRef */
+    private function sourceRefMetricScope(array $sourceRef): string
+    {
+        $key = strtolower($this->sourceRefKey($sourceRef));
+        $source = strtolower(trim((string)($sourceRef['source'] ?? '')));
+        $dataType = strtolower(trim((string)($sourceRef['data_type'] ?? '')));
+        $ingestionMethod = strtolower(trim((string)($sourceRef['ingestion_method'] ?? '')));
+
+        if (preg_match('/^online_daily_data#\d+$/', $key) === 1 || $source === 'online_daily_data') {
+            return 'ota_channel';
+        }
+        if (preg_match('/^daily_reports#\d+$/', $key) === 1
+            || $source === 'daily_reports'
+            || $dataType === 'whole_hotel_daily_report'
+        ) {
+            return 'whole_hotel_daily_report';
+        }
+        if (str_contains($source, 'manual') || str_contains($ingestionMethod, 'manual')) {
+            return 'manual_input';
+        }
+        if (str_contains($source, 'local') || str_contains($ingestionMethod, 'local')) {
+            return 'local_operating_source';
+        }
+
+        $explicitScope = trim((string)($sourceRef['metric_scope'] ?? $sourceRef['scope'] ?? ''));
+        $explicitMembers = $this->sourceScopeMembers($explicitScope);
+        if ($explicitMembers !== []) {
+            return $this->collapseMetricScopes($explicitMembers);
+        }
+        if ($this->evidenceOtaPlatform($sourceRef) !== '') {
+            return 'ota_channel';
+        }
+        return $explicitScope !== '' ? $explicitScope : 'unknown';
+    }
+
+    /** @param array<string, mixed> $sourceRef */
+    private function sourceRefReadbackVerified(array $sourceRef): bool
+    {
+        $persistence = is_array($sourceRef['persistence'] ?? null) ? $sourceRef['persistence'] : [];
+        $value = $sourceRef['readback_verified'] ?? $persistence['readback_verified'] ?? null;
+        return $value === true || $value === 1 || $value === '1';
+    }
+
+    /** @param array<string, mixed> $sourceRef */
+    private function sourceRefQualityStatus(array $sourceRef): string
+    {
+        if ($this->sourceRefReadbackVerified($sourceRef)) {
+            return 'readback_verified';
+        }
+
+        $status = strtolower(trim((string)(
+            $sourceRef['quality_status']
+            ?? $sourceRef['persistence_status']
+            ?? $sourceRef['verification_status']
+            ?? $sourceRef['validation_status']
+            ?? $sourceRef['data_status']
+            ?? $sourceRef['status']
+            ?? ''
+        )));
+        if (in_array($status, ['collection_failed', 'failed', 'error'], true)) {
+            return 'collection_failed';
+        }
+        if (in_array($status, ['partial', 'stale', 'incomplete', 'stored'], true)) {
+            return 'partial';
+        }
+        return 'unverified';
+    }
+
+    /** @return array<int, string> */
+    private function sourceScopeMembers(string $scope): array
+    {
+        $scope = strtolower(trim($scope));
+        if ($scope === '') {
+            return [];
+        }
+        if ($scope === 'mixed_whole_hotel_and_ota_channel') {
+            return ['whole_hotel_daily_report', 'ota_channel'];
+        }
+        if (in_array($scope, ['whole_hotel_daily_report', 'ota_channel', 'manual_input', 'local_operating_source'], true)) {
+            return [$scope];
+        }
+        if (str_contains($scope, 'whole-hotel') || str_contains($scope, 'whole_hotel')) {
+            return ['whole_hotel_daily_report'];
+        }
+        if (str_contains($scope, 'ota channel fact')) {
+            return ['ota_channel'];
+        }
+        return [];
+    }
+
+    /** @return array<int, string> */
+    private function normalizeScopeList(mixed $scopes): array
+    {
+        $values = is_array($scopes) ? $scopes : [$scopes];
+        $result = [];
+        foreach ($values as $scope) {
+            if (!is_scalar($scope)) {
+                continue;
+            }
+            $scope = trim((string)$scope);
+            if ($scope === '' || strtolower($scope) === 'unknown') {
+                continue;
+            }
+            $members = $this->sourceScopeMembers($scope);
+            foreach ($members !== [] ? $members : [$scope] as $member) {
+                if (!in_array($member, $result, true)) {
+                    $result[] = $member;
+                }
+            }
+        }
+        return $result;
+    }
+
+    /** @return array<string, array<int, string>> */
+    private function normalizeMetricScopes(mixed $metricScopes): array
+    {
+        if (!is_array($metricScopes)) {
+            return [];
+        }
+        $result = [];
+        foreach ($metricScopes as $metric => $scopes) {
+            $metric = trim((string)$metric);
+            if ($metric === '') {
+                continue;
+            }
+            $result[$metric] = $this->normalizeScopeList($scopes);
+        }
+        return $result;
+    }
+
+    /** @param array<int, string> $scopes */
+    private function collapseMetricScopes(array $scopes): string
+    {
+        $scopes = $this->normalizeScopeList($scopes);
+        if (in_array('whole_hotel_daily_report', $scopes, true)
+            && in_array('ota_channel', $scopes, true)
+        ) {
+            return 'mixed_whole_hotel_and_ota_channel';
+        }
+        if (count($scopes) === 1) {
+            return $scopes[0];
+        }
+        return $scopes === [] ? 'unknown' : 'mixed_source_scope';
+    }
+
+    /** @param array<int, string> $metricScopes */
+    private function buildYesterdayMetric(
+        string $key,
+        string $label,
+        ?float $value,
+        string $resultLayer,
+        string $sourceRef,
+        array $metricScopes,
+        array $extra = []
+    ): array {
+        $metricScopes = $this->normalizeScopeList($metricScopes);
+        return array_merge([
+            'key' => $key,
+            'label' => $label,
+            'value' => $value,
+            'data_status' => $value === null ? 'missing' : 'available',
+            'result_layer' => $resultLayer,
+            'source_ref' => $sourceRef,
+            'metric_scope' => $this->collapseMetricScopes($metricScopes),
+            'metric_scopes' => $metricScopes,
+        ], $extra);
     }
 
     private function trustedInputBlockMessage(array $gaps): string
@@ -2232,7 +2420,8 @@ class AiDailyReportService
     {
         $timeScope = $this->resolveResultTimeScope($summary, $ota, $reportDate);
         $revenue = $this->numericOrNull($summary['revenue'] ?? null);
-        $orders = $this->numericOrNull($summary['orders'] ?? $ota['orders'] ?? null);
+        $summaryOrders = $this->numericOrNull($summary['orders'] ?? null);
+        $orders = $summaryOrders ?? $this->numericOrNull($ota['orders'] ?? null);
         $roomNights = $this->numericOrNull($summary['room_nights'] ?? null);
         $adr = $this->numericOrNull($summary['adr'] ?? null);
         $exposure = $this->numericOrNull($ota['exposure'] ?? null);
@@ -2242,20 +2431,54 @@ class AiDailyReportService
         $orderSubmit = $this->numericOrNull($ota['order_submit'] ?? null);
         $fillSubmitRate = $this->numericOrNull($ota['fill_submit_rate'] ?? null);
 
+        $upstreamMetricScopes = $this->normalizeMetricScopes($summary['metric_scopes'] ?? []);
+        $summaryFallbackScopes = $this->sourceScopeMembers((string)($summary['source_scope'] ?? ''));
+        $revenueScopes = $upstreamMetricScopes['revenue'] ?? $summaryFallbackScopes;
+        $ordersScopes = $summaryOrders !== null
+            ? ($upstreamMetricScopes['orders'] ?? $summaryFallbackScopes)
+            : ($orders === null ? [] : ['ota_channel']);
+        $roomNightScopes = $upstreamMetricScopes['room_nights'] ?? $summaryFallbackScopes;
+        $adrScopes = $upstreamMetricScopes['adr'] ?? array_values(array_unique(array_merge(
+            $revenueScopes,
+            $roomNightScopes
+        )));
+        $metricScopes = [
+            'revenue' => $revenueScopes,
+            'orders' => $ordersScopes,
+            'room_nights' => $roomNightScopes,
+            'adr' => $adrScopes,
+            'exposure' => $exposure === null ? [] : ['ota_channel'],
+            'visitors' => $visitors === null ? [] : ['ota_channel'],
+            'flow_rate' => $flowRate === null ? [] : ['ota_channel'],
+            'order_filling' => $orderFilling === null ? [] : ['ota_channel'],
+            'order_submit' => $orderSubmit === null ? [] : ['ota_channel'],
+            'fill_submit_rate' => $fillSubmitRate === null ? [] : ['ota_channel'],
+        ];
+        $sourceScope = $this->collapseMetricScopes(array_merge(...array_values($metricScopes)));
+
         return array_merge([
             'report_date' => $reportDate,
-            'source_scope' => 'OTA and operating-report scope',
+            'source_scope' => $sourceScope,
+            'metric_scopes' => $metricScopes,
             'metrics' => [
-                ['key' => 'revenue', 'label' => 'Revenue', 'value' => $revenue, 'data_status' => $revenue === null ? 'missing' : 'available', 'result_layer' => 'source_fact', 'source_ref' => 'operation.full_data.summary.revenue'],
-                ['key' => 'orders', 'label' => 'Orders', 'value' => $orders, 'data_status' => $orders === null ? 'missing' : 'available', 'result_layer' => 'source_fact', 'source_ref' => 'operation.full_data.summary.orders'],
-                ['key' => 'room_nights', 'label' => 'Room nights', 'value' => $roomNights, 'data_status' => $roomNights === null ? 'missing' : 'available', 'result_layer' => 'source_fact', 'source_ref' => 'operation.full_data.summary.room_nights'],
-                ['key' => 'adr', 'label' => 'ADR', 'value' => $adr, 'data_status' => $adr === null ? 'missing' : 'available', 'result_layer' => 'derived_metric', 'derivation_status' => 'provided_by_upstream_operation_analysis', 'source_ref' => 'operation.full_data.summary.adr'],
-                ['key' => 'exposure', 'label' => 'Exposure', 'value' => $exposure, 'data_status' => $exposure === null ? 'missing' : 'available', 'result_layer' => 'source_fact', 'source_ref' => 'operation.full_data.ota.exposure'],
-                ['key' => 'visitors', 'label' => 'Visitors', 'value' => $visitors, 'data_status' => $visitors === null ? 'missing' : 'available', 'result_layer' => 'source_fact', 'source_ref' => 'operation.full_data.ota.visitors'],
-                ['key' => 'flow_rate', 'label' => '曝光→详情', 'value' => $flowRate, 'data_status' => $flowRate === null ? 'missing' : 'available', 'result_layer' => 'derived_metric', 'derivation_status' => 'provided_by_upstream_operation_analysis', 'unit' => '%', 'source_ref' => 'operation.full_data.ota.flow_rate'],
-                ['key' => 'order_filling', 'label' => '填单人数', 'value' => $orderFilling, 'data_status' => $orderFilling === null ? 'missing' : 'available', 'result_layer' => 'source_fact', 'source_ref' => 'operation.full_data.ota.order_filling'],
-                ['key' => 'order_submit', 'label' => '提交人数', 'value' => $orderSubmit, 'data_status' => $orderSubmit === null ? 'missing' : 'available', 'result_layer' => 'source_fact', 'source_ref' => 'operation.full_data.ota.order_submit'],
-                ['key' => 'fill_submit_rate', 'label' => '填单→提交', 'value' => $fillSubmitRate, 'data_status' => $fillSubmitRate === null ? 'missing' : 'available', 'result_layer' => 'derived_metric', 'derivation_status' => 'provided_by_upstream_operation_analysis', 'unit' => '%', 'source_ref' => 'operation.full_data.ota.fill_submit_rate'],
+                $this->buildYesterdayMetric('revenue', 'Revenue', $revenue, 'source_fact', 'operation.full_data.summary.revenue', $metricScopes['revenue']),
+                $this->buildYesterdayMetric('orders', 'Orders', $orders, 'source_fact', 'operation.full_data.summary.orders', $metricScopes['orders']),
+                $this->buildYesterdayMetric('room_nights', 'Room nights', $roomNights, 'source_fact', 'operation.full_data.summary.room_nights', $metricScopes['room_nights']),
+                $this->buildYesterdayMetric('adr', 'ADR', $adr, 'derived_metric', 'operation.full_data.summary.adr', $metricScopes['adr'], [
+                    'derivation_status' => 'provided_by_upstream_operation_analysis',
+                ]),
+                $this->buildYesterdayMetric('exposure', 'Exposure', $exposure, 'source_fact', 'operation.full_data.ota.exposure', $metricScopes['exposure']),
+                $this->buildYesterdayMetric('visitors', 'Visitors', $visitors, 'source_fact', 'operation.full_data.ota.visitors', $metricScopes['visitors']),
+                $this->buildYesterdayMetric('flow_rate', '曝光→详情', $flowRate, 'derived_metric', 'operation.full_data.ota.flow_rate', $metricScopes['flow_rate'], [
+                    'derivation_status' => 'provided_by_upstream_operation_analysis',
+                    'unit' => '%',
+                ]),
+                $this->buildYesterdayMetric('order_filling', '填单人数', $orderFilling, 'source_fact', 'operation.full_data.ota.order_filling', $metricScopes['order_filling']),
+                $this->buildYesterdayMetric('order_submit', '提交人数', $orderSubmit, 'source_fact', 'operation.full_data.ota.order_submit', $metricScopes['order_submit']),
+                $this->buildYesterdayMetric('fill_submit_rate', '填单→提交', $fillSubmitRate, 'derived_metric', 'operation.full_data.ota.fill_submit_rate', $metricScopes['fill_submit_rate'], [
+                    'derivation_status' => 'provided_by_upstream_operation_analysis',
+                    'unit' => '%',
+                ]),
             ],
         ], $timeScope);
     }
@@ -3361,10 +3584,87 @@ class AiDailyReportService
             unset($row[$field . '_json']);
         }
         $actions = (array)($row['recommended_actions'] ?? []);
-        if (!self::isTrustedSnapshotForExecution((array)($row['snapshot'] ?? []))) {
+        $trustedSnapshot = self::isTrustedSnapshotForExecution((array)($row['snapshot'] ?? []));
+        if (!$trustedSnapshot) {
             $actions = $this->blockActionsForUntrustedInput($actions);
         }
-        $row['recommended_actions'] = $this->enrichRecommendedActions($actions, $executionItems);
+        $reportScope = is_array($row['snapshot']['report_scope'] ?? null)
+            ? $row['snapshot']['report_scope']
+            : [];
+        $sourceRefs = is_array($row['source_refs'] ?? null) ? $row['source_refs'] : [];
+        $evidenceSources = [];
+        foreach ($sourceRefs as $sourceRef) {
+            $sourceRef = is_array($sourceRef) ? $sourceRef : ['ref' => (string)$sourceRef];
+            $ref = $this->sourceRefKey($sourceRef);
+            if ($ref === '') {
+                continue;
+            }
+            $readbackVerified = $this->sourceRefReadbackVerified($sourceRef);
+            $persistence = is_array($sourceRef['persistence'] ?? null) ? $sourceRef['persistence'] : [];
+            $persistence['readback_verified'] = $readbackVerified;
+            $readbackVerifiedAt = trim((string)(
+                $sourceRef['readback_verified_at']
+                ?? $persistence['readback_verified_at']
+                ?? ''
+            ));
+            if ($readbackVerifiedAt !== '') {
+                $persistence['readback_verified_at'] = $readbackVerifiedAt;
+            }
+            $evidenceSources[] = [
+                'ref' => $ref,
+                'source' => trim((string)($sourceRef['source'] ?? '')) ?: $ref,
+                'platform' => trim((string)($sourceRef['platform'] ?? '')),
+                'date' => trim((string)(
+                    $sourceRef['data_date']
+                    ?? $sourceRef['date']
+                    ?? $row['report_date']
+                    ?? $reportScope['report_date']
+                    ?? ''
+                )),
+                'scope' => $this->sourceRefMetricScope($sourceRef),
+                'quality_status' => $this->sourceRefQualityStatus($sourceRef),
+                'validation_status' => trim((string)($sourceRef['validation_status'] ?? '')),
+                'ingestion_method' => trim((string)($sourceRef['ingestion_method'] ?? '')),
+                'readback_verified' => $readbackVerified,
+                'readback_verified_at' => $readbackVerifiedAt,
+                'persistence_status' => trim((string)($sourceRef['persistence_status'] ?? '')),
+                'persistence' => $persistence,
+                'metric_keys' => array_values((array)($sourceRef['metric_keys'] ?? [])),
+                'summary' => (string)($sourceRef['summary'] ?? ''),
+            ];
+        }
+        $decisionScopeMembers = $this->sourceScopeMembers((string)(
+            $row['yesterday_result']['source_scope']
+            ?? $reportScope['source_scope']
+            ?? ''
+        ));
+        $decisionPlatforms = [];
+        foreach ($evidenceSources as $evidenceSource) {
+            $decisionScopeMembers = array_merge(
+                $decisionScopeMembers,
+                $this->sourceScopeMembers((string)($evidenceSource['scope'] ?? ''))
+            );
+            $platform = trim((string)($evidenceSource['platform'] ?? ''));
+            if ($platform !== '') {
+                $decisionPlatforms[] = $platform;
+            }
+        }
+        $decisionScope = $this->collapseMetricScopes($decisionScopeMembers);
+        $decisionPlatforms = array_values(array_unique($decisionPlatforms));
+        $decisionQualityContext = [
+            'scope' => $decisionScope,
+            'hotel_id' => (int)($row['hotel_id'] ?? $reportScope['hotel_id'] ?? 0),
+            'platform' => count($decisionPlatforms) === 1 ? $decisionPlatforms[0] : '',
+            'report_date' => (string)($row['report_date'] ?? $reportScope['report_date'] ?? ''),
+            'evidence_sources' => $evidenceSources,
+            'basis_summary' => (string)($row['summary'] ?? ''),
+            'review_window' => '执行后按约定复核时间，对比同酒店、同来源范围、同指标口径的执行前后数据',
+        ];
+        $row['recommended_actions'] = $this->enrichRecommendedActions($actions, $executionItems, $decisionQualityContext);
+        $row['recommendation_quality'] = $this->decisionQualityService->summarize(
+            $row['recommended_actions'],
+            $decisionQualityContext
+        );
         $row['owner_communication_brief'] = is_array($row['snapshot']['owner_communication_brief'] ?? null)
             ? $row['snapshot']['owner_communication_brief']
             : [];

@@ -16,6 +16,7 @@ use app\model\SystemConfig;
 use app\model\AiModelConfig;
 use app\model\User as UserModel;
 use app\service\AgentClosureReadinessService;
+use app\service\AiDecisionQualityService;
 use app\service\CompetitorPriceReadinessService;
 use app\service\FeasibilityReportService;
 use app\service\LlmClient;
@@ -832,7 +833,21 @@ class Agent extends Base
             $summary = $this->buildCapturedOtaSummary($hotels, $platform, $dataSource, $startDate, $endDate);
             $summary['knowledge_context'] = $this->loadOtaKnowledgeContext($platform, $dataSource, $this->extractKnowledgeHotelIds(['hotels' => $hotels, 'summary' => $summary]));
             if (empty($summary['hotels'])) {
-                return $this->error('暂无可分析的抓取数据', 422);
+                return $this->error('暂无可分析的已验证入库回读抓取数据', 422, [
+                    'summary' => [
+                        'scope' => $summary['scope'],
+                        'input_hotel_count' => $summary['input_hotel_count'],
+                        'hotel_count' => 0,
+                        'excluded_hotel_count' => $summary['excluded_hotel_count'],
+                        'totals' => $summary['totals'],
+                        'averages' => $summary['averages'],
+                        'truth_context' => $summary['truth_context'],
+                        'metric_truth' => $summary['metric_truth'],
+                        'excluded' => $summary['excluded'],
+                        'data_gaps' => $summary['data_gaps'],
+                        'failure_reasons' => $summary['failure_reasons'],
+                    ],
+                ]);
             }
 
             $llmResult = $this->callLlm($this->buildCapturedOtaPrompt($summary), $modelKey, $this->buildAiGovernanceMeta('captured_ota_analysis', $summary, [
@@ -852,14 +867,27 @@ class Agent extends Base
             $report['knowledge_context'] = $summary['knowledge_context'];
             $report = $this->applyCapturedOtaDataQualityGuard($report);
             $report['ai_governance'] = $this->buildAiGovernancePayload('captured_ota_analysis', $summary, $llmResult);
+            $report = $this->attachCapturedOtaRecommendationQuality($report, $summary);
+            $report['truth_context'] = $summary['truth_context'];
+            $report['metric_truth'] = $summary['metric_truth'];
             $report['summary'] = [
+                'scope' => $summary['scope'],
                 'hotel_count' => $summary['hotel_count'],
                 'input_hotel_count' => $summary['input_hotel_count'],
+                'excluded_hotel_count' => $summary['excluded_hotel_count'],
                 'truncated' => $summary['truncated'],
                 'platform' => $platform,
                 'data_source' => $dataSource,
                 'start_date' => $startDate,
                 'end_date' => $endDate,
+                'totals' => $summary['totals'],
+                'averages' => $summary['averages'],
+                'metric_sample_counts' => $summary['metric_sample_counts'],
+                'truth_context' => $summary['truth_context'],
+                'metric_truth' => $summary['metric_truth'],
+                'excluded' => $summary['excluded'],
+                'data_gaps' => $summary['data_gaps'],
+                'failure_reasons' => $summary['failure_reasons'],
                 'data_quality' => $summary['data_quality'],
             ];
 
@@ -958,6 +986,7 @@ class Agent extends Base
                 $report['debug'] = $debug;
             }
             $report['ai_governance'] = $this->buildAiGovernancePayload('captured_ota_final_summary', $summary, $llmResult);
+            $report = $this->attachCapturedOtaRecommendationQuality($report, $summary);
             $report['summary'] = $summaryMeta;
 
             OperationLog::record('agent', 'summarize_captured_ota_analysis', '汇总当前抓取OTA分组报告', (int) ($this->currentUser->id ?? 0), null, null, [
@@ -1015,6 +1044,7 @@ class Agent extends Base
         $maxHotels = 50;
         $inputCount = count($hotels);
         $rows = [];
+        $excludedRows = [];
         $totals = [
             'room_nights' => 0.0,
             'room_revenue' => 0.0,
@@ -1024,8 +1054,23 @@ class Agent extends Base
             'orders' => 0.0,
         ];
         $metricSampleCounts = array_fill_keys(array_keys($totals), 0);
+        $metricSourceHotelIds = array_fill_keys(array_merge(array_keys($totals), [
+            'adr', 'view_rate', 'order_rate', 'comment_score', 'conversion_rate',
+        ]), []);
         $scoreValues = [];
         $conversionValues = [];
+        $adrRevenueTotal = 0.0;
+        $adrRoomNightsTotal = 0.0;
+        $adrSampleCount = 0;
+        $viewExposureTotal = 0.0;
+        $viewTotal = 0.0;
+        $viewRateSampleCount = 0;
+        $orderViewTotal = 0.0;
+        $orderTotal = 0.0;
+        $orderRateSampleCount = 0;
+        $truthStateCounts = array_fill_keys(['verified', 'partial', 'unverified', 'collection_failed'], 0);
+        $verifiedSources = [];
+        $verifiedRowsWithMetricGaps = 0;
         $flowQualityStats = [
             'exposure' => ['missing' => 0, 'zero' => 0],
             'views' => ['missing' => 0, 'zero' => 0],
@@ -1036,14 +1081,11 @@ class Agent extends Base
 
         foreach (array_slice($hotels, 0, $maxHotels) as $hotel) {
             if (!is_array($hotel)) {
-                continue;
+                $hotel = [];
             }
 
             $hotelId = substr(trim((string) ($hotel['hotel_id'] ?? $hotel['hotelId'] ?? $hotel['poiId'] ?? '')), 0, 64);
             $hotelName = substr(trim((string) ($hotel['hotel_name'] ?? $hotel['hotelName'] ?? $hotel['name'] ?? '')), 0, 120);
-            if ($hotelId === '' && $hotelName === '') {
-                continue;
-            }
 
             $metrics = [];
             foreach (['rank', 'price', 'score', 'comments_count', 'exposure', 'visitors', 'orders', 'revenue', 'room_nights'] as $field) {
@@ -1076,19 +1118,88 @@ class Agent extends Base
             $conversionRate = $this->readCapturedNullableMetric($safeMetrics, ['conversion_rate', 'qunar_detail_cr']);
             $tags = $this->sanitizeCapturedTags($hotel['tags'] ?? []);
             $shortSummary = mb_substr(trim((string) ($hotel['short_summary'] ?? '')), 0, 160);
+            $truth = $this->assessCapturedOtaHotelTruth($hotel, $hotelId, $hotelName, $platform, $startDate, $endDate);
 
             $safeMetrics['adr'] = $roomNights !== null && $roomRevenue !== null && $roomNights > 0
                 ? round($roomRevenue / $roomNights, 2)
                 : null;
-            $safeMetrics['view_rate'] = $exposure !== null && $views !== null && $exposure > 0 ? round($views / $exposure * 100, 2) : ($exposure === null || $views === null ? null : 0.0);
+            $safeMetrics['view_rate'] = $exposure !== null && $views !== null && $exposure > 0
+                ? round($views / $exposure * 100, 2)
+                : null;
             $safeMetrics['order_rate'] = $orders !== null && $views !== null && $views > 0
                 ? round($orders / $views * 100, 2)
                 : null;
-            $safeMetrics['data_gaps'] = array_values(array_filter([
+            $metricDataGaps = array_values(array_filter([
                 $roomNights === null ? 'room_nights_missing' : null,
                 $roomRevenue === null ? 'room_revenue_missing' : null,
                 $orders === null ? 'orders_missing' : null,
             ]));
+            $safeMetrics['data_gaps'] = $metricDataGaps;
+
+            $rowMetricValues = [
+                'room_nights' => $roomNights,
+                'room_revenue' => $roomRevenue,
+                'sales' => $sales,
+                'exposure' => $exposure,
+                'views' => $views,
+                'orders' => $orders,
+                'adr' => $safeMetrics['adr'],
+                'view_rate' => $safeMetrics['view_rate'],
+                'order_rate' => $safeMetrics['order_rate'],
+                'comment_score' => $commentScore,
+                'conversion_rate' => $conversionRate ?? $payConversion ?? $viewConversion,
+            ];
+            $rowMetricTruth = [];
+            foreach ($rowMetricValues as $metricKey => $metricValue) {
+                $decisionEligible = $truth['status'] === 'verified' && $metricValue !== null;
+                $rowMetricTruth[$metricKey] = [
+                    'status' => $decisionEligible ? 'verified' : ($truth['status'] === 'verified' ? 'unverified' : $truth['status']),
+                    'scope' => 'ota_channel',
+                    'whole_hotel_scope' => false,
+                    'value' => $metricValue,
+                    'observed_count' => $decisionEligible ? 1 : 0,
+                    'sample_count' => $decisionEligible ? 1 : 0,
+                    'decision_eligible' => $decisionEligible,
+                    'source_hotel_id' => $hotelId,
+                    'platform' => $truth['platform'],
+                    'date_range' => $truth['date_range'],
+                    'source_method' => $truth['source_method'],
+                    'collected_at' => $truth['collected_at'],
+                    'stored' => $truth['stored'],
+                    'readback_verified' => $truth['readback_verified'],
+                    'data_gaps' => $metricValue === null ? [$metricKey . '_missing'] : ($decisionEligible ? [] : $truth['data_gaps']),
+                    'failure_reason' => $truth['failure_reason'],
+                ];
+            }
+
+            $row = [
+                'hotel_id' => $hotelId,
+                'hotel_name' => $hotelName,
+                'metrics' => $safeMetrics,
+                'tags' => $tags,
+                'short_summary' => $shortSummary,
+                'truth_status' => $truth['status'],
+                'scope' => 'ota_channel',
+                'whole_hotel_scope' => false,
+                'platform' => $truth['platform'],
+                'date_range' => $truth['date_range'],
+                'source_method' => $truth['source_method'],
+                'collected_at' => $truth['collected_at'],
+                'stored' => $truth['stored'],
+                'readback_verified' => $truth['readback_verified'],
+                'failure_reason' => $truth['failure_reason'],
+                'data_gaps' => array_values(array_unique(array_merge($truth['data_gaps'], $metricDataGaps))),
+                'metric_truth' => $rowMetricTruth,
+            ];
+
+            $truthStateCounts[$truth['status']]++;
+            if ($truth['status'] !== 'verified') {
+                $excludedRows[] = $row;
+                continue;
+            }
+            if ($metricDataGaps !== []) {
+                $verifiedRowsWithMetricGaps++;
+            }
 
             $this->recordCapturedFlowQuality($flowQualityStats, 'exposure', $exposure);
             $this->recordCapturedFlowQuality($flowQualityStats, 'views', $views);
@@ -1107,32 +1218,71 @@ class Agent extends Base
                 if ($metricValue !== null) {
                     $totals[$metricKey] += $metricValue;
                     $metricSampleCounts[$metricKey]++;
+                    $metricSourceHotelIds[$metricKey][] = $hotelId;
                 }
             }
             if ($commentScore !== null) {
                 $scoreValues[] = $commentScore;
+                $metricSourceHotelIds['comment_score'][] = $hotelId;
             }
-            if ($viewConversion !== null && $viewConversion > 0) {
+            if ($viewConversion !== null) {
                 $conversionValues[] = $viewConversion;
+                $metricSourceHotelIds['conversion_rate'][] = $hotelId;
             }
-            if ($payConversion !== null && $payConversion > 0) {
+            if ($payConversion !== null) {
                 $conversionValues[] = $payConversion;
+                $metricSourceHotelIds['conversion_rate'][] = $hotelId;
             }
-            if ($conversionRate !== null && $conversionRate > 0) {
+            if ($conversionRate !== null) {
                 $conversionValues[] = $conversionRate;
+                $metricSourceHotelIds['conversion_rate'][] = $hotelId;
+            }
+            if ($roomRevenue !== null && $roomNights !== null && $roomNights > 0) {
+                $adrRevenueTotal += $roomRevenue;
+                $adrRoomNightsTotal += $roomNights;
+                $adrSampleCount++;
+                $metricSourceHotelIds['adr'][] = $hotelId;
+            }
+            if ($views !== null && $exposure !== null && $exposure > 0) {
+                $viewTotal += $views;
+                $viewExposureTotal += $exposure;
+                $viewRateSampleCount++;
+                $metricSourceHotelIds['view_rate'][] = $hotelId;
+            }
+            if ($orders !== null && $views !== null && $views > 0) {
+                $orderTotal += $orders;
+                $orderViewTotal += $views;
+                $orderRateSampleCount++;
+                $metricSourceHotelIds['order_rate'][] = $hotelId;
             }
 
-            $rows[] = [
+            $verifiedSources[] = [
                 'hotel_id' => $hotelId,
-                'hotel_name' => $hotelName !== '' ? $hotelName : $hotelId,
-                'metrics' => $safeMetrics,
-                'tags' => $tags,
-                'short_summary' => $shortSummary,
+                'hotel_name' => $hotelName,
+                'platform' => $truth['platform'],
+                'date_range' => $truth['date_range'],
+                'source_method' => $truth['source_method'],
+                'collected_at' => $truth['collected_at'],
+                'stored' => true,
+                'readback_verified' => true,
+                'failure_reason' => '',
             ];
+            $rows[] = $row;
         }
 
-        usort($rows, function (array $a, array $b): int {
-            return ((float) ($b['metrics']['revenue'] ?? $b['metrics']['room_revenue'] ?? 0)) <=> ((float) ($a['metrics']['revenue'] ?? $a['metrics']['room_revenue'] ?? 0));
+        usort($rows, function (array $left, array $right): int {
+            $leftRevenue = $this->readCapturedNullableMetric((array)($left['metrics'] ?? []), ['revenue', 'room_revenue']);
+            $rightRevenue = $this->readCapturedNullableMetric((array)($right['metrics'] ?? []), ['revenue', 'room_revenue']);
+            if ($leftRevenue === null || $rightRevenue === null) {
+                if ($leftRevenue === null && $rightRevenue === null) {
+                    return strcmp((string)($left['hotel_id'] ?? ''), (string)($right['hotel_id'] ?? ''));
+                }
+                return $leftRevenue === null ? 1 : -1;
+            }
+            $valueCompare = $rightRevenue <=> $leftRevenue;
+            return $valueCompare !== 0
+                ? $valueCompare
+                : strcmp((string)($left['hotel_id'] ?? ''), (string)($right['hotel_id'] ?? ''));
         });
 
         $displayTotals = $totals;
@@ -1141,38 +1291,319 @@ class Agent extends Base
                 $displayTotals[$metricKey] = null;
             }
         }
+        $averages = [
+            'adr' => $adrSampleCount > 0 && $adrRoomNightsTotal > 0
+                ? $this->percentSafeAverage($adrRevenueTotal, $adrRoomNightsTotal)
+                : null,
+            'view_rate' => $viewRateSampleCount > 0 && $viewExposureTotal > 0
+                ? $this->percentRate($viewTotal, $viewExposureTotal)
+                : null,
+            'order_rate' => $orderRateSampleCount > 0 && $orderViewTotal > 0
+                ? $this->percentRate($orderTotal, $orderViewTotal)
+                : null,
+            'comment_score' => $scoreValues !== [] ? $this->average($scoreValues) : null,
+            'conversion_rate' => $conversionValues !== [] ? $this->average($conversionValues) : null,
+        ];
+        $processedCount = min($inputCount, $maxHotels);
+        $unprocessedCount = max(0, $inputCount - $processedCount);
+        $coverageExcludedCount = count($excludedRows) + $unprocessedCount;
+        $truthStatus = $this->capturedOtaSummaryTruthStatus(
+            count($rows),
+            $truthStateCounts,
+            $coverageExcludedCount,
+            $verifiedRowsWithMetricGaps > 0
+        );
+        $failureReasons = array_values(array_unique(array_filter(array_map(
+            static fn(array $row): string => trim((string)($row['failure_reason'] ?? '')),
+            $excludedRows
+        ))));
+        $truthContext = [
+            'status' => $truthStatus,
+            'scope' => 'ota_channel',
+            'whole_hotel_scope' => false,
+            'scope_notice' => '仅代表所列门店、平台和日期范围内已验证且已入库回读的 OTA 渠道数据，不代表全酒店经营数据。',
+            'platform' => $platform,
+            'data_source' => $dataSource,
+            'date_range' => ['start_date' => $startDate, 'end_date' => $endDate],
+            'input_hotel_count' => $inputCount,
+            'processed_hotel_count' => $processedCount,
+            'verified_hotel_count' => count($rows),
+            'excluded_hotel_count' => count($excludedRows),
+            'unprocessed_hotel_count' => $unprocessedCount,
+            'verified_rows_with_metric_gaps' => $verifiedRowsWithMetricGaps,
+            'state_counts' => $truthStateCounts,
+            'verified_sources' => $verifiedSources,
+            'failure_reasons' => $failureReasons,
+        ];
+        $metricTruth = [];
+        foreach ($displayTotals as $metricKey => $metricValue) {
+            $metricTruth[$metricKey] = $this->buildCapturedOtaMetricTruth(
+                $metricValue,
+                (int)($metricSampleCounts[$metricKey] ?? 0),
+                count($rows),
+                $coverageExcludedCount,
+                $truthStatus,
+                $metricSourceHotelIds[$metricKey] ?? [],
+                $failureReasons
+            );
+        }
+        foreach ($averages as $metricKey => $metricValue) {
+            $sampleCount = match ($metricKey) {
+                'adr' => $adrSampleCount,
+                'view_rate' => $viewRateSampleCount,
+                'order_rate' => $orderRateSampleCount,
+                'comment_score' => count($scoreValues),
+                'conversion_rate' => count($conversionValues),
+            };
+            $metricTruth[$metricKey] = $this->buildCapturedOtaMetricTruth(
+                $metricValue,
+                $sampleCount,
+                count($rows),
+                $coverageExcludedCount,
+                $truthStatus,
+                $metricSourceHotelIds[$metricKey] ?? [],
+                $failureReasons
+            );
+        }
         $dataQuality = $this->buildCapturedOtaDataQuality($flowQualityStats, $displayTotals, $startDate, $endDate, count($rows));
+        $dataQuality['truth_status'] = $truthStatus;
+        $dataQuality['is_reliable'] = $truthStatus === 'verified';
+        if ($truthStatus !== 'verified') {
+            $truthWarning = $truthStatus === 'collection_failed'
+                ? '本次 OTA 采集失败，没有可进入分析的已验证入库回读样本。'
+                : '本次仅有部分或未验证 OTA 数据；汇总值只包含已验证入库回读样本，不能外推为全部门店或全酒店经营结论。';
+            $dataQuality['warning'] = trim($truthWarning . ' ' . (string)($dataQuality['warning'] ?? ''));
+        }
 
         return [
             'scope' => [
+                'type' => 'ota_channel',
                 'platform' => $platform,
                 'data_source' => $dataSource,
                 'start_date' => $startDate,
                 'end_date' => $endDate,
+                'whole_hotel_scope' => false,
             ],
             'input_hotel_count' => $inputCount,
             'hotel_count' => count($rows),
+            'excluded_hotel_count' => count($excludedRows),
             'truncated' => $inputCount > $maxHotels,
             'totals' => $displayTotals,
             'metric_sample_counts' => $metricSampleCounts,
-            'averages' => [
-                'adr' => $displayTotals['room_revenue'] !== null && $displayTotals['room_nights'] !== null && $displayTotals['room_nights'] > 0
-                    ? $this->percentSafeAverage($displayTotals['room_revenue'], $displayTotals['room_nights'])
-                    : null,
-                'view_rate' => $displayTotals['views'] !== null && $displayTotals['exposure'] !== null && $displayTotals['exposure'] > 0
-                    ? $this->percentRate($displayTotals['views'], $displayTotals['exposure'])
-                    : null,
-                'order_rate' => $displayTotals['orders'] !== null && $displayTotals['views'] !== null && $displayTotals['views'] > 0
-                    ? $this->percentRate($displayTotals['orders'], $displayTotals['views'])
-                    : null,
-                'comment_score' => $scoreValues !== [] ? $this->average($scoreValues) : null,
-                'conversion_rate' => $conversionValues !== [] ? $this->average($conversionValues) : null,
-            ],
+            'averages' => $averages,
+            'truth_context' => $truthContext,
+            'metric_truth' => $metricTruth,
             'hotels' => $rows,
+            'excluded' => $excludedRows,
+            'data_gaps' => array_map(static fn(array $row): array => [
+                'hotel_id' => (string)($row['hotel_id'] ?? ''),
+                'hotel_name' => (string)($row['hotel_name'] ?? ''),
+                'status' => (string)($row['truth_status'] ?? 'unverified'),
+                'data_gaps' => (array)($row['data_gaps'] ?? []),
+                'failure_reason' => (string)($row['failure_reason'] ?? ''),
+            ], $excludedRows),
+            'failure_reasons' => $failureReasons,
             'top_hotels_by_revenue' => array_slice($rows, 0, 10),
             'data_quality' => $dataQuality,
             'data_collection_notice' => $dataQuality['warning'],
             'data_anomalies' => $inputCount > $maxHotels ? ['单次最多分析 50 家酒店，已截断超出部分。'] : [],
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function assessCapturedOtaHotelTruth(array $hotel, string $hotelId, string $hotelName, string $requestedPlatform, string $requestedStartDate, string $requestedEndDate): array
+    {
+        $captureMeta = is_array($hotel['capture_meta'] ?? null)
+            ? $hotel['capture_meta']
+            : (is_array($hotel['captureMeta'] ?? null) ? $hotel['captureMeta'] : []);
+        $dateRange = is_array($hotel['date_range'] ?? null) ? $hotel['date_range'] : [];
+        $persistence = is_array($hotel['persistence'] ?? null) ? $hotel['persistence'] : [];
+        $firstText = static function (array $values): string {
+            foreach ($values as $value) {
+                if (is_scalar($value) && trim((string)$value) !== '') {
+                    return trim((string)$value);
+                }
+            }
+            return '';
+        };
+
+        $platform = strtolower($firstText([
+            $hotel['platform'] ?? null,
+            $hotel['ota_platform'] ?? null,
+            $hotel['source_platform'] ?? null,
+            $captureMeta['platform'] ?? null,
+        ]));
+        $sourceStartDate = $firstText([
+            $hotel['start_date'] ?? null,
+            $dateRange['start_date'] ?? null,
+            $dateRange['start'] ?? null,
+            $captureMeta['start_date'] ?? null,
+            $hotel['data_date'] ?? null,
+        ]);
+        $sourceEndDate = $firstText([
+            $hotel['end_date'] ?? null,
+            $dateRange['end_date'] ?? null,
+            $dateRange['end'] ?? null,
+            $captureMeta['end_date'] ?? null,
+            $hotel['data_date'] ?? null,
+        ]);
+        $sourceMethod = $firstText([
+            $hotel['source_method'] ?? null,
+            $hotel['collection_method'] ?? null,
+            $captureMeta['source_method'] ?? null,
+            $captureMeta['method'] ?? null,
+        ]);
+        $collectedAt = $firstText([
+            $hotel['collected_at'] ?? null,
+            $hotel['captured_at'] ?? null,
+            $hotel['fetch_time'] ?? null,
+            $captureMeta['collected_at'] ?? null,
+            $captureMeta['captured_at'] ?? null,
+        ]);
+        $persistenceStatus = strtolower($firstText([
+            $hotel['persistence_status'] ?? null,
+            $persistence['status'] ?? null,
+        ]));
+        $stored = $this->capturedOtaTruthFlag(
+            $hotel['stored'] ?? $hotel['is_stored'] ?? $hotel['persisted'] ?? $persistence['stored'] ?? false
+        ) || in_array($persistenceStatus, ['stored', 'persisted', 'readback_verified'], true);
+        $readbackVerified = $this->capturedOtaTruthFlag(
+            $hotel['readback_verified'] ?? $hotel['database_readback_verified'] ?? $persistence['readback_verified'] ?? false
+        ) || $persistenceStatus === 'readback_verified';
+        $validationStatus = strtolower($firstText([
+            $hotel['validation_status'] ?? null,
+            $hotel['truth_status'] ?? null,
+            $hotel['quality_status'] ?? null,
+            $hotel['collection_status'] ?? null,
+            $captureMeta['validation_status'] ?? null,
+        ]));
+        $failureReason = $firstText([
+            $hotel['failure_reason'] ?? null,
+            $hotel['collection_error'] ?? null,
+            $hotel['capture_error'] ?? null,
+            $hotel['error'] ?? null,
+            $captureMeta['failure_reason'] ?? null,
+        ]);
+
+        $dataGaps = [];
+        if ($hotelId === '') {
+            $dataGaps[] = 'hotel_id_missing';
+        }
+        if ($hotelName === '') {
+            $dataGaps[] = 'hotel_name_missing';
+        }
+        if ($platform === '') {
+            $dataGaps[] = 'platform_missing';
+        } elseif ($platform !== strtolower($requestedPlatform)) {
+            $dataGaps[] = 'platform_mismatch';
+        }
+        if (!$this->isDateString($sourceStartDate) || !$this->isDateString($sourceEndDate)) {
+            $dataGaps[] = 'date_range_missing_or_invalid';
+        } elseif ($sourceStartDate !== $requestedStartDate || $sourceEndDate !== $requestedEndDate) {
+            $dataGaps[] = 'date_range_mismatch';
+        }
+        $manualOrSyntheticSource = $sourceMethod !== ''
+            && preg_match('/(?:^|[_\-\s])(manual|mock|synthetic|fixture|legacy)(?:$|[_\-\s])/i', $sourceMethod) === 1;
+        if ($sourceMethod === '') {
+            $dataGaps[] = 'source_method_missing';
+        } elseif ($manualOrSyntheticSource) {
+            $dataGaps[] = 'source_method_not_verified_online_capture';
+        }
+        if (!$this->isPreciseCapturedOtaDateTime($collectedAt)) {
+            $dataGaps[] = $collectedAt === '' ? 'collected_at_missing' : 'collected_at_not_precise';
+        }
+        if (!$stored) {
+            $dataGaps[] = 'not_stored';
+        }
+        if (!$readbackVerified) {
+            $dataGaps[] = 'readback_not_verified';
+        }
+
+        $failedStatuses = ['collection_failed', 'failed', 'failure', 'error', 'capture_failed', 'save_failed', 'readback_failed'];
+        $partialStatuses = ['partial', 'partial_data', 'incomplete', 'partially_verified'];
+        $verifiedStatuses = ['verified', 'readback_verified', 'normal', 'available', 'ok', 'valid', 'success', 'complete', 'completed'];
+        if ($failureReason !== '' || in_array($validationStatus, $failedStatuses, true)) {
+            $status = 'collection_failed';
+            if ($failureReason === '') {
+                $failureReason = $validationStatus !== '' ? $validationStatus : 'collection_failed';
+            }
+        } elseif (in_array($validationStatus, $partialStatuses, true) || ($manualOrSyntheticSource && in_array($validationStatus, $verifiedStatuses, true))) {
+            $status = 'partial';
+            $dataGaps[] = in_array($validationStatus, $partialStatuses, true)
+                ? 'validation_status_partial'
+                : 'source_method_not_verified_online_capture';
+        } elseif (in_array($validationStatus, $verifiedStatuses, true)) {
+            $status = $dataGaps === [] ? 'verified' : 'partial';
+        } else {
+            $status = 'unverified';
+            $dataGaps[] = $validationStatus === '' ? 'validation_status_missing' : 'validation_status_unverified';
+        }
+
+        return [
+            'status' => $status,
+            'platform' => $platform,
+            'date_range' => ['start_date' => $sourceStartDate, 'end_date' => $sourceEndDate],
+            'source_method' => $sourceMethod,
+            'collected_at' => $collectedAt,
+            'stored' => $stored,
+            'readback_verified' => $readbackVerified,
+            'failure_reason' => $failureReason,
+            'data_gaps' => array_values(array_unique($dataGaps)),
+        ];
+    }
+
+    private function capturedOtaTruthFlag(mixed $value): bool
+    {
+        if ($value === true || $value === 1) {
+            return true;
+        }
+        return is_string($value) && in_array(strtolower(trim($value)), ['1', 'true', 'yes'], true);
+    }
+
+    private function isPreciseCapturedOtaDateTime(string $value): bool
+    {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+\-]\d{2}:?\d{2})?$/', $value)) {
+            return false;
+        }
+        return strtotime($value) !== false;
+    }
+
+    private function capturedOtaSummaryTruthStatus(int $verifiedCount, array $stateCounts, int $coverageExcludedCount, bool $hasVerifiedMetricGaps): string
+    {
+        if ($verifiedCount > 0) {
+            return $coverageExcludedCount > 0 || $hasVerifiedMetricGaps ? 'partial' : 'verified';
+        }
+        if (($stateCounts['partial'] ?? 0) > 0) {
+            return 'partial';
+        }
+        $failedCount = (int)($stateCounts['collection_failed'] ?? 0);
+        $unverifiedCount = (int)($stateCounts['unverified'] ?? 0);
+        return $failedCount > 0 && $unverifiedCount === 0 ? 'collection_failed' : 'unverified';
+    }
+
+    /** @return array<string,mixed> */
+    private function buildCapturedOtaMetricTruth(?float $value, int $observedCount, int $verifiedHotelCount, int $coverageExcludedCount, string $summaryStatus, array $sourceHotelIds, array $failureReasons): array
+    {
+        if ($observedCount === 0) {
+            $status = in_array($summaryStatus, ['collection_failed', 'partial'], true) && $verifiedHotelCount === 0
+                ? $summaryStatus
+                : 'unverified';
+        } else {
+            $status = $coverageExcludedCount > 0 || $observedCount < $verifiedHotelCount ? 'partial' : 'verified';
+        }
+
+        return [
+            'status' => $status,
+            'scope' => 'ota_channel',
+            'whole_hotel_scope' => false,
+            'value' => $value,
+            'observed_count' => $observedCount,
+            'sample_count' => $observedCount,
+            'verified_hotel_count' => $verifiedHotelCount,
+            'excluded_hotel_count' => $coverageExcludedCount,
+            'source_hotel_ids' => array_values(array_unique(array_filter(array_map('strval', $sourceHotelIds)))),
+            'failure_reasons' => $failureReasons,
+            'scope_notice' => '仅为 OTA 渠道已验证样本，不代表全酒店经营指标。',
         ];
     }
 
@@ -1486,6 +1917,81 @@ class Agent extends Base
             'missing_fields' => array_values(array_unique(array_filter($missingFields))),
             'zero_maybe_unready_fields' => array_values(array_unique(array_filter($zeroFields))),
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $report
+     * @param array<string, mixed> $summary
+     * @return array<string, mixed>
+     */
+    private function attachCapturedOtaRecommendationQuality(array $report, array $summary): array
+    {
+        $scope = is_array($summary['scope'] ?? null) ? $summary['scope'] : [];
+        $dateRange = is_array($summary['date_range'] ?? null) ? $summary['date_range'] : [
+            'start_date' => (string)($scope['start_date'] ?? ''),
+            'end_date' => (string)($scope['end_date'] ?? ''),
+        ];
+        $platform = strtolower(trim((string)($scope['platform'] ?? 'ota')));
+        if ($platform === '') {
+            $platform = 'ota';
+        }
+        $dataQuality = is_array($report['data_quality'] ?? null)
+            ? $report['data_quality']
+            : (is_array($summary['data_quality'] ?? null) ? $summary['data_quality'] : []);
+        $hotelCount = (int)($summary['hotel_count'] ?? $summary['success_hotel_count'] ?? 0);
+        $qualityStatus = $hotelCount > 0 && ($dataQuality['is_reliable'] ?? true) === true
+            ? 'available'
+            : 'unverified';
+        $startDate = trim((string)($dateRange['start_date'] ?? $dateRange['start'] ?? ''));
+        $endDate = trim((string)($dateRange['end_date'] ?? $dateRange['end'] ?? ''));
+        $context = [
+            'scope' => 'ota_channel_multi_hotel',
+            'platform' => $platform,
+            'date_range' => ['start' => $startDate, 'end' => $endDate],
+            'basis_summary' => sprintf(
+                '依据本次%s OTA授权捕获摘要（%s至%s，成功覆盖%d家酒店）生成；仅用于OTA渠道比较，不代表全酒店经营事实。',
+                strtoupper($platform),
+                $startDate !== '' ? $startDate : '日期待核验',
+                $endDate !== '' ? $endDate : '日期待核验',
+                $hotelCount
+            ),
+            'evidence_sources' => [[
+                'ref' => implode('#', array_filter(['captured_ota_summary', $platform, $startDate, $endDate])),
+                'source' => 'authorized_captured_ota_summary',
+                'date' => $endDate,
+                'scope' => 'ota_channel_multi_hotel',
+                'quality_status' => $qualityStatus,
+                'metric_keys' => array_values(array_filter(array_keys((array)($summary['totals'] ?? [])))),
+                'summary' => trim((string)($dataQuality['warning'] ?? '')),
+            ]],
+            'default_priority' => (string)($report['priority'] ?? 'medium'),
+            'default_risk_level' => ($dataQuality['is_reliable'] ?? true) === true ? 'medium' : 'high',
+            'review_window' => '执行前核对目标酒店；执行后按同酒店、同OTA渠道、同日期口径复核',
+        ];
+
+        $rawActions = $this->sanitizeReportList($report['recommended_actions'] ?? [], 10);
+        foreach ($this->sanitizeProblemHotels($report['problem_hotels'] ?? [], 10) as $hotel) {
+            $suggestion = trim((string)($hotel['suggestion'] ?? ''));
+            if ($suggestion === '') {
+                continue;
+            }
+            $rawActions[] = [
+                'title' => trim((string)($hotel['hotel_name'] ?? '问题酒店')) . '处置建议',
+                'action' => $suggestion,
+                'priority' => (string)($report['priority'] ?? 'medium'),
+                'reason' => trim(implode('；', array_filter([
+                    (string)($hotel['problem'] ?? ''),
+                    implode('、', (array)($hotel['key_metrics'] ?? [])),
+                ]))),
+            ];
+        }
+
+        $structured = (new AiDecisionQualityService())->enrichRecommendations($rawActions, $context);
+        $report['decision_recommendations'] = $structured;
+        $report['recommendation_quality'] = (new AiDecisionQualityService())->summarize($structured, $context);
+        $report['legacy_recommendation_fields'] = ['recommended_actions', 'problem_hotels[].suggestion'];
+
+        return $report;
     }
 
     private function extractKnowledgeHotelIds(array $payload): array
@@ -3266,6 +3772,7 @@ class Agent extends Base
             $isDataRepairAction = $this->isOtaDataRepairAction($actionText);
             $hasExecutableRefs = $this->hasExecutableOtaEvidenceRefs($refs, $evidenceSources);
             $executionReady = !$isDataRepairAction && empty($missingTags) && $hasExecutableRefs;
+            [$actionType, $expectedMetric] = $this->classifyOtaDiagnosisExecutionAction($actionText);
             $status = $executionReady ? 'pending_manual_review' : 'blocked_by_insufficient_evidence';
             $blockedReason = '';
             $missingEvidence = $this->buildOtaMissingEvidenceItems($missingTags);
@@ -3308,6 +3815,12 @@ class Agent extends Base
             $items[] = [
                 'id' => 'ota_action_' . ($index + 1),
                 'action' => $actionText,
+                'title' => 'OTA渠道建议动作 ' . ($index + 1),
+                'priority' => (string)($context['priority'] ?? 'medium'),
+                'action_type' => $actionType,
+                'recommendation_type' => $isDataRepairAction ? 'data_repair' : 'operation',
+                'expected_metric' => $expectedMetric,
+                'review_window' => '执行后在下一可用数据日按同酒店、同平台、同指标口径与执行前数据复核',
                 'status' => $status,
                 'evidence_refs' => $refs,
                 'required_evidence' => $requiredTags,
@@ -3323,7 +3836,17 @@ class Agent extends Base
                 'confirmation_policy' => 'manual_confirmation_required_before_operation_execution',
             ];
         }
-        return $items;
+
+        return (new AiDecisionQualityService())->enrichRecommendations($items, [
+            'scope' => 'ota_channel',
+            'hotel_id' => (int)($context['hotel']['id'] ?? 0),
+            'platform' => (string)($context['platform'] ?? ''),
+            'date_range' => is_array($context['date_range'] ?? null) ? $context['date_range'] : [],
+            'evidence_sources' => $evidenceSources,
+            'default_priority' => (string)($context['priority'] ?? 'medium'),
+            'basis_summary' => (string)($context['core_conclusion'] ?? $context['diagnosis']['summary'] ?? ''),
+            'review_window' => '执行后在下一可用数据日按同酒店、同平台、同指标口径与执行前数据复核',
+        ]);
     }
 
     private function requiredOtaEvidenceTagsForAction(string $action): array
@@ -5608,7 +6131,7 @@ class Agent extends Base
         
         $trends = [];
         foreach ($competitors as $competitorId) {
-            $trends[$competitorId] = CompetitorAnalysis::getPriceTrend($hotelId, $competitorId);
+            $trends[$competitorId] = CompetitorAnalysis::getPriceTrend($hotelId, $competitorId, 0, $date);
         }
         
         return $this->success([

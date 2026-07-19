@@ -128,6 +128,59 @@ final class ManualOnlineFetchTaskServiceTest extends TestCase
         ]));
     }
 
+    public function testTaskApiUrlDoesNotTrustRequestHostAndRequiresExactConfiguredOrigin(): void
+    {
+        $previousServerName = $_SERVER['SERVER_NAME'] ?? null;
+        $previousEnvValue = getenv('APP_URL');
+        $hadEnvArrayValue = array_key_exists('APP_URL', $_ENV);
+        $previousEnvArrayValue = $_ENV['APP_URL'] ?? null;
+
+        try {
+            $_SERVER['SERVER_NAME'] = 'attacker.example';
+            putenv('APP_URL');
+            unset($_ENV['APP_URL']);
+
+            $service = new ManualOnlineFetchTaskService();
+            $normalize = new ReflectionMethod($service, 'normalizeTaskApiUrl');
+            $normalize->setAccessible(true);
+
+            self::assertSame('', $normalize->invoke(
+                $service,
+                'https://attacker.example/api/online-data/fetch-ctrip'
+            ));
+            self::assertSame(
+                'http://127.0.0.1:8080/api/online-data/fetch-ctrip',
+                $normalize->invoke($service, 'http://127.0.0.1:8080/api/online-data/fetch-ctrip')
+            );
+
+            putenv('APP_URL=https://trusted.example:8443');
+            self::assertSame(
+                'https://trusted.example:8443/api/online-data/fetch-meituan',
+                $normalize->invoke($service, 'https://trusted.example:8443/api/online-data/fetch-meituan')
+            );
+            self::assertSame('', $normalize->invoke(
+                $service,
+                'https://trusted.example:9443/api/online-data/fetch-meituan'
+            ));
+        } finally {
+            if ($previousServerName === null) {
+                unset($_SERVER['SERVER_NAME']);
+            } else {
+                $_SERVER['SERVER_NAME'] = $previousServerName;
+            }
+            if ($previousEnvValue === false) {
+                putenv('APP_URL');
+            } else {
+                putenv('APP_URL=' . $previousEnvValue);
+            }
+            if ($hadEnvArrayValue) {
+                $_ENV['APP_URL'] = $previousEnvArrayValue;
+            } else {
+                unset($_ENV['APP_URL']);
+            }
+        }
+    }
+
     public function testLaunchFailureRemovesPersistedTaskEnvelope(): void
     {
         $service = new ManualOnlineFetchTaskService();

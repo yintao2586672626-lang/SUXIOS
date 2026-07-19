@@ -343,6 +343,9 @@ class OtaRevenueMetricService
             'source' => is_array($trust['source'] ?? null) ? $trust['source'] : [],
             'updated_at' => $trust['updated_at'] ?? null,
             'failure_reasons' => $failureReasons,
+            'truth' => is_array($trust['truth'] ?? null)
+                ? $trust['truth']
+                : OnlineDataTrustStatusService::metricTruthEnvelope($trust),
         ];
     }
 
@@ -1342,13 +1345,15 @@ class OtaRevenueMetricService
             static fn(string $reason): bool => $reason !== ''
         )));
 
-        return [
+        $result = [
             'source' => $this->sourceSummary($traces),
             'caliber' => $caliber,
             'updated_at' => $updatedAt,
             'failure_reasons' => $failureReasons,
             'saved_success' => $allSaved && empty($failureReasons),
         ];
+        $result['truth'] = OnlineDataTrustStatusService::metricTruthEnvelope($result);
+        return $result;
     }
 
     /**
@@ -1375,18 +1380,72 @@ class OtaRevenueMetricService
     {
         $dates = $this->uniqueTraceValues($traces, 'date_key');
         sort($dates);
+        $collectedTimes = array_values(array_filter(array_map(
+            static fn(mixed $value): string => trim((string)$value),
+            $this->uniqueTraceValues($traces, 'collected_at')
+        ), static fn(string $value): bool => $value !== ''));
+        sort($collectedTimes);
+        $storedCount = count(array_filter($traces, static function (array $trace): bool {
+            if (array_key_exists('stored', $trace)) {
+                return ($trace['stored'] ?? false) === true;
+            }
+            return isset($trace['row_id']) && trim((string)$trace['row_id']) !== '';
+        }));
+        $readbackVerifiedCount = count(array_filter(
+            $traces,
+            static fn(array $trace): bool => ($trace['readback_verified'] ?? false) === true
+        ));
 
         return [
             'table' => 'online_daily_data',
             'row_ids' => $this->uniqueTraceValues($traces, 'row_id'),
+            'trace_ids' => $this->uniqueTraceValues($traces, 'source_trace_id'),
+            'hotels' => $this->sourceHotels($traces),
             'platforms' => $this->uniqueTraceValues($traces, 'platform'),
             'data_types' => $this->uniqueTraceValues($traces, 'data_type'),
+            'source_methods' => $this->uniqueTraceValues($traces, 'ingestion_method'),
             'date_range' => [
                 'start' => $dates[0] ?? null,
                 'end' => $dates ? $dates[count($dates) - 1] : null,
             ],
+            'collected_at_range' => [
+                'start' => $collectedTimes[0] ?? null,
+                'end' => $collectedTimes !== [] ? $collectedTimes[count($collectedTimes) - 1] : null,
+            ],
             'row_count' => count($traces),
+            'stored_count' => $storedCount,
+            'readback_verified_count' => $readbackVerifiedCount,
         ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $traces
+     * @return array<int, array<string, mixed>>
+     */
+    private function sourceHotels(array $traces): array
+    {
+        $hotels = [];
+        foreach ($traces as $trace) {
+            $systemHotelId = max(0, (int)($trace['system_hotel_id'] ?? 0));
+            $hotelKey = trim((string)($trace['hotel_key'] ?? ''));
+            if ($systemHotelId <= 0 && preg_match('/^system:(\d+)$/D', $hotelKey, $match) === 1) {
+                $systemHotelId = (int)$match[1];
+            }
+            $platformHotelId = trim((string)($trace['platform_hotel_id'] ?? ''));
+            $name = trim((string)($trace['hotel_name'] ?? ''));
+            if ($systemHotelId <= 0 && $platformHotelId === '' && $name === '' && $hotelKey === '') {
+                continue;
+            }
+            $key = $systemHotelId > 0
+                ? 'system:' . $systemHotelId
+                : ($platformHotelId !== '' ? 'platform:' . $platformHotelId : ($name !== '' ? 'name:' . $name : 'key:' . $hotelKey));
+            $hotels[$key] = [
+                'system_hotel_id' => $systemHotelId > 0 ? $systemHotelId : null,
+                'platform_hotel_id' => $platformHotelId,
+                'name' => $name,
+            ];
+        }
+        return array_values($hotels);
     }
 
     /**

@@ -9,10 +9,12 @@ use think\facade\Db;
 class FeasibilityReportService
 {
     private LlmClient $client;
+    private AiDecisionQualityService $decisionQualityService;
 
-    public function __construct(?LlmClient $client = null)
+    public function __construct(?LlmClient $client = null, ?AiDecisionQualityService $decisionQualityService = null)
     {
         $this->client = $client ?: new LlmClient();
+        $this->decisionQualityService = $decisionQualityService ?? new AiDecisionQualityService();
     }
 
     public function generate(array $input, int $userId): array
@@ -24,6 +26,7 @@ class FeasibilityReportService
         $calculation = $this->calculate($input, $snapshot);
         $report = $this->buildAiReport($input, $snapshot, $calculation);
         $report = $this->mergeFinancials($report, $input, $calculation);
+        $report = $this->enrichDecisionRecommendations($report, $input, $snapshot);
 
         $record = FeasibilityReport::create([
             'tenant_id' => $tenantId,
@@ -121,6 +124,7 @@ class FeasibilityReportService
         $input = $this->decodeJson($record['input'] ?? $record['input_json'] ?? []);
         $snapshot = $this->decodeJson($record['snapshot'] ?? $record['snapshot_json'] ?? []);
         $report = $this->decodeJson($record['report'] ?? $record['report_json'] ?? []);
+        $report = $this->normalizeReportFinancialScenarios($report, $input);
         $readiness = is_array($record['feasibility_readiness'] ?? null)
             ? $record['feasibility_readiness']
             : $this->buildFeasibilityReadiness($input, $snapshot, $report);
@@ -192,7 +196,11 @@ class FeasibilityReportService
             return null;
         }
 
-        $report = $this->decodeJson($record->report_json ?? []);
+        $input = $this->decodeJson($record->input_json ?? []);
+        $report = $this->normalizeReportFinancialScenarios(
+            $this->decodeJson($record->report_json ?? []),
+            $input
+        );
         $now = date('Y-m-d H:i:s');
         $trackingPayload = [
             'type' => 'operation_execution_intent',
@@ -231,6 +239,7 @@ class FeasibilityReportService
 
     public function buildFeasibilityReadiness(array $input, array $snapshot, array $report): array
     {
+        $report = $this->normalizeReportFinancialScenarios($report, $input);
         $inputDataGaps = $this->feasibilityInputDataGaps($input);
         $reportDataGaps = array_values(array_filter(
             (array)($report['data_gaps'] ?? []),
@@ -438,6 +447,7 @@ class FeasibilityReportService
         foreach ($fields as $field) {
             $result[$field] = trim((string) ($input[$field] ?? ''));
         }
+        $result['hotel_id'] = $this->normalizeTargetHotelId($input);
 
         $numberFields = [
             'property_area', 'room_count', 'monthly_rent', 'lease_years',
@@ -466,6 +476,32 @@ class FeasibilityReportService
         }
 
         return $result;
+    }
+
+    private function normalizeTargetHotelId(array $input): ?int
+    {
+        $hotelId = $this->nullablePositiveInteger($input['hotel_id'] ?? null, 'hotel_id');
+        $systemHotelId = $this->nullablePositiveInteger($input['system_hotel_id'] ?? null, 'system_hotel_id');
+        if ($hotelId !== null && $systemHotelId !== null && $hotelId !== $systemHotelId) {
+            throw new \InvalidArgumentException('hotel_id and system_hotel_id must identify the same hotel');
+        }
+
+        return $hotelId ?? $systemHotelId;
+    }
+
+    private function nullablePositiveInteger(mixed $value, string $field): ?int
+    {
+        if ($value === null || (is_string($value) && trim($value) === '')) {
+            return null;
+        }
+        $normalized = filter_var($value, FILTER_VALIDATE_INT, [
+            'options' => ['min_range' => 1],
+        ]);
+        if ($normalized === false) {
+            throw new \InvalidArgumentException($field . ' must be a positive integer');
+        }
+
+        return (int)$normalized;
     }
 
     private function nullableNumber(mixed $value, string $field): ?float
@@ -546,8 +582,12 @@ class FeasibilityReportService
             'opening_cost_missing' => '预期开办费（无费用请显式填 0）',
             'opening_cost_must_be_non_negative' => '有效预期开办费',
             'expected_adr_missing_or_invalid' => '大于 0 的预期 ADR',
-            'expected_occ_missing_or_invalid' => '0%—100% 之间的预期 OCC',
+            'expected_occ_missing_or_invalid' => '0%–100% 之间的预期 OCC',
             'total_investment_must_be_positive' => '大于 0 的总投资',
+            'rent_ratio_denominator_missing' => '租金占比缺少月收入分母',
+            'rent_ratio_denominator_non_positive' => '租金占比的月收入分母必须大于 0',
+            'rent_ratio_missing_or_invalid' => '租金占比缺失或无效',
+            'rent_ratio_zero_without_explicit_zero_rent' => '租金未明确为 0，不能把租金占比回显为 0',
         ];
 
         return array_map(
@@ -570,7 +610,10 @@ class FeasibilityReportService
                     return false;
                 }
             }
-            if (($scenario['calculation_status'] ?? 'rule_scenario_ready') === 'pending_input'
+            if ((float)$scenario['monthly_revenue'] <= 0 || !is_numeric($scenario['rent_ratio'] ?? null)) {
+                return false;
+            }
+            if (($scenario['calculation_status'] ?? 'rule_scenario_ready') !== 'rule_scenario_ready'
                 || trim((string)($scenario['risk_level'] ?? '')) === '待评估'
             ) {
                 return false;
@@ -580,64 +623,275 @@ class FeasibilityReportService
         return true;
     }
 
+    private function normalizeReportFinancialScenarios(array $report, array $input = []): array
+    {
+        if (!array_key_exists('financial_scenarios', $report)) {
+            return $report;
+        }
+
+        $report['financial_scenarios'] = $this->normalizeFinancialScenarios(
+            $report['financial_scenarios'],
+            $input
+        );
+        $scenarioDataGaps = $this->financialScenarioDataGaps($report['financial_scenarios']);
+        if ($scenarioDataGaps !== []) {
+            $report['data_gaps'] = array_values(array_unique(array_merge(
+                array_values(array_filter(
+                    (array)($report['data_gaps'] ?? []),
+                    static fn ($gap): bool => is_string($gap) && trim($gap) !== ''
+                )),
+                $scenarioDataGaps
+            )));
+            $report['decision_ready'] = false;
+        }
+
+        return $report;
+    }
+
+    private function normalizeFinancialScenarios(mixed $scenarios, array $input = []): array
+    {
+        if (!is_array($scenarios)) {
+            return [];
+        }
+
+        $ratioGapCodes = [
+            'rent_ratio_denominator_missing',
+            'rent_ratio_denominator_non_positive',
+            'rent_ratio_missing_or_invalid',
+            'rent_ratio_zero_without_explicit_zero_rent',
+        ];
+        $monthlyRent = $this->numericOrNull($input['monthly_rent'] ?? null);
+        $hasExplicitMonthlyRent = array_key_exists('monthly_rent', $input) && $monthlyRent !== null;
+        $normalized = [];
+
+        foreach ($scenarios as $scenario) {
+            if (!is_array($scenario)) {
+                $normalized[] = $scenario;
+                continue;
+            }
+
+            $dataGaps = array_values(array_filter(
+                (array)($scenario['data_gaps'] ?? []),
+                static fn ($gap): bool => is_string($gap)
+                    && trim($gap) !== ''
+                    && !in_array($gap, $ratioGapCodes, true)
+            ));
+            $monthlyRevenue = $this->numericOrNull($scenario['monthly_revenue'] ?? null);
+            $rentRatio = array_key_exists('rent_ratio', $scenario)
+                ? $this->numericOrNull($scenario['rent_ratio'])
+                : null;
+            $calculationStatus = trim((string)($scenario['calculation_status'] ?? ''));
+            $rentRatioStatus = 'calculated';
+            $rentRatioGap = null;
+
+            if ($monthlyRevenue === null) {
+                $rentRatio = null;
+                $rentRatioStatus = $calculationStatus === 'pending_input'
+                    ? 'pending_input'
+                    : 'unavailable_missing_revenue';
+                $rentRatioGap = 'rent_ratio_denominator_missing';
+            } elseif ($monthlyRevenue <= 0) {
+                $rentRatio = null;
+                $rentRatioStatus = 'unavailable_non_positive_revenue';
+                $rentRatioGap = 'rent_ratio_denominator_non_positive';
+            } elseif ($rentRatio === null || $rentRatio < 0) {
+                $rentRatio = null;
+                $rentRatioStatus = 'unverified_missing_ratio';
+                $rentRatioGap = 'rent_ratio_missing_or_invalid';
+            } elseif ($rentRatio == 0.0 && (!$hasExplicitMonthlyRent || $monthlyRent !== 0.0)) {
+                $rentRatio = null;
+                $rentRatioStatus = 'unverified_zero_ratio';
+                $rentRatioGap = 'rent_ratio_zero_without_explicit_zero_rent';
+            }
+
+            if ($rentRatioGap !== null) {
+                $dataGaps[] = $rentRatioGap;
+                if ($calculationStatus !== 'pending_input') {
+                    $scenario['calculation_status'] = 'rule_scenario_partial';
+                    $scenario['risk_level'] = $monthlyRevenue !== null && $monthlyRevenue <= 0
+                        ? '高'
+                        : '待核验';
+                }
+            } else {
+                $rentRatio = round((float)$rentRatio, 4);
+            }
+
+            $scenario['rent_ratio'] = $rentRatio;
+            $scenario['rent_ratio_status'] = $rentRatioStatus;
+            $scenario['data_gaps'] = array_values(array_unique($dataGaps));
+            $normalized[] = $scenario;
+        }
+
+        return $normalized;
+    }
+
+    private function financialScenarioDataGaps(array $scenarios): array
+    {
+        $dataGaps = [];
+        foreach ($scenarios as $scenario) {
+            if (!is_array($scenario)) {
+                continue;
+            }
+            foreach ((array)($scenario['data_gaps'] ?? []) as $gap) {
+                if (is_string($gap) && trim($gap) !== '') {
+                    $dataGaps[] = $gap;
+                }
+            }
+        }
+
+        return array_values(array_unique($dataGaps));
+    }
+
     private function buildSnapshot(array $input, ?int $tenantId = null): array
     {
-        $daily = $this->safeRows('daily_reports', fn () => $this->buildTenantSnapshotQuery('daily_reports', $tenantId)->order('report_date', 'desc')->limit(30)->select()->toArray());
-        $online = $this->safeRows('online_daily_data', fn () => $this->buildTenantSnapshotQuery('online_daily_data', $tenantId)->order('id', 'desc')->limit(30)->select()->toArray());
-        $competitors = $this->safeRows('competitor_hotel', fn () => $this->buildTenantSnapshotQuery('competitor_hotel', $tenantId)->where('status', 1)->limit(20)->select()->toArray());
-        $prices = $this->safeRows('competitor_price_log', fn () => $this->buildTenantSnapshotQuery('competitor_price_log', $tenantId)->order('id', 'desc')->limit(50)->select()->toArray());
+        $targetHotelId = max(0, (int)($input['hotel_id'] ?? 0));
+        $daily = [];
+        $online = [];
+        $competitors = [];
+        $prices = [];
+        if ($targetHotelId > 0) {
+            $daily = $this->safeRows('daily_reports', fn () => $this->buildHotelSnapshotQuery('daily_reports', $tenantId, $targetHotelId, 'hotel_id')->order('report_date', 'desc')->limit(30)->select()->toArray());
+            $online = $this->safeRows('online_daily_data', fn () => $this->buildHotelSnapshotQuery('online_daily_data', $tenantId, $targetHotelId, 'system_hotel_id')->order('id', 'desc')->limit(30)->select()->toArray());
+            $competitors = $this->safeRows('competitor_hotel', fn () => $this->buildHotelSnapshotQuery('competitor_hotel', $tenantId, $targetHotelId, 'store_id')->where('status', 1)->limit(20)->select()->toArray());
+            $prices = $this->safeRows('competitor_price_log', fn () => $this->buildHotelSnapshotQuery('competitor_price_log', $tenantId, $targetHotelId, 'store_id')->order('id', 'desc')->limit(50)->select()->toArray());
+        }
+
+        $daily = $this->filterSnapshotRowsForHotel($daily, 'hotel_id', $targetHotelId);
+        $online = $this->filterSnapshotRowsForHotel($online, 'system_hotel_id', $targetHotelId);
+        $competitors = $this->filterSnapshotRowsForHotel($competitors, 'store_id', $targetHotelId);
+        $prices = $this->filterSnapshotRowsForHotel($prices, 'store_id', $targetHotelId);
+        $onlineSummary = $this->summarizeOnlineData($online, $targetHotelId);
         $competitorSummary = $this->summarizeCompetitors($competitors, $prices);
+        $scopeGaps = [];
+        if ($tenantId === null || $tenantId <= 0) {
+            $scopeGaps[] = 'tenant_scope_missing';
+        }
+        if ($targetHotelId <= 0) {
+            $scopeGaps[] = 'target_hotel_missing';
+        }
 
         return [
-            'daily_summary' => $this->summarizeDailyReports($daily),
-            'online_summary' => $this->summarizeOnlineData($online),
+            'snapshot_scope' => [
+                'tenant_id' => $tenantId,
+                'hotel_id' => $targetHotelId > 0 ? $targetHotelId : null,
+                'status' => $scopeGaps === [] ? 'hotel_scoped' : 'unverified',
+                'failure_reason' => implode('; ', $scopeGaps),
+            ],
+            'daily_summary' => $this->summarizeDailyReports($daily, $targetHotelId),
+            'online_summary' => $onlineSummary,
             'competitor_summary' => $competitorSummary,
             'source_counts' => [
                 'daily_reports' => count($daily),
-                'online_daily_data' => count($online),
+                'online_daily_data' => (int)($onlineSummary['trusted_sample_count'] ?? 0),
                 'competitor_hotels' => count($competitors),
                 'competitor_price_logs' => count($prices),
                 'competitor_price_logs_decision_eligible' => (int)($competitorSummary['decision_eligible_price_count'] ?? 0),
                 'competitor_price_logs_reference_only' => (int)($competitorSummary['reference_only_price_count'] ?? 0),
             ],
+            'data_gaps' => $scopeGaps,
             'generated_at' => date('Y-m-d H:i:s'),
         ];
     }
 
-    private function summarizeDailyReports(array $rows): array
+    private function summarizeDailyReports(array $rows, int $targetHotelId = 0): array
     {
         $adr = [];
         $occ = [];
         $revenue = [];
+        $dates = [];
+        $collectedAt = [];
+        $rowIds = [];
         foreach ($rows as $row) {
+            $rowId = (int)($row['id'] ?? 0);
+            if ($rowId > 0) {
+                $rowIds[] = $rowId;
+            }
+            $reportDate = trim((string)($row['report_date'] ?? ''));
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/D', $reportDate) === 1) {
+                $dates[] = $reportDate;
+            }
+            $createdAt = trim((string)($row['created_at'] ?? $row['updated_at'] ?? ''));
+            if ($createdAt !== '') {
+                $collectedAt[] = $createdAt;
+            }
             $data = is_array($row['report_data'] ?? null) ? $row['report_data'] : json_decode((string) ($row['report_data'] ?? ''), true);
             $data = is_array($data) ? $data : [];
             foreach (['adr', 'avg_room_price', 'day_adr'] as $key) {
-                if (!empty($data[$key])) {
-                    $adr[] = (float) $data[$key];
+                $value = array_key_exists($key, $data) ? $this->numericOrNull($data[$key]) : null;
+                if ($value !== null) {
+                    $adr[] = $value;
                     break;
                 }
             }
             foreach (['occ', 'occupancy_rate', 'day_occ_rate'] as $key) {
-                if (!empty($data[$key])) {
-                    $value = (float) $data[$key];
+                $value = array_key_exists($key, $data) ? $this->numericOrNull($data[$key]) : null;
+                if ($value !== null) {
                     $occ[] = $value > 1 ? $value / 100 : $value;
                     break;
                 }
             }
             foreach (['day_revenue', 'revenue', 'room_revenue'] as $key) {
-                if (!empty($data[$key])) {
-                    $revenue[] = (float) $data[$key];
+                $value = array_key_exists($key, $data) ? $this->numericOrNull($data[$key]) : null;
+                if ($value !== null) {
+                    $revenue[] = $value;
                     break;
                 }
             }
         }
 
-        return [
+        sort($dates);
+        sort($collectedAt);
+        $metrics = [
             'avg_adr' => $this->avg($adr),
             'avg_occ' => $this->avg($occ),
             'avg_revenue' => $this->avg($revenue),
         ];
+        $failureReason = $rows === []
+            ? '目标门店没有可回读的本地经营日报。'
+            : '本地经营日报虽已回读，但来源未做外部核验，不能自动视为真实全酒店经营数据。';
+        $truthContext = [
+            'status' => 'unverified',
+            'status_label' => '未验证',
+            'metric_scope' => 'whole_hotel_local_report',
+            'scope_label' => '全酒店口径的本地日报记录（来源未外部验证），不是OTA渠道数据',
+            'hotels' => $targetHotelId > 0 ? [['system_hotel_id' => $targetHotelId]] : [],
+            'platforms' => ['not_applicable'],
+            'date_range' => [
+                'start' => $dates[0] ?? null,
+                'end' => $dates !== [] ? $dates[count($dates) - 1] : null,
+            ],
+            'source_methods' => ['internal_daily_report'],
+            'source' => [
+                'table' => 'daily_reports',
+                'row_ids' => array_values(array_unique($rowIds)),
+                'methods' => ['internal_daily_report'],
+                'caliber' => 'whole_hotel_local_report_unverified',
+            ],
+            'collected_at_range' => [
+                'start' => $collectedAt[0] ?? null,
+                'end' => $collectedAt !== [] ? $collectedAt[count($collectedAt) - 1] : null,
+            ],
+            'persistence' => [
+                'record_count' => count($rows),
+                'stored_count' => count($rows),
+                'readback_verified_count' => count($rows),
+                'excluded_untrusted_count' => count($rows),
+            ],
+            'failure_reason' => $failureReason,
+        ];
+        $metricTruth = [];
+        foreach ($metrics as $key => $value) {
+            $metricTruth[$key] = array_merge($truthContext, [
+                'metric_key' => $key,
+                'calculation_status' => $value === null ? 'missing' : 'calculated',
+                'value_observed' => $value !== null,
+            ]);
+        }
+
+        return array_merge($metrics, [
+            'truth_context' => $truthContext,
+            'metric_truth' => $metricTruth,
+        ]);
     }
 
     private function safeRows(string $table, callable $reader): array
@@ -664,6 +918,31 @@ class FeasibilityReportService
         return $query;
     }
 
+    private function buildHotelSnapshotQuery(string $table, ?int $tenantId, int $hotelId, string $hotelColumn)
+    {
+        $query = $this->buildTenantSnapshotQuery($table, $tenantId);
+        if ($hotelId <= 0 || !$this->tableHasColumn($table, $hotelColumn)) {
+            $query->where('id', -1);
+            return $query;
+        }
+
+        $query->where($hotelColumn, $hotelId);
+        return $query;
+    }
+
+    private function filterSnapshotRowsForHotel(array $rows, string $hotelColumn, int $hotelId): array
+    {
+        if ($hotelId <= 0) {
+            return [];
+        }
+
+        return array_values(array_filter(
+            $rows,
+            static fn(mixed $row): bool => is_array($row)
+                && (int)($row[$hotelColumn] ?? 0) === $hotelId
+        ));
+    }
+
     private function tableHasColumn(string $table, string $column): bool
     {
         try {
@@ -675,12 +954,75 @@ class FeasibilityReportService
         }
     }
 
-    private function summarizeOnlineData(array $rows): array
+    private function summarizeOnlineData(array $rows, ?int $targetHotelId = null): array
     {
+        $targetHotelId = max(0, (int)$targetHotelId);
+        $queriedCount = count($rows);
+        $rows = $this->filterSnapshotRowsForHotel($rows, 'system_hotel_id', $targetHotelId);
+        $truthRows = [];
+        $trustedCount = 0;
+        foreach ($rows as $row) {
+            $truth = OnlineDataTrustStatusService::truthEnvelope($row);
+            $truthRows[] = $truth;
+            if ($this->onlineSnapshotRowIsTrusted($row, $truth, $targetHotelId)) {
+                $trustedCount++;
+            }
+        }
+
+        $truthSummary = OnlineDataTrustStatusService::summarizeTruthEnvelopes($truthRows, [
+            'excluded_untrusted_count' => max(0, $queriedCount - count($rows)),
+            'fallback_failure_reason' => $targetHotelId > 0
+                ? ($trustedCount > 0 ? '' : 'no_target_hotel_trusted_readback_rows')
+                : 'target_hotel_missing',
+        ]);
+        $dataGaps = [];
+        if ($targetHotelId <= 0) {
+            $dataGaps[] = 'target_hotel_missing';
+        } elseif ($rows === []) {
+            $dataGaps[] = 'target_hotel_ota_rows_missing';
+        } elseif ($trustedCount === 0) {
+            $dataGaps[] = 'target_hotel_trusted_readback_rows_missing';
+        }
+
         return [
             'sample_count' => count($rows),
-            'has_real_ota_data' => count($rows) > 0,
+            'queried_sample_count' => $queriedCount,
+            'trusted_sample_count' => $trustedCount,
+            'has_real_ota_data' => $targetHotelId > 0 && $trustedCount > 0,
+            'status' => (string)($truthSummary['status'] ?? 'unverified'),
+            'status_label' => (string)($truthSummary['status_label'] ?? ''),
+            'metric_scope' => 'ota_channel',
+            'scope_label' => 'OTA channel evidence only; not whole-hotel operating truth',
+            'target_hotel_id' => $targetHotelId > 0 ? $targetHotelId : null,
+            'truth_summary' => $truthSummary,
+            'evidence_rows' => $truthRows,
+            'data_gaps' => $dataGaps,
         ];
+    }
+
+    private function onlineSnapshotRowIsTrusted(array $row, array $truth, int $targetHotelId): bool
+    {
+        $hotel = is_array($truth['hotel'] ?? null) ? $truth['hotel'] : [];
+        $source = is_array($truth['source'] ?? null) ? $truth['source'] : [];
+        $persistence = is_array($truth['persistence'] ?? null) ? $truth['persistence'] : [];
+        $validationStatus = strtolower(trim((string)($row['validation_status'] ?? '')));
+        $truthStatus = strtolower(trim((string)($truth['status'] ?? 'unverified')));
+        $platform = strtolower(trim((string)($truth['platform'] ?? '')));
+        $dataDate = trim((string)($truth['data_date'] ?? ''));
+        $collectedAt = trim((string)($truth['collected_at'] ?? ''));
+
+        return $targetHotelId > 0
+            && (int)($hotel['system_hotel_id'] ?? 0) === $targetHotelId
+            && (int)($row['id'] ?? 0) > 0
+            && in_array($platform, ['ctrip', 'meituan', 'qunar'], true)
+            && preg_match('/^\d{4}-\d{2}-\d{2}$/D', $dataDate) === 1
+            && trim((string)($source['method'] ?? '')) !== ''
+            && preg_match('/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?/', $collectedAt) === 1
+            && ($persistence['stored'] ?? false) === true
+            && ($persistence['readback_verified'] ?? false) === true
+            && in_array($validationStatus, ['normal', 'available', 'verified', 'valid', 'ok', 'success', 'complete', 'completed'], true)
+            && OnlineDataTrustStatusService::classifyRowStatus($row['status'] ?? $row['save_status'] ?? '') === 'usable'
+            && in_array($truthStatus, ['verified', 'partial'], true);
     }
 
     private function summarizeCompetitors(array $hotels, array $prices): array
@@ -945,6 +1287,11 @@ class FeasibilityReportService
             $this->scenario('基准情景', $roomCount, $baseAdr, $baseOcc, $input, $totalInvestment, $decisionReady),
             $this->scenario('乐观情景', $roomCount, $optimisticAdr, $optimisticOcc, $input, $totalInvestment, $decisionReady),
         ];
+        $scenarioDataGaps = $this->financialScenarioDataGaps($scenarios);
+        if ($scenarioDataGaps !== []) {
+            $dataGaps = array_values(array_unique(array_merge($dataGaps, $scenarioDataGaps)));
+            $decisionReady = false;
+        }
 
         return [
             'decision_ready' => $decisionReady,
@@ -984,9 +1331,11 @@ class FeasibilityReportService
             'monthly_net_cashflow' => null,
             'payback_months' => null,
             'rent_ratio' => null,
+            'rent_ratio_status' => 'unavailable_missing_revenue',
             'risk_level' => '待评估',
             'calculation_status' => 'pending_input',
             'cost_basis' => 'rule_scenario_assumption_not_actuals',
+            'data_gaps' => ['rent_ratio_denominator_missing'],
         ];
         if (!$decisionReady || $adr === null || $occ === null || $totalInvestment === null) {
             return $base;
@@ -999,23 +1348,30 @@ class FeasibilityReportService
         $monthlyCost = $fixedCost + $variableCost;
         $net = $monthlyRevenue - $monthlyCost;
         $payback = $net > 0 ? $totalInvestment / $net : null;
-        $rentRatio = $monthlyRevenue > 0 ? (float) $input['monthly_rent'] / $monthlyRevenue : 0;
+        $roundedMonthlyRevenue = round($monthlyRevenue, 2);
+        $rentRatio = $roundedMonthlyRevenue > 0
+            ? (float) $input['monthly_rent'] / $monthlyRevenue
+            : null;
+        $rentRatioStatus = $rentRatio === null ? 'unavailable_non_positive_revenue' : 'calculated';
+        $scenarioDataGaps = $rentRatio === null ? ['rent_ratio_denominator_non_positive'] : [];
 
         return array_merge($base, [
             'revpar' => round($revpar, 2),
-            'monthly_revenue' => round($monthlyRevenue, 2),
+            'monthly_revenue' => $roundedMonthlyRevenue,
             'monthly_operating_cost' => round($monthlyCost, 2),
             'monthly_net_cashflow' => round($net, 2),
             'payback_months' => $payback === null ? null : round($payback, 1),
-            'rent_ratio' => round($rentRatio, 4),
+            'rent_ratio' => $rentRatio === null ? null : round($rentRatio, 4),
+            'rent_ratio_status' => $rentRatioStatus,
             'risk_level' => $this->scenarioRisk($net, $payback, $rentRatio),
-            'calculation_status' => 'rule_scenario_ready',
+            'calculation_status' => $rentRatio === null ? 'rule_scenario_partial' : 'rule_scenario_ready',
+            'data_gaps' => $scenarioDataGaps,
         ]);
     }
 
-    private function scenarioRisk(float $net, ?float $payback, float $rentRatio): string
+    private function scenarioRisk(float $net, ?float $payback, ?float $rentRatio): string
     {
-        if ($net <= 0 || $payback === null || $rentRatio >= 0.42) {
+        if ($net <= 0 || $payback === null || $rentRatio === null || $rentRatio >= 0.42) {
             return '高';
         }
         if ($payback > 42 || $rentRatio >= 0.32) {
@@ -1027,13 +1383,16 @@ class FeasibilityReportService
     private function buildAiReport(array $input, array $snapshot, array $calculation): array
     {
         if (($calculation['decision_ready'] ?? false) !== true) {
-            return $this->buildPendingReport($input, $snapshot, $calculation);
+            return $this->normalizeReportFinancialScenarios(
+                $this->buildPendingReport($input, $snapshot, $calculation),
+                $input
+            );
         }
 
         $messages = [
             [
                 'role' => 'system',
-                'content' => '你是酒店投资可行性分析师。只输出符合 schema 的 JSON。财务数字必须采用用户显式输入和本地规则情景测算，不要编造来源；固定成本公式与 18% 变动成本均为规则情景假设，不是经营实绩。competitor_summary.comparison_status 不是 eligible 或 avg_competitor_price 为 null 时，竞对原始价只能标记为 reference_only，不得与项目 ADR 比较，不得生成调价风险或投资结论；即使严格可比，OTA公开价也不能替代项目 ADR 假设或财务输入。无可追溯市场或竞品证据时，market_score 必须为 null、competition_level 必须写“未评估”；用户未输入产品定位或目标客群时，recommended_model 和 target_customer 必须为 null；无来源的数据写入 assumptions；风险评级保持保守。',
+                'content' => '你是酒店投资可行性分析师。只输出符合 schema 的 JSON。财务数字必须采用用户显式输入和本地规则情景测算，不要编造来源；固定成本公式与 18% 变动成本均为规则情景假设，不是经营实绩。monthly_revenue 缺失或小于等于 0 时，rent_ratio 必须为 null，禁止用 0 冒充可计算比率。competitor_summary.comparison_status 不是 eligible 或 avg_competitor_price 为 null 时，竞对原始价只能标记为 reference_only，不得与项目 ADR 比较，不得生成调价风险或投资结论；即使严格可比，OTA公开价也不能替代项目 ADR 假设或财务输入。无可追溯市场或竞品证据时，market_score 必须为 null、competition_level 必须写“未评估”；用户未输入产品定位或目标客群时，recommended_model 和 target_customer 必须为 null；无来源的数据写入 assumptions；风险评级保持保守。',
             ],
             [
                 'role' => 'user',
@@ -1049,9 +1408,15 @@ class FeasibilityReportService
         $modelKey = trim((string)($input['model_key'] ?? 'deepseek_v4_default'));
         try {
             $report = $this->client->createJsonResponse($messages, $this->schema(), $modelKey !== '' ? $modelKey : 'deepseek_v4_default');
-            return $this->enforceMarketEvidenceBoundary($report, $input, $snapshot);
+            return $this->normalizeReportFinancialScenarios(
+                $this->enforceMarketEvidenceBoundary($report, $input, $snapshot),
+                $input
+            );
         } catch (\Throwable $e) {
-            return $this->buildFallbackReport($input, $snapshot, $calculation, $e->getMessage());
+            return $this->normalizeReportFinancialScenarios(
+                $this->buildFallbackReport($input, $snapshot, $calculation, $e->getMessage()),
+                $input
+            );
         }
     }
 
@@ -1218,7 +1583,10 @@ class FeasibilityReportService
             $report['conclusion_text'] = '待评估：核心测算输入未齐全。';
             $report['summary']['payback_months'] = null;
         }
-        $report['financial_scenarios'] = $calculation['scenarios'];
+        $report['financial_scenarios'] = $this->normalizeFinancialScenarios(
+            $calculation['scenarios'],
+            $input
+        );
         $report['cost_model'] = $calculation['cost_model'] ?? [];
         $report['assumptions'] = array_values(array_unique(array_merge($calculation['assumptions'], $report['assumptions'] ?? [])));
         $report['basic_info'] = [
@@ -1234,7 +1602,7 @@ class FeasibilityReportService
             ],
         ];
 
-        return $report;
+        return $this->normalizeReportFinancialScenarios($report, $input);
     }
 
     private function enforceMarketEvidenceBoundary(array $report, array $input, array $snapshot): array
@@ -1277,8 +1645,44 @@ class FeasibilityReportService
         $input = $this->decodeJson($row['input_json'] ?? []);
         $snapshot = $this->decodeJson($row['snapshot_json'] ?? []);
         $report = $this->decodeJson($row['report_json'] ?? []);
+        $report = $this->normalizeReportFinancialScenarios($report, $input);
+        $report = $this->enrichDecisionRecommendations($report, $input, $snapshot);
         $readiness = $this->buildFeasibilityReadiness($input, $snapshot, $report);
         $decisionReady = ($readiness['decision_ready'] ?? false) === true;
+        $truthContext = $this->feasibilityRecordTruthContext($row, $input);
+        $inputTruthContext = array_merge($truthContext, [
+            'source_methods' => ['user_input'],
+            'source' => array_merge((array)$truthContext['source'], [
+                'methods' => ['user_input'],
+                'caliber' => 'user_provided_investment_scenario',
+            ]),
+            'calculation_status' => 'not_applicable',
+        ]);
+        $otaTruthContext = is_array($snapshot['online_summary']['truth_summary'] ?? null)
+            ? $snapshot['online_summary']['truth_summary']
+            : $this->missingFeasibilityOtaTruthContext($input);
+        $marketTruthContext = $this->feasibilityMarketTruthContext($truthContext, $snapshot, $report);
+        $metricTruth = $this->feasibilityReportMetricTruth($report, $truthContext, $marketTruthContext);
+        $inputMetricTruth = $this->feasibilityInputMetricTruth($input, $inputTruthContext);
+        foreach ((array)($report['financial_scenarios'] ?? []) as $index => $scenario) {
+            if (!is_array($scenario)) {
+                continue;
+            }
+            $scenarioTruth = [];
+            foreach (['adr', 'occ', 'monthly_revenue', 'monthly_operating_cost', 'monthly_net_cashflow', 'payback_months', 'rent_ratio'] as $field) {
+                $key = 'financial_scenarios.' . $index . '.' . $field;
+                $scenarioTruth[$field] = $metricTruth[$key] ?? $this->feasibilityMetricEnvelope(null, $truthContext, $key);
+            }
+            $report['financial_scenarios'][$index]['metric_truth'] = $scenarioTruth;
+        }
+        $report['truth_context'] = $truthContext;
+        $report['input_truth_context'] = $inputTruthContext;
+        $report['input_metric_truth'] = $inputMetricTruth;
+        $report['metric_truth'] = $metricTruth;
+        $report['ota_truth_context'] = $otaTruthContext;
+        $report['daily_report_truth_context'] = is_array($snapshot['daily_summary']['truth_context'] ?? null)
+            ? $snapshot['daily_summary']['truth_context']
+            : null;
         $summary = is_array($report['summary'] ?? null) ? $report['summary'] : [];
 
         $data = [
@@ -1296,6 +1700,11 @@ class FeasibilityReportService
                 : ($row['total_investment'] ?? null),
             'risk_level' => $this->feasibilityRiskLevel($report),
             'feasibility_readiness' => $readiness,
+            'truth_context' => $truthContext,
+            'input_truth_context' => $inputTruthContext,
+            'input_metric_truth' => $inputMetricTruth,
+            'metric_truth' => $metricTruth,
+            'ota_truth_context' => $otaTruthContext,
             'created_at' => $row['created_at'] ?? null,
             'updated_at' => $row['updated_at'] ?? null,
         ];
@@ -1307,9 +1716,203 @@ class FeasibilityReportService
         return $data;
     }
 
+    /** @return array<string, mixed> */
+    private function feasibilityRecordTruthContext(array $row, array $input): array
+    {
+        $recordId = (int)($row['id'] ?? 0);
+        $hotelId = (int)($input['hotel_id'] ?? 0);
+        $storedAt = trim((string)($row['updated_at'] ?? $row['created_at'] ?? ''));
+        $date = preg_match('/^\d{4}-\d{2}-\d{2}/', $storedAt) === 1 ? substr($storedAt, 0, 10) : null;
+        $gaps = ['user_input_source_unverified', 'collection_time_not_applicable'];
+        if ($hotelId <= 0) {
+            $gaps[] = 'target_hotel_missing';
+        }
+
+        return [
+            'status' => 'unverified',
+            'status_label' => '未验证',
+            'metric_scope' => 'investment_scenario',
+            'scope_label' => '投资情景测算，不是OTA数据，也不是全酒店经营实绩',
+            'hotels' => $hotelId > 0 ? [['system_hotel_id' => $hotelId]] : [],
+            'hotel_id' => $hotelId > 0 ? $hotelId : null,
+            'platforms' => ['not_applicable'],
+            'date_range' => ['start' => $date, 'end' => $date],
+            'source_methods' => ['user_input', 'deterministic_formula'],
+            'source' => [
+                'table' => 'feasibility_reports',
+                'row_ids' => $recordId > 0 ? [$recordId] : [],
+                'methods' => ['user_input', 'deterministic_formula'],
+                'caliber' => 'investment_scenario',
+            ],
+            'collected_at_range' => ['start' => null, 'end' => null],
+            'collection_time_applicability' => 'not_applicable_manual_input',
+            'calculated_at' => $storedAt !== '' ? $storedAt : null,
+            'persistence' => [
+                'stored' => $recordId > 0,
+                'readback_verified' => $recordId > 0,
+                'stored_at' => $storedAt !== '' ? $storedAt : null,
+            ],
+            'failure_reason' => ($hotelId > 0 ? '' : '未绑定目标门店；')
+                . '投资、租金、ADR和入住率来自人工录入，未提供可外部核验的经营或财务来源。',
+            'data_gaps' => $gaps,
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function missingFeasibilityOtaTruthContext(array $input): array
+    {
+        $hotelId = (int)($input['hotel_id'] ?? 0);
+        return [
+            'status' => 'unverified',
+            'status_label' => '未验证',
+            'metric_scope' => 'ota_channel',
+            'scope_label' => 'OTA渠道证据，不代表全酒店经营',
+            'hotels' => $hotelId > 0 ? [['system_hotel_id' => $hotelId]] : [],
+            'platforms' => [],
+            'date_range' => ['start' => null, 'end' => null],
+            'source_methods' => [],
+            'source' => ['table' => 'online_daily_data', 'row_ids' => [], 'methods' => []],
+            'collected_at_range' => ['start' => null, 'end' => null],
+            'persistence' => [
+                'record_count' => 0,
+                'stored_count' => 0,
+                'readback_verified_count' => 0,
+                'excluded_untrusted_count' => 0,
+            ],
+            'failure_reason' => $hotelId > 0 ? '没有可回读的目标门店OTA证据。' : '未绑定目标门店，无法读取OTA证据。',
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function feasibilityMarketTruthContext(array $baseTruth, array $snapshot, array $report): array
+    {
+        $market = is_array($report['market_judgement'] ?? null) ? $report['market_judgement'] : [];
+        $marketObserved = $this->metricValueObserved($market['market_score'] ?? null)
+            || trim((string)($market['competition_level'] ?? '')) !== '';
+        $hasEvidence = $this->hasTraceableMarketEvidence($snapshot);
+        $status = $marketObserved && $hasEvidence ? 'partial' : 'unverified';
+
+        return array_merge($baseTruth, [
+            'status' => $status,
+            'status_label' => $status === 'partial' ? '部分数据' : '未验证',
+            'metric_scope' => 'investment_market_assessment',
+            'scope_label' => '投资市场评估派生结果，不是OTA指标，也不是全酒店经营实绩',
+            'source_methods' => ['local_snapshot', 'llm_assisted_analysis'],
+            'source' => array_merge((array)$baseTruth['source'], [
+                'methods' => ['local_snapshot', 'llm_assisted_analysis'],
+                'caliber' => 'investment_market_assessment',
+            ]),
+            'failure_reason' => $hasEvidence
+                ? '市场判断由局部可追溯样本与模型派生，底层样本范围不足以成为全酒店经营事实。'
+                : '缺少可追溯市场或竞品证据，市场评分与竞争强度未验证。',
+        ]);
+    }
+
+    /** @return array<string, array<string, mixed>> */
+    private function feasibilityInputMetricTruth(array $input, array $truthContext): array
+    {
+        $truth = [];
+        foreach (['property_area', 'room_count', 'monthly_rent', 'lease_years', 'decoration_budget', 'transfer_fee', 'opening_cost', 'adr', 'occ'] as $key) {
+            $truth[$key] = $this->feasibilityMetricEnvelope($input[$key] ?? null, $truthContext, $key, 'provided');
+        }
+        return $truth;
+    }
+
+    /** @return array<string, array<string, mixed>> */
+    private function feasibilityReportMetricTruth(array $report, array $truthContext, array $marketTruthContext): array
+    {
+        $summary = is_array($report['summary'] ?? null) ? $report['summary'] : [];
+        $market = is_array($report['market_judgement'] ?? null) ? $report['market_judgement'] : [];
+        $truth = [
+            'summary.room_count' => $this->feasibilityMetricEnvelope($summary['room_count'] ?? null, $truthContext, 'summary.room_count'),
+            'summary.total_investment' => $this->feasibilityMetricEnvelope($summary['total_investment'] ?? null, $truthContext, 'summary.total_investment'),
+            'summary.payback_months' => $this->feasibilityMetricEnvelope($summary['payback_months'] ?? null, $truthContext, 'summary.payback_months'),
+            'market_judgement.market_score' => $this->feasibilityMetricEnvelope($market['market_score'] ?? null, $marketTruthContext, 'market_judgement.market_score'),
+            'market_judgement.competition_level' => $this->feasibilityMetricEnvelope($market['competition_level'] ?? null, $marketTruthContext, 'market_judgement.competition_level'),
+        ];
+        foreach ((array)($report['financial_scenarios'] ?? []) as $index => $scenario) {
+            if (!is_array($scenario)) {
+                continue;
+            }
+            foreach (['adr', 'occ', 'monthly_revenue', 'monthly_operating_cost', 'monthly_net_cashflow', 'payback_months', 'rent_ratio'] as $field) {
+                $key = 'financial_scenarios.' . $index . '.' . $field;
+                $truth[$key] = $this->feasibilityMetricEnvelope($scenario[$field] ?? null, $truthContext, $key);
+            }
+        }
+        return $truth;
+    }
+
+    /** @return array<string, mixed> */
+    private function feasibilityMetricEnvelope(mixed $value, array $truthContext, string $metricKey, string $observedStatus = 'calculated'): array
+    {
+        $observed = $this->metricValueObserved($value);
+        return array_merge($truthContext, [
+            'metric_key' => $metricKey,
+            'calculation_status' => $observed ? $observedStatus : 'missing',
+            'value_observed' => $observed,
+            'calculation_basis' => $observedStatus === 'provided'
+                ? 'user_input'
+                : 'deterministic_formula_or_bounded_assessment',
+        ]);
+    }
+
+    private function metricValueObserved(mixed $value): bool
+    {
+        if (is_numeric($value)) {
+            return is_finite((float)$value);
+        }
+        return is_string($value) && trim($value) !== '';
+    }
+
+    private function enrichDecisionRecommendations(array $report, array $input, array $snapshot): array
+    {
+        $evidence = [];
+        foreach ((array)($report['evidence'] ?? []) as $index => $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $source = trim((string)($item['source'] ?? ''));
+            $evidence[] = [
+                'ref' => $source !== '' ? $source . '#' . ($index + 1) : 'feasibility_evidence#' . ($index + 1),
+                'source' => $source !== '' ? $source : (string)($item['title'] ?? 'feasibility_evidence'),
+                'summary' => (string)($item['summary'] ?? ''),
+                'scope' => 'investment_scenario',
+                'quality_status' => str_contains($source, 'verified') ? 'verified' : 'user_provided_unverified',
+            ];
+        }
+        if ($evidence === []) {
+            $evidence[] = [
+                'ref' => 'feasibility_user_input_snapshot',
+                'source' => 'user_input_and_deterministic_calculation',
+                'scope' => 'investment_scenario',
+                'quality_status' => 'user_provided_unverified',
+                'summary' => '基于当前项目录入、规则情景和可用本地记录；不等同于已核验经营实绩。',
+            ];
+        }
+
+        $context = [
+            'scope' => 'investment_scenario',
+            'hotel_id' => (int)($input['hotel_id'] ?? 0),
+            'data_basis' => $evidence,
+            'basis_summary' => (string)($report['core_reason'] ?? ''),
+            'default_risk_level' => $this->feasibilityRiskLevel($report),
+            'review_window' => '进入投决会前复核真实流水、租约、证照、OTA渠道样本和三情景财务结果',
+        ];
+        $report['action_plan'] = $this->decisionQualityService->enrichRecommendations(
+            $report['action_plan'] ?? [],
+            $context
+        );
+        $report['recommendation_quality'] = $this->decisionQualityService->summarize(
+            $report['action_plan'],
+            $context
+        );
+
+        return $report;
+    }
+
     private function avg(array $values): ?float
     {
-        $values = array_values(array_filter($values, fn ($value) => is_numeric($value) && (float) $value > 0));
+        $values = array_values(array_filter($values, fn ($value) => is_numeric($value) && is_finite((float)$value)));
         return $values ? round(array_sum($values) / count($values), 2) : null;
     }
 
@@ -1710,7 +2313,7 @@ class FeasibilityReportService
                             'monthly_revenue' => ['type' => 'number'],
                             'monthly_net_cashflow' => ['type' => 'number'],
                             'payback_months' => ['type' => ['number', 'null']],
-                            'rent_ratio' => ['type' => 'number'],
+                            'rent_ratio' => ['type' => ['number', 'null']],
                             'risk_level' => ['type' => 'string'],
                         ],
                     ],

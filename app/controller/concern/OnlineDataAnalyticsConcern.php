@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller\concern;
 
 use app\service\OnlineDailyDataPersistenceService;
+use app\service\OnlineDataFieldFactService;
 use app\service\OnlineDataTrustStatusService;
 use app\service\OnlineTrafficDataExtractionService;
 use think\Response;
@@ -28,8 +29,8 @@ trait OnlineDataAnalyticsConcern
             $dataType = $this->request->get('data_type', '');
 
             $query = Db::name('online_daily_data')
-                ->field('hotel_id, MAX(hotel_name) as hotel_name, MAX(system_hotel_id) as system_hotel_id')
-                ->group('hotel_id');
+                ->field('hotel_id, MAX(hotel_name) as hotel_name, system_hotel_id')
+                ->group('system_hotel_id, hotel_id');
 
             $this->applyDataTypeFilter($query, $dataType);
 
@@ -43,7 +44,15 @@ trait OnlineDataAnalyticsConcern
                 $query->whereIn('system_hotel_id', $permittedHotelIds);
             }
 
-            $hotels = $this->mergeOnlineDataHotelList($query->select()->toArray());
+            $hotelRows = $query->select()->toArray();
+            $systemHotelIds = array_values(array_unique(array_filter(array_map(
+                static fn(array $hotel): int => max(0, (int)($hotel['system_hotel_id'] ?? 0)),
+                $hotelRows
+            ))));
+            $canonicalHotelNames = $systemHotelIds !== []
+                ? Db::name('hotels')->whereIn('id', $systemHotelIds)->column('name', 'id')
+                : [];
+            $hotels = $this->mergeOnlineDataHotelList($hotelRows, $canonicalHotelNames);
 
             // 添加 id 字段用于前端筛选
             foreach ($hotels as &$hotel) {
@@ -59,7 +68,7 @@ trait OnlineDataAnalyticsConcern
     /**
      * 自动获取并保存数据（每个门店独立运行，每天只获取一次）
      */
-    private function mergeOnlineDataHotelList(array $hotels): array
+    private function mergeOnlineDataHotelList(array $hotels, array $canonicalHotelNames = []): array
     {
         $merged = [];
         foreach ($hotels as $hotel) {
@@ -72,6 +81,12 @@ trait OnlineDataAnalyticsConcern
             }
 
             $mapKey = is_int($key) ? 'system:' . $key : 'ota:' . $key;
+            $canonicalName = is_int($key)
+                ? trim((string)($canonicalHotelNames[$key] ?? ''))
+                : '';
+            if ($canonicalName !== '') {
+                $hotel['hotel_name'] = $canonicalName;
+            }
             if (!isset($merged[$mapKey])) {
                 $hotel['id'] = $key;
                 if (!isset($hotel['ota_hotel_id'])) {
@@ -115,7 +130,18 @@ trait OnlineDataAnalyticsConcern
         if (!$this->currentUser->isSuperAdmin()) {
             $permittedHotelIds = $this->currentUser->getPermittedHotelIds();
             if (empty($permittedHotelIds)) {
-                return $this->success(['aggregated' => [], 'summary' => [], 'chart_data' => [], 'hotel_ranking' => []]);
+                return $this->success([
+                    'aggregated' => [],
+                    'summary' => [
+                        'truth_context' => OnlineDataTrustStatusService::summarizeTruthEnvelopes([], [
+                            'start_date' => $startDate,
+                            'end_date' => $endDate,
+                            'fallback_failure_reason' => '当前账号没有可查看的门店范围',
+                        ]),
+                    ],
+                    'chart_data' => [],
+                    'hotel_ranking' => [],
+                ]);
             }
             $query->whereIn('system_hotel_id', $permittedHotelIds);
         }
@@ -138,6 +164,32 @@ trait OnlineDataAnalyticsConcern
 
         $data = $query->order('data_date', 'asc')->select()->toArray();
         $excludedUntrustedCount = max(0, $scopedRecordCount - count($data));
+        $truthHotelIds = array_values(array_unique(array_filter(array_map(
+            static fn(array $row): int => max(0, (int)($row['system_hotel_id'] ?? 0)),
+            $data
+        ))));
+        $truthHotelNames = $truthHotelIds !== []
+            ? Db::name('hotels')->whereIn('id', $truthHotelIds)->column('name', 'id')
+            : [];
+        $truthEnvelopes = [];
+        foreach ($data as $row) {
+            $raw = [];
+            if (is_array($row['raw_data'] ?? null)) {
+                $raw = $row['raw_data'];
+            } elseif (is_string($row['raw_data'] ?? null) && trim((string)$row['raw_data']) !== '') {
+                $decoded = json_decode((string)$row['raw_data'], true);
+                $raw = is_array($decoded) ? $decoded : [];
+            }
+            $truthRow = $row;
+            $truthSystemHotelId = max(0, (int)($row['system_hotel_id'] ?? 0));
+            if ($truthSystemHotelId > 0 && trim((string)($truthHotelNames[$truthSystemHotelId] ?? '')) !== '') {
+                $truthRow['system_hotel_name'] = (string)$truthHotelNames[$truthSystemHotelId];
+            }
+            $truthEnvelopes[] = OnlineDataTrustStatusService::truthEnvelope(
+                $truthRow,
+                OnlineDataFieldFactService::buildStatus($row, $raw)
+            );
+        }
 
         // 按维度聚合数据
         $aggregated = $this->aggregateByDimension($data, $dimension);
@@ -185,9 +237,18 @@ trait OnlineDataAnalyticsConcern
             'total_orders' => $totalOrders === null,
             'avg_score' => $validScores === [],
         ]));
-        $summary['data_status'] = $data === [] && $excludedUntrustedCount > 0
+        $summary['truth_context'] = OnlineDataTrustStatusService::summarizeTruthEnvelopes($truthEnvelopes, [
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'excluded_untrusted_count' => $excludedUntrustedCount,
+            'fallback_failure_reason' => $excludedUntrustedCount > 0
+                ? '筛选范围内有未通过回读或校验的记录，已从汇总数字中排除'
+                : ($data === [] ? '当前筛选范围没有可核验的 OTA 入库数字' : ''),
+        ]);
+        $truthStatus = (string)($summary['truth_context']['status'] ?? 'unverified');
+        $summary['data_status'] = in_array($truthStatus, ['unverified', 'collection_failed'], true)
             ? 'blocked'
-            : ($summary['data_gaps'] === [] && $excludedUntrustedCount === 0 ? 'ok' : 'partial');
+            : (($truthStatus === 'partial' || $summary['data_gaps'] !== []) ? 'partial' : 'ok');
 
         // 图表数据
         $chartData = $this->buildChartData($aggregated, $dimension);

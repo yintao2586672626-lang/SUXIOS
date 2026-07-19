@@ -176,16 +176,19 @@ final class OperationManagementServiceTest extends TestCase
                     'salable_rooms' => 10,
                 ], JSON_UNESCAPED_UNICODE),
             ]],
-            [[
+            [$this->trustedOtaOperatingRow([
+                'id' => 4,
                 'system_hotel_id' => 7,
+                'hotel_id' => 130079194,
                 'data_date' => '2026-05-18',
                 'source' => 'ctrip',
                 'platform' => 'ctrip',
+                'snapshot_time' => '2026-05-18 09:00:00',
                 'amount' => 999,
                 'quantity' => 9,
                 'book_order_num' => 8,
                 'raw_data' => json_encode(['bookOrderNum' => 9], JSON_UNESCAPED_UNICODE),
-            ]],
+            ])],
             [7],
             7,
             '2026-05-18',
@@ -230,7 +233,7 @@ final class OperationManagementServiceTest extends TestCase
         self::assertContains('operation_room_nights_missing', array_column($summary['data_gaps'], 'code'));
     }
 
-    public function testDashboardSummaryAcceptsExplicitZeroesOnlyWhenEveryRequiredMetricAndSourceExist(): void
+    public function testDashboardSummaryRejectsExplicitZeroesWithoutCompleteTrustEvidence(): void
     {
         $service = new OperationManagementService();
 
@@ -253,6 +256,32 @@ final class OperationManagementServiceTest extends TestCase
             '2026-07-15',
         ]);
 
+        self::assertNull($summary['revenue']);
+        self::assertNull($summary['orders']);
+        self::assertNull($summary['room_nights']);
+        self::assertSame('missing', $summary['data_status']);
+        self::assertContains('operation_revenue_missing', array_column($summary['data_gaps'], 'code'));
+        self::assertContains('operation_orders_missing', array_column($summary['data_gaps'], 'code'));
+        self::assertContains('operation_room_nights_missing', array_column($summary['data_gaps'], 'code'));
+    }
+
+    public function testDashboardSummaryAcceptsVerifiedExplicitZeroesAsRealZeroes(): void
+    {
+        $service = new OperationManagementService();
+
+        $summary = $this->invokeNonPublic($service, 'buildSummaryFromRows', [
+            [],
+            [$this->trustedOtaOperatingRow([
+                'id' => 8,
+                'amount' => 0,
+                'quantity' => 0,
+                'book_order_num' => 0,
+            ])],
+            [7],
+            7,
+            '2026-07-15',
+        ]);
+
         self::assertSame(0.0, $summary['revenue']);
         self::assertSame(0, $summary['orders']);
         self::assertSame(0.0, $summary['room_nights']);
@@ -261,31 +290,64 @@ final class OperationManagementServiceTest extends TestCase
         self::assertSame([], $summary['data_gaps']);
     }
 
-    public function testDashboardSummaryMarksUnknownOnlineSourcePartial(): void
+    public function testTrustedOtaFactRejectsUnverifiedPartialFailedAndIncompleteEvidence(): void
+    {
+        $service = new OperationManagementService();
+        $cases = [
+            'hotel identity missing' => ['system_hotel_id' => null],
+            'platform identity missing' => ['source' => '', 'platform' => ''],
+            'data date missing' => ['data_date' => ''],
+            'data date invalid' => ['data_date' => '2026-02-30'],
+            'validation status missing' => ['validation_status' => ''],
+            'unverified validation' => ['validation_status' => 'unverified'],
+            'partial validation' => ['validation_status' => 'partial'],
+            'failed validation' => ['validation_status' => 'failed'],
+            'readback missing' => ['readback_verified' => null],
+            'readback failed' => ['readback_verified' => 0],
+            'collection time missing' => ['snapshot_time' => ''],
+            'manual source' => ['ingestion_method' => 'manual'],
+            'legacy source' => ['ingestion_method' => 'legacy'],
+            'manual import source' => ['ingestion_method' => 'manual_import'],
+        ];
+
+        foreach ($cases as $label => $overrides) {
+            self::assertFalse(
+                $this->invokeNonPublic($service, 'isTrustedSelfOtaFactRow', [
+                    $this->trustedOtaOperatingRow($overrides),
+                ]),
+                $label
+            );
+        }
+
+        self::assertTrue($this->invokeNonPublic($service, 'isTrustedSelfOtaFactRow', [
+            $this->trustedOtaOperatingRow(),
+        ]));
+    }
+
+    public function testDashboardSummaryRejectsUnidentifiedOnlineSource(): void
     {
         $service = new OperationManagementService();
 
         $summary = $this->invokeNonPublic($service, 'buildSummaryFromRows', [
             [],
-            [[
+            [$this->trustedOtaOperatingRow([
                 'id' => 7,
-                'system_hotel_id' => 7,
-                'data_date' => '2026-07-15',
-                'data_type' => 'business',
-                'dimension' => '',
+                'source' => '',
+                'platform' => '',
                 'amount' => 100,
                 'quantity' => 1,
                 'book_order_num' => 1,
-                'raw_data' => '{}',
-            ]],
+            ])],
             [7],
             7,
             '2026-07-15',
         ]);
 
-        self::assertSame('partial', $summary['data_status']);
-        self::assertSame('partial', $summary['source_status']);
-        self::assertContains('operation_source_missing', array_column($summary['data_gaps'], 'code'));
+        self::assertNull($summary['revenue']);
+        self::assertNull($summary['orders']);
+        self::assertNull($summary['room_nights']);
+        self::assertSame('missing', $summary['data_status']);
+        self::assertSame('unknown', $summary['source_scope']);
     }
 
     public function testDashboardSummaryExcludesCompetitorFactsAndDuplicateBusinessSnapshots(): void
@@ -295,48 +357,57 @@ final class OperationManagementServiceTest extends TestCase
         $summary = $this->invokeNonPublic($service, 'buildSummaryFromRows', [
             [],
             [
-                [
+                $this->trustedOtaOperatingRow([
                     'id' => 17652,
                     'system_hotel_id' => 80,
+                    'hotel_id' => 130079194,
                     'data_date' => '2026-07-15',
                     'source' => 'ctrip',
+                    'platform' => 'ctrip',
                     'data_type' => 'business',
                     'dimension' => '',
                     'validation_status' => 'normal',
+                    'snapshot_time' => '2026-07-15 09:15:46',
                     'update_time' => '2026-07-15 09:15:46',
                     'amount' => 5939,
                     'quantity' => 7,
                     'book_order_num' => 11,
                     'raw_data' => '{}',
-                ],
-                [
+                ]),
+                $this->trustedOtaOperatingRow([
                     'id' => 34952,
                     'system_hotel_id' => 80,
+                    'hotel_id' => 130079194,
                     'data_date' => '2026-07-15',
                     'source' => 'ctrip',
+                    'platform' => 'ctrip',
                     'data_type' => 'business',
                     'dimension' => 'catalog:business_overview:business_flow_compete:order_count',
                     'validation_status' => 'normal',
+                    'snapshot_time' => '2026-07-15 09:13:33',
                     'update_time' => '2026-07-15 09:13:33',
                     'amount' => 377223.9,
                     'quantity' => 0,
                     'book_order_num' => 288,
                     'raw_data' => '{}',
-                ],
-                [
+                ]),
+                $this->trustedOtaOperatingRow([
                     'id' => 17670,
                     'system_hotel_id' => 80,
+                    'hotel_id' => 130079194,
                     'data_date' => '2026-07-15',
                     'source' => 'ctrip',
+                    'platform' => 'ctrip',
                     'data_type' => 'business',
                     'dimension' => 'catalog:business_overview:business_realtime:visitor_count+order_count',
                     'validation_status' => 'normal',
+                    'snapshot_time' => '2026-07-15 09:16:00',
                     'update_time' => '2026-07-15 09:16:00',
                     'amount' => 0,
                     'quantity' => 0,
                     'book_order_num' => 6,
                     'raw_data' => '{}',
-                ],
+                ]),
             ],
             [80],
             80,
@@ -356,7 +427,7 @@ final class OperationManagementServiceTest extends TestCase
     {
         $service = new OperationManagementService();
         $today = date('Y-m-d');
-        $selfBusiness = [
+        $selfBusiness = $this->trustedOtaOperatingRow([
             'id' => 17652,
             'system_hotel_id' => 80,
             'hotel_id' => 130079194,
@@ -370,13 +441,14 @@ final class OperationManagementServiceTest extends TestCase
             'ingestion_method' => 'browser_profile',
             'data_period' => 'realtime_snapshot',
             'is_final' => 0,
-            'update_time' => '2026-07-15 09:15:46',
+            'snapshot_time' => $today . ' 09:15:46',
+            'update_time' => $today . ' 09:15:46',
             'amount' => 5939,
             'quantity' => 7,
             'book_order_num' => 11,
             'raw_data' => '{}',
-        ];
-        $competitorTraffic = [
+        ]);
+        $competitorTraffic = $this->trustedOtaOperatingRow([
             'id' => 43491,
             'system_hotel_id' => 80,
             'hotel_id' => -1,
@@ -390,13 +462,14 @@ final class OperationManagementServiceTest extends TestCase
             'ingestion_method' => 'browser_profile',
             'data_period' => 'realtime_snapshot',
             'is_final' => 0,
-            'update_time' => '2026-07-15 09:15:46',
+            'snapshot_time' => $today . ' 09:15:46',
+            'update_time' => $today . ' 09:15:46',
             'list_exposure' => 268,
             'detail_exposure' => 48,
             'order_filling_num' => 3,
             'order_submit_num' => 2,
             'raw_data' => '{}',
-        ];
+        ]);
 
         $ota = $this->invokeNonPublic($service, 'buildOtaFromRows', [[$selfBusiness, $competitorTraffic]]);
         self::assertNull($ota['exposure']);
@@ -532,15 +605,17 @@ final class OperationManagementServiceTest extends TestCase
         $service = new OperationManagementService();
 
         $summary = $this->invokeNonPublic($service, 'buildServiceQualityFromRows', [[
-            [
+            $this->trustedOtaOperatingRow([
+                'id' => 91,
                 'data_type' => 'quality',
                 'data_value' => 88.6,
                 'raw_data' => json_encode(['serviceScore' => 92.5, 'psiScore' => 88.6], JSON_UNESCAPED_UNICODE),
-            ],
-            [
+            ]),
+            $this->trustedOtaOperatingRow([
+                'id' => 92,
                 'data_type' => 'service_quality',
                 'raw_data' => json_encode(['service_score' => 86, 'psi_score' => 82.2], JSON_UNESCAPED_UNICODE),
-            ],
+            ]),
             [
                 'data_type' => 'traffic',
                 'raw_data' => json_encode(['psiScore' => 10, 'serviceScore' => 10], JSON_UNESCAPED_UNICODE),
@@ -772,9 +847,78 @@ final class OperationManagementServiceTest extends TestCase
         self::assertStringContainsString("->where('result_summary', \$expectedResultSummary)", $source);
         self::assertStringContainsString('if ($affected !== 1)', $source);
         self::assertStringContainsString('execution task state changed; refresh before review', $source);
+        self::assertStringContainsString('$hasSourceVerifiedReviewEvidence', $source);
+        self::assertStringContainsString('source-verified business metric readback is required before success review', $source);
     }
 
-    public function testExecutionSuccessReviewRequiresStoredOperatorAttestationAndRejectsLegacyVerifiedClaims(): void
+    public function testSourceVerifiedExecutionEvidenceRequiresAllTruthDimensions(): void
+    {
+        $service = new OperationManagementService();
+        $intent = [
+            'hotel_id' => 7,
+            'platform' => 'ctrip',
+            'object_type' => 'price',
+            'date_start' => '2026-07-18',
+            'date_end' => '2026-07-18',
+            'expected_metric' => 'revenue',
+        ];
+        $task = ['id' => 88, 'status' => 'executed', 'result_status' => 'success'];
+        $platformResponse = [
+            'verification_authority' => 'system_readback',
+            'source' => 'online_daily_data',
+            'source_ref' => 'online_daily_data#verified-88',
+            'system_hotel_id' => 7,
+            'platform' => 'ctrip',
+            'object_type' => 'price',
+            'date_start' => '2026-07-18',
+            'date_end' => '2026-07-18',
+            'metric_key' => 'revenue',
+            'database_written' => true,
+            'readback_verified' => true,
+            'readback_count' => 1,
+            'readback_at' => '2026-07-18 13:00:00',
+            'validation_status' => 'verified',
+        ];
+        $evidence = [
+            'id' => 99,
+            'task_id' => 88,
+            'evidence_type' => 'source_verified_metric_readback',
+            'before' => ['revenue' => 0],
+            'after' => ['revenue' => 0, 'cost' => 0],
+            'platform_response' => $platformResponse,
+            'created_by' => 0,
+        ];
+
+        $verified = $this->invokeNonPublic($service, 'assessExecutionEvidenceTruth', [$intent, $task, $evidence]);
+        self::assertTrue($verified['source_verified']);
+        self::assertSame('verified', $verified['status']);
+
+        foreach ([
+            'source identity' => [['source_ref' => ''], 'source_identity_missing'],
+            'hotel' => [['system_hotel_id' => 8], 'evidence_hotel_mismatch'],
+            'platform' => [['platform' => 'meituan'], 'evidence_platform_or_object_mismatch'],
+            'object' => [['object_type' => 'campaign'], 'evidence_platform_or_object_mismatch'],
+            'date window' => [['date_end' => '2026-07-19'], 'evidence_date_window_mismatch'],
+            'persistence' => [['database_written' => false], 'evidence_database_persistence_unverified'],
+            'readback' => [['readback_count' => 0], 'evidence_database_readback_unverified'],
+            'metric' => [['metric_key' => 'orders'], 'review_metric_alignment_missing'],
+            'validation' => [['validation_status' => 'failed', 'failure_reason' => 'collection_failed'], 'source_validation_failed'],
+        ] as $label => [$overrides, $expectedReason]) {
+            $candidate = $evidence;
+            $candidate['platform_response'] = array_replace($platformResponse, $overrides);
+            $assessment = $this->invokeNonPublic($service, 'assessExecutionEvidenceTruth', [$intent, $task, $candidate]);
+            self::assertFalse($assessment['source_verified'], $label);
+            self::assertContains($expectedReason, $assessment['failure_reasons'], $label);
+        }
+
+        $clientAuthored = $evidence;
+        $clientAuthored['created_by'] = 7;
+        $assessment = $this->invokeNonPublic($service, 'assessExecutionEvidenceTruth', [$intent, $task, $clientAuthored]);
+        self::assertFalse($assessment['source_verified']);
+        self::assertContains('system_readback_authority_missing', $assessment['failure_reasons']);
+    }
+
+    public function testOperatorAttestationRejectsLegacyAndClientClaimedSourceVerification(): void
     {
         $service = new OperationManagementService();
         $attested = $this->invokeNonPublic($service, 'executionEvidenceHasOperatorAttestation', [[[
@@ -875,5 +1019,28 @@ final class OperationManagementServiceTest extends TestCase
         }
 
         self::fail('Metric not found: ' . $key);
+    }
+
+    /** @param array<string, mixed> $overrides */
+    private function trustedOtaOperatingRow(array $overrides = []): array
+    {
+        return array_replace([
+            'id' => 6,
+            'system_hotel_id' => 7,
+            'hotel_id' => 130079194,
+            'data_date' => '2026-07-15',
+            'source' => 'ctrip',
+            'platform' => 'ctrip',
+            'compare_type' => 'self',
+            'data_type' => 'business',
+            'dimension' => '',
+            'validation_status' => 'verified',
+            'readback_verified' => 1,
+            'ingestion_method' => 'browser_profile',
+            'data_period' => 'historical_daily',
+            'is_final' => 1,
+            'snapshot_time' => '2026-07-15 09:00:00',
+            'raw_data' => '{}',
+        ], $overrides);
     }
 }

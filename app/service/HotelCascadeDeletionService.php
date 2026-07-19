@@ -42,7 +42,8 @@ final class HotelCascadeDeletionService
         ['operation_alerts', 'hotel_id'],
         ['operation_execution_intents', 'hotel_id'],
         ['operation_execution_tasks', 'hotel_id'],
-        ['operation_logs', 'hotel_id'],
+        // Audit history is evidence, not hotel-owned business data. It must
+        // survive hotel deletion so the destructive action remains traceable.
         ['ota_credentials', 'system_hotel_id'],
         ['ota_ctrip_capture_gaps', 'system_hotel_id'],
         ['ota_ctrip_capture_runs', 'system_hotel_id'],
@@ -111,6 +112,9 @@ final class HotelCascadeDeletionService
             ? (int)Db::name('users')->where('hotel_id', $hotelId)->count()
             : 0;
         $configEntries = $this->countOtaConfigEntries($hotelId);
+        $preservedAuditRows = $this->tableColumnExists('operation_logs', 'hotel_id')
+            ? (int)Db::name('operation_logs')->where('hotel_id', $hotelId)->count()
+            : 0;
 
         return [
             'hotel' => [
@@ -120,6 +124,7 @@ final class HotelCascadeDeletionService
             'tables' => $tables,
             'users_detached' => $usersDetached,
             'config_entries' => $configEntries,
+            'preserved_audit_rows' => $preservedAuditRows,
             'total_rows' => array_sum($tables) + $usersDetached + $configEntries,
         ];
     }
@@ -132,6 +137,10 @@ final class HotelCascadeDeletionService
             if (!is_array($hotel)) {
                 throw new RuntimeException('酒店不存在');
             }
+
+            $preservedAuditRows = $this->tableColumnExists('operation_logs', 'hotel_id')
+                ? (int)Db::name('operation_logs')->where('hotel_id', $hotelId)->count()
+                : 0;
 
             $deleted = $this->deleteDependentChildren($hotelId);
             foreach (self::HOTEL_RELATIONS as [$table, $column]) {
@@ -173,6 +182,7 @@ final class HotelCascadeDeletionService
                 'deleted_rows' => array_sum($deleted),
                 'users_detached' => $usersDetached,
                 'config_entries_deleted' => $configEntriesDeleted,
+                'preserved_audit_rows' => $preservedAuditRows,
             ];
         });
 

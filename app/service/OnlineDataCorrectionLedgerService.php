@@ -137,7 +137,23 @@ final class OnlineDataCorrectionLedgerService
             if ((int)Db::name(self::DATA_TABLE)->whereIn('id', $ids)->count() !== 0) {
                 throw new RuntimeException('online_data_batch_delete_readback_mismatch');
             }
-            return ['deleted_count' => $deleted, 'ids' => $ids, 'ledger_ids' => $ledgerIds];
+            $systemHotelIds = array_values(array_unique(array_filter(array_map(
+                static fn(array $row): int => (int)($row['system_hotel_id'] ?? 0),
+                $rows
+            ), static fn(int $hotelId): bool => $hotelId > 0)));
+            sort($systemHotelIds);
+            $tenantIds = array_values(array_unique(array_filter(array_map(
+                static fn(array $row): int => (int)($row['tenant_id'] ?? 0),
+                $rows
+            ), static fn(int $tenantId): bool => $tenantId > 0)));
+            sort($tenantIds);
+            return [
+                'deleted_count' => $deleted,
+                'ids' => $ids,
+                'ledger_ids' => $ledgerIds,
+                'system_hotel_ids' => $systemHotelIds,
+                'tenant_ids' => $tenantIds,
+            ];
         });
     }
 
@@ -189,7 +205,13 @@ final class OnlineDataCorrectionLedgerService
             if ($updated !== 1) {
                 throw new RuntimeException('online_data_restore_ledger_update_failed');
             }
-            return ['id' => $onlineDataId, 'ledger_id' => $ledgerId, 'restored_at' => $now];
+            return [
+                'id' => $onlineDataId,
+                'ledger_id' => $ledgerId,
+                'system_hotel_id' => $hotelId,
+                'tenant_id' => (int)($ledger['tenant_id'] ?? 0),
+                'restored_at' => $now,
+            ];
         });
     }
 

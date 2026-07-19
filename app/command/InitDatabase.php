@@ -215,6 +215,7 @@ class InitDatabase extends Command
         Db::execute("
             CREATE TABLE IF NOT EXISTS operation_logs (
                 id INT AUTO_INCREMENT PRIMARY KEY,
+                tenant_id INT,
                 user_id INT,
                 hotel_id INT,
                 module VARCHAR(50),
@@ -225,7 +226,10 @@ class InitDatabase extends Command
                 ip VARCHAR(50),
                 user_agent VARCHAR(255),
                 create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_hotel_id (hotel_id)
+                INDEX idx_hotel_id (hotel_id),
+                INDEX idx_operation_logs_tenant_time (tenant_id, create_time),
+                INDEX idx_operation_logs_hotel_time (hotel_id, create_time),
+                INDEX idx_operation_logs_user_time (user_id, create_time)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         ");
         $output->writeln('✓ 操作日志表创建成功');
@@ -283,6 +287,20 @@ class InitDatabase extends Command
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         ");
         $output->writeln('✓ 系统配置表创建成功');
+
+        Db::execute("
+            CREATE TABLE IF NOT EXISTS login_rate_limit_counters (
+                scope_type VARCHAR(16) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+                subject_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+                bucket_start BIGINT UNSIGNED NOT NULL,
+                attempt_count INT UNSIGNED NOT NULL DEFAULT 0,
+                expires_at BIGINT UNSIGNED NOT NULL,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (scope_type, subject_hash, bucket_start),
+                INDEX idx_login_rate_limit_expiry (expires_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ");
+        $output->writeln('✓ 登录限流共享计数表创建成功');
     }
     
     /**
@@ -450,6 +468,7 @@ class InitDatabase extends Command
         Db::execute("
             CREATE TABLE IF NOT EXISTS operation_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tenant_id INTEGER,
                 user_id INTEGER,
                 hotel_id INTEGER,
                 module VARCHAR(50),
@@ -463,6 +482,23 @@ class InitDatabase extends Command
             )
         ");
         $output->writeln('✓ 操作日志表创建成功');
+
+        Db::execute("
+            CREATE TABLE IF NOT EXISTS login_rate_limit_counters (
+                scope_type VARCHAR(16) NOT NULL,
+                subject_hash VARCHAR(64) NOT NULL,
+                bucket_start INTEGER NOT NULL,
+                attempt_count INTEGER NOT NULL DEFAULT 0,
+                expires_at INTEGER NOT NULL,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (scope_type, subject_hash, bucket_start)
+            )
+        ");
+        Db::execute("
+            CREATE INDEX IF NOT EXISTS idx_login_rate_limit_expiry
+            ON login_rate_limit_counters (expires_at)
+        ");
+        $output->writeln('✓ 登录限流共享计数表创建成功');
 
         // 创建可行性报告表
         Db::execute("
@@ -548,15 +584,16 @@ class InitDatabase extends Command
         // 插入默认超级管理员
         $adminExists = Db::table('users')->where('username', 'admin')->find();
         if (!$adminExists) {
+            $adminPassword = $this->bootstrapPassword('SUXI_BOOTSTRAP_ADMIN_PASSWORD');
             Db::table('users')->insert([
                 'username' => 'admin',
-                'password' => password_hash('admin123', PASSWORD_DEFAULT),
+                'password' => password_hash($adminPassword, PASSWORD_DEFAULT),
                 'realname' => '超级管理员',
                 'role_id' => 1,
                 'status' => 1,
                 'create_time' => date('Y-m-d H:i:s'),
             ]);
-            $output->writeln('✓ 默认超级管理员创建成功 (用户名: admin, 密码: admin123)');
+            $output->writeln('✓ 默认超级管理员创建成功 (用户名: admin，一次性初始密码: ' . $adminPassword . ')');
         }
 
         // 插入示例酒店
@@ -580,9 +617,10 @@ class InitDatabase extends Command
         // 创建示例内测用户
         $managerExists = Db::table('users')->where('username', 'manager1')->find();
         if (!$managerExists) {
+            $managerPassword = $this->bootstrapPassword('SUXI_BOOTSTRAP_MANAGER_PASSWORD');
             Db::table('users')->insert([
                 'username' => 'manager1',
-                'password' => password_hash('manager123', PASSWORD_DEFAULT),
+                'password' => password_hash($managerPassword, PASSWORD_DEFAULT),
                 'realname' => '内测用户',
                 'role_id' => 2,
                 'hotel_id' => 1,
@@ -617,15 +655,16 @@ class InitDatabase extends Command
                 'is_primary' => 1,
                 'create_time' => date('Y-m-d H:i:s'),
             ]);
-            $output->writeln('✓ 示例内测用户创建成功 (用户名: manager1, 密码: manager123)');
+            $output->writeln('✓ 示例内测用户创建成功 (用户名: manager1，一次性初始密码: ' . $managerPassword . ')');
         }
 
         // 创建示例普通用户
         $staffExists = Db::table('users')->where('username', 'staff1')->find();
         if (!$staffExists) {
+            $staffPassword = $this->bootstrapPassword('SUXI_BOOTSTRAP_STAFF_PASSWORD');
             Db::table('users')->insert([
                 'username' => 'staff1',
-                'password' => password_hash('staff123', PASSWORD_DEFAULT),
+                'password' => password_hash($staffPassword, PASSWORD_DEFAULT),
                 'realname' => '普通用户',
                 'role_id' => 3,
                 'hotel_id' => 1,
@@ -660,7 +699,7 @@ class InitDatabase extends Command
                 'is_primary' => 0,
                 'create_time' => date('Y-m-d H:i:s'),
             ]);
-            $output->writeln('✓ 示例普通用户创建成功 (用户名: staff1, 密码: staff123)');
+            $output->writeln('✓ 示例普通用户创建成功 (用户名: staff1，一次性初始密码: ' . $staffPassword . ')');
         }
 
         // 插入默认报表配置
@@ -692,5 +731,18 @@ class InitDatabase extends Command
             }
         }
         $output->writeln('✓ 默认报表配置创建成功');
+    }
+
+    private function bootstrapPassword(string $environmentKey): string
+    {
+        $configured = trim((string)Env::get($environmentKey, ''));
+        if ($configured !== '') {
+            if (strlen($configured) < 12 || strlen($configured) > 128) {
+                throw new \RuntimeException($environmentKey . ' 必须为 12-128 个字符');
+            }
+            return $configured;
+        }
+
+        return 'Sx!' . bin2hex(random_bytes(12));
     }
 }

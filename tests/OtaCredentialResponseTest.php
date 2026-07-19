@@ -1319,6 +1319,60 @@ final class OtaCredentialResponseTest extends TestCase
         self::assertStringNotContainsString('saveCtripConfigPayload($data)', $source);
     }
 
+    public function testCredentialLifecycleAuditUsesOnlySafeStableLocators(): void
+    {
+        $cases = [
+            [\app\controller\concern\OnlineDataRequestConcern::class, 'saveCtripConfig', 'save_ctrip_config', 'ctrip'],
+            [\app\controller\concern\OnlineDataRequestConcern::class, 'deleteCtripConfig', 'delete_ctrip_config', 'ctrip'],
+            [\app\controller\concern\MeituanConfigConcern::class, 'saveMeituanConfigPayload', 'save_meituan_config', 'meituan'],
+            [\app\controller\concern\MeituanConfigConcern::class, 'deleteMeituanConfig', 'delete_meituan_config', 'meituan'],
+        ];
+
+        foreach ($cases as [$trait, $method, $action, $platform]) {
+            $source = $this->traitMethodSource($trait, $method);
+            $auditStart = strpos($source, "OperationLog::record('online_data', '{$action}'");
+
+            self::assertNotFalse($auditStart, "{$action} must emit a lifecycle audit after persistence.");
+            $auditSource = substr($source, (int)$auditStart);
+            foreach ([
+                'actor_id',
+                'system_hotel_id',
+                'tenant_id',
+                'platform',
+                'config_id',
+                'credential_ref',
+                'status',
+                'outcome',
+            ] as $requiredKey) {
+                self::assertStringContainsString("'{$requiredKey}' =>", $auditSource, "{$action} is missing {$requiredKey}.");
+            }
+            self::assertStringContainsString("'platform' => '{$platform}'", $auditSource);
+            self::assertStringContainsString("'outcome' => 'success'", $auditSource);
+
+            foreach (['payload', 'cookie', 'cookies', 'token', 'secret_mask'] as $forbiddenKey) {
+                self::assertStringNotContainsString(
+                    "'{$forbiddenKey}' =>",
+                    $auditSource,
+                    "{$action} audit must not contain {$forbiddenKey}."
+                );
+            }
+        }
+    }
+
+    public function testCustomOtaRequestAuditNeverPersistsQueryOrExceptionDetails(): void
+    {
+        $source = $this->traitMethodSource(
+            \app\controller\concern\OnlineDataRequestConcern::class,
+            'fetchCustom'
+        );
+
+        self::assertStringContainsString('auditUrlWithoutQuery', $source);
+        self::assertStringContainsString("'target_url' => \$auditUrl", $source);
+        self::assertStringNotContainsString("'获取自定义线上数据: ' . \$url", $source);
+        self::assertStringNotContainsString("\$result['error']", $source);
+        self::assertStringNotContainsString("\$e->getMessage()", $source);
+    }
+
     public function testSaveCtripConfigReturnsOpaqueHttp500ForThrowable(): void
     {
         $response = $this->saveEndpointFailureHarness(new \Error('vault-internal-secret-message'))->saveCtripConfig();
@@ -2279,5 +2333,20 @@ final class OtaCredentialResponseTest extends TestCase
         self::assertSame(58, $sanitized['hotel_id']);
         self::assertFalse($sanitized['has_cookies']);
         self::assertArrayNotHasKey('secret_mask', $sanitized);
+    }
+
+    private function traitMethodSource(string $trait, string $method): string
+    {
+        $reflection = new \ReflectionMethod($trait, $method);
+        $fileName = $reflection->getFileName();
+        self::assertIsString($fileName);
+        $lines = file($fileName);
+        self::assertIsArray($lines);
+
+        return implode('', array_slice(
+            $lines,
+            $reflection->getStartLine() - 1,
+            $reflection->getEndLine() - $reflection->getStartLine() + 1
+        ));
     }
 }

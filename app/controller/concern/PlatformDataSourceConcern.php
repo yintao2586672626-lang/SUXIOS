@@ -26,6 +26,14 @@ trait PlatformDataSourceConcern
         'order_submit_num',
     ];
 
+    /** @return array<int, string> */
+    private function collectionStatusRequiredTrafficMetrics(string $platform = ''): array
+    {
+        return strtolower(trim($platform)) === 'meituan'
+            ? array_slice(self::COLLECTION_STATUS_REQUIRED_TRAFFIC_METRICS, 0, 3)
+            : self::COLLECTION_STATUS_REQUIRED_TRAFFIC_METRICS;
+    }
+
     private const COLLECTION_STATUS_FORECAST_PERIODS = [
         'next_7_days',
         'next_30_days',
@@ -441,7 +449,7 @@ trait PlatformDataSourceConcern
                 'target_date_traffic_field_fact_missing_count' => 0,
                 'target_date_traffic_field_fact_status' => 'not_loaded',
                 'target_date_traffic_verified_metric_keys' => [],
-                'target_date_traffic_missing_metric_keys' => self::COLLECTION_STATUS_REQUIRED_TRAFFIC_METRICS,
+                'target_date_traffic_missing_metric_keys' => $this->collectionStatusRequiredTrafficMetrics($itemPlatform),
                 'target_date_traffic_ready_data_source_ids' => [],
             ]);
         }
@@ -482,7 +490,7 @@ trait PlatformDataSourceConcern
                 'target_date_traffic_field_fact_missing_count' => 0,
                 'target_date_traffic_field_fact_status' => 'not_loaded',
                 'target_date_traffic_verified_metric_keys' => [],
-                'target_date_traffic_missing_metric_keys' => self::COLLECTION_STATUS_REQUIRED_TRAFFIC_METRICS,
+                'target_date_traffic_missing_metric_keys' => $this->collectionStatusRequiredTrafficMetrics((string)$platform),
                 'target_date_traffic_ready_data_source_ids' => [],
             ];
         }
@@ -524,7 +532,7 @@ trait PlatformDataSourceConcern
             }
             if ($dataType === 'traffic') {
                 $stats[$platform]['target_date_traffic_rows']++;
-                $closure = $this->collectionStatusTrafficFieldFactClosure($row['raw_data'] ?? '');
+                $closure = $this->collectionStatusTrafficFieldFactClosure($row['raw_data'] ?? '', $platform);
                 $dataSourceId = (int)($row['data_source_id'] ?? 0);
                 if ($dataSourceId <= 0) {
                     $dataSourceId = (int)($closure['data_source_id'] ?? 0);
@@ -543,22 +551,23 @@ trait PlatformDataSourceConcern
         }
 
         foreach ($stats as $platform => $row) {
+            $requiredTrafficMetrics = $this->collectionStatusRequiredTrafficMetrics((string)$platform);
             $trafficRows = (int)($row['target_date_traffic_rows'] ?? 0);
             $bestVerifiedMetricKeys = [];
             $readyDataSourceIds = [];
             foreach ((array)($sourceMetricKeys[$platform] ?? []) as $dataSourceId => $metricMap) {
                 $verifiedMetricKeys = array_values(array_intersect(
-                    self::COLLECTION_STATUS_REQUIRED_TRAFFIC_METRICS,
+                    $requiredTrafficMetrics,
                     array_keys((array)$metricMap)
                 ));
                 if (count($verifiedMetricKeys) > count($bestVerifiedMetricKeys)) {
                     $bestVerifiedMetricKeys = $verifiedMetricKeys;
                 }
-                if (count($verifiedMetricKeys) === count(self::COLLECTION_STATUS_REQUIRED_TRAFFIC_METRICS)) {
+                if (count($verifiedMetricKeys) === count($requiredTrafficMetrics)) {
                     $readyDataSourceIds[] = (int)$dataSourceId;
                 }
             }
-            $missingMetricKeys = array_values(array_diff(self::COLLECTION_STATUS_REQUIRED_TRAFFIC_METRICS, $bestVerifiedMetricKeys));
+            $missingMetricKeys = array_values(array_diff($requiredTrafficMetrics, $bestVerifiedMetricKeys));
             $stats[$platform]['target_date_data_types'] = array_keys($row['target_date_data_types'] ?? []);
             $stats[$platform]['target_date_traffic_verified_metric_keys'] = $bestVerifiedMetricKeys;
             $stats[$platform]['target_date_traffic_missing_metric_keys'] = $missingMetricKeys;
@@ -581,8 +590,9 @@ trait PlatformDataSourceConcern
     /**
      * @return array{complete: bool, verified_metric_keys: array<int, string>, missing_metric_keys: array<int, string>, data_source_id: int}
      */
-    private function collectionStatusTrafficFieldFactClosure($rawData): array
+    private function collectionStatusTrafficFieldFactClosure($rawData, string $platform = ''): array
     {
+        $requiredTrafficMetrics = $this->collectionStatusRequiredTrafficMetrics($platform);
         if (is_string($rawData)) {
             $decoded = json_decode($rawData, true);
             $rawData = is_array($decoded) ? $decoded : [];
@@ -591,7 +601,7 @@ trait PlatformDataSourceConcern
             return [
                 'complete' => false,
                 'verified_metric_keys' => [],
-                'missing_metric_keys' => self::COLLECTION_STATUS_REQUIRED_TRAFFIC_METRICS,
+                'missing_metric_keys' => $requiredTrafficMetrics,
                 'data_source_id' => 0,
             ];
         }
@@ -603,7 +613,7 @@ trait PlatformDataSourceConcern
                 continue;
             }
             $metricKey = strtolower(trim((string)($fact['metric_key'] ?? '')));
-            if (!in_array($metricKey, self::COLLECTION_STATUS_REQUIRED_TRAFFIC_METRICS, true)) {
+            if (!in_array($metricKey, $requiredTrafficMetrics, true)) {
                 continue;
             }
             $sourcePath = trim((string)($fact['source_path'] ?? ''));
@@ -620,10 +630,10 @@ trait PlatformDataSourceConcern
         }
 
         $verifiedMetricKeys = array_values(array_intersect(
-            self::COLLECTION_STATUS_REQUIRED_TRAFFIC_METRICS,
+            $requiredTrafficMetrics,
             array_keys($verified)
         ));
-        $missingMetricKeys = array_values(array_diff(self::COLLECTION_STATUS_REQUIRED_TRAFFIC_METRICS, $verifiedMetricKeys));
+        $missingMetricKeys = array_values(array_diff($requiredTrafficMetrics, $verifiedMetricKeys));
 
         return [
             'complete' => $missingMetricKeys === [],
@@ -769,6 +779,7 @@ trait PlatformDataSourceConcern
      */
     private function buildCollectionStatusPlatformRow(string $platform, array $catalog, array $sources, array $tasks, array $dailySummary, array $profileStatus): array
     {
+        $requiredTrafficMetrics = $this->collectionStatusRequiredTrafficMetrics($platform);
         $platformSources = array_values(array_filter($sources, static fn(array $source): bool => strtolower((string)($source['platform'] ?? '')) === $platform));
         $platformTasks = array_values(array_filter($tasks, static fn(array $task): bool => strtolower((string)($task['platform'] ?? '')) === $platform));
         $latestTask = $this->latestCollectionStatusTask($platformTasks);
@@ -791,13 +802,13 @@ trait PlatformDataSourceConcern
         $targetDateTrafficRows = (int)($dailySummary['target_date_traffic_rows'] ?? 0);
         $fieldFactStatus = (string)($dailySummary['target_date_traffic_field_fact_status'] ?? 'not_loaded');
         $verifiedTrafficMetricKeys = array_values(array_intersect(
-            self::COLLECTION_STATUS_REQUIRED_TRAFFIC_METRICS,
+            $requiredTrafficMetrics,
             array_map(
                 static fn($value): string => strtolower(trim((string)$value)),
                 (array)($dailySummary['target_date_traffic_verified_metric_keys'] ?? [])
             )
         ));
-        $trafficMetricClosureReady = count($verifiedTrafficMetricKeys) === count(self::COLLECTION_STATUS_REQUIRED_TRAFFIC_METRICS);
+        $trafficMetricClosureReady = count($verifiedTrafficMetricKeys) === count($requiredTrafficMetrics);
         if ($targetDateTrafficRows > 0 && $fieldFactStatus === 'ready' && !$trafficMetricClosureReady) {
             $fieldFactStatus = $verifiedTrafficMetricKeys === [] ? 'missing' : 'partial';
         }
@@ -817,6 +828,7 @@ trait PlatformDataSourceConcern
         $failureReason = $this->collectionStatusFailureReason($collectionStatus, $latestTask, $latestSource, $profileRow, $resourceStatuses, $dataCollected, $effectiveDailySummary, $publicSyncDiagnostics);
         $bindingContract = is_array($profileRow['binding_contract'] ?? null) ? $profileRow['binding_contract'] : [];
         $quality = (new OtaCollectionQualityStateService())->evaluate([
+            'platform' => $platform,
             'binding_contract_status' => $bindingContract['status'] ?? '',
             'binding_check_status' => $profileRow['binding_check_status'] ?? '',
             'binding_missing_requirements' => $bindingContract['missing_requirements'] ?? [],
@@ -858,7 +870,7 @@ trait PlatformDataSourceConcern
             'fieldFactsMissing' => (int)($dailySummary['target_date_traffic_field_fact_missing_count'] ?? 0),
             'fieldFactStatus' => $fieldFactStatus,
             'verifiedTrafficMetricKeys' => $verifiedTrafficMetricKeys,
-            'missingTrafficMetricKeys' => array_values(array_diff(self::COLLECTION_STATUS_REQUIRED_TRAFFIC_METRICS, $verifiedTrafficMetricKeys)),
+            'missingTrafficMetricKeys' => array_values(array_diff($requiredTrafficMetrics, $verifiedTrafficMetricKeys)),
             'failureReason' => $failureReason,
             'quality' => $quality,
             'capabilityReport' => $capabilityReport,

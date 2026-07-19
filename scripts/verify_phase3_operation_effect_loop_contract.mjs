@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { readFrontendContractSource } from '../tests/automation/helpers/frontend_source.mjs';
 
 const root = process.cwd();
 const checks = [];
@@ -30,10 +31,9 @@ const route = read('route/app.php');
 const docs = read('docs/phase3_operation_effect_loop_acceptance.md');
 const runtimeVerifier = read('scripts/verify_phase3_operation_effect_loop_runtime.php');
 const packageJson = read('package.json');
-const frontend = read('public/index.html');
-const dataHealthStatic = read('public/data-health-static.js');
+const frontend = readFrontendContractSource();
 const onlineDataControllerSurface = `${controller}\n${operationWorkbenchConcern}`;
-const frontendSurface = `${frontend}\n${dataHealthStatic}`;
+const frontendSurface = frontend;
 const frontendOnlineDataStart = frontend.indexOf("currentPage === 'online-data'");
 const frontendDataHealthStart = frontend.indexOf('data-testid="online-data-health-panel"', frontendOnlineDataStart);
 const frontendDataHealthEnd = frontend.indexOf("onlineDataTab === 'analysis'", frontendDataHealthStart);
@@ -169,12 +169,12 @@ includesAll('package.json', 'phase3 verifier is exposed through npm', packageJso
   '"verify:phase3-operation-effect-loop": "node scripts/verify_phase3_operation_effect_loop_contract.mjs && C:\\\\xampp\\\\php\\\\php.exe scripts\\\\verify_phase3_operation_effect_loop_runtime.php"',
 ]);
 
-excludesAll('public/index.html', 'phase3 operation effect loop is not rendered in the focused manual data surface', frontendDataHealthSlice, [
+includesAll('resources/frontend/app-template.html', 'phase3 operation effect loop is rendered in the focused one-page operating surface', frontendDataHealthSlice, [
   'data-testid="phase3-operation-effect-loop"',
-  '第三阶段运营闭环',
+  '执行留证与次日复盘',
 ]);
 
-includesAll('public/index.html + public/data-health-static.js', 'phase3 implementation remains available behind its backend boundary', frontendSurface, [
+includesAll('resources/frontend/app-template.html + public/app-main.js', 'phase3 implementation remains available behind its backend boundary', frontendSurface, [
   'phase3OperationEffectLoop',
   'phase3OperationEffectLoopLedger',
   'phase3OperationEffectLoopLoading',
@@ -196,11 +196,11 @@ includesAll('public/index.html + public/data-health-static.js', 'phase3 implemen
   'phase3OperationEffectLoopBoundaryText',
 ]);
 
-includesAll('public/index.html + public/data-health-static.js', 'phase3 frontend keeps missing states and OTA boundary visible', frontendSurface, [
-  '缺执行',
-  '缺任务证据',
-  '待复盘',
-  '指标不足',
+includesAll('resources/frontend/app-template.html + public/app-main.js', 'phase3 frontend keeps missing states and OTA boundary visible', frontendSurface, [
+  '未留执行证据',
+  '未形成复盘结论',
+  'SOP条件不足',
+  '暂无可复制门店',
   '只读巡检快照/执行证据/指标窗口',
   '不触发携程或美团采集',
   '尚无可复盘的巡检动作；先生成每日巡检快照。',

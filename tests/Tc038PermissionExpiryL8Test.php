@@ -175,6 +175,130 @@ final class Tc038PermissionExpiryL8Test extends TestCase
         ];
     }
 
+    public function testRequestLocalScopeMemoizationDoesNotMixUsersHotelsOrCapabilities(): void
+    {
+        $this->insertHotel(self::TARGET_HOTEL_ID, true);
+        $this->insertHotel(self::TARGET_HOTEL_ID + 1, true);
+        $this->insertGrant(self::TARGET_USER_ID, self::TARGET_HOTEL_ID, 1, 0, 'active', null);
+        $this->insertGrant(self::OTHER_USER_ID, self::TARGET_HOTEL_ID + 1, 1, 1, 'active', null);
+
+        $targetUser = $this->loadUser(self::TARGET_USER_ID);
+        $otherUser = $this->loadUser(self::OTHER_USER_ID);
+        $scopeService = new HotelScopeService();
+        $queryCount = 0;
+        Db::listen(static function ($sql) use (&$queryCount): void {
+            if (!str_starts_with((string)$sql, 'CONNECT:')) {
+                $queryCount++;
+            }
+        });
+
+        $beforeView = $queryCount;
+        self::assertSame([self::TARGET_HOTEL_ID], $scopeService->accessibleHotelIds($targetUser, 'ota.view'));
+        $afterFirstView = $queryCount;
+        self::assertGreaterThan($beforeView, $afterFirstView);
+
+        self::assertSame([self::TARGET_HOTEL_ID], $scopeService->accessibleHotelIds($targetUser, 'ota.view'));
+        self::assertSame($afterFirstView, $queryCount, 'same user and capability must reuse the request-local scope snapshot');
+
+        self::assertSame([], $scopeService->accessibleHotelIds($targetUser, 'ota.collect'));
+        self::assertGreaterThan($afterFirstView, $queryCount, 'a different capability must not reuse the ota.view result');
+        self::assertSame([self::TARGET_HOTEL_ID + 1], $scopeService->accessibleHotelIds($otherUser, 'ota.view'));
+
+        self::assertTrue($scopeService->hotelPermissionAllows($targetUser, self::TARGET_HOTEL_ID, 'ota.view'));
+        $afterFirstPermission = $queryCount;
+        self::assertTrue($scopeService->hotelPermissionAllows($targetUser, self::TARGET_HOTEL_ID, 'ota.view'));
+        self::assertSame($afterFirstPermission, $queryCount, 'permission lookup must be reused only for the same user object and hotel');
+        self::assertFalse($scopeService->hotelPermissionAllows($otherUser, self::TARGET_HOTEL_ID, 'ota.view'));
+    }
+
+    public function testExplicitOtaViewDenialOverridesGenericHotelViewGrant(): void
+    {
+        $this->insertHotel(self::TARGET_HOTEL_ID, true);
+        $this->insertGrant(self::TARGET_USER_ID, self::TARGET_HOTEL_ID, 1, 1, 'active', null);
+        Db::name('user_hotel_permissions')
+            ->where('user_id', self::TARGET_USER_ID)
+            ->where('hotel_id', self::TARGET_HOTEL_ID)
+            ->update(['can_view_online_data' => 0]);
+
+        $user = $this->loadUser(self::TARGET_USER_ID);
+        $scopeService = new HotelScopeService();
+
+        self::assertSame([], $scopeService->accessibleHotelIds($user, 'ota.view'));
+        self::assertFalse($scopeService->hotelPermissionAllows($user, self::TARGET_HOTEL_ID, 'ota.view'));
+        self::assertFalse((new PermissionService($scopeService))->authorize($user, 'ota.view', self::TARGET_HOTEL_ID)['allowed']);
+    }
+
+    public function testPermissionTenantMustMatchTargetHotelTenant(): void
+    {
+        $this->insertHotel(self::TARGET_HOTEL_ID, true);
+        $this->insertGrant(self::TARGET_USER_ID, self::TARGET_HOTEL_ID, 1, 1, 'active', null);
+        Db::name('user_hotel_permissions')
+            ->where('user_id', self::TARGET_USER_ID)
+            ->where('hotel_id', self::TARGET_HOTEL_ID)
+            ->update(['tenant_id' => self::TENANT_ID + 1]);
+
+        $user = $this->loadUser(self::TARGET_USER_ID);
+        $scopeService = new HotelScopeService();
+        self::assertSame([], $scopeService->accessibleHotelIds($user, 'ota.view'));
+        self::assertFalse($scopeService->hotelPermissionAllows($user, self::TARGET_HOTEL_ID, 'ota.view'));
+
+        Db::name('user_hotel_permissions')
+            ->where('user_id', self::TARGET_USER_ID)
+            ->where('hotel_id', self::TARGET_HOTEL_ID)
+            ->update(['tenant_id' => self::TENANT_ID]);
+        $scopeService->invalidateUser($user);
+
+        self::assertSame([self::TARGET_HOTEL_ID], $scopeService->accessibleHotelIds($user, 'ota.view'));
+        self::assertTrue($scopeService->hotelPermissionAllows($user, self::TARGET_HOTEL_ID, 'ota.view'));
+    }
+
+    public function testInvalidateUserRefreshesARevokedPermissionSnapshot(): void
+    {
+        $this->insertHotel(self::TARGET_HOTEL_ID, true);
+        $this->insertGrant(self::TARGET_USER_ID, self::TARGET_HOTEL_ID, 1, 1, 'active', null);
+        $user = $this->loadUser(self::TARGET_USER_ID);
+        $scopeService = new HotelScopeService();
+        $permissionService = new PermissionService($scopeService);
+
+        self::assertTrue($permissionService->authorize($user, 'ota.view', self::TARGET_HOTEL_ID)['allowed']);
+        Db::name('user_hotel_permissions')
+            ->where('user_id', self::TARGET_USER_ID)
+            ->where('hotel_id', self::TARGET_HOTEL_ID)
+            ->update(['can_view' => 0, 'can_view_online_data' => 0]);
+
+        self::assertTrue(
+            $permissionService->authorize($user, 'ota.view', self::TARGET_HOTEL_ID)['allowed'],
+            'the request-local snapshot remains stable until its write path explicitly invalidates it'
+        );
+        $scopeService->invalidateUser($user);
+        self::assertFalse($permissionService->authorize($user, 'ota.view', self::TARGET_HOTEL_ID)['allowed']);
+    }
+
+    public function testWeakMapReleasesAUserBucketBeforeAnEquivalentModelIsReused(): void
+    {
+        $this->insertHotel(self::TARGET_HOTEL_ID, true);
+        $this->insertGrant(self::TARGET_USER_ID, self::TARGET_HOTEL_ID, 1, 1, 'active', null);
+        $scopeService = new HotelScopeService();
+        $user = $this->loadUser(self::TARGET_USER_ID);
+
+        self::assertSame([self::TARGET_HOTEL_ID], $scopeService->accessibleHotelIds($user, 'ota.view'));
+        $cacheProperty = (new \ReflectionClass($scopeService))->getProperty('userCache');
+        $userCache = $cacheProperty->getValue($scopeService);
+        self::assertInstanceOf(\WeakMap::class, $userCache);
+        self::assertCount(1, $userCache);
+
+        unset($user);
+        gc_collect_cycles();
+        self::assertCount(0, $userCache, 'released User objects must not leave a reusable identity cache entry');
+
+        Db::name('user_hotel_permissions')
+            ->where('user_id', self::TARGET_USER_ID)
+            ->where('hotel_id', self::TARGET_HOTEL_ID)
+            ->update(['can_view' => 0, 'can_view_online_data' => 0]);
+        $replacement = $this->loadUser(self::TARGET_USER_ID);
+        self::assertSame([], $scopeService->accessibleHotelIds($replacement, 'ota.view'));
+    }
+
     private static function createSchema(): void
     {
         Db::execute('CREATE TABLE roles (id INTEGER PRIMARY KEY, name VARCHAR(50), display_name VARCHAR(100), permissions TEXT, level INTEGER NOT NULL, status INTEGER NOT NULL, create_time DATETIME, update_time DATETIME)');

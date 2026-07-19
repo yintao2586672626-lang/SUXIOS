@@ -789,6 +789,14 @@ final class AgentTest extends TestCase
             [
                 'hotel_id' => 'h1',
                 'hotel_name' => 'Hotel 1',
+                'platform' => 'ctrip',
+                'start_date' => '2026-05-01',
+                'end_date' => '2026-05-02',
+                'source_method' => 'local_browser_profile',
+                'collected_at' => '2026-05-02 09:30:15',
+                'stored' => true,
+                'readback_verified' => true,
+                'validation_status' => 'verified',
                 'metrics' => [
                     'room_nights' => 10,
                     'revenue' => 2000,
@@ -803,6 +811,14 @@ final class AgentTest extends TestCase
             [
                 'hotel_id' => 'h2',
                 'hotel_name' => 'Hotel 2',
+                'platform' => 'ctrip',
+                'start_date' => '2026-05-01',
+                'end_date' => '2026-05-02',
+                'source_method' => 'local_browser_profile',
+                'collected_at' => '2026-05-02 09:31:16',
+                'stored' => true,
+                'readback_verified' => true,
+                'validation_status' => 'verified',
                 'raw_metrics' => [
                     'room_nights' => 5,
                     'revenue' => 3000,
@@ -833,7 +849,19 @@ final class AgentTest extends TestCase
 
         $manyHotels = [];
         for ($i = 1; $i <= 51; $i++) {
-            $manyHotels[] = ['hotel_id' => 'h' . $i, 'hotel_name' => 'Hotel ' . $i, 'revenue' => $i];
+            $manyHotels[] = [
+                'hotel_id' => 'h' . $i,
+                'hotel_name' => 'Hotel ' . $i,
+                'platform' => 'ctrip',
+                'start_date' => '2026-05-01',
+                'end_date' => '2026-05-01',
+                'source_method' => 'local_browser_profile',
+                'collected_at' => '2026-05-01 09:30:15',
+                'stored' => true,
+                'readback_verified' => true,
+                'validation_status' => 'verified',
+                'revenue' => $i,
+            ];
         }
         $truncated = $this->invokeNonPublic($controller, 'buildCapturedOtaSummary', [
             $manyHotels,
@@ -848,6 +876,215 @@ final class AgentTest extends TestCase
         self::assertNull($truncated['totals']['orders']);
         self::assertNull($truncated['averages']['adr']);
         self::assertSame(0, $truncated['metric_sample_counts']['room_nights']);
+    }
+
+    public function testCapturedOtaSummaryOnlyAggregatesVerifiedTraceableRows(): void
+    {
+        $controller = $this->controller();
+        $verified = [
+            'hotel_id' => 'verified-1',
+            'hotel_name' => 'Verified Hotel',
+            'platform' => 'ctrip',
+            'start_date' => '2026-05-01',
+            'end_date' => '2026-05-02',
+            'source_method' => 'local_browser_profile',
+            'collected_at' => '2026-05-02 09:30:15',
+            'stored' => true,
+            'readback_verified' => true,
+            'validation_status' => 'verified',
+            'raw_metrics' => [
+                'room_nights' => 10,
+                'revenue' => 2000,
+                'sales' => 2100,
+                'exposure' => 1000,
+                'visitors' => 200,
+                'orders' => 20,
+            ],
+        ];
+        $verifiedZero = array_replace($verified, [
+            'hotel_id' => 'verified-zero',
+            'hotel_name' => 'Verified Zero Hotel',
+            'collected_at' => '2026-05-02 09:31:16',
+            'raw_metrics' => [
+                'room_nights' => 0,
+                'revenue' => 0,
+                'sales' => 0,
+                'exposure' => 0,
+                'visitors' => 0,
+                'orders' => 0,
+            ],
+        ]);
+        $partial = array_replace($verified, [
+            'hotel_id' => 'partial-1',
+            'hotel_name' => 'Partial Hotel',
+            'validation_status' => 'partial',
+            'raw_metrics' => ['room_nights' => 999, 'revenue' => 999999],
+        ]);
+        $unverified = array_replace($verified, [
+            'hotel_id' => 'unverified-1',
+            'hotel_name' => 'Unverified Hotel',
+            'readback_verified' => false,
+            'validation_status' => 'unverified',
+            'raw_metrics' => ['room_nights' => 888, 'revenue' => 888888],
+        ]);
+        $failed = array_replace($verified, [
+            'hotel_id' => 'failed-1',
+            'hotel_name' => 'Failed Hotel',
+            'validation_status' => 'collection_failed',
+            'failure_reason' => 'upstream_timeout',
+            'raw_metrics' => ['room_nights' => 777, 'revenue' => 777777],
+        ]);
+
+        $summary = $this->invokeNonPublic($controller, 'buildCapturedOtaSummary', [[
+            $verified,
+            $verifiedZero,
+            $partial,
+            $unverified,
+            $failed,
+        ], 'ctrip', 'captured', '2026-05-01', '2026-05-02']);
+
+        self::assertSame(5, $summary['input_hotel_count']);
+        self::assertSame(2, $summary['hotel_count']);
+        self::assertSame(3, $summary['excluded_hotel_count']);
+        self::assertSame(10.0, $summary['totals']['room_nights']);
+        self::assertSame(2000.0, $summary['totals']['room_revenue']);
+        self::assertSame(2, $summary['metric_sample_counts']['room_revenue']);
+        self::assertSame('partial', $summary['truth_context']['status']);
+        self::assertSame('ota_channel', $summary['truth_context']['scope']);
+        self::assertFalse($summary['truth_context']['whole_hotel_scope']);
+        self::assertSame('partial', $summary['metric_truth']['room_revenue']['status']);
+        self::assertSame(2, $summary['metric_truth']['room_revenue']['observed_count']);
+        self::assertSame('verified', $summary['hotels'][1]['metric_truth']['room_revenue']['status']);
+        self::assertSame('ctrip', $summary['hotels'][0]['metric_truth']['room_revenue']['platform']);
+        self::assertSame('2026-05-01', $summary['hotels'][0]['metric_truth']['room_revenue']['date_range']['start_date']);
+        self::assertSame('local_browser_profile', $summary['hotels'][0]['metric_truth']['room_revenue']['source_method']);
+        self::assertSame('2026-05-02 09:30:15', $summary['hotels'][0]['metric_truth']['room_revenue']['collected_at']);
+        self::assertTrue($summary['hotels'][0]['metric_truth']['room_revenue']['stored']);
+        self::assertTrue($summary['hotels'][0]['metric_truth']['room_revenue']['readback_verified']);
+
+        $excludedById = [];
+        foreach ($summary['excluded'] as $row) {
+            $excludedById[$row['hotel_id']] = $row;
+        }
+        self::assertSame('partial', $excludedById['partial-1']['truth_status']);
+        self::assertSame('unverified', $excludedById['unverified-1']['truth_status']);
+        self::assertSame('collection_failed', $excludedById['failed-1']['truth_status']);
+        self::assertSame('upstream_timeout', $excludedById['failed-1']['failure_reason']);
+        self::assertContains('readback_not_verified', $excludedById['unverified-1']['data_gaps']);
+    }
+
+    public function testCapturedOtaSummaryKeepsNullDistinctFromVerifiedZeroDuringAggregationAndSorting(): void
+    {
+        $controller = $this->controller();
+        $truth = [
+            'platform' => 'ctrip',
+            'start_date' => '2026-05-01',
+            'end_date' => '2026-05-01',
+            'source_method' => 'local_browser_profile',
+            'collected_at' => '2026-05-01 10:11:12',
+            'stored' => true,
+            'readback_verified' => true,
+            'validation_status' => 'verified',
+        ];
+        $summary = $this->invokeNonPublic($controller, 'buildCapturedOtaSummary', [[
+            array_replace($truth, [
+                'hotel_id' => 'missing-revenue',
+                'hotel_name' => 'Missing Revenue',
+                'raw_metrics' => ['orders' => 1],
+            ]),
+            array_replace($truth, [
+                'hotel_id' => 'verified-zero',
+                'hotel_name' => 'Verified Zero',
+                'raw_metrics' => ['revenue' => 0, 'orders' => 0],
+            ]),
+        ], 'ctrip', 'captured', '2026-05-01', '2026-05-01']);
+
+        self::assertSame(0.0, $summary['totals']['room_revenue']);
+        self::assertSame(1, $summary['metric_sample_counts']['room_revenue']);
+        self::assertSame(1, $summary['metric_truth']['room_revenue']['observed_count']);
+        self::assertSame('verified-zero', $summary['top_hotels_by_revenue'][0]['hotel_id']);
+        self::assertSame('missing-revenue', $summary['top_hotels_by_revenue'][1]['hotel_id']);
+
+        $noVerified = $this->invokeNonPublic($controller, 'buildCapturedOtaSummary', [[
+            array_replace($truth, [
+                'hotel_id' => 'failed-only',
+                'hotel_name' => 'Failed Only',
+                'validation_status' => 'collection_failed',
+                'failure_reason' => 'capture_timeout',
+                'raw_metrics' => ['revenue' => 999999],
+            ]),
+        ], 'ctrip', 'captured', '2026-05-01', '2026-05-01']);
+
+        self::assertSame(0, $noVerified['hotel_count']);
+        self::assertNull($noVerified['totals']['room_revenue']);
+        self::assertSame(0, $noVerified['metric_sample_counts']['room_revenue']);
+        self::assertSame('collection_failed', $noVerified['truth_context']['status']);
+        self::assertSame('collection_failed', $noVerified['metric_truth']['room_revenue']['status']);
+    }
+
+    public function testCapturedOtaSummaryRequiresEveryTruthDimensionBeforeVerification(): void
+    {
+        $controller = $this->controller();
+        $base = [
+            'hotel_id' => 'complete-id',
+            'hotel_name' => 'Complete Name',
+            'platform' => 'ctrip',
+            'start_date' => '2026-05-01',
+            'end_date' => '2026-05-01',
+            'source_method' => 'local_browser_profile',
+            'collected_at' => '2026-05-01 10:11:12',
+            'stored' => true,
+            'readback_verified' => true,
+            'validation_status' => 'verified',
+            'raw_metrics' => ['room_nights' => 1, 'revenue' => 200, 'orders' => 1],
+        ];
+        $incompleteRows = [
+            array_replace($base, ['hotel_id' => '']),
+            array_replace($base, ['hotel_id' => 'missing-name', 'hotel_name' => '']),
+            array_replace($base, ['hotel_id' => 'missing-platform', 'platform' => '']),
+            array_replace($base, ['hotel_id' => 'wrong-platform', 'platform' => 'meituan']),
+            array_replace($base, ['hotel_id' => 'missing-date', 'start_date' => '', 'end_date' => '']),
+            array_replace($base, ['hotel_id' => 'missing-source', 'source_method' => '']),
+            array_replace($base, ['hotel_id' => 'manual-source', 'source_method' => 'manual_import']),
+            array_replace($base, ['hotel_id' => 'imprecise-time', 'collected_at' => '2026-05-01']),
+            array_replace($base, ['hotel_id' => 'not-stored', 'stored' => false]),
+            array_replace($base, ['hotel_id' => 'not-read-back', 'readback_verified' => false]),
+        ];
+
+        $summary = $this->invokeNonPublic($controller, 'buildCapturedOtaSummary', [
+            $incompleteRows,
+            'ctrip',
+            'captured',
+            '2026-05-01',
+            '2026-05-01',
+        ]);
+
+        self::assertSame(0, $summary['hotel_count']);
+        self::assertSame(10, $summary['excluded_hotel_count']);
+        self::assertNull($summary['totals']['room_revenue']);
+        self::assertSame('partial', $summary['truth_context']['status']);
+        self::assertSame('partial', $summary['metric_truth']['room_revenue']['status']);
+        self::assertSame([], $summary['top_hotels_by_revenue']);
+
+        $allGaps = [];
+        foreach ($summary['excluded'] as $row) {
+            $allGaps = array_merge($allGaps, $row['data_gaps']);
+            self::assertFalse($row['metric_truth']['room_revenue']['decision_eligible']);
+        }
+        foreach ([
+            'hotel_id_missing',
+            'hotel_name_missing',
+            'platform_missing',
+            'platform_mismatch',
+            'date_range_missing_or_invalid',
+            'source_method_missing',
+            'source_method_not_verified_online_capture',
+            'collected_at_not_precise',
+            'not_stored',
+            'readback_not_verified',
+        ] as $expectedGap) {
+            self::assertContains($expectedGap, $allGaps);
+        }
     }
 
     /**

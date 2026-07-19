@@ -8,6 +8,7 @@ use app\model\OperationLog;
 use app\model\LoginLog;
 use app\model\SystemConfig;
 use app\model\Hotel;
+use app\service\LoginRateLimiter;
 use app\service\PermissionService;
 use think\Response;
 
@@ -49,18 +50,54 @@ class Auth extends Base
      */
     public function login(): Response
     {
-        $username = trim($this->request->post('username', ''));
-        $password = $this->request->post('password', '');
-        $clientInfo = $this->request->post('client_info', []);
+        $rawUsername = $this->request->post('username', '');
+        $rawPassword = $this->request->post('password', '');
+        $rawClientInfo = $this->request->post('client_info', []);
+
+        if (!is_string($rawUsername) || !is_string($rawPassword)) {
+            $this->recordLoginFailure('', '登录参数格式无效');
+            return $this->invalidLoginPayload();
+        }
+        $username = trim($rawUsername);
+        $password = $rawPassword;
+        if (mb_strlen($username) > 50 || strlen($password) > 1024) {
+            $this->recordLoginFailure(mb_substr($username, 0, 50), '登录参数长度无效');
+            return $this->invalidLoginPayload();
+        }
+        $clientInfo = $this->normalizeLoginClientInfo($rawClientInfo);
+        if ($clientInfo === null) {
+            $this->recordLoginFailure($username, '客户端信息格式无效');
+            return $this->invalidLoginPayload();
+        }
 
         // 参数验证
         if (empty($username) || empty($password)) {
+            $this->recordLoginFailure($username, '用户名或密码缺失', $clientInfo);
             return $this->error('请输入用户名和密码');
         }
 
         // 获取客户端信息
         $ip = $this->request->ip();
         $userAgent = $this->request->header('User-Agent', '');
+
+        $loginRateLimiter = new LoginRateLimiter();
+        try {
+            $rateLimit = $loginRateLimiter->consumeAttempt($ip, $username);
+        } catch (\Throwable $exception) {
+            $this->recordLoginFailure($username, '登录保护不可用', $clientInfo);
+            return $this->loginProtectionUnavailable($exception);
+        }
+        if (!$rateLimit['allowed']) {
+            $retryAfter = max(1, (int)$rateLimit['retry_after']);
+            $this->recordLoginFailure($username, '登录请求被限流', $clientInfo);
+            return $this->error('登录请求过于频繁，请稍后重试', 429, [
+                'reason' => 'login_rate_limited',
+                'retry_after' => $retryAfter,
+            ])->header(['Retry-After' => (string)$retryAfter]);
+        }
+        $reservationBucket = isset($rateLimit['reservation_bucket'])
+            ? (int)$rateLimit['reservation_bucket']
+            : null;
 
         $user = User::with(['role', 'hotel'])->where('username', $username)->find();
         
@@ -82,8 +119,11 @@ class Auth extends Base
         if ($user->status != User::STATUS_ENABLED) {
             // 记录失败日志
             LoginLog::record($user->id, $username, 'login', 'failed', '账号已停用', $ip, $userAgent, $clientInfo);
+            $this->releaseLoginRateLimitReservation($loginRateLimiter, $ip, $username, $reservationBucket);
             return $this->error('账号已停用，请联系管理员启用');
         }
+
+        $this->releaseLoginRateLimitReservation($loginRateLimiter, $ip, $username, $reservationBucket);
 
         // 更新用户登录信息
         $user->last_login_time = date('Y-m-d H:i:s');
@@ -118,6 +158,97 @@ class Auth extends Base
             'context' => $this->buildAuthContext($user, $permittedHotels),
             'notices' => $this->buildLoginNotices($user, $permittedHotels),
         ], '登录成功');
+    }
+
+    /** @param array<string, string> $clientInfo */
+    private function recordLoginFailure(string $username, string $reason, array $clientInfo = []): void
+    {
+        try {
+            LoginLog::record(
+                null,
+                mb_substr(trim($username), 0, 50),
+                'login',
+                'failed',
+                mb_substr($reason, 0, 255),
+                (string)$this->request->ip(),
+                (string)$this->request->header('User-Agent', ''),
+                $clientInfo
+            );
+        } catch (\Throwable $exception) {
+            \think\facade\Log::warning('Login failure audit could not be persisted.', [
+                'exception_type' => get_debug_type($exception),
+            ]);
+        }
+    }
+
+    private function releaseLoginRateLimitReservation(
+        LoginRateLimiter $loginRateLimiter,
+        string $ip,
+        string $username,
+        ?int $reservationBucket
+    ): void {
+        try {
+            $loginRateLimiter->releaseSuccessfulAttempt($ip, $username, $reservationBucket);
+        } catch (\Throwable $exception) {
+            \think\facade\Log::warning('Login rate-limit reservation cleanup failed.', [
+                'exception_type' => get_debug_type($exception),
+            ]);
+        }
+    }
+
+    private function loginProtectionUnavailable(\Throwable $exception): Response
+    {
+        \think\facade\Log::error('Login rate limiter unavailable.', [
+            'exception_type' => get_debug_type($exception),
+        ]);
+
+        return $this->error('登录保护暂不可用，请稍后重试', 503, [
+            'reason' => 'login_rate_limiter_unavailable',
+        ]);
+    }
+
+    private function invalidLoginPayload(): Response
+    {
+        return $this->error('登录参数格式无效', 422, [
+            'reason' => 'invalid_login_payload',
+        ]);
+    }
+
+    /**
+     * @return array<string, string>|null
+     */
+    private function normalizeLoginClientInfo(mixed $value): ?array
+    {
+        if ($value === null || $value === '') {
+            return [];
+        }
+        if (!is_array($value) || count($value) > 24) {
+            return null;
+        }
+
+        $allowedKeys = array_fill_keys([
+            'browser', 'browser_version', 'os', 'os_version', 'device', 'device_type',
+            'platform', 'language', 'timezone', 'screen', 'app_version',
+        ], true);
+        $normalized = [];
+        foreach ($value as $key => $item) {
+            $key = strtolower(trim((string)$key));
+            if (!isset($allowedKeys[$key])) {
+                continue;
+            }
+            if (!is_scalar($item) && $item !== null) {
+                return null;
+            }
+            $text = trim((string)$item);
+            if (strlen($text) > 160) {
+                return null;
+            }
+            if ($text !== '') {
+                $normalized[$key] = $text;
+            }
+        }
+
+        return $normalized;
     }
 
     /**

@@ -21,8 +21,10 @@ trait OperationWorkbenchConcern
             [, $endDate] = $this->resolveDashboardDateRange();
             $hotelId = $this->resolveDashboardHotelId(
                 $this->request->get('hotel_id', $this->request->get('system_hotel_id', '')),
-                false
+                true
             );
+            $hotelId = (int)$hotelId;
+            $this->requireOperationHotelCapability($hotelId, 'operation.view');
 
             return $this->success($this->buildDailyWorkbenchPayload($hotelId, $endDate));
         } catch (\InvalidArgumentException $e) {
@@ -30,7 +32,7 @@ trait OperationWorkbenchConcern
         } catch (HttpException $e) {
             return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
         } catch (\Throwable $e) {
-            return $this->error('Daily workbench query failed: ' . $e->getMessage());
+            return $this->operationWorkbenchInternalError($e, 'daily_workbench_query', 'Daily workbench query failed');
         }
     }
 
@@ -74,7 +76,7 @@ trait OperationWorkbenchConcern
         } catch (HttpException $e) {
             return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
         } catch (\Throwable $e) {
-            return $this->error('Manual fetch evidence query failed: ' . $e->getMessage());
+            return $this->operationWorkbenchInternalError($e, 'manual_fetch_evidence_query', 'Manual fetch evidence query failed');
         }
     }
 
@@ -85,24 +87,32 @@ trait OperationWorkbenchConcern
         try {
             $service = new DailyWorkbenchPatrolService();
             $limit = max(1, min(30, (int)$this->request->get('limit', 10)));
+            $hotelId = (int)$this->resolveDashboardHotelId(
+                $this->request->get('hotel_id', $this->request->get('system_hotel_id', '')),
+                true
+            );
+            $this->requireOperationHotelCapability($hotelId, 'operation.view');
             $targetDate = $this->resolveDailyWorkbenchPatrolTargetDate(
                 $this->request->get('target_date', $this->request->get('end_date', date('Y-m-d')))
             );
 
             return $this->success([
-                'latest' => $service->latest(),
-                'list' => $service->list($limit),
-                'health' => $service->health($targetDate),
+                'latest' => $service->latestForHotel($hotelId),
+                'list' => $service->listForHotel($hotelId, $limit),
+                'health' => $service->healthForHotel($hotelId, $targetDate),
                 'scope' => [
                     'metric_scope' => 'ota_channel',
+                    'hotel_id' => $hotelId,
                     'target_date' => $targetDate,
                     'source_policy' => 'read_existing_daily_workbench_patrol_snapshots_only',
                     'collection_logic_changed' => false,
                     'raw_data_exposed' => false,
                 ],
             ]);
+        } catch (HttpException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
         } catch (\Throwable $e) {
-            return $this->error('Daily workbench patrol list failed: ' . $e->getMessage());
+            return $this->operationWorkbenchInternalError($e, 'daily_workbench_patrol_list', 'Daily workbench patrol list failed');
         }
     }
 
@@ -112,7 +122,12 @@ trait OperationWorkbenchConcern
 
         try {
             $runId = trim((string)$this->request->get('run_id', ''));
-            $report = (new DailyWorkbenchPatrolService())->markdownReport($runId);
+            $hotelId = (int)$this->resolveDashboardHotelId(
+                $this->request->get('hotel_id', $this->request->get('system_hotel_id', '')),
+                true
+            );
+            $this->requireOperationHotelCapability($hotelId, 'operation.view');
+            $report = (new DailyWorkbenchPatrolService())->markdownReportForHotel($hotelId, $runId);
             $snapshot = is_array($report['snapshot'] ?? null) ? $report['snapshot'] : [];
             $scope = is_array($snapshot['scope'] ?? null) ? $snapshot['scope'] : [];
             $fileName = (string)($report['filename'] ?? 'suxios_ota_daily_workbench_patrol.md');
@@ -143,8 +158,12 @@ trait OperationWorkbenchConcern
                 'X-SUXIOS-Runtime-Snapshot-Written' => 'false',
                 'X-SUXIOS-Operation-Log-Written' => 'true',
             ]);
+        } catch (HttpException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 404);
         } catch (\Throwable $e) {
-            return $this->error('Daily workbench patrol report export failed: ' . $e->getMessage());
+            return $this->operationWorkbenchInternalError($e, 'daily_workbench_patrol_report', 'Daily workbench patrol report export failed');
         }
     }
 
@@ -159,8 +178,10 @@ trait OperationWorkbenchConcern
             );
             $hotelId = $this->resolveDashboardHotelId(
                 $data['hotel_id'] ?? $data['system_hotel_id'] ?? $this->request->get('hotel_id', $this->request->get('system_hotel_id', '')),
-                false
+                true
             );
+            $hotelId = (int)$hotelId;
+            $this->requireOperationHotelCapability($hotelId, 'operation.view');
             $limit = $this->resolveDailyWorkbenchPatrolLimit($data['limit'] ?? $this->request->get('limit', 10));
             $payload = $this->buildDailyWorkbenchPayload($hotelId, $targetDate, $limit);
             $snapshot = (new DailyWorkbenchPatrolService())->write($payload, [
@@ -189,7 +210,7 @@ trait OperationWorkbenchConcern
             return $this->success([
                 'snapshot' => $snapshot,
                 'latest' => $snapshot,
-                'health' => (new DailyWorkbenchPatrolService())->health($targetDate),
+                'health' => (new DailyWorkbenchPatrolService())->healthForHotel($hotelId, $targetDate),
                 'write_effects' => [
                     'runtime_snapshot_written' => true,
                     'latest_index_written' => true,
@@ -203,7 +224,7 @@ trait OperationWorkbenchConcern
         } catch (HttpException $e) {
             return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
         } catch (\Throwable $e) {
-            return $this->error('Daily workbench patrol snapshot failed: ' . $e->getMessage());
+            return $this->operationWorkbenchInternalError($e, 'daily_workbench_patrol_snapshot', 'Daily workbench patrol snapshot failed');
         }
     }
 
@@ -214,36 +235,38 @@ trait OperationWorkbenchConcern
         try {
             $data = $this->requestData();
             $userId = (int)($this->currentUser->id ?? 0);
+            $hotelId = (int)$this->resolveDashboardHotelId(
+                $data['hotel_id'] ?? $data['system_hotel_id'] ?? '',
+                true
+            );
+            $this->requireOperationHotelCapability($hotelId, 'operation.execute');
+            $data['hotel_id'] = $hotelId;
             $patrolService = new DailyWorkbenchPatrolService();
-            $sourceSnapshot = $patrolService->findByRunId((string)($data['run_id'] ?? ''));
+            $sourceSnapshot = $patrolService->findByRunIdForHotel((string)($data['run_id'] ?? ''), $hotelId);
             if ($sourceSnapshot === null) {
                 throw new \RuntimeException('Daily workbench patrol snapshot not found.');
             }
 
             $actionContext = $this->dailyWorkbenchPatrolActionContext($sourceSnapshot, $data);
-            $hotelIds = array_values(array_filter(array_map(
-                static fn(array $hotel): int => (int)($hotel['id'] ?? 0),
-                $this->loadDashboardHotels(null)
-            )));
             $operationSync = (new OperationManagementService())->syncDailyWorkbenchPatrolAction(
-                $hotelIds,
+                [$hotelId],
                 array_merge($actionContext, $data),
                 $userId
             );
             $data['operation_execution'] = $operationSync;
 
-            $snapshot = $patrolService->updateActionStatus(
+            $snapshot = $patrolService->updateActionStatusForHotel(
                 $data,
+                $hotelId,
                 $userId ?: null
             );
-            $hotelId = isset($data['hotel_id']) && is_numeric($data['hotel_id']) ? (int)$data['hotel_id'] : null;
 
             OperationLog::record(
                 'online_data',
                 'daily_workbench_patrol_action_update',
                 'Update daily workbench patrol action: ' . (string)($data['status'] ?? ''),
                 $this->currentUser->id ?? null,
-                $hotelId,
+                $hotelId > 0 ? $hotelId : null,
                 null,
                 [
                     'audit_type' => 'phase2_daily_workbench_action_tracking',
@@ -269,8 +292,12 @@ trait OperationWorkbenchConcern
             ]);
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage());
+        } catch (HttpException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 404);
         } catch (\Throwable $e) {
-            return $this->error('Daily workbench patrol action update failed: ' . $e->getMessage());
+            return $this->operationWorkbenchInternalError($e, 'daily_workbench_patrol_action_update', 'Daily workbench patrol action update failed');
         }
     }
 
@@ -281,14 +308,19 @@ trait OperationWorkbenchConcern
         try {
             $data = $this->requestData();
             $userId = (int)($this->currentUser->id ?? 0);
+            $hotelId = (int)$this->resolveDashboardHotelId(
+                $data['hotel_id'] ?? $data['system_hotel_id'] ?? '',
+                true
+            );
+            $this->requireOperationHotelCapability($hotelId, 'operation.execute');
+            $data['hotel_id'] = $hotelId;
             $patrolService = new DailyWorkbenchPatrolService();
-            $sourceSnapshot = $patrolService->findByRunId((string)($data['run_id'] ?? ''));
+            $sourceSnapshot = $patrolService->findByRunIdForHotel((string)($data['run_id'] ?? ''), $hotelId);
             if ($sourceSnapshot === null) {
                 throw new \RuntimeException('Daily workbench patrol snapshot not found.');
             }
 
             $this->dailyWorkbenchPatrolActionContext($sourceSnapshot, $data);
-            $hotelId = isset($data['hotel_id']) && is_numeric($data['hotel_id']) ? (int)$data['hotel_id'] : 0;
             $actionCode = trim((string)($data['action_code'] ?? ''));
             $questionKey = trim((string)($data['question_key'] ?? ''));
             $trackingKey = $this->dailyWorkbenchPatrolTrackingKey($hotelId, $actionCode, $questionKey);
@@ -305,14 +337,10 @@ trait OperationWorkbenchConcern
                 throw new \RuntimeException('Daily workbench patrol action has no execution task to review.');
             }
 
-            $hotelIds = array_values(array_filter(array_map(
-                static fn(array $hotel): int => (int)($hotel['id'] ?? 0),
-                $this->loadDashboardHotels(null)
-            )));
-            $reviewedTask = (new OperationManagementService())->reviewExecutionTask($taskId, $hotelIds, [
+            $reviewedTask = (new OperationManagementService())->reviewExecutionTask($taskId, [$hotelId], [
                 'result_status' => (string)($data['result_status'] ?? $data['review_status'] ?? ''),
                 'result_summary' => (string)($data['result_summary'] ?? $data['review_summary'] ?? ''),
-            ]);
+            ], $userId);
 
             $operationExecution = array_replace($operationExecution, [
                 'task_id' => $taskId,
@@ -328,7 +356,7 @@ trait OperationWorkbenchConcern
                 'result_status' => (string)($reviewedTask['result_status'] ?? ''),
                 'result_summary' => (string)($reviewedTask['result_summary'] ?? ''),
             ]);
-            $snapshot = $patrolService->updateActionReview($reviewInput, $userId ?: null);
+            $snapshot = $patrolService->updateActionReviewForHotel($reviewInput, $hotelId, $userId ?: null);
 
             OperationLog::record(
                 'online_data',
@@ -363,8 +391,12 @@ trait OperationWorkbenchConcern
             ]);
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage());
+        } catch (HttpException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 404);
         } catch (\Throwable $e) {
-            return $this->error('Daily workbench patrol action review failed: ' . $e->getMessage());
+            return $this->operationWorkbenchInternalError($e, 'daily_workbench_patrol_action_review', 'Daily workbench patrol action review failed');
         }
     }
 
@@ -373,17 +405,27 @@ trait OperationWorkbenchConcern
         $this->checkPermission();
 
         try {
+            $hotelId = (int)$this->resolveDashboardHotelId(
+                $this->request->get('hotel_id', $this->request->get('system_hotel_id', '')),
+                true
+            );
+            $this->requireOperationHotelCapability($hotelId, 'operation.view');
             $payload = (new Phase3OperationEffectLoopService())->build([
                 'run_id' => (string)$this->request->get('run_id', ''),
                 'target_date' => (string)$this->request->get('target_date', ''),
                 'limit' => $this->request->get('limit', 100),
+                'scope_hotel_id' => $hotelId,
             ]);
 
             return $this->success($payload);
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage());
+        } catch (HttpException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 404);
         } catch (\Throwable $e) {
-            return $this->error('Phase 3 operation effect loop failed: ' . $e->getMessage());
+            return $this->operationWorkbenchInternalError($e, 'phase3_operation_effect_loop', 'Phase 3 operation effect loop failed');
         }
     }
 
@@ -392,10 +434,17 @@ trait OperationWorkbenchConcern
         $this->checkPermission();
 
         try {
+            $hotelId = (int)$this->resolveDashboardHotelId(
+                $this->request->get('hotel_id', $this->request->get('system_hotel_id', '')),
+                true
+            );
+            $this->requireOperationHotelCapability($hotelId, 'operation.view');
             $limit = max(1, min(200, (int)$this->request->get('limit', 50)));
-            return $this->success((new Phase3OperationEffectLoopService())->ledger($limit));
+            return $this->success((new Phase3OperationEffectLoopService())->ledgerForHotel($hotelId, $limit));
+        } catch (HttpException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
         } catch (\Throwable $e) {
-            return $this->error('Phase 3 operation effect loop ledger failed: ' . $e->getMessage());
+            return $this->operationWorkbenchInternalError($e, 'phase3_operation_effect_loop_ledger', 'Phase 3 operation effect loop ledger failed');
         }
     }
 
@@ -405,6 +454,13 @@ trait OperationWorkbenchConcern
 
         try {
             $data = $this->requestData();
+            $hotelId = (int)$this->resolveDashboardHotelId(
+                $data['hotel_id'] ?? $data['system_hotel_id'] ?? '',
+                true
+            );
+            $this->requireOperationHotelCapability($hotelId, 'operation.execute');
+            $data['hotel_id'] = $hotelId;
+            $data['scope_hotel_id'] = $hotelId;
             $result = (new Phase3OperationEffectLoopService())->publishSop($data, (int)($this->currentUser->id ?? 0) ?: null);
             $sop = is_array($result['sop'] ?? null) ? $result['sop'] : [];
             OperationLog::record(
@@ -427,8 +483,12 @@ trait OperationWorkbenchConcern
             return $this->success($result, 'SOP已沉淀');
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage());
+        } catch (HttpException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 404);
         } catch (\Throwable $e) {
-            return $this->error('Phase 3 operation SOP publish failed: ' . $e->getMessage());
+            return $this->operationWorkbenchInternalError($e, 'phase3_operation_sop_publish', 'Phase 3 operation SOP publish failed');
         }
     }
 
@@ -438,6 +498,13 @@ trait OperationWorkbenchConcern
 
         try {
             $data = $this->requestData();
+            $hotelId = (int)$this->resolveDashboardHotelId(
+                $data['hotel_id'] ?? $data['system_hotel_id'] ?? '',
+                true
+            );
+            $this->requireOperationHotelCapability($hotelId, 'operation.execute');
+            $data['hotel_id'] = $hotelId;
+            $data['scope_hotel_id'] = $hotelId;
             $result = (new Phase3OperationEffectLoopService())->createReplicationPlan($data, (int)($this->currentUser->id ?? 0) ?: null);
             $plan = is_array($result['replication_plan'] ?? null) ? $result['replication_plan'] : [];
             OperationLog::record(
@@ -461,9 +528,28 @@ trait OperationWorkbenchConcern
             return $this->success($result, '复制计划已生成');
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage());
+        } catch (HttpException $e) {
+            return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
+        } catch (\RuntimeException $e) {
+            return $this->error($e->getMessage(), 404);
         } catch (\Throwable $e) {
-            return $this->error('Phase 3 replication plan create failed: ' . $e->getMessage());
+            return $this->operationWorkbenchInternalError($e, 'phase3_replication_plan_create', 'Phase 3 replication plan create failed');
         }
+    }
+
+    private function operationWorkbenchInternalError(
+        \Throwable $exception,
+        string $event,
+        string $message
+    ): Response {
+        \think\facade\Log::error('Operation workbench request failed', [
+            'event' => $event,
+            'exception_type' => get_debug_type($exception),
+        ]);
+
+        return $this->error($message, 500, [
+            'reason' => $event . '_failed',
+        ]);
     }
 
     private function dailyWorkbenchPatrolActionContext(array $snapshot, array $data): array
@@ -545,6 +631,16 @@ trait OperationWorkbenchConcern
         return $hotelId . '|' . preg_replace('/[^a-zA-Z0-9_.:-]+/', '_', $identity);
     }
 
+    private function requireOperationHotelCapability(int $hotelId, string $capability): void
+    {
+        if (!$this->currentUser) {
+            abort(401, '未登录');
+        }
+        if ($hotelId <= 0 || !$this->currentUser->hasHotelPermission($hotelId, $capability)) {
+            abort(403, $capability === 'operation.execute' ? '无权限执行该门店运营操作' : '无权限查看该门店运营闭环');
+        }
+    }
+
     public function dailyWorkbenchPatrolCron(): Response
     {
         $rateLimited = $this->checkPublicEndpointRateLimit('daily_workbench_patrol_cron', 10, 60);
@@ -572,46 +668,118 @@ trait OperationWorkbenchConcern
             $limit = $this->resolveDailyWorkbenchPatrolLimit($this->request->get('limit', 30));
             $payload = $this->buildDailyWorkbenchPayload(null, $targetDate, $limit);
             $patrolService = new DailyWorkbenchPatrolService();
-            $snapshot = $patrolService->write($payload, [
-                'trigger_type' => 'cron',
-                'target_date' => $targetDate,
-            ]);
-
-            OperationLog::record(
-                'online_data',
-                'daily_workbench_patrol_cron',
-                'Cron generated daily workbench patrol snapshot: ' . (string)$snapshot['run_id'],
-                null,
-                null,
-                null,
-                [
-                    'audit_type' => 'phase2_daily_workbench_patrol',
-                    'run_id' => (string)$snapshot['run_id'],
+            $snapshots = [];
+            $healthByHotel = [];
+            foreach ($this->splitDailyWorkbenchPatrolPayloadsByHotel($payload) as $hotelPayload) {
+                $hotelId = (int)($hotelPayload['scope']['hotel_id'] ?? 0);
+                $snapshot = $patrolService->write($hotelPayload, [
+                    'trigger_type' => 'cron',
                     'target_date' => $targetDate,
+                    'hotel_id' => $hotelId,
+                ]);
+                $snapshots[] = [
+                    'run_id' => (string)$snapshot['run_id'],
+                    'created_at' => (string)$snapshot['created_at'],
+                    'target_date' => $targetDate,
+                    'hotel_id' => $hotelId,
+                    'summary' => $snapshot['summary'] ?? [],
+                    'evidence_policy' => $snapshot['evidence_policy'] ?? [],
+                ];
+                $healthByHotel[] = [
+                    'hotel_id' => $hotelId,
+                    'health' => $patrolService->healthForHotel($hotelId, $targetDate),
+                ];
+
+                OperationLog::record(
+                    'online_data',
+                    'daily_workbench_patrol_cron',
+                    'Cron generated hotel-scoped daily workbench patrol snapshot: ' . (string)$snapshot['run_id'],
+                    null,
+                    $hotelId,
+                    null,
+                    [
+                        'audit_type' => 'phase2_daily_workbench_patrol',
+                        'run_id' => (string)$snapshot['run_id'],
+                        'target_date' => $targetDate,
+                        'hotel_id' => $hotelId,
+                        'metric_scope' => 'ota_channel',
+                        'collection_logic_changed' => false,
+                        'raw_data_exposed' => false,
+                    ]
+                );
+            }
+
+            $firstSnapshot = $snapshots[0] ?? null;
+            $firstHealth = is_array($healthByHotel[0]['health'] ?? null)
+                ? $healthByHotel[0]['health']
+                : [
+                    'status' => 'missing',
+                    'target_date' => $targetDate,
+                    'message' => 'No accessible enabled hotels were available for automatic patrol.',
                     'metric_scope' => 'ota_channel',
-                    'collection_logic_changed' => false,
-                    'raw_data_exposed' => false,
-                ]
-            );
+                ];
 
             return json([
                 'code' => 200,
                 'message' => 'ok',
                 'time' => date('Y-m-d H:i:s'),
                 'data' => [
-                    'snapshot' => [
-                        'run_id' => (string)$snapshot['run_id'],
-                        'created_at' => (string)$snapshot['created_at'],
-                        'target_date' => $targetDate,
-                        'summary' => $snapshot['summary'] ?? [],
-                        'evidence_policy' => $snapshot['evidence_policy'] ?? [],
-                    ],
-                    'health' => $patrolService->health($targetDate),
+                    'snapshot' => $firstSnapshot,
+                    'snapshots' => $snapshots,
+                    'snapshot_count' => count($snapshots),
+                    'health' => $firstHealth,
+                    'health_by_hotel' => $healthByHotel,
                 ],
             ]);
         } catch (\Throwable $e) {
-            return json(['code' => 500, 'message' => 'Daily workbench patrol cron failed: ' . $e->getMessage()], 500);
+            \think\facade\Log::error('Daily workbench patrol cron failed', [
+                'exception_type' => get_debug_type($e),
+            ]);
+            $this->recordPublicEndpointFailure(
+                'daily_workbench_patrol_cron',
+                'execution_failed',
+                500,
+                ['exception_type' => get_debug_type($e)]
+            );
+            return json([
+                'code' => 500,
+                'message' => 'Daily workbench patrol cron failed',
+                'data' => ['reason' => 'daily_workbench_patrol_cron_failed'],
+            ], 500);
         }
+    }
+
+    private function splitDailyWorkbenchPatrolPayloadsByHotel(array $payload): array
+    {
+        $scope = is_array($payload['scope'] ?? null) ? $payload['scope'] : [];
+        $scopedPayloads = [];
+        foreach ((array)($payload['rows'] ?? []) as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $hotelId = (int)($row['hotel_id'] ?? 0);
+            if ($hotelId <= 0) {
+                continue;
+            }
+            $rows = [$row];
+            $scopedPayloads[$hotelId] = [
+                'scope' => array_replace($scope, [
+                    'hotel_id' => $hotelId,
+                    'requested_hotel_limit' => 1,
+                    'returned_hotel_count' => 1,
+                ]),
+                'summary' => $this->buildDailyWorkbenchSummary($rows),
+                'rows' => $rows,
+                'next_actions' => $this->buildDailyWorkbenchNextActions($rows),
+                'data_status' => [
+                    'status' => 'ready',
+                    'empty_reason' => null,
+                    'raw_data_exposed' => false,
+                ],
+            ];
+        }
+
+        return array_values($scopedPayloads);
     }
 
     private function buildDailyWorkbenchPayload(?int $hotelId, string $targetDate, ?int $limitOverride = null): array

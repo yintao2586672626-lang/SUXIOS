@@ -35,6 +35,11 @@
                                     <h3 class="font-bold text-gray-900">{{ selectedOpeningProjectId ? '项目基础信息' : '创建开业项目' }}</h3>
                                     <span v-if="selectedOpeningProjectId" :class="openingRiskClass(openingOverview?.project?.risk_level)" class="px-2 py-1 rounded-full text-xs font-medium">{{ openingRiskText(openingOverview?.project?.risk_level) }}</span>
                                 </div>
+                                <div v-if="selectedOpeningProjectId && openingOverview?.truth_context?.status === 'binding_missing'" data-testid="opening-binding-missing"
+                                    class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
+                                    <div class="font-medium">binding_missing：项目尚未绑定系统门店</div>
+                                    <div class="mt-1 text-xs">当前仅能维护开业清单，不能转执行跟踪，也不能证明真实门店闭环。</div>
+                                </div>
                                 <div class="mb-4 rounded-lg border border-blue-100 bg-blue-50 px-3 py-3">
                                     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                                         <div>
@@ -104,7 +109,7 @@
                                     <div v-if="selectedOpeningProjectId" class="grid grid-cols-2 gap-3">
                                         <button @click="openOpeningChecklist" :disabled="openingLoading" class="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 text-sm hover:bg-gray-50 disabled:opacity-50"><i class="fas fa-tasks mr-1"></i>查看清单</button>
                                         <button @click="recalculateOpening" :disabled="openingLoading" class="px-4 py-2 rounded-lg border border-blue-200 text-blue-700 text-sm hover:bg-blue-50 disabled:opacity-50"><i class="fas fa-calculator mr-1"></i>刷新评分</button>
-                                        <button @click="createOpeningExecutionIntent" :disabled="openingLoading || !selectedOpeningProjectId || openingExecutionIntentId" class="px-4 py-2 rounded-lg border border-indigo-200 text-indigo-700 text-sm hover:bg-indigo-50 disabled:opacity-50"><i class="fas fa-tasks mr-1"></i>{{ openingExecutionIntentId ? '已转跟踪' : '转执行跟踪' }}</button>
+                                        <button @click="createOpeningExecutionIntent" :disabled="openingLoading || !selectedOpeningProjectId || openingExecutionIntentId || !openingProjectForm.hotel_id" class="px-4 py-2 rounded-lg border border-indigo-200 text-indigo-700 text-sm hover:bg-indigo-50 disabled:opacity-50"><i class="fas fa-tasks mr-1"></i>{{ openingExecutionIntentId ? '已转跟踪' : '转执行跟踪' }}</button>
                                         <div v-if="openingExecutionIntentId" class="px-4 py-2 rounded-lg bg-indigo-50 text-indigo-700 text-sm">执行 #{{ openingExecutionIntentId }}</div>
                                     </div>
                                     <button v-if="selectedOpeningProjectId &amp;&amp; openingTasks.length === 0" @click="generateOpeningTasks" :disabled="openingLoading" class="w-full px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50"><i class="fas fa-magic mr-1"></i>生成检查清单</button>
@@ -125,6 +130,11 @@
                                             </div>
                                         </div>
                                         <div class="text-xs text-gray-500 mt-3 leading-relaxed">{{ card.hint }}</div>
+                                        <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
+                                            <span class="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-600">计算：{{ card.truth?.calculation_status === 'calculated' ? '已计算' : '缺值' }}</span>
+                                            <span :class="onlineTruthStatusClass(card.truth)">真值：{{ onlineTruthStatusText(card.truth) }}</span>
+                                        </div>
+                                        <div class="mt-2 text-[10px] leading-5 text-slate-500" v-text="onlineTruthDetailText(card.truth)"></div>
                                         <div v-if="card.progress != null" class="mt-3">
                                             <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
                                                 <div :class="['h-full rounded-full', card.progressClass || 'bg-blue-600']" :style="{ width: card.progress + '%' }"></div>
@@ -168,26 +178,32 @@
                                                     </div>
                                                     <span :class="['px-2 py-1 rounded-full text-xs font-medium flex-shrink-0', item.statusClass]">{{ item.status }}</span>
                                                 </div>
-                                                <div class="mt-3 h-2 bg-white rounded-full overflow-hidden">
-                                                    <div :class="['h-full rounded-full', item.progressClass]" :style="{ width: item.progress + '%' }"></div>
-                                                </div>
-                                                <div class="mt-2 flex items-center justify-between text-xs text-gray-500">
-                                                    <span>{{ item.progressHint }}</span>
-                                                    <span class="font-semibold text-gray-800">{{ item.progress }}%</span>
-                                                </div>
-                                            </div>
+                                                 <div class="mt-3 h-2 bg-white rounded-full overflow-hidden">
+                                                     <div v-if="item.progress != null" :class="['h-full rounded-full', item.progressClass]" :style="{ width: item.progress + '%' }"></div>
+                                                 </div>
+                                                 <div class="mt-2 flex items-center justify-between text-xs text-gray-500">
+                                                     <span>{{ item.progressHint }}</span>
+                                                     <span class="font-semibold text-gray-800">{{ item.progress == null ? '—' : item.progress + '%' }}</span>
+                                                 </div>
+                                                 <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]"><span :class="onlineTruthStatusClass(item.truth)">{{ onlineTruthStatusText(item.truth) }}</span></div>
+                                                 <div class="mt-1 text-[10px] leading-5 text-slate-500" v-text="onlineTruthDetailText(item.truth)"></div>
+                                             </div>
                                         </div>
                                     </div>
                                     <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
                                         <h3 class="font-bold text-gray-900 mb-4">开业建议（标准或规则）</h3>
-                                        <div class="space-y-3">
-                                            <div v-for="item in openingOverview.ai_suggestions" :key="item" class="flex gap-2 text-sm text-gray-700 leading-relaxed">
-                                                <i class="fas fa-robot text-blue-500 mt-1"></i><span>{{ item }}</span>
+                                        <div v-if="openingOverview.ai_recommendations?.length" class="space-y-3">
+                                            <div v-for="item in openingOverview.ai_recommendations" :key="item.priority + item.title" class="rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-sm">
+                                                <div class="flex items-center gap-2"><span class="rounded border border-blue-200 bg-white px-1.5 py-0.5 text-[11px] font-semibold text-blue-700">{{ item.priority }}</span><strong class="text-gray-900">{{ item.title }}</strong></div>
+                                                <div class="mt-1 leading-5 text-gray-700"><span class="font-medium">建议动作：</span>{{ item.action || item.detail }}</div>
+                                                <ai-decision-quality-details :item="item"></ai-decision-quality-details>
                                             </div>
                                         </div>
+                                        <div v-else-if="openingOverview.ai_suggestions?.length" class="rounded-lg border border-amber-100 bg-amber-50 p-3 text-xs leading-5 text-amber-800">历史建议结构不完整：{{ openingOverview.ai_suggestions.join('；') }}</div>
                                         <div class="mt-5 pt-4 border-t border-gray-100">
                                             <div class="text-xs text-gray-500 mb-2">最近一次结果</div>
-                                            <div class="text-sm text-gray-700">评分 {{ openingOverview.recent_result.overall_score }}，风险 {{ openingRiskText(openingOverview.recent_result.risk_level) }}，更新时间 {{ openingOverview.recent_result.updated_at || '-' }}</div>
+                                            <div class="text-sm text-gray-700">评分 {{ openingOverview.recent_result.overall_score ?? '—' }}，风险 {{ openingRiskText(openingOverview.recent_result.risk_level) }}，更新时间 {{ openingOverview.recent_result.updated_at || '-' }}</div>
+                                            <div class="mt-2 text-[10px] leading-5 text-slate-500" v-text="onlineTruthDetailText(openingOverview.recent_result.truth)"></div>
                                         </div>
                                     </div>
                                 </div>
@@ -201,7 +217,8 @@
                                                 <div class="text-xs text-gray-500 mt-1">{{ project.hotel_name }} · {{ project.opening_date }} · {{ project.manager_name || '未设置负责人' }}</div>
                                             </div>
                                             <div class="text-right">
-                                                <div class="font-semibold text-gray-900">{{ project.overall_score || 0 }}</div>
+                                                <div class="font-semibold text-gray-900">{{ project.overall_score ?? '—' }}</div>
+                                                <div class="text-[10px] text-gray-500">{{ project.overall_score_status === 'calculated' ? '已计算' : '未计算' }}</div>
                                                 <div :class="openingRiskTextClass(project.risk_level)" class="text-xs">{{ openingRiskText(project.risk_level) }}</div>
                                             </div>
                                         </button>

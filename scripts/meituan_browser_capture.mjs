@@ -36,6 +36,7 @@ import {
 import {
   classifyOtaSessionProbeResponse,
   evaluateOtaSessionProbe,
+  recordOtaSessionProbeCandidateDiagnostic,
   sanitizeOtaObservedUrl,
   summarizeOtaSessionCookies,
 } from './lib/ota_session_probe.mjs';
@@ -124,6 +125,7 @@ const sessionProbeResponseDiagnostics = {
   permission_denied_response_count: 0,
   rate_limited_response_count: 0,
   candidate_route_samples: [],
+  candidate_reason_ids: [],
 };
 
 const browser = await launchOtaPersistentContext(storageDir, args);
@@ -817,14 +819,7 @@ function registerSessionProbeResponseObserver(page) {
       sessionProbeSuccessfulApiResponseCount = Math.min(20, sessionProbeSuccessfulApiResponseCount + 1);
       sessionProbeResponseDiagnostics.recognized_response_count = sessionProbeSuccessfulApiResponseCount;
     } else if (classification === 'candidate_drift') {
-      sessionProbeResponseDiagnostics.candidate_drift_response_count = Math.min(20, sessionProbeResponseDiagnostics.candidate_drift_response_count + 1);
-      const safeRoute = sanitizeOtaObservedUrl(response.url());
-      if (safeRoute && !sessionProbeResponseDiagnostics.candidate_route_samples.includes(safeRoute)) {
-        sessionProbeResponseDiagnostics.candidate_route_samples = [
-          ...sessionProbeResponseDiagnostics.candidate_route_samples,
-          safeRoute,
-        ].slice(0, 20);
-      }
+      recordOtaSessionProbeCandidateDiagnostic(sessionProbeResponseDiagnostics, classified, response.url());
     } else if (classification === 'authentication_required') {
       sessionProbeResponseDiagnostics.authentication_required_response_count = Math.min(20, sessionProbeResponseDiagnostics.authentication_required_response_count + 1);
       sessionProbeResponseDiagnostics.access_denied_response_count = Math.min(20, sessionProbeResponseDiagnostics.access_denied_response_count + 1);

@@ -177,10 +177,11 @@
                                                                 <div class="text-xs font-semibold text-blue-800 mb-2">建议动作与阻断状态</div>
                                                                 <div v-for="row in otaDiagnosisActionRows.slice(0, 4)" :key="row.id" class="border-t border-blue-50 py-2 first:border-t-0 first:pt-0 last:pb-0">
                                                                     <div class="flex items-start justify-between gap-2">
-                                                                        <div class="text-xs font-medium text-gray-800 leading-relaxed">{{ row.action }}</div>
+                                                                        <div class="text-xs font-medium text-gray-800 leading-relaxed"><span class="mr-1 rounded border border-blue-100 bg-blue-50 px-1 py-0.5 text-[10px] text-blue-700">{{ row.priority }}</span>{{ row.action }}</div>
                                                                         <span class="rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap" :class="row.statusClass">{{ row.statusText }}</span>
                                                                     </div>
                                                                     <div class="mt-1 text-[11px] text-gray-500">证据：{{ row.evidenceText }} · 确认：{{ row.confirmationText }}</div>
+                                                                    <ai-decision-quality-details :item="row.qualityItem"></ai-decision-quality-details>
                                                                     <div v-if="row.missingText || row.blockedReason" class="mt-1 text-[11px] text-amber-700">
                                                                         <span v-if="row.missingText">缺：{{ row.missingText }}</span>
                                                                         <span v-if="row.missingText &amp;&amp; row.blockedReason">；</span>
@@ -301,12 +302,14 @@
                                                             <div v-for="row in otaDiagnosisActionRows" :key="row.id" class="rounded-lg border border-gray-100 bg-gray-50 p-3">
                                                                 <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-2">
                                                                     <div class="min-w-0">
-                                                                        <div class="text-sm font-medium text-gray-900 leading-relaxed">{{ row.action }}</div>
+                                                                        <div class="flex flex-wrap items-center gap-2"><span class="rounded border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-[11px] font-semibold text-blue-700">{{ row.priority }}</span><div class="text-sm font-medium text-gray-900 leading-relaxed">{{ row.title }}</div></div>
+                                                                        <div class="mt-1 text-sm leading-relaxed text-gray-700"><span class="font-medium">建议动作：</span>{{ row.action }}</div>
                                                                         <div class="mt-1 flex flex-wrap gap-2 text-[11px] text-gray-500">
-                                                                            <span>证据：{{ row.evidenceText }}</span>
+                                                                            <span>证据引用：{{ row.evidenceText }}</span>
                                                                             <span>所需：{{ row.requiredText }}</span>
                                                                             <span>确认：{{ row.confirmationText }}</span>
                                                                         </div>
+                                                                        <ai-decision-quality-details :item="row.qualityItem"></ai-decision-quality-details>
                                                                     </div>
                                                                     <span class="self-start rounded-full border px-2 py-0.5 text-[11px] whitespace-nowrap" :class="row.statusClass">{{ row.statusText }}</span>
                                                                 </div>
@@ -706,7 +709,13 @@
                                                 </thead>
                                                 <tbody>
                                                     <tr v-for="item in priceSuggestions" :key="item.id">
-                                                        <td class="px-4 py-3 font-medium text-gray-800">{{ item.room_type?.name || '-' }}</td>
+                                                        <td class="px-4 py-3 min-w-[380px]">
+                                                            <div class="font-medium text-gray-800">{{ item.room_type?.name || '-' }}</div>
+                                                            <div v-if="item.decision_recommendation?.action" class="mt-2 rounded border border-blue-100 bg-blue-50/50 p-2 text-xs leading-5 text-gray-700">
+                                                                <div><span class="mr-1 rounded border border-blue-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">{{ item.decision_recommendation.priority }}</span><span class="font-medium">建议动作：</span>{{ item.decision_recommendation.action }}</div>
+                                                                <ai-decision-quality-details :item="item.decision_recommendation"></ai-decision-quality-details>
+                                                            </div>
+                                                        </td>
                                                         <td class="px-4 py-3 text-gray-600">¥{{ item.current_price }}</td>
                                                         <td class="px-4 py-3 font-semibold" :class="item.suggested_price &gt; item.current_price ? 'text-green-600' : 'text-red-600'">¥{{ item.suggested_price }}</td>
                                                         <td class="px-4 py-3">
@@ -1033,6 +1042,72 @@
                                                         </button>
                                                     </div>
                                                 </div>
+                                                <section data-testid="competitor-microscope" class="mb-4 overflow-hidden rounded-xl border border-[#e5dcc8] bg-[#fcfaf5]">
+                                                    <div class="flex flex-col gap-3 border-b border-[#eee7d8] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+                                                        <div>
+                                                            <div class="flex flex-wrap items-center gap-2">
+                                                                <h4 class="font-semibold text-gray-900"><i class="fas fa-microscope mr-1.5 text-[#a88a52]"></i>重点竞对显微镜</h4>
+                                                                <span class="rounded-full border border-[#dcc591] bg-white px-2 py-0.5 text-[11px] text-[#6f572f]">默认聚焦绝对价差最大竞对</span>
+                                                            </div>
+                                                            <p class="mt-1 text-xs text-gray-500">下钻同日房型价差与截至所选日期的 7 日变化；只读分析，不自动生成调价。</p>
+                                                        </div>
+                                                        <select v-if="competitorMicroscopeOptions.length" v-model="competitorMicroscopeSelectedKey" data-testid="competitor-microscope-selector" class="min-w-[220px] rounded-lg border border-[#dcc591] bg-white px-3 py-2 text-sm text-gray-800">
+                                                            <option v-for="option in competitorMicroscopeOptions" :key="option.key" :value="option.key">
+                                                                {{ option.name }} · {{ option.maxAbsGapPercent === null ? '价差未知' : '|价差| ' + option.maxAbsGapPercent + '%' }}
+                                                            </option>
+                                                        </select>
+                                                    </div>
+
+                                                    <div v-if="competitorMicroscopeDetail" class="space-y-4 p-4">
+                                                        <div class="flex flex-wrap items-center justify-between gap-2">
+                                                            <div class="font-semibold text-gray-900">{{ competitorMicroscopeDetail.name }}</div>
+                                                            <span :class="['rounded-full border px-2.5 py-1 text-xs font-medium', competitorMicroscopeDetail.sourceStatusClass]">{{ competitorMicroscopeDetail.sourceStatusText }}</span>
+                                                        </div>
+                                                        <div class="grid grid-cols-2 gap-2 lg:grid-cols-4">
+                                                            <div v-for="card in competitorMicroscopeSummaryCards" :key="card.key" class="rounded-lg bg-white p-3 shadow-sm">
+                                                                <div class="text-[11px] text-gray-500">{{ card.label }}</div>
+                                                                <div :class="['mt-1 text-lg font-semibold', card.className]">{{ card.value }}</div>
+                                                            </div>
+                                                        </div>
+
+                                                        <div class="grid grid-cols-1 gap-3 xl:grid-cols-5">
+                                                            <div class="rounded-lg border border-[#eee7d8] bg-white p-3 xl:col-span-2">
+                                                                <div class="mb-2 flex items-center justify-between gap-2 text-xs">
+                                                                    <span class="font-semibold text-gray-800">7 日价差轨迹</span>
+                                                                    <span :class="competitorMicroscopeGapClass(competitorMicroscopeDetail.trendChange)">{{ competitorMicroscopeDetail.trendChange === null ? '变化未知' : '较首日 ' + (competitorMicroscopeDetail.trendChange &gt; 0 ? '+' : '') + competitorMicroscopeDetail.trendChange + 'pct' }}</span>
+                                                                </div>
+                                                                <div v-if="competitorMicroscopeDetail.trend.length" class="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-2">
+                                                                    <div v-for="point in competitorMicroscopeDetail.trend" :key="point.date" class="rounded border border-gray-100 bg-gray-50 px-2 py-1.5 text-xs">
+                                                                        <div class="font-medium text-gray-700">{{ point.date.slice(5) }}</div>
+                                                                        <div class="mt-1 text-gray-500">本 {{ point.ourPrice === null ? '—' : formatCurrency(point.ourPrice) }} / 竞 {{ point.competitorPrice === null ? '—' : formatCurrency(point.competitorPrice) }}</div>
+                                                                        <div :class="['mt-0.5 font-medium', competitorMicroscopeGapClass(point.gap)]">{{ point.gapPercent === null ? '价差未知' : (point.gapPercent &gt; 0 ? '+' : '') + point.gapPercent + '%' }}</div>
+                                                                    </div>
+                                                                </div>
+                                                                <div v-else class="rounded border border-dashed border-gray-200 bg-gray-50 px-3 py-5 text-center text-xs text-gray-500">暂无截至所选日期的 7 日同竞对轨迹</div>
+                                                            </div>
+                                                            <div class="overflow-hidden rounded-lg border border-[#eee7d8] bg-white xl:col-span-3">
+                                                                <div class="border-b border-gray-100 px-3 py-2 text-xs font-semibold text-gray-800">同日房型证据</div>
+                                                                <div class="overflow-x-auto">
+                                                                    <table class="min-w-[520px] w-full text-xs">
+                                                                        <thead class="bg-gray-50 text-gray-500"><tr><th class="px-3 py-2 text-left">房型</th><th class="px-3 py-2 text-right">本店</th><th class="px-3 py-2 text-right">竞对</th><th class="px-3 py-2 text-right">价差</th><th class="px-3 py-2 text-left">证据</th></tr></thead>
+                                                                        <tbody class="divide-y divide-gray-100">
+                                                                            <tr v-for="row in competitorMicroscopeDetail.rows" :key="`microscope-${row.id || row.room_type_name}`">
+                                                                                <td class="px-3 py-2 font-medium text-gray-800">{{ row.room_type_name }}</td>
+                                                                                <td class="px-3 py-2 text-right">{{ row.our_price === null ? '—' : formatCurrency(row.our_price) }}</td>
+                                                                                <td class="px-3 py-2 text-right">{{ row.competitor_price === null ? '—' : formatCurrency(row.competitor_price) }}</td>
+                                                                                <td :class="['px-3 py-2 text-right font-medium', competitorMicroscopeGapClass(row.price_gap)]">{{ row.price_gap_percent === null ? '—' : (row.price_gap_percent &gt; 0 ? '+' : '') + row.price_gap_percent + '%' }}</td>
+                                                                                <td class="px-3 py-2 text-gray-500">{{ row.price_signal_readiness?.status_label || (row.source_status === 'verified' ? '已验证' : row.source_status === 'operator_provided' ? '人工样本' : '未验证') }}</td>
+                                                                            </tr>
+                                                                        </tbody>
+                                                                    </table>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div v-if="competitorMicroscopeDetail.dataGaps.length" class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">证据缺口：{{ competitorMicroscopeDetail.dataGaps.join('、') }}</div>
+                                                        <div class="text-xs leading-5 text-[#6f572f]">{{ competitorMicroscope.scopeNotice }}</div>
+                                                    </div>
+                                                    <div v-else data-testid="competitor-microscope-empty" class="px-4 py-8 text-center text-sm text-gray-500">当前日期暂无可选择的竞对价格样本；不会用 0 或旧数据代替。</div>
+                                                </section>
                                                 <div class="overflow-x-auto">
                                                     <table class="w-full text-sm">
                                                         <thead class="bg-gray-50 text-gray-500">

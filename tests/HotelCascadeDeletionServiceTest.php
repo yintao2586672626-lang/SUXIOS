@@ -68,6 +68,7 @@ final class HotelCascadeDeletionServiceTest extends TestCase
         self::assertSame(1, $preview['tables']['operation_execution_evidence'] ?? 0);
         self::assertSame(1, $preview['tables']['competitor_price_log'] ?? 0);
         self::assertSame(2, $preview['config_entries']);
+        self::assertSame(1, $preview['preserved_audit_rows']);
         self::assertArrayNotHasKey('encrypted_payload', $preview);
 
         $result = $service->delete(10);
@@ -83,14 +84,15 @@ final class HotelCascadeDeletionServiceTest extends TestCase
         self::assertSame(0, Db::name('ota_credentials')->where('system_hotel_id', 10)->count());
         self::assertSame(0, Db::name('ota_profile_bindings')->where('system_hotel_id', 10)->count());
         self::assertSame(0, Db::name('platform_data_sources')->where('system_hotel_id', 10)->count());
-        self::assertSame(0, Db::name('operation_logs')->where('hotel_id', 10)->count());
+        self::assertSame(1, Db::name('operation_logs')->where('hotel_id', 10)->count(), 'Audit history must survive hotel deletion.');
         self::assertSame(0, Db::name('ota_meituan_reviews')->where('system_hotel_id', 10)->count());
         self::assertSame(0, Db::name('opening_tasks')->where('project_id', 100)->count());
         self::assertSame(0, Db::name('operation_execution_evidence')->where('task_id', 200)->count());
         self::assertSame(0, Db::name('competitor_price_log')->where('store_id', 10)->count());
         self::assertSame(1, Db::name('competitor_price_log')->where('store_id', 20)->where('hotel_id', 10)->count(), 'A competitor id collision in another store must not be deleted.');
         self::assertSame(2, $result['config_entries_deleted']);
-        self::assertGreaterThanOrEqual(9, $result['deleted_rows']);
+        self::assertSame(1, $result['preserved_audit_rows']);
+        self::assertGreaterThanOrEqual(8, $result['deleted_rows']);
 
         foreach (['ctrip_config_list', 'meituan_config_list'] as $key) {
             $list = json_decode((string)Db::name('system_configs')->where('config_key', $key)->value('config_value'), true, 512, JSON_THROW_ON_ERROR);

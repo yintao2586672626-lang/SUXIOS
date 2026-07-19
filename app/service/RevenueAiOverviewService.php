@@ -241,8 +241,28 @@ class RevenueAiOverviewService
         $metricContext['date_basis'] = 'data_date';
         $metricContext['scope'] = 'ota_channel';
         $metricContext['scope_note'] = '指标仅代表已加载 OTA 渠道数据，不代表全酒店经营口径。';
+        $metricContext['hotel_id'] = $hotelId;
+        $metricContext['business_date'] = $businessDate;
         $otaRoomRevenue = $dailyFacts !== [] ? $this->numeric($metricsSummary['totals']['room_revenue'] ?? null) : null;
         $otaRoomNights = $dailyFacts !== [] ? $this->numeric($metricsSummary['totals']['room_nights'] ?? null) : null;
+        $roomRevenueContext = $this->metricContextWithTruth($metricContext, $metricsSummary, 'totals.room_revenue');
+        $roomNightsContext = $this->metricContextWithTruth($metricContext, $metricsSummary, 'totals.room_nights');
+        $adrContext = $this->metricContextWithTruth($metricContext, $metricsSummary, 'totals.adr');
+        $revparContext = $this->metricContextWithTruth(array_merge($metricContext, [
+            'scope' => 'ota_channel',
+            'scope_note' => '使用 OTA 渠道记录中的可售房晚分母计算；未验证为全酒店可售房晚，不得外推为全酒店 RevPAR。',
+            'denominator_scope' => 'ota_channel',
+            'whole_hotel_denominator_verified' => false,
+        ]), $metricsSummary, 'totals.revpar');
+        $completenessContext = $this->metricContextWithTruth($metricContext, $metricsSummary, 'totals.revenue');
+        if (is_array($completenessContext['truth'] ?? null)) {
+            $completenessContext['truth']['source']['caliber'] = 'Revenue AI 数据完整度：目标酒店、目标日期、启用 OTA 渠道、数据集与质量缺口综合评分';
+            if ((string)($completeness['status'] ?? '') !== 'ok' && ($completenessContext['truth']['status'] ?? '') === 'verified') {
+                $completenessContext['truth']['status'] = 'partial';
+                $completenessContext['truth']['status_label'] = '部分数据';
+                $completenessContext['truth']['failure_reason'] = (string)($completeness['reason'] ?? 'data_not_complete');
+            }
+        }
 
         return [
             'data_status' => $dataStatus,
@@ -268,7 +288,7 @@ class RevenueAiOverviewService
                     'CNY',
                     $otaRoomRevenue !== null ? 'ok' : ($dailyFacts !== [] ? 'not_calculable' : $dailyMetricStatus),
                     $otaRoomRevenue !== null ? '' : ($dailyFacts !== [] ? 'room_revenue_missing' : $dailyMetricReason),
-                    $metricContext,
+                    $roomRevenueContext,
                     'money'
                 ),
                 'ota_room_nights' => $this->metric(
@@ -278,7 +298,7 @@ class RevenueAiOverviewService
                     'room_nights',
                     $otaRoomNights !== null ? 'ok' : ($dailyFacts !== [] ? 'not_calculable' : $dailyMetricStatus),
                     $otaRoomNights !== null ? '' : ($dailyFacts !== [] ? 'room_nights_missing' : $dailyMetricReason),
-                    $metricContext,
+                    $roomNightsContext,
                     'number'
                 ),
                 'ota_adr' => $this->metric(
@@ -288,7 +308,7 @@ class RevenueAiOverviewService
                     'CNY',
                     $this->numeric($metricsSummary['totals']['adr'] ?? null) !== null ? 'ok' : ($dataStatus === 'empty_confirmed' ? 'empty_confirmed' : 'not_calculable'),
                     $this->numeric($metricsSummary['totals']['adr'] ?? null) !== null ? '' : ($dataStatus === 'empty_confirmed' ? 'ZERO_CONFIRMED' : 'adr_denominator_zero'),
-                    $metricContext,
+                    $adrContext,
                     'money'
                 ),
                 'ota_contribution_revpar' => $this->metric(
@@ -298,12 +318,7 @@ class RevenueAiOverviewService
                     'CNY',
                     $this->numeric($metricsSummary['totals']['revpar'] ?? null) !== null ? 'ok' : ($dataStatus === 'empty_confirmed' ? 'empty_confirmed' : 'not_calculable'),
                     $this->numeric($metricsSummary['totals']['revpar'] ?? null) !== null ? '' : ($dataStatus === 'empty_confirmed' ? 'ZERO_CONFIRMED' : 'available_room_nights_missing'),
-                    array_merge($metricContext, [
-                        'scope' => 'ota_channel',
-                        'scope_note' => '使用 OTA 渠道记录中的可售房晚分母计算；未验证为全酒店可售房晚，不得外推为全酒店 RevPAR。',
-                        'denominator_scope' => 'ota_channel',
-                        'whole_hotel_denominator_verified' => false,
-                    ]),
+                    $revparContext,
                     'money'
                 ),
                 'data_completeness' => $this->metric(
@@ -313,7 +328,7 @@ class RevenueAiOverviewService
                     '%',
                     $completeness['status'],
                     (string)($completeness['reason'] ?? ''),
-                    $metricContext,
+                    $completenessContext,
                     'percent'
                 ),
             ],
@@ -758,6 +773,7 @@ class RevenueAiOverviewService
             'scope_note' => (string)($context['scope_note'] ?? ''),
             'denominator_scope' => (string)($context['denominator_scope'] ?? ''),
             'whole_hotel_denominator_verified' => ($context['whole_hotel_denominator_verified'] ?? null) === true,
+            'truth' => is_array($context['truth'] ?? null) ? $context['truth'] : [],
             'status' => $status,
             'reason' => $reason,
             'display_reason' => $reason === '' ? '数据已命中当前口径。' : $this->issueReasonMeta($reason, '', 'metric')['display_reason'],
@@ -765,6 +781,28 @@ class RevenueAiOverviewService
             'target_page' => 'online-data',
             'target_tab' => 'data-health',
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $context
+     * @param array<string, mixed> $metricsSummary
+     * @return array<string, mixed>
+     */
+    private function metricContextWithTruth(array $context, array $metricsSummary, string $metricTrustKey): array
+    {
+        $trust = is_array($metricsSummary['metric_trust'][$metricTrustKey] ?? null)
+            ? $metricsSummary['metric_trust'][$metricTrustKey]
+            : [];
+        $existingTruth = is_array($trust['truth'] ?? null) ? $trust['truth'] : [];
+        $context['truth'] = $existingTruth !== []
+            ? $existingTruth
+            : OnlineDataTrustStatusService::metricTruthEnvelope($trust, [
+                'hotel_id' => $context['hotel_id'] ?? null,
+                'data_date' => $context['business_date'] ?? null,
+                'platforms' => $context['source_channels'] ?? [],
+            ]);
+        $context['truth']['metric_key'] = $metricTrustKey;
+        return $context;
     }
 
     private function displayValue(float $value, string $format): string

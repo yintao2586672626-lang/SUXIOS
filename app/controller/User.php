@@ -14,6 +14,8 @@ use think\facade\Db;
 
 class User extends Base
 {
+    private const TOKEN_TTL_SECONDS = 259200;
+
     private array $tableColumnCache = [];
     private array $tenantColumnCache = [];
 
@@ -254,6 +256,7 @@ class User extends Base
             $plans[] = [
                 'user' => $targetUser,
                 'role' => $targetRole,
+                'previous_hotel_ids' => $currentHotelIds,
                 'hotel_ids' => $nextHotelIds,
                 'tenant_ids' => $tenantContext['tenant_ids'],
             ];
@@ -262,6 +265,8 @@ class User extends Base
         try {
             Db::transaction(function () use ($plans): void {
                 $usernames = [];
+                $assignmentAudit = [];
+                $targetHotelIds = [];
                 foreach ($plans as $plan) {
                     /** @var UserModel $targetUser */
                     $targetUser = $plan['user'];
@@ -278,13 +283,29 @@ class User extends Base
                     $targetUser->save();
                     $this->syncUserHotelPermissions($targetUser, $hotelIds, $targetRole, $tenantIds);
                     $usernames[] = (string)$targetUser->username;
+                    $targetHotelIds = array_merge($targetHotelIds, $hotelIds, (array)($plan['previous_hotel_ids'] ?? []));
+                    $assignmentAudit[] = [
+                        'target_user_id' => (int)$targetUser->id,
+                        'before_hotel_ids' => array_values(array_map('intval', (array)($plan['previous_hotel_ids'] ?? []))),
+                        'after_hotel_ids' => array_values(array_map('intval', $hotelIds)),
+                    ];
                 }
 
                 OperationLog::record(
                     'user',
                     'batch_hotel_assignment',
                     '批量更新门店授权: ' . implode(',', $usernames),
-                    $this->currentUser->id
+                    $this->currentUser->id,
+                    null,
+                    null,
+                    [
+                        'target_user_ids' => array_values(array_map(
+                            static fn(array $item): int => (int)$item['target_user_id'],
+                            $assignmentAudit
+                        )),
+                        'target_hotel_ids' => array_values(array_unique(array_map('intval', $targetHotelIds))),
+                        'assignments' => $assignmentAudit,
+                    ]
                 );
             });
         } catch (\Throwable $error) {
@@ -481,12 +502,23 @@ class User extends Base
             }
         }
 
-        if (!empty($data['password'])) {
-            $passwordError = $this->validatePasswordPolicy((string)$data['password'], '密码');
+        $passwordReset = false;
+        if (array_key_exists('password', $data) && $data['password'] !== '' && $data['password'] !== null) {
+            if ((int)$this->currentUser->id === $id) {
+                return $this->error('修改本人密码请使用专用改密接口并验证原密码', 403);
+            }
+            if (!$this->currentUser->isSuperAdmin()) {
+                return $this->error('只有超级管理员可以重置其他用户密码', 403);
+            }
+            if (!is_string($data['password'])) {
+                return $this->error('密码格式无效', 422);
+            }
+            $passwordError = $this->validatePasswordPolicy($data['password'], '密码');
             if ($passwordError) {
                 return $this->error($passwordError);
             }
             $user->password = $data['password'];
+            $passwordReset = true;
         }
 
         $user->realname = $data['realname'] ?? $user->realname;
@@ -553,14 +585,44 @@ class User extends Base
             }
         }
 
-        Db::transaction(function () use ($user, $syncHotelIds, $targetRole, $hotelTenantIds): void {
+        Db::transaction(function () use ($user, $syncHotelIds, $targetRole, $hotelTenantIds, $passwordReset): void {
             $user->save();
             if ($syncHotelIds !== null && $targetRole instanceof Role) {
                 $this->syncUserHotelPermissions($user, $syncHotelIds, $targetRole, $hotelTenantIds);
             }
+            if ($passwordReset) {
+                OperationLog::record(
+                    'auth',
+                    'reset_password',
+                    '管理员重置用户密码: ' . $user->username,
+                    (int)$this->currentUser->id,
+                    (int)($user->hotel_id ?? 0) ?: null,
+                    null,
+                    [
+                        'operator_user_id' => (int)$this->currentUser->id,
+                        'target_user_id' => (int)$user->id,
+                    ]
+                );
+            }
         });
 
-        OperationLog::record('user', 'update', '更新用户: ' . $user->username, $this->currentUser->id);
+        if ($passwordReset) {
+            cache('auth_revoked_after_' . $user->id, time(), self::TOKEN_TTL_SECONDS);
+            $this->clearUserTokenCache((int)$user->id);
+        }
+
+        OperationLog::record(
+            'user',
+            'update',
+            '更新用户: ' . $user->username,
+            $this->currentUser->id,
+            (int)($user->hotel_id ?? 0) ?: null,
+            null,
+            [
+                'target_user_id' => (int)$user->id,
+                'password_reset' => $passwordReset,
+            ]
+        );
 
         $savedUser = UserModel::with(['role', 'hotel'])->find((int)$user->id);
         return $this->success($this->appendUserHotelScope($savedUser ?: $user), '更新成功');
@@ -1004,6 +1066,8 @@ class User extends Base
                 Db::name('user_hotel_permissions')->insert($payload);
             }
         }
+
+        $targetUser->resetAuthorizationContext();
     }
 
     private function buildHotelPermissionPayload(

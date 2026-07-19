@@ -342,7 +342,7 @@ requireText('app/service/OnlineDataFieldFactService.php', "'metric_key' => 'ad_s
 requireText('app/service/PlatformDataSyncService.php', "'metric_key' => 'mt_exposure'", 'platform data-source sync exposes Meituan realtime exposure facts');
 requireText('app/service/PlatformDataSyncService.php', "'metric_key' => 'mt_pay_orders'", 'platform data-source sync exposes Meituan realtime pay-order facts');
 requireText('app/service/PlatformDataSyncService.php', 'review[_-]?id|comment[_-]?id', 'platform data-source sync removes review/comment identifiers from review rows');
-requireText('app/controller/DailyReport.php', "'mt_exposure' => 0", 'daily report keeps Meituan exposure metric');
+requireText('app/controller/DailyReport.php', "$mtExposure = $getVal('mt_exposure');", 'daily report keeps nullable Meituan exposure evidence');
 
 requireTextInFiles(onlineControllerFiles, 'function commentCollectionDisabledResponse', 'legacy disallowed review-detail response remains explicit');
 requireTextInFiles(onlineControllerFiles, 'aggregate_metrics_only_no_review_text', 'comment capture documents aggregate-only no-review-text boundary');

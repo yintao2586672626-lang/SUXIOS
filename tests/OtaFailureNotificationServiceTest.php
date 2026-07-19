@@ -271,6 +271,8 @@ final class OtaFailureNotificationServiceTest extends TestCase
         $audit = Db::name('operation_logs')->where('hotel_id', 9)->find();
         self::assertIsArray($audit);
         self::assertSame('ota_failure_notification_recipient_missing', $audit['action']);
+        self::assertSame(1, (int)$audit['tenant_id']);
+        self::assertSame('delivery_status:recipient_missing', $audit['error_info']);
         self::assertStringContainsString('recipient_missing', (string)$audit['extra_data']);
     }
 
@@ -582,7 +584,7 @@ final class OtaFailureNotificationServiceTest extends TestCase
             create_time TEXT DEFAULT NULL,
             update_time TEXT DEFAULT NULL
         )");
-        Db::execute('CREATE TABLE operation_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, hotel_id INTEGER, module TEXT, action TEXT, description TEXT, extra_data TEXT, create_time TEXT)');
+        Db::execute('CREATE TABLE operation_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, user_id INTEGER, hotel_id INTEGER, module TEXT, action TEXT, description TEXT, error_info TEXT, extra_data TEXT, create_time TEXT)');
         Db::execute("CREATE TABLE system_notifications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             hotel_id INTEGER DEFAULT NULL,

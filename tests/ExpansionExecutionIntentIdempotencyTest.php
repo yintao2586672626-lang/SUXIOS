@@ -5,6 +5,7 @@ namespace Tests;
 
 use app\service\ExpansionService;
 use app\service\OperationManagementService;
+use app\service\OtaPublicPageDiagnosisService;
 use PHPUnit\Framework\TestCase;
 use ReflectionProperty;
 use RuntimeException;
@@ -134,6 +135,68 @@ final class ExpansionExecutionIntentIdempotencyTest extends TestCase
         self::assertTrue($second['idempotent_replay']);
         self::assertSame(1, (int)Db::name('operation_execution_intents')->count());
         self::assertSame($key, Db::name('operation_execution_intents')->value('idempotency_key'));
+    }
+
+    public function testPublicPageDiagnosisDraftIsPersistedReadBackAndReplayed(): void
+    {
+        $draft = (new OtaPublicPageDiagnosisService())->buildExecutionIntentDraft([
+            'status' => 'insufficient_evidence',
+            'platform' => 'ctrip',
+            'system_hotel_id' => 7,
+            'business_date' => '2026-07-19',
+            'platform_source_status' => 'persisted_public_profile_snapshots',
+            'evidence_coverage' => [
+                'observed_field_count' => 1,
+                'verified_field_count' => 0,
+                'expected_field_count' => 36,
+                'coverage_rate' => 2.78,
+            ],
+            'dimensions' => [[
+                'key' => 'platform_basics',
+                'status' => 'partial',
+                'unknown_fields' => ['address'],
+                'facts' => [[
+                    'field_key' => 'name',
+                    'quality_status' => 'partial',
+                ]],
+            ]],
+            'sources' => [[
+                'platform_hotel_id' => '3456814',
+                'source_url' => 'https://hotels.ctrip.com/hotels/3456814.html',
+                'response_ref' => 'ota_ctrip_entity_snapshots#901',
+                'persistence_readback_status' => 'readback_verified',
+                'source_validation_status' => 'partial',
+            ]],
+            'next_action' => '补齐未知公开页字段。',
+            'score_status' => 'not_calculated_no_validated_scoring_rule',
+            'source_policy' => 'persisted_public_page_facts_only_no_default_score_no_ota_write',
+            'scope_notice' => '仅为 OTA 公开页证据目录。',
+        ], [
+            'assignee_id' => 3,
+            'due_at' => '2026-07-20T18:00',
+            'review_at' => '2026-07-21T10:00',
+        ]);
+        $service = new OperationManagementService();
+
+        $first = $service->createExecutionIntent([7], 7, $draft['input'], 3, false, $draft['idempotency_key']);
+        $second = $service->createExecutionIntent([7], 7, $draft['input'], 3, false, $draft['idempotency_key']);
+
+        self::assertSame($first['id'], $second['id']);
+        self::assertTrue($second['idempotent_replay']);
+        self::assertSame('ota_diagnosis', $first['source_module']);
+        self::assertSame('data_collection', $first['object_type']);
+        self::assertSame('complete_public_page_evidence', $first['action_type']);
+        self::assertSame(7, $first['hotel_id']);
+        self::assertSame('2026-07-19', $first['date_start']);
+        self::assertContains('ota_ctrip_entity_snapshots#901', $first['evidence']['evidence_refs']);
+        self::assertContains('platform_basics:address:missing', $first['evidence']['data_gaps']);
+        self::assertSame([
+            'assignee_id' => 3,
+            'due_at' => '2026-07-20 18:00:00',
+            'review_at' => '2026-07-21 10:00:00',
+            'source_policy' => 'human_assigned_schedule_requires_manual_approval_and_readback_review',
+        ], $first['target_value']['workflow_schedule']);
+        self::assertSame(1, (int)Db::name('operation_execution_intents')->count());
     }
 
     public function testSchemaAndControllerExposeTheConcurrencyContract(): void

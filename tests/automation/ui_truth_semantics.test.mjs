@@ -17,6 +17,7 @@ const researchStatic = read('public/revenue-research-static.js');
 const researchPage = read('resources/frontend/templates/fragments/19-page-revenue-research-center.html');
 const simulationStatic = read('public/simulation-static.js');
 const collaborationPage = read('resources/frontend/templates/fragments/06-page-collaboration-efficiency.html');
+const transferContextPage = read('resources/frontend/templates/fragments/08-shared-transfer-context.html');
 
 const loadWindowApi = (source, key) => {
   const context = { window: {}, console };
@@ -140,4 +141,102 @@ test('expansion collaboration starts unverified and exposes the evidence needed 
   assert.match(collaborationPage, /示例值不能作为立项或执行依据/);
   assert.match(appMain, /source_evidence: input\.source_evidence/);
   assert.match(appMain, /review_status: input\.review_status/);
+});
+
+test('transfer source metrics keep whole-hotel reports separate from per-metric OTA truth', () => {
+  const api = loadWindowApi(simulationStatic, 'SUXI_SIMULATION_STATIC');
+  const snapshot = {
+    hotel_id: 7,
+    hotel_name: '虹桥样板店',
+    current_window: { start: '2026-06-20', end: '2026-07-19' },
+    source_counts: { daily_reports: 1 },
+    current: {
+      daily_report_days: 1,
+      revenue: 0,
+      room_nights: 10,
+      adr: 0,
+      occupancy_rate: 0,
+      ota_channel_revenue: 0,
+      ota_channel_revenue_observed: true,
+      ota_channel_orders: 0,
+      ota_channel_orders_observed: true,
+      ota_channel_room_nights: 0,
+      ota_channel_room_nights_observed: true,
+    },
+    truth_context: {
+      status: 'verified',
+      status_label: '已验证',
+      metric_scope: 'ota_channel',
+      hotels: [{ system_hotel_id: 7, name: '虹桥样板店' }],
+      platforms: ['ctrip'],
+      date_range: { start: '2026-06-20', end: '2026-07-19' },
+      source_methods: ['browser_profile'],
+      source_table: 'online_daily_data',
+      collected_at_range: { start: '2026-07-19 08:00:00', end: '2026-07-19 08:00:00' },
+      included_verified_count: 1,
+      persistence: {
+        record_count: 1,
+        stored_count: 1,
+        readback_verified_count: 1,
+        excluded_untrusted_count: 0,
+      },
+      failure_reason: '',
+    },
+  };
+  const rows = api.buildTransferSourceMetricRows({
+    snapshot,
+    formatWan: value => `${value}万元`,
+    aiRound: (value, digits = 0) => Number(Number(value).toFixed(digits)),
+  });
+  const byKey = key => rows.find(row => row.key === key);
+
+  assert.equal(byKey('whole_hotel_revenue').value, '0万元', 'observed whole-hotel zero must remain zero');
+  assert.equal(byKey('whole_hotel_revenue').truth.metric_scope, 'whole_hotel_operating_report');
+  assert.equal(byKey('whole_hotel_revenue').truth.status, 'partial', 'local daily report evidence must not be globally upgraded');
+  assert.equal(byKey('whole_hotel_occupancy_rate').value, '0%', 'observed whole-hotel zero occupancy must remain zero');
+  assert.equal(byKey('whole_hotel_occupancy_rate').calculationStatus, 'calculated');
+  assert.equal(byKey('ota_channel_revenue').value, '0万元', 'verified OTA zero must remain zero');
+  assert.equal(byKey('ota_channel_orders').value, '0单');
+  assert.equal(byKey('ota_channel_room_nights').value, '0间夜');
+  assert.equal(byKey('ota_channel_revenue').truth.status, 'verified');
+  assert.equal(byKey('ota_channel_revenue').truth.metric_scope, 'ota_channel');
+  assert.equal(byKey('ota_channel_revenue').truth.source.table, 'online_daily_data');
+
+  const missingRows = api.buildTransferSourceMetricRows({
+    snapshot: {
+      ...snapshot,
+      current: { ...snapshot.current, ota_channel_revenue_observed: false },
+    },
+  });
+  const missingOtaRevenue = missingRows.find(row => row.key === 'ota_channel_revenue');
+  assert.equal(missingOtaRevenue.value, '—');
+  assert.equal(missingOtaRevenue.calculationStatus, 'missing');
+  assert.equal(missingOtaRevenue.truth.status, 'partial', 'a verified snapshot must not upgrade its missing metric');
+  assert.match(missingOtaRevenue.truth.failure_reason, /ota_channel_revenue_value_not_observed/);
+
+  const failedRows = api.buildTransferSourceMetricRows({
+    snapshot: {
+      ...snapshot,
+      current: { ...snapshot.current, ota_channel_revenue_observed: false },
+      truth_context: {
+        ...snapshot.truth_context,
+        status: 'collection_failed',
+        status_label: '采集失败',
+        failure_reason: 'capture_failed',
+      },
+    },
+  });
+  const failedOtaRevenue = failedRows.find(row => row.key === 'ota_channel_revenue');
+  assert.equal(failedOtaRevenue.value, '—');
+  assert.equal(failedOtaRevenue.truth.status, 'collection_failed');
+  assert.match(failedOtaRevenue.truth.failure_reason, /capture_failed/);
+
+  assert.match(appMain, /const transferSourceMetricRows = computed/);
+  assert.match(appMain, /snapshot: transferSourceSnapshot\.value/);
+  assert.match(transferContextPage, /v-for="row in transferSourceMetricRows"/);
+  assert.match(transferContextPage, /transfer-source-metric-\$\{row\.key\}-calculation-status/);
+  assert.match(transferContextPage, /onlineTruthStatusText\(row\.truth\)/);
+  assert.match(transferContextPage, /onlineTruthDetailText\(row\.truth\)/);
+  assert.match(transferContextPage, /全酒店经营日报与 OTA 渠道指标分开呈现/);
+  assert.doesNotMatch(transferContextPage, /transferSourceSnapshot\.current\?\.(?:revenue|adr|occupancy_rate)/);
 });

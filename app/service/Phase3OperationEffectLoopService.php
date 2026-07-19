@@ -17,8 +17,15 @@ final class Phase3OperationEffectLoopService
     public function build(array $options = []): array
     {
         $runId = trim((string)($options['run_id'] ?? ''));
+        $scopeHotelId = $this->scopeHotelId($options);
         $patrolService = new DailyWorkbenchPatrolService();
-        $snapshot = $runId !== '' ? $patrolService->findByRunId($runId) : $patrolService->latest();
+        if ($scopeHotelId > 0) {
+            $snapshot = $runId !== ''
+                ? $patrolService->findByRunIdForHotel($runId, $scopeHotelId)
+                : $patrolService->latestForHotel($scopeHotelId);
+        } else {
+            $snapshot = $runId !== '' ? $patrolService->findByRunId($runId) : $patrolService->latest();
+        }
         if ($snapshot === null) {
             throw new \RuntimeException('Daily workbench patrol snapshot not found.');
         }
@@ -27,6 +34,20 @@ final class Phase3OperationEffectLoopService
     }
 
     public function ledger(int $limit = 50): array
+    {
+        return $this->buildLedger($limit, null);
+    }
+
+    public function ledgerForHotel(int $hotelId, int $limit = 50): array
+    {
+        if ($hotelId <= 0) {
+            throw new \InvalidArgumentException('hotel_id is required.');
+        }
+
+        return $this->buildLedger($limit, $hotelId);
+    }
+
+    private function buildLedger(int $limit, ?int $scopeHotelId): array
     {
         $limit = max(1, min(200, $limit));
 
@@ -39,20 +60,24 @@ final class Phase3OperationEffectLoopService
                 'collection_fields_changed' => false,
                 'raw_data_exposed' => false,
                 'auto_decision_enabled' => false,
+                'hotel_id' => $scopeHotelId,
             ],
-            'sops' => $this->readLedger(self::SOP_LEDGER_FILE, $limit),
-            'replication_plans' => $this->readLedger(self::REPLICATION_LEDGER_FILE, $limit),
+            'sops' => $this->readLedger(self::SOP_LEDGER_FILE, $limit, $scopeHotelId),
+            'replication_plans' => $this->readLedger(self::REPLICATION_LEDGER_FILE, $limit, $scopeHotelId),
         ];
     }
 
     public function publishSop(array $input, ?int $userId = null): array
     {
         $row = $this->resolveLoopRow($input);
+        $this->assertLoopRowScope($row, $this->scopeHotelId($input));
         return $this->publishSopFromLoopRow($row, $input, $userId);
     }
 
     public function publishSopFromLoopRow(array $row, array $input = [], ?int $userId = null): array
     {
+        $scopeHotelId = $this->scopeHotelId($input);
+        $this->assertLoopRowScope($row, $scopeHotelId);
         $stages = is_array($row['stages'] ?? null) ? $row['stages'] : [];
         $sop = is_array($stages['sop'] ?? null) ? $stages['sop'] : [];
         if ((string)($sop['status'] ?? '') !== 'candidate') {
@@ -107,19 +132,22 @@ final class Phase3OperationEffectLoopService
         ];
 
         return [
-            'sop' => $this->appendLedger(self::SOP_LEDGER_FILE, $entry),
-            'ledger' => $this->ledger(),
+            'sop' => $this->appendLedger(self::SOP_LEDGER_FILE, $entry, $scopeHotelId > 0 ? $scopeHotelId : null),
+            'ledger' => $scopeHotelId > 0 ? $this->ledgerForHotel($scopeHotelId) : $this->ledger(),
         ];
     }
 
     public function createReplicationPlan(array $input, ?int $userId = null): array
     {
         $row = $this->resolveLoopRow($input);
+        $this->assertLoopRowScope($row, $this->scopeHotelId($input));
         return $this->createReplicationPlanFromLoopRow($row, $input, $userId);
     }
 
     public function createReplicationPlanFromLoopRow(array $row, array $input = [], ?int $userId = null): array
     {
+        $scopeHotelId = $this->scopeHotelId($input);
+        $this->assertLoopRowScope($row, $scopeHotelId);
         $stages = is_array($row['stages'] ?? null) ? $row['stages'] : [];
         $sop = is_array($stages['sop'] ?? null) ? $stages['sop'] : [];
         $replication = is_array($stages['replication'] ?? null) ? $stages['replication'] : [];
@@ -167,13 +195,20 @@ final class Phase3OperationEffectLoopService
         ];
 
         return [
-            'replication_plan' => $this->appendLedger(self::REPLICATION_LEDGER_FILE, $entry),
-            'ledger' => $this->ledger(),
+            'replication_plan' => $this->appendLedger(self::REPLICATION_LEDGER_FILE, $entry, $scopeHotelId > 0 ? $scopeHotelId : null),
+            'ledger' => $scopeHotelId > 0 ? $this->ledgerForHotel($scopeHotelId) : $this->ledger(),
         ];
     }
 
     public function buildFromSnapshot(array $snapshot, array $options = []): array
     {
+        $scopeHotelId = $this->scopeHotelId($options);
+        if ($scopeHotelId > 0) {
+            $snapshotScope = is_array($snapshot['scope'] ?? null) ? $snapshot['scope'] : [];
+            if ((int)($snapshotScope['hotel_id'] ?? 0) !== $scopeHotelId) {
+                throw new \RuntimeException('Daily workbench patrol snapshot is outside the selected hotel scope.');
+            }
+        }
         $scope = is_array($snapshot['scope'] ?? null) ? $snapshot['scope'] : [];
         $targetDate = $this->normalizeDate((string)($options['target_date'] ?? $scope['target_date'] ?? date('Y-m-d')));
         $limit = $this->normalizeLimit($options['limit'] ?? self::DEFAULT_LIMIT);
@@ -223,6 +258,7 @@ final class Phase3OperationEffectLoopService
                 'hotel_id' => $hotelId,
                 'hotel_name' => (string)($action['hotel_name'] ?? $sourceRow['hotel_name'] ?? ''),
                 'target_date' => $targetDate,
+                'hotel_id' => $scopeHotelId > 0 ? $scopeHotelId : ($scope['hotel_id'] ?? null),
                 'metric_scope' => 'ota_channel',
                 'source_policy' => 'read_existing_daily_workbench_patrol_snapshot_and_online_daily_data_only',
                 'stages' => [
@@ -635,9 +671,9 @@ final class Phase3OperationEffectLoopService
         throw new \RuntimeException('Phase 3 operation effect loop row not found.');
     }
 
-    private function readLedger(string $fileName, int $limit): array
+    private function readLedger(string $fileName, int $limit, ?int $scopeHotelId = null): array
     {
-        $path = $this->ledgerPath($fileName);
+        $path = $this->ledgerPath($fileName, $scopeHotelId);
         if (!is_file($path)) {
             return [];
         }
@@ -647,9 +683,9 @@ final class Phase3OperationEffectLoopService
         return array_slice(array_values(array_filter($items, static fn($item): bool => is_array($item))), 0, $limit);
     }
 
-    private function appendLedger(string $fileName, array $entry): array
+    private function appendLedger(string $fileName, array $entry, ?int $scopeHotelId = null): array
     {
-        $path = $this->ledgerPath($fileName);
+        $path = $this->ledgerPath($fileName, $scopeHotelId);
         $decoded = is_file($path) ? json_decode((string)file_get_contents($path), true) : [];
         $items = is_array($decoded['items'] ?? null) ? $decoded['items'] : [];
         array_unshift($items, $entry);
@@ -669,12 +705,29 @@ final class Phase3OperationEffectLoopService
         return $entry;
     }
 
-    private function ledgerPath(string $fileName): string
+    private function ledgerPath(string $fileName, ?int $scopeHotelId = null): string
     {
         $safeFile = preg_replace('/[^a-zA-Z0-9_.-]+/', '', $fileName) ?: $fileName;
         $dir = rtrim(runtime_path(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . self::LEDGER_DIR;
+        if ($scopeHotelId !== null && $scopeHotelId > 0) {
+            $dir .= DIRECTORY_SEPARATOR . 'hotel_' . $scopeHotelId;
+        }
         $this->ensureDirectory($dir);
         return $dir . DIRECTORY_SEPARATOR . $safeFile;
+    }
+
+    private function scopeHotelId(array $input): int
+    {
+        return isset($input['scope_hotel_id']) && is_numeric($input['scope_hotel_id'])
+            ? max(0, (int)$input['scope_hotel_id'])
+            : 0;
+    }
+
+    private function assertLoopRowScope(array $row, int $scopeHotelId): void
+    {
+        if ($scopeHotelId > 0 && (int)($row['hotel_id'] ?? 0) !== $scopeHotelId) {
+            throw new \RuntimeException('Phase 3 operation effect loop row is outside the selected hotel scope.');
+        }
     }
 
     private function ledgerId(string $prefix, string $seed): string

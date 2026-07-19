@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\service;
 
+use app\model\Hotel;
 use app\model\SystemConfig;
 use app\model\User;
 
@@ -18,12 +19,20 @@ class ProtectedCapabilityService
     /** @var array<string, mixed> */
     private array $policy;
 
+    /** @var callable(int): int|null */
+    private $hotelTenantResolver;
+
+    /** @var array<int, int> */
+    private array $hotelTenantCache = [];
+
     /**
      * @param array<string, mixed>|null $policy
+     * @param callable(int): int|null $hotelTenantResolver
      */
-    public function __construct(?array $policy = null)
+    public function __construct(?array $policy = null, ?callable $hotelTenantResolver = null)
     {
         $this->policy = $this->normalizePolicy($policy ?? $this->loadPolicy());
+        $this->hotelTenantResolver = $hotelTenantResolver;
     }
 
     /**
@@ -163,6 +172,8 @@ class ProtectedCapabilityService
                         'api/simulation',
                         'api/expansion',
                         'api/opening',
+                        'api/lifecycle',
+                        'api/investment-decision',
                     ],
                     'response_mode' => 'summary_only',
                     'rate_limit' => ['scope' => 'protected_investment', 'limit' => 30, 'window' => 3600],
@@ -278,8 +289,21 @@ class ProtectedCapabilityService
 
         $permission = trim((string)($capability['permission'] ?? ''));
         $module = trim((string)($capability['module'] ?? ''));
-        $tenantId = $this->resolveTenantId($params, $user);
         $hotelId = $this->resolveHotelId($params, $user);
+        $tenantId = $this->resolveTenantId($params, $user);
+
+        $claimedTenantId = $this->positiveInt($params['tenant_id'] ?? null);
+        if ($claimedTenantId > 0 && $tenantId > 0 && $claimedTenantId !== $tenantId) {
+            return [
+                'allowed' => false,
+                'reason' => 'tenant_context_mismatch',
+                'status' => 403,
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'required_permission' => $permission,
+                'required_module' => $module,
+            ];
+        }
 
         if (!$this->hotelScopeAllows($user, $hotelId)) {
             return [
@@ -297,6 +321,18 @@ class ProtectedCapabilityService
             return [
                 'allowed' => false,
                 'reason' => 'role_permission_denied',
+                'status' => 403,
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'required_permission' => $permission,
+                'required_module' => $module,
+            ];
+        }
+
+        if ($permission !== '' && !$this->hotelCapabilityAllows($user, $hotelId, $permission)) {
+            return [
+                'allowed' => false,
+                'reason' => 'hotel_permission_denied',
                 'status' => 403,
                 'tenant_id' => $tenantId,
                 'hotel_id' => $hotelId,
@@ -371,19 +407,12 @@ class ProtectedCapabilityService
      */
     public function resolveTenantId(array $params, User $user): int
     {
-        foreach (['tenant_id', 'system_hotel_id', 'hotel_id'] as $key) {
-            if (isset($params[$key]) && is_numeric($params[$key]) && (int)$params[$key] > 0) {
-                return (int)$params[$key];
-            }
+        $hotelId = $this->resolveHotelId($params, $user);
+        if ($hotelId > 0) {
+            return $this->tenantIdForHotel($hotelId);
         }
 
-        foreach (['tenant_id', 'hotel_id'] as $key) {
-            if (isset($user->{$key}) && is_numeric($user->{$key}) && (int)$user->{$key} > 0) {
-                return (int)$user->{$key};
-            }
-        }
-
-        return 0;
+        return $this->positiveInt($user->tenant_id ?? null);
     }
 
     /**
@@ -397,7 +426,20 @@ class ProtectedCapabilityService
             }
         }
 
-        return isset($user->hotel_id) && is_numeric($user->hotel_id) ? (int)$user->hotel_id : 0;
+        $primaryHotelId = $this->positiveInt($user->hotel_id ?? null);
+        if ($primaryHotelId > 0) {
+            return $primaryHotelId;
+        }
+
+        try {
+            $permitted = array_values(array_unique(array_filter(
+                array_map('intval', $user->getPermittedHotelIds()),
+                static fn(int $id): bool => $id > 0
+            )));
+            return count($permitted) === 1 ? $permitted[0] : 0;
+        } catch (\Throwable $e) {
+            return 0;
+        }
     }
 
     public function normalizePath(string $uri): string
@@ -504,12 +546,52 @@ class ProtectedCapabilityService
 
     private function hotelScopeAllows(User $user, int $hotelId): bool
     {
-        $permitted = array_map('intval', $user->getPermittedHotelIds());
-        if ($hotelId > 0) {
-            return in_array($hotelId, $permitted, true);
+        if ($hotelId <= 0) {
+            return false;
         }
 
-        return $permitted !== [];
+        $permitted = array_map('intval', $user->getPermittedHotelIds());
+        return in_array($hotelId, $permitted, true);
+    }
+
+    private function hotelCapabilityAllows(User $user, int $hotelId, string $permission): bool
+    {
+        try {
+            return $user->hasHotelPermission($hotelId, $permission);
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    private function tenantIdForHotel(int $hotelId): int
+    {
+        if ($hotelId <= 0) {
+            return 0;
+        }
+        if (array_key_exists($hotelId, $this->hotelTenantCache)) {
+            return $this->hotelTenantCache[$hotelId];
+        }
+
+        $tenantId = 0;
+        try {
+            if ($this->hotelTenantResolver !== null) {
+                $tenantId = $this->positiveInt(($this->hotelTenantResolver)($hotelId));
+            } else {
+                $tenantId = $this->positiveInt(Hotel::where('id', $hotelId)->value('tenant_id'));
+            }
+        } catch (\Throwable $e) {
+            $tenantId = 0;
+        }
+
+        // Legacy installations used hotel_id as the tenant key. The fallback
+        // remains server-derived and never trusts a request tenant_id.
+        $this->hotelTenantCache[$hotelId] = $tenantId > 0 ? $tenantId : $hotelId;
+        return $this->hotelTenantCache[$hotelId];
+    }
+
+    private function positiveInt($value): int
+    {
+        return is_numeric($value) && (int)$value > 0 ? (int)$value : 0;
     }
 
     private function roleAllows(User $user, string $permission): bool

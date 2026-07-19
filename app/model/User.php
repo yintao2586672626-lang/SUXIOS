@@ -26,6 +26,14 @@ class User extends Model
     // 隐藏字段
     protected $hidden = ['password'];
 
+    /**
+     * Authorization helpers are reused only by this model instance. This keeps
+     * login payload construction from rebuilding schema and hotel-scope state
+     * for every permission without sharing tenant state across users.
+     */
+    private ?HotelScopeService $hotelScopeServiceInstance = null;
+    private ?PermissionService $permissionServiceInstance = null;
+
     // 状态常量
     const STATUS_ENABLED = 1;
     const STATUS_DISABLED = 0;
@@ -177,7 +185,7 @@ class User extends Model
      */
     public function hasHotelPermission(int $hotelId, string $permission): bool
     {
-        $authorization = (new PermissionService())->authorize($this, $permission, $hotelId);
+        $authorization = $this->permissionService()->authorize($this, $permission, $hotelId);
         return (bool)$authorization['allowed'];
     }
 
@@ -255,7 +263,7 @@ class User extends Model
             return true;
         }
 
-        return (new PermissionService())->roleAllows($this, 'can_manage_own_hotels');
+        return $this->permissionService()->roleAllows($this, 'can_manage_own_hotels');
     }
 
     /**
@@ -264,12 +272,31 @@ class User extends Model
      */
     public function getPermittedHotelIds(): array
     {
-        return (new HotelScopeService())->accessibleHotelIds($this);
+        return $this->hotelScopeService()->accessibleHotelIds($this);
     }
 
     public function getHotelScopeContext(): array
     {
-        return (new HotelScopeService())->scopeContext($this);
+        return $this->hotelScopeService()->scopeContext($this);
+    }
+
+    public function resetAuthorizationContext(): void
+    {
+        if ($this->hotelScopeServiceInstance !== null) {
+            $this->hotelScopeServiceInstance->invalidateUser($this);
+        }
+        $this->hotelScopeServiceInstance = null;
+        $this->permissionServiceInstance = null;
+    }
+
+    private function hotelScopeService(): HotelScopeService
+    {
+        return $this->hotelScopeServiceInstance ??= new HotelScopeService();
+    }
+
+    private function permissionService(): PermissionService
+    {
+        return $this->permissionServiceInstance ??= new PermissionService($this->hotelScopeService());
     }
 
     private function legacyGetPermittedHotelIds(): array

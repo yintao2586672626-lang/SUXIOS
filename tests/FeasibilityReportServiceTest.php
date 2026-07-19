@@ -20,6 +20,7 @@ final class FeasibilityReportServiceTest extends TestCase
         $input = $this->invokeNonPublic($service, 'normalizeInput', [[
             'project_name' => '  Project A  ',
             'city' => ' Shanghai ',
+            'system_hotel_id' => '17',
             'property_area' => '600.456',
             'room_count' => '20',
             'monthly_rent' => '40000',
@@ -32,6 +33,7 @@ final class FeasibilityReportServiceTest extends TestCase
         ]]);
 
         self::assertSame('Project A', $input['project_name']);
+        self::assertSame(17, $input['hotel_id']);
         self::assertSame(600.46, $input['property_area']);
         self::assertSame(20.0, $input['room_count']);
 
@@ -57,16 +59,150 @@ final class FeasibilityReportServiceTest extends TestCase
         self::assertStringContainsString('非经营实绩', implode(' ', $calculation['assumptions']));
     }
 
+    public function testZeroRevenueCannotBeReportedAsZeroRentRatio(): void
+    {
+        $service = new FeasibilityReportService($this->failingClient());
+
+        $scenario = $this->invokeNonPublic($service, 'scenario', [
+            'Zero revenue',
+            20.0,
+            0.0,
+            0.75,
+            $this->validInput(),
+            450000.0,
+            true,
+        ]);
+
+        self::assertSame(0.0, $scenario['monthly_revenue']);
+        self::assertNull($scenario['rent_ratio']);
+        self::assertSame('unavailable_non_positive_revenue', $scenario['rent_ratio_status']);
+        self::assertContains('rent_ratio_denominator_non_positive', $scenario['data_gaps']);
+        self::assertSame('rule_scenario_partial', $scenario['calculation_status']);
+        self::assertSame('高', $scenario['risk_level']);
+    }
+
+    public function testExplicitZeroRentKeepsCalculatedZeroRatioWithPositiveRevenue(): void
+    {
+        $service = new FeasibilityReportService($this->failingClient());
+        $input = $this->validInput(['monthly_rent' => 0.0]);
+
+        $calculation = $this->invokeNonPublic($service, 'calculate', [$input, []]);
+        $base = $calculation['scenarios'][1];
+
+        self::assertGreaterThan(0, $base['monthly_revenue']);
+        self::assertSame(0.0, $base['rent_ratio']);
+        self::assertSame('calculated', $base['rent_ratio_status']);
+        self::assertNotContains('rent_ratio_denominator_non_positive', $base['data_gaps']);
+        self::assertSame('rule_scenario_ready', $base['calculation_status']);
+        self::assertTrue($calculation['decision_ready']);
+    }
+
+    public function testModelAndHistoricalScenariosNormalizeUncalculableRentRatioToNull(): void
+    {
+        $client = new class extends LlmClient {
+            public array $schema = [];
+
+            public function createJsonResponse(array $messages, array $schema, string $modelKey = 'deepseek_v4_default'): array
+            {
+                $this->schema = $schema;
+
+                return [
+                    'conclusion_grade' => 'B',
+                    'conclusion_text' => 'Proceed after review',
+                    'core_reason' => 'Model response',
+                    'summary' => [],
+                    'basic_info' => [],
+                    'market_judgement' => [],
+                    'financial_scenarios' => [
+                        [
+                            'name' => 'Zero revenue',
+                            'adr' => 0,
+                            'occ' => 0.75,
+                            'monthly_revenue' => 0,
+                            'monthly_net_cashflow' => -100,
+                            'payback_months' => null,
+                            'rent_ratio' => 0,
+                            'risk_level' => '低',
+                        ],
+                        [
+                            'name' => 'Missing ratio',
+                            'adr' => 300,
+                            'occ' => 0.75,
+                            'monthly_revenue' => 135000,
+                            'monthly_net_cashflow' => 10000,
+                            'payback_months' => 45,
+                            'rent_ratio' => null,
+                            'risk_level' => '低',
+                        ],
+                    ],
+                    'risk_list' => [],
+                    'action_plan' => [],
+                    'assumptions' => [],
+                    'evidence' => [],
+                ];
+            }
+        };
+        $service = new FeasibilityReportService($client);
+        $input = $this->validInput(['monthly_rent' => 0.0]);
+        $calculation = $this->invokeNonPublic($service, 'calculate', [$input, []]);
+
+        $modelReport = $this->invokeNonPublic($service, 'buildAiReport', [$input, [], $calculation]);
+
+        self::assertSame(
+            ['number', 'null'],
+            $client->schema['properties']['financial_scenarios']['items']['properties']['rent_ratio']['type']
+        );
+        self::assertNull($modelReport['financial_scenarios'][0]['rent_ratio']);
+        self::assertSame('unavailable_non_positive_revenue', $modelReport['financial_scenarios'][0]['rent_ratio_status']);
+        self::assertSame('高', $modelReport['financial_scenarios'][0]['risk_level']);
+        self::assertNull($modelReport['financial_scenarios'][1]['rent_ratio']);
+        self::assertSame('unverified_missing_ratio', $modelReport['financial_scenarios'][1]['rent_ratio_status']);
+        self::assertFalse($modelReport['decision_ready']);
+        self::assertContains('rent_ratio_denominator_non_positive', $modelReport['data_gaps']);
+
+        $merged = $this->invokeNonPublic($service, 'mergeFinancials', [$modelReport, $input, $calculation]);
+        self::assertTrue($merged['decision_ready']);
+        self::assertSame(0.0, $merged['financial_scenarios'][1]['rent_ratio']);
+        self::assertSame('calculated', $merged['financial_scenarios'][1]['rent_ratio_status']);
+
+        $historicalReport = $modelReport;
+        $historicalReport['financial_scenarios'][1]['rent_ratio'] = 0;
+        $record = $this->invokeNonPublic($service, 'formatArrayRecord', [[
+            'id' => 8,
+            'project_name' => 'Historical Project',
+            'input_json' => json_encode($input, JSON_UNESCAPED_UNICODE),
+            'snapshot_json' => '[]',
+            'report_json' => json_encode($historicalReport, JSON_UNESCAPED_UNICODE),
+            'conclusion_grade' => 'B',
+            'payback_months' => 45,
+            'total_investment' => 450000,
+        ], true]);
+
+        self::assertNull($record['report']['financial_scenarios'][0]['rent_ratio']);
+        self::assertSame(0.0, $record['report']['financial_scenarios'][1]['rent_ratio']);
+        self::assertSame('calculated', $record['report']['financial_scenarios'][1]['rent_ratio_status']);
+        self::assertFalse($record['decision_ready']);
+        self::assertSame('unverified', $record['truth_context']['status']);
+        self::assertSame('investment_scenario', $record['truth_context']['metric_scope']);
+        self::assertSame('calculated', $record['metric_truth']['financial_scenarios.1.rent_ratio']['calculation_status']);
+        self::assertSame('missing', $record['metric_truth']['financial_scenarios.0.rent_ratio']['calculation_status']);
+        self::assertSame('user_input', $record['input_metric_truth']['monthly_rent']['calculation_basis']);
+        self::assertSame('ota_channel', $record['ota_truth_context']['metric_scope']);
+    }
+
     public function testSnapshotSummariesNormalizeDailyJsonAndCompetitorSamples(): void
     {
         $service = new FeasibilityReportService($this->failingClient());
 
         $daily = $this->invokeNonPublic($service, 'summarizeDailyReports', [[
-            ['report_data' => json_encode(['day_adr' => 300, 'day_occ_rate' => 75, 'day_revenue' => 1000], JSON_UNESCAPED_UNICODE)],
-            ['report_data' => ['adr' => 260, 'occ' => 0.5, 'revenue' => 900]],
+            ['id' => 11, 'report_date' => '2026-07-17', 'created_at' => '2026-07-17 23:00:00', 'report_data' => json_encode(['day_adr' => 300, 'day_occ_rate' => 75, 'day_revenue' => 1000], JSON_UNESCAPED_UNICODE)],
+            ['id' => 12, 'report_date' => '2026-07-18', 'created_at' => '2026-07-18 23:00:00', 'report_data' => ['adr' => 260, 'occ' => 0.5, 'revenue' => 900]],
             ['report_data' => '{bad-json'],
-        ]]);
-        $online = $this->invokeNonPublic($service, 'summarizeOnlineData', [[[1], [2]]]);
+        ], 17]);
+        $online = $this->invokeNonPublic($service, 'summarizeOnlineData', [[
+            $this->trustedOnlineRow(1, 17),
+            $this->trustedOnlineRow(2, 17, ['platform' => 'meituan', 'source' => 'meituan']),
+        ], 17]);
         $legacyCompetitors = $this->invokeNonPublic($service, 'summarizeCompetitors', [
             [['id' => 1], ['id' => 2]],
             [['price' => 260], ['price' => 300], ['price' => 0]],
@@ -83,7 +219,13 @@ final class FeasibilityReportServiceTest extends TestCase
         self::assertSame(280.0, $daily['avg_adr']);
         self::assertSame(0.63, $daily['avg_occ']);
         self::assertSame(950.0, $daily['avg_revenue']);
+        self::assertSame('unverified', $daily['truth_context']['status']);
+        self::assertSame('whole_hotel_local_report', $daily['truth_context']['metric_scope']);
+        self::assertSame(17, $daily['truth_context']['hotels'][0]['system_hotel_id']);
+        self::assertSame('2026-07-17', $daily['truth_context']['date_range']['start']);
+        self::assertSame('calculated', $daily['metric_truth']['avg_revenue']['calculation_status']);
         self::assertSame(2, $online['sample_count']);
+        self::assertSame(2, $online['trusted_sample_count']);
         self::assertTrue($online['has_real_ota_data']);
         self::assertNull($legacyCompetitors['avg_competitor_price']);
         self::assertSame('reference_only', $legacyCompetitors['comparison_status']);
@@ -100,6 +242,58 @@ final class FeasibilityReportServiceTest extends TestCase
         self::assertNull($emptyDaily['avg_adr']);
         self::assertNull($emptyDaily['avg_occ']);
         self::assertNull($emptyDaily['avg_revenue']);
+
+        $zeroDaily = $this->invokeNonPublic($service, 'summarizeDailyReports', [[
+            ['id' => 13, 'report_date' => '2026-07-19', 'report_data' => ['adr' => 0, 'occ' => 0, 'revenue' => 0]],
+        ], 17]);
+        self::assertSame(0.0, $zeroDaily['avg_adr']);
+        self::assertSame(0.0, $zeroDaily['avg_occ']);
+        self::assertSame(0.0, $zeroDaily['avg_revenue']);
+        self::assertSame('calculated', $zeroDaily['metric_truth']['avg_revenue']['calculation_status']);
+    }
+
+    public function testSnapshotRowsDoNotMixHotelsWithinTheSameTenant(): void
+    {
+        $service = new FeasibilityReportService($this->failingClient());
+        $sameTenantRows = [
+            ['id' => 1, 'tenant_id' => 9, 'hotel_id' => 101, 'system_hotel_id' => 101, 'store_id' => 101],
+            ['id' => 2, 'tenant_id' => 9, 'hotel_id' => 202, 'system_hotel_id' => 202, 'store_id' => 202],
+        ];
+
+        foreach (['hotel_id', 'system_hotel_id', 'store_id'] as $hotelColumn) {
+            $scoped = $this->invokeNonPublic($service, 'filterSnapshotRowsForHotel', [
+                $sameTenantRows,
+                $hotelColumn,
+                101,
+            ]);
+            self::assertSame([1], array_column($scoped, 'id'), $hotelColumn . ' must isolate the target hotel');
+        }
+
+        $online = $this->invokeNonPublic($service, 'summarizeOnlineData', [[
+            $this->trustedOnlineRow(11, 101),
+            $this->trustedOnlineRow(12, 202),
+        ], 101]);
+        self::assertSame(1, $online['sample_count']);
+        self::assertSame(2, $online['queried_sample_count']);
+        self::assertSame(1, $online['trusted_sample_count']);
+        self::assertSame(101, $online['evidence_rows'][0]['hotel']['system_hotel_id']);
+    }
+
+    public function testOnlineSnapshotRequiresTargetHotelAndTrustedReadbackFields(): void
+    {
+        $service = new FeasibilityReportService($this->failingClient());
+        $countOnly = $this->invokeNonPublic($service, 'summarizeOnlineData', [[
+            ['id' => 1, 'system_hotel_id' => 17],
+        ], 17]);
+        self::assertFalse($countOnly['has_real_ota_data']);
+        self::assertSame(0, $countOnly['trusted_sample_count']);
+        self::assertContains('target_hotel_trusted_readback_rows_missing', $countOnly['data_gaps']);
+
+        $unbound = $this->invokeNonPublic($service, 'buildSnapshot', [$this->validInput(), 9]);
+        self::assertSame('unverified', $unbound['snapshot_scope']['status']);
+        self::assertContains('target_hotel_missing', $unbound['data_gaps']);
+        self::assertSame(0, array_sum($unbound['source_counts']));
+        self::assertFalse($unbound['online_summary']['has_real_ota_data']);
     }
 
     public function testCalculateKeepsMissingCoreInputsNullWithoutHiddenDefaults(): void
@@ -570,6 +764,26 @@ final class FeasibilityReportServiceTest extends TestCase
             'validation_status' => 'verified',
             'readback_verified' => 1,
             'fetch_time' => '2026-07-17 10:00:00',
+        ], $overrides);
+    }
+
+    private function trustedOnlineRow(int $id, int $hotelId, array $overrides = []): array
+    {
+        return array_merge([
+            'id' => $id,
+            'tenant_id' => 9,
+            'system_hotel_id' => $hotelId,
+            'hotel_id' => 'ota-' . $hotelId,
+            'hotel_name' => 'Hotel ' . $hotelId,
+            'platform' => 'ctrip',
+            'source' => 'ctrip',
+            'data_date' => '2026-07-18',
+            'ingestion_method' => 'browser_profile',
+            'snapshot_time' => '2026-07-18 09:30:00',
+            'validation_status' => 'verified',
+            'readback_verified' => 1,
+            'create_time' => '2026-07-18 09:31:00',
+            'update_time' => '2026-07-18 09:31:00',
         ], $overrides);
     }
 

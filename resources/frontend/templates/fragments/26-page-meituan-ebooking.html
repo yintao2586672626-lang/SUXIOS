@@ -865,7 +865,7 @@
                                                 </thead>
                                                 <tbody>
                                                     <tr v-for="item in meituanDownloadData.overviewRows" :key="item.id" class="border-b hover:bg-gray-50">
-                                                        <td class="px-4 py-2 border">{{ item.hotel_name }}</td>
+                                                        <td class="px-4 py-2 border">{{ item.overview_hotel_name || item.hotel_name }}</td>
                                                         <td class="px-4 py-2 border">{{ item.data_date }}</td>
                                                         <td class="px-4 py-2 border">{{ item.rank === null || item.rank === undefined || item.rank === '' ? '-' : item.rank }}</td>
                                                         <td class="px-4 py-2 border">{{ item.data_value === null || item.data_value === undefined || item.data_value === '' ? '-' : formatNumber(item.data_value) }}</td>
@@ -1134,7 +1134,9 @@
                                                         </td>
                                                     </tr>
                                                     <tr v-if="meituanDownloadData.adsRowsCount === 0">
-                                                        <td colspan="8" class="px-4 py-8 text-center text-gray-400">暂无美团广告数据</td>
+                                                        <td colspan="8" class="px-4 py-8 text-center text-gray-400">
+                                                            {{ isMeituanAdsNotApplicableForHotel(onlineDataFilter.hotel_id || meituanForm.hotelId) ? '当前酒店未开通美团广告服务（不适用）' : '暂无美团广告数据' }}
+                                                        </td>
                                                     </tr>
                                                 </tbody>
                                             </table>

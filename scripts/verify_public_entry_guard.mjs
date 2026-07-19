@@ -23,6 +23,8 @@ const appTemplatePath = path.join(repoRoot, 'resources/frontend/app-template.htm
 const appRenderRuntimePath = path.join(repoRoot, 'public/app-render.min.js');
 const appStartupRenderRuntimePath = path.join(repoRoot, 'public/app-startup-render.min.js');
 const publicRouterPath = path.join(repoRoot, 'public/router.php');
+const publicHtaccessPath = path.join(repoRoot, 'public/.htaccess');
+const competitorDeviceComponentPath = path.join(repoRoot, 'public/components/admin/competitor-device-management.js');
 const systemStaticPath = path.join(repoRoot, 'public/system-static.js');
 const revenueAiStaticPath = path.join(repoRoot, 'public/revenue-ai-static.js');
 const operationStaticPath = path.join(repoRoot, 'public/operation-static.js');
@@ -1128,7 +1130,7 @@ if (!runtimeAssetPaths.includes('system-static.js')
     || !content.includes('const homeSecondaryPanelsReady = ref(false);')
     || !content.includes('const scheduleHomeSecondaryPanelsReady = (delayMs = HOME_SECONDARY_PANEL_DELAY_MS) => {')
     || !content.includes('clearHomeSecondaryPanelsReadyTimer();\n                    homeSecondaryPanelsReady.value = false;\n                    destroyHomeTrendChart();')
-    || !/homeSecondaryPanelsReady\.value = false;\s+scheduleHomeSecondaryPanelsReady\(\);[\s\S]{0,320}?runPageLoadOnce\(newPage, 'main', \(\) => loadCompassData\(\)\);/.test(content)
+    || !/homeSecondaryPanelsReady\.value = false;\s+scheduleHomeSecondaryPanelsReady\(\);[\s\S]{0,320}?runPageLoadOnce\(newPage, 'main', \(\) => loadCompassData\(\{\s*skipOtaBackground:\s*true\s*\}\)\);/.test(content)
     || !/<div v-if="homeSecondaryPanelsReady"[^>]*data-testid="daily-ops-monitor-card"/.test(content)
     || !/<div v-if="homeSecondaryPanelsReady"[^>]*data-testid="home-weather-demand-card"/.test(content)
     || !/<div v-if="homeSecondaryPanelsReady"[^>]*data-testid="home-market-signal-card"/.test(content)
@@ -1255,7 +1257,7 @@ if (!runtimeAssetPaths.includes('system-static.js')
   }
   if (!/await loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);\s*if \(currentPage\.value !== 'ctrip-ebooking'\) return null;/.test(content)
     || !content.includes('const shouldApplySelectedConfig = options.applySelectedConfig === true;')
-    || !/if \(selectedCtripHotelId\.value && shouldApplySelectedConfig\) \{[\s\S]*deferUiTask\(\(\) => applyCtripHotelConfig\(false, \{[\s\S]*refreshList: false,[\s\S]*skipIfAligned: true,/.test(content)
+    || !/if \(selectedCtripHotelId\.value && shouldApplySelectedConfig\) \{[\s\S]{0,700}?deferUiTask\(\(\) => \(\s*isAuthSessionCurrent\(requestSession\)\s*\? applyCtripHotelConfig\(false, \{[\s\S]{0,300}?refreshList: false,[\s\S]{0,300}?skipIfAligned: true,/.test(content)
     || content.includes('prewarmSelectedCtripConfigSecret')
     || content.includes("if (selectedCtripHotelId.value) {\n                                await applyCtripHotelConfig(false);\n                            }\n                            return ctripConfigList.value;")) {
     failures.push('public/index.html Ctrip config list must return metadata after list data and only apply selected metadata when explicitly requested.');
@@ -3463,6 +3465,54 @@ if (!fs.existsSync(publicRouterPath)) {
     || !routerSource.includes("'-gzip-l' . SUXI_STATIC_GZIP_LEVEL . '.gz'")
     || !routerSource.includes("gzencode($responseContent ?? '', SUXI_STATIC_GZIP_LEVEL)")) {
     failures.push('public/router.php must cache level-6 gzip output under a level-specific identity.');
+  }
+  if (!routerSource.includes("Content-Security-Policy-Report-Only: ' . SUXI_CSP_REPORT_ONLY")
+    || !routerSource.includes("script-src-attr 'none'")) {
+    failures.push('public/router.php must emit the staged report-only content security policy.');
+  }
+  if (/header\(['"]Content-Security-Policy:/.test(routerSource)) {
+    failures.push('public/router.php must not enforce CSP until report-only violations are reviewed.');
+  }
+  if (!routerSource.includes("header('Strict-Transport-Security: max-age=31536000')")
+    || !routerSource.includes("SERVER_PORT")
+    || routerSource.includes('HTTP_X_FORWARDED_PROTO')) {
+    failures.push('public/router.php must emit HSTS only for a directly verified HTTPS request.');
+  }
+}
+
+if (!fs.existsSync(publicHtaccessPath)) {
+  failures.push('public/.htaccess is missing.');
+} else {
+  const htaccessSource = fs.readFileSync(publicHtaccessPath, 'utf8');
+  if (!htaccessSource.includes('Header always set Content-Security-Policy-Report-Only')
+    || !htaccessSource.includes("script-src-attr 'none'")) {
+    failures.push('public/.htaccess must emit the staged report-only content security policy.');
+  }
+  if (/Header\s+always\s+set\s+Content-Security-Policy\s+/.test(htaccessSource)) {
+    failures.push('public/.htaccess must not enforce CSP until report-only violations are reviewed.');
+  }
+  if (!htaccessSource.includes('Header always set Strict-Transport-Security "max-age=31536000" "expr=%{HTTPS} == \'on\'"')) {
+    failures.push('public/.htaccess must scope HSTS to HTTPS requests.');
+  }
+}
+
+if (!fs.existsSync(competitorDeviceComponentPath)) {
+  failures.push('The competitor device management component is missing.');
+} else {
+  const competitorDeviceComponentSource = fs.readFileSync(competitorDeviceComponentPath, 'utf8');
+  const appMainSource = fs.existsSync(appMainPath) ? fs.readFileSync(appMainPath, 'utf8') : '';
+  if (!appMainSource.includes('components/admin/competitor-device-management.js?v=20260719-device-lifecycle-v1')
+    || !appMainSource.includes("requireOnlineDataComponent('CompetitorDeviceManagementBody')")) {
+    failures.push('The admin data-config page must lazy-load the versioned competitor device management component.');
+  }
+  if (!competitorDeviceComponentSource.includes('components.CompetitorDeviceManagementBody')
+    || !competitorDeviceComponentSource.includes("'data-testid': 'competitor-device-management'")
+    || !competitorDeviceComponentSource.includes("'data-testid': 'competitor-device-one-time-token'")) {
+    failures.push('The competitor device component must expose the management and one-time credential states.');
+  }
+  if (/localStorage|sessionStorage/.test(competitorDeviceComponentSource)
+    || /console\.(?:log|debug)\([^)]*device_token/.test(competitorDeviceComponentSource)) {
+    failures.push('The competitor device component must not persist or log one-time device tokens.');
   }
 }
 

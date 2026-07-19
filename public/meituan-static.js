@@ -254,6 +254,67 @@ window.SUXI_MEITUAN_STATIC = (() => {
         };
     };
 
+    const hasMeituanTrafficDisplayMetric = (item) => [
+        getMeituanExposureMetricValue(item),
+        getMeituanClickMetricValue(item),
+        getMeituanFlowRateMetricValue(item),
+        getMeituanVisitorMetricValue(item),
+        getMeituanSubmitMetricValue(item),
+    ].some(value => value !== null);
+
+    const meituanVisibleFactKey = (item, module) => {
+        const hotelKey = item?.system_hotel_id ?? item?.hotel_id ?? item?.hotel_name;
+        const dataDate = String(item?.data_date || '').trim();
+        if (hotelKey === undefined || hotelKey === null || String(hotelKey).trim() === '' || dataDate === '') {
+            return '';
+        }
+        const token = value => value === null ? 'missing' : String(value);
+        let metrics = [];
+        if (module === 'traffic') {
+            metrics = [
+                getMeituanExposureMetricValue(item),
+                getMeituanClickMetricValue(item),
+                getMeituanFlowRateMetricValue(item),
+                getMeituanVisitorMetricValue(item),
+                getMeituanSubmitMetricValue(item),
+            ];
+        } else if (module === 'order') {
+            metrics = [
+                getOnlineDataMetricMaybeNumber(item, ['book_order_num']),
+                getOnlineDataMetricMaybeNumber(item, ['quantity']),
+                getOnlineDataMetricMaybeNumber(item, ['amount']),
+                getOnlineDataMetricMaybeNumber(item, ['data_value']),
+            ];
+        } else if (module === 'review') {
+            metrics = [
+                getMeituanReviewScoreMetricValue(item),
+                getMeituanReviewCountMetricValue(item),
+                getMeituanBadReviewCountMetricValue(item),
+            ];
+        } else if (module === 'ads') {
+            metrics = [
+                getMeituanExposureMetricValue(item),
+                getMeituanClickMetricValue(item),
+                getMeituanFlowRateMetricValue(item),
+                getOnlineDataMetricMaybeNumber(item, ['amount']),
+                getOnlineDataMetricMaybeNumber(item, ['book_order_num']),
+            ];
+        }
+        return `${module}|${String(hotelKey).trim()}|${dataDate}|${metrics.map(token).join('|')}`;
+    };
+
+    const includeLatestMeituanVisibleFact = (seenKeys, item, module) => {
+        const key = meituanVisibleFactKey(item, module);
+        if (key === '') {
+            return true;
+        }
+        if (seenKeys.has(key)) {
+            return false;
+        }
+        seenKeys.add(key);
+        return true;
+    };
+
     const buildMeituanDownloadData = (rows = []) => {
         const allRows = [];
         const overviewRows = [];
@@ -261,6 +322,10 @@ window.SUXI_MEITUAN_STATIC = (() => {
         const orderRows = [];
         const reviewRows = [];
         const adsRows = [];
+        const trafficFactKeys = new Set();
+        const orderFactKeys = new Set();
+        const reviewFactKeys = new Set();
+        const adsFactKeys = new Set();
 
         const overviewHotels = new Set();
         const overviewDates = new Set();
@@ -296,8 +361,12 @@ window.SUXI_MEITUAN_STATIC = (() => {
             }
             allRows.push(item);
             if (isMeituanOverviewDataRow(item)) {
-                overviewRows.push(item);
-                const hotelKey = item?.system_hotel_id ?? item?.hotel_id ?? item?.hotel_name;
+                const overviewRow = {
+                    ...item,
+                    overview_hotel_name: item?.captured_hotel_name || item?.hotel_name || '',
+                };
+                overviewRows.push(overviewRow);
+                const hotelKey = overviewRow.overview_hotel_name || item?.hotel_id || item?.system_hotel_id;
                 if (hotelKey !== undefined && hotelKey !== null && String(hotelKey).trim() !== '') {
                     overviewHotels.add(String(hotelKey));
                 }
@@ -307,7 +376,10 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 if (getOnlineDataMetricMaybeNumber(item, ['rank_percent', 'percent']) !== null) overviewPercentCount++;
             }
 
-            if (isMeituanTrafficDataRow(item)) {
+            if (isMeituanTrafficDataRow(item)
+                && hasMeituanTrafficDisplayMetric(item)
+                && includeLatestMeituanVisibleFact(trafficFactKeys, item, 'traffic')
+            ) {
                 trafficRows.push(item);
                 const exposure = getMeituanExposureMetricValue(item);
                 const click = getMeituanClickMetricValue(item);
@@ -326,7 +398,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 }
             }
 
-            if (isMeituanOrderDataRow(item)) {
+            if (isMeituanOrderDataRow(item) && includeLatestMeituanVisibleFact(orderFactKeys, item, 'order')) {
                 orderRows.push(item);
                 const bookOrder = getOnlineDataMetricMaybeNumber(item, ['book_order_num']);
                 const quantity = getOnlineDataMetricMaybeNumber(item, ['quantity']);
@@ -345,7 +417,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 }
             }
 
-            if (isMeituanReviewDataRow(item)) {
+            if (isMeituanReviewDataRow(item) && includeLatestMeituanVisibleFact(reviewFactKeys, item, 'review')) {
                 const reviewRow = buildMeituanReviewDisplayRow(item);
                 reviewRows.push(reviewRow);
                 const score = reviewRow.review_score_value;
@@ -365,7 +437,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 }
             }
 
-            if (isMeituanAdsDataRow(item)) {
+            if (isMeituanAdsDataRow(item) && includeLatestMeituanVisibleFact(adsFactKeys, item, 'ads')) {
                 adsRows.push(item);
                 const exposure = getMeituanExposureMetricValue(item);
                 const click = getMeituanClickMetricValue(item);
@@ -4314,6 +4386,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         hasMeituanClickMetric,
         hasMeituanVisitorMetric,
         hasMeituanFlowRateMetric,
+        hasMeituanTrafficDisplayMetric,
         isMeituanOverviewDataRow,
         isMeituanTrafficDataRow,
         isMeituanOrderDataRow,

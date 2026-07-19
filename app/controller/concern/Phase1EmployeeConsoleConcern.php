@@ -3017,26 +3017,34 @@ trait Phase1EmployeeConsoleConcern
         ));
     }
 
-    private function phase1P0TrafficRequiredMetricKeys(): array
+    private function phase1P0TrafficRequiredMetricKeys(string $platform = ''): array
     {
-        return [
+        $metricKeys = [
             'list_exposure',
             'detail_exposure',
             'flow_rate',
             'order_filling_num',
             'order_submit_num',
         ];
+
+        return strtolower(trim($platform)) === 'meituan'
+            ? array_slice($metricKeys, 0, 3)
+            : $metricKeys;
     }
 
-    private function phase1P0TrafficRequiredStorageFields(): array
+    private function phase1P0TrafficRequiredStorageFields(string $platform = ''): array
     {
-        return [
+        $storageFields = [
             'online_daily_data.list_exposure',
             'online_daily_data.detail_exposure',
             'online_daily_data.flow_rate',
             'online_daily_data.order_filling_num',
             'online_daily_data.order_submit_num',
         ];
+
+        return strtolower(trim($platform)) === 'meituan'
+            ? array_slice($storageFields, 0, 3)
+            : $storageFields;
     }
 
     private function phase1P0TrafficRequiredFieldFactKeys(): array
@@ -3134,8 +3142,8 @@ trait Phase1EmployeeConsoleConcern
 
     private function phase1TrafficSourceReadinessForPlatform(string $platform, array $context): array
     {
-        $requiredMetricKeys = $this->phase1P0TrafficRequiredMetricKeys();
-        $requiredStorageFields = $this->phase1P0TrafficRequiredStorageFields();
+        $requiredMetricKeys = $this->phase1P0TrafficRequiredMetricKeys($platform);
+        $requiredStorageFields = $this->phase1P0TrafficRequiredStorageFields($platform);
         $requiredFieldFactKeys = $this->phase1P0TrafficRequiredFieldFactKeys();
         $targetDate = trim((string)($context['target_date'] ?? ''));
         $targetDateRows = max(0, (int)($context['target_date_rows'] ?? 0));
@@ -3999,10 +4007,7 @@ trait Phase1EmployeeConsoleConcern
             $uiStatus = method_exists($this, 'buildOnlineDataFieldFactStatus')
                 ? $this->buildOnlineDataFieldFactStatus($row, $raw)
                 : [];
-            $uiReady = (string)($uiStatus['status'] ?? $uiStatus['field_fact_status'] ?? '') === 'ready'
-                && ($uiStatus['raw_data_exposed'] ?? null) === false
-                && (int)($uiStatus['missing_count'] ?? -1) === 0
-                && (int)($uiStatus['stored_value_missing_count'] ?? -1) === 0;
+            $uiReady = ($uiStatus['raw_data_exposed'] ?? null) === false;
 
             foreach ($facts as $fact) {
                 if (!is_array($fact)) {

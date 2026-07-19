@@ -166,6 +166,203 @@ final class OtaPublicPageDiagnosisService
         ];
     }
 
+    /**
+     * Converts a server-built diagnosis into the canonical operation task-draft contract.
+     * Only evidence identity and gap metadata are carried forward; no score or OTA action is invented.
+     *
+     * @param array<string, mixed> $diagnosis
+     * @param array<string, mixed> $schedule
+     * @return array{input:array<string,mixed>,idempotency_key:string,source_record_id:int,diagnosis_fingerprint:string}
+     */
+    public function buildExecutionIntentDraft(array $diagnosis, array $schedule): array
+    {
+        $systemHotelId = (int)($diagnosis['system_hotel_id'] ?? 0);
+        $platform = strtolower(trim((string)($diagnosis['platform'] ?? '')));
+        $businessDate = trim((string)($diagnosis['business_date'] ?? ''));
+        $status = trim((string)($diagnosis['status'] ?? ''));
+        if ($systemHotelId <= 0) {
+            throw new \InvalidArgumentException('diagnosis system_hotel_id must be positive');
+        }
+        if (!in_array($platform, ['ctrip', 'meituan'], true)) {
+            throw new \InvalidArgumentException('diagnosis platform must be ctrip or meituan');
+        }
+        if (!$this->isDate($businessDate)) {
+            throw new \InvalidArgumentException('diagnosis business_date must be YYYY-MM-DD');
+        }
+        if (!in_array($status, ['evidence_complete', 'insufficient_evidence'], true)) {
+            throw new \InvalidArgumentException('diagnosis status is not supported');
+        }
+
+        $coverage = is_array($diagnosis['evidence_coverage'] ?? null) ? $diagnosis['evidence_coverage'] : [];
+        $observedFieldCount = max(0, (int)($coverage['observed_field_count'] ?? 0));
+        $verifiedFieldCount = max(0, (int)($coverage['verified_field_count'] ?? 0));
+        $expectedFieldCount = max(0, (int)($coverage['expected_field_count'] ?? 0));
+        $coverageRate = is_numeric($coverage['coverage_rate'] ?? null)
+            ? (float)$coverage['coverage_rate']
+            : null;
+        $dataGaps = $this->executionIntentDataGaps((array)($diagnosis['dimensions'] ?? []));
+        $sourceEvidence = $this->executionIntentSourceEvidence((array)($diagnosis['sources'] ?? []));
+        $workflowSchedule = $this->normalizeTaskSchedule($schedule);
+        $diagnosisFingerprint = hash('sha256', json_encode([
+            'system_hotel_id' => $systemHotelId,
+            'platform' => $platform,
+            'business_date' => $businessDate,
+            'status' => $status,
+            'coverage' => $coverage,
+            'data_gaps' => $dataGaps,
+            'sources' => $sourceEvidence,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '');
+        $sourceRefs = [
+            'ota_public_page_diagnosis:' . $platform . ':' . $systemHotelId . ':' . $businessDate . ':' . substr($diagnosisFingerprint, 0, 12),
+            '/api/online-data/public-page-diagnosis',
+        ];
+        foreach ($sourceEvidence as $source) {
+            $responseRef = trim((string)($source['response_ref'] ?? ''));
+            if ($responseRef !== '') {
+                $sourceRefs[] = $responseRef;
+            }
+        }
+        $sourceRefs = array_values(array_unique($sourceRefs));
+
+        $evidenceComplete = $status === 'evidence_complete'
+            && $expectedFieldCount > 0
+            && $verifiedFieldCount === $expectedFieldCount;
+        $platformLabel = $platform === 'ctrip' ? '携程' : '美团';
+        $actionType = $evidenceComplete ? 'review_public_page_evidence' : 'complete_public_page_evidence';
+        $title = $evidenceComplete
+            ? '复核' . $platformLabel . '公开页证据并形成运营判断'
+            : '补齐' . $platformLabel . '公开页证据';
+        $actionText = $evidenceComplete
+            ? '复核已验证的公开页字段并记录人工运营判断；不得据此外推全酒店经营结论，也不直接写入 OTA。'
+            : trim((string)($diagnosis['next_action'] ?? ''));
+        if ($actionText === '') {
+            $actionText = '按证据缺口补齐公开页字段、来源定位和数据库回读，再重新生成诊断。';
+        }
+
+        $sourceRecordId = (int)hexdec(substr($diagnosisFingerprint, 0, 7)) + 1;
+        $idempotencyIdentity = hash('sha256', json_encode([
+            'diagnosis_fingerprint' => $diagnosisFingerprint,
+            'action_contract' => 'ota_public_page_evidence_v1',
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '');
+
+        return [
+            'input' => [
+                'source_module' => 'ota_diagnosis',
+                'source_record_id' => $sourceRecordId,
+                'hotel_id' => $systemHotelId,
+                'platform' => $platform,
+                'object_type' => 'data_collection',
+                'action_type' => $actionType,
+                'date_start' => $businessDate,
+                'date_end' => $businessDate,
+                'current_value' => [
+                    'diagnosis_type' => 'ota_public_page_evidence',
+                    'diagnosis_status' => $status,
+                    'platform_source_status' => (string)($diagnosis['platform_source_status'] ?? 'unknown'),
+                    'observed_field_count' => $observedFieldCount,
+                    'verified_field_count' => $verifiedFieldCount,
+                    'expected_field_count' => $expectedFieldCount,
+                    'coverage_rate' => $coverageRate,
+                    'score_status' => (string)($diagnosis['score_status'] ?? 'not_calculated_no_validated_scoring_rule'),
+                ],
+                'target_value' => [
+                    'title' => $title,
+                    'collection_scope' => 'ota_public_page_evidence',
+                    'target_date' => $businessDate,
+                    'action_text' => $actionText,
+                    'target_metric' => 'public_page_verified_field_count',
+                    'target_verified_field_count' => $expectedFieldCount,
+                    'assignee_id' => $workflowSchedule['assignee_id'],
+                    'due_at' => $workflowSchedule['due_at'],
+                    'review_at' => $workflowSchedule['review_at'],
+                    'workflow_schedule' => $workflowSchedule,
+                    'acceptance_criteria' => [
+                        '证据归属同一系统门店、平台和业务日期',
+                        '字段具备公开页来源网址、采集时间和来源定位',
+                        '保存后数据库回读与 OTA 来源验证状态分别可见',
+                        '重新生成诊断后，证据状态与实际回读一致',
+                    ],
+                ],
+                'evidence' => [
+                    'evidence_refs' => $sourceRefs,
+                    'data_gaps' => $dataGaps,
+                    'sources' => $sourceEvidence,
+                    'source_policy' => (string)($diagnosis['source_policy'] ?? 'persisted_public_page_facts_only_no_default_score_no_ota_write'),
+                    'protected_boundary' => '任务只处理公开页证据补齐或人工复核，不自动修改 OTA 价格、库存、活动或内容。',
+                    'diagnosis_summary' => sprintf(
+                        '%s公开页证据：已观察 %d/%d，来源已验证 %d/%d，状态 %s。',
+                        $platformLabel,
+                        $observedFieldCount,
+                        $expectedFieldCount,
+                        $verifiedFieldCount,
+                        $expectedFieldCount,
+                        $status
+                    ),
+                    'metric_scope' => 'ota_channel_public_page',
+                    'scope_notice' => (string)($diagnosis['scope_notice'] ?? ''),
+                    'workflow_schedule' => $workflowSchedule,
+                    'diagnosis_fingerprint' => $diagnosisFingerprint,
+                ],
+                'expected_metric' => 'public_page_verified_field_count',
+                'expected_delta' => max(0, $expectedFieldCount - $verifiedFieldCount),
+                'risk_level' => $evidenceComplete ? 'low' : 'medium',
+                'status' => 'pending_approval',
+            ],
+            'idempotency_key' => 'ota_diagnosis_action_' . substr($idempotencyIdentity, 0, 32) . ':attempt:1',
+            'source_record_id' => $sourceRecordId,
+            'diagnosis_fingerprint' => $diagnosisFingerprint,
+        ];
+    }
+
+    /** @param array<int, mixed> $dimensions */
+    private function executionIntentDataGaps(array $dimensions): array
+    {
+        $gaps = [];
+        foreach ($dimensions as $dimension) {
+            if (!is_array($dimension) || ($dimension['status'] ?? '') === 'verified') {
+                continue;
+            }
+            $dimensionKey = trim((string)($dimension['key'] ?? 'unknown_dimension'));
+            foreach ((array)($dimension['unknown_fields'] ?? []) as $field) {
+                $field = trim((string)$field);
+                if ($field !== '') {
+                    $gaps[] = $dimensionKey . ':' . $field . ':missing';
+                }
+            }
+            foreach ((array)($dimension['facts'] ?? []) as $fact) {
+                if (!is_array($fact) || ($fact['quality_status'] ?? '') === 'verified') {
+                    continue;
+                }
+                $fieldKey = trim((string)($fact['field_key'] ?? 'unknown_field'));
+                $qualityStatus = trim((string)($fact['quality_status'] ?? 'unverified'));
+                $gaps[] = $dimensionKey . ':' . $fieldKey . ':' . $qualityStatus;
+            }
+        }
+        return array_values(array_unique($gaps));
+    }
+
+    /** @param array<int, mixed> $sources */
+    private function executionIntentSourceEvidence(array $sources): array
+    {
+        $rows = [];
+        foreach ($sources as $source) {
+            if (!is_array($source)) {
+                continue;
+            }
+            $rows[] = [
+                'platform_hotel_id' => trim((string)($source['platform_hotel_id'] ?? '')),
+                'role' => trim((string)($source['role'] ?? 'unknown')),
+                'source_url' => $this->safeSourceUrl((string)($source['source_url'] ?? '')),
+                'collected_at' => trim((string)($source['collected_at'] ?? '')),
+                'capture_status' => trim((string)($source['capture_status'] ?? 'unknown')),
+                'response_ref' => trim((string)($source['response_ref'] ?? '')),
+                'persistence_readback_status' => trim((string)($source['persistence_readback_status'] ?? 'unverified')),
+                'source_validation_status' => trim((string)($source['source_validation_status'] ?? 'unverified')),
+            ];
+        }
+        return $rows;
+    }
+
     private function fieldFact(
         array $profile,
         string $platform,
@@ -231,6 +428,35 @@ final class OtaPublicPageDiagnosisService
         return in_array($status, ['source_verified', 'partial', 'source_observed', 'collection_failed', 'stale', 'unverified'], true)
             ? $status
             : 'unverified';
+    }
+
+    /** @param array<string, mixed> $schedule */
+    private function normalizeTaskSchedule(array $schedule): array
+    {
+        $assigneeId = (int)($schedule['assignee_id'] ?? 0);
+        if ($assigneeId <= 0) {
+            throw new \InvalidArgumentException('assignee_id is required before creating a public-page evidence task');
+        }
+        $normalizeDateTime = static function (mixed $value, string $field): string {
+            $value = trim(str_replace('T', ' ', (string)$value));
+            $timestamp = $value !== '' ? strtotime($value) : false;
+            if ($timestamp === false) {
+                throw new \InvalidArgumentException($field . ' must be a valid date-time');
+            }
+            return date('Y-m-d H:i:s', $timestamp);
+        };
+        $dueAt = $normalizeDateTime($schedule['due_at'] ?? '', 'due_at');
+        $reviewAt = $normalizeDateTime($schedule['review_at'] ?? '', 'review_at');
+        if (strtotime($reviewAt) < strtotime($dueAt)) {
+            throw new \InvalidArgumentException('review_at must not be earlier than due_at');
+        }
+
+        return [
+            'assignee_id' => $assigneeId,
+            'due_at' => $dueAt,
+            'review_at' => $reviewAt,
+            'source_policy' => 'human_assigned_schedule_requires_manual_approval_and_readback_review',
+        ];
     }
 
     private function fieldValue(array $fields, string $fieldKey): mixed

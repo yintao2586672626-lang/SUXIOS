@@ -35,22 +35,25 @@ final class CompetitorPublicEndpointGuardTest extends TestCase
         $platform = 'xc';
         $storeId = random_int(100000, 999999);
         $hotelId = random_int(1000000, 9999999);
-        $key = $this->invokeNonPublic($controller, 'taskAssignmentCacheKey', [$deviceId, $platform, $storeId, $hotelId]);
-        $otherDeviceKey = $this->invokeNonPublic($controller, 'taskAssignmentCacheKey', [$deviceId . '-other', $platform, $storeId, $hotelId]);
+        $bindingId = random_int(1000, 9999);
+        $tokenVersion = 3;
+        $key = $this->invokeNonPublic($controller, 'taskAssignmentCacheKey', [$deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion]);
+        $otherDeviceKey = $this->invokeNonPublic($controller, 'taskAssignmentCacheKey', [$deviceId . '-other', $platform, $storeId, $hotelId, $bindingId + 1, $tokenVersion]);
         $ownerKey = $this->invokeNonPublic($controller, 'taskOwnershipCacheKey', [$platform, $storeId, $hotelId]);
-        $completedKey = $this->invokeNonPublic($controller, 'completedReportCacheKey', [$deviceId, $platform, $storeId, $hotelId]);
+        $completedKey = $this->invokeNonPublic($controller, 'completedReportCacheKey', [$deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion]);
 
         try {
-            self::assertFalse($this->invokeNonPublic($controller, 'hasTaskAssignment', [$deviceId, $platform, $storeId, $hotelId]));
-            self::assertTrue($this->invokeNonPublic($controller, 'rememberTaskAssignment', [$deviceId, $platform, $storeId, $hotelId]));
-            self::assertTrue($this->invokeNonPublic($controller, 'hasTaskAssignment', [$deviceId, $platform, $storeId, $hotelId]));
-            self::assertFalse($this->invokeNonPublic($controller, 'rememberTaskAssignment', [$deviceId . '-other', $platform, $storeId, $hotelId]));
-            self::assertFalse($this->invokeNonPublic($controller, 'hasTaskAssignment', [$deviceId . '-other', $platform, $storeId, $hotelId]));
-            self::assertFalse($this->invokeNonPublic($controller, 'hasTaskAssignment', [$deviceId, 'mt', $storeId, $hotelId]));
-            self::assertFalse($this->invokeNonPublic($controller, 'hasTaskAssignment', [$deviceId, $platform, $storeId + 1, $hotelId]));
-            self::assertFalse($this->invokeNonPublic($controller, 'hasTaskAssignment', [$deviceId, $platform, $storeId, $hotelId + 1]));
-            self::assertTrue($this->invokeNonPublic($controller, 'consumeTaskAssignment', [$deviceId, $platform, $storeId, $hotelId]));
-            self::assertFalse($this->invokeNonPublic($controller, 'consumeTaskAssignment', [$deviceId, $platform, $storeId, $hotelId]));
+            $scope = [$deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion];
+            self::assertFalse($this->invokeNonPublic($controller, 'hasTaskAssignment', $scope));
+            self::assertTrue($this->invokeNonPublic($controller, 'rememberTaskAssignment', $scope));
+            self::assertTrue($this->invokeNonPublic($controller, 'hasTaskAssignment', $scope));
+            self::assertFalse($this->invokeNonPublic($controller, 'hasTaskAssignment', [$deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion + 1]));
+            self::assertFalse($this->invokeNonPublic($controller, 'rememberTaskAssignment', [$deviceId . '-other', $platform, $storeId, $hotelId, $bindingId + 1, $tokenVersion]));
+            self::assertFalse($this->invokeNonPublic($controller, 'hasTaskAssignment', [$deviceId, 'mt', $storeId, $hotelId, $bindingId, $tokenVersion]));
+            self::assertFalse($this->invokeNonPublic($controller, 'hasTaskAssignment', [$deviceId, $platform, $storeId + 1, $hotelId, $bindingId, $tokenVersion]));
+            self::assertFalse($this->invokeNonPublic($controller, 'hasTaskAssignment', [$deviceId, $platform, $storeId, $hotelId + 1, $bindingId, $tokenVersion]));
+            self::assertTrue($this->invokeNonPublic($controller, 'consumeTaskAssignment', $scope));
+            self::assertFalse($this->invokeNonPublic($controller, 'consumeTaskAssignment', $scope));
         } finally {
             cache($key, null);
             cache($otherDeviceKey, null);
@@ -66,6 +69,8 @@ final class CompetitorPublicEndpointGuardTest extends TestCase
         $platform = 'mt';
         $storeId = random_int(100000, 999999);
         $hotelId = random_int(1000000, 9999999);
+        $bindingId = random_int(1000, 9999);
+        $tokenVersion = 2;
         $fingerprint = $this->invokeNonPublic($controller, 'reportFingerprint', [
             $deviceId,
             $platform,
@@ -74,7 +79,7 @@ final class CompetitorPublicEndpointGuardTest extends TestCase
             388.0,
             'screenshot-payload',
         ]);
-        $completedKey = $this->invokeNonPublic($controller, 'completedReportCacheKey', [$deviceId, $platform, $storeId, $hotelId]);
+        $completedKey = $this->invokeNonPublic($controller, 'completedReportCacheKey', [$deviceId, $platform, $storeId, $hotelId, $bindingId, $tokenVersion]);
 
         try {
             $this->invokeNonPublic($controller, 'rememberCompletedReport', [
@@ -84,6 +89,8 @@ final class CompetitorPublicEndpointGuardTest extends TestCase
                 $hotelId,
                 $fingerprint,
                 801,
+                $bindingId,
+                $tokenVersion,
             ]);
 
             $completed = $this->invokeNonPublic($controller, 'completedReport', [
@@ -92,6 +99,8 @@ final class CompetitorPublicEndpointGuardTest extends TestCase
                 $storeId,
                 $hotelId,
                 $fingerprint,
+                $bindingId,
+                $tokenVersion,
             ]);
             self::assertSame(801, $completed['id']);
             self::assertNull($this->invokeNonPublic($controller, 'completedReport', [
@@ -100,6 +109,17 @@ final class CompetitorPublicEndpointGuardTest extends TestCase
                 $storeId,
                 $hotelId,
                 str_repeat('0', 64),
+                $bindingId,
+                $tokenVersion,
+            ]));
+            self::assertNull($this->invokeNonPublic($controller, 'completedReport', [
+                $deviceId,
+                $platform,
+                $storeId,
+                $hotelId,
+                $fingerprint,
+                $bindingId,
+                $tokenVersion + 1,
             ]));
         } finally {
             cache($completedKey, null);
@@ -116,10 +136,18 @@ final class CompetitorPublicEndpointGuardTest extends TestCase
 
         self::assertStringContainsString("header('X-Task-Token', '')", $competitor);
         self::assertStringContainsString("header('X-Report-Token', '')", $competitor);
-        self::assertStringContainsString('hasTaskAssignment($deviceId, $platform, $storeId, $hotelId)', $competitor);
+        self::assertStringContainsString('findAuthorizedBinding(', $competitor);
+        self::assertStringContainsString("where('store_id', \$storeId)", $competitor);
+        self::assertStringContainsString("where('tenant_id', \$tenantId)", $competitor);
+        self::assertStringContainsString('$bindingId, $tokenVersion', $competitor);
+        self::assertStringNotContainsString('$device = new CompetitorDevice();', $competitor);
         self::assertStringContainsString('withTaskAssignmentLock', $competitor);
         self::assertStringContainsString('taskOwnershipCacheKey', $competitor);
         self::assertStringContainsString("'device_not_active'", $competitor);
+        self::assertStringContainsString("'target_competitor_hotel_ids'", $competitor);
+        self::assertStringContainsString("'competitor_hotel_id'", $competitor);
+        self::assertStringContainsString("'report_persist_failed:'", $competitor);
+        self::assertStringNotContainsString("null, \$hotelId, 'invalid_report", $competitor);
         self::assertStringContainsString("'legacy_bookmarklet_disabled'", $cookie);
         self::assertStringContainsString("410);", $cookie);
         self::assertStringContainsString("header('X-Cron-Token', '')", $cron);

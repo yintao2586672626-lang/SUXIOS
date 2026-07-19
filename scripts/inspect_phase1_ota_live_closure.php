@@ -3833,26 +3833,34 @@ function inspection_traffic_source_target_traffic_data_types(array $types): arra
     ), static fn(string $value): bool => in_array($value, ['traffic', 'flow', 'flow_data', 'conversion'], true))));
 }
 
-function inspection_traffic_source_p0_required_metric_keys(): array
+function inspection_traffic_source_p0_required_metric_keys(string $platform = ''): array
 {
-    return [
+    $metricKeys = [
         'list_exposure',
         'detail_exposure',
         'flow_rate',
         'order_filling_num',
         'order_submit_num',
     ];
+
+    return strtolower(trim($platform)) === 'meituan'
+        ? array_slice($metricKeys, 0, 3)
+        : $metricKeys;
 }
 
-function inspection_traffic_source_p0_required_storage_fields(): array
+function inspection_traffic_source_p0_required_storage_fields(string $platform = ''): array
 {
-    return [
+    $storageFields = [
         'online_daily_data.list_exposure',
         'online_daily_data.detail_exposure',
         'online_daily_data.flow_rate',
         'online_daily_data.order_filling_num',
         'online_daily_data.order_submit_num',
     ];
+
+    return strtolower(trim($platform)) === 'meituan'
+        ? array_slice($storageFields, 0, 3)
+        : $storageFields;
 }
 
 function inspection_traffic_source_p0_required_field_fact_keys(): array
@@ -4393,8 +4401,8 @@ function inspection_traffic_source_profile_login_trigger_action(string $platform
 
 function inspection_traffic_source_readiness_for_platform(string $platform, array $context): array
 {
-    $requiredMetricKeys = inspection_traffic_source_p0_required_metric_keys();
-    $requiredStorageFields = inspection_traffic_source_p0_required_storage_fields();
+    $requiredMetricKeys = inspection_traffic_source_p0_required_metric_keys($platform);
+    $requiredStorageFields = inspection_traffic_source_p0_required_storage_fields($platform);
     $requiredFieldFactKeys = inspection_traffic_source_p0_required_field_fact_keys();
     $targetDate = trim((string)($context['target_date'] ?? ''));
     $targetDateRows = max(0, (int)($context['target_date_rows'] ?? 0));

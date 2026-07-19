@@ -6,6 +6,7 @@ namespace Tests;
 use app\service\RevenueResearchService;
 use app\service\RevenueOperationsKnowledgeService;
 use app\service\OperationManagementService;
+use app\service\OutboundUrlGuard;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use Tests\Support\ReflectionHelper;
@@ -464,6 +465,9 @@ final class RevenueResearchServiceTest extends TestCase
                 'is_final' => 1,
                 'validation_status' => 'verified',
                 'source_trace_id' => 'trace-17652',
+                'ingestion_method' => 'browser_profile',
+                'snapshot_time' => '2026-07-15 09:10:00',
+                'readback_verified' => 1,
                 'update_time' => '2026-07-15 09:15:46',
                 'amount' => 5939,
                 'quantity' => 7,
@@ -602,6 +606,9 @@ final class RevenueResearchServiceTest extends TestCase
             'is_final' => 1,
             'validation_status' => 'verified',
             'source_trace_id' => 'trace-zero',
+            'ingestion_method' => 'browser_profile',
+            'snapshot_time' => '2026-07-14 08:50:00',
+            'readback_verified' => 1,
         ];
         $rows = $this->invokeNonPublic($service, 'selectCanonicalOnlineOperatingRows', [[
             array_merge($base, [
@@ -625,6 +632,70 @@ final class RevenueResearchServiceTest extends TestCase
         self::assertSame(0, $rows[0]['amount']);
         self::assertSame(0, $rows[0]['quantity']);
         self::assertSame(0, $rows[0]['book_order_num']);
+    }
+
+    public function testCanonicalForecastSelectorRequiresReadbackCollectionTimeAndNonManualSource(): void
+    {
+        $service = new RevenueResearchService();
+        $base = [
+            'system_hotel_id' => 80,
+            'hotel_name' => '测试酒店',
+            'data_date' => '2026-07-14',
+            'source' => 'ctrip',
+            'data_type' => 'business',
+            'dimension' => '',
+            'compare_type' => 'self',
+            'data_period' => 'historical_daily',
+            'is_final' => 1,
+            'validation_status' => 'verified',
+            'source_trace_id' => 'trace-base',
+            'ingestion_method' => 'browser_profile',
+            'snapshot_time' => '2026-07-14 08:50:00',
+            'readback_verified' => 1,
+            'amount' => 100,
+            'quantity' => 2,
+            'book_order_num' => 1,
+        ];
+        $rows = $this->invokeNonPublic($service, 'selectCanonicalOnlineOperatingRows', [[
+            array_merge($base, ['id' => 1, 'readback_verified' => 0]),
+            array_merge($base, ['id' => 2, 'snapshot_time' => '']),
+            array_merge($base, ['id' => 3, 'ingestion_method' => 'manual_import']),
+            array_merge($base, ['id' => 4, 'validation_status' => 'partial']),
+            array_merge($base, ['id' => 5, 'failed_reason' => 'capture_failed']),
+            array_merge($base, ['id' => 6, 'source_trace_id' => 'trace-ready']),
+        ]]);
+
+        self::assertCount(1, $rows);
+        self::assertSame(6, $rows[0]['id']);
+    }
+
+    public function testBusinessForecastTruthContextExposesFullOtaEvidenceBoundary(): void
+    {
+        $service = new RevenueResearchService();
+        $truth = $this->invokeNonPublic($service, 'businessForecastTruthContext', [[[
+            'id' => 16,
+            'system_hotel_id' => 80,
+            'hotel_name' => '测试酒店',
+            'data_date' => '2026-07-14',
+            'source' => 'ctrip',
+            'source_trace_id' => 'trace-16',
+            'ingestion_method' => 'browser_profile',
+            'snapshot_time' => '2026-07-14 08:50:00',
+            'readback_verified' => 1,
+        ]]]);
+
+        self::assertSame('verified', $truth['status']);
+        self::assertSame('已验证', $truth['status_label']);
+        self::assertSame('ota_channel', $truth['metric_scope']);
+        self::assertSame('OTA渠道指标，不代表全酒店经营', $truth['scope_label']);
+        self::assertSame(80, $truth['hotels'][0]['system_hotel_id']);
+        self::assertSame(['ctrip'], $truth['platforms']);
+        self::assertSame('2026-07-14', $truth['date_range']['start']);
+        self::assertSame('browser_profile', $truth['source']['methods'][0]);
+        self::assertSame('2026-07-14 08:50:00', $truth['collected_at_range']['start']);
+        self::assertTrue($truth['persistence']['stored']);
+        self::assertTrue($truth['persistence']['readback_verified']);
+        self::assertSame('rule_forecast', $truth['result_layer']);
     }
 
     public function testSparseDailyMetricsRemainNullAndBlockForecastDecision(): void
@@ -735,6 +806,86 @@ final class RevenueResearchServiceTest extends TestCase
         self::assertContains('orders_sample_days_below_3', $result['data_gaps']);
     }
 
+    public function testModelInventedRevenueAdrAndGrowthAreRejected(): void
+    {
+        $service = new RevenueResearchService();
+        $forecast = $this->trustedForecastForModelNumericValidation();
+        $result = $this->invokeNonPublic($service, 'normalizeAiResult', [[
+            'summary' => '未来7天预测收入99999元，ADR 888元，增长率66%。',
+            'key_metrics' => ['预测收入99999元', 'ADR 888元', '增长率66%'],
+            'risk_signals' => ['收入可能下降66%'],
+            'recommended_actions' => ['将ADR调整为888元'],
+        ], [
+            'key' => 'demand-forecast',
+            'name' => '需求预测',
+            'module' => '收益研究',
+        ], [], $forecast]);
+
+        $modelText = implode("\n", array_merge(
+            [$result['summary']],
+            $result['key_metrics'],
+            $result['risk_signals'],
+            $result['recommended_actions']
+        ));
+        self::assertStringNotContainsString('99999', $modelText);
+        self::assertStringNotContainsString('888', $modelText);
+        self::assertStringNotContainsString('66', $modelText);
+        self::assertContains('model_numeric_claim_unverified', $result['data_gaps']);
+        self::assertTrue($result['decision_ready']);
+
+        $readiness = $service->buildResearchReadiness([
+            'key' => 'demand-forecast',
+            'name' => '需求预测',
+            'module' => '收益研究',
+        ], 'done', [], $forecast, $result);
+        self::assertSame('research_model_numeric_claim_unverified', $readiness['stage']);
+        self::assertFalse($readiness['execution_ready']);
+    }
+
+    public function testModelExactStructuredForecastNumbersAreRetained(): void
+    {
+        $service = new RevenueResearchService();
+        $result = $this->invokeNonPublic($service, 'normalizeAiResult', [[
+            'summary' => '未来7天预测收入7000元，ADR 200元，增长率5%。',
+            'key_metrics' => ['预测收入7000元', 'ADR 200元', '增长率5%'],
+            'risk_signals' => ['增长率5%时继续观察需求'],
+            'recommended_actions' => ['第1步在2026-07-20以ADR 200元为复核基线'],
+        ], [
+            'key' => 'demand-forecast',
+            'name' => '需求预测',
+            'module' => '收益研究',
+        ], [], $this->trustedForecastForModelNumericValidation()]);
+
+        self::assertSame('未来7天预测收入7000元，ADR 200元，增长率5%。', $result['summary']);
+        self::assertContains('预测收入7000元', $result['key_metrics']);
+        self::assertContains('ADR 200元', $result['key_metrics']);
+        self::assertContains('增长率5%', $result['key_metrics']);
+        self::assertContains('增长率5%时继续观察需求', $result['risk_signals']);
+        self::assertSame(['第1步在2026-07-20以ADR 200元为复核基线'], $result['recommended_actions']);
+        self::assertNotContains('model_numeric_claim_unverified', $result['data_gaps']);
+    }
+
+    public function testModelProseWithoutNumbersIsUnaffected(): void
+    {
+        $service = new RevenueResearchService();
+        $result = $this->invokeNonPublic($service, 'normalizeAiResult', [[
+            'summary' => '需求保持稳定，建议人工复核。',
+            'key_metrics' => ['收入趋势平稳'],
+            'risk_signals' => ['竞对变化需关注'],
+            'recommended_actions' => ['人工复核价格策略'],
+        ], [
+            'key' => 'demand-forecast',
+            'name' => '需求预测',
+            'module' => '收益研究',
+        ], [], $this->trustedForecastForModelNumericValidation()]);
+
+        self::assertSame('需求保持稳定，建议人工复核。', $result['summary']);
+        self::assertContains('收入趋势平稳', $result['key_metrics']);
+        self::assertContains('竞对变化需关注', $result['risk_signals']);
+        self::assertSame(['人工复核价格策略'], $result['recommended_actions']);
+        self::assertNotContains('model_numeric_claim_unverified', $result['data_gaps']);
+    }
+
     public function testReadinessUsesDecisionReadyInsteadOfLegacyAvailableFlag(): void
     {
         $service = new RevenueResearchService();
@@ -749,5 +900,62 @@ final class RevenueResearchServiceTest extends TestCase
 
         self::assertSame('research_forecast_missing', $readiness['stage']);
         self::assertFalse($readiness['execution_ready']);
+    }
+
+    public function testOpenAiResponsesTargetRequiresExactHostAndPinsValidatedAddress(): void
+    {
+        $service = new RevenueResearchService();
+        $guard = new OutboundUrlGuard(static fn(string $host): array => ['93.184.216.34']);
+
+        $target = $this->invokeNonPublic($service, 'validateOpenAiResponsesTarget', [
+            'https://api.openai.com/v1',
+            $guard,
+        ]);
+        self::assertSame('api.openai.com', $target['host']);
+        self::assertSame(['api.openai.com:443:93.184.216.34'], $target['curl_resolve']);
+
+        $this->expectException(RuntimeException::class);
+        $this->invokeNonPublic($service, 'validateOpenAiResponsesTarget', [
+            'https://api.openai.com.attacker.example/v1',
+            $guard,
+        ]);
+    }
+
+    /** @return array<string, mixed> */
+    private function trustedForecastForModelNumericValidation(): array
+    {
+        return [
+            'available' => true,
+            'decision_ready' => true,
+            'metric_scope' => 'ota_channel',
+            'generated_at' => '2026-07-19 10:00:00',
+            'confidence' => 'medium',
+            'data_gaps' => [],
+            'risk_signals' => [],
+            'forecast_7d' => [
+                'days' => 7,
+                'revenue' => 7000.0,
+                'room_nights' => 35.0,
+                'orders' => 28.0,
+                'adr' => 200.0,
+                'aov' => 250.0,
+                'trend_adjustment_percent' => 5.0,
+                'decision_ready' => true,
+            ],
+            'forecast_30d' => [
+                'days' => 30,
+                'revenue' => 30000.0,
+                'room_nights' => 150.0,
+                'orders' => 120.0,
+                'adr' => 200.0,
+                'aov' => 250.0,
+                'trend_adjustment_percent' => 5.0,
+                'decision_ready' => true,
+            ],
+            'truth_context' => [
+                'status' => 'verified',
+                'metric_scope' => 'ota_channel',
+            ],
+        ];
     }
 }

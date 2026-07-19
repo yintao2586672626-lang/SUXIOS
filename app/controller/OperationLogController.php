@@ -7,6 +7,7 @@ use app\model\OperationLog;
 use app\model\User;
 use app\model\Hotel;
 use app\service\SecurityMonitoringService;
+use app\service\OperationAuditSanitizerService;
 use think\Request;
 use think\exception\ValidateException;
 
@@ -14,8 +15,44 @@ class OperationLogController extends Base
 {
     private const MAX_PAGE_SIZE = 100;
     private const HIGH_RISK_SUMMARY_LIMIT = 20;
-    private const HIGH_RISK_SUMMARY_SCAN_LIMIT = 100;
     private const HIGH_RISK_SUMMARY_TEXT_LIMIT = 180;
+
+    private const HIGH_RISK_EXACT_ACTIONS = [
+        'change_password',
+        'reset_password',
+        'rotate_token',
+        'save_cookies',
+        'save_data_source',
+        'batch_hotel_assignment',
+    ];
+
+    private const HIGH_RISK_ACTION_KEYWORDS = [
+        'delete',
+        'clear',
+        'archive',
+        'auto_fetch',
+        'sync',
+        'execute',
+        'approve',
+        'apply',
+        'config',
+        'analysis',
+        'analyze',
+        'permission',
+        'hotel_assignment',
+    ];
+
+    private const HIGH_RISK_USER_SCOPE_ACTIONS = [
+        'update',
+        'batch_status',
+        'batch_hotel_assignment',
+    ];
+
+    private const HIGH_RISK_DEVICE_ACTIONS = [
+        'create',
+        'rotate_token',
+        'status',
+    ];
 
     private const DATA_ACQUISITION_ACTIONS = [
         'view_data',
@@ -87,8 +124,8 @@ class OperationLogController extends Base
         $patterns = [
             '/\bAuthorization\s*:\s*Bearer\s+[^\s,;]+/iu' => 'Authorization=****',
             '/\bBearer\s+[A-Za-z0-9._\-]{8,}/u' => 'Bearer ****',
-            '/\b(cookie|token|authorization|password|secret|spidertoken|mtgsig|usersign|usertoken|api[_-]?key|access[_-]?key|key)\s*[:=]\s*["\']?[^"\'\s,;]+/iu' => '$1=****',
-            '/([?&](?:token|key|api[_-]?key|authorization|spidertoken|mtgsig|usersign|usertoken)=)[^&#\s]+/iu' => '$1****',
+            '/\b(cookie|token|authorization|password|secret|spidertoken|mtgsig|usersign|usertoken|sessionid|jsessionid|sid|api[_-]?key|access[_-]?key|key)\s*[:=]\s*["\']?[^"\'\s,;}&]+/iu' => '$1=****',
+            '/([?&](?:token|key|api[_-]?key|authorization|spidertoken|mtgsig|usersign|usertoken|sessionid|jsessionid|sid)=)[^&#\s]+/iu' => '$1****',
             '/sk-[A-Za-z0-9_-]{8,}/u' => 'sk-****',
             '/(1[3-9]\d)\d{4}(\d{4})/u' => '$1****$2',
             '/\b\d{12,}\b/u' => '[编号已隐藏]',
@@ -158,6 +195,7 @@ class OperationLogController extends Base
             ->toArray();
 
         foreach ($list as &$item) {
+            $item = $this->sanitizeOperationLogOutputRow($item, false);
             $item['audit_type'] = $this->resolveAuditType($item);
         }
         unset($item);
@@ -197,12 +235,22 @@ class OperationLogController extends Base
         $endDate = date('Y-m-d');
         $startDate = date('Y-m-d', strtotime('-' . ($days - 1) . ' days'));
 
-        $rows = OperationLog::with(['user', 'hotel'])
-            ->whereBetween('create_time', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
+        $query = OperationLog::with(['user', 'hotel'])
+            ->whereBetween('create_time', [$startDate . ' 00:00:00', $endDate . ' 23:59:59']);
+        $this->applyHighRiskCandidateFilter($query);
+
+        $candidateLimit = $limit + 1;
+        $rows = $query
             ->order('create_time', 'desc')
-            ->limit(self::HIGH_RISK_SUMMARY_SCAN_LIMIT)
+            ->order('id', 'desc')
+            ->limit($candidateLimit)
             ->select()
             ->toArray();
+        $fetchedCandidateCount = count($rows);
+        $truncated = $fetchedCandidateCount > $limit;
+        if ($truncated) {
+            $rows = array_slice($rows, 0, $limit);
+        }
 
         $list = [];
         foreach ($rows as $row) {
@@ -214,13 +262,11 @@ class OperationLogController extends Base
             $row['risk_priority'] = $risk['priority'];
             $row['risk_title'] = $risk['title'];
             $list[] = $this->sanitizeHighRiskSummaryRow($row);
-            if (count($list) >= $limit) {
-                break;
-            }
         }
 
         return $this->success([
             'list' => $list,
+            'truncated' => $truncated,
             'period' => [
                 'start_date' => $startDate,
                 'end_date' => $endDate,
@@ -228,11 +274,14 @@ class OperationLogController extends Base
             ],
             'limit' => $limit,
             'scan_scope' => [
-                'type' => 'recent_operation_logs',
-                'scan_limit' => self::HIGH_RISK_SUMMARY_SCAN_LIMIT,
-                'scanned_count' => count($rows),
+                'type' => 'sql_filtered_high_risk_candidates',
+                'candidate_limit' => $candidateLimit,
+                'fetched_candidate_count' => $fetchedCandidateCount,
+                'returned_count' => count($list),
                 'matched_count' => count($list),
-                'note' => 'Only the latest operation logs in the selected period are scanned; this is a risk summary, not a full audit export.',
+                'truncated' => $truncated,
+                'complete_within_limit' => !$truncated,
+                'note' => 'The database filters high-risk candidates before ordering and limit+1 retrieval. truncated=true means more matching candidates exist than returned; this is not a full audit export.',
             ],
         ]);
     }
@@ -265,14 +314,108 @@ class OperationLogController extends Base
             throw new ValidateException('日志不存在');
         }
 
-        // 解析extra_data
-        $logArr = $log->toArray();
-        if ($logArr['extra_data']) {
-            $logArr['extra_data'] = json_decode($logArr['extra_data'], true);
-        }
+        $logArr = $this->sanitizeOperationLogOutputRow($log->toArray(), true);
         $logArr['audit_type'] = $this->resolveAuditType($logArr);
 
         return $this->success($logArr);
+    }
+
+    /** @param array<string, mixed> $row */
+    private function sanitizeOperationLogOutputRow(array $row, bool $decodeExtraData): array
+    {
+        $sanitizer = new OperationAuditSanitizerService();
+        $user = is_array($row['user'] ?? null) ? $row['user'] : [];
+        $hotel = is_array($row['hotel'] ?? null) ? $row['hotel'] : [];
+        $row['user'] = $user === [] ? null : [
+            'id' => isset($user['id']) ? (int)$user['id'] : null,
+            'username' => $this->sanitizeOperationLogOutputText($sanitizer, (string)($user['username'] ?? ''), 80),
+            'realname' => $this->sanitizeOperationLogOutputText($sanitizer, (string)($user['realname'] ?? ''), 80),
+        ];
+        $row['hotel'] = $hotel === [] ? null : [
+            'id' => isset($hotel['id']) ? (int)$hotel['id'] : null,
+            'name' => $this->sanitizeOperationLogOutputText($sanitizer, (string)($hotel['name'] ?? ''), 120),
+        ];
+        foreach (['description', 'error_info', 'ip', 'user_agent'] as $field) {
+            if (isset($row[$field]) && is_scalar($row[$field])) {
+                $row[$field] = $this->sanitizeOperationLogOutputText($sanitizer, (string)$row[$field], 1000);
+            }
+        }
+
+        $extraData = $row['extra_data'] ?? null;
+        if (is_string($extraData) && $extraData !== '') {
+            $decoded = json_decode($extraData, true);
+            if (is_array($decoded)) {
+                $extraData = $this->redactOperationLogSessionValue($sanitizer->sanitizeArray($decoded, 1000), 1000);
+            } else {
+                $extraData = $this->sanitizeOperationLogOutputText($sanitizer, $extraData, 1000);
+            }
+        } elseif (is_array($extraData)) {
+            $extraData = $this->redactOperationLogSessionValue($sanitizer->sanitizeArray($extraData, 1000), 1000);
+        }
+
+        $row['outcome'] = is_array($extraData) && in_array(($extraData['outcome'] ?? ''), ['success', 'failed', 'denied', 'partial'], true)
+            ? (string)$extraData['outcome']
+            : (trim((string)($row['error_info'] ?? '')) !== '' ? 'failed' : 'success');
+        $row['request_id'] = is_array($extraData)
+            ? $this->sanitizeOperationLogOutputText($sanitizer, (string)($extraData['request_id'] ?? ''), 80)
+            : '';
+
+        if ($decodeExtraData) {
+            $row['extra_data'] = $extraData;
+        } elseif (is_array($extraData)) {
+            $row['extra_data'] = json_encode($extraData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        } else {
+            $row['extra_data'] = $extraData;
+        }
+
+        return $row;
+    }
+
+    private function sanitizeOperationLogOutputText(
+        OperationAuditSanitizerService $sanitizer,
+        string $value,
+        int $limit
+    ): string {
+        $value = $sanitizer->sanitizeText($value, $limit);
+        $patterns = [
+            '/\b(sessionid|jsessionid|sid)\s*[:=]\s*["\']?[^"\'\s,;}&]+/iu' => '$1=***',
+            '/([?&](?:sessionid|jsessionid|sid)=)[^&#\s]+/iu' => '$1***',
+        ];
+        foreach ($patterns as $pattern => $replacement) {
+            $value = preg_replace($pattern, $replacement, $value) ?? $value;
+        }
+
+        return mb_substr($value, 0, max(0, $limit));
+    }
+
+    private function redactOperationLogSessionValue(mixed $value, int $stringLimit): mixed
+    {
+        if (is_array($value)) {
+            $safe = [];
+            foreach ($value as $key => $item) {
+                $normalized = strtolower((string)preg_replace('/[^a-z0-9]+/i', '', (string)$key));
+                if (in_array($normalized, ['sessionid', 'jsessionid', 'sid'], true)) {
+                    $safe[$key] = '***';
+                    continue;
+                }
+                $safe[$key] = $this->redactOperationLogSessionValue($item, $stringLimit);
+            }
+
+            return $safe;
+        }
+        if (is_string($value)) {
+            $patterns = [
+                '/\b(sessionid|jsessionid|sid)\s*[:=]\s*["\']?[^"\'\s,;}&]+/iu' => '$1=***',
+                '/([?&](?:sessionid|jsessionid|sid)=)[^&#\s]+/iu' => '$1***',
+            ];
+            foreach ($patterns as $pattern => $replacement) {
+                $value = preg_replace($pattern, $replacement, $value) ?? $value;
+            }
+
+            return mb_substr($value, 0, max(0, $stringLimit));
+        }
+
+        return $value;
     }
 
     /**
@@ -425,11 +568,45 @@ class OperationLogController extends Base
         }
     }
 
+    private function applyHighRiskCandidateFilter($query): void
+    {
+        $query->where(function ($candidate): void {
+            $candidate->whereRaw("TRIM(COALESCE(error_info, '')) <> ''")
+                ->whereOr('module', 'security')
+                ->whereOr('module', 'agent')
+                ->whereOr('module', 'role');
+
+            foreach (self::HIGH_RISK_EXACT_ACTIONS as $action) {
+                $candidate->whereOr('action', $action);
+            }
+            foreach (self::HIGH_RISK_ACTION_KEYWORDS as $keyword) {
+                $candidate->whereOr('action', 'like', '%' . $keyword . '%');
+            }
+
+            $candidate->whereOr(function ($userScope): void {
+                $userScope->where('module', 'user')
+                    ->whereIn('action', self::HIGH_RISK_USER_SCOPE_ACTIONS);
+            });
+            $candidate->whereOr(function ($deviceScope): void {
+                $deviceScope->where('module', 'competitor_device')
+                    ->whereIn('action', self::HIGH_RISK_DEVICE_ACTIONS);
+            });
+        });
+    }
+
     private function resolveHighRiskAction(array $log): ?array
     {
         $action = strtolower((string)($log['action'] ?? ''));
         $module = strtolower((string)($log['module'] ?? ''));
         $errorInfo = trim((string)($log['error_info'] ?? ''));
+        $isSecurity = $module === 'security';
+        $isCredentialChange = in_array($action, ['change_password', 'reset_password', 'rotate_token'], true);
+        $isPermissionChange = $module === 'role'
+            || str_contains($action, 'permission')
+            || str_contains($action, 'hotel_assignment')
+            || ($module === 'user' && in_array($action, self::HIGH_RISK_USER_SCOPE_ACTIONS, true));
+        $isDeviceChange = $module === 'competitor_device'
+            && in_array($action, self::HIGH_RISK_DEVICE_ACTIONS, true);
         $isDelete = str_contains($action, 'delete') || str_contains($action, 'clear') || str_contains($action, 'archive');
         $isExecution = str_contains($action, 'auto_fetch')
             || str_contains($action, 'sync')
@@ -444,8 +621,20 @@ class OperationLogController extends Base
         if ($errorInfo !== '') {
             return ['priority' => 'high', 'title' => '后台动作出现异常'];
         }
+        if ($isSecurity) {
+            return ['priority' => 'high', 'title' => '安全边界事件'];
+        }
+        if ($isCredentialChange) {
+            return ['priority' => 'high', 'title' => '密码/访问凭据变更'];
+        }
         if ($isDelete) {
             return ['priority' => 'high', 'title' => '后台删除/清理动作'];
+        }
+        if ($isPermissionChange) {
+            return ['priority' => 'high', 'title' => '角色权限/门店授权变更'];
+        }
+        if ($isDeviceChange) {
+            return ['priority' => 'high', 'title' => '采集设备绑定/状态变更'];
         }
         if ($isExecution || $isConfig || $isAgent) {
             return ['priority' => 'medium', 'title' => $isConfig ? '配置变更动作' : ($isAgent ? 'AI/分析动作' : '自动执行动作')];

@@ -414,6 +414,7 @@ class PlatformProfileLogin extends Command
     {
         $row = $this->loadProfileLoginDataSourceForSync($sourceId, $platform, $hotelId);
         $options = $this->buildProfileLoginSyncOptions((string)($row['platform'] ?? $platform), $request);
+        $options = $this->constrainProfileLoginSyncOptionsBySource($options, $row);
         $result = (new PlatformDataSyncService())->syncDataSource($this->systemSyncUser(), $sourceId, $options);
         return $this->compactProfileLoginSyncResult($result, $sourceId, $options);
     }
@@ -421,7 +422,7 @@ class PlatformProfileLogin extends Command
     private function loadProfileLoginDataSourceForSync(int $sourceId, string $platform, int $hotelId): array
     {
         $row = Db::name('platform_data_sources')
-            ->field('id,system_hotel_id,platform,ingestion_method,enabled,status')
+            ->field('id,system_hotel_id,platform,ingestion_method,enabled,status,config_json')
             ->where('id', $sourceId)
             ->find();
         if (!$row || !is_array($row)) {
@@ -441,6 +442,34 @@ class PlatformProfileLogin extends Command
             throw new \RuntimeException('Data source is disabled.');
         }
         return $row;
+    }
+
+    private function constrainProfileLoginSyncOptionsBySource(array $options, array $source): array
+    {
+        if (strtolower(trim((string)($source['platform'] ?? ''))) !== 'meituan') {
+            return $options;
+        }
+
+        $sections = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $section): string => strtolower(trim((string)$section)),
+            (array)($options['sections'] ?? [])
+        ))));
+        if (count($sections) <= 1 || !in_array('ads', $sections, true)) {
+            return $options;
+        }
+
+        $config = $this->decodeSafeProfileSourceConfig((string)($source['config_json'] ?? ''));
+        $adsUrl = trim((string)($config['ads_url'] ?? $config['adsUrl'] ?? ''));
+        $adsReason = strtolower(trim((string)($config['ads_status_reason'] ?? '')));
+        if ($adsUrl !== '' && !in_array($adsReason, ['ads_service_not_opened', 'ads_not_enabled'], true)) {
+            return $options;
+        }
+
+        $sections = array_values(array_filter($sections, static fn(string $section): bool => $section !== 'ads'));
+        $options['sections'] = $sections;
+        $options['capture_sections'] = implode(',', $sections);
+        $options['skipped_sections_no_entry'] = ['ads'];
+        return $options;
     }
 
     private function buildProfileLoginSyncOptions(string $platform, array $request): array
@@ -1067,14 +1096,104 @@ class PlatformProfileLogin extends Command
             $compact['drift_diagnostics'] = $this->compactProfileLoginProbeSignal($drift, [
                 'contract_version', 'status', 'recognized_response_count', 'candidate_response_count', 'sensitive_values_exposed',
             ]);
-            if (is_array($drift['signal_ids'] ?? null)) {
-                $compact['drift_diagnostics']['signal_ids'] = array_values(array_slice(array_map(
-                    fn($value): string => mb_substr(trim((string)$value), 0, 80),
-                    $drift['signal_ids']
-                ), 0, 20));
+            foreach (['signal_ids', 'advisory_signal_ids', 'candidate_reason_ids'] as $diagnosticIdKey) {
+                $diagnosticIds = $this->compactProfileLoginProbeDiagnosticIds($drift[$diagnosticIdKey] ?? null);
+                if ($diagnosticIds !== []) {
+                    $compact['drift_diagnostics'][$diagnosticIdKey] = $diagnosticIds;
+                }
+            }
+            $candidateRouteSamples = $this->compactProfileLoginCandidateRouteSamples($drift['candidate_route_samples'] ?? null);
+            if ($candidateRouteSamples !== []) {
+                $compact['drift_diagnostics']['candidate_route_samples'] = $candidateRouteSamples;
             }
         }
         return $compact;
+    }
+
+    private function compactProfileLoginProbeDiagnosticIds($values): array
+    {
+        if (!is_array($values)) {
+            return [];
+        }
+        $safe = [];
+        foreach ($values as $value) {
+            $normalized = strtolower(trim((string)$value));
+            if ($normalized === '' || preg_match('/^[a-z][a-z0-9_.:-]{0,79}$/D', $normalized) !== 1) {
+                continue;
+            }
+            $safe[$normalized] = true;
+            if (count($safe) >= 20) {
+                break;
+            }
+        }
+        return array_keys($safe);
+    }
+
+    private function compactProfileLoginCandidateRouteSamples($values): array
+    {
+        if (!is_array($values)) {
+            return [];
+        }
+        $safe = [];
+        foreach ($values as $value) {
+            $sample = $this->safeProfileLoginCandidateRouteSample((string)$value);
+            if ($sample === '') {
+                continue;
+            }
+            $safe[$sample] = true;
+            if (count($safe) >= 20) {
+                break;
+            }
+        }
+        return array_keys($safe);
+    }
+
+    private function safeProfileLoginCandidateRouteSample(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+        $withoutQuery = preg_split('/[?#]/', $value, 2)[0] ?? '';
+        $parsed = parse_url(str_contains($withoutQuery, '://') ? $withoutQuery : 'https://' . ltrim($withoutQuery, '/'));
+        if (!is_array($parsed)) {
+            return '';
+        }
+        $host = strtolower(trim((string)($parsed['host'] ?? '')));
+        if ($host === '' || strlen($host) > 253 || str_contains($host, '..')
+            || preg_match('/^[a-z0-9.-]+$/D', $host) !== 1) {
+            return '';
+        }
+
+        $redactNextSegment = false;
+        $segments = explode('/', (string)($parsed['path'] ?? ''));
+        foreach ($segments as &$segment) {
+            $decoded = rawurldecode($segment);
+            if ($redactNextSegment) {
+                $segment = ':redacted';
+                $redactNextSegment = false;
+                continue;
+            }
+            if (preg_match('/^(?:access[-_]?token|refresh[-_]?token|spidertoken|spiderkey|token|mtgsig|signature|ticket|authorization|proxy[-_]?authorization|cookie|api[-_]?key|password|secret|sid)$/i', $decoded) === 1) {
+                $segment = strtolower($decoded);
+                $redactNextSegment = true;
+                continue;
+            }
+            if (preg_match('/^([a-z0-9_.-]*(?:token|spiderkey|mtgsig|signature|ticket|authorization|cookie|api[-_]?key|password|secret|sid)[a-z0-9_.-]*)=/i', $decoded, $matches) === 1) {
+                $segment = strtolower((string)$matches[1]) . '=:redacted';
+                continue;
+            }
+            if (preg_match('/^\d+$/D', $decoded) === 1
+                || preg_match('/^[0-9a-f]{16,}$/iD', $decoded) === 1
+                || preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iD', $decoded) === 1) {
+                $segment = ':id';
+                continue;
+            }
+            $segment = preg_replace('/[^a-z0-9._~:@!$&\'()*+,;=%-]/i', '', $decoded) ?: '';
+        }
+        unset($segment);
+
+        return mb_substr($host . implode('/', $segments), 0, 320);
     }
 
     private function compactProfileLoginProbeSignal($signal, array $allowedKeys): array

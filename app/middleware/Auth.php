@@ -7,6 +7,7 @@ use app\model\OperationLog;
 use app\model\SystemNotification;
 use app\model\User;
 use app\service\OperationAuditClassifier;
+use app\service\OperationAuditSanitizerService;
 use app\service\ProtectedCapabilityService;
 use Closure;
 use think\Request;
@@ -98,7 +99,12 @@ class Auth
             }
         }
 
-        $response = $next($request);
+        try {
+            $response = $next($request);
+        } catch (\Throwable $exception) {
+            $this->recordControllerExceptionAudit($request, $user, $requestId, $exception);
+            throw $exception;
+        }
         if ($capability !== null) {
             $response = $this->redactProtectedResponse($request, $response, $protectedCapabilityService, $capability, $user, $requestId);
         }
@@ -144,11 +150,18 @@ class Auth
 
         try {
             $revokedAt = $this->normalizeTimestamp(cache('auth_revoked_after_' . $userId));
+            // Legacy administrator resets stored the target account in user_id;
+            // current resets keep the administrator as actor and target_user_id in extra_data.
+            // Read both shapes so pre-upgrade sessions remain revoked across the schema change.
             $lastPasswordChange = OperationLog::where('user_id', $userId)
-                ->where('action', 'change_password')
+                ->whereIn('action', ['change_password', 'reset_password'])
                 ->order('id', 'desc')
                 ->value('create_time');
-            $revokedAt = max($revokedAt, $this->normalizeTimestamp($lastPasswordChange));
+            $revokedAt = max(
+                $revokedAt,
+                $this->normalizeTimestamp($lastPasswordChange),
+                $this->latestResetPasswordTimestamp($userId)
+            );
             if ($revokedAt > 0 && $createdAt <= $revokedAt) {
                 return false;
             }
@@ -174,6 +187,25 @@ class Auth
 
         $timestamp = strtotime(trim((string)$value));
         return $timestamp === false ? 0 : $timestamp;
+    }
+
+    private function latestResetPasswordTimestamp(int $targetUserId): int
+    {
+        $since = date('Y-m-d H:i:s', time() - self::TOKEN_MAX_AGE_SECONDS);
+        $rows = OperationLog::where('action', 'reset_password')
+            ->where('create_time', '>=', $since)
+            ->field('create_time,extra_data')
+            ->order('id', 'desc')
+            ->select()
+            ->toArray();
+        foreach ($rows as $row) {
+            $extra = json_decode((string)($row['extra_data'] ?? ''), true);
+            if (is_array($extra) && (int)($extra['target_user_id'] ?? 0) === $targetUserId) {
+                return $this->normalizeTimestamp($row['create_time'] ?? null);
+            }
+        }
+
+        return 0;
     }
 
     private function protectedCapabilityService(): ProtectedCapabilityService
@@ -233,14 +265,18 @@ class Auth
     private function recordDataAudit(Request $request, Response $response, User $user): void
     {
         try {
-            $audit = (new OperationAuditClassifier())->classify($request->method(), $request->url());
+            $statusCode = $response->getCode();
+            $classifier = new OperationAuditClassifier();
+            $audit = $statusCode >= 400
+                ? $classifier->classifyFailure($request->method(), $request->url())
+                : $classifier->classify($request->method(), $request->url());
             if ($audit === null) {
                 return;
             }
 
-            $params = $this->sanitizeAuditParams($request->param());
+            $params = $this->sanitizeAuditRequestParams($request, (string)$audit['path']);
             $hotelId = $this->resolveAuditHotelId($params, $user);
-            $statusCode = $response->getCode();
+            $failed = $statusCode >= 400;
 
             OperationLog::record(
                 $audit['module'],
@@ -255,11 +291,54 @@ class Auth
                     'path' => $audit['path'],
                     'params' => $params,
                     'request_id' => (string)($request->request_id ?? ''),
+                    'outcome' => $failed ? 'failed' : 'success',
+                    'http_status' => $statusCode,
                     'response_status' => $statusCode,
+                    'reason_code' => $failed ? 'http_response_failure' : null,
                 ]
             );
         } catch (\Throwable $e) {
             // Audit logging must not break the protected business request.
+        }
+    }
+
+    private function recordControllerExceptionAudit(
+        Request $request,
+        User $user,
+        string $requestId,
+        \Throwable $exception
+    ): void {
+        try {
+            $audit = (new OperationAuditClassifier())->classifyFailure($request->method(), $request->url());
+            if ($audit === null) {
+                return;
+            }
+
+            $params = $this->sanitizeAuditRequestParams($request, (string)$audit['path']);
+            $hotelId = $this->resolveAuditHotelId($params, $user);
+
+            OperationLog::record(
+                $audit['module'],
+                $audit['action'],
+                $audit['description'],
+                (int)$user->id,
+                $hotelId,
+                'controller_exception',
+                [
+                    'audit_type' => $audit['category'],
+                    'method' => strtoupper($request->method()),
+                    'path' => $audit['path'],
+                    'params' => $params,
+                    'request_id' => $requestId,
+                    'outcome' => 'failed',
+                    'http_status' => 500,
+                    'response_status' => 500,
+                    'reason_code' => 'controller_exception',
+                    'exception_type' => get_debug_type($exception),
+                ]
+            );
+        } catch (\Throwable $auditFailure) {
+            // Terminal audit failure must not replace the controller exception.
         }
     }
 
@@ -276,27 +355,61 @@ class Auth
 
     private function sanitizeAuditParams(array $params): array
     {
-        $sensitiveKeys = ['authorization', 'token', 'password', 'cookie', 'cookies', 'api_key', 'apikey', 'auth_data', 'headers'];
-        $safe = [];
+        $safe = (new OperationAuditSanitizerService())->sanitizeArray($params, 1000);
+        return $this->truncateAuditParams($safe, 120);
+    }
 
+    /** @param array<mixed> $params */
+    private function truncateAuditParams(array $params, int $limit): array
+    {
         foreach ($params as $key => $value) {
-            if (in_array(strtolower((string)$key), $sensitiveKeys, true)) {
-                $safe[$key] = '***';
-                continue;
-            }
-
             if (is_array($value)) {
-                $safe[$key] = $this->sanitizeAuditParams($value);
+                $params[$key] = $this->truncateAuditParams($value, $limit);
                 continue;
             }
-
-            $text = is_scalar($value) || $value === null ? (string)$value : '[object]';
-            $safe[$key] = mb_strlen($text) > 120
-                ? mb_substr($text, 0, 120) . '...'
-                : (is_scalar($value) || $value === null ? $value : $text);
+            if (is_string($value) && mb_strlen($value) > $limit) {
+                $params[$key] = mb_substr($value, 0, $limit) . '...';
+            }
         }
 
-        return $safe;
+        return $params;
+    }
+
+    private function sanitizeAuditRequestParams(Request $request, string $path): array
+    {
+        $params = $this->sanitizeAuditParams($request->param());
+        if (!$this->isCredentialAuditPath($path)) {
+            return $params;
+        }
+
+        $params = array_intersect_key($params, array_flip([
+            'id',
+            'config_id',
+            'hotel_id',
+            'system_hotel_id',
+            'platform',
+            'channel',
+            'status',
+        ]));
+        $params['credential_payload_redacted'] = true;
+
+        return $params;
+    }
+
+    private function isCredentialAuditPath(string $path): bool
+    {
+        $path = trim(strtolower($path), '/');
+        foreach ([
+            'api/online-data/save-ctrip-config',
+            'api/online-data/save-meituan-config',
+            'api/online-data/data-sources',
+        ] as $prefix) {
+            if ($path === $prefix || str_starts_with($path, $prefix . '/')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

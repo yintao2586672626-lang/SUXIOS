@@ -423,18 +423,19 @@ trait MeituanCapturedDataConcern
 
     private function normalizeMeituanCapturedTrafficAnalysisRow(array $item, array $context): ?array
     {
-        $listExposure = (int)$this->meituanNumber($item, ['list_exposure', 'listExposure', 'exposeCount', 'exposureCount', 'exposure'], 0);
-        $detailExposure = (int)$this->meituanNumber($item, ['detail_exposure', 'detailExposure', 'visitCount', 'visitorCount', 'uv', 'pv', 'views'], 0);
-        $orderSubmit = (int)$this->meituanNumber($item, ['order_submit_num', 'orderSubmitNum', 'orderCount', 'payOrderCount', 'orders'], 0);
-        $orderFilling = (int)$this->meituanNumber($item, ['order_filling_num', 'orderFillingNum', 'clickCount', 'clicks'], 0);
-        $flowRate = $this->normalizeMeituanPercentValue($this->firstMeituanValue($item, ['flow_rate', 'flowRate', 'visitOrderRate', 'conversionRate', 'orderConversionRate'], null));
+        $listExposure = (int)$this->meituanNumber($item, ['list_exposure', 'listExposure', 'exposeCount', 'exposureCount', 'exposureUV', 'exposure'], 0);
+        $detailExposure = (int)$this->meituanNumber($item, ['detail_exposure', 'detailExposure', 'visitCount', 'visitorCount', 'intentionUV', 'uv', 'pv', 'views'], 0);
+        $orderSubmit = (int)$this->meituanNumber($item, ['order_submit_num', 'orderSubmitNum', 'orderCount', 'payOrderCount', 'payOrderCnt', 'orders'], 0);
+        $orderFillingValue = $this->nullableNumberFromKeys($item, ['order_filling_num', 'orderFillingNum', 'clickCount', 'clicks']);
+        $orderFilling = $orderFillingValue === null ? null : (int)$orderFillingValue;
+        $flowRate = $this->normalizeMeituanPercentValue($this->firstMeituanValue($item, ['flow_rate', 'flowRate', 'intentionPerExposure', 'visitOrderRate', 'conversionRate', 'orderConversionRate'], null));
         $dataValue = $this->meituanNumber($item, ['data_value', 'dataValue', 'value', 'metric_value'], 0.0);
         if ($dataValue <= 0 && $flowRate !== null) {
             $dataValue = $flowRate;
         } elseif ($dataValue <= 0 && $detailExposure > 0) {
             $dataValue = (float)$detailExposure;
         }
-        if ($dataValue <= 0 && $listExposure <= 0 && $detailExposure <= 0 && $orderSubmit <= 0 && $orderFilling <= 0) {
+        if ($dataValue <= 0 && $listExposure <= 0 && $detailExposure <= 0 && $orderSubmit <= 0 && ($orderFilling ?? 0) <= 0) {
             return null;
         }
 
@@ -442,6 +443,9 @@ trait MeituanCapturedDataConcern
             ?: ($context['default_data_date'] ?? date('Y-m-d'));
         $analysisType = trim((string)$this->firstMeituanValue($item, ['analysis_type', 'analysisType', 'type'], 'flow_analysis'));
         $dimension = trim((string)$this->firstMeituanValue($item, ['dimension', 'name'], $analysisType));
+        $dataType = strtolower(trim((string)$this->firstMeituanValue($item, ['data_type', 'dataType'], 'traffic_analysis'))) === 'traffic'
+            ? 'traffic'
+            : 'traffic_analysis';
 
         return $this->baseMeituanCapturedRow($item, $context, [
             'data_date' => $dataDate,
@@ -450,8 +454,8 @@ trait MeituanCapturedDataConcern
             'book_order_num' => 0,
             'comment_score' => 0,
             'data_value' => $dataValue,
-            'data_type' => 'traffic_analysis',
-            'dimension' => 'traffic_analysis:' . ($dimension !== '' ? $dimension : $analysisType),
+            'data_type' => $dataType,
+            'dimension' => $dataType . ':' . ($dimension !== '' ? $dimension : $analysisType),
             'platform' => 'Meituan',
             'compare_type' => 'self',
             'list_exposure' => $listExposure,

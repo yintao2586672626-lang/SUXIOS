@@ -85,6 +85,8 @@ final class OnlineDataCorrectionLedgerServiceTest extends TestCase
         $restored = $service->restore((int)$deleted['ledger_id'], 11, [10]);
 
         self::assertSame(1, $restored['id']);
+        self::assertSame(10, $restored['system_hotel_id']);
+        self::assertSame(1, $restored['tenant_id']);
         self::assertSame(100.0, (float)Db::name('online_daily_data')->where('id', 1)->value('amount'));
         self::assertNotSame('', (string)Db::name('online_data_correction_ledger')->where('id', $deleted['ledger_id'])->value('restored_at'));
         self::assertSame(11, (int)Db::name('online_data_correction_ledger')->where('id', $deleted['ledger_id'])->value('restored_by'));
@@ -101,6 +103,17 @@ final class OnlineDataCorrectionLedgerServiceTest extends TestCase
 
         self::assertSame(2, (int)Db::name('online_daily_data')->count());
         self::assertSame(0, (int)Db::name('online_data_correction_ledger')->count());
+    }
+
+    public function testBatchDeleteReturnsDurableAuditScope(): void
+    {
+        $result = (new OnlineDataCorrectionLedgerService())->batchDelete([1], 9, [10]);
+
+        self::assertSame(1, $result['deleted_count']);
+        self::assertSame([1], $result['ids']);
+        self::assertSame([10], $result['system_hotel_ids']);
+        self::assertSame([1], $result['tenant_ids']);
+        self::assertCount(1, $result['ledger_ids']);
     }
 
     /** @return array<string, mixed> */

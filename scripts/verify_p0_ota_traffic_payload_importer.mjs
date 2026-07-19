@@ -677,7 +677,6 @@ const cases = [
             listExposure: 50,
             detailExposure: 25,
             flowRate: 50,
-            orderFillingNum: 10,
             orderSubmitNum: 5,
           },
         ],
@@ -701,8 +700,8 @@ const cases = [
             _source_path: 'data.flowData.0',
             listExposure: 50,
             detailExposure: 25,
-            flowRate: 50,
             orderFillingNum: 10,
+            orderSubmitNum: 5,
           },
         ],
       },
@@ -713,7 +712,7 @@ const cases = [
       targetRows: 1,
       evidenceRows: 1,
       completePreviewRows: 0,
-      missingMetricKeys: ['order_submit_num'],
+      missingMetricKeys: ['flow_rate'],
       issuesPresent: ['required_traffic_metric_keys_missing', 'traffic_field_fact_preview_rows_incomplete'],
       issuesAbsent: ['desensitized_capture_evidence_missing'],
     },
@@ -1250,16 +1249,17 @@ for (const item of cases) {
   }
   const trafficEvidence = Array.isArray(result.traffic_evidence) ? result.traffic_evidence : [];
   if (item.expect.status === 'ready_to_import') {
+    const requiredMetricCount = item.platform === 'meituan' ? 3 : 5;
     check(item.name, `${item.name} dry-run is not P0 complete`, result.p0_completion_status === 'pre_import_ready_not_p0_complete', JSON.stringify({ p0_completion_status: result.p0_completion_status, p0_completion_gate: result.p0_completion_gate }));
     const uiStatus = trafficEvidence[0]?.ui_status || {};
     check(item.name, `${item.name} evidence UI status ready`, uiStatus.field_fact_status === 'ready', JSON.stringify(uiStatus));
     check(item.name, `${item.name} evidence UI status does not expose raw data`, uiStatus.raw_data_exposed === false, JSON.stringify(uiStatus));
-    check(item.name, `${item.name} evidence UI status covers traffic metrics`, Number(uiStatus.metric_key_count || 0) >= 5 && Number(uiStatus.stored_value_present_count || 0) >= 5, JSON.stringify(uiStatus));
-    check(item.name, `${item.name} evidence UI status exposes desensitized capture evidence`, Number(uiStatus.desensitized_capture_evidence_count || 0) >= 5, JSON.stringify(uiStatus));
+    check(item.name, `${item.name} evidence UI status covers traffic metrics`, Number(uiStatus.metric_key_count || 0) >= requiredMetricCount && Number(uiStatus.stored_value_present_count || 0) >= requiredMetricCount, JSON.stringify(uiStatus));
+    check(item.name, `${item.name} evidence UI status exposes desensitized capture evidence`, Number(uiStatus.desensitized_capture_evidence_count || 0) >= requiredMetricCount, JSON.stringify(uiStatus));
     check(item.name, `${item.name} evidence proves platform hotel identity without raw id`, trafficEvidence[0]?.platform_hotel_identifier_present === true && ['poi_id_family', 'hotel_id_family'].includes(trafficEvidence[0]?.platform_hotel_identifier_source), JSON.stringify(trafficEvidence[0] || {}));
     check(item.name, `${item.name} evidence exposes structured row source path`, typeof trafficEvidence[0]?.source_path === 'string' && trafficEvidence[0].source_path.length > 0 && trafficEvidence[0]?.source_path_structured === true, JSON.stringify(trafficEvidence[0] || {}));
     check(item.name, `${item.name} evidence proves raw_data field facts without exposing raw data`, trafficEvidence[0]?.raw_data_field_facts_present === true && trafficEvidence[0]?.raw_data_exposed === false, JSON.stringify(trafficEvidence[0] || {}));
-    check(item.name, `${item.name} evidence counts field fact source paths`, Number(trafficEvidence[0]?.field_fact_source_path_count || 0) >= 5 && Number(trafficEvidence[0]?.field_fact_structured_source_path_count || 0) >= 5, JSON.stringify(trafficEvidence[0] || {}));
+    check(item.name, `${item.name} evidence counts field fact source paths`, Number(trafficEvidence[0]?.field_fact_source_path_count || 0) >= requiredMetricCount && Number(trafficEvidence[0]?.field_fact_structured_source_path_count || 0) >= requiredMetricCount, JSON.stringify(trafficEvidence[0] || {}));
     const closureChain = trafficEvidence[0]?.traffic_closure_chain || {};
     const closureChainKeys = ['capture_evidence', 'source_path', 'metric_key', 'storage_field', 'stored_value', 'ui_status', 'platform_hotel_identifier', 'verifier'];
     check(item.name, `${item.name} evidence exposes full pre-import closure chain`, closureChainKeys.every((key) => closureChain[key]), JSON.stringify(closureChain));
@@ -1595,7 +1595,7 @@ check('traffic_evidence_contract', 'importer keeps external evidence non-complet
 check('traffic_evidence_contract', 'importer blocks cross-row metric coverage', importerSource.includes('traffic_field_fact_preview_rows_incomplete') && importerSource.includes('cross-row metric coverage is not accepted'));
 check('traffic_evidence_contract', 'importer blocks unverified all-zero target-date core traffic metrics', importerSource.includes('target_date_required_traffic_metrics_zero_unverified') && importerSource.includes('target_date_nonzero_required_metric_rows') && importerSource.includes('zero_value_unverified'));
 check('traffic_evidence_contract', 'importer blocks traffic evidence and execute row count mismatches', importerSource.includes('traffic_evidence_execute_row_count_mismatch') && importerSource.includes('Traffic evidence rows, target-date rows, and execute payload rows must match before import.') && importerSource.includes('$trafficEvidenceRowCount') && importerSource.includes('$executeRowCount'));
-check('traffic_evidence_contract', 'importer requires exact P0 traffic storage fields in preview', importerSource.includes('$requiredStorageFields = p0_import_required_traffic_storage_fields()') && importerSource.includes("trim((string)($fact['storage_field'] ?? '')) === $requiredStorageFields[$metricKey]"));
+check('traffic_evidence_contract', 'importer requires platform-specific exact P0 traffic storage fields in preview', importerSource.includes('function p0_import_required_traffic_storage_fields(string $platform') && importerSource.includes("strtolower(trim($platform)) === 'meituan'") && importerSource.includes('$requiredStorageFields = p0_import_required_traffic_storage_fields($platform)') && importerSource.includes("trim((string)($fact['storage_field'] ?? '')) === $requiredStorageFields[$metricKey]"));
 check('traffic_evidence_contract', 'importer requires metric-level trace and source hash before field facts are complete', importerSource.includes('p0_import_fact_has_desensitized_capture_evidence') && importerSource.includes('p0_import_fact_capture_evidence_matches_row') && importerSource.includes('$rowSourceTraceId') && importerSource.includes('$rowSourceUrlHash') && importerSource.includes("$desensitized['source_trace_id']") && importerSource.includes("$desensitized['source_url_hash']"));
 check('traffic_evidence_contract', 'P0 verifier requires external evidence UI status', p0VerifierSource.includes('ui_status_missing') && p0VerifierSource.includes('ui_status_not_ready'));
 check('traffic_evidence_contract', 'P0 verifier requires external traffic closure chain and pre-import policy', p0VerifierSource.includes('p0_validate_external_traffic_closure_chain') && p0VerifierSource.includes('traffic_closure_chain_missing') && p0VerifierSource.includes('traffic_closure_chain_stage_not_ready') && p0VerifierSource.includes('traffic_closure_chain_metric_key_required_incomplete') && p0VerifierSource.includes('traffic_closure_chain_storage_field_required_incomplete') && p0VerifierSource.includes('traffic_closure_chain_verifier_status_invalid') && p0VerifierSource.includes('traffic_closure_chain_verifier_required_incomplete') && p0VerifierSource.includes('traffic_closure_chain_policy_missing') && p0VerifierSource.includes('traffic_closure_chain_ready_rows'));
@@ -1627,8 +1627,10 @@ const noSourceRowsPlatform = (noSourceRowsVerifierResult.platforms || []).find((
 check('source_chain_scope_contract', 'P0 verifier does not label missing source rows as reference evidence', Number(noSourceRowsPlatform.target_date_rows || 0) === 0 && noSourceRowsPlatform.source_chain_reference_only === false && noSourceRowsPlatform.source_chain_scope === 'no_target_date_source_rows', JSON.stringify(noSourceRowsPlatform));
 const noSourceRowsTraffic = (noSourceRowsVerifierResult.traffic_evidence_availability || []).find((traffic) => traffic.platform === 'ctrip') || {};
 const noSourceRowsMatrix = noSourceRowsTraffic.traffic_field_fact_closure?.field_loop_matrix || [];
-const requiredP0TrafficMetricKeys = ['list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num'];
-check('source_chain_scope_contract', 'P0 verifier expands no-source traffic closure into every required metric', JSON.stringify(noSourceRowsMatrix.map((row) => String(row.metric_key || '')).sort()) === JSON.stringify([...requiredP0TrafficMetricKeys].sort()), JSON.stringify(noSourceRowsMatrix));
+const requiredP0TrafficMetricKeys = (platform) => platform === 'meituan'
+  ? ['list_exposure', 'detail_exposure', 'flow_rate']
+  : ['list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num'];
+check('source_chain_scope_contract', 'P0 verifier expands no-source traffic closure into every required metric', JSON.stringify(noSourceRowsMatrix.map((row) => String(row.metric_key || '')).sort()) === JSON.stringify([...requiredP0TrafficMetricKeys('ctrip')].sort()), JSON.stringify(noSourceRowsMatrix));
 check('source_chain_scope_contract', 'P0 verifier keeps every no-source metric explicitly unloaded', noSourceRowsMatrix.length === 5 && noSourceRowsMatrix.every((row) => row.status === 'no_target_date_traffic_rows' && Number(row.row_count || 0) === 0 && row.capture_evidence_present === false && row.source_path_structured === false && row.storage_field_matches_expected === false && row.stored_value_present === false && row.ui_status_ready === false), JSON.stringify(noSourceRowsMatrix));
 
 const runtimeExecuteCases = [
@@ -1638,7 +1640,7 @@ const runtimeExecuteCases = [
     payload: {
       traffic: [
         trafficRow({
-          hotelId: 'runtime-ctrip-platform-hotel',
+          hotelId: '990000007',
           date: runtimeExecuteDate,
           dateSource: 'request.payload.dataDate',
           trace: 'ctrip:runtime-execute-traffic',
@@ -1681,10 +1683,10 @@ for (const executeCase of runtimeExecuteCases) {
     const trafficGate = platformResult.p0_traffic_gate || {};
     const trafficAvailability = (verifierResult.traffic_evidence_availability || []).find((traffic) => traffic.platform === executeCase.platform) || {};
     const trafficClosure = trafficAvailability.traffic_field_fact_closure || {};
-    check('runtime_execute_contract', `${executeCase.name} synthetic importer row cannot bypass the authoritative Profile identity gate`, trafficGate.status === 'traffic_field_fact_closure_incomplete' && Number(verifierResult.summary?.traffic_gates_ready || 0) === 0, JSON.stringify({ status: verifierResult.status, summary: verifierResult.summary || {}, trafficGate, issues: verifierResult.issues || [] }));
+    check('runtime_execute_contract', `${executeCase.name} synthetic importer row cannot bypass the authoritative Profile identity gate`, ['traffic_field_fact_closure_incomplete', 'platform_hotel_identifier_mismatch'].includes(trafficGate.status) && trafficGate.platform_hotel_identifier_status === 'mismatch' && Number(verifierResult.summary?.traffic_gates_ready || 0) === 0, JSON.stringify({ status: verifierResult.status, summary: verifierResult.summary || {}, trafficGate, issues: verifierResult.issues || [] }));
     check('runtime_execute_contract', `${executeCase.name} P0 verifier counts scoped traffic rows`, Number(trafficGate.traffic_rows || 0) > 0 && Number(trafficAvailability.target_date?.traffic_rows || 0) > 0, JSON.stringify({ trafficGate, trafficAvailability }));
     check('runtime_execute_contract', `${executeCase.name} P0 verifier uses stored target-date rows as gate source`, trafficGate.traffic_row_source === 'stored_target_date_rows' && Number(trafficGate.traffic_rows || 0) === Number(trafficGate.stored_target_date_traffic_rows || 0), JSON.stringify({ trafficGate, trafficAvailability }));
-    check('runtime_execute_contract', `${executeCase.name} P0 verifier still closes every non-identity metric key`, requiredP0TrafficMetricKeys.every((key) => (trafficClosure.complete_metric_keys || []).includes(key)), JSON.stringify(trafficClosure));
+    check('runtime_execute_contract', `${executeCase.name} P0 verifier still closes every non-identity metric key`, requiredP0TrafficMetricKeys(executeCase.platform).every((key) => (trafficClosure.complete_metric_keys || []).includes(key)), JSON.stringify(trafficClosure));
     check('runtime_execute_contract', `${executeCase.name} P0 verifier reports the unmatched Profile identity without raw identifiers`, trafficGate.platform_hotel_identifier_status === 'mismatch' && trafficGate.platform_hotel_identifier_match_status === 'unmatched' && Number(trafficGate.platform_hotel_identifier_matched_rows || 0) === 0 && Number(trafficGate.platform_hotel_identifier_mismatch_rows || 0) > 0 && trafficGate.platform_hotel_identifier_match_reason_counts && Object.keys(trafficGate.platform_hotel_identifier_match_reason_counts).length > 0, JSON.stringify(trafficGate));
   } finally {
     cleanupP0RuntimeRows(executeCase.platform, runtimeExecuteDate, runtimeExecuteSystemHotelId);

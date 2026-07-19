@@ -37,6 +37,9 @@ test('Revenue AI static helper exposes the required display contract', () => {
   for (const key of [
     'revenueAiStatusClass',
     'revenueAiStatusLabel',
+    'revenueAiTruthStatusLabel',
+    'revenueAiMetricTruthLines',
+    'revenueAiMetricTruthSummary',
     'revenueAiSeverityClass',
     'buildRevenueAiOverviewQuery',
     'buildRevenueAiOverviewEndpoint',
@@ -101,6 +104,10 @@ test('Revenue AI static helper exposes the required display contract', () => {
   assert.equal(helpers.revenueAiStatusLabel('unverified'), '未验证');
   assert.equal(helpers.revenueAiStatusLabel('missing'), '缺失');
   assert.equal(helpers.revenueAiStatusLabel('warning'), '需复核');
+  assert.equal(helpers.revenueAiTruthStatusLabel('verified'), '已验证');
+  assert.equal(helpers.revenueAiTruthStatusLabel('partial'), '部分数据');
+  assert.equal(helpers.revenueAiTruthStatusLabel('unverified'), '未验证');
+  assert.equal(helpers.revenueAiTruthStatusLabel('collection_failed'), '采集失败');
   assert.match(helpers.revenueAiStatusClass('missing'), /amber/);
   assert.match(helpers.revenueAiStatusClass('warning'), /amber/);
   assert.equal(helpers.revenueAiReasonText('ZERO_CONFIRMED'), '渠道明确确认目标经营日期无数据。');
@@ -169,6 +176,146 @@ test('AI daily explanation stays optional and separate from the rule summary', (
   assert.match(aiDailyReportFragment, /aiDailyReportAiInterpretation\.boundary/);
   assert.match(aiDailyReportFragment, /\{\{ aiDailyReport\.summary \|\| '暂无摘要' \}\}/);
   assert.doesNotMatch(aiDailyReportFragment, /aiDailyReport\.summary\s*\|\|\s*aiDailyReportAiExplanation/);
+});
+
+test('AI daily report metric cards bind per-metric truth without global OTA promotion', () => {
+  const truthStart = appMain.indexOf('const aiDailyReportTruthStatusLabel');
+  const truthEnd = appMain.indexOf('const aiDailyReportActions', truthStart);
+  assert.ok(truthStart >= 0 && truthEnd > truthStart, 'AI daily metric truth block must exist');
+  const truthBlock = appMain.slice(truthStart, truthEnd);
+
+  assert.match(truthBlock, /metric\.truth[\s\S]*metric\.truth_context/);
+  assert.match(truthBlock, /aiDailyReport\.value\?\.source_refs/);
+  assert.match(truthBlock, /metric_keys/);
+  assert.match(truthBlock, /metric\.metric_scopes/);
+  assert.match(truthBlock, /daily_reports#\\d\+/);
+  assert.match(truthBlock, /online_daily_data#\\d\+/);
+  assert.match(truthBlock, /readback_verified/);
+  assert.doesNotMatch(truthBlock, /snapshot\?\.(?:source_trust|input_trust)|snapshot\[['"](?:source_trust|input_trust)['"]\]/);
+
+  for (const label of ['已验证', '部分数据', '未验证', '采集失败']) {
+    assert.match(truthBlock, new RegExp(label));
+  }
+  for (const scope of ['ota_channel', 'whole_hotel', 'mixed', 'user_input', 'derived']) {
+    assert.match(truthBlock, new RegExp(scope));
+  }
+  for (const field of ['门店：', '平台：', '日期：', '来源：', '采集时间：', '入库回读：', '失败原因：', '口径：']) {
+    assert.match(truthBlock, new RegExp(field));
+  }
+  assert.match(appMain, /const aiDailyReportMetricValue = \(metric\) => \{[\s\S]*?return '—';/);
+  assert.doesNotMatch(truthBlock, /\|\|\s*0/);
+
+  assert.match(aiDailyReportFragment, /ai-daily-report-metric-\$\{metric\.key\}-truth-status/);
+  assert.match(aiDailyReportFragment, /onlineTruthStatusText\(metric\.truth\)/);
+  assert.match(aiDailyReportFragment, /metric\.calculationStatusText/);
+  assert.match(aiDailyReportFragment, /metric\.scopeText/);
+  assert.match(aiDailyReportFragment, /metric\.resultTypeCode === 'derived'/);
+  assert.match(aiDailyReportFragment, /metric\.truthDetailText/);
+
+  const metricHelpers = vm.runInNewContext(`(() => {
+    const aiDailyReport = { value: null };
+    const permittedHotels = { value: [{ id: 7, name: '测试酒店' }] };
+    const hotels = { value: [] };
+    const computed = (factory) => ({ get value() { return factory(); } });
+    const aiDailyReportList = (value) => Array.isArray(value) ? value : [];
+    const aiDailyReportObjectList = (value) => aiDailyReportList(value)
+      .filter(item => item && typeof item === 'object' && !Array.isArray(item));
+    ${truthBlock}
+    return { aiDailyReport, aiDailyReportMetricTruth, aiDailyReportMetricCards };
+  })()`, {}, { filename: 'ai-daily-report-metric-truth.js' });
+  metricHelpers.aiDailyReport.value = {
+    hotel_id: 7,
+    report_date: '2026-07-18',
+    source_refs: [{
+      key: 'daily_reports#11',
+      source: 'daily_reports',
+      scope: 'whole_hotel_daily_report',
+      data_date: '2026-07-18',
+      validation_status: 'recorded',
+      ingestion_method: 'daily_report',
+      updated_at: '2026-07-19 07:30:00',
+      metric_keys: ['revenue'],
+    }, {
+      key: 'online_daily_data#22',
+      source: 'ctrip',
+      platform: 'ctrip',
+      scope: 'ota_channel',
+      data_date: '2026-07-18',
+      validation_status: 'verified',
+      ingestion_method: 'browser_profile',
+      snapshot_time: '2026-07-19 08:30:00',
+      readback_verified: true,
+      metric_keys: ['amount', 'list_exposure'],
+    }, {
+      key: 'manual_inputs#33',
+      source: 'manual_import',
+      scope: 'manual_input',
+      data_date: '2026-07-18',
+      validation_status: 'verified',
+      ingestion_method: 'manual_import',
+      metric_keys: ['orders'],
+    }, {
+      key: 'online_daily_data#44',
+      source: 'meituan',
+      platform: 'meituan',
+      scope: 'ota_channel',
+      data_date: '2026-07-18',
+      validation_status: 'collection_failed',
+      failure_reason: '采集任务失败',
+      metric_keys: ['detail_exposure'],
+    }],
+    yesterday_result: {
+      metrics: [{
+        key: 'exposure', value: null, data_status: 'missing', result_layer: 'source_fact', metric_scopes: ['ota_channel'],
+      }],
+    },
+  };
+
+  const wholeHotel = metricHelpers.aiDailyReportMetricTruth({
+    key: 'revenue', value: 1200, metric_scopes: ['whole_hotel_daily_report'], result_layer: 'source_fact',
+  });
+  assert.equal(wholeHotel.truth.status, 'unverified');
+  assert.equal(wholeHotel.scopeCode, 'whole_hotel');
+  assert.equal(wholeHotel.sources.length, 1);
+  assert.equal(wholeHotel.sourceRefsText, 'daily_reports#11');
+
+  const ota = metricHelpers.aiDailyReportMetricTruth({
+    key: 'exposure', value: 800, metric_scopes: ['ota_channel'], result_layer: 'source_fact',
+  });
+  assert.equal(ota.truth.status, 'verified');
+  assert.equal(ota.scopeCode, 'ota_channel');
+
+  const mixed = metricHelpers.aiDailyReportMetricTruth({
+    key: 'revenue', value: 1600, metric_scopes: ['whole_hotel_daily_report', 'ota_channel'], result_layer: 'source_fact',
+  });
+  assert.equal(mixed.truth.status, 'partial');
+  assert.equal(mixed.scopeCode, 'mixed');
+
+  const userInput = metricHelpers.aiDailyReportMetricTruth({
+    key: 'orders', value: 9, metric_scopes: ['manual_input'], result_layer: 'source_fact',
+  });
+  assert.equal(userInput.truth.status, 'unverified');
+  assert.equal(userInput.scopeCode, 'user_input');
+  assert.match(userInput.truthDetailText, /已入库 1\/1；回读 0\/1/);
+
+  const failed = metricHelpers.aiDailyReportMetricTruth({
+    key: 'visitors',
+    value: null,
+    data_status: 'collection_failed',
+    metric_scopes: ['ota_channel'],
+    source_refs: ['online_daily_data#44'],
+    result_layer: 'source_fact',
+  });
+  assert.equal(failed.truth.status, 'collection_failed');
+  assert.equal(failed.sources.length, 1);
+  assert.equal(failed.sourceRefsText, 'online_daily_data#44');
+  assert.match(failed.truthDetailText, /采集任务失败/);
+
+  const missingCard = metricHelpers.aiDailyReportMetricCards.value[0];
+  assert.equal(metricHelpers.aiDailyReportMetricCards.value.length, 1);
+  assert.equal(missingCard.value, null);
+  assert.equal(missingCard.calculationStatus, 'missing');
+  assert.equal(missingCard.truth.status, 'partial');
 });
 
 test('AI daily report task helpers keep hotel scope and terminal truthfulness', () => {
@@ -734,6 +881,61 @@ test('Revenue AI metric cards keep missing data explicit and scoped', () => {
   const emptyConfirmedRevenue = emptyConfirmedCards.find((card) => card.key === 'ota_room_revenue');
   assert.equal(emptyConfirmedRevenue.statusLabel, '确认无数据');
   assert.equal(emptyConfirmedRevenue.reasonText, '携程明确确认目标经营日期无数据。');
+});
+
+test('Revenue AI metric cards expose the complete four-state truth envelope for each number', () => {
+  const cards = helpers.buildRevenueAiMetricCards({
+    overview: {
+      scope: 'ota',
+      date_basis: 'data_date',
+      metrics: {
+        ota_room_revenue: {
+          display: '¥1,200.00',
+          status: 'ok',
+          truth: {
+            status: 'verified',
+            status_label: '已验证',
+            scope_label: 'OTA渠道指标，不代表全酒店经营',
+            hotels: [{ system_hotel_id: 7, name: '测试酒店' }],
+            platforms: ['ctrip'],
+            date_range: { start: '2026-07-18', end: '2026-07-18' },
+            source: { table: 'online_daily_data', methods: ['browser_profile'] },
+            collected_at_range: { start: '2026-07-19 08:30:00', end: '2026-07-19 08:30:00' },
+            persistence: { record_count: 2, stored_count: 2, readback_verified_count: 2 },
+            failure_reason: '',
+          },
+        },
+      },
+    },
+  });
+  const revenue = cards.find((card) => card.key === 'ota_room_revenue');
+  assert.equal(revenue.statusLabel, '已验证');
+  assert.equal(revenue.metricStatusLabel, '正常');
+  assert.deepEqual(
+    Array.from(revenue.truthLines, (line) => line.label),
+    ['门店', '平台', '日期', '来源', '采集时间', '入库', '失败原因', '口径'],
+  );
+  assert.match(revenue.truthSummary, /门店：测试酒店/);
+  assert.match(revenue.truthSummary, /平台：携程/);
+  assert.match(revenue.truthSummary, /来源：online_daily_data \/ browser_profile/);
+  assert.match(revenue.truthSummary, /采集时间：2026-07-19 08:30:00/);
+  assert.match(revenue.truthSummary, /入库：入库 2\/2；回读 2\/2/);
+  assert.match(revenue.truthSummary, /失败原因：无/);
+  assert.match(revenue.truthSummary, /OTA渠道指标，不代表全酒店经营/);
+
+  const partial = helpers.buildRevenueAiMetricCards({
+    overview: {
+      metrics: {
+        ota_room_revenue: {
+          display: '¥800.00',
+          status: 'ok',
+          truth: { status: 'partial', failure_reason: 'collected_at_missing' },
+        },
+      },
+    },
+  }).find((card) => card.key === 'ota_room_revenue');
+  assert.equal(partial.statusLabel, '部分数据');
+  assert.equal(partial.reasonText, 'collected_at_missing');
 });
 
 test('Revenue AI gap rows expose request failures and source quality issues', () => {

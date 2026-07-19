@@ -124,6 +124,15 @@ trait OnlineDataRequestConcern
         }
         $payload['default_data_date'] = $targetDataDate;
         $rows = $this->buildMeituanCapturedDailyRows($payload, $systemHotelId);
+        $supplementalFilter = BrowserProfileCaptureRequestService::filterUnverifiedMeituanSupplementalRows($rows, $targetDataDate);
+        $rows = $supplementalFilter['rows'];
+        if ($supplementalFilter['dropped_count'] > 0) {
+            $payload['collection_warnings'][] = [
+                'status_code' => 'unverified_supplemental_rows_dropped',
+                'data_types' => $supplementalFilter['dropped_types'],
+                'dropped_count' => $supplementalFilter['dropped_count'],
+            ];
+        }
         $mismatchedDates = BrowserProfileCaptureRequestService::mismatchedMeituanTargetDates($rows, $targetDataDate);
         if ($mismatchedDates !== []) {
             return $this->error('meituan_target_date_mismatch', 422, [
@@ -618,6 +627,7 @@ trait OnlineDataRequestConcern
             'auth_status' => $payload['auth_status'] ?? null,
             'capture_gate' => $gate,
             'counts' => $this->summarizeMeituanCapturedRows($rows),
+            'collection_warnings' => $payload['collection_warnings'] ?? [],
             'payload_counts' => [
                 'reviews' => $this->countMeituanPayloadSection($payload, 'reviews'),
                 'traffic' => $this->countMeituanPayloadSection($payload, 'traffic'),
@@ -2106,17 +2116,31 @@ trait OnlineDataRequestConcern
             $result = $this->sendCustomRequest($url, $method, $headers, $body);
 
             if ($result['success']) {
-                OperationLog::record('online_data', 'fetch_custom', '获取自定义线上数据: ' . $url, $this->currentUser->id);
+                $auditUrl = $this->auditUrlWithoutQuery((string)$url);
+                OperationLog::record('online_data', 'fetch_custom', '获取自定义线上数据: ' . $auditUrl, $this->currentUser->id, null, null, [
+                    'audit_type' => 'acquisition',
+                    'outcome' => 'success',
+                    'method' => strtoupper((string)$method),
+                    'target_url' => $auditUrl,
+                    'http_status' => (int)($result['status'] ?? 0),
+                ]);
                 return $this->success([
                     'data' => $result['data'],
                     'status' => $result['status'],
                     'headers' => $result['response_headers'],
                 ]);
             } else {
-                return $this->error('请求失败: ' . $result['error']);
+                return $this->error('请求失败，请核对平台接口状态', 502, [
+                    'reason' => 'ota_custom_request_failed',
+                ]);
             }
         } catch (\Throwable $e) {
-            return $this->error('请求异常: ' . $e->getMessage());
+            \think\facade\Log::warning('OTA custom request failed.', [
+                'exception_type' => get_debug_type($e),
+            ]);
+            return $this->error('请求异常，请稍后重试', 500, [
+                'reason' => 'ota_custom_request_exception',
+            ]);
         }
     }
 
@@ -2186,6 +2210,21 @@ trait OnlineDataRequestConcern
         try {
             $requestData = $this->requestData();
             $config = $this->saveCtripConfigPayload($requestData);
+            $actorId = (int)($this->currentUser->id ?? 0);
+            $systemHotelId = (int)($config['system_hotel_id'] ?? 0);
+            $tenantId = $this->otaCredentialTenantIdForHotel($systemHotelId);
+            OperationLog::record('online_data', 'save_ctrip_config', 'OTA credential metadata saved', $actorId, $systemHotelId, null, [
+                'audit_type' => 'security',
+                'lifecycle_action' => 'save',
+                'actor_id' => $actorId,
+                'tenant_id' => $tenantId,
+                'system_hotel_id' => $systemHotelId,
+                'platform' => 'ctrip',
+                'config_id' => (string)($config['config_id'] ?? $config['id'] ?? ''),
+                'credential_ref' => (int)($config['credential_ref'] ?? 0),
+                'status' => (string)($config['credential_status'] ?? ''),
+                'outcome' => 'success',
+            ]);
             $this->clearAutoFetchLightConfigListCache('ctrip');
             return json(['code' => 200, 'message' => '配置保存成功', 'data' => $this->sanitizeSecretConfig($config)]);
         } catch (\think\exception\HttpException $e) {
@@ -2477,13 +2516,25 @@ trait OnlineDataRequestConcern
                 $this->checkActionPermission('can_delete_online_data');
             }
 
-            $name = (string)($config['name'] ?? '');
-            $this->deleteCtripConfigMetadata($id, $systemHotelId);
+            $deleted = $this->deleteCtripConfigMetadata($id, $systemHotelId);
 
             \app\model\SystemConfig::clearProtectedOtaCaches();
             $this->clearAutoFetchLightConfigListCache('ctrip');
 
-            OperationLog::record('online_data', 'delete_ctrip_config', "删除携程配置: {$name}", $this->currentUser->id);
+            $actorId = (int)($this->currentUser->id ?? 0);
+            $tenantId = $this->otaCredentialTenantIdForHotel($systemHotelId);
+            OperationLog::record('online_data', 'delete_ctrip_config', 'OTA credential revoked', $actorId, $systemHotelId, null, [
+                'audit_type' => 'security',
+                'lifecycle_action' => 'revoke',
+                'actor_id' => $actorId,
+                'tenant_id' => $tenantId,
+                'system_hotel_id' => $systemHotelId,
+                'platform' => 'ctrip',
+                'config_id' => (string)($deleted['config_id'] ?? $deleted['id'] ?? $id),
+                'credential_ref' => (int)($deleted['credential_ref'] ?? 0),
+                'status' => (string)($deleted['credential_status'] ?? ''),
+                'outcome' => 'success',
+            ]);
 
             return $this->success(null, '删除成功');
         } catch (\think\exception\HttpException $e) {
@@ -3232,5 +3283,21 @@ trait OnlineDataRequestConcern
             'status' => $status,
             'response_headers' => $responseHeaders,
         ];
+    }
+
+    private function auditUrlWithoutQuery(string $url): string
+    {
+        $parts = parse_url($url);
+        if (!is_array($parts)) {
+            return '[invalid-url]';
+        }
+        $scheme = strtolower((string)($parts['scheme'] ?? 'https'));
+        $host = strtolower((string)($parts['host'] ?? ''));
+        $path = (string)($parts['path'] ?? '/');
+        if ($host === '') {
+            return '[invalid-url]';
+        }
+
+        return $scheme . '://' . $host . ($path !== '' ? $path : '/');
     }
 }

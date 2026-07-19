@@ -556,9 +556,11 @@ test('Ctrip manual execution uses platform authorization and legacy Cookie stora
   assert.match(ctripManualFetchConfigGuard, /await loadCtripConfigList\(\{\s*cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\s*applySelectedConfig: false,\s*\}\);/);
   assert.match(ctripManualFetchConfigGuard, /return ctripManualFetchConfigCandidate\(\);/);
   assert.match(loadCtripConfigList, /const force = options\.force === true;/);
+  assert.match(loadCtripConfigList, /const requestSession = captureAuthSession\(\);/);
   assert.match(loadCtripConfigList, /!force\s*&& ctripConfigListLoaded\.value/);
   assert.match(loadCtripConfigList, /if \(!force\) \{\s*return ctripConfigListLoadingPromise;\s*\}/);
   assert.match(loadCtripConfigList, /await ctripConfigListLoadingPromise\.catch\(\(\) => \[\]\);/);
+  assert.match(loadCtripConfigList, /isAuthSessionCurrent\(requestSession\)\s*\? applyCtripHotelConfig\(false, \{/);
   assert.match(ctripConfigSaveFlow, /afterSave = async \(\) => \{ reloadConfigs\(\); \}/);
   assert.match(ctripConfigSaveFlow, /await afterSave\(\{ response: res, requestBody \}\);/);
   assert.match(ctripManualTabSwitch, /!\['ctrip-flow-overview', 'ctrip-fetch-settings', 'ctrip-ads', 'ctrip-config'\]\.includes\(tab\)/);
@@ -3277,7 +3279,7 @@ test('Home lower dashboard panels mount after the first OTA navigation window', 
   assert.match(html, /const homeSecondaryPanelsReady = ref\(false\);/);
   assert.match(html, /const scheduleHomeSecondaryPanelsReady = \(delayMs = HOME_SECONDARY_PANEL_DELAY_MS\) => \{/);
   assert.match(currentPageWatcher, /clearHomeSecondaryPanelsReadyTimer\(\);\s*homeSecondaryPanelsReady\.value = false;\s*destroyHomeTrendChart\(\);/);
-  assert.match(currentPageWatcher, /homeSecondaryPanelsReady\.value = false;\s*scheduleHomeSecondaryPanelsReady\(\);\s*runPageLoadOnce\(newPage, 'main', \(\) => loadCompassData\(\)\);/);
+  assert.match(currentPageWatcher, /homeSecondaryPanelsReady\.value = false;\s*scheduleHomeSecondaryPanelsReady\(\);[\s\S]{0,320}?runPageLoadOnce\(newPage, 'main', \(\) => loadCompassData\(\{\s*skipOtaBackground:\s*true\s*\}\)\);/);
   assert.doesNotMatch(currentPageWatcher, /runPageLoadOnce\(newPage, 'auto-fetch-static'/);
   assert.match(html, /v-if="homeSecondaryPanelsReady"[^>]+data-testid="daily-ops-monitor-card"/);
   assert.match(html, /v-if="homeSecondaryPanelsReady"[^>]+data-testid="home-weather-demand-card"/);
@@ -3510,7 +3512,7 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
   assert.match(loadCompetitorSummary, /readRequestCache\(competitorSummaryResultCache, requestKey, cacheMs\)/);
   assert.match(loadCompetitorSummary, /competitorSummaryRequestPromises\.has\(requestKey\)/);
   assert.match(loadCompetitorSummary, /writeRequestCache\(competitorSummaryResultCache, requestKey, cacheMs\);/);
-  assert.match(loadCompetitorSummary, /if \(requestSeq !== competitorSummaryRequestSeq\) return;/);
+  assert.match(loadCompetitorSummary, /if \(!isCurrentRequest\(\)\) return null;/);
   assert.match(scheduleMeituanRankingSummaryRefresh, /scheduleDelayedPageTask\(async \(\) => \{/);
   assert.match(scheduleMeituanRankingSummaryRefresh, /await loadCompetitorSummary\(\{ includeByHotel: false, force \}\);/);
   assert.doesNotMatch(openHomeQuickEntry, /await loadCompetitorSummary\(\)/);
@@ -4167,7 +4169,7 @@ test('Meituan hotel matching does not wait for all-store competitor summaries', 
   assert.match(loadMeituanConfigList, /const shouldApplySelectedConfig = options\.applySelectedConfig === true;/);
   assert.match(loadMeituanConfigList, /const applyAction = resolveMeituanConfigListApplyAction\(\{/);
   assert.match(loadMeituanConfigList, /if \(applyAction\.shouldApply\) \{/);
-  assert.match(loadMeituanConfigList, /deferUiTask\(\(\) => applyMeituanHotelConfig\(false, \{ refreshList: false \}\), 80\);/);
+  assert.match(loadMeituanConfigList, /deferUiTask\(\(\) => \(\s*isAuthSessionCurrent\(requestSession\)\s*\? applyMeituanHotelConfig\(false, \{ refreshList: false \}\)\s*: null\s*\), 80\);/);
   assert.match(loadMeituanConfigList, /const failureAction = buildMeituanConfigListFailureAction\(\{\s*type: 'api',\s*message: configListResult\.message,/);
   assert.match(loadMeituanConfigList, /const failureAction = buildMeituanConfigListFailureAction\(\{\s*type: 'exception',\s*error: e,/);
   assert.match(loadMeituanConfigList, /meituanConfigListLoadFailed\.value = failureAction\.failed;/);
@@ -4289,7 +4291,7 @@ test('Platform auto-fetch panel prewarms static helper without blocking first pa
     '\n            const autoFetchStatusRequestPromises'
   );
   const triggerAutoFetch = sliceFrom(
-    'const triggerAutoFetch = async () => {',
+    'const triggerAutoFetch = async (options = {}) => {',
     '\n\n            const retryAutoFetchDate'
   );
   const autoFetchTriggerGuard = sliceFrom(

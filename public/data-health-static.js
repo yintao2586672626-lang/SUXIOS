@@ -6585,10 +6585,211 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
 
     const onlineStorageStatusText = (item = {}) => String(item?.storage_status_label || '').trim() || '未回读验证';
 
+    const onlineTruthEnvelope = (subject = {}) => {
+        const candidate = subject?.truth || subject?.truth_context || subject;
+        return candidate && typeof candidate === 'object' && !Array.isArray(candidate)
+            ? candidate
+            : {
+                status: 'unverified',
+                status_label: '未验证',
+                metric_scope: 'unknown',
+                scope_label: '口径未记录',
+            };
+    };
+
+    const onlineTruthStatusText = (subject = {}) => {
+        const truth = onlineTruthEnvelope(subject);
+        return String(truth.status_label || ({
+            verified: '已验证',
+            partial: '部分数据',
+            unverified: '未验证',
+            collection_failed: '采集失败',
+        }[String(truth.status || '').toLowerCase()] || '未验证'));
+    };
+
+    const onlineTruthStatusClass = (subject = {}) => {
+        const status = String(onlineTruthEnvelope(subject).status || 'unverified').toLowerCase();
+        const base = 'inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium whitespace-nowrap';
+        if (status === 'verified') return `${base} border-emerald-200 bg-emerald-50 text-emerald-700`;
+        if (status === 'partial') return `${base} border-amber-200 bg-amber-50 text-amber-700`;
+        if (status === 'collection_failed') return `${base} border-red-200 bg-red-50 text-red-700`;
+        return `${base} border-slate-200 bg-slate-50 text-slate-600`;
+    };
+
+    const onlineTruthCalculationStatusText = (subject = {}) => ({
+        calculated: '已计算',
+        observed: '已观测',
+        provided: '已录入',
+        loaded: '已读取',
+        not_applicable: '不适用',
+        missing: '缺失',
+        unavailable: '不可计算',
+        failed: '计算失败',
+    }[String(onlineTruthEnvelope(subject).calculation_status || '').trim().toLowerCase()] || '未记录');
+
+    const onlineTruthPlatformText = (platform = '') => ({
+        ctrip: '携程',
+        meituan: '美团',
+        qunar: '去哪儿',
+        internal: '内部项目',
+        not_applicable: '不适用',
+    }[String(platform || '').trim().toLowerCase()] || String(platform || '').trim() || '未记录');
+
+    const onlineTruthSourceMethodText = (method = '') => ({
+        browser_profile: '本机浏览器 Profile',
+        profile_browser: '本机浏览器 Profile',
+        manual_cookie_api: '人工授权 Cookie/API',
+        ctrip_cookie_api: '携程授权 Cookie/API',
+        official_api: '平台官方 API',
+        network_response: '授权网络响应',
+        browser_assist: '浏览器辅助采集',
+        scheduled_job: '定时任务',
+        manual_import: '人工导入（未验证）',
+        manual_override: '人工更正（未验证）',
+        import_csv: 'CSV 导入（未验证）',
+        import_json: 'JSON 导入（未验证）',
+        user_input: '人工录入（未外部验证）',
+        deterministic_formula: '本地确定性公式',
+        manual_project_tracking: '内部人工跟踪',
+        deterministic_checklist_formula: '清单确定性公式',
+        internal_daily_report: '本地经营日报（来源未外部验证）',
+        daily_report: '本地经营日报（来源未外部验证）',
+        legacy: '历史来源（未验证）',
+    }[String(method || '').trim().toLowerCase()] || String(method || '').trim() || '未记录');
+
+    const onlineTruthHotelText = (subject = {}) => {
+        const truth = onlineTruthEnvelope(subject);
+        const hotels = Array.isArray(truth.hotels)
+            ? truth.hotels
+            : (truth.hotel && typeof truth.hotel === 'object' ? [truth.hotel] : []);
+        if (!hotels.length) return '未绑定';
+        const labels = hotels.map(hotel => {
+            const name = String(hotel?.name || '').trim();
+            const id = hotel?.system_hotel_id ?? hotel?.id ?? hotel?.hotel_id;
+            return name ? `${name}${id ? `（ID ${id}）` : ''}` : (id ? `门店 ID ${id}` : '未绑定');
+        });
+        return labels.slice(0, 3).join('、') + (labels.length > 3 ? ` 等 ${labels.length} 家` : '');
+    };
+
+    const onlineTruthPlatformsText = (subject = {}) => {
+        const truth = onlineTruthEnvelope(subject);
+        const platforms = Array.isArray(truth.platforms) ? truth.platforms : [truth.platform];
+        const labels = platforms.filter(Boolean).map(onlineTruthPlatformText);
+        return [...new Set(labels)].join('、') || '未记录';
+    };
+
+    const onlineTruthDateText = (subject = {}) => {
+        const truth = onlineTruthEnvelope(subject);
+        if (truth.data_date) return String(truth.data_date);
+        const start = String(truth.date_range?.start || '').trim();
+        const end = String(truth.date_range?.end || '').trim();
+        if (!start && !end) return '未记录';
+        return start && end && start !== end ? `${start} 至 ${end}` : (start || end);
+    };
+
+    const onlineTruthSourceText = (subject = {}) => {
+        const truth = onlineTruthEnvelope(subject);
+        const methods = Array.isArray(truth.source_methods)
+            ? truth.source_methods
+            : (Array.isArray(truth.source?.methods) ? truth.source.methods : [truth.source?.method]);
+        const labels = methods.filter(Boolean).map(onlineTruthSourceMethodText);
+        const table = String(truth.source?.table || '').trim();
+        return [...new Set([table, ...labels].filter(Boolean))].join('、') || '未记录';
+    };
+
+    const onlineTruthCollectedAtText = (subject = {}) => {
+        const truth = onlineTruthEnvelope(subject);
+        if (truth.collected_at) return String(truth.collected_at);
+        const start = String(truth.collected_at_range?.start || '').trim();
+        const end = String(truth.collected_at_range?.end || '').trim();
+        if (!start && !end) {
+            const applicability = String(truth.collection_time_applicability || '').trim().toLowerCase();
+            if (applicability === 'not_applicable_internal_manual_tracking') {
+                return '不适用（内部人工记录，非采集数据）';
+            }
+            if (applicability.startsWith('not_applicable')) {
+                return '不适用（非采集数据）';
+            }
+            return '未记录';
+        }
+        return start && end && start !== end ? `${start} 至 ${end}` : (start || end);
+    };
+
+    const onlineTruthPersistenceText = (subject = {}) => {
+        const truth = onlineTruthEnvelope(subject);
+        const persistence = truth.persistence && typeof truth.persistence === 'object' ? truth.persistence : {};
+        if (Object.prototype.hasOwnProperty.call(persistence, 'record_count')) {
+            const count = value => value === null || value === undefined || value === '' || !Number.isFinite(Number(value))
+                ? null
+                : Number(value);
+            const total = count(persistence.record_count);
+            const stored = count(persistence.stored_count);
+            const verified = count(persistence.readback_verified_count);
+            const excluded = count(persistence.excluded_untrusted_count);
+            if (total === null || stored === null || verified === null) return '入库或回读数量未记录';
+            return `入库 ${stored}/${total}，回读 ${verified}/${total}${excluded > 0 ? `，排除 ${excluded} 条未可信记录` : ''}`;
+        }
+        const storedText = persistence.stored === true
+            ? '已入库'
+            : (persistence.stored === false ? '未入库' : '入库状态未记录');
+        const readbackText = persistence.readback_verified === true
+            ? '回读已验证'
+            : (persistence.readback_verified === false ? '回读未验证' : '回读状态未记录');
+        const storedAt = String(persistence.stored_at || '').trim();
+        return `${storedText}，${readbackText}${storedAt ? `，入库时间 ${storedAt}` : ''}`;
+    };
+
+    const onlineTruthFailureText = (subject = {}) => {
+        const reason = String(onlineTruthEnvelope(subject).failure_reason || '').trim();
+        return reason || '无';
+    };
+
+    const onlineTruthMetaRows = (subject = {}) => [
+        { key: 'status', label: '状态', value: onlineTruthStatusText(subject) },
+        { key: 'calculation', label: '计算', value: onlineTruthCalculationStatusText(subject) },
+        { key: 'hotel', label: '门店', value: onlineTruthHotelText(subject) },
+        { key: 'platform', label: '平台', value: onlineTruthPlatformsText(subject) },
+        { key: 'date', label: '日期', value: onlineTruthDateText(subject) },
+        { key: 'source', label: '来源', value: onlineTruthSourceText(subject) },
+        { key: 'collected_at', label: '采集时间', value: onlineTruthCollectedAtText(subject) },
+        { key: 'persistence', label: '入库', value: onlineTruthPersistenceText(subject) },
+        { key: 'failure', label: '原因', value: onlineTruthFailureText(subject) },
+        { key: 'scope', label: '口径', value: String(onlineTruthEnvelope(subject).scope_label || 'OTA渠道数据，不代表全酒店经营') },
+    ];
+
+    const onlineTruthDetailText = (subject = {}) => onlineTruthMetaRows(subject)
+        .map(row => `${row.label}：${row.value}`)
+        .join('；');
+
     const onlineAnalysisMetricText = (value, formatNumber = metric => String(metric ?? ''), prefix = '') => {
         if (value === null || value === undefined || value === '') return '-';
         return `${prefix}${formatNumber(value)}`;
     };
+
+    const onlineMetricTruthContext = (subject = {}, value = null, missingReason = '指标值缺失') => {
+        const truth = onlineTruthEnvelope(subject);
+        if (value !== null && value !== undefined && value !== '') return truth;
+        const status = String(truth.status || 'unverified').toLowerCase();
+        const nextStatus = status === 'verified' ? 'partial' : status;
+        return {
+            ...truth,
+            status: nextStatus,
+            status_label: ({
+                verified: '已验证',
+                partial: '部分数据',
+                unverified: '未验证',
+                collection_failed: '采集失败',
+            })[nextStatus] || '未验证',
+            failure_reason: String(truth.failure_reason || '').trim() || missingReason,
+        };
+    };
+
+    const buildOnlineAnalysisRowMetricCells = (item = {}, formatNumber = value => String(value ?? '')) => [
+        { key: 'amount', value: onlineAnalysisMetricText(item.amount, formatNumber, '¥') },
+        { key: 'quantity', value: onlineAnalysisMetricText(item.quantity, formatNumber) },
+        { key: 'book_order_num', value: onlineAnalysisMetricText(item.book_order_num, formatNumber) },
+        { key: 'data_value', value: onlineAnalysisMetricText(item.data_value, formatNumber) },
+    ];
 
     const buildOnlineAnalysisSummaryCards = (summary = {}, dimension = 'day', formatNumber = value => String(value ?? '')) => [
         {
@@ -6597,6 +6798,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             value: onlineAnalysisMetricText(summary.total_amount, formatNumber, '¥'),
             sub: `${dimension === 'day' ? '日' : dimension === 'week' ? '周' : '月'}维度汇总`,
             className: 'text-emerald-700',
+            truth: onlineMetricTruthContext(summary.truth_context || {}, summary.total_amount, '销售额字段缺失'),
         },
         {
             key: 'quantity',
@@ -6604,6 +6806,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             value: onlineAnalysisMetricText(summary.total_quantity, formatNumber),
             sub: `均值 ${onlineAnalysisMetricText(summary.avg_quantity, formatNumber)}`,
             className: 'text-blue-700',
+            truth: onlineMetricTruthContext(summary.truth_context || {}, summary.total_quantity, '间夜字段缺失'),
         },
         {
             key: 'orders',
@@ -6611,6 +6814,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             value: onlineAnalysisMetricText(summary.total_orders, formatNumber),
             sub: `评分 ${onlineAnalysisMetricText(summary.avg_score, formatNumber)}`,
             className: 'text-amber-700',
+            truth: onlineMetricTruthContext(summary.truth_context || {}, summary.total_orders, '订单字段缺失'),
         },
         {
             key: 'metric_value',
@@ -6618,20 +6822,23 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             value: onlineAnalysisMetricText(summary.total_data_value, formatNumber),
             sub: '流量/排名/服务等扩展指标',
             className: 'text-indigo-700',
+            truth: onlineMetricTruthContext(summary.truth_context || {}, summary.total_data_value, '指标值字段缺失'),
         },
         {
             key: 'records',
             label: '入库事实行',
-            value: formatNumber(summary.total_record_count ?? 0),
+            value: onlineAnalysisMetricText(summary.total_record_count, formatNumber),
             sub: 'online_daily_data',
             className: 'text-slate-900',
+            truth: onlineMetricTruthContext(summary.truth_context || {}, summary.total_record_count, '入库事实行数缺失'),
         },
         {
             key: 'hotels',
             label: '覆盖酒店',
-            value: formatNumber(summary.hotel_count ?? 0),
+            value: onlineAnalysisMetricText(summary.hotel_count, formatNumber),
             sub: summary.latest_data_date ? `最新 ${summary.latest_data_date}` : '暂无日期',
             className: 'text-gray-700',
+            truth: onlineMetricTruthContext(summary.truth_context || {}, summary.hotel_count, '覆盖门店数缺失'),
         },
     ];
 
@@ -7101,6 +7308,24 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         onlineAnalysisDataTypeText,
         onlineStorageStatusClass,
         onlineStorageStatusText,
+        onlineTruthEnvelope,
+        onlineTruthStatusText,
+        onlineTruthStatusClass,
+        onlineTruthCalculationStatusText,
+        onlineTruthPlatformText,
+        onlineTruthSourceMethodText,
+        onlineTruthHotelText,
+        onlineTruthPlatformsText,
+        onlineTruthDateText,
+        onlineTruthSourceText,
+        onlineTruthCollectedAtText,
+        onlineTruthPersistenceText,
+        onlineTruthFailureText,
+        onlineTruthMetaRows,
+        onlineTruthDetailText,
+        onlineAnalysisMetricText,
+        onlineMetricTruthContext,
+        buildOnlineAnalysisRowMetricCells,
         buildOnlineAnalysisSummaryCards,
         buildOnlineAnalysisMetricDefinitionRows,
         buildOnlineAnalysisChartConfig,

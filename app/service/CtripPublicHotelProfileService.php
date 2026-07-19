@@ -1198,7 +1198,28 @@ final class CtripPublicHotelProfileService
             ->where('store_id', $systemHotelId)
             ->where('platform', 'xc')
             ->where('hotel_code', $otaHotelId)
+            ->lock(true)
             ->find();
+        if (!$existing && trim($hotelName) !== '') {
+            $publicNameCandidates = Db::name('competitor_hotel')
+                ->where('store_id', $systemHotelId)
+                ->where('platform', 'xc')
+                ->where('status', 1)
+                ->where('hotel_code', 'like', 'public-name:%')
+                ->lock(true)
+                ->select()
+                ->toArray();
+            $exactNameCandidates = array_values(array_filter(
+                $publicNameCandidates,
+                static fn(array $candidate): bool => str_starts_with(
+                    trim((string)($candidate['hotel_code'] ?? '')),
+                    'public-name:'
+                ) && trim((string)($candidate['hotel_name'] ?? '')) === trim($hotelName)
+            ));
+            if (count($exactNameCandidates) === 1) {
+                $existing = $exactNameCandidates[0];
+            }
+        }
         $now = $this->now();
         $data = [
             'store_id' => $systemHotelId,

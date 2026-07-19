@@ -11,12 +11,12 @@ class KnowledgeDocumentTextExtractor
 {
     private const TEXT_EXTENSIONS = ['txt', 'md', 'markdown', 'csv', 'json', 'log'];
     private const HTML_EXTENSIONS = ['html', 'htm'];
-    private const DOCX_XML_PATHS = [
-        'word/document.xml',
-        'word/footnotes.xml',
-        'word/endnotes.xml',
-        'word/comments.xml',
-    ];
+    private const MAX_DOCX_ARCHIVE_ENTRIES = 256;
+    private const MAX_DOCX_HEADER_FOOTER_PARTS = 32;
+    private const MAX_DOCX_XML_PART_BYTES = 8 * 1024 * 1024;
+    private const MAX_DOCX_TOTAL_XML_BYTES = 16 * 1024 * 1024;
+    private const MAX_DOCX_XML_COMPRESSION_RATIO = 100;
+    private const DOCX_XML_PATHS = ['word/document.xml'];
 
     /**
      * @return array{filename:string, extension:string, text:string, char_count:int}
@@ -88,15 +88,15 @@ class KnowledgeDocumentTextExtractor
         }
 
         $zip = new ZipArchive();
-        if ($zip->open($path) !== true) {
+        if ($zip->open($path, ZipArchive::CHECKCONS) !== true) {
             throw new InvalidArgumentException('docx 文档无法打开，请确认文件未损坏');
         }
 
         try {
             $parts = [];
-            foreach ($this->docxXmlPaths($zip) as $xmlPath) {
-                $xml = $zip->getFromName($xmlPath);
-                if (is_string($xml) && trim($xml) !== '') {
+            foreach ($this->validatedDocxXmlEntries($zip) as $entry) {
+                $xml = $this->readDocxXmlEntry($zip, $entry);
+                if (trim($xml) !== '') {
                     $parts[] = $this->extractDocxXmlText($xml);
                 }
             }
@@ -108,19 +108,120 @@ class KnowledgeDocumentTextExtractor
     }
 
     /**
-     * @return array<int, string>
+     * @return array<int, array{name:string,size:int}>
      */
-    private function docxXmlPaths(ZipArchive $zip): array
+    private function validatedDocxXmlEntries(ZipArchive $zip): array
     {
-        $paths = self::DOCX_XML_PATHS;
+        if ($zip->numFiles > self::MAX_DOCX_ARCHIVE_ENTRIES) {
+            throw new InvalidArgumentException('docx 文档压缩包条目过多，无法安全读取');
+        }
+
+        $entriesByName = [];
+        $headerFooterNames = [];
+        $totalXmlBytes = 0;
+
         for ($index = 0; $index < $zip->numFiles; $index++) {
-            $name = (string)$zip->getNameIndex($index);
-            if (preg_match('/^word\/(?:header|footer)\d+\.xml$/', $name)) {
-                $paths[] = $name;
+            $stat = $zip->statIndex($index);
+            if (!is_array($stat) || !isset($stat['name']) || !is_string($stat['name']) || $stat['name'] === '') {
+                throw new InvalidArgumentException('docx 文档压缩条目元数据异常，无法安全读取');
+            }
+
+            $name = $stat['name'];
+            if (!array_key_exists('size', $stat)
+                || !is_int($stat['size'])
+                || $stat['size'] < 0
+                || !array_key_exists('comp_size', $stat)
+                || !is_int($stat['comp_size'])
+                || $stat['comp_size'] < 0) {
+                throw new InvalidArgumentException('docx 文档压缩条目元数据异常，无法安全读取');
+            }
+
+            if (array_key_exists('encryption_method', $stat)) {
+                if (!is_int($stat['encryption_method'])) {
+                    throw new InvalidArgumentException('docx 文档压缩条目元数据异常，无法安全读取');
+                }
+                if ($stat['encryption_method'] !== ZipArchive::EM_NONE) {
+                    throw new InvalidArgumentException('docx 文档包含加密条目，无法读取');
+                }
+            }
+
+            $isHeaderFooter = preg_match('/^word\/(?:header|footer)\d+\.xml$/', $name) === 1;
+            if (!in_array($name, self::DOCX_XML_PATHS, true) && !$isHeaderFooter) {
+                continue;
+            }
+
+            if (isset($entriesByName[$name])) {
+                throw new InvalidArgumentException('docx 文档包含重复的 XML 条目，无法安全读取');
+            }
+
+            $size = $stat['size'];
+            $compressedSize = $stat['comp_size'];
+            if ($size > self::MAX_DOCX_XML_PART_BYTES) {
+                throw new InvalidArgumentException('docx 文档单个 XML 解压后不能超过 8MB');
+            }
+            if ($size > 0 && $compressedSize === 0) {
+                throw new InvalidArgumentException('docx 文档压缩条目元数据异常，无法安全读取');
+            }
+            if ($compressedSize > 0 && ($size / $compressedSize) > self::MAX_DOCX_XML_COMPRESSION_RATIO) {
+                throw new InvalidArgumentException('docx 文档 XML 压缩比异常，无法安全读取');
+            }
+
+            $totalXmlBytes += $size;
+            if ($totalXmlBytes > self::MAX_DOCX_TOTAL_XML_BYTES) {
+                throw new InvalidArgumentException('docx 文档 XML 总解压大小不能超过 16MB');
+            }
+
+            $entriesByName[$name] = [
+                'name' => $name,
+                'size' => $size,
+            ];
+            if ($isHeaderFooter) {
+                $headerFooterNames[] = $name;
+                if (count($headerFooterNames) > self::MAX_DOCX_HEADER_FOOTER_PARTS) {
+                    throw new InvalidArgumentException('docx 文档页眉页脚数量过多，无法安全读取');
+                }
             }
         }
 
-        return array_values(array_unique($paths));
+        if (!isset($entriesByName['word/document.xml'])) {
+            throw new InvalidArgumentException('docx 文档缺少正文 XML，无法读取');
+        }
+
+        $entries = [];
+        foreach (self::DOCX_XML_PATHS as $name) {
+            if (isset($entriesByName[$name])) {
+                $entries[] = $entriesByName[$name];
+            }
+        }
+        sort($headerFooterNames, SORT_NATURAL);
+        foreach ($headerFooterNames as $name) {
+            $entries[] = $entriesByName[$name];
+        }
+
+        return $entries;
+    }
+
+    /**
+     * @param array{name:string,size:int} $entry
+     */
+    private function readDocxXmlEntry(ZipArchive $zip, array $entry): string
+    {
+        $stream = $zip->getStream($entry['name']);
+        if (!is_resource($stream)) {
+            throw new InvalidArgumentException('docx 文档 XML 内容读取失败');
+        }
+
+        try {
+            $xml = stream_get_contents($stream, $entry['size'] + 1);
+        } finally {
+            fclose($stream);
+        }
+
+        if (!is_string($xml) || strlen($xml) !== $entry['size']) {
+            throw new InvalidArgumentException('docx 文档 XML 内容与压缩元数据不一致');
+        }
+
+        return $xml;
     }
 
     private function extractDocxXmlText(string $xml): string

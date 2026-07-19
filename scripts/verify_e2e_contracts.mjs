@@ -137,11 +137,11 @@ requireText('public/index.html', ':data-current-page="currentPage"', 'main app s
 requireNoText('public/index.html', '<link href="font-awesome.min.css" rel="stylesheet">', 'FontAwesome stylesheet must not block core shell first paint');
 requireText('public/index.html', "const fontAwesomeStylesheet = 'font-awesome.min.css?v=20260628-static-router-fix';", 'entry keeps explicit versioned FontAwesome idle loader');
 requireText('public/index.html', 'window.setTimeout(loadFontAwesomeStylesheet, 1600);', 'FontAwesome icon font loads after core shell first second');
-requireText('public/index.html', 'const suxiApp = createApp({', 'entry keeps Vue app instance available before mount');
+requireText('public/index.html', 'let suxiApp = null;', 'entry keeps the replaceable Vue app instance available before mount');
 requireText('public/index.html', 'const renderSuxiStartupError = (error) => {', 'entry renders fatal startup initialization failures explicitly');
 requireText('public/index.html', 'let recoverSuxiRuntimeError = null;', 'entry reserves a runtime recovery bridge before Vue setup');
 requireText('public/index.html', 'recoverSuxiRuntimeError = ({ error, info }) => {', 'entry isolates recoverable page and operation errors');
-requireText('public/index.html', 'suxiApp.config.errorHandler = (error, _instance, info) => {', 'entry classifies Vue runtime errors before using the fatal startup surface');
+requireText('public/index.html', 'app.config.errorHandler = (error, _instance, info) => {', 'entry classifies Vue runtime errors before using the fatal startup surface');
 requireText('public/index.html', "recovered = typeof recoverSuxiRuntimeError === 'function'", 'entry invokes the runtime recovery bridge');
 requireText('public/index.html', 'if (recovered) return;', 'entry keeps recovered runtime errors away from the fatal startup surface');
 requireText('public/index.html', ".replace(/[<>&\"']/g", 'startup error surface escapes injected error text');
@@ -233,7 +233,7 @@ requireText('public/index.html', "const latestRange = isCompassDataPage() ? Stri
 requireText('public/index.html', 'const requestRange = explicitRange || latestRange || resolveCtripLatestRequestRange();', 'AI workbench resolves one explicit latest-data range before the Ctrip request');
 requireText('public/index.html', "return currentPage.value === 'ctrip-ebooking' ? 'yesterday' : '';", 'Ctrip current data page requests the target date instead of an unscoped historical latest snapshot');
 requireText('public/index.html', "if (requestRange) params.append('range', requestRange);", 'AI workbench appends the resolved range to the latest Ctrip data request');
-requireText('public/index.html', "const res = await request(`/online-data/ctrip/latest${query ? '?' + query : ''}`);", 'AI workbench keeps Ctrip latest request query-driven after adding range');
+requireText('public/index.html', "requestPromise = request(`/online-data/ctrip/latest${query ? '?' + query : ''}`);", 'AI workbench keeps Ctrip latest request query-driven while deduplicating identical requests');
 requireText('public/index.html', "const summaryRange = isCompassDataPage() ? String(dualOtaSelectedRange.value || '').trim() : '';", 'AI workbench sends selected range when loading Meituan competitor summary');
 requireText('public/index.html', "if (summaryRange) params.append('range', summaryRange);", 'AI workbench appends selected range to Meituan competitor summary request');
 requireText('public/index.html', 'loadCompetitorSummary({ requireCompass: true, force: true });', 'AI workbench refreshes Meituan competitor summary after changing top range');
@@ -248,7 +248,7 @@ requireText('public/style.css', 'text-align-last: center;', 'AI workbench curren
 requireText('public/index.html', 'const refreshDualOtaWorkbenchData = async ({ allowFetch = false, silent = true } = {}) => {', 'AI workbench has one store/range/platform refresh entrypoint');
 requireText('public/index.html', 'refreshDualOtaWorkbenchData({ allowFetch: true, silent: false });', 'AI workbench store/range/platform changes trigger data refresh and necessary fetch prompts');
 requireText('public/index.html', "const ctripLoaded = await loadLatestCtripData({ silent: true, hotelId });", 'AI workbench reads stored Ctrip snapshot before deciding to fetch');
-requireText('public/index.html', 'await dualOtaEnsureCtripWorkbenchData({ hotelId, silent });', 'AI workbench falls back to existing Ctrip fetch only when stored snapshot is missing');
+requireText('public/index.html', 'const fetchTriggered = await dualOtaEnsureWorkbenchAutoFetch({ hotelId, silent });', 'AI workbench falls back to the unified OTA fetch only when a stored snapshot is missing');
 requireText('public/index.html', 'dualOtaApplyCtripYesterdayForm();', 'AI workbench Ctrip auto fetch is pinned to yesterday instead of stale manual dates');
 requireText('public/index.html', 'dualOtaApplyMeituanRangeToForm(range);', 'AI workbench syncs selected range into the existing Meituan fetch form');
 requireText('public/index.html', "if (!dualOtaMarkWorkbenchFetchAttempted('ctrip', hotelId, range))", 'AI workbench records Ctrip fetch attempts once per store and range');
@@ -261,7 +261,7 @@ requireOnlineDataControllerText('private function buildCtripLatestRankComparison
 requireOnlineDataControllerText('$targetDate = $this->resolveCtripLatestTargetDate($range);', 'Ctrip latest endpoint applies selected daily target date');
 requireOnlineDataControllerText('private function normalizeMeituanCompetitorSummaryRange(string $range): string', 'Meituan competitor summary endpoint normalizes AI workbench range');
 requireOnlineDataControllerText('private function buildMeituanCompetitorSummaryComparison(array $latest, string $hotelId, $currentUser, array $context, string $range): ?array', 'Meituan competitor summary endpoint builds previous-period comparison');
-requireOnlineDataControllerText('$targetDate = $this->resolveMeituanCompetitorSummaryTargetDate($range);', 'Meituan competitor summary endpoint applies selected daily target date');
+requireOnlineDataControllerText('$targetDate = $this->resolveMeituanCompetitorSummaryTargetDate(', 'Meituan competitor summary endpoint applies the selected range and explicit daily target date');
 requireText('public/index.html', "if (range === 'realtime') return '昨日';", 'AI workbench realtime metrics compare with yesterday');
 requireText('public/index.html', "if (range === 'yesterday') return '前日';", 'AI workbench yesterday metrics compare with the day before yesterday');
 requireText('public/index.html', "if (range === '7d') return '前7天';", 'AI workbench seven-day metrics compare with the previous seven days');
@@ -650,7 +650,7 @@ requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', 'ctrip_co
 requireText('app/controller/concern/CtripReviewOrderMatchConcern.php', 'explicit_review_match_authorized_profile_or_existing_cache', 'Ctrip review order automation reports the explicit review-match collection policy');
 requireText('public/index.html', '携程点评-订单匹配台', 'Ctrip review order main UI exposes the matching workbench');
 requireText('public/index.html', '可匹配授权订单；不会猜测、还原或暴力反查匿名用户身份。', 'Ctrip review order main UI separates order evidence from anonymous identity lookup');
-requireText('public/index.html', '点评治理结果', 'Ctrip review order main UI renders review governance cards');
+requireText('public/index.html', '4. 治理校验与边界', 'Ctrip review order main UI renders review governance checks and boundaries');
 requireText('public/index.html', '@click="lookupCtripReviewOrderMatch(sample)"', 'Ctrip review order main UI can look up one review card directly');
 requireText('public/index.html', 'governance_rule_checks', 'Ctrip review order main UI renders governance rule checks from policy responses');
 requireText('app/service/OtaReviewRiskPolicyService.php', 'expired_90d', 'Ctrip review governance exposes the 90-day expiry rule');
@@ -669,8 +669,8 @@ requireText('scripts/import_ctrip_review_match_payload.php', "if ($options['pref
 requireText('package.json', '"import:ctrip-review-match-payload:preflight"', 'Ctrip review order package scripts expose pure payload preflight');
 requireText('package.json', '"verify:ctrip-review-match"', 'Ctrip review order package scripts expose the real-data closure verifier');
 requireText('scripts/verify_ctrip_review_match_closure.php', "'matched_results'", 'Ctrip review order closure verifier requires real matched results');
-requireText('scripts/verify_ctrip_review_match_closure.php', "'ctrip_reviews', 'ctrip_im_sessions', 'ctrip_orders'", 'Ctrip review order closure verifier requires all real detail sources');
-requireText('scripts/verify_ctrip_review_match_closure.php', "'accepted_match_statuses' => ['found', 'matched']", 'Ctrip review order closure verifier accepts automatic and manual match statuses');
+requireText('scripts/verify_ctrip_review_match_closure.php', "'required_sources' => ['ctrip_reviews', 'ctrip_orders']", 'Ctrip review order closure verifier requires the real review and order sources');
+requireText('scripts/verify_ctrip_review_match_closure.php', "'accepted_match_statuses' => ['confirmed', 'high_confidence', 'found', 'matched']", 'Ctrip review order closure verifier accepts confirmed automatic and manual match statuses');
 requireText('scripts/verify_ctrip_review_match_closure.php', "'next_commands' => $ready ? [] : ctrip_review_match_closure_next_commands($systemHotelId)", 'Ctrip review order closure verifier returns executable next commands when real data is missing');
 requireText('scripts/verify_ctrip_review_match_closure.php', 'npm.cmd run import:ctrip-review-match-payload:preflight', 'Ctrip review order closure verifier points to authorized payload preflight');
 requireText('scripts/verify_ctrip_review_match_closure.php', 'npm.cmd run verify:ctrip-review-match -- --system-hotel-id=', 'Ctrip review order closure verifier points back to the real-data verifier');
@@ -721,7 +721,7 @@ requireText('public/index.html', 'payload.dry_run = true;', 'Ctrip review order 
 requireNoText('public/index.html', '@click="runCtripReviewMatchDryRun"', 'Ctrip review order main UI does not expose dry-run action');
 requireNoText('public/index.html', "写入 {{ ctripReviewMatchResult.data.source_status.storage_write === false ? '否' : '是' }}", 'Ctrip review order main UI hides storage-write mechanics');
 requireNoText('public/index.html', '授权 payload 预检：{{ ctripReviewMatchResult.data.payload_preflight.status', 'Ctrip review order main UI hides payload preflight mechanics');
-requireNoText('public/index.html', 'sample.reason ||', 'Ctrip review order main UI does not render match sample reasons');
+requireNoText('resources/frontend/app-template.html', 'sample.reason ||', 'Ctrip review order main UI does not render internal match sample reasons');
 requireNoText('public/index.html', "user_name_masked: 'M519352****'", 'Ctrip review order page template does not include realistic sample reviewer identities');
 requireNoText('public/index.html', "check_in_date: '2026-06-28'", 'Ctrip review order page template does not include realistic sample stay dates');
 requireText('public/index.html', 'const competitorSummaryRequestPromises = new Map();', 'competitor summary reads are deduplicated');
@@ -765,7 +765,7 @@ requireText('public/index.html', 'const scheduleDownloadCenterTabLoad = (tab, co
 requireText('public/index.html', "const switchDownloadTab = (tab) => {", 'download center tab switch is non-blocking');
 requireText('public/index.html', "const switchToDownloadCenter = () => {", 'Ctrip download center entry is non-blocking');
 requireText('public/index.html', "const switchToMeituanDownloadCenter = () => {", 'Meituan download center entry is non-blocking');
-requireText('public/index.html', 'applyMeituanStoredDataFilter(downloadCenterTab.value, { resetPage: true, resetDates: true });', 'Meituan stored-data entry clears stale cross-platform date filters');
+requireText('public/index.html', 'applyMeituanStoredDataFilter(downloadCenterTab.value, { resetPage: true, resetDates: true, resetHotel: true });', 'Meituan stored-data entry clears stale cross-platform date and hotel filters');
 requireText('public/meituan-static.js', 'const buildMeituanDownloadData = (rows = []) => {', 'Meituan download center computes empty data into explicit zero-valued dashboard rows');
 requireText('public/index.html', 'const meituanDownloadData = computed(() => buildMeituanDownloadData(onlineDataList.value));', 'Meituan download center uses the static dashboard data builder');
 requirePattern(
@@ -851,16 +851,16 @@ requireText('public/index.html', 'const cachedPermittedHotels = Array.isArray(ca
 requireText('public/index.html', 'saveCachedAuthUser(res.data);', 'auth/info refreshes the cached auth profile after verification');
 requireText('public/index.html', 'isLoggedIn.value = true;\n                            loadData();', 'auth/info success remains the verified login source after cached first paint');
 requireText('public/index.html', 'saveCachedAuthUser(res.data.user);', 'login success writes the cached auth profile');
-requireText('public/index.html', 'if (!hotels.value.length && permittedHotels.value.length) {\n                            hotels.value = dedupeHotels(permittedHotels.value);\n                        }', 'login/auth verification seeds hotel options from permitted hotels before full hotel-list refresh');
+requireText('public/index.html', 'permittedHotels.value = dedupeHotels(res.data.user?.permitted_hotels || []);\n                        hotels.value = [...permittedHotels.value];', 'login seeds hotel options from permitted hotels before full hotel-list refresh');
 requireText('public/index.html', 'const clearAuthSession = () => {', 'auth cleanup clears token and cached auth user together');
 requireText('public/index.html', 'clearCachedAuthUser();', 'auth cleanup removes cached auth profile');
-requireText('public/index.html', 'const scheduleInitialCompassLoad = (options = {}) => {', 'initial compass loading is scheduled instead of blocking fast OTA navigation');
-requireText('public/index.html', "scheduleInitialCompassLoad({ force: true, delayMs: 4500 });", 'login startup leaves a larger window for fast OTA page switches before compass loading');
+requireText('public/index.html', 'const activateAiWorkbenchAfterLogin = () => {', 'login startup activates the AI workbench through the page watcher');
+requireText('public/index.html', 'activateAiWorkbenchAfterLogin();', 'login startup hands initial workbench loading to the non-blocking page loader');
 requireText('public/index.html', 'const HOME_SECONDARY_PANEL_DELAY_MS = 4200;', 'home lower panels are delayed so immediate OTA navigation has a lighter first interaction window');
 requireText('public/index.html', 'const homeSecondaryPanelsReady = ref(false);', 'home lower panel rendering is gated behind an explicit readiness flag');
 requireText('public/index.html', 'const scheduleHomeSecondaryPanelsReady = (delayMs = HOME_SECONDARY_PANEL_DELAY_MS) => {', 'home lower panel readiness is scheduled and cancellable');
 requireText('public/index.html', 'clearHomeSecondaryPanelsReadyTimer();\n                    homeSecondaryPanelsReady.value = false;\n                    destroyHomeTrendChart();', 'leaving the home page cancels delayed lower-panel rendering');
-requireText('public/index.html', "homeSecondaryPanelsReady.value = false;\n                    scheduleHomeSecondaryPanelsReady();\n                    runPageLoadOnce(newPage, 'main', () => loadCompassData());", 'entering the home page delays lower-panel rendering without prewarming platform auto-fetch helpers');
+requireText('public/index.html', "homeSecondaryPanelsReady.value = false;\n                    scheduleHomeSecondaryPanelsReady();\n                    scheduleDualOtaWorkbenchAutoFetch();", 'entering the workbench delays lower-panel rendering and schedules bounded OTA refreshes');
 requireNoText('public/index.html', "runPageLoadOnce(newPage, 'auto-fetch-static', () => ensureAutoFetchStaticReady())", 'home page first paint must not prewarm auto-fetch-static.js');
 requireNoText('public/index.html', "runPageLoadOnce('compass', 'auto-fetch-static', () => ensureAutoFetchStaticReady(), runOptions)", 'initial compass reload must not prewarm auto-fetch-static.js');
 requireText('public/index.html', '<div v-if="homeSecondaryPanelsReady" class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm mb-6" data-testid="daily-ops-monitor-card">', 'home daily ops panel is not mounted during the immediate OTA navigation window');
@@ -1144,7 +1144,7 @@ requireText('public/index.html', "const syncCtripOverviewTargetHotel = async ({ 
 requireText('public/index.html', "if (!ctripConfigList.value.length) {\n                        await loadCtripConfigList({\n                            cacheMs: MANUAL_CONFIG_LIST_TAB_CACHE_TTL_MS,\n                            applySelectedConfig: false,", 'Ctrip overview hotel switching reuses the short config-list cache before applying manual fetch config');
 requireText('public/index.html', "await syncCtripOverviewTargetHotel({ clearDisplay: true, loadConfig: true });\n                scheduleDataHealthPanelRefresh('light', { force: true });", 'Ctrip overview hotel switching schedules data-health refresh without waiting on it');
 requireNoText('public/index.html', "await syncCtripOverviewTargetHotel({ clearDisplay: true, loadConfig: true });\n                await loadDataHealthPanel('light');", 'Ctrip overview hotel switching must not wait on data-health light status');
-requireText('public/index.html', "if (selectedCtripHotelId.value && shouldApplySelectedConfig) {\n                                deferUiTask(() => applyCtripHotelConfig(false, {\n                                    refreshList: false,\n                                    skipIfAligned: true,\n                                    deferSecret: true,", 'Ctrip config-list loader applies selected metadata without waiting before returning');
+requireText('public/index.html', "if (selectedCtripHotelId.value && shouldApplySelectedConfig) {\n                                deferUiTask(() => (\n                                    isAuthSessionCurrent(requestSession)\n                                        ? applyCtripHotelConfig(false, {", 'Ctrip config-list loader defers selected metadata with an auth-session guard before returning');
 requireNoText('public/index.html', "if (selectedCtripHotelId.value) {\n                                await applyCtripHotelConfig(false);\n                            }\n                            return ctripConfigList.value;", 'Ctrip config-list loader must not wait for selected metadata application');
 requireText('public/index.html', 'const CTRIP_EBOOKING_DATA_HEALTH_REFRESH_DELAY_MS = 1600;', 'Ctrip manual light health status read stays outside the immediate interaction window');
 requireText('public/index.html', "runPageLoadOnce(newPage, 'main', () => {\n                        scheduleDelayedPageTask(() => {\n                            if (!isCtripEbookingDataHealthVisible()) return null;\n                            scheduleDataHealthPanelRefresh('light');\n                            return null;\n                        }, CTRIP_EBOOKING_DATA_HEALTH_REFRESH_DELAY_MS);", 'Ctrip manual page delays light health status without blocking the page switch');
@@ -2592,7 +2592,7 @@ requireNoText('public/index.html', "title: '点评问题'", 'OTA diagnosis UI do
 requireNoText('public/index.html', "openDataConfigModal('ctrip-comments')", 'Ctrip comment capture card is not exposed in UI');
 requireNoText('public/index.html', "openDataConfigModal('meituan-comments')", 'Meituan comment capture card is not exposed in UI');
 requireNoText('public/index.html', '<option value="comment">评价</option>', 'platform data source form does not offer comment data type');
-requireNoText('public/index.html', '<option value="review">点评数据</option>', 'online data history filter does not offer review data type');
+requireText('public/index.html', '<option value="review">点评数据</option>', 'online data history filter offers the collected review data type');
 requireNoText('public/index.html', "title: '点评问题'", 'OTA diagnosis UI does not render the deprecated comment section');
 requireTextInFiles(['public/index.html', 'public/revenue-research-static.js'], "key: 'service-quality'", 'revenue research exposes service-quality product instead of review-topic');
 requireNoTextInFiles(['public/index.html', 'public/revenue-research-static.js'], "key: 'review-topic'", 'revenue research does not expose review-topic product');
@@ -7531,7 +7531,7 @@ try {
 }
 
 try {
-  const context = { window: {} };
+  const context = { window: {}, setTimeout, clearTimeout };
   vm.runInNewContext(read('public/system-static.js'), context, {
     filename: 'public/system-static.js',
   });

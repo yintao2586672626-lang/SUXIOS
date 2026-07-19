@@ -37,7 +37,14 @@ class RevenueResearchService
             : $this->callConfiguredModel($modelKey, $product, $localSources, $gaps, $businessForecast, $knowledgeContext);
         $forecastDecisionReady = ($businessForecast['decision_ready'] ?? false) === true;
         $status = empty($gaps) && $forecastDecisionReady ? 'done' : 'pending_data';
-        $result = $this->normalizeAiResult($webResult['result'], $product, $gaps, $businessForecast);
+        $result = $this->normalizeAiResult(
+            $webResult['result'],
+            $product,
+            $gaps,
+            $businessForecast,
+            $localSources,
+            count($hotelIds) === 1 ? (int)$hotelIds[0] : 0
+        );
         $readiness = $this->buildResearchReadiness($product, $status, $gaps, $businessForecast, $result);
         $researchDataGaps = array_values(array_unique(array_merge(
             $this->stringList($businessForecast['data_gaps'] ?? []),
@@ -80,7 +87,27 @@ class RevenueResearchService
     {
         $module = trim((string)($product['module'] ?? ($result['module'] ?? '')));
         $moduleConnected = $module !== '' && !str_starts_with($module, '待新增');
-        $hasActions = !empty($result['recommended_actions']) && is_array($result['recommended_actions']);
+        $decisionRecommendations = (array)($result['decision_recommendations'] ?? []);
+        if ($decisionRecommendations === [] && !empty($result['recommended_actions'])) {
+            $forecastReady = ($businessForecast['decision_ready'] ?? $businessForecast['available'] ?? false) === true
+                && $gaps === [];
+            $decisionRecommendations = (new AiDecisionQualityService())->enrichRecommendations(
+                $result['recommended_actions'],
+                $this->revenueResearchDecisionQualityContext($product, [], $businessForecast, 0, $forecastReady)
+            );
+        }
+        $qualityActions = array_values(array_filter(
+            $decisionRecommendations,
+            static fn(mixed $item): bool => is_array($item)
+                && ($item['can_create_execution_intent'] ?? true) !== false
+                && (($item['decision_quality']['complete'] ?? false) === true)
+        ));
+        $hasActions = $qualityActions !== [];
+        $modelNumericClaimUnverified = in_array(
+            'model_numeric_claim_unverified',
+            $this->stringList($result['data_gaps'] ?? []),
+            true
+        );
 
         if (($businessForecast['decision_ready'] ?? $businessForecast['available'] ?? false) !== true) {
             return $this->withReadinessNotice($this->readiness(
@@ -117,6 +144,26 @@ class RevenueResearchService
                 false,
                 '先补齐关键样本、字段或表，再把研究结论用于运营动作',
                 $missing,
+                $module,
+                $moduleConnected
+            ));
+        }
+
+        if ($modelNumericClaimUnverified) {
+            return $this->withReadinessNotice($this->readiness(
+                'research_model_numeric_claim_unverified',
+                '模型数字待核验',
+                45,
+                false,
+                false,
+                '用已验证的结构化本地数据核对模型数字后，再进入运营执行',
+                [
+                    $this->readinessMissing(
+                        'model_numeric_claim_unverified',
+                        '模型数字证据',
+                        '删除无结构化证据的数字，或补齐对应门店、平台、日期、来源与入库回读证据'
+                    ),
+                ],
                 $module,
                 $moduleConnected
             ));
@@ -196,14 +243,50 @@ class RevenueResearchService
         }
 
         $recommendedActions = $this->stringList($result['recommended_actions'] ?? []);
-        $actionText = trim((string)($overrides['action_text'] ?? ($recommendedActions[0] ?? '')));
+        $decisionRecommendations = array_values(array_filter(
+            (array)($result['decision_recommendations'] ?? []),
+            static fn(mixed $item): bool => is_array($item)
+        ));
+        if ($decisionRecommendations === [] && $recommendedActions !== []) {
+            $legacyQualityContext = [
+                'scope' => 'ota_channel',
+                'hotel_id' => $hotelId,
+                'platform' => 'ota',
+                'basis_summary' => '依据当前收益研究结果与就绪状态生成；进入执行前仍需人工核对原始来源。',
+                'evidence_sources' => [[
+                    'ref' => 'revenue_research#' . $productKey . '#' . $sourceRecordId,
+                    'source' => '收益研究结果',
+                    'scope' => 'ota_channel',
+                    'quality_status' => (($readiness['execution_ready'] ?? false) === true && $gaps === [])
+                        ? 'verified'
+                        : 'unverified',
+                    'summary' => trim((string)($result['summary'] ?? '')),
+                ]],
+                'default_priority' => (($readiness['execution_ready'] ?? false) === true) ? 'P1' : 'P0',
+                'default_risk_level' => (($readiness['execution_ready'] ?? false) === true) ? 'medium' : 'high',
+                'review_window' => '按收益研究的 next_review_date 复核同酒店、同OTA渠道指标',
+            ];
+            $decisionRecommendations = (new AiDecisionQualityService())->enrichRecommendations(
+                $recommendedActions,
+                $legacyQualityContext
+            );
+        }
+        $firstExecutable = null;
+        foreach ($decisionRecommendations as $recommendation) {
+            if (($recommendation['can_create_execution_intent'] ?? true) !== false
+                && (($recommendation['decision_quality']['complete'] ?? false) === true)) {
+                $firstExecutable = $recommendation;
+                break;
+            }
+        }
+        $actionText = trim((string)($overrides['action_text'] ?? ($firstExecutable['action'] ?? '')));
         if ($actionText === '') {
             $actionText = '复核收益研究结论并创建运营动作';
         }
 
         $dataGaps = $this->executionDataGapCodes($gaps, $result);
         $readinessStage = trim((string)($readiness['stage'] ?? ''));
-        $executionReady = (bool)($readiness['execution_ready'] ?? false);
+        $executionReady = (bool)($readiness['execution_ready'] ?? false) && $firstExecutable !== null;
         $executionDates = $this->executionIntentDates($overrides);
         $platform = strtolower(trim((string)($overrides['platform'] ?? 'ota')));
         if ($platform === '') {
@@ -232,6 +315,7 @@ class RevenueResearchService
                 'target_module' => (string)($readiness['target_module'] ?? $result['module'] ?? ''),
                 'next_review_date' => (string)($result['next_review_date'] ?? ''),
                 'recommended_actions' => $recommendedActions,
+                'decision_recommendation' => $firstExecutable,
             ],
             'evidence' => [
                 'evidence_refs' => [
@@ -243,6 +327,9 @@ class RevenueResearchService
                 'protected_boundary' => 'Execution intent records manual review of revenue research output; it does not write OTA prices, inventory, campaigns, or platform data.',
                 'research_readiness_stage' => $readinessStage,
                 'execution_ready' => $executionReady,
+                'recommendation_quality' => is_array($result['recommendation_quality'] ?? null)
+                    ? $result['recommendation_quality']
+                    : [],
                 'metric_scope' => 'ota_channel',
                 'model_key' => (string)($research['model_key'] ?? ''),
                 'generation_mode' => (string)($research['generation_mode'] ?? ''),
@@ -712,10 +799,14 @@ class RevenueResearchService
             'data_period',
             'is_final',
             'validation_status',
+            'readback_verified',
         ];
         $missing = array_values(array_diff($required, array_keys($columns)));
         if (array_intersect(['source_trace_id', 'data_source_id', 'sync_task_id'], array_keys($columns)) === []) {
             $missing[] = 'source_trace_id/data_source_id/sync_task_id';
+        }
+        if (array_intersect(['collected_at', 'snapshot_time', 'raw_data'], array_keys($columns)) === []) {
+            $missing[] = 'collected_at/snapshot_time/raw_data';
         }
         if ($missing) {
             return [
@@ -744,6 +835,10 @@ class RevenueResearchService
             'system_hotel_id',
             'validation_status',
             'validation_flags',
+            'status',
+            'save_status',
+            'readback_verified',
+            'readback_verified_at',
             'compare_type',
             'data_period',
             'is_final',
@@ -751,6 +846,12 @@ class RevenueResearchService
             'data_source_id',
             'sync_task_id',
             'ingestion_method',
+            'collected_at',
+            'snapshot_time',
+            'raw_data',
+            'error_info',
+            'failure_reason',
+            'failed_reason',
             'update_time',
             'create_time',
         ], array_keys($columns)));
@@ -765,6 +866,7 @@ class RevenueResearchService
             ->where('compare_type', 'self')
             ->where('data_period', 'historical_daily')
             ->where('is_final', 1)
+            ->where('readback_verified', 1)
             ->whereIn('validation_status', ['normal', 'available', 'verified', 'valid', 'confirmed', 'approved', 'passed', 'ok', 'success', 'complete', 'completed']);
 
         $rows = [];
@@ -804,7 +906,9 @@ class RevenueResearchService
         }
         $rows = $this->selectCanonicalOnlineOperatingRows($rows);
 
-        return $this->buildBusinessForecastFromRows($rows);
+        $forecast = $this->buildBusinessForecastFromRows($rows);
+        $forecast['truth_context'] = $this->businessForecastTruthContext($rows);
+        return $forecast;
     }
 
     /**
@@ -1076,6 +1180,13 @@ class RevenueResearchService
         if (!in_array($row['is_final'] ?? null, [1, '1', true, 'true'], true)) {
             return false;
         }
+        if ((int)($row['readback_verified'] ?? 0) !== 1) {
+            return false;
+        }
+
+        if (OnlineDataTrustStatusService::classifyRowStatus($row['status'] ?? $row['save_status'] ?? '') !== 'usable') {
+            return false;
+        }
 
         $validationStatus = strtolower(trim((string)($row['validation_status'] ?? '')));
         if (!in_array($validationStatus, [
@@ -1103,8 +1214,145 @@ class RevenueResearchService
         if (!$hasProvenance || $this->hasBlockingOnlineValidationFlag($row['validation_flags'] ?? [])) {
             return false;
         }
+        if ($this->onlineRowCollectedAt($row) === '') {
+            return false;
+        }
+        $ingestionMethod = strtolower(trim((string)($row['ingestion_method'] ?? '')));
+        if (in_array($ingestionMethod, [
+            'legacy', 'manual', 'manual_import', 'manual_override',
+            'user_provided', 'user_provided_unverified', 'import_csv', 'import_json',
+        ], true)) {
+            return false;
+        }
+        foreach (['error_info', 'failure_reason', 'failed_reason'] as $field) {
+            if (trim((string)($row[$field] ?? '')) !== '') {
+                return false;
+            }
+        }
 
         return true;
+    }
+
+    /** @param array<string, mixed> $row */
+    private function onlineRowCollectedAt(array $row): string
+    {
+        $raw = $this->decodeJsonValue($row['raw_data'] ?? null);
+        $meta = is_array($raw['meta'] ?? null) ? $raw['meta'] : [];
+        $capture = is_array($raw['capture_evidence'] ?? null) ? $raw['capture_evidence'] : [];
+        foreach ([
+            $row['collected_at'] ?? null,
+            $row['snapshot_time'] ?? null,
+            $raw['collected_at'] ?? null,
+            $raw['collectedAt'] ?? null,
+            $raw['captured_at'] ?? null,
+            $raw['capturedAt'] ?? null,
+            $raw['fetched_at'] ?? null,
+            $meta['collected_at'] ?? null,
+            $meta['captured_at'] ?? null,
+            $capture['collected_at'] ?? null,
+            $capture['captured_at'] ?? null,
+        ] as $value) {
+            $text = trim((string)($value ?? ''));
+            if ($text !== '') {
+                return $text;
+            }
+        }
+        return '';
+    }
+
+    /** @return array<string, mixed> */
+    private function decodeJsonValue(mixed $value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+        if (!is_string($value) || trim($value) === '') {
+            return [];
+        }
+        $decoded = json_decode($value, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<string, mixed>
+     */
+    private function businessForecastTruthContext(array $rows): array
+    {
+        $dates = [];
+        $collectedTimes = [];
+        $rowIds = [];
+        $traceIds = [];
+        $platforms = [];
+        $methods = [];
+        $hotels = [];
+        foreach ($rows as $row) {
+            $date = substr(trim((string)($row['data_date'] ?? '')), 0, 10);
+            if ($date !== '') {
+                $dates[] = $date;
+            }
+            $collectedAt = $this->onlineRowCollectedAt($row);
+            if ($collectedAt !== '') {
+                $collectedTimes[] = $collectedAt;
+            }
+            if (isset($row['id']) && trim((string)$row['id']) !== '') {
+                $rowIds[] = $row['id'];
+            }
+            $traceId = trim((string)($row['source_trace_id'] ?? ''));
+            if ($traceId !== '') {
+                $traceIds[] = $traceId;
+            }
+            $platform = strtolower(trim((string)($row['source'] ?? '')));
+            if ($platform !== '') {
+                $platforms[] = $platform;
+            }
+            $method = trim((string)($row['ingestion_method'] ?? ''));
+            if ($method !== '') {
+                $methods[] = $method;
+            }
+            $hotelId = max(0, (int)($row['system_hotel_id'] ?? 0));
+            if ($hotelId > 0) {
+                $hotels['id:' . $hotelId] = [
+                    'system_hotel_id' => $hotelId,
+                    'name' => trim((string)($row['hotel_name'] ?? '')),
+                ];
+            }
+        }
+        sort($dates);
+        sort($collectedTimes);
+        $rowCount = count($rows);
+        $trust = [
+            'source' => [
+                'table' => 'online_daily_data',
+                'row_ids' => array_values(array_unique($rowIds, SORT_REGULAR)),
+                'trace_ids' => array_values(array_unique($traceIds)),
+                'hotels' => array_values($hotels),
+                'platforms' => array_values(array_unique($platforms)),
+                'data_types' => ['business'],
+                'source_methods' => array_values(array_unique($methods)),
+                'date_range' => [
+                    'start' => $dates[0] ?? null,
+                    'end' => $dates !== [] ? $dates[count($dates) - 1] : null,
+                ],
+                'collected_at_range' => [
+                    'start' => $collectedTimes[0] ?? null,
+                    'end' => $collectedTimes !== [] ? $collectedTimes[count($collectedTimes) - 1] : null,
+                ],
+                'row_count' => $rowCount,
+                'stored_count' => count($rowIds),
+                'readback_verified_count' => count(array_filter(
+                    $rows,
+                    static fn(array $row): bool => (int)($row['readback_verified'] ?? 0) === 1
+                )),
+            ],
+            'caliber' => '以已验证 OTA 渠道完整日样本计算移动均值与趋势修正规则预测',
+            'saved_success' => $rowCount > 0,
+            'failure_reasons' => $rowCount > 0 ? [] : ['trusted_ota_daily_metrics_missing'],
+        ];
+        $truth = OnlineDataTrustStatusService::metricTruthEnvelope($trust);
+        $truth['result_layer'] = 'rule_forecast';
+        $truth['calculated_at'] = date('Y-m-d H:i:s');
+        return $truth;
     }
 
     private function hasBlockingOnlineValidationFlag(mixed $flags): bool
@@ -1419,9 +1667,10 @@ class RevenueResearchService
 
         $baseUrl = rtrim(trim((string)$config->base_url), '/');
         $modelName = trim((string)$config->model_name);
-        if ($baseUrl === '' || stripos($baseUrl, 'api.openai.com') === false) {
+        if ($baseUrl === '') {
             throw new RuntimeException('openai_fast 必须使用 OpenAI Responses API 地址：https://api.openai.com/v1。', 422);
         }
+        $responsesTarget = $this->validateOpenAiResponsesTarget($baseUrl);
         if ($modelName === '') {
             throw new RuntimeException('OpenAI 模型名称为空，请进入“系统设置 > AI模型配置”补充模型名称。', 422);
         }
@@ -1443,7 +1692,26 @@ class RevenueResearchService
             'model' => $modelName,
             'base_url' => $baseUrl,
             'api_key' => $apiKey,
+            'responses_target' => $responsesTarget,
         ];
+    }
+
+    /**
+     * @return array{url:string,host:string,port:int,addresses:array<int,string>,curl_resolve:array<int,string>}
+     */
+    private function validateOpenAiResponsesTarget(
+        string $baseUrl,
+        ?OutboundUrlGuard $guard = null
+    ): array {
+        try {
+            $target = ($guard ?? new OutboundUrlGuard())->validate(rtrim(trim($baseUrl), '/') . '/responses');
+        } catch (\Throwable $e) {
+            throw new RuntimeException('openai_fast 必须使用可验证的 OpenAI Responses API 地址。', 422, $e);
+        }
+        if (!hash_equals('api.openai.com', (string)$target['host'])) {
+            throw new RuntimeException('openai_fast 必须使用 OpenAI Responses API 地址：https://api.openai.com/v1。', 422);
+        }
+        return $target;
     }
 
     /**
@@ -1598,7 +1866,10 @@ class RevenueResearchService
             throw new RuntimeException('OpenAI 请求体编码失败：' . json_last_error_msg(), 500);
         }
 
-        $ch = curl_init(rtrim((string)$config['base_url'], '/') . '/responses');
+        $target = isset($config['responses_target']) && is_array($config['responses_target'])
+            ? $config['responses_target']
+            : $this->validateOpenAiResponsesTarget((string)$config['base_url']);
+        $ch = curl_init((string)$target['url']);
         if ($ch === false) {
             throw new RuntimeException('无法初始化 OpenAI Responses API 请求。', 500);
         }
@@ -1611,8 +1882,20 @@ class RevenueResearchService
                 'Content-Type: application/json',
             ],
             CURLOPT_POSTFIELDS => $rawPayload,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_MAXREDIRS => 0,
+            CURLOPT_CONNECTTIMEOUT => 10,
             CURLOPT_TIMEOUT => 90,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_RESOLVE => $target['curl_resolve'],
         ]);
+        if (defined('CURLOPT_PROTOCOLS') && defined('CURLPROTO_HTTPS')) {
+            curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS);
+        }
+        if (defined('CURLOPT_REDIR_PROTOCOLS') && defined('CURLPROTO_HTTPS')) {
+            curl_setopt($ch, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTPS);
+        }
 
         $raw = curl_exec($ch);
         $error = curl_error($ch);
@@ -1698,9 +1981,17 @@ class RevenueResearchService
      * @param array<string, mixed> $product
      * @param array<int, array<string, mixed>> $gaps
      * @param array<string, mixed> $businessForecast
+     * @param array<int, array<string, mixed>> $localSources
      * @return array<string, mixed>
      */
-    private function normalizeAiResult(array $result, array $product, array $gaps, array $businessForecast): array
+    private function normalizeAiResult(
+        array $result,
+        array $product,
+        array $gaps,
+        array $businessForecast,
+        array $localSources = [],
+        int $hotelId = 0
+    ): array
     {
         $forecast7 = (array)($businessForecast['forecast_7d'] ?? []);
         $forecast30 = (array)($businessForecast['forecast_30d'] ?? []);
@@ -1731,22 +2022,68 @@ class RevenueResearchService
             $pendingMessage = 'OTA 渠道日级数据仍有缺口，当前仅返回数据准备状态。';
         }
 
+        $allowedModelNumbers = $this->trustedModelNumericTokens($localSources, $businessForecast);
+        $modelNumericClaimRejected = false;
+        $modelSummary = trim((string)($result['summary'] ?? ''));
+        if (
+            $modelSummary !== ''
+            && !$this->modelTextUsesOnlyTrustedNumbers($modelSummary, $allowedModelNumbers)
+        ) {
+            $modelSummary = '';
+            $modelNumericClaimRejected = true;
+        }
+        $modelKeyMetrics = $this->filterModelNumericTextList(
+            $result['key_metrics'] ?? [],
+            $allowedModelNumbers,
+            $modelNumericClaimRejected
+        );
+        $modelRiskSignals = $this->filterModelNumericTextList(
+            $result['risk_signals'] ?? [],
+            $allowedModelNumbers,
+            $modelNumericClaimRejected
+        );
+        $recommendedActions = $this->filterModelNumericTextList(
+            $result['recommended_actions'] ?? [],
+            $allowedModelNumbers,
+            $modelNumericClaimRejected
+        );
+        $modelDataGaps = $this->stringList($result['data_gaps'] ?? []);
+        if ($modelNumericClaimRejected) {
+            $modelDataGaps[] = 'model_numeric_claim_unverified';
+        }
+        $qualityContext = $this->revenueResearchDecisionQualityContext(
+            $product,
+            $localSources,
+            $businessForecast,
+            $hotelId,
+            $decisionReady
+        );
+        $decisionRecommendations = (new AiDecisionQualityService())->enrichRecommendations(
+            $recommendedActions,
+            $qualityContext
+        );
+
         return [
             'title' => $decisionReady ? $product['name'] . ' OTA渠道经营预测' : $product['name'] . '数据准备状态',
             'summary' => $decisionReady
-                ? (string)($result['summary'] ?? '已生成 OTA 渠道规则预测，仍需人工复核后使用。')
+                ? ($modelSummary !== '' ? $modelSummary : '已生成 OTA 渠道规则预测，仍需人工复核后使用。')
                 : $pendingMessage,
             'forecast_assumptions' => $this->stringList($result['forecast_assumptions'] ?? []),
             'key_metrics' => $decisionReady
-                ? array_values(array_unique(array_merge($baselineMetrics, $this->stringList($result['key_metrics'] ?? []))))
+                ? array_values(array_unique(array_merge($baselineMetrics, $modelKeyMetrics)))
                 : [],
             'risk_signals' => array_values(array_unique(array_merge(
                 $this->stringList($businessForecast['risk_signals'] ?? []),
-                $this->stringList($result['risk_signals'] ?? [])
+                $modelRiskSignals
             ))),
-            'recommended_actions' => $this->stringList($result['recommended_actions'] ?? []),
+            'recommended_actions' => $recommendedActions,
+            'decision_recommendations' => $decisionRecommendations,
+            'recommendation_quality' => (new AiDecisionQualityService())->summarize(
+                $decisionRecommendations,
+                $qualityContext
+            ),
             'data_gaps' => array_values(array_unique(array_merge(
-                $this->stringList($result['data_gaps'] ?? []),
+                $modelDataGaps,
                 $gapTexts,
                 $forecastGaps
             ))),
@@ -1757,6 +2094,207 @@ class RevenueResearchService
             'module' => (string)$product['module'],
             'metric_scope' => 'ota_channel',
             'decision_ready' => $decisionReady,
+        ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $localSources
+     * @param array<string, mixed> $businessForecast
+     * @return array<string, true>
+     */
+    private function trustedModelNumericTokens(array $localSources, array $businessForecast): array
+    {
+        $tokens = [];
+        $truthContext = is_array($businessForecast['truth_context'] ?? null)
+            ? $businessForecast['truth_context']
+            : [];
+        $truthStatus = strtolower(trim((string)($truthContext['status'] ?? '')));
+        $forecastTrusted = ($businessForecast['decision_ready'] ?? false) === true
+            && ($truthContext === [] || $truthStatus === 'verified');
+        if ($forecastTrusted) {
+            $this->collectStructuredNumericTokens($businessForecast, $tokens);
+        }
+
+        $trustedStatuses = ['available', 'verified', 'ready', 'complete', 'completed', 'success', 'succeeded'];
+        foreach ($localSources as $source) {
+            $status = strtolower(trim((string)($source['status'] ?? '')));
+            if (!in_array($status, $trustedStatuses, true)) {
+                continue;
+            }
+            $this->collectStructuredNumericTokens($source, $tokens);
+        }
+
+        return $tokens;
+    }
+
+    /** @param array<string, true> $tokens */
+    private function collectStructuredNumericTokens(mixed $value, array &$tokens): void
+    {
+        if (is_array($value)) {
+            foreach ($value as $item) {
+                $this->collectStructuredNumericTokens($item, $tokens);
+            }
+            return;
+        }
+        if (is_bool($value) || $value === null || (!is_int($value) && !is_float($value) && !is_string($value))) {
+            return;
+        }
+
+        $raw = is_float($value) ? rtrim(rtrim(sprintf('%.12F', $value), '0'), '.') : trim((string)$value);
+        $token = $this->normalizeModelNumericToken($raw);
+        if ($token !== null) {
+            $tokens[$token] = true;
+        }
+    }
+
+    /**
+     * @param array<string, true> $allowedNumbers
+     * @return array<int, string>
+     */
+    private function filterModelNumericTextList(mixed $value, array $allowedNumbers, bool &$rejected): array
+    {
+        $verified = [];
+        foreach ($this->stringList($value) as $item) {
+            if (!$this->modelTextUsesOnlyTrustedNumbers($item, $allowedNumbers)) {
+                $rejected = true;
+                continue;
+            }
+            $verified[] = $item;
+        }
+        return $verified;
+    }
+
+    /** @param array<string, true> $allowedNumbers */
+    private function modelTextUsesOnlyTrustedNumbers(string $text, array $allowedNumbers): bool
+    {
+        foreach ($this->modelNumericTokens($text) as $token) {
+            if (!isset($allowedNumbers[$token])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** @return array<int, string> */
+    private function modelNumericTokens(string $text): array
+    {
+        $withoutDatesOrOrdinals = preg_replace([
+            '/(?<!\d)\d{4}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日(?!\d)/u',
+            '/(?<!\d)\d{1,2}\s*月\s*\d{1,2}\s*日(?!\d)/u',
+            '/(?<!\d)\d{4}[-\/.]\d{1,2}(?:[-\/.]\d{1,2})?(?!\d)/u',
+            '/(?<!\d)\d{1,2}:\d{2}(?::\d{2})?(?!\d)/u',
+            '/第\s*\d+\s*(?:步|项|阶段|条|次|轮|版|章|节|名|位|天|日)/u',
+            '/(?<![\pL\pN])P\s*\d+(?![\pL\pN])/iu',
+            '/^\s*\d+\s*[.)、：:]\s*/u',
+        ], ' ', $text) ?? $text;
+        preg_match_all(
+            '/(?<![\d.,])[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?%?/u',
+            $withoutDatesOrOrdinals,
+            $matches
+        );
+
+        $tokens = [];
+        foreach ((array)($matches[0] ?? []) as $match) {
+            $token = $this->normalizeModelNumericToken((string)$match);
+            if ($token !== null) {
+                $tokens[] = $token;
+            }
+        }
+        return array_values(array_unique($tokens));
+    }
+
+    private function normalizeModelNumericToken(string $value): ?string
+    {
+        $value = str_replace([',', '%', ' '], '', trim($value));
+        $value = ltrim($value, '+');
+        if (preg_match('/^-?\d+(?:\.\d+)?$/', $value) !== 1) {
+            return null;
+        }
+
+        $negative = str_starts_with($value, '-');
+        $unsigned = $negative ? substr($value, 1) : $value;
+        [$integer, $fraction] = array_pad(explode('.', $unsigned, 2), 2, '');
+        $integer = ltrim($integer, '0');
+        $integer = $integer !== '' ? $integer : '0';
+        $fraction = rtrim($fraction, '0');
+        if ($integer === '0' && $fraction === '') {
+            $negative = false;
+        }
+        return ($negative ? '-' : '') . $integer . ($fraction !== '' ? '.' . $fraction : '');
+    }
+
+    /**
+     * @param array<string, mixed> $product
+     * @param array<int, array<string, mixed>> $localSources
+     * @param array<string, mixed> $businessForecast
+     * @return array<string, mixed>
+     */
+    private function revenueResearchDecisionQualityContext(
+        array $product,
+        array $localSources,
+        array $businessForecast,
+        int $hotelId,
+        bool $decisionReady
+    ): array {
+        $evidenceSources = [];
+        $dateRange = [];
+        foreach ($localSources as $source) {
+            $sourceKey = trim((string)($source['source'] ?? ''));
+            if ($sourceKey === '') {
+                continue;
+            }
+            $sourceRange = is_array($source['date_range'] ?? null) ? $source['date_range'] : [];
+            $sourceEnd = trim((string)($sourceRange['end'] ?? ''));
+            if ($sourceKey === 'online_daily_data' && $sourceRange !== []) {
+                $dateRange = $sourceRange;
+            }
+            $evidenceSources[] = [
+                'ref' => $sourceKey . ($sourceEnd !== '' ? '#' . $sourceEnd : ''),
+                'source' => trim((string)($source['label'] ?? $sourceKey)),
+                'date' => $sourceEnd,
+                'scope' => 'ota_channel',
+                'quality_status' => trim((string)($source['status'] ?? 'unverified')),
+                'metric_keys' => array_values(array_filter(array_map(
+                    'strval',
+                    (array)($source['fields_available'] ?? [])
+                ))),
+                'summary' => trim((string)($source['summary'] ?? '')),
+            ];
+        }
+
+        $forecastGeneratedAt = trim((string)($businessForecast['generated_at'] ?? ''));
+        $evidenceSources[] = [
+            'ref' => 'business_forecast' . ($forecastGeneratedAt !== '' ? '#' . $forecastGeneratedAt : ''),
+            'source' => 'OTA渠道规则预测基线',
+            'date' => $forecastGeneratedAt,
+            'scope' => 'ota_channel',
+            'quality_status' => $decisionReady ? 'verified' : 'unverified',
+            'metric_keys' => ['revenue', 'room_nights', 'orders', 'adr', 'aov'],
+            'summary' => trim((string)($businessForecast['message'] ?? '')),
+        ];
+
+        return [
+            'scope' => 'ota_channel',
+            'hotel_id' => $hotelId,
+            'platform' => 'ota',
+            'date_range' => $dateRange,
+            'basis_summary' => $decisionReady
+                ? '依据本酒店可追溯的OTA渠道日级数据、规则预测基线及研究方向数据源生成。'
+                : '当前OTA渠道证据未达到决策条件，建议仅用于补数或核验，不能扩大为全酒店结论。',
+            'evidence_sources' => $evidenceSources,
+            'default_priority' => $decisionReady ? 'P1' : 'P0',
+            'default_risk_level' => $decisionReady ? 'medium' : 'high',
+            'review_window' => '最迟于 ' . date('Y-m-d', strtotime('+1 day')) . ' 按同酒店、同OTA渠道和同指标口径复核',
+            'expected_metric' => match ((string)($product['key'] ?? '')) {
+                'demand-forecast' => 'orders',
+                'cancellation-risk' => 'cancellation_rate',
+                'price-elasticity' => 'ota_adr',
+                'channel-attribution', 'customer-segmentation' => 'orders',
+                'ltv' => 'ota_revenue',
+                'anomaly-detection' => 'data_completeness',
+                'service-quality' => 'avg_psi_score',
+                default => '',
+            },
         ];
     }
 

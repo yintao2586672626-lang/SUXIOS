@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\LlmClient;
+use app\service\OnlineDataFieldFactService;
 use app\service\TransferDecisionService;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
@@ -241,20 +242,147 @@ final class TransferDecisionServiceTest extends TestCase
 
     public function testOtaChannelRevenueIsNotPromotedToWholeHotelRevenue(): void
     {
-        $metrics = $this->invokeNonPublic(new TransferDecisionService(), 'aggregateTransferMetrics', [[], [[
-            'data_date' => '2026-07-15',
+        $verifiedRow = $this->verifiedOtaRow([
             'amount' => 30000,
             'book_order_num' => 20,
             'quantity' => 25,
-            'raw_data' => json_encode(['visitors' => 400, 'exposure' => 5000], JSON_THROW_ON_ERROR),
-        ]]]);
+        ]);
+        $verifiedRaw = json_decode((string)$verifiedRow['raw_data'], true);
+        $fieldStatus = OnlineDataFieldFactService::buildStatus($verifiedRow, is_array($verifiedRaw) ? $verifiedRaw : []);
+        self::assertSame('ready', $fieldStatus['status'], json_encode($fieldStatus, JSON_UNESCAPED_UNICODE));
+        $metrics = $this->invokeNonPublic(new TransferDecisionService(), 'aggregateTransferMetrics', [
+            [],
+            [
+                $verifiedRow,
+                [
+                    'system_hotel_id' => 7,
+                    'platform' => 'ctrip',
+                    'source' => 'ctrip',
+                    'data_date' => '2026-07-15',
+                    'amount' => 999999,
+                    'book_order_num' => 999,
+                    'quantity' => 999,
+                ],
+            ],
+            $this->otaScope(),
+        ]);
 
         self::assertSame(0.0, $metrics['revenue']);
-        self::assertSame(30000.0, $metrics['ota_channel_revenue']);
+        self::assertSame(30000.0, $metrics['ota_channel_revenue'], json_encode($metrics['truth_context'], JSON_UNESCAPED_UNICODE));
         self::assertSame(20, $metrics['ota_channel_orders']);
         self::assertSame(0.0, $metrics['room_nights']);
         self::assertSame(25.0, $metrics['ota_channel_room_nights']);
+        self::assertSame('partial', $metrics['truth_context']['status']);
+        self::assertSame('ota_channel', $metrics['truth_context']['metric_scope']);
+        self::assertSame(1, $metrics['truth_context']['included_verified_count']);
+        self::assertSame(1, $metrics['truth_context']['excluded_untrusted_count']);
+        self::assertSame(1, $metrics['truth_context']['status_counts']['unverified']);
         self::assertStringContainsString('不得互相替代', $metrics['scope_note']);
+    }
+
+    public function testVerifiedZeroOtaFactsRemainObservedInsteadOfBecomingMissing(): void
+    {
+        $metrics = $this->invokeNonPublic(new TransferDecisionService(), 'aggregateTransferMetrics', [
+            [],
+            [$this->verifiedOtaRow([
+                'amount' => 0,
+                'book_order_num' => 0,
+                'quantity' => 0,
+            ])],
+            $this->otaScope(),
+        ]);
+
+        self::assertSame(0.0, $metrics['ota_channel_revenue']);
+        self::assertSame(0, $metrics['ota_channel_orders']);
+        self::assertSame(0.0, $metrics['ota_channel_room_nights']);
+        self::assertTrue($metrics['ota_channel_revenue_observed']);
+        self::assertTrue($metrics['ota_channel_orders_observed']);
+        self::assertTrue($metrics['ota_channel_room_nights_observed']);
+        self::assertSame(1, $metrics['ota_channel_days']);
+        self::assertSame('verified', $metrics['truth_context']['status']);
+        self::assertSame(1, $metrics['truth_context']['included_verified_count']);
+    }
+
+    public function testOnlyVerifiedOtaRowsContributeAcrossFourTruthStates(): void
+    {
+        $verified = $this->verifiedOtaRow([
+            'id' => 1,
+            'amount' => 100,
+            'book_order_num' => 2,
+            'quantity' => 3,
+        ]);
+        $partial = $this->verifiedOtaRow([
+            'id' => 2,
+            'amount' => 200,
+            'book_order_num' => 20,
+            'quantity' => 30,
+            'validation_status' => 'partial',
+        ]);
+        $manual = $this->verifiedOtaRow([
+            'id' => 3,
+            'amount' => 300,
+            'book_order_num' => 30,
+            'quantity' => 40,
+            'ingestion_method' => 'manual',
+        ]);
+        $legacy = $this->verifiedOtaRow([
+            'id' => 4,
+            'amount' => 400,
+            'book_order_num' => 40,
+            'quantity' => 50,
+            'ingestion_method' => 'legacy',
+        ]);
+        $failed = $this->verifiedOtaRow([
+            'id' => 5,
+            'amount' => 500,
+            'book_order_num' => 50,
+            'quantity' => 60,
+            'validation_status' => 'failed',
+        ]);
+
+        $metrics = $this->invokeNonPublic(new TransferDecisionService(), 'aggregateTransferMetrics', [
+            [],
+            [$verified, $partial, $manual, $legacy, $failed],
+            $this->otaScope(),
+        ]);
+
+        self::assertSame(100.0, $metrics['ota_channel_revenue']);
+        self::assertSame(2, $metrics['ota_channel_orders']);
+        self::assertSame(3.0, $metrics['ota_channel_room_nights']);
+        self::assertSame(1, $metrics['truth_context']['included_verified_count']);
+        self::assertSame(4, $metrics['truth_context']['excluded_untrusted_count']);
+        self::assertSame(1, $metrics['truth_context']['status_counts']['verified']);
+        self::assertSame(1, $metrics['truth_context']['status_counts']['partial']);
+        self::assertSame(2, $metrics['truth_context']['status_counts']['unverified']);
+        self::assertSame(1, $metrics['truth_context']['status_counts']['collection_failed']);
+        self::assertSame('partial', $metrics['truth_context']['status']);
+        self::assertNotEmpty($metrics['truth_context']['failure_reasons']);
+    }
+
+    public function testVerifiedRowsOutsideHotelDateOrOtaPlatformScopeAreExcluded(): void
+    {
+        $wrongHotel = $this->verifiedOtaRow(['id' => 11, 'system_hotel_id' => 8, 'amount' => 100]);
+        $wrongDate = $this->verifiedOtaRow(['id' => 12, 'data_date' => '2026-07-14', 'amount' => 200]);
+        $wrongPlatform = $this->verifiedOtaRow([
+            'id' => 13,
+            'platform' => 'internal',
+            'source' => 'internal',
+            'amount' => 300,
+        ]);
+
+        $metrics = $this->invokeNonPublic(new TransferDecisionService(), 'aggregateTransferMetrics', [
+            [],
+            [$wrongHotel, $wrongDate, $wrongPlatform],
+            $this->otaScope(),
+        ]);
+
+        self::assertSame(0.0, $metrics['ota_channel_revenue']);
+        self::assertSame(0, $metrics['truth_context']['included_verified_count']);
+        self::assertSame(3, $metrics['truth_context']['excluded_untrusted_count']);
+        self::assertSame(1, $metrics['truth_context']['scope_exclusion_counts']['hotel_scope_mismatch']);
+        self::assertSame(1, $metrics['truth_context']['scope_exclusion_counts']['date_scope_mismatch']);
+        self::assertSame(1, $metrics['truth_context']['scope_exclusion_counts']['unsupported_ota_platform']);
+        self::assertSame('unverified', $metrics['truth_context']['status']);
     }
 
     public function testBuildTransferDashboardMergesPricingTimingAndMetricRisks(): void
@@ -425,6 +553,66 @@ final class TransferDecisionServiceTest extends TestCase
         self::assertSame('transfer_decision_closure', $intentInput['target_value']['target_metric']);
         self::assertSame($readiness['stage'], $intentInput['evidence']['readiness_stage']);
         self::assertSame('medium', $intentInput['risk_level']);
+    }
+
+    private function verifiedOtaRow(array $overrides = []): array
+    {
+        $row = array_merge([
+            'id' => 1,
+            'system_hotel_id' => 7,
+            'hotel_id' => 'ctrip-7001',
+            'hotel_name' => 'Hotel A',
+            'platform' => 'ctrip',
+            'source' => 'ctrip',
+            'data_type' => 'order',
+            'data_date' => '2026-07-15',
+            'amount' => 30000,
+            'book_order_num' => 20,
+            'quantity' => 25,
+            'ingestion_method' => 'browser_profile',
+            'source_trace_id' => 'trace-safe-1',
+            'snapshot_time' => '2026-07-15 09:00:00',
+            'validation_status' => 'normal',
+            'readback_verified' => 1,
+            'create_time' => '2026-07-15 09:01:00',
+            'update_time' => '2026-07-15 09:01:00',
+            'raw_data' => '{}',
+        ], $overrides);
+
+        $raw = is_array($row['raw_data'])
+            ? $row['raw_data']
+            : json_decode((string)$row['raw_data'], true);
+        $raw = is_array($raw) ? $raw : [];
+        $raw['field_facts'] = [];
+        foreach ([
+            'order_amount' => 'amount',
+            'order_count' => 'book_order_num',
+            'room_nights' => 'quantity',
+        ] as $metricKey => $storageField) {
+            $raw['field_facts'][] = [
+                'metric_key' => $metricKey,
+                'source_path' => '$.payload.' . $metricKey,
+                'storage_field' => 'online_daily_data.' . $storageField,
+                'status' => 'captured',
+                'stored_value_present' => true,
+                'capture_evidence' => [
+                    'source_trace_id' => (string)$row['source_trace_id'],
+                    'source_url_hash' => 'sha256:' . $metricKey . '-safe',
+                ],
+            ];
+        }
+        $row['raw_data'] = json_encode($raw, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+
+        return $row;
+    }
+
+    private function otaScope(array $overrides = []): array
+    {
+        return array_merge([
+            'target_hotel_id' => 7,
+            'start_date' => '2026-07-15',
+            'end_date' => '2026-07-15',
+        ], $overrides);
     }
 
     private function pricingInput(): array

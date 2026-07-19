@@ -13,6 +13,10 @@ final class DailyWorkbenchPatrolService
     public function write(array $workbenchPayload, array $context = []): array
     {
         $snapshot = $this->buildSnapshot($workbenchPayload, $context);
+        $scopeHotelId = $this->snapshotHotelId($snapshot);
+        if ($scopeHotelId > 0 && !$this->snapshotWithinHotelScope($snapshot, $scopeHotelId)) {
+            throw new \InvalidArgumentException('Daily workbench patrol payload crosses the selected hotel scope.');
+        }
         $targetDate = $snapshot['scope']['target_date'];
         $dir = $this->targetDateDir($targetDate);
         $this->ensureDirectory($dir);
@@ -49,6 +53,19 @@ final class DailyWorkbenchPatrolService
         return $this->readSnapshot($path);
     }
 
+    public function latestForHotel(int $hotelId): ?array
+    {
+        $hotelId = $this->requireHotelId($hotelId);
+        foreach ($this->snapshotFiles() as $path) {
+            $snapshot = $this->readSnapshot($path);
+            if ($snapshot !== null && $this->snapshotWithinHotelScope($snapshot, $hotelId)) {
+                return $snapshot;
+            }
+        }
+
+        return null;
+    }
+
     public function findByRunId(string $runId): ?array
     {
         $runId = $this->safeRunId($runId);
@@ -60,11 +77,18 @@ final class DailyWorkbenchPatrolService
         return $path === null ? null : $this->readSnapshot($path);
     }
 
+    public function findByRunIdForHotel(string $runId, int $hotelId): ?array
+    {
+        $snapshot = $this->findByRunId($runId);
+        return $snapshot !== null && $this->snapshotWithinHotelScope($snapshot, $this->requireHotelId($hotelId))
+            ? $snapshot
+            : null;
+    }
+
     public function list(int $limit = 10): array
     {
         $limit = max(1, min(30, $limit));
-        $files = glob($this->baseDir() . DIRECTORY_SEPARATOR . '*' . DIRECTORY_SEPARATOR . 'daily_workbench_*.json') ?: [];
-        rsort($files, SORT_STRING);
+        $files = $this->snapshotFiles();
 
         $rows = [];
         foreach (array_slice($files, 0, $limit) as $path) {
@@ -78,10 +102,39 @@ final class DailyWorkbenchPatrolService
         return $rows;
     }
 
+    public function listForHotel(int $hotelId, int $limit = 10): array
+    {
+        $hotelId = $this->requireHotelId($hotelId);
+        $limit = max(1, min(30, $limit));
+        $rows = [];
+        foreach ($this->snapshotFiles() as $path) {
+            $snapshot = $this->readSnapshot($path);
+            if ($snapshot === null || !$this->snapshotWithinHotelScope($snapshot, $hotelId)) {
+                continue;
+            }
+            $rows[] = $this->compactSnapshot($snapshot);
+            if (count($rows) >= $limit) {
+                break;
+            }
+        }
+
+        return $rows;
+    }
+
     public function health(?string $targetDate = null): array
     {
         $targetDate = $this->normalizeDate((string)($targetDate ?? date('Y-m-d')));
-        $latest = $this->latest();
+        return $this->buildHealth($targetDate, $this->latest());
+    }
+
+    public function healthForHotel(int $hotelId, ?string $targetDate = null): array
+    {
+        $targetDate = $this->normalizeDate((string)($targetDate ?? date('Y-m-d')));
+        return $this->buildHealth($targetDate, $this->latestForHotel($hotelId));
+    }
+
+    private function buildHealth(string $targetDate, ?array $latest): array
+    {
         $checkedAt = date('Y-m-d H:i:s');
         $automation = $this->automationHealth();
         if ($latest === null) {
@@ -180,6 +233,22 @@ final class DailyWorkbenchPatrolService
         ];
     }
 
+    public function markdownReportForHotel(int $hotelId, string $runId = ''): array
+    {
+        $snapshot = trim($runId) !== ''
+            ? $this->findByRunIdForHotel($runId, $hotelId)
+            : $this->latestForHotel($hotelId);
+        if ($snapshot === null) {
+            throw new \RuntimeException('Daily workbench patrol snapshot not found in the selected hotel scope.');
+        }
+
+        return [
+            'filename' => $this->markdownReportFileName($snapshot),
+            'content' => $this->buildMarkdownReport($snapshot),
+            'snapshot' => $this->compactSnapshot($snapshot),
+        ];
+    }
+
     public function updateActionStatus(array $input, ?int $userId = null): array
     {
         $runId = $this->safeRunId((string)($input['run_id'] ?? ''));
@@ -245,6 +314,18 @@ final class DailyWorkbenchPatrolService
         }
 
         return $snapshot;
+    }
+
+    public function updateActionStatusForHotel(array $input, int $hotelId, ?int $userId = null): array
+    {
+        $hotelId = $this->requireHotelId($hotelId);
+        if ((int)($input['hotel_id'] ?? 0) !== $hotelId
+            || $this->findByRunIdForHotel((string)($input['run_id'] ?? ''), $hotelId) === null
+        ) {
+            throw new \RuntimeException('Daily workbench patrol snapshot not found in the selected hotel scope.');
+        }
+
+        return $this->updateActionStatus($input, $userId);
     }
 
     public function updateActionReview(array $input, ?int $userId = null): array
@@ -330,6 +411,18 @@ final class DailyWorkbenchPatrolService
         return $snapshot;
     }
 
+    public function updateActionReviewForHotel(array $input, int $hotelId, ?int $userId = null): array
+    {
+        $hotelId = $this->requireHotelId($hotelId);
+        if ((int)($input['hotel_id'] ?? 0) !== $hotelId
+            || $this->findByRunIdForHotel((string)($input['run_id'] ?? ''), $hotelId) === null
+        ) {
+            throw new \RuntimeException('Daily workbench patrol snapshot not found in the selected hotel scope.');
+        }
+
+        return $this->updateActionReview($input, $userId);
+    }
+
     private function buildSnapshot(array $workbenchPayload, array $context): array
     {
         $scope = is_array($workbenchPayload['scope'] ?? null) ? $workbenchPayload['scope'] : [];
@@ -338,7 +431,10 @@ final class DailyWorkbenchPatrolService
         $nextActions = array_values(array_filter((array)($workbenchPayload['next_actions'] ?? []), static fn($row): bool => is_array($row)));
         $targetDate = $this->normalizeDate((string)($scope['target_date'] ?? $context['target_date'] ?? date('Y-m-d')));
         $createdAt = date('Y-m-d H:i:s');
-        $runId = 'daily_workbench_' . str_replace('-', '', $targetDate) . '_' . date('His') . '_' . substr(sha1($createdAt . json_encode($summary)), 0, 8);
+        $runId = 'daily_workbench_' . str_replace('-', '', $targetDate) . '_' . date('His') . '_' . substr(sha1($createdAt . json_encode([
+            'hotel_id' => $scope['hotel_id'] ?? null,
+            'summary' => $summary,
+        ])), 0, 8);
 
         return [
             'run_id' => $runId,
@@ -595,6 +691,54 @@ final class DailyWorkbenchPatrolService
     {
         $files = glob($this->baseDir() . DIRECTORY_SEPARATOR . '*' . DIRECTORY_SEPARATOR . $runId . '.json') ?: [];
         return is_file($files[0] ?? '') ? $files[0] : null;
+    }
+
+    /** @return array<int, string> */
+    private function snapshotFiles(): array
+    {
+        $files = glob($this->baseDir() . DIRECTORY_SEPARATOR . '*' . DIRECTORY_SEPARATOR . 'daily_workbench_*.json') ?: [];
+        rsort($files, SORT_STRING);
+        return $files;
+    }
+
+    private function snapshotHotelId(array $snapshot): int
+    {
+        $scope = is_array($snapshot['scope'] ?? null) ? $snapshot['scope'] : [];
+        return isset($scope['hotel_id']) && is_numeric($scope['hotel_id']) ? (int)$scope['hotel_id'] : 0;
+    }
+
+    private function snapshotWithinHotelScope(array $snapshot, int $hotelId): bool
+    {
+        if ($hotelId <= 0 || $this->snapshotHotelId($snapshot) !== $hotelId) {
+            return false;
+        }
+
+        foreach (['rows', 'next_actions'] as $field) {
+            foreach ((array)($snapshot[$field] ?? []) as $item) {
+                if (!is_array($item) || (int)($item['hotel_id'] ?? 0) !== $hotelId) {
+                    return false;
+                }
+            }
+        }
+        $trackingItems = is_array($snapshot['action_tracking']['items'] ?? null)
+            ? $snapshot['action_tracking']['items']
+            : [];
+        foreach ($trackingItems as $item) {
+            if (!is_array($item) || (int)($item['hotel_id'] ?? 0) !== $hotelId) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function requireHotelId(int $hotelId): int
+    {
+        if ($hotelId <= 0) {
+            throw new \InvalidArgumentException('hotel_id is required.');
+        }
+
+        return $hotelId;
     }
 
     private function safeRunId(string $value): string

@@ -196,6 +196,46 @@ final class BrowserProfileCaptureRequestService
         return $unverified;
     }
 
+    /**
+     * Drop only non-core supplemental forecast rows that cannot prove their own
+     * forecast date. Core traffic/order/review rows remain subject to the normal
+     * target-date gate and are never silently accepted.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return array{rows:array<int,array<string,mixed>>,dropped_count:int,dropped_types:array<int,string>}
+     */
+    public static function filterUnverifiedMeituanSupplementalRows(array $rows, string $targetDate): array
+    {
+        $dropIndexes = [];
+        foreach (self::unverifiedMeituanTargetDateRows($rows, $targetDate) as $issue) {
+            if (preg_match('/^traffic_forecast:(\d+)$/D', $issue, $matches) === 1) {
+                $dropIndexes[(int)$matches[1]] = true;
+            }
+        }
+
+        if ($dropIndexes === []) {
+            return [
+                'rows' => array_values($rows),
+                'dropped_count' => 0,
+                'dropped_types' => [],
+            ];
+        }
+
+        $filtered = [];
+        foreach ($rows as $index => $row) {
+            if (isset($dropIndexes[$index])) {
+                continue;
+            }
+            $filtered[] = $row;
+        }
+
+        return [
+            'rows' => $filtered,
+            'dropped_count' => count($dropIndexes),
+            'dropped_types' => ['traffic_forecast'],
+        ];
+    }
+
     /** @param array<string, mixed> $row @return array<string, mixed> */
     private static function meituanDateEvidencePayload(array $row): array
     {

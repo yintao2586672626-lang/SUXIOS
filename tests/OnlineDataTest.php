@@ -1003,6 +1003,37 @@ final class OnlineDataTest extends TestCase
         self::assertStringContainsString('"peerAvg":120', (string)$rows[3]['raw_data']);
     }
 
+    public function testMeituanMyHotelFunnelRowMapsToCoreTrafficWithoutInventingOrderVisitors(): void
+    {
+        $controller = $this->controller();
+
+        $rows = $this->invokeNonPublic($controller, 'buildMeituanCapturedDailyRows', [[
+            'storeId' => 'store-1',
+            'poiId' => 'poi-1',
+            'poiName' => 'Meituan Hotel',
+            'defaultDataDate' => '2026-07-18',
+            'flowAnalysis' => [[
+                'data_type' => 'traffic',
+                'dataDate' => '2026-07-18',
+                'analysis_type' => 'conversion_funnel',
+                'dimension' => 'flow_conversion',
+                'exposureUV' => 81,
+                'intentionUV' => 14,
+                'payOrderCnt' => 2,
+                'intentionPerExposure' => '17.28%',
+                'payOrderPerIntention' => '14.29%',
+            ]],
+        ], 80]);
+
+        self::assertCount(1, $rows);
+        self::assertSame('traffic', $rows[0]['data_type']);
+        self::assertSame(81, $rows[0]['list_exposure']);
+        self::assertSame(14, $rows[0]['detail_exposure']);
+        self::assertSame(2, $rows[0]['order_submit_num']);
+        self::assertSame(17.28, $rows[0]['flow_rate']);
+        self::assertNull($rows[0]['order_filling_num']);
+    }
+
     public function testDailyOtaSupplementSummaryExcludesReviews(): void
     {
         $controller = $this->controller();
@@ -1015,11 +1046,13 @@ final class OnlineDataTest extends TestCase
                 'detail_exposure' => 100,
                 'book_order_num' => 4,
                 'raw_data' => json_encode(['orderAmount' => 500], JSON_UNESCAPED_UNICODE),
+                'truth' => $this->verifiedOtaTruth(),
             ],
             [
                 'data_type' => 'quality',
                 'data_value' => 86.5,
                 'raw_data' => json_encode(['serviceScore' => 91], JSON_UNESCAPED_UNICODE),
+                'truth' => $this->verifiedOtaTruth(),
             ],
             [
                 'data_type' => 'review',
@@ -1050,6 +1083,7 @@ final class OnlineDataTest extends TestCase
                 'data_type' => 'business', 'compare_type' => 'self',
                 'amount' => 1200, 'quantity' => 6, 'book_order_num' => 4, 'comment_score' => null,
                 'raw_data' => json_encode(['metric' => 'daily_trade']),
+                'truth' => $this->verifiedOtaTruth(),
             ],
             [
                 'data_date' => '2026-07-11', 'system_hotel_id' => 80, 'source' => 'meituan',
@@ -3243,6 +3277,17 @@ final class OnlineDataTest extends TestCase
         self::assertSame('ota-a', $merged[0]['ota_hotel_id']);
         self::assertSame('external-1', $merged[1]['id']);
 
+        $canonical = $this->invokeNonPublic($controller, 'mergeOnlineDataHotelList', [[
+            ['system_hotel_id' => 7, 'hotel_id' => 'ota-a', 'hotel_name' => 'Stale OTA Hotel Name'],
+            ['system_hotel_id' => 7, 'hotel_id' => 'ota-b', 'hotel_name' => 'Another Historical Name'],
+        ], [
+            7 => 'Canonical System Hotel',
+        ]]);
+
+        self::assertCount(1, $canonical);
+        self::assertSame(7, $canonical[0]['id']);
+        self::assertSame('Canonical System Hotel', $canonical[0]['hotel_name']);
+
         $sanitized = $this->invokeNonPublic($controller, 'sanitizeSecretConfig', [[
             'name' => 'config-a',
             'cookies' => 'abcdefghijk',
@@ -3998,6 +4043,21 @@ final class OnlineDataTest extends TestCase
                 'page' => ['status' => 'blocked', 'risk_control_present' => true, 'raw_text' => 'must-not-leak'],
                 'session_state' => ['status' => 'pass', 'platform_state_count' => 3, 'session_state_count' => 1],
             ],
+            'drift_diagnostics' => [
+                'contract_version' => '2026-07-19.1',
+                'status' => 'suspected',
+                'recognized_response_count' => 0,
+                'candidate_response_count' => 3,
+                'sensitive_values_exposed' => false,
+                'signal_ids' => ['protected_route_rule_miss'],
+                'advisory_signal_ids' => ['session_cookie_name_fallback', 'token=must-not-leak'],
+                'candidate_reason_ids' => ['unknown_business_json_route', 'token=must-not-leak'],
+                'candidate_route_samples' => [
+                    'https://ebooking.ctrip.com/api/new-dashboard/123456?token=must-not-leak#cookie',
+                    'ebooking.ctrip.com/api/new-dashboard/123456?token=second-secret',
+                    'https://ebooking.ctrip.com/api/authorization/must-not-leak?cookie=third-secret',
+                ],
+            ],
         ];
 
         $compact = $this->invokeNonPublic($command, 'compactProfileLoginSessionProbe', [$probe]);
@@ -4035,9 +4095,19 @@ final class OnlineDataTest extends TestCase
         self::assertSame('2026-07-19T02:15:00.000Z', $compact['next_retry_at']);
         self::assertTrue($compact['signals']['page']['risk_control_present']);
         self::assertSame(1, $cacheSafe['session_probe']['signals']['session_state']['session_state_count']);
+        self::assertSame(['protected_route_rule_miss'], $compact['drift_diagnostics']['signal_ids']);
+        self::assertSame(['session_cookie_name_fallback'], $compact['drift_diagnostics']['advisory_signal_ids']);
+        self::assertSame(['unknown_business_json_route'], $compact['drift_diagnostics']['candidate_reason_ids']);
+        self::assertSame([
+            'ebooking.ctrip.com/api/new-dashboard/:id',
+            'ebooking.ctrip.com/api/authorization/:redacted',
+        ], $compact['drift_diagnostics']['candidate_route_samples']);
         self::assertArrayNotHasKey('raw_cookie', $compact);
         self::assertArrayNotHasKey('raw_text', $compact['signals']['page']);
         self::assertStringNotContainsString('must-not-leak', (string)json_encode($compact, JSON_UNESCAPED_UNICODE));
+        self::assertStringNotContainsString('second-secret', (string)json_encode($compact, JSON_UNESCAPED_UNICODE));
+        self::assertStringNotContainsString('third-secret', (string)json_encode($compact, JSON_UNESCAPED_UNICODE));
+        self::assertStringNotContainsString('?', (string)json_encode($compact['drift_diagnostics']['candidate_route_samples'], JSON_UNESCAPED_UNICODE));
     }
 
     public function testProfileProbeDoesNotPromoteWeakEvidenceWhenAuthLooksLoggedIn(): void
@@ -4215,6 +4285,34 @@ final class OnlineDataTest extends TestCase
         self::assertSame(5, $compact['saved_count']);
         self::assertFalse($compact['sensitive_values_exposed']);
         self::assertStringNotContainsString('must-not-copy', json_encode($compact, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+        $meituanOptions = $this->invokeNonPublic($command, 'buildProfileLoginSyncOptions', ['meituan', [
+            'target_date' => '2026-07-19',
+            'capture_sections' => ['traffic', 'orders', 'reviews', 'ads'],
+        ]]);
+        $withoutAdsEntry = $this->invokeNonPublic($command, 'constrainProfileLoginSyncOptionsBySource', [
+            $meituanOptions,
+            [
+                'platform' => 'meituan',
+                'config_json' => json_encode(['store_id' => 'store-80'], JSON_THROW_ON_ERROR),
+            ],
+        ]);
+        self::assertSame('traffic,orders,reviews', $withoutAdsEntry['capture_sections']);
+        self::assertSame(['traffic', 'orders', 'reviews'], $withoutAdsEntry['sections']);
+        self::assertSame(['ads'], $withoutAdsEntry['skipped_sections_no_entry']);
+
+        $withAdsEntry = $this->invokeNonPublic($command, 'constrainProfileLoginSyncOptionsBySource', [
+            $meituanOptions,
+            [
+                'platform' => 'meituan',
+                'config_json' => json_encode([
+                    'store_id' => 'store-80',
+                    'ads_url' => 'https://ebmidas.dianping.com/business/home',
+                ], JSON_THROW_ON_ERROR),
+            ],
+        ]);
+        self::assertSame('traffic,orders,reviews,ads', $withAdsEntry['capture_sections']);
+        self::assertArrayNotHasKey('skipped_sections_no_entry', $withAdsEntry);
     }
 
     public function testPublicDataSourceSyncCannotForgeInternalProfileLoginBypassOptions(): void
@@ -4415,6 +4513,39 @@ final class OnlineDataTest extends TestCase
         self::assertStringNotContainsString('store_id', $encoded);
         self::assertStringNotContainsString('poi_id', $encoded);
         self::assertStringNotContainsString('cookie', strtolower((string)$encoded));
+    }
+
+    public function testP0TrafficRequirementsRespectPlatformSemantics(): void
+    {
+        $controller = $this->controller();
+
+        self::assertSame(
+            ['list_exposure', 'detail_exposure', 'flow_rate'],
+            $this->invokeNonPublic($controller, 'phase1P0TrafficRequiredMetricKeys', ['meituan'])
+        );
+        self::assertSame(
+            ['list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num'],
+            $this->invokeNonPublic($controller, 'phase1P0TrafficRequiredMetricKeys', ['ctrip'])
+        );
+        self::assertSame(
+            ['online_daily_data.list_exposure', 'online_daily_data.detail_exposure', 'online_daily_data.flow_rate'],
+            $this->invokeNonPublic($controller, 'phase1P0TrafficRequiredStorageFields', ['meituan'])
+        );
+        self::assertSame(
+            ['list_exposure', 'detail_exposure', 'flow_rate'],
+            $this->invokeNonPublic($controller, 'collectionStatusRequiredTrafficMetrics', ['meituan'])
+        );
+
+        $meituanClosure = $this->invokeNonPublic($controller, 'collectionStatusTrafficFieldFactClosure', [[
+            'data_source_id' => 68,
+            'field_facts' => [
+                $this->completeTrafficFieldFact('list_exposure'),
+                $this->completeTrafficFieldFact('detail_exposure'),
+                $this->completeTrafficFieldFact('flow_rate'),
+            ],
+        ], 'meituan']);
+        self::assertTrue($meituanClosure['complete']);
+        self::assertSame([], $meituanClosure['missing_metric_keys']);
     }
 
     public function testP0SyncTaskMessageCodeClassifiesWithoutRawErrorExposure(): void
@@ -10305,6 +10436,36 @@ final class OnlineDataTest extends TestCase
             ['order', 'data_date', 'desc'],
             ['value', 'data_date'],
         ], $query->calls);
+    }
+
+    /** @return array<string, mixed> */
+    private function completeTrafficFieldFact(string $metricKey): array
+    {
+        return [
+            'metric_key' => $metricKey,
+            'status' => 'captured',
+            'source_path' => 'data.myHotel.' . $metricKey,
+            'storage_field' => 'online_daily_data.' . $metricKey,
+            'stored_value_present' => true,
+            'capture_evidence' => [
+                'source_trace_id' => 'trace-platform-contract',
+                'source_url_hash' => str_repeat('a', 64),
+            ],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function verifiedOtaTruth(): array
+    {
+        return [
+            'status' => 'verified',
+            'metric_scope' => 'ota_channel',
+            'platform' => 'meituan',
+            'data_date' => '2026-07-18',
+            'source' => ['method' => 'browser_profile'],
+            'persistence' => ['stored' => true, 'readback_verified' => true],
+            'failure_reason' => '',
+        ];
     }
 }
 

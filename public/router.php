@@ -4,6 +4,19 @@
  */
 
 const SUXI_STATIC_GZIP_LEVEL = 6;
+const SUXI_CSP_REPORT_ONLY = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self'; script-src 'self'; script-src-attr 'none'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; frame-src 'self'; media-src 'self'; worker-src 'self'; manifest-src 'self'";
+
+header('X-Content-Type-Options: nosniff');
+header('X-Frame-Options: SAMEORIGIN');
+header('Referrer-Policy: strict-origin-when-cross-origin');
+header('Content-Security-Policy-Report-Only: ' . SUXI_CSP_REPORT_ONLY);
+
+$suxiHttpsValue = strtolower(trim((string)($_SERVER['HTTPS'] ?? '')));
+$suxiIsHttps = ($suxiHttpsValue !== '' && !in_array($suxiHttpsValue, ['off', '0', 'false', 'no'], true))
+    || (int)($_SERVER['SERVER_PORT'] ?? 0) === 443;
+if ($suxiIsHttps) {
+    header('Strict-Transport-Security: max-age=31536000');
+}
 
 function suxi_static_response_variant(string $staticFile, string $extension): string
 {
@@ -98,7 +111,23 @@ function suxi_static_response_payload(string $staticFile, string $variant): arra
 
 $requestPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $staticRequestPath = $requestPath === '/' ? '/index.html' : $requestPath;
-$staticFile = __DIR__ . str_replace('/', DIRECTORY_SEPARATOR, rawurldecode($staticRequestPath));
+$decodedStaticPath = rawurldecode($staticRequestPath);
+$pathSegments = array_values(array_filter(
+    explode('/', str_replace('\\', '/', $decodedStaticPath)),
+    static fn(string $segment): bool => $segment !== ''
+));
+$hasHiddenPathSegment = count(array_filter(
+    $pathSegments,
+    static fn(string $segment): bool => str_starts_with($segment, '.')
+)) > 0;
+if (str_contains($decodedStaticPath, "\0") || $hasHiddenPathSegment) {
+    http_response_code(404);
+    header('Cache-Control: no-store');
+    header('Content-Type: text/plain; charset=utf-8');
+    echo 'Not Found';
+    return true;
+}
+$staticFile = __DIR__ . str_replace('/', DIRECTORY_SEPARATOR, $decodedStaticPath);
 $publicRoot = realpath(__DIR__);
 $resolvedStaticFile = realpath($staticFile);
 
@@ -114,6 +143,7 @@ if ($publicRoot !== false
         'html' => 'text/html; charset=utf-8',
         'js' => 'application/javascript; charset=utf-8',
         'json' => 'application/json; charset=utf-8',
+        'txt' => 'text/plain; charset=utf-8',
         'map' => 'application/json; charset=utf-8',
         'svg' => 'image/svg+xml; charset=utf-8',
         'png' => 'image/png',
@@ -127,6 +157,14 @@ if ($publicRoot !== false
         'woff2' => 'font/woff2',
         'ttf' => 'font/ttf',
     ];
+    $basename = basename($staticFile);
+    if (str_starts_with($basename, '.') || !array_key_exists($extension, $mimeTypes)) {
+        http_response_code(404);
+        header('Content-Type: text/plain; charset=utf-8');
+        header('Cache-Control: no-store');
+        echo 'Not Found';
+        return true;
+    }
     $cacheableExtensions = ['css', 'js', 'png', 'jpg', 'jpeg', 'gif', 'avif', 'webp', 'ico', 'woff', 'woff2', 'ttf', 'svg'];
     $compressibleExtensions = ['css', 'html', 'js', 'json', 'map', 'svg'];
     $mtime = (int)filemtime($staticFile);
@@ -137,7 +175,7 @@ if ($publicRoot !== false
     $ifNoneMatch = trim((string)($_SERVER['HTTP_IF_NONE_MATCH'] ?? ''));
     $ifModifiedSince = trim((string)($_SERVER['HTTP_IF_MODIFIED_SINCE'] ?? ''));
 
-    header('Content-Type: ' . ($mimeTypes[$extension] ?? 'application/octet-stream'));
+    header('Content-Type: ' . $mimeTypes[$extension]);
     header('ETag: ' . $etag);
     header('Last-Modified: ' . $lastModified);
     header('Vary: Accept-Encoding');

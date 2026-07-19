@@ -4,9 +4,18 @@ declare(strict_types=1);
 namespace app\service\platform;
 
 use app\contract\DataSourceAdapter;
+use app\service\OutboundUrlGuard;
+use InvalidArgumentException;
 
 final class ApiDataSourceAdapter implements DataSourceAdapter
 {
+    private OutboundUrlGuard $urlGuard;
+
+    public function __construct(?OutboundUrlGuard $urlGuard = null)
+    {
+        $this->urlGuard = $urlGuard ?? new OutboundUrlGuard();
+    }
+
     public function supports(array $source): bool
     {
         return (string)($source['ingestion_method'] ?? '') === 'api';
@@ -25,14 +34,15 @@ final class ApiDataSourceAdapter implements DataSourceAdapter
             ];
         }
 
-        $validationError = $this->validateUrl($url, $config);
-        if ($validationError !== null) {
+        $validation = $this->validateUrl($url, $config);
+        if ($validation['error'] !== null) {
             return [
                 'status' => 'failed',
-                'message' => $validationError,
+                'message' => $validation['error'],
                 'payload' => [],
             ];
         }
+        $target = $validation['target'];
 
         $method = strtoupper((string)($options['method'] ?? $config['method'] ?? 'GET'));
         if (!in_array($method, ['GET', 'POST'], true)) {
@@ -56,7 +66,14 @@ final class ApiDataSourceAdapter implements DataSourceAdapter
             $body = json_encode($body, JSON_UNESCAPED_UNICODE);
         }
 
-        $ch = curl_init($url);
+        $ch = curl_init($target['url']);
+        if ($ch === false) {
+            return [
+                'status' => 'failed',
+                'message' => 'API request failed.',
+                'payload' => [],
+            ];
+        }
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => false,
@@ -66,7 +83,15 @@ final class ApiDataSourceAdapter implements DataSourceAdapter
             CURLOPT_HTTPHEADER => $headers,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_MAXREDIRS => 0,
+            CURLOPT_RESOLVE => $target['curl_resolve'],
         ]);
+        if (defined('CURLOPT_PROTOCOLS') && defined('CURLPROTO_HTTPS')) {
+            curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS);
+        }
+        if (defined('CURLOPT_REDIR_PROTOCOLS') && defined('CURLPROTO_HTTPS')) {
+            curl_setopt($ch, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTPS);
+        }
         if ($method === 'POST') {
             curl_setopt($ch, CURLOPT_POSTFIELDS, (string)($body ?? ''));
         }
@@ -79,7 +104,7 @@ final class ApiDataSourceAdapter implements DataSourceAdapter
         if ($raw === false || $error !== '') {
             return [
                 'status' => 'failed',
-                'message' => 'API request failed: ' . $error,
+                'message' => 'API request failed.',
                 'payload' => [],
                 'http_status' => $statusCode,
             ];
@@ -90,7 +115,7 @@ final class ApiDataSourceAdapter implements DataSourceAdapter
             return [
                 'status' => 'failed',
                 'message' => 'API response is not valid JSON.',
-                'payload' => ['raw' => mb_substr((string)$raw, 0, 1000)],
+                'payload' => [],
                 'http_status' => $statusCode,
             ];
         }
@@ -99,7 +124,7 @@ final class ApiDataSourceAdapter implements DataSourceAdapter
             return [
                 'status' => 'failed',
                 'message' => 'API returned HTTP ' . $statusCode,
-                'payload' => $decoded,
+                'payload' => [],
                 'http_status' => $statusCode,
             ];
         }
@@ -112,42 +137,36 @@ final class ApiDataSourceAdapter implements DataSourceAdapter
         ];
     }
 
-    private function validateUrl(string $url, array $config): ?string
+    /**
+     * @return array{error:?string,target:?array}
+     */
+    private function validateUrl(string $url, array $config): array
     {
-        $parts = parse_url($url);
-        $scheme = strtolower((string)($parts['scheme'] ?? ''));
-        $host = strtolower((string)($parts['host'] ?? ''));
-        if ($scheme !== 'https') {
-            return 'API source must use HTTPS.';
+        try {
+            $target = $this->urlGuard->validate($url);
+        } catch (InvalidArgumentException $exception) {
+            $message = $exception->getMessage() === OutboundUrlGuard::ERROR_HTTPS_REQUIRED
+                ? 'API source must use HTTPS.'
+                : 'API source host is not allowed.';
+            return ['error' => $message, 'target' => null];
         }
-        if ($host === '' || $this->isPrivateHost($host)) {
-            return 'API source host is not allowed.';
-        }
+        $host = (string)$target['host'];
 
         $allowedHosts = $config['allowed_hosts'] ?? [];
         if (is_string($allowedHosts)) {
             $allowedHosts = array_filter(array_map('trim', explode(',', $allowedHosts)));
         }
         if (is_array($allowedHosts) && !empty($allowedHosts)) {
-            $allowedHosts = array_map(static fn($item): string => strtolower((string)$item), $allowedHosts);
+            $allowedHosts = array_map(
+                static fn($item): string => strtolower(rtrim(trim((string)$item), '.')),
+                $allowedHosts
+            );
             if (!in_array($host, $allowedHosts, true)) {
-                return 'API source host is outside allowed_hosts.';
+                return ['error' => 'API source host is outside allowed_hosts.', 'target' => null];
             }
         }
 
-        return null;
-    }
-
-    private function isPrivateHost(string $host): bool
-    {
-        if (in_array($host, ['localhost', '127.0.0.1', '0.0.0.0'], true)) {
-            return true;
-        }
-        $ip = gethostbyname($host);
-        if ($ip === $host && !filter_var($ip, FILTER_VALIDATE_IP)) {
-            return false;
-        }
-        return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false;
+        return ['error' => null, 'target' => $target];
     }
 
     /**

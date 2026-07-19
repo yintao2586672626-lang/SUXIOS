@@ -89,4 +89,40 @@ trait OnlineDataSupportConcern
             abort(403, '无权限操作');
         }
     }
+
+    private function checkHotelActionPermission(int $hotelId, string $permission): void
+    {
+        if (!$this->currentUser) {
+            abort(401, '未登录');
+        }
+        if ($this->currentUser->isSuperAdmin()) {
+            return;
+        }
+        if ($hotelId <= 0 || !$this->currentUser->hasHotelPermission($hotelId, $permission)) {
+            abort(403, '无权限操作该门店');
+        }
+    }
+
+    /**
+     * @return array<int, int>|null null means super-admin scope
+     */
+    private function permittedHotelIdsForAction(string $permission): ?array
+    {
+        if (!$this->currentUser) {
+            abort(401, '未登录');
+        }
+        if ($this->currentUser->isSuperAdmin()) {
+            return null;
+        }
+
+        $hotelIds = [];
+        foreach ($this->currentUser->getPermittedHotelIds() as $hotelId) {
+            $hotelId = (int)$hotelId;
+            if ($hotelId > 0 && $this->currentUser->hasHotelPermission($hotelId, $permission)) {
+                $hotelIds[] = $hotelId;
+            }
+        }
+
+        return array_values(array_unique($hotelIds));
+    }
 }

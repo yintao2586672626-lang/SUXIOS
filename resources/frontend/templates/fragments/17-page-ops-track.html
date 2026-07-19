@@ -214,6 +214,7 @@
                                                     <button v-if="operationCanApproveExecution(item)" @click="approveOperationExecutionIntent(item, false)" class="px-2.5 py-1 rounded-lg border border-gray-200 text-gray-600 text-xs hover:bg-gray-50">驳回</button>
                                                     <button v-if="operationCanExecuteWithEvidence(item)" @click="recordOperationExecutionEvidence(item)" class="px-2.5 py-1 rounded-lg bg-blue-600 text-white text-xs hover:bg-blue-700">录证据</button>
                                                     <button v-if="operationCanReviewExecution(item)" @click="reviewOperationExecutionTask(item)" class="px-2.5 py-1 rounded-lg bg-gray-900 text-white text-xs hover:bg-gray-700">复盘</button>
+                                                    <span v-else-if="item.execution?.status === 'executed' &amp;&amp; item.review?.is_available === false" class="text-xs text-amber-700">{{ item.review.available_on || '次日' }} 可复盘</span>
                                                     <span v-if="!operationExecutionActionAvailable(item)" class="text-xs text-gray-400">-</span>
                                                 </div>
                                             </td>

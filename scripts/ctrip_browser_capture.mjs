@@ -38,6 +38,7 @@ import {
   evaluateOtaSessionProbe,
   isTrustedOtaPlatformUrl,
   otaSessionCookieInjectionDomains,
+  recordOtaSessionProbeCandidateDiagnostic,
   sanitizeOtaObservedUrl,
   summarizeOtaSessionCookies,
 } from './lib/ota_session_probe.mjs';
@@ -174,6 +175,8 @@ const sessionProbeResponseDiagnostics = {
   authentication_required_response_count: 0,
   permission_denied_response_count: 0,
   rate_limited_response_count: 0,
+  candidate_route_samples: [],
+  candidate_reason_ids: [],
 };
 
 const browser = await launchOtaPersistentContext(storageDir, args);
@@ -1053,17 +1056,18 @@ function registerSessionProbeResponseObserver(page) {
     const requestType = response.request().resourceType();
     const status = Number(response.status() || 0);
     const contentType = response.headers()['content-type'] || '';
-    const classification = classifyOtaSessionProbeResponse('ctrip', {
+    const classified = classifyOtaSessionProbeResponse('ctrip', {
       url: response.url(),
       status,
       resource_type: requestType,
       content_type: contentType,
-    }).classification;
+    });
+    const classification = classified.classification;
     if (classification === 'recognized') {
       sessionProbeSuccessfulApiResponseCount = Math.min(20, sessionProbeSuccessfulApiResponseCount + 1);
       sessionProbeResponseDiagnostics.recognized_response_count = sessionProbeSuccessfulApiResponseCount;
     } else if (classification === 'candidate_drift') {
-      sessionProbeResponseDiagnostics.candidate_drift_response_count = Math.min(20, sessionProbeResponseDiagnostics.candidate_drift_response_count + 1);
+      recordOtaSessionProbeCandidateDiagnostic(sessionProbeResponseDiagnostics, classified, response.url());
     } else if (classification === 'authentication_required') {
       sessionProbeResponseDiagnostics.authentication_required_response_count = Math.min(20, sessionProbeResponseDiagnostics.authentication_required_response_count + 1);
       sessionProbeResponseDiagnostics.access_denied_response_count = Math.min(20, sessionProbeResponseDiagnostics.access_denied_response_count + 1);

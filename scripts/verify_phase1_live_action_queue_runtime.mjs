@@ -342,15 +342,19 @@ function validateTrafficSourceReadiness(label, questionOrEvidence) {
     if (payloadCandidateUnverifiedCount > 0) {
       check(`${prefix} P0 payload candidate present state still requires importer dry-run`, payloadCandidateReadyCount === 0 && payloadCandidateIssueCodes.includes('payload_file_present_requires_importer_dry_run'), JSON.stringify(sourceRow ?? {}));
     }
-    check(`${prefix} P0 required metric keys are explicit`, sameStringList(sourceRow?.p0_required_metric_keys, ['list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num']), JSON.stringify(sourceRow ?? {}));
-    check(`${prefix} P0 required storage fields are explicit`, sameStringList(sourceRow?.p0_required_storage_fields, ['online_daily_data.list_exposure', 'online_daily_data.detail_exposure', 'online_daily_data.flow_rate', 'online_daily_data.order_filling_num', 'online_daily_data.order_submit_num']), JSON.stringify(sourceRow ?? {}));
+    const expectedRequiredMetricKeys = platform === 'meituan'
+      ? ['list_exposure', 'detail_exposure', 'flow_rate']
+      : ['list_exposure', 'detail_exposure', 'flow_rate', 'order_filling_num', 'order_submit_num'];
+    const expectedRequiredStorageFields = expectedRequiredMetricKeys.map((key) => `online_daily_data.${key}`);
+    check(`${prefix} P0 required metric keys are explicit`, sameStringList(sourceRow?.p0_required_metric_keys, expectedRequiredMetricKeys), JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 required storage fields are explicit`, sameStringList(sourceRow?.p0_required_storage_fields, expectedRequiredStorageFields), JSON.stringify(sourceRow ?? {}));
     check(`${prefix} P0 required field fact keys are explicit`, sameStringList(sourceRow?.p0_required_field_fact_keys, ['capture_evidence', 'source_path', 'metric_key', 'storage_field', 'stored_value_present']), JSON.stringify(sourceRow ?? {}));
     const expectedPlatformHotelIdentifierSource = platform === 'meituan' ? 'poi_id_family' : 'hotel_id_family';
     check(`${prefix} P0 platform hotel identity source is explicit and desensitized`, String(sourceRow?.p0_platform_hotel_identifier_source ?? '') === expectedPlatformHotelIdentifierSource, JSON.stringify(sourceRow ?? {}));
     check(`${prefix} P0 platform hotel identity status is explicit`, ['no_target_date_traffic_rows', 'requires_p0_verifier', 'ready', 'missing'].includes(String(sourceRow?.p0_platform_hotel_identifier_status ?? '')), JSON.stringify(sourceRow ?? {}));
     check(`${prefix} P0 platform hotel identity policy forbids raw ID exposure`, String(sourceRow?.p0_platform_hotel_identifier_policy ?? '').includes('not raw IDs') && !String(sourceRow?.p0_platform_hotel_identifier_policy ?? '').includes('system_hotel_id'), JSON.stringify(sourceRow ?? {}));
     const fieldLoopMatrix = asArray(sourceRow?.p0_field_loop_matrix);
-    check(`${prefix} P0 field loop matrix is explicit`, fieldLoopMatrix.length === 5, JSON.stringify(sourceRow ?? {}));
+    check(`${prefix} P0 field loop matrix is explicit`, fieldLoopMatrix.length === expectedRequiredMetricKeys.length, JSON.stringify(sourceRow ?? {}));
     check(`${prefix} P0 field loop matrix covers required metric keys`, sameStringList(fieldLoopMatrix.map((item) => item?.metric_key), sourceRow?.p0_required_metric_keys), JSON.stringify(fieldLoopMatrix));
     check(`${prefix} P0 field loop matrix covers required storage fields`, sameStringList(fieldLoopMatrix.map((item) => item?.expected_storage_field), sourceRow?.p0_required_storage_fields), JSON.stringify(fieldLoopMatrix));
     for (const fieldLoop of fieldLoopMatrix) {

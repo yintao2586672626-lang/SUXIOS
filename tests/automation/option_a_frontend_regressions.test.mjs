@@ -83,8 +83,8 @@ test('Ctrip latest-snapshot and dual-OTA refresh guards reject stale A-to-B resp
 
   const workbenchRefresh = sliceBetween(appMain, 'let dualOtaWorkbenchRequestSeq', 'const setDualOtaPlatform');
   assert.match(workbenchRefresh, /isDualOtaWorkbenchRequestCurrent/);
-  assert.match(workbenchRefresh, /await loadLatestCtripData[\s\S]*if \(!isCurrentRequest\(\)\) return null;[\s\S]*dualOtaEnsureCtripWorkbenchData/);
-  assert.match(workbenchRefresh, /await loadCompetitorSummary[\s\S]*if \(!isCurrentRequest\(\)\) return null;[\s\S]*dualOtaEnsureMeituanWorkbenchData/);
+  assert.match(workbenchRefresh, /await loadLatestCtripData[\s\S]*if \(!isCurrentRequest\(\)\) return null;[\s\S]*shouldAutoFetch = true/);
+  assert.match(workbenchRefresh, /await loadCompetitorSummary[\s\S]*if \(!isCurrentRequest\(\)\) return null;[\s\S]*dualOtaEnsureWorkbenchAutoFetch/);
 });
 
 test('Ctrip current data page keeps target-date truth separate from stored history', () => {
@@ -131,10 +131,10 @@ test('AI workbench personalizes hotel order per account and opens the matching m
   const mountedBootstrap = sliceBetween(appMain, 'onMounted(() => {', 'onUnmounted(() => {');
   assert.match(hotelOrder, /suxios_dual_ota_hotel_search_counts_\$\{user\.value\?\.id \|\| 'guest'\}_v1/);
   assert.match(hotelOrder, /\.sort\(\(a, b\) => \(b\.count - a\.count\) \|\| \(a\.index - b\.index\)\)/);
-  assert.match(mountedBootstrap, /if \(isCompassDataPage\(\)\) \{\s*currentPage\.value = 'ai-workbench';/);
+  assert.match(mountedBootstrap, /if \(isCompassDataPage\(\)\) \{\s*activateAiWorkbenchAfterLogin\(\);/);
   assert.match(appTemplate, /<option value="">全部门店<\/option>[\s\S]*v-for="hotel in dualOtaCurrentHotelOptions"/);
 
-  const shortcuts = sliceBetween(appMain, 'const dualOtaModuleNavigationTarget', 'const dualOtaTrustClass');
+  const shortcuts = sliceBetween(appMain, 'const dualOtaModuleNavigationTarget', 'const dualOtaSystemMetricPlatform');
   assert.match(shortcuts, /'携程竞争圈数据': 'ctrip-ranking'/);
   assert.match(shortcuts, /selectedCtripHotelId\.value = hotelId[\s\S]*currentPage\.value = 'ctrip-ebooking'[\s\S]*openCtripManualTab\('ctrip-ranking'\)/);
   assert.match(shortcuts, /meituanForm\.value\.hotelId = hotelId[\s\S]*currentPage\.value = 'meituan-ebooking'[\s\S]*onlineDataTab\.value = 'meituan-ranking'/);
@@ -239,6 +239,20 @@ test('frontend fallbacks keep missing risk and forecast metrics unknown instead 
   const researchForecastCards = sliceBetween(appMain, 'const revenueResearchForecastCards', 'const runRevenueResearchProduct');
   assert.match(researchForecastCards, /const hasMetric =/);
   assert.match(researchForecastCards, /: '—'/);
+  assert.match(researchForecastCards, /forecast\.truth_context \|\| \{\}/);
+  assert.match(researchForecastCards, /onlineTruthStatusText\(truth\)/);
+  assert.match(researchForecastCards, /onlineTruthDetailText\(truth\)/);
   assert.doesNotMatch(researchForecastCards, /forecast(?:7|30)\.(?:revenue|adr) \|\| 0/);
   assert.doesNotMatch(researchForecastCards, /forecast\.trend_percent \|\| 0/);
+  assert.match(appTemplate, /data-testid="revenue-research-forecast-truth"/);
+  assert.match(appTemplate, /\{\{ card\.truthDetail \}\}/);
+});
+
+test('feasibility generation keeps the target hotel as an explicit truth boundary', () => {
+  const feasibilityFlow = sliceBetween(appMain, 'const buildFeasibilityPayload', 'const createFeasibilityExecutionIntent');
+  assert.match(feasibilityFlow, /hotel_id:\s*Number\(aiFeasibilityHotelId\.value \|\| 0\) \|\| null/);
+  assert.match(feasibilityFlow, /record\.input\.hotel_id \|\| record\.input\.system_hotel_id/);
+  assert.match(appTemplate, /data-testid="feasibility-target-hotel"/);
+  assert.match(appTemplate, /未绑定门店（仅未验证情景）/);
+  assert.match(appTemplate, /未绑定不会跨门店汇总/);
 });
