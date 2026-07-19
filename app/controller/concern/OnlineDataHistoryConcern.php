@@ -561,7 +561,8 @@ trait OnlineDataHistoryConcern
             $query->where(function ($q) {
                 $q->where('data_type', 'business')
                     ->whereOr('data_type', '')
-                    ->whereOr('data_type', 'competitor');
+                    ->whereOr('data_type', 'competitor')
+                    ->whereOr('data_type', 'ranking');
             });
             return;
         }
@@ -612,6 +613,12 @@ trait OnlineDataHistoryConcern
             } else {
                 $query->whereNull('system_hotel_id');
             }
+        }
+
+        $snapshotBucket = trim((string)($latest['snapshot_bucket'] ?? ''));
+        if (isset($columns['snapshot_bucket']) && $snapshotBucket !== '') {
+            $query->where('snapshot_bucket', $snapshotBucket);
+            return;
         }
 
         $this->applyOnlineLatestFetchTimeScope($query, $latest, $columns);

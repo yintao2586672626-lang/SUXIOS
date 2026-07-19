@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\CtripPublicHotelProfileService;
+use app\service\OperationManagementService;
+use app\service\OtaPublicPageDiagnosisService;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use think\App;
@@ -200,14 +202,14 @@ final class CtripPublicHotelProfileBindingTest extends TestCase
 
     public function testSameDayFailureCannotOverwriteTheLastSuccessfulProfile(): void
     {
-        $success = $this->service()->addByHotelId(10, '3456814', 'competitor', 91);
+        $success = $this->service()->addByHotelId(10, '3456814', 'self', 91);
         self::assertTrue($success['profile']['persistence']['readback_verified']);
 
-        $failed = $this->service(true)->addByHotelId(10, '3456814', 'competitor', 91);
+        $failed = $this->service(true)->addByHotelId(10, '3456814', 'self', 91);
         self::assertSame('binding_saved_collection_failed', $failed['status']);
-        self::assertFalse($failed['profile']['persistence']['readback_verified']);
+        self::assertTrue($failed['profile']['persistence']['readback_verified']);
         self::assertTrue($failed['profile']['persistence']['latest_success_preserved']);
-        self::assertSame('latest_success_preserved', $failed['profile']['persistence']['persistence_status']);
+        self::assertSame('latest_failure_attempt_readback_verified', $failed['profile']['persistence']['persistence_status']);
 
         $stored = Db::name('ota_ctrip_entity_snapshots')
             ->where('system_hotel_id', 10)
@@ -217,7 +219,15 @@ final class CtripPublicHotelProfileBindingTest extends TestCase
         self::assertIsArray($stored);
         self::assertSame('available', $stored['capture_status']);
         self::assertSame(1, (int)$stored['tenant_id']);
+        $storedAttributes = json_decode((string)$stored['attributes_json'], true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('collection_failed', $storedAttributes['latest_capture_attempt']['capture_status']);
         self::assertSame('available', $this->service()->listProfiles(10)[0]['capture_status']);
+        $diagnosisProfiles = $this->service()->listDiagnosisProfiles(10, '2026-07-16');
+        self::assertCount(1, $diagnosisProfiles);
+        self::assertSame('self', $diagnosisProfiles[0]['role']);
+        self::assertSame('collection_failed', $diagnosisProfiles[0]['capture_status']);
+        self::assertSame('collection_failed', $diagnosisProfiles[0]['source_validation_status']);
+        self::assertSame([], $diagnosisProfiles[0]['fields']);
     }
 
     public function testProfileReadbackAndSourceValidationRemainSeparateAndHistoryCanBeListed(): void
@@ -238,7 +248,7 @@ final class CtripPublicHotelProfileBindingTest extends TestCase
         $current = $service->listProfiles(10);
         self::assertCount(1, $current);
         self::assertTrue($current[0]['persistence_readback_verified']);
-        self::assertSame('source_observed', $current[0]['source_validation_status']);
+        self::assertSame('source_verified', $current[0]['source_validation_status']);
         self::assertArrayNotHasKey('readback_verified', $current[0]);
 
         $history = $service->listProfiles(10, true);
@@ -264,6 +274,42 @@ final class CtripPublicHotelProfileBindingTest extends TestCase
         self::assertTrue($profile['persistence_readback_verified']);
         self::assertSame('stale', $profile['capture_status']);
         self::assertSame('stale', $profile['source_validation_status']);
+    }
+
+    public function testPublicPageTaskReadbackUsesBoundSelfSnapshotCollectedAfterExecution(): void
+    {
+        $profileService = $this->service();
+        $profileService->addByHotelId(10, '3456814', 'self', 91);
+        $profiles = $profileService->listDiagnosisProfiles(10, '2026-07-16');
+        $diagnosisService = new OtaPublicPageDiagnosisService();
+        $diagnosis = $diagnosisService->build(10, 'ctrip', '2026-07-16', $profiles);
+        $draft = $diagnosisService->buildExecutionIntentDraft($diagnosis, [
+            'assignee_id' => 91,
+            'due_at' => '2099-07-18 18:00:00',
+            'review_at' => '2099-07-19 10:00:00',
+        ]);
+        $intent = $draft['input'];
+        $intent['id'] = 501;
+        $intent['current_value']['verified_field_count'] = 0;
+        $task = [
+            'id' => 601,
+            'intent_id' => 501,
+            'executed_at' => '2026-07-16 19:00:00',
+        ];
+
+        $reflection = new \ReflectionMethod(OperationManagementService::class, 'buildPublicPageSourceVerifiedReadbackPayload');
+        $payload = $reflection->invoke(new OperationManagementService(), $task, $intent);
+
+        self::assertIsArray($payload);
+        self::assertSame('source_verified_metric_readback', $payload['evidence_type']);
+        self::assertSame('ota_ctrip_entity_snapshots', $payload['platform_response']['source']);
+        self::assertSame(10, $payload['platform_response']['system_hotel_id']);
+        self::assertSame('3456814', $payload['platform_response']['platform_hotel_id']);
+        self::assertSame('https://hotels.ctrip.com/hotels/3456814.html', $payload['platform_response']['source_url']);
+        self::assertGreaterThan(0, $payload['after']['public_page_verified_field_count']);
+
+        $task['executed_at'] = '2026-07-16 21:00:00';
+        self::assertNull($reflection->invoke(new OperationManagementService(), $task, $intent));
     }
 
     private function service(bool $fail = false): CtripPublicHotelProfileService

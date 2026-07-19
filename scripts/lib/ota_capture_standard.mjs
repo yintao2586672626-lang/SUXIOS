@@ -73,7 +73,7 @@ export const PLATFORM_CONFIGS = {
       { section: 'order_flow', keywords: ['/peerrank/order/loss/query'] },
       { section: 'traffic', keywords: ['businessdata', 'weighttraffic', 'traffic', 'peertrends', 'peer/rank', 'flowconversion', 'flowtrend', 'flowtrenddetail', 'flowforecast', 'searchkeyword', 'search-keyword', 'roomtype', 'room-type'] },
       { section: 'ads', keywords: ['cureshops'] },
-      { section: 'orders', keywords: ['/orders/list', '/order/unhandled/count', '/order-eb/'] },
+      { section: 'orders', keywords: ['/api/v1/ebooking/orders', '/order/unhandled/count', '/order-eb/'] },
       { section: 'reviews', keywords: ['querygeneralcommentinfo', 'commentsinfo', 'comments/statistics', 'comment-manage'] },
     ],
   },
@@ -392,7 +392,7 @@ export function classifyOtaResponse(platform, url, meta = {}) {
 }
 
 function isMeituanOrderResponseUrl(value) {
-  return ['/orders/list', '/order/unhandled/count', '/order-eb/']
+  return ['/api/v1/ebooking/orders', '/order/unhandled/count', '/order-eb/']
     .some(keyword => String(value || '').includes(keyword));
 }
 

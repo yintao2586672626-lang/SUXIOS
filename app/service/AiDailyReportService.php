@@ -518,13 +518,20 @@ class AiDailyReportService
             }
 
             $rawActions = (string)($row['recommended_actions_json'] ?? '');
-            $actions = $this->decodeJson($rawActions);
-            if (!isset($actions[$actionIndex]) || !is_array($actions[$actionIndex])) {
+            $storedActions = $this->decodeJson($rawActions);
+            $normalizedRow = $this->normalizeReportRow($row);
+            $actions = is_array($normalizedRow['recommended_actions'] ?? null)
+                ? $normalizedRow['recommended_actions']
+                : [];
+            if (!isset($actions[$actionIndex]) || !is_array($actions[$actionIndex])
+                || !isset($storedActions[$actionIndex]) || !is_array($storedActions[$actionIndex])) {
                 throw new \InvalidArgumentException('AI daily report action index is invalid');
             }
 
             $action = $actions[$actionIndex];
-            if (($action['can_create_execution_intent'] ?? true) === false) {
+            if (($action['can_create_execution_intent'] ?? false) !== true
+                || ($action['decision_quality']['contract_version'] ?? '') !== AiDecisionQualityService::CONTRACT_VERSION
+                || ($action['decision_quality']['execution_ready'] ?? false) !== true) {
                 throw new \InvalidArgumentException((string)($action['blocked_reason'] ?? 'action cannot create execution intent'));
             }
 
@@ -566,6 +573,7 @@ class AiDailyReportService
                     'reason' => (string)($action['reason'] ?? ''),
                     'source_refs' => $action['source_refs'] ?? [],
                     'data_gaps' => $this->decodeJson((string)($row['data_gaps_json'] ?? '')),
+                    'decision_recommendation' => $action,
                 ],
                 'expected_metric' => (string)($action['expected_metric'] ?? $targetValue['target_metric'] ?? 'orders'),
                 'expected_delta' => (float)($action['expected_delta'] ?? 0),
@@ -575,7 +583,15 @@ class AiDailyReportService
             $reused = is_array($existing) && !$retryableTerminal;
             $intent = $reused
                 ? $this->executionIntentSummary($existing)
-                : $this->operationService->createExecutionIntent([$hotelId], $hotelId, $input, $userId);
+                : $this->operationService->createExecutionIntent(
+                    [$hotelId],
+                    $hotelId,
+                    $input,
+                    $userId,
+                    false,
+                    null,
+                    true
+                );
             if (!$reused) {
                 $intentIdIsValid = (int)($intent['id'] ?? 0) > 0;
                 $intentStatusIsValid = (string)($intent['status'] ?? '') === 'pending_approval';
@@ -585,14 +601,14 @@ class AiDailyReportService
                 }
             }
 
-            $actions[$actionIndex]['execution_intent_id'] = (int)($intent['id'] ?? 0);
-            $actions[$actionIndex]['execution_status'] = (string)($intent['status'] ?? '');
-            $actions[$actionIndex]['execution_blocked_reason'] = (string)($intent['blocked_reason'] ?? '');
-            $actions[$actionIndex]['execution_idempotency_key'] = $idempotencyKey;
-            $actions[$actionIndex]['execution_attempt'] = $retryAttempt;
-            $actions[$actionIndex]['execution_retry_of_intent_id'] = $retryableTerminal ? (int)($existing['id'] ?? 0) : 0;
+            $storedActions[$actionIndex]['execution_intent_id'] = (int)($intent['id'] ?? 0);
+            $storedActions[$actionIndex]['execution_status'] = (string)($intent['status'] ?? '');
+            $storedActions[$actionIndex]['execution_blocked_reason'] = (string)($intent['blocked_reason'] ?? '');
+            $storedActions[$actionIndex]['execution_idempotency_key'] = $idempotencyKey;
+            $storedActions[$actionIndex]['execution_attempt'] = $retryAttempt;
+            $storedActions[$actionIndex]['execution_retry_of_intent_id'] = $retryableTerminal ? (int)($existing['id'] ?? 0) : 0;
 
-            $newActionsJson = $this->json($actions);
+            $newActionsJson = $this->json($storedActions);
             if ($newActionsJson !== $rawActions) {
                 $affected = (int)Db::name(self::TABLE)
                     ->where('id', $reportId)
@@ -881,7 +897,10 @@ class AiDailyReportService
             } else {
                 $executionActionCount++;
             }
-            if (!$isInvestigation && ($action['can_create_execution_intent'] ?? true) !== false) {
+            if (!$isInvestigation
+                && ($action['can_create_execution_intent'] ?? false) === true
+                && ($action['decision_quality']['contract_version'] ?? '') === AiDecisionQualityService::CONTRACT_VERSION
+                && ($action['decision_quality']['execution_ready'] ?? false) === true) {
                 $transferable++;
             }
             $executionItem = $isInvestigation ? [] : $this->executionItemForAction($action, $executionItems, $index);
@@ -1145,18 +1164,87 @@ class AiDailyReportService
 
     private function enrichRecommendedActions(array $actions, array $executionItems, array $context = []): array
     {
-        $result = [];
+        $prepared = [];
+        $executionByPreparedIndex = [];
+        $trustedEvidence = array_values(array_filter(
+            (array)($context['evidence_sources'] ?? []),
+            static fn(mixed $source): bool => is_array($source)
+                && ($source['readback_verified'] ?? false) === true
+                && (int)($source['hotel_id'] ?? $source['system_hotel_id'] ?? 0) > 0
+                && trim((string)($source['platform'] ?? '')) !== ''
+                && trim((string)($source['ref'] ?? $source['key'] ?? '')) !== ''
+        ));
         foreach ($actions as $index => $action) {
             if (!is_array($action)) {
                 continue;
             }
             $executionItem = $this->executionItemForAction($action, $executionItems, $index);
             $action = $this->withExecutionFlowForAction($action, $executionItem);
-            $action['action_readiness'] = $this->buildActionReadiness($action, $executionItem);
-            $result[] = $action;
+            $actionPlatform = $this->normalizeOtaChannel((string)($action['platform'] ?? ''));
+            $matchingRefs = [];
+            foreach ($trustedEvidence as $source) {
+                $sourcePlatform = $this->normalizeOtaChannel((string)($source['platform'] ?? ''));
+                if ($actionPlatform !== '' && $sourcePlatform !== $actionPlatform) {
+                    continue;
+                }
+                $matchingRefs[] = trim((string)($source['ref'] ?? $source['key'] ?? ''));
+            }
+            if ($matchingRefs !== []) {
+                $action['evidence_refs'] = array_values(array_unique($matchingRefs));
+            }
+            $executionByPreparedIndex[count($prepared)] = $executionItem;
+            $prepared[] = $action;
         }
 
-        return $this->decisionQualityService->enrichRecommendations($result, $context);
+        $result = [];
+        foreach ($prepared as $index => $preparedAction) {
+            $actionContext = $context;
+            $effectPolicy = $this->dailyReportExpectedEffectPolicy($preparedAction);
+            if ($effectPolicy !== []) {
+                $actionContext['expected_effect_policy'] = $effectPolicy;
+            }
+            $normalized = $this->decisionQualityService->enrichRecommendation($preparedAction, $actionContext, $index);
+            if ($normalized !== null) {
+                $result[] = $normalized;
+            }
+        }
+        foreach ($result as $index => &$action) {
+            $action['action_readiness'] = $this->buildActionReadiness(
+                $action,
+                $executionByPreparedIndex[$index] ?? []
+            );
+        }
+        unset($action);
+        return $result;
+    }
+
+    /** @return array<string, mixed> */
+    private function dailyReportExpectedEffectPolicy(array $action): array
+    {
+        $targetValue = is_array($action['target_value'] ?? null) ? $action['target_value'] : [];
+        $existingEffect = is_array($action['expected_effect'] ?? null) ? $action['expected_effect'] : [];
+        $metric = strtolower(trim((string)($action['expected_metric']
+            ?? $targetValue['target_metric']
+            ?? $existingEffect['metric']
+            ?? '')));
+        $labels = [
+            'orders' => 'OTA订单',
+            'conversion' => 'OTA转化率',
+            'ota_adr' => 'OTA渠道ADR',
+            'ota_revenue' => 'OTA渠道收入',
+            'roi' => '执行ROI复盘',
+            'data_completeness' => '数据完整性与回读状态',
+        ];
+        if (!isset($labels[$metric])) {
+            return [];
+        }
+        return [
+            'status' => 'verification_target',
+            'metric' => $metric,
+            'direction' => 'verify',
+            'summary' => '预期验证该动作对' . $labels[$metric] . '的影响；没有同酒店、同平台、同口径复盘前不承诺改善幅度。',
+            'review_window' => '执行后在下一可用数据日按同酒店、同平台、同指标口径复核',
+        ];
     }
 
     private function executionItemForAction(array $action, array $executionItems, int $actionIndex): array
@@ -1229,7 +1317,11 @@ class AiDailyReportService
             ));
         }
 
-        if (($action['can_create_execution_intent'] ?? true) === false) {
+        $hasExistingIntent = !empty($executionItem) || (int)($action['execution_intent_id'] ?? 0) > 0;
+        if (!$hasExistingIntent
+            && (($action['can_create_execution_intent'] ?? false) !== true
+                || ($action['decision_quality']['contract_version'] ?? '') !== AiDecisionQualityService::CONTRACT_VERSION
+                || ($action['decision_quality']['execution_ready'] ?? false) !== true)) {
             return $this->withReadinessNotice($this->actionReadiness(
                 'blocked_by_data_gap',
                 20,
@@ -1239,7 +1331,7 @@ class AiDailyReportService
             ));
         }
 
-        if (empty($executionItem) && (int)($action['execution_intent_id'] ?? 0) <= 0) {
+        if (!$hasExistingIntent) {
             return $this->withReadinessNotice($this->actionReadiness(
                 'pending_transfer',
                 35,
@@ -1578,6 +1670,10 @@ class AiDailyReportService
             $sourceRefs[$index]['readback_verified'] = (int)($row['readback_verified'] ?? 0) === 1;
             $sourceRefs[$index]['readback_verified_at'] = (string)($row['readback_verified_at'] ?? '');
             $sourceRefs[$index]['validation_status'] = (string)($row['validation_status'] ?? '');
+            $sourceRefs[$index]['system_hotel_id'] = (int)($row['system_hotel_id'] ?? 0);
+            $sourceRefs[$index]['data_date'] = substr(trim((string)($row['data_date'] ?? '')), 0, 10);
+            $sourceRefs[$index]['platform'] = $this->normalizeOtaChannel((string)($row['platform'] ?? $row['source'] ?? ''));
+            $sourceRefs[$index]['date_role'] = 'target';
 
             $rowTrusted = true;
             if ((int)($row['system_hotel_id'] ?? 0) !== $hotelId) {
@@ -3599,6 +3695,9 @@ class AiDailyReportService
             if ($ref === '') {
                 continue;
             }
+            if (str_starts_with($ref, 'operation.')) {
+                continue;
+            }
             $readbackVerified = $this->sourceRefReadbackVerified($sourceRef);
             $persistence = is_array($sourceRef['persistence'] ?? null) ? $sourceRef['persistence'] : [];
             $persistence['readback_verified'] = $readbackVerified;
@@ -3613,15 +3712,15 @@ class AiDailyReportService
             $evidenceSources[] = [
                 'ref' => $ref,
                 'source' => trim((string)($sourceRef['source'] ?? '')) ?: $ref,
+                'hotel_id' => (int)($sourceRef['system_hotel_id'] ?? $sourceRef['hotel_id'] ?? 0),
                 'platform' => trim((string)($sourceRef['platform'] ?? '')),
                 'date' => trim((string)(
                     $sourceRef['data_date']
                     ?? $sourceRef['date']
-                    ?? $row['report_date']
-                    ?? $reportScope['report_date']
                     ?? ''
                 )),
                 'scope' => $this->sourceRefMetricScope($sourceRef),
+                'date_role' => trim((string)($sourceRef['date_role'] ?? 'target')),
                 'quality_status' => $this->sourceRefQualityStatus($sourceRef),
                 'validation_status' => trim((string)($sourceRef['validation_status'] ?? '')),
                 'ingestion_method' => trim((string)($sourceRef['ingestion_method'] ?? '')),

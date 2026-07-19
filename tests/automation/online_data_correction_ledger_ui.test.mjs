@@ -26,7 +26,7 @@ test('correction-ledger routes keep permission, hotel scope, and restore readbac
   assert.match(routes, /post\('\/?restore-data', 'OnlineData\/restoreData'\)/);
   assert.match(controller, /function correctionLedger\(\): Response[\s\S]*checkActionPermission\('can_delete_online_data'\)/);
   assert.match(controller, /function restoreData\(\): Response[\s\S]*checkActionPermission\('can_delete_online_data'\)/);
-  assert.match(controller, /getPermittedHotelIds\(\)/);
+  assert.match(controller, /permittedHotelIdsForAction\('can_delete_online_data'\)/);
   assert.match(controller, /\$row\['can_restore'\]/);
   assert.match(service, /snapshotMatches\(\$before, \$restored\)/);
   assert.match(service, /online_data_restore_readback_mismatch/);

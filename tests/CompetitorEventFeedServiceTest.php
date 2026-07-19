@@ -257,6 +257,7 @@ final class CompetitorEventFeedServiceTest extends TestCase
         $service = new CompetitorEventFeedService();
         $row = $this->completeRow([
             'ota_hotel_id' => null,
+            'competitor_ota_hotel_id' => null,
             'validation_status' => 'incomplete',
             'comparison_key' => '',
             'price' => 391.0,
@@ -300,6 +301,29 @@ final class CompetitorEventFeedServiceTest extends TestCase
         self::assertSame('90001', $event['target_ota_hotel_id']);
         self::assertSame('target_bound_observation_unverified', $event['identity_status']);
         self::assertFalse($event['availability_evidence_eligible']);
+    }
+
+    public function testObservationIdentityMustMatchConfiguredCompetitorTarget(): void
+    {
+        $service = new CompetitorEventFeedService();
+        $row = $this->completeRow([
+            'ota_hotel_id' => '90002',
+            'competitor_ota_hotel_id' => '90001',
+            'validation_status' => 'valid',
+        ]);
+
+        $result = $service->buildFromRows([$row], 7, 'ctrip', '2026-07-20');
+        $event = $result['events'][0];
+
+        self::assertSame('insufficient_evidence', $result['status']);
+        self::assertSame('observation_identity_mismatch', $result['decision_gate']);
+        self::assertContains('observation_ota_identity_mismatch', $result['data_gaps']);
+        self::assertSame(0, $result['identity_verified_sample_count']);
+        self::assertSame(1, $result['identity_mismatch_sample_count']);
+        self::assertSame('observation_identity_mismatch', $event['identity_status']);
+        self::assertContains('ota_hotel_id_target_mismatch', $event['availability_evidence_gaps']);
+        self::assertFalse($event['availability_evidence_eligible']);
+        self::assertFalse($event['price_evidence_eligible']);
     }
 
     public function testProtectedRouteAndHotelScopeGuardAreWired(): void
@@ -388,6 +412,7 @@ final class CompetitorEventFeedServiceTest extends TestCase
             'store_id' => 7,
             'hotel_id' => 70,
             'ota_hotel_id' => '90001',
+            'competitor_ota_hotel_id' => '90001',
             'platform' => 'xc',
             'price' => 299.0,
             'collected_at' => '2026-07-17 09:05:00',

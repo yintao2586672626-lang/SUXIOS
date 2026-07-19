@@ -127,6 +127,40 @@ final class ManualFetchPersistenceStateTest extends TestCase
         self::assertStringContainsString("(int)(\$stored['readback_verified'] ?? 0) !== 1", $adsSource);
     }
 
+    public function testCtripTrafficReadbackHashIgnoresGeneratedFieldFactsOnly(): void
+    {
+        $harness = $this->harness();
+        $method = $this->stateMethod($harness, 'hashCtripTrafficReadbackPayload');
+        $sourceRow = [
+            'date' => '2026-07-18',
+            'compareType' => 'self',
+            'listExposure' => 120,
+            'detailExposure' => 45,
+            'hotelId' => 'ctrip-137',
+            '_source_path' => 'data.myHotel',
+        ];
+        $storedRow = $sourceRow;
+        $storedRow['field_facts'] = [[
+            'metric_key' => 'list_exposure',
+            'status' => 'captured',
+        ]];
+        $storedRow['field_fact_summary'] = [
+            'captured_count' => 1,
+            'missing_count' => 0,
+        ];
+
+        self::assertSame(
+            $method->invoke($harness, $sourceRow),
+            $method->invoke($harness, $storedRow)
+        );
+
+        $storedRow['listExposure'] = 121;
+        self::assertNotSame(
+            $method->invoke($harness, $sourceRow),
+            $method->invoke($harness, $storedRow)
+        );
+    }
+
     public function testTrafficSuccessAuditRunsOnlyAfterTheTerminalPersistenceGate(): void
     {
         $harness = $this->harness();

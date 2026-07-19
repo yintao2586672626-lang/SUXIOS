@@ -5427,6 +5427,16 @@ main[data-current-page="compass"] .macro-signal-card .macro-signal-action {
     transition: color 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;
 }
 
+#login-password {
+    padding-right: 3.5rem;
+}
+
+#public-login-toggle-password {
+    right: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
 .login-bg .login-card .text-slate-400,
 .login-bg .login-card .text-slate-500 {
     color: rgba(194, 201, 192, 0.7) !important;

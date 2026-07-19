@@ -130,6 +130,7 @@ class ProtectedCapabilityService
                         'api/online-data/capture-ctrip-browser',
                         'api/online-data/capture-ctrip-comments-browser',
                         'api/online-data/capture-meituan-browser',
+                        ['path' => 'api/online-data/public-page-evidence', 'methods' => ['POST']],
                         ['path' => 'api/online-data/data-sources', 'methods' => ['POST']],
                         ['path' => 'api/online-data/data-sources/*', 'methods' => ['DELETE']],
                         ['path' => 'api/online-data/data-sources/*/sync', 'methods' => ['POST']],
@@ -154,10 +155,11 @@ class ProtectedCapabilityService
                 ],
                 'operation_decision' => [
                     'label' => 'Operation decision loop',
-                    'permission' => 'can_use_ai_decision',
+                    'permission' => 'operation.view',
                     'module' => 'operation_decision',
                     'paths' => [
                         'api/operation',
+                        ['path' => 'api/online-data/public-page-diagnosis/execution-intent', 'methods' => ['POST']],
                     ],
                     'response_mode' => 'summary_only',
                     'rate_limit' => ['scope' => 'protected_operation', 'limit' => 60, 'window' => 3600],

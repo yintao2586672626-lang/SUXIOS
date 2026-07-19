@@ -4,12 +4,85 @@ import {
   buildMeituanOrderFlowReplayUrls,
   isImportableMeituanTrafficRow,
   normalizeMeituanFlowAnalysisRows,
+  normalizeMeituanOrderRows,
   normalizeMeituanOrderFlowRows,
   normalizeMeituanPeerRankRows,
   normalizeMeituanSearchKeywordRows,
   normalizeMeituanTrafficCardRows,
   normalizeMeituanTrafficForecastRows,
 } from '../../scripts/lib/meituan_browser_capture_normalize.mjs';
+
+test('Meituan order API aggregates sale price and room nights without promoting floor or guarantee money', () => {
+  const rows = normalizeMeituanOrderRows({
+    data: {
+      total: 3,
+      results: [
+        {
+          price: 81563,
+          floorPrice: 65359,
+          totalFee: 74605,
+          roomCount: 1,
+          checkInDateString: '2026-07-20',
+          checkOutDateString: '2026-07-21',
+          partRefundInfo: { totalRoomNightCount: 1 },
+          orderBasePriceModel: { salePrice: { price: 81563 }, floorPrice: { price: 65359 } },
+        },
+        {
+          price: 86395,
+          floorPrice: 69231,
+          totalFee: 75225,
+          roomCount: 1,
+          checkInDateString: '2026-07-21',
+          checkOutDateString: '2026-07-22',
+          partRefundInfo: { totalRoomNightCount: 1 },
+          orderBasePriceModel: { salePrice: { price: 86395 }, floorPrice: { price: 69231 } },
+        },
+        {
+          price: 86395,
+          floorPrice: 69231,
+          totalFee: 75225,
+          roomCount: 1,
+          checkInDateString: '2026-07-22',
+          checkOutDateString: '2026-07-23',
+          partRefundInfo: { totalRoomNightCount: 1 },
+          orderBasePriceModel: { salePrice: { price: 86395 }, floorPrice: { price: 69231 } },
+        },
+      ],
+    },
+  }, {
+    endpointPath: '/api/v1/ebooking/orders',
+    requestDateEvidence: { date: '2026-07-19', date_source: 'request.query.startTime' },
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].amount, 2543.53);
+  assert.equal(rows[0].quantity, 3);
+  assert.equal(rows[0].book_order_num, 3);
+  assert.equal(rows[0].amount_scope, 'meituan_sale_price_total');
+  assert.equal(rows[0].amount_source_unit, 'cent');
+  assert.equal(rows[0].floor_price_used_as_revenue, false);
+  assert.equal(rows[0].guarantee_amount_used_as_revenue, false);
+  assert.equal(rows[0].dataDate, '2026-07-19');
+});
+
+test('Meituan order API refuses to promote an incomplete page into a daily total', () => {
+  const rows = normalizeMeituanOrderRows({
+    data: {
+      total: 2,
+      results: [{
+        price: 10000,
+        roomCount: 1,
+        checkInDateString: '2026-07-20',
+        checkOutDateString: '2026-07-21',
+      }],
+    },
+  }, {
+    endpointPath: '/api/v1/ebooking/orders',
+    requestDateEvidence: { date: '2026-07-19', date_source: 'request.query.startTime' },
+  });
+
+  assert.deepEqual(rows, []);
+});
 
 test('Meituan order flow replay keeps the verified period and requests both directions', () => {
   const urls = buildMeituanOrderFlowReplayUrls(

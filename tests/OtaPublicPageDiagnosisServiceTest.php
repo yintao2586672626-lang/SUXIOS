@@ -73,10 +73,73 @@ final class OtaPublicPageDiagnosisServiceTest extends TestCase
 
         self::assertSame('insufficient_evidence', $result['status']);
         self::assertSame(0, $result['evidence_coverage']['observed_field_count']);
+        self::assertSame('self', $result['target_role']);
+        self::assertNull($result['target_platform_hotel_id']);
         self::assertSame(0, $result['evidence_coverage']['observed_dimension_count']);
         self::assertSame('2026-07-15', $result['latest_available_date']);
         self::assertCount(12, array_filter($result['dimensions'], static fn(array $row): bool => $row['status'] === 'unknown'));
         self::assertStringContainsString('最新可用日期为 2026-07-15', $result['next_action']);
+    }
+
+    public function testDiagnosisUsesLatestSelfAttemptAndNeverBorrowsCompetitorFacts(): void
+    {
+        $result = (new OtaPublicPageDiagnosisService())->build(80, 'ctrip', '2026-07-17', [
+            [
+                'platform' => 'ctrip',
+                'ota_hotel_id' => '3456814',
+                'role' => 'self',
+                'snapshot_id' => 901,
+                'data_date' => '2026-07-17',
+                'collected_at' => '2026-07-17 09:00:00',
+                'capture_status' => 'available',
+                'source_url' => 'https://hotels.ctrip.com/hotels/3456814.html',
+                'persistence_readback_verified' => true,
+                'source_validation_status' => 'source_verified',
+                'fields' => ['name' => 'old self fact'],
+                'field_statuses' => ['name' => 'available'],
+                'evidence_paths' => ['name' => 'html:h1'],
+            ],
+            [
+                'platform' => 'ctrip',
+                'ota_hotel_id' => '9999999',
+                'role' => 'competitor',
+                'snapshot_id' => 902,
+                'data_date' => '2026-07-17',
+                'collected_at' => '2026-07-17 11:00:00',
+                'capture_status' => 'available',
+                'source_url' => 'https://hotels.ctrip.com/hotels/9999999.html',
+                'persistence_readback_verified' => true,
+                'source_validation_status' => 'source_verified',
+                'fields' => ['rating' => 4.9],
+                'field_statuses' => ['rating' => 'available'],
+                'evidence_paths' => ['rating' => 'html:review_score'],
+            ],
+            [
+                'platform' => 'ctrip',
+                'ota_hotel_id' => '3456814',
+                'role' => 'self',
+                'snapshot_id' => 901,
+                'data_date' => '2026-07-17',
+                'collected_at' => '2026-07-17 12:00:00',
+                'capture_status' => 'collection_failed',
+                'failure_reason' => 'http_failure',
+                'source_url' => 'https://hotels.ctrip.com/hotels/3456814.html',
+                'persistence_readback_verified' => true,
+                'source_validation_status' => 'collection_failed',
+                'fields' => [],
+                'field_statuses' => [],
+                'evidence_paths' => [],
+            ],
+        ]);
+
+        self::assertSame(0, $result['evidence_coverage']['observed_field_count']);
+        self::assertCount(1, $result['sources']);
+        self::assertSame('self', $result['target_role']);
+        self::assertSame('3456814', $result['target_platform_hotel_id']);
+        self::assertSame('3456814', $result['sources'][0]['platform_hotel_id']);
+        self::assertSame('self', $result['sources'][0]['role']);
+        self::assertSame('collection_failed', $result['sources'][0]['capture_status']);
+        self::assertContains('rating', $result['dimensions'][2]['unknown_fields']);
     }
 
     public function testBuildExecutionIntentDraftPreservesEvidenceIdentityAndGapState(): void
@@ -101,8 +164,8 @@ final class OtaPublicPageDiagnosisServiceTest extends TestCase
 
         $schedule = [
             'assignee_id' => 9,
-            'due_at' => '2026-07-18T18:00',
-            'review_at' => '2026-07-19T10:00',
+            'due_at' => '2099-07-18T18:00',
+            'review_at' => '2099-07-19T10:00',
         ];
         $draft = $service->buildExecutionIntentDraft($diagnosis, $schedule);
         $input = $draft['input'];
@@ -121,11 +184,15 @@ final class OtaPublicPageDiagnosisServiceTest extends TestCase
         self::assertContains('platform_basics:address:missing', $input['evidence']['data_gaps']);
         self::assertSame('https://hotels.ctrip.com/hotels/3456814.html', $input['evidence']['sources'][0]['source_url']);
         self::assertSame(9, $input['target_value']['workflow_schedule']['assignee_id']);
-        self::assertSame('2026-07-18 18:00:00', $input['target_value']['workflow_schedule']['due_at']);
-        self::assertSame('2026-07-19 10:00:00', $input['evidence']['workflow_schedule']['review_at']);
+        self::assertSame('2099-07-18 18:00:00', $input['target_value']['workflow_schedule']['due_at']);
+        self::assertSame('2099-07-19 10:00:00', $input['evidence']['workflow_schedule']['review_at']);
+        self::assertSame(OtaPublicPageDiagnosisService::EXECUTION_IDENTITY_VERSION, $input['evidence']['identity_version']);
         self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $input['evidence']['diagnosis_fingerprint']);
         self::assertMatchesRegularExpression('/^ota_diagnosis_action_[a-f0-9]{32}:attempt:1$/', $draft['idempotency_key']);
-        self::assertGreaterThan(0, $draft['source_record_id']);
+        self::assertGreaterThan(4294967295, $draft['source_record_id']);
+        self::assertLessThan(9007199254740991, $draft['source_record_id']);
+        self::assertLessThanOrEqual(268435456, $draft['legacy_source_record_id']);
+        self::assertNotSame($draft['idempotency_key'], $draft['legacy_idempotency_key']);
         self::assertSame($draft, $service->buildExecutionIntentDraft($diagnosis, $schedule));
 
         $otherDate = $diagnosis;
@@ -135,7 +202,7 @@ final class OtaPublicPageDiagnosisServiceTest extends TestCase
             $service->buildExecutionIntentDraft($otherDate, $schedule)['idempotency_key']
         );
         $otherSchedule = $schedule;
-        $otherSchedule['due_at'] = '2026-07-18T20:00';
+        $otherSchedule['due_at'] = '2099-07-18T20:00';
         self::assertSame(
             $draft['idempotency_key'],
             $service->buildExecutionIntentDraft($diagnosis, $otherSchedule)['idempotency_key']
@@ -174,8 +241,8 @@ final class OtaPublicPageDiagnosisServiceTest extends TestCase
             'scope_notice' => '仅为 OTA 公开页证据目录。',
         ], [
             'assignee_id' => 9,
-            'due_at' => '2026-07-18 18:00:00',
-            'review_at' => '2026-07-19 10:00:00',
+            'due_at' => '2099-07-18 18:00:00',
+            'review_at' => '2099-07-19 10:00:00',
         ]);
 
         self::assertSame('review_public_page_evidence', $draft['input']['action_type']);
@@ -186,14 +253,146 @@ final class OtaPublicPageDiagnosisServiceTest extends TestCase
         self::assertSame('not_calculated_no_validated_scoring_rule', $draft['input']['current_value']['score_status']);
     }
 
+    public function testVersionTwoIdentitySeparatesKnownLegacyHashCollision(): void
+    {
+        $service = new OtaPublicPageDiagnosisService();
+        $diagnosis = [
+            'status' => 'insufficient_evidence',
+            'platform' => 'ctrip',
+            'system_hotel_id' => 80,
+            'business_date' => '2026-07-17',
+            'platform_source_status' => 'persisted_public_profile_snapshots',
+            'evidence_coverage' => [
+                'observed_field_count' => 1,
+                'verified_field_count' => 0,
+                'expected_field_count' => 36,
+                'coverage_rate' => 2.78,
+            ],
+            'dimensions' => [[
+                'key' => 'platform_basics',
+                'status' => 'partial',
+                'unknown_fields' => ['address'],
+                'facts' => [['field_key' => 'name', 'quality_status' => 'partial']],
+            ]],
+            'sources' => [[
+                'platform_hotel_id' => '3456814',
+                'source_url' => 'https://hotels.ctrip.com/hotels/3456814.html',
+                'response_ref' => 'fixture#18584',
+                'persistence_readback_status' => 'readback_verified',
+                'source_validation_status' => 'partial',
+            ]],
+            'next_action' => 'complete evidence',
+            'score_status' => 'not_calculated_no_validated_scoring_rule',
+            'source_policy' => 'persisted_public_page_facts_only_no_default_score_no_ota_write',
+            'scope_notice' => 'OTA only',
+        ];
+        $schedule = [
+            'assignee_id' => 9,
+            'due_at' => '2099-07-18 18:00:00',
+            'review_at' => '2099-07-19 10:00:00',
+        ];
+
+        $first = $service->buildExecutionIntentDraft($diagnosis, $schedule);
+        $diagnosis['sources'][0]['response_ref'] = 'fixture#24690';
+        $second = $service->buildExecutionIntentDraft($diagnosis, $schedule);
+
+        self::assertSame($first['legacy_source_record_id'], $second['legacy_source_record_id']);
+        self::assertNotSame($first['version_two_source_record_id'], $second['version_two_source_record_id']);
+        self::assertNotSame($first['version_two_idempotency_key'], $second['version_two_idempotency_key']);
+        self::assertSame($first['source_record_id'], $second['source_record_id']);
+        self::assertSame($first['idempotency_key'], $second['idempotency_key']);
+        self::assertSame($first['task_identity_fingerprint'], $second['task_identity_fingerprint']);
+        self::assertNotSame($first['full_evidence_fingerprint'], $second['full_evidence_fingerprint']);
+        self::assertGreaterThan(4294967295, $first['source_record_id']);
+        self::assertGreaterThan(4294967295, $second['source_record_id']);
+    }
+
+    public function testExecutionIntentScheduleRejectsRelativePastAndNonSequentialTimes(): void
+    {
+        $service = new OtaPublicPageDiagnosisService();
+        $diagnosis = $service->build(80, 'ctrip', '2026-07-17', []);
+        $invalidSchedules = [
+            [
+                'assignee_id' => 9,
+                'due_at' => 'tomorrow 18:00',
+                'review_at' => '2099-07-19 10:00:00',
+            ],
+            [
+                'assignee_id' => 9,
+                'due_at' => '2000-01-01 18:00:00',
+                'review_at' => '2000-01-02 10:00:00',
+            ],
+            [
+                'assignee_id' => 9,
+                'due_at' => '2099-07-18 18:00:00',
+                'review_at' => '2099-07-18 18:00:00',
+            ],
+        ];
+
+        foreach ($invalidSchedules as $schedule) {
+            try {
+                $service->buildExecutionIntentDraft($diagnosis, $schedule);
+                self::fail('Invalid public-page task schedule must be rejected.');
+            } catch (\InvalidArgumentException $exception) {
+                self::assertNotSame('', $exception->getMessage());
+            }
+        }
+    }
+
     public function testMeituanMissingPublicSourceIsExplicitInsteadOfBorrowingCtripEvidence(): void
     {
         $result = (new OtaPublicPageDiagnosisService())->build(80, 'meituan', '2026-07-17', []);
 
-        self::assertSame('public_profile_source_not_connected', $result['platform_source_status']);
+        self::assertSame('manual_public_profile_entry_available', $result['platform_source_status']);
         self::assertSame([], $result['sources']);
         self::assertSame(0, $result['evidence_coverage']['observed_field_count']);
-        self::assertStringContainsString('不使用携程或内部经营数据替代', $result['next_action']);
+        self::assertStringContainsString('录入刚核对的美团公开页字段', $result['next_action']);
+        self::assertStringContainsString('商家后台数据不能替代', $result['next_action']);
+    }
+
+    public function testMeituanManualPublicPageObservationCountsAsObservedButNotVerified(): void
+    {
+        $result = (new OtaPublicPageDiagnosisService())->build(80, 'meituan', '2026-07-17', [[
+            'platform' => 'meituan',
+            'system_hotel_id' => 80,
+            'ota_hotel_id' => '24588',
+            'role' => 'self',
+            'snapshot_id' => 902,
+            'response_ref' => 'online_daily_data#902',
+            'data_date' => '2026-07-17',
+            'collected_at' => '2026-07-17 10:30:00',
+            'capture_status' => 'available',
+            'source_method' => 'manual_public_page_observation',
+            'source_url' => 'https://i.meituan.com/awp/hfe/block/hotel.html?poiId=24588',
+            'persistence_readback_verified' => true,
+            'source_validation_status' => 'source_observed',
+            'fields' => [
+                'name' => '页面可见酒店名',
+                'platform_grade' => '高档型',
+                'rating' => 4.8,
+            ],
+            'field_statuses' => [
+                'name' => 'available',
+                'platform_grade' => 'available',
+                'rating' => 'available',
+            ],
+            'evidence_paths' => [
+                'name' => '页面标题',
+                'platform_grade' => '基础信息区',
+                'rating' => '评分区域',
+            ],
+        ]]);
+
+        self::assertSame('persisted_manual_public_page_observations', $result['platform_source_status']);
+        self::assertSame(3, $result['evidence_coverage']['observed_field_count']);
+        self::assertSame(0, $result['evidence_coverage']['verified_field_count']);
+        self::assertSame('online_daily_data#902', $result['sources'][0]['response_ref']);
+        $facts = array_merge(...array_column($result['dimensions'], 'facts'));
+        $nameFact = array_values(array_filter($facts, static fn(array $fact): bool => $fact['field_key'] === 'name'))[0];
+        self::assertSame('observed', $nameFact['quality_status']);
+        self::assertSame('source_observed', $nameFact['source_validation_status']);
+        self::assertSame('readback_verified', $nameFact['persistence_readback_status']);
+        self::assertSame('online_daily_data#902', $nameFact['evidence_ref']);
     }
 
     public function testAvailableValueWithoutSourceLocatorDoesNotCountAsEvidence(): void

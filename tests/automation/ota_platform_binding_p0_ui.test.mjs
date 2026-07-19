@@ -115,7 +115,7 @@ test('Ctrip review order advanced panel does not expose main-token page assist s
 
   assert.match(advancedPanel, /copyCtripReviewMatchPayloadTemplate/);
   assert.match(html, /const copyCtripReviewMatchPayloadTemplate = \(\) =>/);
-  assert.match(html, /授权页脚本已禁用/);
+  assert.match(advancedPanel, /不会复制宿析登录 token 到 OTA 页面/);
   assert.doesNotMatch(html, /buildCtripReviewOrdererAssistScript/);
   assert.doesNotMatch(html, /copyCtripReviewOrdererAssistScript/);
   assert.doesNotMatch(html, /token:\s*authToken/);

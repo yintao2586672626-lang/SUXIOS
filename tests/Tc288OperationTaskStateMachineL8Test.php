@@ -181,6 +181,46 @@ final class Tc288OperationTaskStateMachineL8Test extends TestCase
         self::assertSame(self::TARGET_DATE, $platformResponse['event_date'] ?? null, $message);
     }
 
+    public function testScheduledExecutionCanOnlyBeRecordedByTheAssignedUser(): void
+    {
+        $factors = self::factors('authorized', 'complete', 'fresh', 'success');
+        $this->seedExecutionState($factors);
+        Db::name('operation_execution_intents')->where('id', self::INTENT_ID)->update([
+            'target_value_json' => json_encode([
+                'price' => 188,
+                'workflow_schedule' => [
+                    'assignee_id' => 77,
+                    'due_at' => '2099-07-18 18:00:00',
+                    'review_at' => '2099-07-19 10:00:00',
+                ],
+            ], JSON_THROW_ON_ERROR),
+        ]);
+        $input = $this->executionInput('DX-assignee', $factors);
+
+        try {
+            (new OperationManagementService())->executeExecutionTask(
+                self::TASK_ID,
+                [self::HOTEL_ID],
+                $input,
+                self::OPERATOR_ID
+            );
+            self::fail('A non-assignee must not execute a scheduled task.');
+        } catch (InvalidArgumentException $exception) {
+            self::assertSame('execution task can only be executed by its assignee', $exception->getMessage());
+        }
+        self::assertSame('pending_execute', $this->taskRow()['status']);
+        self::assertSame(0, $this->evidenceCount());
+
+        $result = (new OperationManagementService())->executeExecutionTask(
+            self::TASK_ID,
+            [self::HOTEL_ID],
+            $input,
+            77
+        );
+        self::assertSame('executed', $result['status']);
+        self::assertSame(1, $this->evidenceCount());
+    }
+
     /**
      * @return array<string, array{0:string,1:array{actor_scope:string,data_completeness:string,freshness:string,upstream_state:string}}>
      */

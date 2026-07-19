@@ -68,6 +68,21 @@ final class ControllerRouteContractTest extends TestCase
         );
     }
 
+    public function testRevenueResearchExecutionIntentUsesOneTimeServerArtifactInsteadOfClientResearchPayload(): void
+    {
+        $source = $this->sourceWithoutPhpComments(__DIR__ . '/../app/controller/RevenueResearch.php');
+        $start = strpos($source, 'public function createExecutionIntent');
+        $end = strpos($source, 'private function existingExecutionIntentRows', $start ?: 0);
+        self::assertNotFalse($start);
+        self::assertNotFalse($end);
+        $method = substr($source, (int)$start, (int)$end - (int)$start);
+
+        self::assertStringContainsString("\$data['research_artifact_id']", $method);
+        self::assertStringContainsString('$artifactService->consume(', $method);
+        self::assertStringNotContainsString("\$data['research']", $method);
+        self::assertStringNotContainsString("'action_text'", $method);
+    }
+
     public function testRevenueAiPriceSuggestionManualReviewRoutes(): void
     {
         $source = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
@@ -216,6 +231,28 @@ final class ControllerRouteContractTest extends TestCase
             $source,
             'Quant simulation records must expose execution-intent bridge route'
         );
+    }
+
+    public function testReservedExecutionSourcesStayBehindScopedProducerControllers(): void
+    {
+        $operationController = $this->sourceWithoutPhpComments(__DIR__ . '/../app/controller/OperationManagement.php');
+        self::assertStringContainsString("\$input['source_module'] = 'manual';", $operationController);
+        self::assertStringContainsString("\$input['source_record_id'] = 0;", $operationController);
+        self::assertStringContainsString("'source_module' => 'operation_strategy_simulation'", $operationController);
+
+        $strategy = $this->sourceWithoutPhpComments(__DIR__ . '/../app/controller/StrategySimulation.php');
+        $quant = $this->sourceWithoutPhpComments(__DIR__ . '/../app/controller/Simulation.php');
+        $publicDiagnosis = $this->sourceWithoutPhpComments(__DIR__ . '/../app/controller/concern/CtripCompetitiveOperationsConcern.php');
+        self::assertMatchesRegularExpression('/createExecutionIntent\([\s\S]*?false,\s*null,\s*true\s*\)/', $strategy);
+        self::assertMatchesRegularExpression('/createExecutionIntent\([\s\S]*?false,\s*null,\s*true\s*\)/', $quant);
+        self::assertMatchesRegularExpression('/createExecutionIntent\([\s\S]*?false,\s*\$idempotencyKey,\s*true\s*\)/', $publicDiagnosis);
+
+        $service = $this->sourceWithoutPhpComments(__DIR__ . '/../app/service/OperationManagementService.php');
+        foreach (['ota_diagnosis', 'strategy_simulation', 'quant_simulation'] as $reservedSource) {
+            self::assertStringContainsString("'{$reservedSource}'", $service);
+        }
+        self::assertStringContainsString('assertPublicPageDiagnosisIntentReadyForApproval($intent)', $service);
+        self::assertStringContainsString('assertSimulationIntentSourceIsCurrent($intent)', $service);
     }
 
     public function testReleaseEvidenceStatusRouteStaysAuthenticatedAndNonClosing(): void

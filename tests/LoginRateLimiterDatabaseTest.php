@@ -10,8 +10,8 @@ use think\facade\Db;
 
 final class LoginRateLimiterDatabaseTest extends TestCase
 {
-    private string $ip;
-    private string $username;
+    private string $ip = '';
+    private string $username = '';
 
     public static function setUpBeforeClass(): void
     {
@@ -20,6 +20,12 @@ final class LoginRateLimiterDatabaseTest extends TestCase
 
     protected function setUp(): void
     {
+        $databaseRow = Db::query('SELECT DATABASE() AS database_name');
+        $databaseName = trim((string)($databaseRow[0]['database_name'] ?? ''));
+        $dedicated = preg_match('/(?:^|[_-])(?:test(?:ing)?|e2e)(?:$|[_-])/iD', $databaseName) === 1;
+        if (!$dedicated && (string)getenv('SUXI_LOGIN_RATE_LIMITER_DB_TEST') !== '1') {
+            self::markTestSkipped('Set SUXI_LOGIN_RATE_LIMITER_DB_TEST=1 to authorize temporary limiter rows in a non-test local database.');
+        }
         $suffix = bin2hex(random_bytes(8));
         $this->ip = '198.18.' . random_int(1, 250) . '.' . random_int(1, 250);
         $this->username = 'db-limit-' . $suffix;
@@ -27,6 +33,9 @@ final class LoginRateLimiterDatabaseTest extends TestCase
 
     protected function tearDown(): void
     {
+        if ($this->ip === '' || $this->username === '') {
+            return;
+        }
         $ipHash = hash('sha256', $this->ip);
         $usernameHash = hash('sha256', mb_strtolower($this->username));
         $identityHash = hash('sha256', $this->ip . "\0" . mb_strtolower($this->username));

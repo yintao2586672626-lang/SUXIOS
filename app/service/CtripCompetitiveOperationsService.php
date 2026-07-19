@@ -45,6 +45,13 @@ final class CtripCompetitiveOperationsService
             ->toArray();
         $profiles = $this->profileService->listProfiles($systemHotelId);
         $binding = $this->profileService->resolveOwnHotelBinding($systemHotelId);
+        $latestFetchedAt = '';
+        foreach (array_merge($businessRows, $trafficRows) as $row) {
+            $latestFetchedAt = max(
+                $latestFetchedAt,
+                trim((string)($row['update_time'] ?? $row['create_time'] ?? ''))
+            );
+        }
 
         return $this->analyzeRows(
             $businessRows,
@@ -56,6 +63,7 @@ final class CtripCompetitiveOperationsService
                 'start_date' => $startDate,
                 'end_date' => $endDate,
                 'binding_status' => (string)($binding['status'] ?? 'binding_missing'),
+                'latest_fetched_at' => $latestFetchedAt,
             ]
         );
     }

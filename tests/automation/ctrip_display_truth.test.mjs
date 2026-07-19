@@ -86,8 +86,8 @@ test('Ctrip tables distinguish real zero from a missing value', () => {
 
   assert.match(page, /formatOptionalNumber\(hotel\.bookOrderNum\)/);
   assert.match(page, /formatOptionalPercent\(hotel\.convertionRate\)/);
-  assert.match(page, /formatOptionalNumber\(row\.self\.listExposure\)/);
-  assert.match(page, /formatOptionalPercent\(row\.avg\.submitRate\)/);
+  assert.match(page, /metric\.rate \? formatOptionalPercent\(row\.self\[metric\.key\]\) : formatOptionalNumber\(row\.self\[metric\.key\]\)/);
+  assert.match(page, /metric\.rate \? formatOptionalPercent\(row\.avg\[metric\.key\]\) : formatOptionalNumber\(row\.avg\[metric\.key\]\)/);
   assert.doesNotMatch(page, /hotel\.bookOrderNum \|\| '-'/);
   assert.doesNotMatch(page, /hotel\.convertionRate \? hotel\.convertionRate \+ '%' : '-'/);
 });

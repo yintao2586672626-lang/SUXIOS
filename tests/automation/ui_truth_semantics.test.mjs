@@ -13,6 +13,7 @@ const ctripPage = read('resources/frontend/templates/fragments/24-page-ctrip-ebo
 const meituanStatic = read('public/meituan-static.js');
 const meituanPage = read('resources/frontend/templates/fragments/26-page-meituan-ebooking.html');
 const agentPage = read('resources/frontend/templates/fragments/27-page-agent-center.html');
+const revenueAiStatic = read('public/revenue-ai-static.js');
 const researchStatic = read('public/revenue-research-static.js');
 const researchPage = read('resources/frontend/templates/fragments/19-page-revenue-research-center.html');
 const simulationStatic = read('public/simulation-static.js');
@@ -75,7 +76,9 @@ test('agent review hides deltas without samples and labels competitor fields tru
   assert.match(agentPage, /样本不足，不计算收入、间夜或 ADR 变化/);
   assert.match(agentPage, /priceSuggestionReviewMetricText\(priceSuggestionReview\.delta\?\.amount, '¥'\)/);
   assert.doesNotMatch(agentPage, /priceSuggestionReview\.delta\?\.(?:amount|quantity|adr) \|\| 0/);
-  assert.match(agentPage, /competitorAlertPriceText\(item\)/);
+  assert.match(revenueAiStatic, /7 日价差轨迹/);
+  assert.match(agentPage, /同日房型证据/);
+  assert.match(revenueAiStatic, /row\.price_gap_percent/);
   assert.doesNotMatch(agentPage, /价格波动 \{\{ item\.price_change_percent \|\| item\.price_index/);
   assert.match(appMain, /价格指数 \$\{priceIndex\}（非价格波动率）/);
 });

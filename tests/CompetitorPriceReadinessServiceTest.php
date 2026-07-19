@@ -3,11 +3,29 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use app\model\CompetitorAnalysis;
 use app\service\CompetitorPriceReadinessService;
 use PHPUnit\Framework\TestCase;
 
 final class CompetitorPriceReadinessServiceTest extends TestCase
 {
+    public function testPriceGapAccessorKeepsMissingOrZeroPriceUnknown(): void
+    {
+        $model = new CompetitorAnalysis();
+
+        self::assertNull($model->getPriceDiffPercentAttr(null, [
+            'our_price' => 300,
+            'competitor_price' => 0,
+        ]));
+        self::assertNull($model->getPriceDiffPercentAttr(null, [
+            'competitor_price' => 300,
+        ]));
+        self::assertSame(20.0, $model->getPriceDiffPercentAttr(null, [
+            'our_price' => 360,
+            'competitor_price' => 300,
+        ]));
+    }
+
     public function testMissingPriceRequiresRecheck(): void
     {
         $readiness = (new CompetitorPriceReadinessService())->buildPriceSignalReadiness([

@@ -80,6 +80,8 @@ test('stored display removes blank traffic-analysis rows and exact duplicate mod
 
   assert.deepEqual(Array.from(result.trafficRows, row => row.id), [50616]);
   assert.deepEqual(Array.from(result.reviewRows, row => row.id), [36779]);
+  assert.equal(result.visibleRowsCountByTab.traffic, 1);
+  assert.equal(result.visibleRowsCountByTab.reviews, 1);
   assert.equal(result.reviewTotalCount, 5);
   assert.equal(result.reviewAverageScore, 5);
 });
@@ -132,8 +134,43 @@ test('peer-rank rows keep captured competitor names separate from the bound syst
 
 test('stored ads empty state loads and checks all Profile evidence for the selected hotel', () => {
   assert.match(appMain, /context\.source === 'meituan'[\s\S]*loadPlatformDataSources\(\{ cacheMs: PLATFORM_SOURCE_PANEL_CACHE_TTL_MS \}\)/);
-  assert.match(appMain, /browserProfileDataSourcesByHotelAndPlatform\(hotelId, 'meituan'\)\.some/);
+  assert.match(appMain, /resolveMeituanAdsApplicability\(platformDataSources\.value, hotelId\)/);
   assert.match(meituanTemplate, /onlineDataFilter\.hotel_id \|\| meituanForm\.hotelId/);
   assert.match(meituanTemplate, /isMeituanAdsNotApplicableForHotel/);
   assert.match(meituanTemplate, /当前酒店未开通美团广告服务（不适用）/);
+  assert.match(meituanTemplate, /源记录共[\s\S]*本页显示[\s\S]*条去重事实/);
+});
+
+test('ads applicability uses the newest explicit Profile evidence and ignores blank projections', () => {
+  const closed = {
+    id: 68,
+    platform: 'meituan',
+    ingestion_method: 'browser_profile',
+    system_hotel_id: 80,
+    enabled: 1,
+    config: { ads_status_reason: 'ads_service_not_opened', ads_url: 'https://ads.example.test/' },
+  };
+  const blankProjection = {
+    id: 101,
+    platform: 'meituan',
+    ingestion_method: 'browser_profile',
+    system_hotel_id: 80,
+    enabled: 1,
+    config: {},
+  };
+  assert.equal(api.resolveMeituanAdsApplicability([blankProjection, closed], 80).status, 'not_applicable');
+
+  const reopened = {
+    ...blankProjection,
+    id: 102,
+    config: { ads_url: 'https://ads.example.test/' },
+  };
+  assert.equal(api.resolveMeituanAdsApplicability([closed, reopened], 80).status, 'available');
+
+  const newerFailure = {
+    ...blankProjection,
+    id: 103,
+    config: { module_states: { ads: { status: 'blocked', reason: 'ads_collection_failed' } } },
+  };
+  assert.equal(api.resolveMeituanAdsApplicability([closed, newerFailure], 80).status, 'unknown');
 });

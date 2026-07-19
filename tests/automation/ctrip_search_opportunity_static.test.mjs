@@ -310,7 +310,7 @@ test('traffic tab exposes one-click four-scope search opportunity panel', () => 
   assert.match(html, /Math\.min\(72, ratio \* 72\)/);
 });
 
-test('past traffic exposes preset and custom ranges and is hydrated by the one-click action', () => {
+test('one-click traffic action hydrates every traffic view without a second history fetch button', () => {
   const trafficTabStart = html.indexOf(`<div v-if="onlineDataTab === 'ctrip-traffic'">`);
   const trafficTab = html.slice(
     trafficTabStart,
@@ -319,6 +319,9 @@ test('past traffic exposes preset and custom ranges and is hydrated by the one-c
   const fetchStart = html.indexOf('const fetchCtripTrafficAndSearchData');
   const fetchEnd = html.indexOf('const handleCtripTrafficHotelChange', fetchStart);
   const fetchFlow = html.slice(fetchStart, fetchEnd);
+  const realtimeCaptureStart = html.indexOf('const runCtripTrafficManualCapture');
+  const realtimeCaptureEnd = html.indexOf('const ctripOverviewFetchActionMap', realtimeCaptureStart);
+  const realtimeCaptureFlow = html.slice(realtimeCaptureStart, realtimeCaptureEnd);
   const hotelChangeStart = html.indexOf('const handleCtripTrafficHotelChange');
   const hotelChangeEnd = html.indexOf('const runCtripOverviewCoreFetchAction', hotelChangeStart);
   const hotelChangeFlow = html.slice(hotelChangeStart, hotelChangeEnd);
@@ -329,18 +332,30 @@ test('past traffic exposes preset and custom ranges and is hydrated by the one-c
   assert.match(trafficTab, /ctripTrafficForm\.dateRange = 'custom'/);
   assert.match(trafficTab, /data-testid="ctrip-history-start-date"/);
   assert.match(trafficTab, /data-testid="ctrip-history-end-date"/);
-  assert.match(trafficTab, /data-testid="ctrip-history-fetch"/);
+  assert.doesNotMatch(trafficTab, /data-testid="ctrip-history-fetch"/);
+  assert.doesNotMatch(trafficTab, /@click="fetchCtripTrafficData"/);
   assert.match(trafficTab, /ctripTrafficView === 'history' && !ctripTrafficRows\.length/);
   assert.match(trafficTab, /ctripTrafficView === 'history' && ctripTrafficRows\.length/);
   assert.doesNotMatch(trafficTab, /ctripTrafficView === 'history' && !onlineDataResult/);
+  assert.match(trafficTab, /ctripTrafficBundleLoading/);
   assert.match(fetchFlow, /await fetchCtripTrafficData\(\);/);
   assert.match(fetchFlow, /await runCtripOverviewFetchAction\('ctrip-traffic'\);/);
   assert.match(fetchFlow, /await loadCtripSearchOpportunity\(\);/);
-  assert.match(fetchFlow, /await loadLatestCtripData\(\{[\s\S]*range:\s*'realtime'[\s\S]*hydrateDisplay:\s*false/);
+  assert.match(fetchFlow, /loadLatestCtripData\(\{[\s\S]*range:\s*'realtime'[\s\S]*hydrateDisplay:\s*false[\s\S]*hydrateRealtime:\s*true/);
+  assert.match(realtimeCaptureFlow, /dataDate:\s*formatDate\(new Date\(\)\)/);
+  assert.match(fetchFlow, /ctripTrafficBundleLoading\.value\s*=\s*true/);
+  assert.match(fetchFlow, /finally[\s\S]*ctripTrafficBundleLoading\.value\s*=\s*false/);
+  assert.match(fetchFlow, /captureFailureMessage[\s\S]*ctripRealtimeTrafficRecord\.value\?\.status !== 'available'/);
+  assert.match(html, /extractCtripRealtimeTrafficSnapshot\(\[[\s\S]*\.\.\.snapshotModel\.rankRows[\s\S]*\.\.\.snapshotModel\.trafficRows/);
   assert.match(html, /onlineDataResult\.value\?\.traffic\?\.rows/);
   assert.match(hotelChangeFlow, /ctripTrafficRows\.value = \[\];/);
   assert.match(hotelChangeFlow, /ctripTrafficSummary\.value = null;/);
   assert.match(hotelChangeFlow, /ctripTrafficAnalysis\.value = null;/);
+  assert.match(hotelChangeFlow, /ctripTrafficHistoryResult\.value = null;/);
+  assert.match(trafficTab, /data-testid="ctrip-traffic-history-quality"/);
+  assert.match(html, /title: '历史流量部分可用'/);
+  assert.match(html, /目标日期 \$\{targetDataDate\} 尚未返回/);
+  assert.match(html, /不会沿用历史值冒充今日数据/);
 });
 
 test('traffic preset includes the verified current-hotel realtime rank endpoint', () => {

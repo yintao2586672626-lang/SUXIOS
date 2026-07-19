@@ -52,6 +52,7 @@ SOURCE ./database/migrations/20260518_create_knowledge_center_tables.sql;
 SOURCE ./database/migrations/20260526_add_knowledge_owner_scope.sql;
 SOURCE ./database/migrations/20260601_add_knowledge_unit_hotel_scope.sql;
 SOURCE ./database/migrations/20260529_add_tenant_security_fields.sql;
+SOURCE ./database/migrations/20260719_bind_competitor_devices_to_hotel_scope.sql;
 SOURCE ./database/migrations/20260717_repair_operation_tenant_scope.sql;
 SOURCE ./database/migrations/20260719_harden_operation_audit_records.sql;
 SOURCE ./database/migrations/20260614_add_access_tier_hotel_owner_scope.sql;

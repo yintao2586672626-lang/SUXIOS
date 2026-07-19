@@ -7,6 +7,7 @@ const packageJson = JSON.parse(readFileSync(new URL('../../package.json', import
 const isolatedRunner = readFileSync(new URL('./run-quick-e2e-isolated.mjs', import.meta.url), 'utf8');
 const helpers = readFileSync(new URL('./e2e-helpers.js', import.meta.url), 'utf8');
 const fullClick = readFileSync(new URL('./full-click-coverage.spec.js', import.meta.url), 'utf8');
+const publicPageTaskBridge = readFileSync(new URL('./public-page-task-bridge.spec.js', import.meta.url), 'utf8');
 const boundedRunner = readFileSync(new URL('../../scripts/run_full_click_bounded.mjs', import.meta.url), 'utf8');
 const codexRunner = readFileSync(new URL('../../scripts/codex_automation_runner.mjs', import.meta.url), 'utf8');
 
@@ -20,6 +21,7 @@ test('all package E2E write-capable entrypoints route through the dedicated isol
     'test:e2e:full',
     'test:e2e:business',
     'test:e2e:temporal',
+    'test:e2e:public-page',
     'test:e2e:quick',
     'codex:runner',
     'codex:runner:quick',
@@ -33,6 +35,15 @@ test('all package E2E write-capable entrypoints route through the dedicated isol
   assert.match(String(packageJson.scripts?.['test:e2e:full:bounded'] || ''), /run_full_click_bounded\.mjs/);
   assert.match(boundedRunner, /run-quick-e2e-isolated\.mjs/);
   assert.match(boundedRunner, /--full-click-bounded/);
+});
+
+test('public-page task bridge has a dedicated authenticated browser entrypoint', () => {
+  assert.match(isolatedRunner, /--public-page-only/);
+  assert.match(isolatedRunner, /public-page-task-bridge\.spec\.js/);
+  assert.match(publicPageTaskBridge, /saved_readback_verified/);
+  assert.match(publicPageTaskBridge, /调整排期并打开/);
+  assert.match(publicPageTaskBridge, /重新创建待审批任务/);
+  assert.match(publicPageTaskBridge, /intent_id/);
 });
 
 test('isolated runner always selects a dedicated database and self-hosted loopback server', () => {

@@ -3859,6 +3859,7 @@ trait BusinessDisplayConcern
             }
         }
 
+        $payload['target_date'] = $targetDate;
         $payload['scope'] = $hotelId !== '' ? 'hotel' : 'latest';
         if ($includeByHotel) {
             $payload['by_hotel'] = $this->buildMeituanCompetitorSummaryByHotel($currentUser);
@@ -3906,7 +3907,9 @@ trait BusinessDisplayConcern
         $comparisonContext['source'] = 'online_daily_data';
         unset($comparisonContext['self_metric_values'], $comparisonContext['selfMetricValues']);
         $summary = $this->buildMeituanCompetitorSummaryFromStoredRows($rows, $comparisonContext);
+        $comparisonHotelId = (int)($previousLatest['system_hotel_id'] ?? $context['system_hotel_id'] ?? 0);
         return [
+            'system_hotel_id' => $comparisonHotelId > 0 ? $comparisonHotelId : null,
             'data_date' => $previousDate,
             'display_hotels' => $summary['display_hotels'] ?? [],
             'display_summary' => $summary['display_summary'] ?? $this->emptyMeituanBusinessDisplaySummary(),
@@ -4197,6 +4200,9 @@ trait BusinessDisplayConcern
         if ($value === null && in_array($metricField, ['roomNights', 'salesRoomNights'], true) && (float)($row['quantity'] ?? 0) > 0) {
             $value = (float)$row['quantity'];
         }
+        if ($value !== null && in_array($metricField, ['viewConversion', 'payConversion'], true)) {
+            $value = $this->normalizeMeituanRatioMetric($value);
+        }
         $rankPercent = $this->meituanRankPercentValue($raw);
         $rank = (int)$this->numberFromKeys($raw, ['rank', 'ranking'], 0);
         $dateRange = (string)($raw['dateRange'] ?? $raw['date_range'] ?? $context['date_range'] ?? '');
@@ -4225,7 +4231,7 @@ trait BusinessDisplayConcern
                 'metric' => $metricField,
                 'metricLabel' => $dimName !== '' ? $dimName : ($metricName !== '' ? $metricName : '平台排名'),
                 'rank' => $rank,
-                'value' => $value ?? 0.0,
+                'value' => $value,
                 'percent' => $rankPercent,
                 'sourceLabel' => $sourceLabel,
             ]] : [],

@@ -57,6 +57,54 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertSame('unverified', $result['business']);
     }
 
+    public function testMixedCaptureDiagnosticsPreserveEmptyAndNotApplicableSectionEvidence(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'buildSyncDiagnostics');
+        $method->setAccessible(true);
+        $diagnostics = $method->invoke(
+            $service,
+            [
+                ['data_date' => '2026-07-19', 'data_type' => 'traffic'],
+                ['data_date' => '2026-07-19', 'data_type' => 'order'],
+            ],
+            2,
+            ['platform' => 'custom', 'data_type' => 'business', 'ingestion_method' => 'manual'],
+            [
+                'data_date' => '2026-07-19',
+                'capture_sections' => 'traffic,orders,reviews',
+                'skipped_sections_no_entry' => ['ads'],
+            ],
+            [
+                'capture_gate' => [
+                    'status' => 'pass',
+                    'requested_sections' => ['traffic', 'orders', 'reviews'],
+                    'section_statuses' => [
+                        'traffic' => 'captured',
+                        'orders' => 'captured',
+                        'reviews' => 'empty_confirmed',
+                    ],
+                ],
+            ],
+            'success',
+            'Platform data synchronized.'
+        );
+
+        self::assertSame([
+            'traffic' => 'captured',
+            'orders' => 'captured',
+            'reviews' => 'empty_confirmed',
+            'ads' => 'not_applicable',
+        ], $diagnostics['capture_section_statuses']);
+        self::assertSame('verified', $diagnostics['capability_states']['reviews']);
+
+        $sanitize = new \ReflectionMethod($service, 'sanitizeSyncDiagnosticsForResponse');
+        $sanitize->setAccessible(true);
+        $safe = $sanitize->invoke($service, $diagnostics, 'success');
+        self::assertSame($diagnostics['capture_section_statuses'], $safe['capture_section_statuses']);
+        self::assertSame('verified', $safe['capability_states']['reviews']);
+    }
+
     public function testBrowserProfileSyncDiagnosticsRequiresTargetDateTrafficFieldFacts(): void
     {
         $service = new PlatformDataSyncService();

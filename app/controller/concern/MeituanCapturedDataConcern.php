@@ -164,7 +164,7 @@ trait MeituanCapturedDataConcern
             'search_keyword' => ['searchkeyword', 'search-keyword', 'searchkeywords'],
             'traffic_forecast' => ['flowforecast', 'trafficforecast'],
             'ads' => ['cureshops'],
-            'orders' => ['/orders/list', '/order/unhandled/count'],
+            'orders' => ['/api/v1/ebooking/orders', '/order/unhandled/count'],
             default => [],
         };
 

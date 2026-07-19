@@ -6,10 +6,13 @@ import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 const html = readFrontendContractSource();
 const dataHealthStatic = readFileSync('public/data-health-static.js', 'utf8');
 const appMain = readFileSync('public/app-main.js', 'utf8');
+const operationStatic = readFileSync('public/operation-static.js', 'utf8');
 const onlineDataFragment = readFileSync('resources/frontend/templates/fragments/35-page-online-data.html', 'utf8');
 const collectionReliabilityConcern = readFileSync('app/controller/concern/CollectionReliabilityConcern.php', 'utf8');
 const businessDisplayConcern = readFileSync('app/controller/concern/BusinessDisplayConcern.php', 'utf8');
 const routes = readFileSync('route/app.php', 'utf8');
+const autoFetchConcern = readFileSync('app/controller/concern/AutoFetchConcern.php', 'utf8');
+const operationController = readFileSync('app/controller/OperationManagement.php', 'utf8');
 const onlinePageStart = html.indexOf("currentPage === 'online-data'");
 const onlinePageEnd = html.indexOf('<!-- 下载中心 -->', onlinePageStart);
 const onlinePage = onlinePageEnd > onlinePageStart
@@ -23,7 +26,7 @@ const dataHealthPage = dataHealthStart >= 0 && dataHealthEnd > dataHealthStart
 
 test('core operations loop is the first online data surface and keeps manual collection available', () => {
   assert.ok(onlinePageStart > 0, 'online-data page section must exist');
-  assert.match(onlinePage, /数据一键获取/);
+  assert.match(onlinePage, /昨日经营闭环/);
   assert.match(onlinePage, /data-testid="core-operations-loop"/);
   assert.ok(
     onlinePage.indexOf('data-testid="core-operations-loop"') < onlinePage.indexOf('data-testid="manual-one-click-fetch"'),
@@ -64,12 +67,24 @@ test('core operations loop is the first online data surface and keeps manual col
 test('online-data surface exposes the six-step operating loop and retains collection readiness tools', () => {
   assert.match(dataHealthPage, /data-testid="core-operations-loop"/);
   assert.match(dataHealthPage, /data-testid="core-loop-yesterday-data"/);
+  assert.match(dataHealthPage, /data-testid="core-loop-yesterday-fetch"/);
+  assert.match(dataHealthPage, /data-testid="core-loop-yesterday-fetch-status"/);
+  assert.match(dataHealthPage, /data-testid="core-loop-profile-session-gate"/);
+  assert.match(dataHealthPage, /prepareCoreOperationsProfileSession\(row\)/);
+  assert.match(dataHealthPage, /runCoreOperationsYesterdayFetch\(\)/);
   assert.match(dataHealthPage, /data-testid="core-loop-competitor-comparison"/);
   assert.match(dataHealthPage, /data-testid="core-loop-anomaly-judgment"/);
   assert.match(dataHealthPage, /data-testid="core-loop-ai-actions"/);
+  assert.match(dataHealthPage, /data-testid="core-loop-generate-diagnosis"/);
+  assert.match(dataHealthPage, /data-testid="core-loop-diagnosis-generation-status"/);
+  assert.match(dataHealthPage, /data-testid="core-loop-ai-to-operation"/);
   assert.match(dataHealthPage, /data-testid="core-loop-operation-tasks"/);
   assert.match(dataHealthPage, /data-testid="core-loop-next-day-review"/);
   assert.match(dataHealthPage, /refreshCoreOperationsLoop/);
+  assert.match(dataHealthPage, /createCoreOperationsDiagnosisIntent\(item\)/);
+  assert.match(dataHealthPage, /item\.ready && coreOperationsCanExecute/);
+  assert.match(dataHealthPage, /coreOperationsCanExecute && operationCanApproveExecution/);
+  assert.match(dataHealthPage, /coreOperationsCanExecute && operationCanReviewExecution/);
   assert.match(dataHealthPage, /updateDailyWorkbenchPatrolAction\(action, 'in_progress'\)/);
   assert.match(dataHealthPage, /approveOperationExecutionIntent/);
   assert.match(dataHealthPage, /recordOperationExecutionEvidence/);
@@ -85,6 +100,59 @@ test('online-data surface exposes the six-step operating loop and retains collec
   assert.doesNotMatch(dataHealthPage, /source: '手动完整诊断'/);
   assert.equal((dataHealthPage.match(/data-testid="ota-config-refresh"/g) || []).length, 1);
   assert.equal((dataHealthPage.match(/@click="refreshOtaConfigOverviewStatus\(\)"/g) || []).length, 1);
+  assert.match(appMain, /const loadCoreOperationsDiagnoses = async/);
+  assert.match(appMain, /\/agent\/ota-diagnosis/);
+  assert.match(appMain, /const readSavedOtaDiagnosis =/);
+  assert.match(appMain, /return request\(`\/agent\/ota-diagnosis\?\$\{params\.toString\(\)\}`\)/);
+  assert.match(appMain, /const generateCoreOperationsDiagnoses = async/);
+  assert.match(appMain, /analysis_mode: 'rules_only'/);
+  assert.match(routes, /Route::get\('\/ota-diagnosis', 'Agent\/latestOtaDiagnosis'\)/);
+  assert.match(appMain, /dataPeriod: 'historical_daily'/);
+  assert.match(appMain, /binding_contract\?\.current_session_verified === true/);
+  assert.match(appMain, /今天的 Profile 会话尚未验证/);
+  assert.match(appMain, /未发起正式采集/);
+  assert.match(appMain, /ctrip_auto_fetch_mode: ctripMode/);
+  assert.match(appMain, /meituan_auto_fetch_mode: meituanMode/);
+  assert.match(appMain, /后台采集中；当前不计成功/);
+  assert.match(appMain, /completedTaskId !== expectedTaskId/);
+  assert.match(appMain, /completedDataDate !== String\(state\.targetDate \|\| ''\)/);
+  assert.match(appMain, /completedDataPeriod !== 'historical_daily'/);
+  assert.match(appMain, /const coreOperationsFetchPlatformOutcome = \(platformResults = \[\]\) =>/);
+  assert.match(appMain, /row\?\.success === true && row\?\.skipped !== true/);
+  assert.match(appMain, /strictBackendSucceeded = backendSucceeded === true && runOutcome\.allSucceeded/);
+  assert.match(appMain, /platformResults: autoFetchStatus\.value\?\.last_result\?\.platform_results \|\| \[\]/);
+  assert.match(appMain, /verifiedExisting = verifiedPlatforms === 2 && runSavedCount === 0/);
+  assert.match(appMain, /不冒充本次新采集/);
+  assert.match(autoFetchConcern, /'task_id' => \$backgroundTaskId/);
+  assert.match(autoFetchConcern, /\$status\['last_result'\]\['task_id'\] = \$taskId/);
+  assert.match(autoFetchConcern, /\$allRequestedPlatformsSucceeded = \$requestedPlatformCount > 0/);
+  assert.match(autoFetchConcern, /'success' => \$allRequestedPlatformsSucceeded/);
+  assert.match(appMain, /await refreshCoreOperationsLoop\(\{ hotelId, targetDate \}\)/);
+  assert.match(appMain, /verifiedPlatforms === 2/);
+  assert.match(appMain, /真实经营证据仍未补齐，不能进入成功态/);
+  assert.match(appMain, /\/agent\/ota-diagnoses\/\$\{recordId\}\/actions\/\$\{actionIndex\}\/execution-intent/);
+  assert.match(appMain, /const persistedIntent = await readOperationExecutionIntent\(intent\.id\)/);
+  assert.match(appMain, /persistedIntent\.source_module \|\| ''\) !== 'ota_diagnosis_saved'/);
+  assert.match(appMain, /persistedIntent\.source_record_id \|\| 0\) !== recordId/);
+  assert.match(appMain, /persistedEvidence\.action_item_id \|\| ''\)\.trim\(\) !== actionItemId/);
+  assert.match(appMain, /requiredActionKeys\.has\(key\)/);
+  assert.match(appMain, /latestAiExecutionByActionKey/);
+  assert.match(appMain, /requiredActionKeys\.size === requiredActionCount/);
+  assert.doesNotMatch(appMain, /return rows\.sort\(\(left, right\) => Number\(right\.ready\) - Number\(left\.ready\)\)\.slice\(0, 6\)/);
+  assert.match(appMain, /String\(capability\.hotel_id \|\| ''\) === hotelId/);
+  assert.match(appMain, /capability\.can_execute === true/);
+  assert.match(appMain, /capability\.can_generate_diagnosis === true/);
+  assert.match(appMain, /capability\.can_collect_ota === true/);
+  assert.match(operationController, /hasHotelPermission\(\$hotelId, 'operation\.execute'\)/);
+  assert.match(operationController, /'can_generate_diagnosis' => \$canView/);
+  assert.match(operationController, /hasHotelPermission\(\$hotelId, 'can_fetch_online_data'\)/);
+  assert.match(onlineDataFragment, /v-if="coreOperationsCanCollect" data-testid="core-loop-yesterday-fetch"/);
+  assert.match(onlineDataFragment, /data-testid="core-loop-competitor-source-evidence"/);
+  assert.match(appMain, /keepCurrentSurface: true/);
+  assert.match(appMain, /const currentPage = ref\(initialPageOverride \|\| 'online-data'\)/);
+  assert.match(appMain, /testid: 'nav-core-operations-loop'/);
+  assert.match(operationStatic, /OTA诊断行动/);
+  assert.match(operationStatic, /巡检补证任务/);
 });
 
 test('dashboard frontend calls dedicated dashboard APIs while old collection reliability remains available', () => {

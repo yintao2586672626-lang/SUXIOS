@@ -57,4 +57,37 @@ final class SensitiveResponseBoundaryTest extends TestCase
         self::assertStringNotContainsString('revealRobotWebhook', $updateMethodSource);
         self::assertStringContainsString('protectRobotWebhookForStorage', $updateMethodSource);
     }
+
+    public function testWechatRobotOnlyTreatsConfirmedWechatSuccessAsSuccess(): void
+    {
+        $controller = (new \ReflectionClass(CompetitorWechatRobotController::class))
+            ->newInstanceWithoutConstructor();
+        $method = new ReflectionMethod(CompetitorWechatRobotController::class, 'interpretRobotWebhookResponse');
+
+        $success = $method->invoke(
+            $controller,
+            '{"errcode":0,"errmsg":"ok"}',
+            ['HTTP/1.1 200 OK']
+        );
+        self::assertTrue($success['success']);
+
+        $rejected = $method->invoke(
+            $controller,
+            '{"errcode":40058,"errmsg":"invalid webhook url"}',
+            ['HTTP/1.1 200 OK']
+        );
+        self::assertFalse($rejected['success']);
+        self::assertStringContainsString('errcode=40058', $rejected['error']);
+
+        $invalidJson = $method->invoke($controller, '<html>gateway error</html>', ['HTTP/1.1 200 OK']);
+        self::assertFalse($invalidJson['success']);
+
+        $httpFailure = $method->invoke(
+            $controller,
+            '{"errcode":0,"errmsg":"ok"}',
+            ['HTTP/1.1 502 Bad Gateway']
+        );
+        self::assertFalse($httpFailure['success']);
+        self::assertStringContainsString('HTTP 502', $httpFailure['error']);
+    }
 }

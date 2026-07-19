@@ -1144,7 +1144,7 @@
                                     </div>
 
                                     <div v-if="onlineDataPagination.total &gt; 0" class="mt-5 flex flex-col gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                                        <div class="text-sm text-gray-600">共 {{ onlineDataPagination.total }} 条 · 当前第 {{ onlineDataPage }} 页 · 本页 {{ onlineDataList.length }} 条</div>
+                                        <div class="text-sm text-gray-600">卡片仅统计本页数据 · 源记录共 {{ onlineDataPagination.total }} 条 · 当前第 {{ onlineDataPage }} 页 · 本页显示 {{ meituanDownloadData.visibleRowsCountByTab?.[downloadCenterTab] ?? onlineDataList.length }} 条去重事实</div>
                                         <div class="flex items-center gap-2">
                                             <button type="button" @click="changeOnlineDataPage(onlineDataPage - 1)" :disabled="onlineDataPage &lt;= 1" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 disabled:bg-gray-100 disabled:text-gray-400">上一页</button>
                                             <button type="button" @click="changeOnlineDataPage(onlineDataPage + 1)" :disabled="onlineDataPage * onlineDataPagination.page_size &gt;= onlineDataPagination.total" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 disabled:bg-gray-100 disabled:text-gray-400">下一页</button>

@@ -178,7 +178,10 @@ class StrategySimulation extends Base
                 $hotelIds,
                 $hotelId,
                 $input,
-                (int)($this->currentUser->id ?? 0)
+                (int)($this->currentUser->id ?? 0),
+                false,
+                null,
+                true
             );
 
             return $this->success([

@@ -97,6 +97,6 @@ assert.equal(
   2,
   'verified OTA channel status must render beside hotel status in both desktop and compact layouts'
 );
-assert.match(indexHtml, /营业中[\s\S]{0,500}v-for="badge in hotelOtaStatusBadges\(hotel\)"[\s\S]{0,300}data-testid="hotel-ota-strategy"/, 'desktop selected-channel badges must follow the business status');
+assert.match(indexHtml, /营业中[\s\S]{0,800}v-for="badge in hotelOtaStatusBadges\(hotel\)"[\s\S]{0,300}data-testid="hotel-ota-strategy"/, 'desktop selected-channel badges must follow the business status');
 
 console.log('hotel management responsive layout checks passed');

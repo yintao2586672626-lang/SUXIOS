@@ -112,6 +112,41 @@ final class ProtectedCapabilityServiceTest extends TestCase
         self::assertFalse($service->shouldRedactForUser($user, $capability));
     }
 
+    public function testPublicPageTaskBridgeRequiresOperationModuleBeforeWrite(): void
+    {
+        $service = new ProtectedCapabilityService();
+        $capability = $service->classifyPath(
+            'POST',
+            '/api/online-data/public-page-diagnosis/execution-intent'
+        );
+
+        self::assertIsArray($capability);
+        self::assertSame('operation_decision', $capability['key']);
+        self::assertSame('operation.view', $capability['permission']);
+        $denied = $service->authorizeContext(
+            $this->userWithPermissions(['operation.view']),
+            $capability,
+            ['system_hotel_id' => 7]
+        );
+        self::assertFalse($denied['allowed']);
+        self::assertSame('module_not_entitled', $denied['reason']);
+
+        $enabledService = new ProtectedCapabilityService([
+            'default_enabled_modules' => ['operation_decision'],
+        ]);
+        $enabledCapability = $enabledService->classifyPath(
+            'POST',
+            '/api/online-data/public-page-diagnosis/execution-intent'
+        );
+        self::assertIsArray($enabledCapability);
+        $allowed = $enabledService->authorizeContext(
+            $this->userWithPermissions(['operation.view']),
+            $enabledCapability,
+            ['system_hotel_id' => 7]
+        );
+        self::assertTrue($allowed['allowed']);
+    }
+
     public function testBasicReadPathsStayOutsideProtectedCore(): void
     {
         $service = new ProtectedCapabilityService();

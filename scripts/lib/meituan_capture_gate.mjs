@@ -73,6 +73,15 @@ export function evaluateMeituanCaptureGate(data, requestedSections = [], options
         failed.push('section_orders_not_captured');
         continue;
       }
+      if (
+        section === 'reviews'
+        && /^\d{4}-\d{2}-\d{2}$/.test(targetDate)
+        && !hasTargetDateReviewResponseEvidence(authoritativeEmptyResponses, targetDate)
+      ) {
+        sectionStatuses[section] = 'not_captured';
+        failed.push('section_reviews_not_captured');
+        continue;
+      }
       sectionStatuses[section] = 'empty_confirmed';
       continue;
     }
@@ -253,6 +262,13 @@ function hasTargetDateQueryEvidence(data, section, targetDate, responses) {
   ));
 }
 
+function hasTargetDateReviewResponseEvidence(responses, targetDate) {
+  return Array.from(responses || []).some(item => (
+    normalizeDate(item?.request_data_date || item?.requestDataDate) === targetDate
+    && String(item?.request_date_source || item?.requestDateSource || '').trim().toLowerCase().startsWith('request.')
+  ));
+}
+
 function hasAuthoritativeOrderDomAggregate(data, targetDate) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) return false;
   const evidence = data?.section_evidence?.orders || data?.sectionEvidence?.orders;
@@ -295,7 +311,7 @@ function hasPlatformError(data, section = '') {
   const code = data.code ?? data.resultCode ?? data.status;
   if (code === undefined || code === null || code === '') return Boolean(data.error);
   const normalizedCode = String(code).trim().toLowerCase();
-  if (section === 'orders' && normalizedCode === '10000') {
+  if (['orders', 'reviews'].includes(section) && normalizedCode === '10000') {
     return Boolean(data.error);
   }
   return !['0', '200', 'success', 'ok'].includes(normalizedCode);

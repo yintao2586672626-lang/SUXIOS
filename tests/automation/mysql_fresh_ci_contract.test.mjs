@@ -29,6 +29,7 @@ test('CI provisions the project MariaDB dialect and runs the host-client fresh d
 test('fresh database verifier is gated, repeats the migration, and launches exactly eight workers', () => {
   const verifier = read('scripts/verify_mysql_fresh_migration_concurrency.mjs');
   const worker = read('scripts/mysql_execution_intent_concurrency_worker.php');
+  const loginWorker = read('scripts/mysql_login_rate_limiter_concurrency_worker.php');
   const initialization = read('database/init_full.sql');
 
   assert.match(verifier, /SUXI_CI_MYSQL_VERIFY/);
@@ -38,6 +39,7 @@ test('fresh database verifier is gated, repeats the migration, and launches exac
   assert.match(verifier, /for \(const \[index, migrationPath\] of migrationPaths\.entries\(\)\)/);
   assert.match(verifier, /migrationRuns\s*=\s*2/);
   assert.match(verifier, /workerCount\s*=\s*8/);
+  assert.match(verifier, /loginWorkerCount\s*=\s*16/);
   assert.match(verifier, /unique_intent_ids/);
   assert.match(verifier, /database_rows/);
   assert.match(verifier, /migration_files:\s*migrationPaths\.length/);
@@ -61,10 +63,15 @@ test('fresh database verifier is gated, repeats the migration, and launches exac
   assert.match(verifier, /expectedEnergyBenchmarkKeys\s*=\s*\['1:1', '2:1', '3:1'\]/);
   assert.match(verifier, /JSON\.stringify\(energyBenchmarkSeedCountsAfterRepeats\) !== JSON\.stringify\(energyBenchmarkSeedCountsAfterInit\)/);
   assert.match(verifier, /energy_benchmark_seed_stable:\s*true/);
+  assert.match(verifier, /login_allowed:\s*loginAllowed/);
+  assert.match(verifier, /login_missing_table_fail_closed:\s*true/);
 
   assert.match(worker, /SUXI_E2E_DB_OVERRIDE/);
   assert.match(worker, /createExecutionIntent\(/);
   assert.match(worker, /trustedExpansionSource:\s*true/);
+  assert.match(loginWorker, /SUXI_E2E_DB_OVERRIDE/);
+  assert.match(loginWorker, /new LoginRateLimiter\(\)/);
+  assert.match(loginWorker, /consumeAttempt\(\$ip, \$username\)/);
 });
 
 test('fresh database verifier rejects missing gates, unsafe names, and remote hosts before starting a client', () => {

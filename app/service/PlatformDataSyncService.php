@@ -589,6 +589,20 @@ final class PlatformDataSyncService
                 'snapshot_time' => $periodMeta['snapshot_time'],
                 'snapshot_bucket' => $periodMeta['snapshot_bucket'],
             ];
+            $capturedAt = $this->normalizeDateTime(
+                $row['collected_at']
+                    ?? $row['collectedAt']
+                    ?? $row['captured_at']
+                    ?? $row['capturedAt']
+                    ?? $payload['collected_at']
+                    ?? $payload['collectedAt']
+                    ?? $payload['captured_at']
+                    ?? $payload['capturedAt']
+                    ?? null
+            );
+            if ($capturedAt !== null) {
+                $raw['captured_at'] = $capturedAt;
+            }
             if (($platformIdentifierEvidence['present'] ?? false) === true) {
                 $raw['platform_hotel_identifier_present'] = true;
                 $raw['platform_hotel_identifier_source'] = (string)$platformIdentifierEvidence['source'];
@@ -1857,6 +1871,7 @@ final class PlatformDataSyncService
             'field_fact_status' => $fieldFactStatus,
             'p0_status' => $p0Status,
             'capability_states' => $this->sanitizeSyncTaskCapabilityStates($diagnostics['capability_states'] ?? null),
+            'capture_section_statuses' => $this->sanitizeSyncCaptureSectionStatuses($diagnostics['capture_section_statuses'] ?? null),
             'missing_inputs' => $this->syncTaskQualityMissingInputFlags($diagnostics['missing_inputs'] ?? []),
             'operator_message' => $this->safeSyncTaskMessage($adapterStatus ?: $fallbackStatus, (string)($diagnostics['operator_message'] ?? '')),
             'adapter_status' => $adapterStatus,
@@ -1887,6 +1902,28 @@ final class PlatformDataSyncService
         }
 
         return $states;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function sanitizeSyncCaptureSectionStatuses(mixed $value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $allowedSections = ['traffic', 'order_flow', 'orders', 'ads', 'reviews'];
+        $allowedStatuses = ['captured', 'empty_confirmed', 'not_applicable', 'not_captured'];
+        $statuses = [];
+        foreach ($value as $section => $status) {
+            $section = strtolower(trim((string)$section));
+            $status = strtolower(trim((string)$status));
+            if (in_array($section, $allowedSections, true) && in_array($status, $allowedStatuses, true)) {
+                $statuses[$section] = $status;
+            }
+        }
+        return $statuses;
     }
 
     private function safeSyncTaskMessage(string $status, string $message): string
@@ -2861,13 +2898,50 @@ final class PlatformDataSyncService
             );
             return true;
         }
-        if (in_array($identityStatus, ['mismatch', 'unverified', 'not_configured'], true)) {
+        $authVerified = ($authStatus['ok'] ?? null) === true
+            && in_array($authCode, ['logged_in', 'authorized'], true);
+        if ($identityStatus === 'mismatch') {
             $this->profileSessionProofService->recordProfileSessionBlocked(
                 (int)($source['id'] ?? 0),
                 (int)($source['system_hotel_id'] ?? 0),
                 $platform,
                 $profileKey,
-                $identityStatus === 'mismatch' ? 'identity_mismatch' : 'identity_unverified'
+                'identity_mismatch'
+            );
+            return true;
+        }
+        if (in_array($identityStatus, ['unverified', 'not_configured'], true)) {
+            $currentConfig = $this->decodeConfig(
+                Db::name('platform_data_sources')
+                    ->where('id', (int)($source['id'] ?? 0))
+                    ->value('config_json')
+            );
+            $priorIdentityStatus = strtolower(trim((string)($currentConfig['current_session_probe_identity_status'] ?? '')));
+            if ($authVerified
+                && $this->truthy($currentConfig['current_session_verified'] ?? null)
+                && $priorIdentityStatus === 'matched'
+            ) {
+                return false;
+            }
+            $this->profileSessionProofService->recordProfileSessionBlocked(
+                (int)($source['id'] ?? 0),
+                (int)($source['system_hotel_id'] ?? 0),
+                $platform,
+                $profileKey,
+                'identity_unverified'
+            );
+            return true;
+        }
+        $identityMatched = $identityStatus === 'matched';
+        if ($authVerified && $identityMatched) {
+            $this->profileSessionProofService->recordCollectionPreflightVerified(
+                (int)($source['id'] ?? 0),
+                (int)($source['system_hotel_id'] ?? 0),
+                $platform,
+                $profileKey,
+                true,
+                $authStatus,
+                $identityValidation
             );
             return true;
         }
@@ -2881,23 +2955,13 @@ final class PlatformDataSyncService
             );
             return true;
         }
-        if (($authStatus['ok'] ?? null) !== true || !in_array($authCode, ['logged_in', 'authorized'], true)) {
+        if (!$authVerified) {
             return false;
         }
-        if (strtolower(trim((string)($identityValidation['status'] ?? ''))) !== 'matched') {
+        if (!$identityMatched) {
             return false;
         }
-
-        $this->profileSessionProofService->recordCollectionPreflightVerified(
-            (int)($source['id'] ?? 0),
-            (int)($source['system_hotel_id'] ?? 0),
-            $platform,
-            $profileKey,
-            true,
-            $authStatus,
-            $identityValidation
-        );
-        return true;
+        return false;
     }
 
     /** @param array<string, mixed> $config */
@@ -3578,6 +3642,16 @@ final class PlatformDataSyncService
             $config['ads_status'] = $state['status'];
             $config['ads_status_reason'] = $state['reason'];
             $config['ads_status_checked_at'] = $state['checked_at'];
+            $entryUrl = trim((string)($moduleStatus['entry_url'] ?? ''));
+            if ($entryUrl !== '') {
+                try {
+                    $this->assertOtaMetadataUrlsAreSafe($entryUrl, 'meituan');
+                    $config['ads_url'] = $entryUrl;
+                    $config['ads_entry_detected_at'] = $checkedAt;
+                } catch (\Throwable) {
+                    // Ignore unsafe or malformed optional-module metadata.
+                }
+            }
 
             Db::name('platform_data_sources')->where('id', $sourceId)->update([
                 'config_json' => json_encode($config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
@@ -3832,6 +3906,7 @@ final class PlatformDataSyncService
 
         $requiresTraffic = $this->syncRequiresTargetDateTrafficEvidence($source, $options, $payload);
         $confirmedEmpty = $this->isAuthoritativeEmptySyncPayload($payload);
+        $captureSectionStatuses = $this->syncCaptureSectionStatuses($options, $payload);
         $fieldFactStatus = $targetTrafficRows <= 0
             ? 'not_loaded'
             : ($targetTrafficFieldFactReady > 0 && $targetTrafficFieldFactMissing === 0 ? 'ready' : ($targetTrafficFieldFactReady > 0 ? 'partial' : 'missing'));
@@ -3854,6 +3929,7 @@ final class PlatformDataSyncService
         if ($confirmedEmpty && $adapterStatus === 'success') {
             $capabilityStates = $this->applyConfirmedEmptyCapabilityStates($capabilityStates, $options, $payload);
         }
+        $capabilityStates = $this->applyCaptureSectionCapabilityStates($capabilityStates, $captureSectionStatuses);
         $operatorMessage = 'target_date_traffic_ready';
         if (in_array('current_session_verified', $missingInputs, true)) {
             $operatorMessage = 'current_session_not_verified';
@@ -3876,11 +3952,66 @@ final class PlatformDataSyncService
             'field_fact_status' => $fieldFactStatus,
             'p0_status' => $p0Status,
             'capability_states' => $capabilityStates,
+            'capture_section_statuses' => $captureSectionStatuses,
             'missing_inputs' => $missingInputs,
             'operator_message' => $operatorMessage,
             'adapter_status' => $adapterStatus,
             'confirmed_empty' => $confirmedEmpty,
         ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function syncCaptureSectionStatuses(array $options, array $payload): array
+    {
+        $captureGate = $payload['capture_gate'] ?? $payload['captureGate'] ?? null;
+        if (!is_array($captureGate)) {
+            $captureGate = $payload['data_source_capture']['capture_gate'] ?? null;
+        }
+        $statuses = $this->sanitizeSyncCaptureSectionStatuses(
+            is_array($captureGate) ? ($captureGate['section_statuses'] ?? $captureGate['sectionStatuses'] ?? null) : null
+        );
+
+        $skippedSections = [
+            $options['skipped_sections_no_entry'] ?? null,
+            $options['skippedSectionsNoEntry'] ?? null,
+            $payload['skipped_sections_no_entry'] ?? null,
+            $payload['skippedSectionsNoEntry'] ?? null,
+            $payload['data_source_capture']['skipped_sections_no_entry'] ?? null,
+        ];
+        foreach ($skippedSections as $value) {
+            $sections = is_array($value) ? $value : preg_split('/[,\s]+/', trim((string)$value));
+            foreach (is_array($sections) ? $sections : [] as $section) {
+                $section = strtolower(trim((string)$section));
+                if (!in_array($section, ['traffic', 'order_flow', 'orders', 'ads', 'reviews'], true)) {
+                    continue;
+                }
+                if (!isset($statuses[$section]) || $statuses[$section] === 'not_captured') {
+                    $statuses[$section] = 'not_applicable';
+                }
+            }
+        }
+
+        return $statuses;
+    }
+
+    /**
+     * @param array<string, string> $states
+     * @param array<string, string> $sectionStatuses
+     * @return array<string, string>
+     */
+    private function applyCaptureSectionCapabilityStates(array $states, array $sectionStatuses): array
+    {
+        foreach (['orders' => 'orders', 'reviews' => 'reviews'] as $section => $capability) {
+            $status = $sectionStatuses[$section] ?? '';
+            if ($status === 'empty_confirmed') {
+                $states[$capability] = 'verified';
+            } elseif ($status === 'not_applicable') {
+                $states[$capability] = 'capability_unavailable';
+            }
+        }
+        return $states;
     }
 
     /**
@@ -3961,15 +4092,6 @@ final class PlatformDataSyncService
             return false;
         }
 
-        $trigger = strtolower(trim((string)($options['trigger_type'] ?? $options['triggerType'] ?? '')));
-        if (in_array($trigger, ['daily_profile_reuse', 'profile_login_after_login', 'profile_login_after_sync', 'profile_login_verified_sync'], true)) {
-            return true;
-        }
-        $dataType = $this->normalizeDataType((string)($source['data_type'] ?? $options['data_type'] ?? $options['dataType'] ?? ''));
-        if ($dataType === 'traffic') {
-            return true;
-        }
-
         $explicitSections = array_values(array_filter([
             $options['capture_sections'] ?? null,
             $options['captureSections'] ?? null,
@@ -3980,6 +4102,15 @@ final class PlatformDataSyncService
         if ($explicitSections !== []) {
             $explicitSectionText = strtolower(implode(',', $explicitSections));
             return preg_match('/traffic|flow|core|default|business_overview|traffic_report/', $explicitSectionText) === 1;
+        }
+
+        $trigger = strtolower(trim((string)($options['trigger_type'] ?? $options['triggerType'] ?? '')));
+        if (in_array($trigger, ['daily_profile_reuse', 'profile_login_after_login', 'profile_login_after_sync', 'profile_login_verified_sync'], true)) {
+            return true;
+        }
+        $dataType = $this->normalizeDataType((string)($source['data_type'] ?? $options['data_type'] ?? $options['dataType'] ?? ''));
+        if ($dataType === 'traffic') {
+            return true;
         }
 
         $sectionText = strtolower(json_encode([

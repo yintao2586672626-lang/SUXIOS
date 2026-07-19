@@ -61,12 +61,42 @@ final class CtripPublicHotelProfileService
 
     public static function publicUrl(string $otaHotelId): string
     {
-        $otaHotelId = self::normalizeHotelId($otaHotelId);
+        $otaHotelId = self::normalizePublicHotelReference($otaHotelId);
         if ($otaHotelId === '') {
-            throw new \InvalidArgumentException('Ctrip hotel ID must be a positive integer.');
+            throw new \InvalidArgumentException('Ctrip hotel reference must be a positive hotel ID or canonical public hotel URL.');
         }
 
         return 'https://' . self::PUBLIC_HOST . '/hotels/' . $otaHotelId . '.html';
+    }
+
+    /**
+     * Normalize the stable Ctrip public-page contract to its only variable:
+     * the platform hotel ID. Query strings and fragments never become identity.
+     */
+    public static function normalizePublicHotelReference(string $value): string
+    {
+        $value = trim($value);
+        $hotelId = self::normalizeHotelId($value);
+        if ($hotelId !== '') {
+            return $hotelId;
+        }
+
+        $parts = parse_url($value);
+        if (!is_array($parts)
+            || strtolower((string)($parts['scheme'] ?? '')) !== 'https'
+            || strtolower((string)($parts['host'] ?? '')) !== self::PUBLIC_HOST
+            || isset($parts['user'])
+            || isset($parts['pass'])
+            || (isset($parts['port']) && (int)$parts['port'] !== 443)
+        ) {
+            return '';
+        }
+        $path = (string)($parts['path'] ?? '');
+        if (preg_match('#^/hotels/([1-9][0-9]{0,19})\.html/?$#D', $path, $matches) !== 1) {
+            return '';
+        }
+
+        return self::normalizeHotelId((string)$matches[1]);
     }
 
     /**
@@ -74,7 +104,7 @@ final class CtripPublicHotelProfileService
      */
     public function fetchProfile(string $otaHotelId): array
     {
-        $otaHotelId = self::normalizeHotelId($otaHotelId);
+        $otaHotelId = self::normalizePublicHotelReference($otaHotelId);
         if ($otaHotelId === '') {
             throw new \InvalidArgumentException('Ctrip hotel ID must be a positive integer.');
         }
@@ -154,7 +184,7 @@ final class CtripPublicHotelProfileService
         ?string $sourceUrl = null,
         ?string $collectedAt = null
     ): array {
-        $otaHotelId = self::normalizeHotelId($otaHotelId);
+        $otaHotelId = self::normalizePublicHotelReference($otaHotelId);
         if ($otaHotelId === '') {
             throw new \InvalidArgumentException('Ctrip hotel ID must be a positive integer.');
         }
@@ -320,6 +350,9 @@ final class CtripPublicHotelProfileService
             'source_url' => $sourceUrl,
             'collected_at' => $collectedAt,
             'capture_status' => $captureStatus,
+            'source_validation_status' => in_array($captureStatus, ['available', 'partial'], true)
+                ? 'source_verified'
+                : 'collection_failed',
             'failure_reason' => $availableCount === 0 ? 'parse_failed' : '',
             'profile_schema_version' => self::PROFILE_SCHEMA_VERSION,
             'fields' => $fields,
@@ -402,7 +435,7 @@ final class CtripPublicHotelProfileService
         if ($systemHotelId <= 0) {
             throw new \InvalidArgumentException('System hotel ID must be positive.');
         }
-        $otaHotelId = self::normalizeHotelId($otaHotelId);
+        $otaHotelId = self::normalizePublicHotelReference($otaHotelId);
         if ($otaHotelId === '') {
             throw new \InvalidArgumentException('携程公开酒店ID必须是正整数');
         }
@@ -597,32 +630,118 @@ final class CtripPublicHotelProfileService
             ) {
                 continue;
             }
-            $attributes = json_decode((string)($row['attributes_json'] ?? ''), true);
-            if (!is_array($attributes)) {
-                $attributes = [];
-            }
-            if (($attributes['role'] ?? '') === 'archived_self') {
+            $attributes = $this->profileFromSnapshotRow($systemHotelId, $row);
+            if ($attributes === null || ($attributes['role'] ?? '') === 'archived_self') {
                 continue;
             }
-            $attributes['snapshot_id'] = (int)($row['id'] ?? 0);
-            $attributes['system_hotel_id'] = $systemHotelId;
-            $attributes['ota_hotel_id'] = $otaHotelId;
-            $attributes['entity_name'] = (string)($row['entity_name'] ?? '');
-            $attributes['capture_status'] = (string)($row['capture_status'] ?? ($attributes['capture_status'] ?? ''));
-            $attributes['data_date'] = (string)($row['data_date'] ?? '');
-            $attributes['last_seen_at'] = (string)($row['last_seen_at'] ?? '');
-            $attributes['saved_at'] = (string)($row['update_time'] ?? $row['create_time'] ?? $row['last_seen_at'] ?? '');
-            $attributes['persistence_readback_verified'] = true;
-            $attributes['persistence_readback_status'] = 'readback_verified';
-            $attributes['source_validation_status'] = $this->publicProfileSourceValidationStatus(
-                $attributes,
-                (string)$attributes['capture_status']
-            );
-            $attributes['response_ref'] = 'ota_ctrip_entity_snapshots#' . (int)($row['id'] ?? 0);
             $profiles[$includeHistory ? (string)$attributes['snapshot_id'] : $otaHotelId] = $attributes;
         }
 
         return array_values($profiles);
+    }
+
+    /**
+     * Read only the current hotel's bound Ctrip page for one business date.
+     * This is deliberately a point lookup: competitor and historical rows never
+     * participate in the hotel's evidence coverage.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public function listDiagnosisProfiles(int $systemHotelId, string $businessDate): array
+    {
+        if ($systemHotelId <= 0
+            || preg_match('/^\d{4}-\d{2}-\d{2}$/D', $businessDate) !== 1
+        ) {
+            return [];
+        }
+        $binding = $this->resolveOwnHotelBinding($systemHotelId);
+        $otaHotelId = self::normalizeHotelId((string)($binding['ota_hotel_id'] ?? ''));
+        if ($otaHotelId === '') {
+            return [];
+        }
+
+        $row = Db::name('ota_ctrip_entity_snapshots')
+            ->where('system_hotel_id', $systemHotelId)
+            ->where('source', 'ctrip')
+            ->where('entity_type', self::ENTITY_TYPE)
+            ->where('entity_key', $otaHotelId)
+            ->where('data_date', $businessDate)
+            ->order('last_seen_at', 'desc')
+            ->order('id', 'desc')
+            ->find();
+        if (!is_array($row)) {
+            $row = Db::name('ota_ctrip_entity_snapshots')
+                ->where('system_hotel_id', $systemHotelId)
+                ->where('source', 'ctrip')
+                ->where('entity_type', self::ENTITY_TYPE)
+                ->where('entity_key', $otaHotelId)
+                ->order('data_date', 'desc')
+                ->order('last_seen_at', 'desc')
+                ->order('id', 'desc')
+                ->find();
+            if (!is_array($row)) {
+                return [];
+            }
+        }
+
+        $profile = $this->profileFromSnapshotRow($systemHotelId, $row, true);
+        if ($profile === null || !in_array((string)($profile['role'] ?? ''), ['', 'self'], true)) {
+            return [];
+        }
+        $profile['role'] = 'self';
+        $profile['source_url'] = self::publicUrl($otaHotelId);
+
+        return [$profile];
+    }
+
+    /** @return array<string,mixed>|null */
+    private function profileFromSnapshotRow(int $systemHotelId, array $row, bool $preferLatestAttempt = false): ?array
+    {
+        $otaHotelId = self::normalizeHotelId((string)($row['entity_key'] ?? $row['ota_hotel_id'] ?? ''));
+        if ($otaHotelId === '') {
+            return null;
+        }
+        $attributes = json_decode((string)($row['attributes_json'] ?? ''), true);
+        if (!is_array($attributes)) {
+            $attributes = [];
+        }
+        $latestAttemptSelected = false;
+        if ($preferLatestAttempt && is_array($attributes['latest_capture_attempt'] ?? null)) {
+            $attempt = $attributes['latest_capture_attempt'];
+            $attemptStatus = strtolower(trim((string)($attempt['capture_status'] ?? '')));
+            if (in_array($attemptStatus, ['collection_failed', 'failed', 'error'], true)) {
+                $latestAttemptSelected = true;
+                $attributes = array_merge([
+                    'platform' => 'ctrip',
+                    'ota_hotel_id' => $otaHotelId,
+                    'role' => (string)($attributes['role'] ?? 'self'),
+                    'source_method' => self::SOURCE_METHOD,
+                    'source_url' => self::publicUrl($otaHotelId),
+                    'fields' => [],
+                    'field_statuses' => [],
+                    'evidence_paths' => [],
+                ], $attempt);
+            }
+        }
+        $attributes['snapshot_id'] = (int)($row['id'] ?? 0);
+        $attributes['system_hotel_id'] = $systemHotelId;
+        $attributes['ota_hotel_id'] = $otaHotelId;
+        $attributes['entity_name'] = (string)($row['entity_name'] ?? '');
+        $attributes['capture_status'] = $latestAttemptSelected
+            ? (string)($attributes['capture_status'] ?? 'collection_failed')
+            : (string)($row['capture_status'] ?? $attributes['capture_status'] ?? '');
+        $attributes['data_date'] = (string)($row['data_date'] ?? '');
+        $attributes['last_seen_at'] = (string)($row['last_seen_at'] ?? '');
+        $attributes['saved_at'] = (string)($row['update_time'] ?? $row['create_time'] ?? $row['last_seen_at'] ?? '');
+        $attributes['persistence_readback_verified'] = true;
+        $attributes['persistence_readback_status'] = 'readback_verified';
+        $attributes['source_validation_status'] = $this->publicProfileSourceValidationStatus(
+            $attributes,
+            (string)$attributes['capture_status']
+        );
+        $attributes['response_ref'] = 'ota_ctrip_entity_snapshots#' . (int)($row['id'] ?? 0);
+
+        return $attributes;
     }
 
     private function publicProfileSourceValidationStatus(array $attributes, string $captureStatus): string
@@ -636,6 +755,9 @@ final class CtripPublicHotelProfileService
         }
         if ($captureStatus === 'stale' || $explicit === 'stale') {
             return 'stale';
+        }
+        if ($captureStatus === 'partial' && in_array($explicit, ['verified', 'source_verified'], true)) {
+            return 'source_verified';
         }
         if ($captureStatus === 'partial' || $explicit === 'partial') {
             return 'partial';
@@ -678,6 +800,7 @@ final class CtripPublicHotelProfileService
         $now = $this->now();
 
         $preservedSuccessfulSnapshot = false;
+        $persistenceExpectedAttributesJson = $attributesJson;
         $snapshotId = Db::transaction(function () use (
             $systemHotelId,
             $tenantId,
@@ -689,7 +812,8 @@ final class CtripPublicHotelProfileService
             $role,
             $fields,
             $now,
-            &$preservedSuccessfulSnapshot
+            &$preservedSuccessfulSnapshot,
+            &$persistenceExpectedAttributesJson
         ): int {
             $existing = Db::name('ota_ctrip_entity_snapshots')
                 ->where('system_hotel_id', $systemHotelId)
@@ -721,6 +845,27 @@ final class CtripPublicHotelProfileService
                 if (in_array($incomingStatus, ['collection_failed', 'failed', 'error'], true)
                     && in_array($existingStatus, ['available', 'partial', 'verified', 'ok'], true)
                 ) {
+                    $existingAttributes = json_decode((string)($existing['attributes_json'] ?? ''), true);
+                    $existingAttributes = is_array($existingAttributes) ? $existingAttributes : [];
+                    $latestAttempt = $profile;
+                    unset($latestAttempt['persistence']);
+                    $latestAttempt['role'] = $role;
+                    $latestAttempt['ota_hotel_id'] = $otaHotelId;
+                    $latestAttempt['source_url'] = self::publicUrl($otaHotelId);
+                    $latestAttempt['source_validation_status'] = 'collection_failed';
+                    $latestAttempt['fields'] = [];
+                    $latestAttempt['field_statuses'] = [];
+                    $latestAttempt['evidence_paths'] = [];
+                    $existingAttributes['latest_capture_attempt'] = $latestAttempt;
+                    $persistenceExpectedAttributesJson = json_encode(
+                        $existingAttributes,
+                        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                    );
+                    Db::name('ota_ctrip_entity_snapshots')->where('id', (int)$existing['id'])->update([
+                        'attributes_json' => $persistenceExpectedAttributesJson,
+                        'last_seen_at' => $now,
+                        'update_time' => $now,
+                    ]);
                     $preservedSuccessfulSnapshot = true;
                     return (int)$existing['id'];
                 }
@@ -745,25 +890,28 @@ final class CtripPublicHotelProfileService
         $readbackAttributes = is_array($readback)
             ? json_decode((string)($readback['attributes_json'] ?? ''), true)
             : null;
-        $verified = !$preservedSuccessfulSnapshot
-            && is_array($readback)
+        $verified = is_array($readback)
             && (int)($readback['tenant_id'] ?? 0) === $tenantId
             && (int)($readback['system_hotel_id'] ?? 0) === $systemHotelId
             && (string)($readback['data_date'] ?? '') === $dataDate
             && (string)($readback['source'] ?? '') === 'ctrip'
             && (string)($readback['entity_key'] ?? '') === $otaHotelId
-            && (string)($readback['capture_status'] ?? '') === (string)($profile['capture_status'] ?? '')
-            && hash_equals($attributesJson, (string)($readback['attributes_json'] ?? ''))
+            && ($preservedSuccessfulSnapshot
+                ? in_array(strtolower(trim((string)($readback['capture_status'] ?? ''))), ['available', 'partial', 'verified', 'ok'], true)
+                : (string)($readback['capture_status'] ?? '') === (string)($profile['capture_status'] ?? ''))
+            && hash_equals($persistenceExpectedAttributesJson, (string)($readback['attributes_json'] ?? ''))
             && is_array($readbackAttributes)
             && (string)($readbackAttributes['ota_hotel_id'] ?? '') === $otaHotelId
             && (int)($readbackAttributes['profile_schema_version'] ?? 0) === self::PROFILE_SCHEMA_VERSION
-            && is_array($readbackAttributes['fields'] ?? null);
+            && is_array($readbackAttributes['fields'] ?? null)
+            && (!$preservedSuccessfulSnapshot
+                || (string)($readbackAttributes['latest_capture_attempt']['capture_status'] ?? '') === (string)($profile['capture_status'] ?? ''));
 
         return [
             'snapshot_id' => $snapshotId,
             'readback_verified' => $verified,
             'persistence_status' => $preservedSuccessfulSnapshot
-                ? 'latest_success_preserved'
+                ? ($verified ? 'latest_failure_attempt_readback_verified' : 'latest_failure_attempt_readback_failed')
                 : ($verified ? 'readback_verified' : 'readback_failed'),
             'latest_success_preserved' => $preservedSuccessfulSnapshot,
         ];

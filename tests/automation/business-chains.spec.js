@@ -497,7 +497,8 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
         risk_level: 'low',
       }, { label: 'manual workflow intent after explicit review' });
       expect(Number(intent.id)).toBeGreaterThan(0);
-      expect(intent.source_module).toBe('e2e_manual_workflow');
+      expect(intent.source_module).toBe('manual');
+      expect(Number(intent.source_record_id || 0)).toBe(0);
       expect(intent.status).toBe('pending_approval');
       expect(intent.tasks || []).toHaveLength(0);
 
@@ -551,7 +552,7 @@ test('business chain: OTA import to revenue, operation task, and tracking', asyn
       });
       const flowItem = (flow.list || []).find((item) => Number(item.id) === Number(intent.id));
       expect(flowItem).toBeTruthy();
-      expect(flowItem.recommendation.source_module).toBe('e2e_manual_workflow');
+      expect(flowItem.recommendation.source_module).toBe('manual');
       expect(flowItem.approval.status).toBe('approved');
       expect(flowItem.execution.status).toBe('executed');
       expect(Number(flowItem.evidence_summary?.count || 0)).toBeGreaterThan(0);

@@ -54,7 +54,7 @@ class RevenueResearchService
             )
         )));
 
-        return [
+        $research = [
             'status' => $status,
             'decision_ready' => $status === 'done',
             'data_gaps' => $researchDataGaps,
@@ -74,6 +74,35 @@ class RevenueResearchService
             'model_key' => $modelKey,
             'generation_mode' => $webResult['generation_mode'] ?? 'configured_model',
         ];
+        $research['execution_artifact'] = $this->issueExecutionArtifact($research, $user, $hotelId);
+        return $research;
+    }
+
+    /**
+     * @param array<string, mixed> $research
+     * @return array<string, mixed>
+     */
+    private function issueExecutionArtifact(array $research, ?User $user, ?int $hotelId): array
+    {
+        $readiness = is_array($research['readiness'] ?? null) ? $research['readiness'] : [];
+        if (($readiness['execution_ready'] ?? false) !== true) {
+            return ['status' => 'not_issued', 'reason' => 'research_not_execution_ready'];
+        }
+
+        $actorId = (int)($user?->id ?? 0);
+        $boundHotelId = (int)($hotelId ?? 0);
+        if ($actorId <= 0) {
+            return ['status' => 'not_issued', 'reason' => 'authenticated_user_required'];
+        }
+        if ($boundHotelId <= 0) {
+            return ['status' => 'not_issued', 'reason' => 'single_hotel_scope_required'];
+        }
+
+        try {
+            return (new RevenueResearchExecutionArtifactService())->issue($research, $actorId, $boundHotelId);
+        } catch (\Throwable) {
+            return ['status' => 'unavailable', 'reason' => 'artifact_persistence_or_readback_failed'];
+        }
     }
 
     /**
@@ -99,8 +128,8 @@ class RevenueResearchService
         $qualityActions = array_values(array_filter(
             $decisionRecommendations,
             static fn(mixed $item): bool => is_array($item)
-                && ($item['can_create_execution_intent'] ?? true) !== false
-                && (($item['decision_quality']['complete'] ?? false) === true)
+                && ($item['can_create_execution_intent'] ?? false) === true
+                && (($item['decision_quality']['execution_ready'] ?? false) === true)
         ));
         $hasActions = $qualityActions !== [];
         $modelNumericClaimUnverified = in_array(
@@ -169,22 +198,6 @@ class RevenueResearchService
             ));
         }
 
-        if (!$hasActions) {
-            return $this->withReadinessNotice($this->readiness(
-                'research_actions_missing',
-                '缺执行动作',
-                55,
-                false,
-                false,
-                '让模型输出可执行运营动作，或人工补充动作后再进入模块',
-                [
-                    $this->readinessMissing('recommended_actions', '建议动作', '补充可执行动作、负责人或复核口径'),
-                ],
-                $module,
-                $moduleConnected
-            ));
-        }
-
         if (!$moduleConnected) {
             return $this->withReadinessNotice($this->readiness(
                 'research_module_bridge_missing',
@@ -195,6 +208,29 @@ class RevenueResearchService
                 '先新增对应数据表、列表或执行接口，再形成系统内闭环',
                 [
                     $this->readinessMissing('module_bridge', '系统落点', $module !== '' ? $module : '补充目标模块和执行接口'),
+                ],
+                $module,
+                $moduleConnected
+            ));
+        }
+
+        if (!$hasActions) {
+            $hasRecommendations = $decisionRecommendations !== [];
+            return $this->withReadinessNotice($this->readiness(
+                $hasRecommendations ? 'research_action_quality_pending' : 'research_actions_missing',
+                $hasRecommendations ? '动作证据待核验' : '缺执行动作',
+                55,
+                false,
+                false,
+                $hasRecommendations
+                    ? '补齐建议所引用数据的酒店、平台、日期、持久化与回读证据，并确认预期效果来源后重新生成'
+                    : '让模型输出可执行运营动作，或人工补充动作后再进入模块',
+                [
+                    $this->readinessMissing(
+                        $hasRecommendations ? 'recommendation_quality' : 'recommended_actions',
+                        $hasRecommendations ? '建议证据与效果来源' : '建议动作',
+                        $hasRecommendations ? '完成同酒店、同平台、同日期数据回读核验' : '补充可执行动作、负责人或复核口径'
+                    ),
                 ],
                 $module,
                 $moduleConnected
@@ -247,39 +283,16 @@ class RevenueResearchService
             (array)($result['decision_recommendations'] ?? []),
             static fn(mixed $item): bool => is_array($item)
         ));
-        if ($decisionRecommendations === [] && $recommendedActions !== []) {
-            $legacyQualityContext = [
-                'scope' => 'ota_channel',
-                'hotel_id' => $hotelId,
-                'platform' => 'ota',
-                'basis_summary' => '依据当前收益研究结果与就绪状态生成；进入执行前仍需人工核对原始来源。',
-                'evidence_sources' => [[
-                    'ref' => 'revenue_research#' . $productKey . '#' . $sourceRecordId,
-                    'source' => '收益研究结果',
-                    'scope' => 'ota_channel',
-                    'quality_status' => (($readiness['execution_ready'] ?? false) === true && $gaps === [])
-                        ? 'verified'
-                        : 'unverified',
-                    'summary' => trim((string)($result['summary'] ?? '')),
-                ]],
-                'default_priority' => (($readiness['execution_ready'] ?? false) === true) ? 'P1' : 'P0',
-                'default_risk_level' => (($readiness['execution_ready'] ?? false) === true) ? 'medium' : 'high',
-                'review_window' => '按收益研究的 next_review_date 复核同酒店、同OTA渠道指标',
-            ];
-            $decisionRecommendations = (new AiDecisionQualityService())->enrichRecommendations(
-                $recommendedActions,
-                $legacyQualityContext
-            );
-        }
         $firstExecutable = null;
         foreach ($decisionRecommendations as $recommendation) {
-            if (($recommendation['can_create_execution_intent'] ?? true) !== false
-                && (($recommendation['decision_quality']['complete'] ?? false) === true)) {
+            if (($recommendation['can_create_execution_intent'] ?? false) === true
+                && (($recommendation['decision_quality']['contract_version'] ?? '') === AiDecisionQualityService::CONTRACT_VERSION)
+                && (($recommendation['decision_quality']['execution_ready'] ?? false) === true)) {
                 $firstExecutable = $recommendation;
                 break;
             }
         }
-        $actionText = trim((string)($overrides['action_text'] ?? ($firstExecutable['action'] ?? '')));
+        $actionText = trim((string)($firstExecutable['action'] ?? ''));
         if ($actionText === '') {
             $actionText = '复核收益研究结论并创建运营动作';
         }
@@ -330,6 +343,7 @@ class RevenueResearchService
                 'recommendation_quality' => is_array($result['recommendation_quality'] ?? null)
                     ? $result['recommendation_quality']
                     : [],
+                'decision_recommendation' => $firstExecutable,
                 'metric_scope' => 'ota_channel',
                 'model_key' => (string)($research['model_key'] ?? ''),
                 'generation_mode' => (string)($research['generation_mode'] ?? ''),
@@ -400,7 +414,17 @@ class RevenueResearchService
         $result = is_array($research['result'] ?? null) ? $research['result'] : [];
         $gaps = array_values(array_filter((array)($research['gaps'] ?? []), 'is_array'));
         $dataGapCodes = $this->executionDataGapCodes($gaps, $result);
-        if ($executionReady && $researchStatus === 'done' && $dataGapCodes === []) {
+        $hasExecutableRecommendation = false;
+        foreach ((array)($result['decision_recommendations'] ?? []) as $recommendation) {
+            if (is_array($recommendation)
+                && ($recommendation['can_create_execution_intent'] ?? false) === true
+                && (($recommendation['decision_quality']['contract_version'] ?? '') === AiDecisionQualityService::CONTRACT_VERSION)
+                && (($recommendation['decision_quality']['execution_ready'] ?? false) === true)) {
+                $hasExecutableRecommendation = true;
+                break;
+            }
+        }
+        if ($executionReady && $researchStatus === 'done' && $dataGapCodes === [] && $hasExecutableRecommendation) {
             return;
         }
 
@@ -414,6 +438,9 @@ class RevenueResearchService
         }
         foreach ($dataGapCodes as $gapCode) {
             $missingCodes[] = 'data_gap_' . $gapCode;
+        }
+        if (!$hasExecutableRecommendation) {
+            $missingCodes[] = 'recommendation_quality_v2';
         }
         $missingCodes = array_values(array_unique($missingCodes));
         $suffix = $missingCodes === [] ? '' : '; missing=' . implode(',', array_slice($missingCodes, 0, 6));
@@ -1888,6 +1915,8 @@ class RevenueResearchService
             CURLOPT_TIMEOUT => 90,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_PROXY => '',
+            CURLOPT_NOPROXY => '*',
             CURLOPT_RESOLVE => $target['curl_resolve'],
         ]);
         if (defined('CURLOPT_PROTOCOLS') && defined('CURLPROTO_HTTPS')) {
@@ -2238,9 +2267,13 @@ class RevenueResearchService
     ): array {
         $evidenceSources = [];
         $dateRange = [];
+        $requiredTables = array_values(array_unique(array_filter(array_map(
+            static fn(array $rule): string => trim((string)($rule['table'] ?? '')),
+            array_values(array_filter((array)($product['rules'] ?? []), 'is_array'))
+        ))));
         foreach ($localSources as $source) {
             $sourceKey = trim((string)($source['source'] ?? ''));
-            if ($sourceKey === '') {
+            if ($sourceKey === '' || !in_array($sourceKey, $requiredTables, true)) {
                 continue;
             }
             $sourceRange = is_array($source['date_range'] ?? null) ? $source['date_range'] : [];
@@ -2248,12 +2281,18 @@ class RevenueResearchService
             if ($sourceKey === 'online_daily_data' && $sourceRange !== []) {
                 $dateRange = $sourceRange;
             }
+            $explicitlyVerified = ($source['decision_eligible'] ?? false) === true
+                && ($source['readback_verified'] ?? false) === true;
             $evidenceSources[] = [
                 'ref' => $sourceKey . ($sourceEnd !== '' ? '#' . $sourceEnd : ''),
                 'source' => trim((string)($source['label'] ?? $sourceKey)),
                 'date' => $sourceEnd,
                 'scope' => 'ota_channel',
-                'quality_status' => trim((string)($source['status'] ?? 'unverified')),
+                'hotel_id' => $hotelId,
+                'platform' => 'ota',
+                'date_role' => 'historical',
+                'quality_status' => $explicitlyVerified ? 'decision_eligible' : 'unverified',
+                'source_status' => trim((string)($source['status'] ?? 'unverified')),
                 'metric_keys' => array_values(array_filter(array_map(
                     'strval',
                     (array)($source['fields_available'] ?? [])
@@ -2268,10 +2307,24 @@ class RevenueResearchService
             'source' => 'OTA渠道规则预测基线',
             'date' => $forecastGeneratedAt,
             'scope' => 'ota_channel',
+            'hotel_id' => $hotelId,
+            'platform' => 'ota',
+            'date_role' => 'generated_at',
             'quality_status' => $decisionReady ? 'verified' : 'unverified',
             'metric_keys' => ['revenue', 'room_nights', 'orders', 'adr', 'aov'],
             'summary' => trim((string)($businessForecast['message'] ?? '')),
         ];
+
+        $expectedMetric = match ((string)($product['key'] ?? '')) {
+            'demand-forecast' => 'orders',
+            'cancellation-risk' => 'cancellation_rate',
+            'price-elasticity' => 'ota_adr',
+            'channel-attribution', 'customer-segmentation' => 'orders',
+            'ltv' => 'ota_revenue',
+            'anomaly-detection' => 'data_completeness',
+            'service-quality' => 'avg_psi_score',
+            default => '',
+        };
 
         return [
             'scope' => 'ota_channel',
@@ -2285,16 +2338,14 @@ class RevenueResearchService
             'default_priority' => $decisionReady ? 'P1' : 'P0',
             'default_risk_level' => $decisionReady ? 'medium' : 'high',
             'review_window' => '最迟于 ' . date('Y-m-d', strtotime('+1 day')) . ' 按同酒店、同OTA渠道和同指标口径复核',
-            'expected_metric' => match ((string)($product['key'] ?? '')) {
-                'demand-forecast' => 'orders',
-                'cancellation-risk' => 'cancellation_rate',
-                'price-elasticity' => 'ota_adr',
-                'channel-attribution', 'customer-segmentation' => 'orders',
-                'ltv' => 'ota_revenue',
-                'anomaly-detection' => 'data_completeness',
-                'service-quality' => 'avg_psi_score',
-                default => '',
-            },
+            'expected_metric' => $expectedMetric,
+            'expected_effect_policy' => [
+                'status' => 'verification_target',
+                'metric' => $expectedMetric,
+                'direction' => 'verify',
+                'summary' => '预期验证该动作对' . (string)($product['name'] ?? '目标OTA渠道指标') . '的影响；完成同口径复盘前不承诺改善幅度。',
+                'review_window' => '最迟于 ' . date('Y-m-d', strtotime('+1 day')) . ' 按同酒店、同OTA渠道和同指标口径复核',
+            ],
         ];
     }
 

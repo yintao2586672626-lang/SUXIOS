@@ -40,7 +40,9 @@ test('asset failure renderer survives authenticated application load failure wit
   const bootstrap = fs.readFileSync('public/app-bootstrap.js', 'utf8');
   const appMain = fs.readFileSync(appMainPath, 'utf8');
   assert.match(html, /window\.SUXI_RENDER_ASSET_LOAD_ERROR\s*=/);
-  assert.match(html, /onerror="window\.SUXI_RENDER_ASSET_LOAD_ERROR\('app-bootstrap\.js'\)"/);
+  assert.match(html, /window\.addEventListener\('error',[\s\S]*dataset\?\.suxiCriticalAsset[\s\S]*SUXI_RENDER_ASSET_LOAD_ERROR/);
+  assert.match(html, /data-suxi-critical-asset="app-bootstrap\.js"/);
+  assert.doesNotMatch(html, /\sonerror=/);
   assert.match(bootstrap, /window\.SUXI_RENDER_ASSET_LOAD_ERROR\?\.\(failedAsset\)/);
   assert.match(bootstrap, /await loadScript\(entry\);/);
   assert.match(appMain, /window\.SUXI_APP_RENDER \|\| window\.SUXI_APP_STARTUP_RENDER/);

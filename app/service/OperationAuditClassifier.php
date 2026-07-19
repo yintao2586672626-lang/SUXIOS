@@ -233,6 +233,10 @@ class OperationAuditClassifier
 
     private function resolveAction(string $method, string $path): ?string
     {
+        if ($method === 'POST' && $path === 'api/online-data/public-page-diagnosis/execution-intent') {
+            return 'save_form';
+        }
+
         if ($this->isArchiveOperation($method, $path)) {
             return 'archive_form';
         }

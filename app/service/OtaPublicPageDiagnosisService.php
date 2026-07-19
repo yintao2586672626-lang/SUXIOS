@@ -9,6 +9,13 @@ namespace app\service;
  */
 final class OtaPublicPageDiagnosisService
 {
+    public const EXECUTION_SOURCE_MODULE = 'ota_diagnosis';
+    public const EXECUTION_IDENTITY_VERSION = 'public_page_v3';
+    public const VERSION_TWO_EXECUTION_IDENTITY_VERSION = 'public_page_v2';
+    public const LEGACY_EXECUTION_IDENTITY_VERSION = 'legacy_v1';
+
+    private const PUBLIC_PAGE_SOURCE_RECORD_OFFSET = 4294967296;
+
     /** @var array<int, array{key:string,label:string,fields:array<int,string>}> */
     private const DIMENSIONS = [
         ['key' => 'platform_basics', 'label' => '平台与基础展示', 'fields' => ['name', 'address', 'location', 'brand_name', 'hotel_type', 'platform_grade', 'opening_year', 'renovation_year', 'room_count']],
@@ -24,6 +31,15 @@ final class OtaPublicPageDiagnosisService
         ['key' => 'packages_content', 'label' => '套餐与内容展示', 'fields' => ['description', 'highlights', 'facilities', 'policies', 'nearby_places', 'package_content']],
         ['key' => 'member_rights', 'label' => '会员或权益表达', 'fields' => ['member_rate', 'member_rights']],
     ];
+
+    /** @return array<int, string> */
+    public static function expectedFieldKeys(): array
+    {
+        return array_values(array_unique(array_merge(...array_map(
+            static fn(array $dimension): array => $dimension['fields'],
+            self::DIMENSIONS
+        ))));
+    }
 
     /** @param array<int, array<string, mixed>> $profiles */
     public function build(int $systemHotelId, string $platform, string $businessDate, array $profiles): array
@@ -45,6 +61,10 @@ final class OtaPublicPageDiagnosisService
             if (!is_array($profile) || strtolower(trim((string)($profile['platform'] ?? $platform))) !== $platform) {
                 continue;
             }
+            $role = strtolower(trim((string)($profile['role'] ?? '')));
+            if ($role !== '' && $role !== 'self') {
+                continue;
+            }
             $profileDate = trim((string)($profile['data_date'] ?? substr((string)($profile['collected_at'] ?? ''), 0, 10)));
             if ($this->isDate($profileDate) && ($latestAvailableDate === '' || $profileDate > $latestAvailableDate)) {
                 $latestAvailableDate = $profileDate;
@@ -53,6 +73,15 @@ final class OtaPublicPageDiagnosisService
                 $selected[] = $profile;
             }
         }
+        usort($selected, static function (array $left, array $right): int {
+            $leftAt = trim((string)($left['collected_at'] ?? $left['last_seen_at'] ?? ''));
+            $rightAt = trim((string)($right['collected_at'] ?? $right['last_seen_at'] ?? ''));
+            $timeCompare = strcmp($rightAt, $leftAt);
+            return $timeCompare !== 0
+                ? $timeCompare
+                : (int)($right['snapshot_id'] ?? 0) <=> (int)($left['snapshot_id'] ?? 0);
+        });
+        $selected = array_slice($selected, 0, 1);
 
         $dimensions = [];
         $sources = [];
@@ -112,8 +141,8 @@ final class OtaPublicPageDiagnosisService
                 'source_url' => $this->safeSourceUrl((string)($profile['source_url'] ?? '')),
                 'collected_at' => trim((string)($profile['collected_at'] ?? $profile['last_seen_at'] ?? '')),
                 'capture_status' => trim((string)($profile['capture_status'] ?? 'unknown')),
-                'response_ref' => $snapshotId > 0 ? 'ota_ctrip_entity_snapshots#' . $snapshotId : null,
-                'screenshot_ref' => null,
+                'response_ref' => $this->evidenceRef($profile, $snapshotId, $platform),
+                'screenshot_ref' => trim((string)($profile['screenshot_ref'] ?? '')) ?: null,
                 'persistence_readback_status' => ($profile['persistence_readback_verified'] ?? false) === true
                     ? 'readback_verified'
                     : 'unverified',
@@ -133,9 +162,13 @@ final class OtaPublicPageDiagnosisService
             'status' => $status,
             'platform' => $platform,
             'system_hotel_id' => $systemHotelId,
+            'target_role' => 'self',
+            'target_platform_hotel_id' => $selected !== []
+                ? trim((string)($selected[0]['ota_hotel_id'] ?? '')) ?: null
+                : null,
             'business_date' => $businessDate,
             'stay_date' => null,
-            'platform_source_status' => $platform === 'ctrip' ? 'persisted_public_profile_snapshots' : 'public_profile_source_not_connected',
+            'platform_source_status' => $this->platformSourceStatus($platform, $profiles),
             'latest_available_date' => $latestAvailableDate !== '' ? $latestAvailableDate : null,
             'evidence_coverage' => [
                 'observed_field_count' => $observedFieldCount,
@@ -172,7 +205,7 @@ final class OtaPublicPageDiagnosisService
      *
      * @param array<string, mixed> $diagnosis
      * @param array<string, mixed> $schedule
-     * @return array{input:array<string,mixed>,idempotency_key:string,source_record_id:int,diagnosis_fingerprint:string}
+     * @return array{input:array<string,mixed>,idempotency_base_key:string,idempotency_key:string,source_record_id:int,diagnosis_fingerprint:string,identity_version:string,legacy_idempotency_base_key:string,legacy_idempotency_key:string,legacy_source_record_id:int}
      */
     public function buildExecutionIntentDraft(array $diagnosis, array $schedule): array
     {
@@ -203,7 +236,11 @@ final class OtaPublicPageDiagnosisService
         $dataGaps = $this->executionIntentDataGaps((array)($diagnosis['dimensions'] ?? []));
         $sourceEvidence = $this->executionIntentSourceEvidence((array)($diagnosis['sources'] ?? []));
         $workflowSchedule = $this->normalizeTaskSchedule($schedule);
-        $diagnosisFingerprint = hash('sha256', json_encode([
+        $evidenceComplete = $status === 'evidence_complete'
+            && $expectedFieldCount > 0
+            && $verifiedFieldCount === $expectedFieldCount;
+        $actionType = $evidenceComplete ? 'review_public_page_evidence' : 'complete_public_page_evidence';
+        $fullEvidenceFingerprint = hash('sha256', json_encode([
             'system_hotel_id' => $systemHotelId,
             'platform' => $platform,
             'business_date' => $businessDate,
@@ -212,6 +249,24 @@ final class OtaPublicPageDiagnosisService
             'data_gaps' => $dataGaps,
             'sources' => $sourceEvidence,
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '');
+        $identityGaps = $dataGaps;
+        sort($identityGaps, SORT_STRING);
+        $platformHotelIds = array_values(array_unique(array_filter(array_map(
+            static fn(array $source): string => trim((string)($source['platform_hotel_id'] ?? '')),
+            $sourceEvidence
+        ))));
+        sort($platformHotelIds, SORT_STRING);
+        $taskIdentityFingerprint = hash('sha256', json_encode([
+            'identity_version' => self::EXECUTION_IDENTITY_VERSION,
+            'system_hotel_id' => $systemHotelId,
+            'platform_hotel_ids' => $platformHotelIds,
+            'platform' => $platform,
+            'business_date' => $businessDate,
+            'action_type' => $actionType,
+            'metric_scope' => 'ota_channel_public_page',
+            'data_gaps' => $identityGaps,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '');
+        $diagnosisFingerprint = $fullEvidenceFingerprint;
         $sourceRefs = [
             'ota_public_page_diagnosis:' . $platform . ':' . $systemHotelId . ':' . $businessDate . ':' . substr($diagnosisFingerprint, 0, 12),
             '/api/online-data/public-page-diagnosis',
@@ -239,15 +294,29 @@ final class OtaPublicPageDiagnosisService
             $actionText = '按证据缺口补齐公开页字段、来源定位和数据库回读，再重新生成诊断。';
         }
 
-        $sourceRecordId = (int)hexdec(substr($diagnosisFingerprint, 0, 7)) + 1;
+        // Daily-workbench OTA intents use unsigned CRC32 values. Keep public-page
+        // identities above that range and inside JavaScript's safe-integer range.
+        $legacySourceRecordId = (int)hexdec(substr($fullEvidenceFingerprint, 0, 7)) + 1;
+        $versionTwoSourceRecordId = self::PUBLIC_PAGE_SOURCE_RECORD_OFFSET
+            + (int)hexdec(substr($fullEvidenceFingerprint, 0, 13));
+        $sourceRecordId = self::PUBLIC_PAGE_SOURCE_RECORD_OFFSET
+            + (int)hexdec(substr($taskIdentityFingerprint, 0, 13));
         $idempotencyIdentity = hash('sha256', json_encode([
-            'diagnosis_fingerprint' => $diagnosisFingerprint,
+            'task_identity_fingerprint' => $taskIdentityFingerprint,
+            'action_contract' => 'ota_public_page_evidence_v3',
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '');
+        $versionTwoIdempotencyIdentity = hash('sha256', json_encode([
+            'diagnosis_fingerprint' => $fullEvidenceFingerprint,
+            'action_contract' => 'ota_public_page_evidence_v2',
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '');
+        $legacyIdempotencyIdentity = hash('sha256', json_encode([
+            'diagnosis_fingerprint' => $fullEvidenceFingerprint,
             'action_contract' => 'ota_public_page_evidence_v1',
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '');
 
         return [
             'input' => [
-                'source_module' => 'ota_diagnosis',
+                'source_module' => self::EXECUTION_SOURCE_MODULE,
                 'source_record_id' => $sourceRecordId,
                 'hotel_id' => $systemHotelId,
                 'platform' => $platform,
@@ -272,6 +341,7 @@ final class OtaPublicPageDiagnosisService
                     'action_text' => $actionText,
                     'target_metric' => 'public_page_verified_field_count',
                     'target_verified_field_count' => $expectedFieldCount,
+                    'target_public_page_verified_field_count' => $expectedFieldCount,
                     'assignee_id' => $workflowSchedule['assignee_id'],
                     'due_at' => $workflowSchedule['due_at'],
                     'review_at' => $workflowSchedule['review_at'],
@@ -302,15 +372,28 @@ final class OtaPublicPageDiagnosisService
                     'scope_notice' => (string)($diagnosis['scope_notice'] ?? ''),
                     'workflow_schedule' => $workflowSchedule,
                     'diagnosis_fingerprint' => $diagnosisFingerprint,
+                    'full_evidence_fingerprint' => $fullEvidenceFingerprint,
+                    'task_identity_fingerprint' => $taskIdentityFingerprint,
+                    'identity_version' => self::EXECUTION_IDENTITY_VERSION,
                 ],
                 'expected_metric' => 'public_page_verified_field_count',
                 'expected_delta' => max(0, $expectedFieldCount - $verifiedFieldCount),
                 'risk_level' => $evidenceComplete ? 'low' : 'medium',
                 'status' => 'pending_approval',
             ],
+            'idempotency_base_key' => 'ota_diagnosis_action_' . substr($idempotencyIdentity, 0, 32),
             'idempotency_key' => 'ota_diagnosis_action_' . substr($idempotencyIdentity, 0, 32) . ':attempt:1',
             'source_record_id' => $sourceRecordId,
             'diagnosis_fingerprint' => $diagnosisFingerprint,
+            'full_evidence_fingerprint' => $fullEvidenceFingerprint,
+            'task_identity_fingerprint' => $taskIdentityFingerprint,
+            'identity_version' => self::EXECUTION_IDENTITY_VERSION,
+            'version_two_idempotency_base_key' => 'ota_diagnosis_action_' . substr($versionTwoIdempotencyIdentity, 0, 32),
+            'version_two_idempotency_key' => 'ota_diagnosis_action_' . substr($versionTwoIdempotencyIdentity, 0, 32) . ':attempt:1',
+            'version_two_source_record_id' => $versionTwoSourceRecordId,
+            'legacy_idempotency_base_key' => 'ota_diagnosis_action_' . substr($legacyIdempotencyIdentity, 0, 32),
+            'legacy_idempotency_key' => 'ota_diagnosis_action_' . substr($legacyIdempotencyIdentity, 0, 32) . ':attempt:1',
+            'legacy_source_record_id' => $legacySourceRecordId,
         ];
     }
 
@@ -390,7 +473,8 @@ final class OtaPublicPageDiagnosisService
         }
         $sourceValidationStatus = $this->sourceValidationStatus($profile);
         $captureStatus = strtolower(trim((string)($profile['capture_status'] ?? 'unknown')));
-        $sourceVerified = $captureStatus === 'available' && $sourceValidationStatus === 'source_verified';
+        $sourceVerified = in_array($captureStatus, ['available', 'partial'], true)
+            && $sourceValidationStatus === 'source_verified';
         $qualityStatus = match (true) {
             $sourceVerified => 'verified',
             $captureStatus === 'stale' || $sourceValidationStatus === 'stale' => 'stale',
@@ -414,7 +498,7 @@ final class OtaPublicPageDiagnosisService
             'source_url' => $sourceUrl,
             'source_method' => trim((string)($profile['source_method'] ?? 'public_page')),
             'source_locator' => $locator,
-            'evidence_ref' => $snapshotId > 0 ? 'ota_ctrip_entity_snapshots#' . $snapshotId : null,
+            'evidence_ref' => $this->evidenceRef($profile, $snapshotId, $platform),
             'quality_status' => $qualityStatus,
             'confidence' => $sourceVerified ? 'high' : ($qualityStatus === 'observed' ? 'medium' : 'low'),
             'persistence_readback_status' => 'readback_verified',
@@ -437,24 +521,36 @@ final class OtaPublicPageDiagnosisService
         if ($assigneeId <= 0) {
             throw new \InvalidArgumentException('assignee_id is required before creating a public-page evidence task');
         }
-        $normalizeDateTime = static function (mixed $value, string $field): string {
+        $timezone = new \DateTimeZone('Asia/Shanghai');
+        $normalizeDateTime = static function (mixed $value, string $field) use ($timezone): \DateTimeImmutable {
             $value = trim(str_replace('T', ' ', (string)$value));
-            $timestamp = $value !== '' ? strtotime($value) : false;
-            if ($timestamp === false) {
+            if (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?$/D', $value) !== 1) {
+                throw new \InvalidArgumentException($field . ' must use YYYY-MM-DD HH:MM[:SS]');
+            }
+            $canonical = strlen($value) === 16 ? $value . ':00' : $value;
+            $parsed = \DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $canonical, $timezone);
+            $errors = \DateTimeImmutable::getLastErrors();
+            if ($parsed === false
+                || ($errors !== false && ((int)$errors['warning_count'] > 0 || (int)$errors['error_count'] > 0))
+                || $parsed->format('Y-m-d H:i:s') !== $canonical
+            ) {
                 throw new \InvalidArgumentException($field . ' must be a valid date-time');
             }
-            return date('Y-m-d H:i:s', $timestamp);
+            return $parsed;
         };
         $dueAt = $normalizeDateTime($schedule['due_at'] ?? '', 'due_at');
         $reviewAt = $normalizeDateTime($schedule['review_at'] ?? '', 'review_at');
-        if (strtotime($reviewAt) < strtotime($dueAt)) {
-            throw new \InvalidArgumentException('review_at must not be earlier than due_at');
+        if ($dueAt <= new \DateTimeImmutable('now', $timezone)) {
+            throw new \InvalidArgumentException('due_at must be later than the current time');
+        }
+        if ($reviewAt <= $dueAt) {
+            throw new \InvalidArgumentException('review_at must be later than due_at');
         }
 
         return [
             'assignee_id' => $assigneeId,
-            'due_at' => $dueAt,
-            'review_at' => $reviewAt,
+            'due_at' => $dueAt->format('Y-m-d H:i:s'),
+            'review_at' => $reviewAt->format('Y-m-d H:i:s'),
             'source_policy' => 'human_assigned_schedule_requires_manual_approval_and_readback_review',
         ];
     }
@@ -462,11 +558,11 @@ final class OtaPublicPageDiagnosisService
     private function fieldValue(array $fields, string $fieldKey): mixed
     {
         return match ($fieldKey) {
-            'platform_grade' => $fields['grade_label'] ?? $fields['diamond_level'] ?? $fields['star_level'] ?? null,
-            'location' => $fields['city_name'] ?? (($fields['latitude'] ?? null) !== null && ($fields['longitude'] ?? null) !== null
+            'platform_grade' => $fields['platform_grade'] ?? $fields['grade_label'] ?? $fields['diamond_level'] ?? $fields['star_level'] ?? null,
+            'location' => $fields['location'] ?? $fields['city_name'] ?? (($fields['latitude'] ?? null) !== null && ($fields['longitude'] ?? null) !== null
                 ? ['latitude' => $fields['latitude'], 'longitude' => $fields['longitude']]
                 : null),
-            'images' => array_values(array_filter(array_merge(
+            'images' => $fields['images'] ?? array_values(array_filter(array_merge(
                 isset($fields['cover_image_url']) ? [(string)$fields['cover_image_url']] : [],
                 is_array($fields['gallery_image_urls'] ?? null) ? $fields['gallery_image_urls'] : []
             ))),
@@ -495,14 +591,14 @@ final class OtaPublicPageDiagnosisService
         int $verifiedCount,
         int $expectedCount
     ): string {
-        if ($platform === 'meituan') {
-            return '美团公开页诊断源尚未接入；保持十二维未知，不使用携程或内部经营数据替代。';
-        }
+        $platformLabel = $platform === 'ctrip' ? '携程' : '美团';
         if ($observedCount === 0 && $latestDate !== '' && $latestDate !== $businessDate) {
-            return '所选日期没有携程公开页快照；最新可用日期为 ' . $latestDate . '，可切换日期查看或人工触发公开页更新。';
+            return '所选日期没有' . $platformLabel . '公开页快照；最新可用日期为 ' . $latestDate . '，可切换日期查看或补录当前日期证据。';
         }
         if ($observedCount === 0) {
-            return '先绑定携程公开酒店 ID 并采集保存；没有来源网址、采集时间和响应引用时不评分。';
+            return $platform === 'ctrip'
+                ? '先绑定携程公开酒店 ID 并采集保存；没有来源网址、采集时间和响应引用时不评分。'
+                : '录入刚核对的美团公开页字段、页面定位和采集时间；商家后台数据不能替代公开页证据。';
         }
         if ($observedCount === $expectedCount && $verifiedCount < $expectedCount) {
             return '字段覆盖已齐全，但仍含过期、观察或未验证来源；需重新采集或完成来源验证后才能标记证据完整。';
@@ -511,6 +607,31 @@ final class OtaPublicPageDiagnosisService
             return '公开页字段及来源验证已齐全；该证据目录仍不自动计算经营评分。';
         }
         return '按未知字段清单补充可复核公开页证据；覆盖不足前保持 insufficient_evidence。';
+    }
+
+    /** @param array<int, array<string, mixed>> $profiles */
+    private function platformSourceStatus(string $platform, array $profiles): string
+    {
+        if ($platform === 'ctrip') {
+            return $profiles === []
+                ? 'public_hotel_binding_or_snapshot_missing'
+                : 'persisted_public_profile_snapshots';
+        }
+        return $profiles === []
+            ? 'manual_public_profile_entry_available'
+            : 'persisted_manual_public_page_observations';
+    }
+
+    private function evidenceRef(array $profile, int $snapshotId, string $platform): ?string
+    {
+        $explicit = trim((string)($profile['response_ref'] ?? ''));
+        if (preg_match('/^(?:ota_ctrip_entity_snapshots|online_daily_data)#[1-9][0-9]*$/D', $explicit) === 1) {
+            return $explicit;
+        }
+        if ($snapshotId <= 0) {
+            return null;
+        }
+        return ($platform === 'ctrip' ? 'ota_ctrip_entity_snapshots#' : 'online_daily_data#') . $snapshotId;
     }
 
     private function isDate(string $value): bool

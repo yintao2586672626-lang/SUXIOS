@@ -122,10 +122,12 @@ class CompetitorAnalysis extends Model
      */
     public function getPriceDiffPercentAttr($value, $data)
     {
-        if ($data['competitor_price'] > 0) {
-            return round(($data['our_price'] - $data['competitor_price']) / $data['competitor_price'] * 100, 2);
+        $ourPrice = is_numeric($data['our_price'] ?? null) ? (float)$data['our_price'] : null;
+        $competitorPrice = is_numeric($data['competitor_price'] ?? null) ? (float)$data['competitor_price'] : null;
+        if ($ourPrice !== null && $ourPrice > 0 && $competitorPrice !== null && $competitorPrice > 0) {
+            return round(($ourPrice - $competitorPrice) / $competitorPrice * 100, 2);
         }
-        return 0;
+        return null;
     }
 
     /**
@@ -158,6 +160,7 @@ class CompetitorAnalysis extends Model
         $results = self::where('hotel_id', $hotelId)
             ->where('analysis_date', $date)
             ->with(['roomType', 'competitorHotel'])
+            ->order('id', 'asc')
             ->select();
         
         $matrix = [];
@@ -171,7 +174,12 @@ class CompetitorAnalysis extends Model
                 $matrix[$roomTypeName] = [];
             }
             
-            $matrix[$roomTypeName][$competitorName] = [
+            $matrixKey = $competitorName;
+            if (isset($matrix[$roomTypeName][$matrixKey])) {
+                $matrixKey .= '|platform:' . (int)$item->ota_platform . '|sample:' . (int)$item->id;
+            }
+
+            $matrix[$roomTypeName][$matrixKey] = [
                 'id' => $item->id,
                 'analysis_date' => $item->analysis_date,
                 'hotel_id' => $item->hotel_id,
@@ -188,6 +196,7 @@ class CompetitorAnalysis extends Model
                 'diff_percent' => $item->price_diff_percent,
                 'status' => $item->price_status_name,
                 'competitor_data' => $competitorData,
+                'sample_key' => $matrixKey,
             ];
         }
         
@@ -214,23 +223,26 @@ class CompetitorAnalysis extends Model
             $query->where('room_type_id', $roomTypeId);
         }
         
-        return $query->order('analysis_date', 'asc')
+        return $query->with(['roomType', 'competitorHotel'])
+            ->order('analysis_date', 'asc')
+            ->order('id', 'asc')
             ->select();
     }
 
     /**
      * 获取需要关注的竞对（价格波动大）
      */
-    public static function getAlertCompetitors(int $hotelId, float $threshold = 20)
+    public static function getAlertCompetitors(int $hotelId, float $threshold = 20, ?string $date = null)
     {
-        $yesterday = date('Y-m-d', strtotime('-1 day'));
-        $today = date('Y-m-d');
+        $timestamp = $date !== null ? strtotime($date) : false;
+        $targetDate = date('Y-m-d', $timestamp === false ? time() : $timestamp);
         
         return self::where('hotel_id', $hotelId)
-            ->where('analysis_date', $today)
+            ->where('analysis_date', $targetDate)
             ->whereRaw('ABS(price_difference) >= :threshold', ['threshold' => $threshold])
             ->with('competitorHotel')
-            ->order('price_difference', 'desc')
+            ->orderRaw('ABS(price_difference) DESC')
+            ->order('id', 'desc')
             ->select();
     }
 }

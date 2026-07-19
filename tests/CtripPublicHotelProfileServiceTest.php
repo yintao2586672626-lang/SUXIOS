@@ -27,6 +27,7 @@ HTML;
         $result = $service->parseHtml($html, '3456814');
 
         self::assertSame('available', $result['capture_status']);
+        self::assertSame('source_verified', $result['source_validation_status']);
         self::assertSame('测试酒店', $result['fields']['name']);
         self::assertSame('上海市黄浦区测试路1号', $result['fields']['address']);
         self::assertSame(4, $result['fields']['diamond_level']);
@@ -222,15 +223,35 @@ HTML;
         self::assertSame('', $result['content_hash']);
     }
 
-    public function testPublicUrlOnlyAcceptsPositiveNumericCtripHotelId(): void
+    public function testPublicUrlNormalizesPositiveIdOrCanonicalCtripHotelUrl(): void
     {
         self::assertSame(
             'https://hotels.ctrip.com/hotels/3456814.html',
             CtripPublicHotelProfileService::publicUrl('3456814')
         );
+        self::assertSame(
+            '3456814',
+            CtripPublicHotelProfileService::normalizePublicHotelReference(
+                'https://hotels.ctrip.com/hotels/3456814.html?trace=ignored#top'
+            )
+        );
+        self::assertSame(
+            'https://hotels.ctrip.com/hotels/3456814.html',
+            CtripPublicHotelProfileService::publicUrl(
+                'https://hotels.ctrip.com/hotels/3456814.html?trace=ignored'
+            )
+        );
 
-        $this->expectException(\InvalidArgumentException::class);
-        CtripPublicHotelProfileService::publicUrl('../account');
+        foreach ([
+            '../account',
+            'http://hotels.ctrip.com/hotels/3456814.html',
+            'https://hotels.ctrip.com.evil.test/hotels/3456814.html',
+            'https://user@hotels.ctrip.com/hotels/3456814.html',
+            'https://hotels.ctrip.com:444/hotels/3456814.html',
+            'https://hotels.ctrip.com/hotels/03456814.html',
+        ] as $invalidReference) {
+            self::assertSame('', CtripPublicHotelProfileService::normalizePublicHotelReference($invalidReference));
+        }
     }
 
     public function testBlockedPageIsNeverAcceptedAsAHotelProfileEvenWhenItHasAHeading(): void

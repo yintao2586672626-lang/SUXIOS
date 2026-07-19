@@ -69,7 +69,7 @@ test('frontend security and hotel-scoped requests reject stale state instead of 
   const dialogTemplate = read('resources/frontend/templates/fragments/46-global-toast.html');
 
   assert.match(appMain, /const SUPER_ADMIN_ONLY_PAGES = new Set\([\s\S]*'operation-logs'[\s\S]*guardSuperAdminPageAccess/);
-  assert.match(appMain, /watch\(currentPage, \(newPage\) => \{\s*if \(!guardSuperAdminPageAccess\(newPage\)\) return;/);
+  assert.match(appMain, /watch\(currentPage, \(newPage\) => \{\s*if \(requestSuxiFullRenderForPage\(newPage\)\) return;\s*if \(!guardSuperAdminPageAccess\(newPage\)\) return;/);
   assert.match(securityTemplate, /currentPage === 'operation-logs' &amp;&amp; user\?\.is_super_admin/);
   assert.match(appMain, /const requestSeq = \+\+securityOverviewRequestSeq[\s\S]*securityOverview\.value = createEmptySecurityOverview\(\)/);
   assert.match(appMain, /const requestSeq = \+\+homeTemporalRequestSeq[\s\S]*hotelId === String\(filterReportHotel\.value/);

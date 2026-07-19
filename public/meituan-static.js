@@ -465,6 +465,14 @@ window.SUXI_MEITUAN_STATIC = (() => {
             trafficRows,
             orderRows,
             adsRows,
+            visibleRowsCountByTab: {
+                all: allRows.length,
+                overview: overviewRows.length,
+                traffic: trafficRows.length,
+                orders: orderRows.length,
+                reviews: reviewRows.length,
+                ads: adsRows.length,
+            },
             overviewRowsCount: overviewRows.length,
             overviewHotelCount: overviewHotels.size,
             overviewDateCount: overviewDates.size,
@@ -493,6 +501,58 @@ window.SUXI_MEITUAN_STATIC = (() => {
                 ? safeDivideMetric(adsClick, adsExposure) * 100
                 : null,
         };
+    };
+
+    const resolveMeituanAdsApplicability = (sources = [], hotelId = '') => {
+        const targetHotelId = String(hotelId ?? '').trim();
+        if (targetHotelId === '') {
+            return { status: 'unknown', reason: 'hotel_not_selected' };
+        }
+
+        const candidates = (Array.isArray(sources) ? sources : [])
+            .filter(item => {
+                const enabled = item?.enabled;
+                const isEnabled = enabled === undefined
+                    || enabled === null
+                    || enabled === true
+                    || Number(enabled) === 1
+                    || String(enabled).trim().toLowerCase() === 'true';
+                return String(item?.platform || '').trim().toLowerCase() === 'meituan'
+                    && ['browser_profile', 'profile_browser'].includes(String(item?.ingestion_method || '').trim().toLowerCase())
+                    && String(item?.system_hotel_id ?? item?.hotel_id ?? '').trim() === targetHotelId
+                    && isEnabled
+                    && String(item?.status || '').trim().toLowerCase() !== 'disabled';
+            })
+            .sort((left, right) => Number(right?.id || 0) - Number(left?.id || 0));
+
+        for (const source of candidates) {
+            const config = source?.config && typeof source.config === 'object' && !Array.isArray(source.config)
+                ? source.config
+                : {};
+            const moduleState = config?.module_states?.ads || config?.moduleStates?.ads || {};
+            const reason = String(config?.ads_status_reason || config?.adsStatusReason || moduleState?.reason || '').trim().toLowerCase();
+            const status = String(config?.ads_status || config?.adsStatus || moduleState?.status || '').trim().toLowerCase();
+            const adsUrl = String(config?.ads_url || config?.adsUrl || '').trim();
+            const hasAdsEnabled = Object.prototype.hasOwnProperty.call(config, 'ads_enabled')
+                || Object.prototype.hasOwnProperty.call(config, 'adsEnabled');
+            const rawAdsEnabled = config?.ads_enabled ?? config?.adsEnabled;
+            const adsEnabled = rawAdsEnabled === true
+                || Number(rawAdsEnabled) === 1
+                || String(rawAdsEnabled).trim().toLowerCase() === 'true';
+            const hasExplicitEvidence = reason !== '' || status !== '' || adsUrl !== '' || hasAdsEnabled;
+            if (!hasExplicitEvidence) {
+                continue;
+            }
+            if (reason === 'ads_service_not_opened' || status === 'not_applicable' || (hasAdsEnabled && !adsEnabled)) {
+                return { status: 'not_applicable', reason: reason || 'ads_service_not_opened', source_id: source?.id || null };
+            }
+            if (adsUrl !== '' || adsEnabled || ['available', 'ready', 'enabled', 'active', 'captured'].includes(status)) {
+                return { status: 'available', reason: '', source_id: source?.id || null };
+            }
+            return { status: 'unknown', reason: reason || status || 'ads_state_unverified', source_id: source?.id || null };
+        }
+
+        return { status: 'unknown', reason: 'ads_state_unverified' };
     };
 
     const defaultMeituanAdsUrl = () => 'https://ebmidas.dianping.com/shopdiy/account/pcCpcEntry?continueUrl=/app/peon-merchant-product-menu/html/index.html';
@@ -4393,6 +4453,7 @@ window.SUXI_MEITUAN_STATIC = (() => {
         isMeituanReviewDataRow,
         isMeituanAdsDataRow,
         buildMeituanDownloadData,
+        resolveMeituanAdsApplicability,
         defaultMeituanAdsUrl,
         createMeituanRankingForm,
         createMeituanTrafficForm,

@@ -60,6 +60,7 @@ const asyncOnly = process.argv.includes('--async-only');
 const edgeOnly = process.argv.includes('--edge-only');
 const uiOnly = process.argv.includes('--ui-only');
 const moduleOnly = process.argv.includes('--module-only');
+const publicPageOnly = process.argv.includes('--public-page-only');
 const fullClick = process.argv.includes('--full-click') || process.argv.includes('--full-click-bounded');
 const fullClickBounded = process.argv.includes('--full-click-bounded');
 const codexProfileArg = process.argv.find((arg) => arg.startsWith('--codex-profile='));
@@ -74,6 +75,8 @@ if (codexIterations && (!/^\d+$/.test(codexIterations) || Number(codexIterations
 }
 const specs = fullClick
   ? ['tests/automation/full-click-coverage.spec.js']
+  : publicPageOnly
+    ? ['tests/automation/public-page-task-bridge.spec.js']
   : moduleOnly
     ? ['tests/automation/module-smoke.spec.js']
     : asyncOnly

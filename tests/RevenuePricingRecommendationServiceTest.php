@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use app\service\AiDecisionQualityService;
 use app\service\RevenuePricingRecommendationService;
 use app\service\TrustedOtaFactRepository;
 use PHPUnit\Framework\TestCase;
@@ -194,6 +195,67 @@ final class RevenuePricingRecommendationServiceTest extends TestCase
         self::assertSame('ota_revenue', $enriched[0]['decision_recommendation']['expected_effect']['metric']);
         self::assertNotSame('', $enriched[0]['decision_recommendation']['risk']['summary']);
         self::assertArrayHasKey('recommendation_quality', $enriched[0]);
+    }
+
+    public function testApprovedSuggestionWithFreshBoundHistoryPassesDecisionQualityV2(): void
+    {
+        $rows = [];
+        $start = new \DateTimeImmutable('2026-06-03');
+        for ($i = 0; $i < 28; $i++) {
+            $price = 180 + ($i * 2);
+            $quantity = 70 - $i;
+            $rows[] = [
+                'data_date' => $start->modify('+' . $i . ' days')->format('Y-m-d'),
+                'amount' => $price * $quantity,
+                'quantity' => $quantity,
+                'book_order_num' => max(1, (int)floor($quantity / 2)),
+                'source' => 'ctrip',
+                'metric_scope' => 'ota_channel',
+            ];
+        }
+        $repository = $this->createMock(TrustedOtaFactRepository::class);
+        $repository->method('pricingHistory')->willReturn([
+            'data_status' => 'ready',
+            'rows' => $rows,
+            'data_gaps' => [],
+            'source_policy' => ['readback_policy' => 'readback_verified_required_equals_1'],
+            'data_quality' => ['trusted_rows' => count($rows)],
+        ]);
+        $service = new RevenuePricingRecommendationService($repository);
+
+        $enriched = $service->enrichSuggestionRows([[
+            'id' => 18,
+            'hotel_id' => 7,
+            'status' => 2,
+            'suggestion_type' => 1,
+            'suggestion_date' => '2026-06-30',
+            'room_type_name' => '高级大床房',
+            'current_price' => 260,
+            'suggested_price' => 288,
+            'reason' => '携程历史拾取速度与价格弹性共同支持人工调价复核。',
+            'factors' => [
+                'decision_boundary' => 'manual_review_required_no_auto_rate_write',
+                'primary_signal_count' => 2,
+                'confidence_score' => 0.82,
+                'risk_level' => 'low',
+                'review_checklist' => ['保留原价并在7天后按同房型同价盘口径复核。'],
+                'drivers' => [
+                    ['signal' => 'pickup_curve', 'rule' => 'pace_index>=110'],
+                    ['signal' => 'price_elasticity', 'rule' => 'elasticity_supports_increase'],
+                ],
+                'signals' => ['data_gaps' => []],
+            ],
+        ]]);
+
+        $recommendation = $enriched[0]['decision_recommendation'];
+        self::assertSame('approved_pending_execution', $enriched[0]['pricing_readiness']['stage']);
+        self::assertTrue($enriched[0]['pricing_readiness']['execution_intent_ready']);
+        self::assertSame('verified', $recommendation['data_basis']['status']);
+        self::assertSame('ctrip', $recommendation['data_basis']['platform']);
+        self::assertSame('server_policy_verification_target', $recommendation['expected_effect']['origin']);
+        self::assertSame(AiDecisionQualityService::CONTRACT_VERSION, $recommendation['decision_quality']['contract_version']);
+        self::assertTrue($recommendation['decision_quality']['execution_ready']);
+        self::assertTrue($recommendation['can_create_execution_intent']);
     }
 
     public function testElasticityEstimateReturnsBacktestHitRate(): void

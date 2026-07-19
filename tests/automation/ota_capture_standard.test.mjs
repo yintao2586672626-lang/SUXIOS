@@ -141,6 +141,14 @@ test('classifies OTA JSON responses by platform and section', () => {
   });
   assert.equal(orderListJson.capture, true);
   assert.equal(orderListJson.section, 'orders');
+
+  const currentOrderListJson = classifyOtaResponse('meituan', 'https://eb.meituan.com/api/v1/ebooking/orders?startTime=1784390400000&endTime=1784476799999', {
+    status: 200,
+    resourceType: 'xhr',
+    contentType: 'application/json; charset=utf-8',
+  });
+  assert.equal(currentOrderListJson.capture, true);
+  assert.equal(currentOrderListJson.section, 'orders');
 });
 
 test('extracts request date evidence only when the request proves one target date', () => {

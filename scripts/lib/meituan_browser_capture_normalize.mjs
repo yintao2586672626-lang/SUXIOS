@@ -6,6 +6,132 @@ const CARD_METRIC_MAP = new Map([
 ]);
 
 const MEITUAN_ORDER_FLOW_ENDPOINT_PATH = '/api/v1/ebooking/peerRank/order/loss/query';
+const MEITUAN_ORDER_LIST_ENDPOINT_PATH = '/api/v1/ebooking/orders';
+
+export function normalizeMeituanOrderRows(value, options = {}) {
+  if (String(options.endpointPath || '').trim() !== MEITUAN_ORDER_LIST_ENDPOINT_PATH) {
+    return [];
+  }
+
+  const source = firstObjectAtPath(value, [['data'], []]);
+  const rows = firstArrayAtPath(value, [
+    ['data', 'results'],
+    ['results'],
+  ]);
+  if (rows.length === 0) {
+    return [];
+  }
+
+  const resultTotal = nonNegativeInteger(source.total);
+  if (resultTotal !== null && resultTotal !== rows.length) {
+    // A paginated subset cannot be promoted into a daily revenue total.
+    return [];
+  }
+
+  const normalizedDate = normalizeDateLike(
+    options.requestDateEvidence?.date || options.defaultDataDate || '',
+  );
+  if (!normalizedDate) {
+    return [];
+  }
+
+  let amountCents = 0;
+  let roomNights = 0;
+  const amountSources = new Set();
+  const quantitySources = new Set();
+  for (const row of rows) {
+    const amountFact = meituanOrderSalePriceCents(row);
+    const quantityFact = meituanOrderRoomNights(row);
+    if (!amountFact || !quantityFact) {
+      return [];
+    }
+    amountCents += amountFact.value;
+    roomNights += quantityFact.value;
+    amountSources.add(amountFact.source);
+    quantitySources.add(quantityFact.source);
+  }
+
+  return [{
+    dataDate: normalizedDate,
+    date_source: options.requestDateEvidence?.date_source || 'capture_context.default_data_date',
+    amount: Math.round(amountCents) / 100,
+    quantity: roomNights,
+    room_nights: roomNights,
+    book_order_num: rows.length,
+    orders: rows.length,
+    compare_type: 'self',
+    is_self: true,
+    amount_scope: 'meituan_sale_price_total',
+    amount_source: [...amountSources].sort().join('|'),
+    amount_source_unit: 'cent',
+    amount_storage_unit: 'yuan',
+    quantity_scope: 'booked_room_nights',
+    quantity_source: [...quantitySources].sort().join('|'),
+    order_count_source: 'data.results.length',
+    result_total: resultTotal ?? rows.length,
+    pagination_complete: true,
+    floor_price_used_as_revenue: false,
+    guarantee_amount_used_as_revenue: false,
+    _capture_source: 'xhr:orders:daily_summary',
+    _source_path: 'data.results',
+  }];
+}
+
+function meituanOrderSalePriceCents(row) {
+  const nested = nonNegativeNumber(readPath(row, ['orderBasePriceModel', 'salePrice', 'price']));
+  if (nested !== null) {
+    return { value: nested, source: 'orderBasePriceModel.salePrice.price' };
+  }
+  const topLevel = nonNegativeNumber(row?.price);
+  return topLevel === null ? null : { value: topLevel, source: 'price' };
+}
+
+function meituanOrderRoomNights(row) {
+  const explicit = positiveInteger(readPath(row, ['partRefundInfo', 'totalRoomNightCount']));
+  if (explicit !== null) {
+    return { value: explicit, source: 'partRefundInfo.totalRoomNightCount' };
+  }
+
+  const roomCount = positiveInteger(row?.roomCount ?? row?.room_count);
+  const stayNights = dateSpanNights(
+    row?.checkInDateString ?? row?.checkInDate ?? row?.checkIn,
+    row?.checkOutDateString ?? row?.checkOutDate ?? row?.checkOut,
+  );
+  if (roomCount === null || stayNights === null) {
+    return null;
+  }
+  return { value: roomCount * stayNights, source: 'roomCount*stay_date_nights' };
+}
+
+function dateSpanNights(checkIn, checkOut) {
+  const start = normalizeDateLike(checkIn);
+  const end = normalizeDateLike(checkOut);
+  if (!start || !end) {
+    return null;
+  }
+  const startAt = Date.parse(`${start}T00:00:00Z`);
+  const endAt = Date.parse(`${end}T00:00:00Z`);
+  const nights = Math.round((endAt - startAt) / 86400000);
+  return Number.isInteger(nights) && nights > 0 ? nights : null;
+}
+
+function nonNegativeNumber(value) {
+  if (value === null || value === undefined || String(value).trim() === '') {
+    return null;
+  }
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+function nonNegativeInteger(value) {
+  const number = nonNegativeNumber(value);
+  return number !== null && Number.isInteger(number) ? number : null;
+}
+
+function positiveInteger(value) {
+  const number = nonNegativeInteger(value);
+  return number !== null && number > 0 ? number : null;
+}
 
 export function buildMeituanOrderFlowReplayUrls(value) {
   try {

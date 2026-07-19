@@ -59,4 +59,25 @@ final class CompetitorRateScopeContractTest extends TestCase
             $init
         );
     }
+
+    public function testDeviceReportBindsObservationIdentityAndSourceToAssignedTarget(): void
+    {
+        $controller = (string)file_get_contents(
+            dirname(__DIR__) . '/app/controller/CompetitorApi.php'
+        );
+
+        self::assertStringContainsString(
+            "->whereRaw(\"hotel_code REGEXP '^[1-9][0-9]{0,19}$'\")",
+            $controller
+        );
+        self::assertStringContainsString(
+            '!hash_equals($targetOtaHotelId, $submittedOtaHotelId)',
+            $controller
+        );
+        self::assertStringContainsString("'competitor_ota_identity_mismatch'", $controller);
+        self::assertStringContainsString("'invalid_competitor_source_ref'", $controller);
+        self::assertStringContainsString("['ctrip.com', 'ctripcorp.com', 'ctripbiz.com', 'ctripbiz.cn']", $controller);
+        self::assertStringContainsString("['meituan.com', 'dianping.com']", $controller);
+        self::assertStringContainsString("(string)\$rateContext['content_hash']", $controller);
+    }
 }

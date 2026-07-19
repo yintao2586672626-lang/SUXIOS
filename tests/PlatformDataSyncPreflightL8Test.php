@@ -293,6 +293,14 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
                 'rows' => [$row],
             ],
         ];
+        if ($factors['upstream_state'] === 'success') {
+            $response['payload']['platform_identity_validation'] = [
+                'status' => 'matched',
+                'source_validation' => true,
+                'validated_identifier' => 'CTRIP-TC145-101',
+                'sensitive_values_exposed' => false,
+            ];
+        }
 
         return new class($response) implements DataSourceAdapter {
             public int $calls = 0;
@@ -335,6 +343,17 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
             $row['data_date'] ?? null,
             $message
         );
+        if ($factors['upstream_state'] === 'success') {
+            self::assertSame(
+                'matched',
+                $adapter->response['payload']['platform_identity_validation']['status'] ?? null,
+                $message
+            );
+            self::assertTrue(
+                $adapter->response['payload']['platform_identity_validation']['source_validation'] ?? false,
+                $message
+            );
+        }
         foreach (self::REQUIRED_TRAFFIC_METRICS as $metric) {
             if ($factors['data_completeness'] === 'complete') {
                 self::assertArrayHasKey($metric, $row, $message);

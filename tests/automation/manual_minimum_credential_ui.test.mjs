@@ -9,6 +9,7 @@ const ctripStatic = readFileSync('public/ctrip-static.js', 'utf8');
 const meituanStatic = readFileSync('public/meituan-static.js', 'utf8');
 const autoFetchStatic = readFileSync('public/auto-fetch-static.js', 'utf8');
 const otaDiagnosisStatic = readFileSync('public/ota-diagnosis-static.js', 'utf8');
+const onlineDataTemplateFragment = readFileSync('resources/frontend/templates/fragments/35-page-online-data.html', 'utf8');
 const platformAutoSettingsPanels = readFileSync('public/components/online-data/platform-auto-settings-panels.js', 'utf8');
 const ctripProfileFieldConfigPanel = readFileSync('public/components/online-data/ctrip-profile-field-config-panel.js', 'utf8');
 const businessDisplayConcern = readFileSync('app/controller/concern/BusinessDisplayConcern.php', 'utf8');
@@ -4311,7 +4312,7 @@ test('Platform auto-fetch panel prewarms static helper without blocking first pa
   assert.match(html, /const PLATFORM_AUTO_SETTINGS_PANEL_DELAY_MS = 800;/);
   assert.match(html, /const platformAutoSettingsPanelsReady = ref\(false\);/);
   assert.match(html, /const platformAutoSettingsPanelsBody = shallowRef\(null\);/);
-  assert.match(html, /const platformAutoPanelsScript = 'components\/online-data\/platform-auto-settings-panels\.js\?v=20260714-manual-direct-scheduled-profile';/);
+  assert.match(html, /const platformAutoPanelsScript = 'components\/online-data\/platform-auto-settings-panels\.js\?v=[^']+';/);
   assert.match(html, /const ensurePlatformAutoPanelsReady = async \(\) => \{/);
   assert.match(html, /requireOnlineDataComponent\('PlatformAutoSettingsPanelsBody'\)/);
   assert.match(html, /requireOnlineDataComponent\('PlatformAutoSecondaryPanelsBody'\)/);
@@ -4560,6 +4561,13 @@ test('Download center defers hotel filter loading after primary data', () => {
   assert.match(downloadCenterScheduler, /await loadOnlineDataList\(\{ cacheMs: ONLINE_DATA_PANEL_CACHE_TTL_MS \}\);/);
   assert.match(downloadCenterScheduler, /scheduleDelayedPageTask\(\(\) => \{\s*if \(seq !== downloadCenterTabLoadSeq \|\| !isCurrentTab\(\)\) return null;\s*return loadOnlineDataHotelList\(\{ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS \}\);\s*\}, 720\);/);
   assert.match(downloadCenterScheduler, /return loadOnlineDataHotelList\(\{ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS \}\);/);
+  assert.match(downloadCenterScheduler, /if \(context\.source === 'meituan'\) \{\s*void loadPlatformDataSources\(\{ cacheMs: PLATFORM_SOURCE_PANEL_CACHE_TTL_MS \}\);\s*\}/);
+  const primaryListIndex = downloadCenterScheduler.indexOf('await loadOnlineDataList({ cacheMs: ONLINE_DATA_PANEL_CACHE_TTL_MS });');
+  const hotelFilterIndex = downloadCenterScheduler.indexOf('return loadOnlineDataHotelList({ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS });', primaryListIndex);
+  const secondarySourceIndex = downloadCenterScheduler.indexOf('void loadPlatformDataSources({ cacheMs: PLATFORM_SOURCE_PANEL_CACHE_TTL_MS });', primaryListIndex);
+  assert.ok(primaryListIndex < hotelFilterIndex, 'hotel filter must be scheduled after the primary list resolves');
+  assert.ok(hotelFilterIndex < secondarySourceIndex, 'secondary platform sources must not block hotel-filter scheduling');
+  assert.doesNotMatch(downloadCenterScheduler, /await loadPlatformDataSources\(\{ cacheMs: PLATFORM_SOURCE_PANEL_CACHE_TTL_MS \}\);/);
   assert.match(html, /const meituanDownloadData = computed\(\(\) => buildMeituanDownloadData\(onlineDataList\.value\)\);/);
   assert.match(html, /switchToMeituanDownloadCenter, openMeituanStoredDataTab, queryMeituanStoredData, meituanDownloadData,/);
   assert.doesNotMatch(downloadCenterScheduler, /await refreshOnlineHistory\(\);\s*return null;/);
@@ -4567,4 +4575,80 @@ test('Download center defers hotel filter loading after primary data', () => {
     downloadCenterScheduler,
     /Promise\.allSettled\(\[\s*loadOnlineDataList\(\{ cacheMs: ONLINE_DATA_PANEL_CACHE_TTL_MS \}\),\s*loadOnlineDataHotelList\(\{ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS \}\),?\s*\]\)/
   );
+});
+
+test('Core operations keeps missing platform evidence unknown instead of synthetic zero', () => {
+  const platformCards = sliceFrom(
+    'const coreOperationsPlatformCards = computed(() => {',
+    '\n            const coreOperationsMeituanComparableValue'
+  );
+  assert.match(platformCards, /const rawSourceRows = platformEvidence\?\.target_date_rows;/);
+  assert.match(platformCards, /const sourceRows = rawSourceRows !== null[\s\S]*Number\.isInteger\(parsedSourceRows\)[\s\S]*parsedSourceRows >= 0[\s\S]*\? parsedSourceRows[\s\S]*: null;/);
+  assert.match(platformCards, /sourceRowsText: sourceRows === null \? '未验证\/未知' : `\$\{sourceRows\} 行`/);
+  assert.doesNotMatch(platformCards, /const sourceRows = Number\(platformEvidence\?\.target_date_rows \|\| 0\);/);
+  assert.match(onlineDataTemplateFragment, /目标日源数据 \{\{ platform\.sourceRowsText \}\}/);
+});
+
+test('Core operations clears old scope values and exposes competitor request failures', () => {
+  const resetScopedState = sliceFrom(
+    'const resetCoreOperationsScopedState = () => {',
+    '\n\n            const refreshCoreOperationsLoop'
+  );
+  const refreshLoop = sliceFrom(
+    'const refreshCoreOperationsLoop = async (options = {}) => {',
+    '\n\n            const loadPhase3OperationEffectLoop'
+  );
+  const competitorLoader = sliceFrom(
+    'const loadCompetitorSummary = async (options = {}) => {',
+    '\n\n            const loadCompassData'
+  );
+
+  for (const reset of [
+    'coreOperationsMetrics.value = {',
+    'coreOperationsDiagnoses.value = {',
+    'dailyWorkbench.value = null;',
+    'dailyWorkbenchPatrol.value = null;',
+    'phase3OperationEffectLoop.value = null;',
+    'ctripCompetitiveOperationsPayload.value = null;',
+    'competitorSummary.value = null;',
+  ]) {
+    assert.ok(resetScopedState.includes(reset), `scope reset must include ${reset}`);
+  }
+  assert.match(refreshLoop, /const scopeChanged = hotelId !== String\(coreOperationsHotelId\.value \|\| ''\)[\s\S]*if \(scopeChanged\) \{\s*resetCoreOperationsScopedState\(\);\s*\}[\s\S]*coreOperationsHotelId\.value = hotelId;/);
+  assert.match(competitorLoader, /competitorSummaryError\.value = String\(res\?\.message \|\| '美团竞品摘要读取失败'\)/);
+  assert.match(competitorLoader, /competitorSummaryError\.value = String\(e\?\.message \|\| '美团竞品摘要读取失败'\)/);
+  assert.match(onlineDataTemplateFragment, /data-testid="core-operations-competitor-error"/);
+  assert.match(onlineDataTemplateFragment, /不会按“无竞品数据”或“无异常”处理/);
+});
+
+test('Core six-step state requires both platforms, AI-linked tasks, and a due terminal review', () => {
+  const executionAndSteps = sliceFrom(
+    'const coreOperationsExecutionItems = computed(() => {',
+    '\n            const phase3OperationEffectLoopSummary'
+  );
+
+  assert.match(executionAndSteps, /const coreOperationsAiExecutionItems = computed[\s\S]*source_module \|\| ''\)\.toLowerCase\(\) === 'ota_diagnosis_saved'/);
+  assert.match(executionAndSteps, /const requiredActionKeys = new Set[\s\S]*\$\{recordId\}:\$\{actionItemId\}/);
+  assert.match(executionAndSteps, /const latestAiExecutionByActionKey = new Map\(\)/);
+  assert.match(executionAndSteps, /requiredActionKeys\.size === requiredActionCount/);
+  assert.match(executionAndSteps, /comparablePlatforms\.has\('ctrip'\)[\s\S]*comparablePlatforms\.has\('meituan'\)/);
+  assert.match(executionAndSteps, /const dataComplete = platformReadyCount === 2;/);
+  assert.match(executionAndSteps, /\['success', 'near_success', 'failed'\]\.includes\(status\)/);
+  assert.match(executionAndSteps, /item\?\.review\?\.is_available === true/);
+  assert.doesNotMatch(executionAndSteps, /\['success', 'near_success', 'failed', 'observing'\]/);
+  assert.match(executionAndSteps, /reviewedCount === requiredActionCount/);
+  assert.match(executionAndSteps, /noActionRequired \? 'no_action'/);
+});
+
+test('Operation action loads reject stale request and hotel responses', () => {
+  const operationActionsLoader = sliceFrom(
+    'let operationActionsRequestSeq = 0;',
+    '\n            const parseOperationEvidenceNumber'
+  );
+
+  assert.match(operationActionsLoader, /const requestSeq = \+\+operationActionsRequestSeq;/);
+  assert.match(operationActionsLoader, /requestSeq === operationActionsRequestSeq\s*&& requestHotelId === String\(operationFilters\.value\.hotel_id \|\| ''\)\.trim\(\)/);
+  assert.match(operationActionsLoader, /const \[res, flowRes, closureRes\] = await Promise\.all\([\s\S]*if \(!isCurrentRequest\(\)\) return;/);
+  assert.match(operationActionsLoader, /catch \(error\) \{\s*if \(!isCurrentRequest\(\)\) return;/);
+  assert.match(operationActionsLoader, /finally \{\s*if \(requestSeq === operationActionsRequestSeq\) \{\s*operationLoading\.value\.actions = false;/);
 });

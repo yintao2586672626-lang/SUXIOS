@@ -128,8 +128,8 @@ final class ExpansionExecutionIntentIdempotencyTest extends TestCase
         ];
         $key = 'ota_diagnosis_action_' . str_repeat('a', 32) . ':attempt:1';
 
-        $first = $service->createExecutionIntent([7], 7, $input, 3, false, $key);
-        $second = $service->createExecutionIntent([7], 7, $input, 3, false, $key);
+        $first = $service->createExecutionIntent([7], 7, $input, 3, false, $key, true);
+        $second = $service->createExecutionIntent([7], 7, $input, 3, false, $key, true);
 
         self::assertSame($first['id'], $second['id']);
         self::assertTrue($second['idempotent_replay']);
@@ -139,7 +139,7 @@ final class ExpansionExecutionIntentIdempotencyTest extends TestCase
 
     public function testPublicPageDiagnosisDraftIsPersistedReadBackAndReplayed(): void
     {
-        $draft = (new OtaPublicPageDiagnosisService())->buildExecutionIntentDraft([
+        $diagnosis = [
             'status' => 'insufficient_evidence',
             'platform' => 'ctrip',
             'system_hotel_id' => 7,
@@ -171,19 +171,40 @@ final class ExpansionExecutionIntentIdempotencyTest extends TestCase
             'score_status' => 'not_calculated_no_validated_scoring_rule',
             'source_policy' => 'persisted_public_page_facts_only_no_default_score_no_ota_write',
             'scope_notice' => '仅为 OTA 公开页证据目录。',
-        ], [
+        ];
+        $diagnosisService = new OtaPublicPageDiagnosisService();
+        $draft = $diagnosisService->buildExecutionIntentDraft($diagnosis, [
             'assignee_id' => 3,
-            'due_at' => '2026-07-20T18:00',
-            'review_at' => '2026-07-21T10:00',
+            'due_at' => '2099-07-20T18:00',
+            'review_at' => '2099-07-21T10:00',
+        ]);
+        $rescheduledDraft = $diagnosisService->buildExecutionIntentDraft($diagnosis, [
+            'assignee_id' => 3,
+            'due_at' => '2099-07-22T18:00',
+            'review_at' => '2099-07-23T10:00',
         ]);
         $service = new OperationManagementService();
 
-        $first = $service->createExecutionIntent([7], 7, $draft['input'], 3, false, $draft['idempotency_key']);
-        $second = $service->createExecutionIntent([7], 7, $draft['input'], 3, false, $draft['idempotency_key']);
+        $first = $service->createExecutionIntent([7], 7, $draft['input'], 3, false, $draft['idempotency_key'], true);
+        $second = $service->createExecutionIntent(
+            [7],
+            7,
+            $rescheduledDraft['input'],
+            3,
+            false,
+            $rescheduledDraft['idempotency_key'],
+            true
+        );
 
+        self::assertSame($draft['idempotency_key'], $rescheduledDraft['idempotency_key']);
         self::assertSame($first['id'], $second['id']);
         self::assertTrue($second['idempotent_replay']);
+        $readback = $service->readExecutionIntentByIdempotencyKey($draft['idempotency_key'], [7]);
+        self::assertIsArray($readback);
+        self::assertSame($first['id'], $readback['id']);
+        self::assertNull($service->readExecutionIntentByIdempotencyKey($draft['idempotency_key'], [8]));
         self::assertSame('ota_diagnosis', $first['source_module']);
+        self::assertGreaterThan(4294967295, $first['source_record_id']);
         self::assertSame('data_collection', $first['object_type']);
         self::assertSame('complete_public_page_evidence', $first['action_type']);
         self::assertSame(7, $first['hotel_id']);
@@ -192,11 +213,77 @@ final class ExpansionExecutionIntentIdempotencyTest extends TestCase
         self::assertContains('platform_basics:address:missing', $first['evidence']['data_gaps']);
         self::assertSame([
             'assignee_id' => 3,
-            'due_at' => '2026-07-20 18:00:00',
-            'review_at' => '2026-07-21 10:00:00',
+            'due_at' => '2099-07-20 18:00:00',
+            'review_at' => '2099-07-21 10:00:00',
             'source_policy' => 'human_assigned_schedule_requires_manual_approval_and_readback_review',
         ], $first['target_value']['workflow_schedule']);
+        $latest = $service->readLatestOtaDiagnosisExecutionIntentAttempt($draft['idempotency_base_key'], [7]);
+        self::assertIsArray($latest);
+        self::assertSame(1, $latest['attempt']);
+        self::assertSame($first['id'], $latest['intent']['id']);
+
+        $rescheduled = $service->reschedulePendingExecutionIntent(
+            (int)$first['id'],
+            [7],
+            $rescheduledDraft['input']['target_value']['workflow_schedule'],
+            3
+        );
+        self::assertSame($first['id'], $rescheduled['id']);
+        self::assertSame(
+            $rescheduledDraft['input']['target_value']['workflow_schedule'],
+            $rescheduled['target_value']['workflow_schedule']
+        );
+        self::assertSame(
+            $rescheduledDraft['input']['target_value']['workflow_schedule'],
+            $rescheduled['evidence']['workflow_schedule']
+        );
+        self::assertSame(3, $rescheduled['evidence']['schedule_updated_by']);
+
+        $service->approveExecutionIntent((int)$first['id'], false, 'fixture rejection', 3, [7]);
+        try {
+            $service->reschedulePendingExecutionIntent(
+                (int)$first['id'],
+                [7],
+                $draft['input']['target_value']['workflow_schedule'],
+                3
+            );
+            self::fail('A terminal execution intent must not be rescheduled.');
+        } catch (\InvalidArgumentException $exception) {
+            self::assertStringContainsString('draft or pending_approval', $exception->getMessage());
+        }
         self::assertSame(1, (int)Db::name('operation_execution_intents')->count());
+    }
+
+    public function testLatestPublicPageAttemptUsesNumericAttemptInsteadOfRowWindowOrLexicalOrder(): void
+    {
+        $diagnosisService = new OtaPublicPageDiagnosisService();
+        $diagnosis = $diagnosisService->build(7, 'ctrip', '2026-07-19', []);
+        $draft = $diagnosisService->buildExecutionIntentDraft($diagnosis, [
+            'assignee_id' => 3,
+            'due_at' => '2099-07-20T18:00',
+            'review_at' => '2099-07-21T10:00',
+        ]);
+        $service = new OperationManagementService();
+        $created = [];
+        foreach ([1, 10, 2] as $attempt) {
+            $input = $draft['input'];
+            $input['evidence']['intent_attempt'] = $attempt;
+            $created[$attempt] = $service->createExecutionIntent(
+                [7],
+                7,
+                $input,
+                3,
+                false,
+                $draft['idempotency_base_key'] . ':attempt:' . $attempt,
+                true
+            );
+        }
+
+        $latest = $service->readLatestOtaDiagnosisExecutionIntentAttempt($draft['idempotency_base_key'], [7]);
+        self::assertIsArray($latest);
+        self::assertSame(10, $latest['attempt']);
+        self::assertSame($created[10]['id'], $latest['intent']['id']);
+        self::assertSame($draft['idempotency_base_key'] . ':attempt:10', $latest['idempotency_key']);
     }
 
     public function testSchemaAndControllerExposeTheConcurrencyContract(): void

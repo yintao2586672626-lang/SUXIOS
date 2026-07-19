@@ -54,42 +54,21 @@ class Auth extends Base
         $rawPassword = $this->request->post('password', '');
         $rawClientInfo = $this->request->post('client_info', []);
 
-        if (!is_string($rawUsername) || !is_string($rawPassword)) {
-            $this->recordLoginFailure('', '登录参数格式无效');
-            return $this->invalidLoginPayload();
-        }
-        $username = trim($rawUsername);
-        $password = $rawPassword;
-        if (mb_strlen($username) > 50 || strlen($password) > 1024) {
-            $this->recordLoginFailure(mb_substr($username, 0, 50), '登录参数长度无效');
-            return $this->invalidLoginPayload();
-        }
-        $clientInfo = $this->normalizeLoginClientInfo($rawClientInfo);
-        if ($clientInfo === null) {
-            $this->recordLoginFailure($username, '客户端信息格式无效');
-            return $this->invalidLoginPayload();
-        }
-
-        // 参数验证
-        if (empty($username) || empty($password)) {
-            $this->recordLoginFailure($username, '用户名或密码缺失', $clientInfo);
-            return $this->error('请输入用户名和密码');
-        }
-
-        // 获取客户端信息
-        $ip = $this->request->ip();
-        $userAgent = $this->request->header('User-Agent', '');
-
-        $loginRateLimiter = new LoginRateLimiter();
+        // Reserve before any branch that persists a failure. Otherwise malformed
+        // public requests can bypass throttling and grow login_logs without bound.
+        $username = is_string($rawUsername)
+            ? mb_substr(trim($rawUsername), 0, 50)
+            : '';
+        $ip = (string)$this->request->ip();
+        $userAgent = (string)$this->request->header('User-Agent', '');
+        $loginRateLimiter = $this->makeLoginRateLimiter();
         try {
             $rateLimit = $loginRateLimiter->consumeAttempt($ip, $username);
         } catch (\Throwable $exception) {
-            $this->recordLoginFailure($username, '登录保护不可用', $clientInfo);
             return $this->loginProtectionUnavailable($exception);
         }
         if (!$rateLimit['allowed']) {
             $retryAfter = max(1, (int)$rateLimit['retry_after']);
-            $this->recordLoginFailure($username, '登录请求被限流', $clientInfo);
             return $this->error('登录请求过于频繁，请稍后重试', 429, [
                 'reason' => 'login_rate_limited',
                 'retry_after' => $retryAfter,
@@ -98,6 +77,24 @@ class Auth extends Base
         $reservationBucket = isset($rateLimit['reservation_bucket'])
             ? (int)$rateLimit['reservation_bucket']
             : null;
+
+        if (!is_string($rawUsername) || !is_string($rawPassword)) {
+            return $this->invalidLoginPayload();
+        }
+        $username = trim($rawUsername);
+        $password = $rawPassword;
+        if (mb_strlen($username) > 50 || strlen($password) > 1024) {
+            return $this->invalidLoginPayload();
+        }
+        $clientInfo = $this->normalizeLoginClientInfo($rawClientInfo);
+        if ($clientInfo === null) {
+            return $this->invalidLoginPayload();
+        }
+
+        // 参数验证
+        if (empty($username) || empty($password)) {
+            return $this->error('请输入用户名和密码');
+        }
 
         $user = User::with(['role', 'hotel'])->where('username', $username)->find();
         
@@ -160,25 +157,9 @@ class Auth extends Base
         ], '登录成功');
     }
 
-    /** @param array<string, string> $clientInfo */
-    private function recordLoginFailure(string $username, string $reason, array $clientInfo = []): void
+    protected function makeLoginRateLimiter(): LoginRateLimiter
     {
-        try {
-            LoginLog::record(
-                null,
-                mb_substr(trim($username), 0, 50),
-                'login',
-                'failed',
-                mb_substr($reason, 0, 255),
-                (string)$this->request->ip(),
-                (string)$this->request->header('User-Agent', ''),
-                $clientInfo
-            );
-        } catch (\Throwable $exception) {
-            \think\facade\Log::warning('Login failure audit could not be persisted.', [
-                'exception_type' => get_debug_type($exception),
-            ]);
-        }
+        return new LoginRateLimiter();
     }
 
     private function releaseLoginRateLimitReservation(
@@ -198,9 +179,13 @@ class Auth extends Base
 
     private function loginProtectionUnavailable(\Throwable $exception): Response
     {
-        \think\facade\Log::error('Login rate limiter unavailable.', [
-            'exception_type' => get_debug_type($exception),
-        ]);
+        try {
+            \think\facade\Log::error('Login rate limiter unavailable.', [
+                'exception_type' => get_debug_type($exception),
+            ]);
+        } catch (\Throwable) {
+            // Logging must never replace the stable fail-closed response.
+        }
 
         return $this->error('登录保护暂不可用，请稍后重试', 503, [
             'reason' => 'login_rate_limiter_unavailable',

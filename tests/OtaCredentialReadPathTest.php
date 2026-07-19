@@ -2501,7 +2501,7 @@ final class OtaCredentialReadPathTest extends TestCase
     {
         $command = (string)file_get_contents(dirname(__DIR__) . '/app/command/PlatformProfileLogin.php');
         foreach ([
-            "field('id,system_hotel_id,platform,ingestion_method,enabled,status')",
+            "field('id,system_hotel_id,platform,ingestion_method,enabled,status,config_json')",
             "field('id,system_hotel_id,platform,data_type,ingestion_method,config_json,enabled,status,last_error,last_sync_status')",
             "field('id,config_json')",
             'decodeSafeProfileSourceConfig',

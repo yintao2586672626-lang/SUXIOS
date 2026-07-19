@@ -186,7 +186,20 @@
             const effectMeta = [effect.metric_label || effect.metric, effect.review_window].filter(Boolean).join(' · ');
             const riskLevel = risk.level || item.risk_level || '待核验';
             const riskText = risk.summary || '未提供风险说明';
+            const priorityBasis = item.priority_basis || {};
+            const priorityText = [item.priority || '待排序', Number.isFinite(Number(priorityBasis.score)) ? `${Number(priorityBasis.score)}/100` : '', item.priority_reason || ''].filter(Boolean).join(' · ');
+            const quality = item.decision_quality || {};
+            const blocked = quality.generic_talk_rejected === true
+                || quality.contract_version !== 'ai_recommendation_quality.v2'
+                || quality.complete === false
+                || quality.execution_ready !== true
+                || item.can_create_execution_intent !== true;
             return Vue.h('div', { class: 'mt-2 space-y-1 text-xs leading-5 text-gray-600' }, [
+                blocked ? Vue.h('div', {
+                    class: 'rounded border border-red-200 bg-red-50 px-2 py-1 font-medium text-red-700',
+                    'data-testid': 'ai-decision-quality-blocked',
+                }, `质量门禁：不合格，不可执行。${item.blocked_reason || '请补齐必需字段后重新生成。'}`) : null,
+                Vue.h('div', null, [Vue.h('span', { class: 'font-medium text-gray-700' }, '优先级：'), priorityText]),
                 Vue.h('div', null, [Vue.h('span', { class: 'font-medium text-gray-700' }, '数据依据：'), basisText, basisMeta ? Vue.h('small', { class: 'ml-1 text-gray-400' }, `（${basisMeta}）`) : null]),
                 Vue.h('div', null, [Vue.h('span', { class: 'font-medium text-gray-700' }, '预期效果：'), effectText, effectMeta ? Vue.h('small', { class: 'ml-1 text-gray-400' }, `（${effectMeta}）`) : null]),
                 Vue.h('div', { class: 'text-amber-700' }, [Vue.h('span', { class: 'font-medium' }, `风险（${riskLevel}）：`), riskText]),
@@ -219,6 +232,7 @@
             };
             script.onerror = () => {
                 onlineDataComponentScriptPromises.delete(src);
+                script.remove();
                 reject(new Error(`线上数据组件加载失败：${src}`));
             };
             if (!existing) {
@@ -241,9 +255,18 @@
         }
         return component;
     };
+    const systemComponents = window.SUXI_SYSTEM_COMPONENTS || (window.SUXI_SYSTEM_COMPONENTS = {});
+    const requireSystemComponent = (key) => {
+        const component = systemComponents?.[key];
+        if (!component) {
+            throw new Error(`缺少系统管理本地组件：${key}`);
+        }
+        return component;
+    };
     const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260719-session-proof-hd0bfaeed76';
     const ctripProfileFieldConfigPanelScript = 'components/online-data/ctrip-profile-field-config-panel.js?v=20260613-profile-template-split';
-    const competitorDeviceManagementScript = 'components/admin/competitor-device-management.js?v=20260719-device-lifecycle-v1';
+    const competitorDeviceManagementScript = 'components/admin/competitor-device-management.js?v=20260719-device-lifecycle-v3';
+    const dataConfigDialogsScript = 'components/system/data-config-dialogs.js?v=20260720-data-config-template-split-v1';
     const PlatformAutoSettingsPanels = {
         name: 'PlatformAutoSettingsPanels',
         props: {
@@ -313,10 +336,58 @@
             if (this.ctx.competitorDeviceManagementReady && this.ctx.competitorDeviceManagementBody) {
                 return Vue.h(this.ctx.competitorDeviceManagementBody, { ctx: this.ctx });
             }
+            if (this.ctx.competitorDeviceManagementError) {
+                return Vue.h('div', {
+                    class: 'mt-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700',
+                    'data-testid': 'competitor-device-load-error',
+                }, [
+                    Vue.h('div', { class: 'font-medium' }, this.ctx.competitorDeviceManagementError),
+                    Vue.h('button', {
+                        type: 'button',
+                        class: 'mt-2 underline',
+                        onClick: this.ctx.retryCompetitorDeviceManagement,
+                    }, '重新加载组件'),
+                ]);
+            }
             return Vue.h('div', {
                 class: 'mt-6 rounded-lg border bg-white p-4 text-sm text-gray-500',
                 'data-testid': 'competitor-device-loading',
             }, '正在加载竞对采集设备管理...');
+        },
+    };
+    const DataConfigDialogs = {
+        name: 'DataConfigDialogs',
+        props: {
+            ctx: {
+                type: Object,
+                required: true,
+            },
+        },
+        render() {
+            if (this.ctx.dataConfigDialogsReady && this.ctx.dataConfigDialogsBody) {
+                return h(this.ctx.dataConfigDialogsBody, { ctx: this.ctx });
+            }
+            const loadError = String(this.ctx.dataConfigDialogsError || '').trim();
+            return h('div', {
+                class: 'fixed inset-0 z-50 flex items-center justify-center modal-overlay',
+                'data-testid': loadError ? 'data-config-dialogs-load-error' : 'data-config-dialogs-loading',
+            }, [
+                h('div', { class: 'mx-4 w-full max-w-md rounded-lg bg-white p-6 text-center shadow-xl' }, [
+                    h('div', { class: loadError ? 'font-medium text-red-700' : 'font-medium text-gray-700' }, loadError || '正在加载数据配置...'),
+                    h('div', { class: 'mt-4 flex justify-center gap-3' }, [
+                        loadError ? h('button', {
+                            type: 'button',
+                            class: 'rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700',
+                            onClick: this.ctx.retryDataConfigDialogs,
+                        }, '重新加载') : null,
+                        h('button', {
+                            type: 'button',
+                            class: 'rounded-lg border px-4 py-2 text-sm hover:bg-gray-50',
+                            onClick: () => { this.ctx.showDataConfigModal = false; },
+                        }, '关闭'),
+                    ]),
+                ]),
+            ]);
         },
     };
 
@@ -538,7 +609,8 @@
             PlatformAutoSecondaryPanels,
             SessionProofNotice,
             CtripProfileFieldConfigPanel,
-            CompetitorDeviceManagement
+            CompetitorDeviceManagement,
+            DataConfigDialogs
         },
         setup() {
             // 状态
@@ -739,6 +811,10 @@
                 return { url, options: nextOptions };
             };
             const userHasPermission = (key) => !!(user.value?.permissions || {})[key];
+            const userHasCapability = (key) => {
+                const capabilities = Array.isArray(user.value?.capabilities) ? user.value.capabilities : [];
+                return !!user.value?.is_super_admin || capabilities.includes('all') || capabilities.includes(key);
+            };
             const canManageOwnHotels = () => !!user.value?.is_super_admin || userHasPermission('can_manage_own_hotels');
             const canMaintainOtaConfig = () => canManageOwnHotels() || userHasPermission('can_fetch_online_data');
             const canCollectCompetitorObservations = () => {
@@ -1038,12 +1114,7 @@
             const requestedInitialPage = String(window.SUXI_INITIAL_PAGE_OVERRIDE || '').trim();
             delete window.SUXI_INITIAL_PAGE_OVERRIDE;
             const initialPageOverride = /^[a-z0-9-]+$/.test(requestedInitialPage) ? requestedInitialPage : '';
-            const currentPage = ref('compass');
-            if (initialPageOverride && initialPageOverride !== 'compass') {
-                nextTick(() => {
-                    currentPage.value = initialPageOverride;
-                });
-            }
+            const currentPage = ref(initialPageOverride || 'online-data');
             const SUPER_ADMIN_ONLY_PAGES = new Set([
                 'agent-center',
                 'users',
@@ -1746,9 +1817,19 @@
             };
             const otaPublicPageDiagnosisPayload = ref(null);
             const otaPublicPageDiagnosisLoading = ref(false);
+            const otaPublicPageEvidenceSaving = ref(false);
             const otaPublicPageDiagnosisExecutionLoading = ref(false);
             const otaPublicPageDiagnosisExecutionIntent = ref(null);
             const otaPublicPageDiagnosisOperationSurfaceAccessible = ref(false);
+            const otaPublicPageDiagnosisOperationSurfaceStatus = ref('');
+            const otaPublicPageDiagnosisTaskBridge = ref({
+                state: 'no_intent',
+                create_status: 'available',
+                identity_version: null,
+                readback_status: 'not_applicable',
+                execution_intent: null,
+                operation_surface: { accessible: false, status: '' },
+            });
             const otaPublicPageDiagnosisTaskSchedule = ref({
                 assignee_id: String(user.value?.id || ''),
                 due_at: otaPublicPageTaskDateTime(1, 18),
@@ -1760,10 +1841,116 @@
                 }
             }, { immediate: true });
             const otaPublicPageDiagnosisTaskScheduleText = computed(() => {
-                const schedule = otaPublicPageDiagnosisTaskSchedule.value || {};
-                const owner = user.value?.realname || user.value?.username || `用户 #${schedule.assignee_id || '-'}`;
+                const persistedSchedule = otaPublicPageDiagnosisExecutionIntent.value?.target_value?.workflow_schedule;
+                const schedule = persistedSchedule && typeof persistedSchedule === 'object'
+                    ? persistedSchedule
+                    : (otaPublicPageDiagnosisTaskSchedule.value || {});
+                const assigneeId = Number(schedule.assignee_id || 0);
+                const currentUserId = Number(user.value?.id || 0);
+                const currentUserName = user.value?.realname || user.value?.username || '';
+                const persistedAssigneeName = String(otaPublicPageDiagnosisTaskBridge.value?.execution_intent?.assignee_name || '').trim();
+                const owner = persistedAssigneeName || (assigneeId > 0 && assigneeId === currentUserId && currentUserName
+                    ? currentUserName
+                    : `用户 #${assigneeId || '-'}`);
                 const format = value => String(value || '').replace('T', ' ').slice(0, 16) || '未设置';
                 return `负责人 ${owner} · 截止 ${format(schedule.due_at)} · 复核 ${format(schedule.review_at)}`;
+            });
+            const otaPublicPageDiagnosisTaskStatusText = computed(() => ({
+                draft: '草稿',
+                pending_approval: '待审批',
+                blocked: '审批阻塞',
+                rejected: '已驳回',
+                approved_pending_task: '已审批，待生成执行单',
+                pending_execute: '待执行',
+                executing: '执行中',
+                execution_blocked: '执行阻塞',
+                failed: '执行失败',
+                failure: '执行失败',
+                cancelled: '已取消',
+                canceled: '已取消',
+                execution_failed: '执行失败',
+                execution_evidence_missing: '已执行，缺少证据',
+                execution_evidence_partial: '已执行，仅人工举证',
+                execution_evidence_unverified: '已执行，证据未验证',
+                review_scheduled: '证据已验证，等待复核日',
+                pending_review: '待复核',
+                reviewed_success: '复核达成',
+                reviewed_near_success: '复核接近达成',
+                reviewed_failed: '复核未达成',
+                invalid_state: '状态异常',
+            }[String(otaPublicPageDiagnosisExecutionIntent.value?.lifecycle_status || '')] || '状态未回读'));
+            const otaPublicPageDiagnosisOperationSurfaceText = computed(() => {
+                if (!otaPublicPageDiagnosisExecutionIntent.value) return '';
+                if (otaPublicPageDiagnosisOperationSurfaceAccessible.value) return '可进入运营任务';
+                return ({
+                    module_not_entitled: '当前租户未开通运营模块',
+                    hotel_permission_denied: '当前账号无权进入该门店运营页',
+                    role_permission_denied: '当前账号无权进入运营页',
+                    operation_access_check_failed: '运营入口权限校验失败',
+                    operation_capability_unavailable: '运营入口暂不可用',
+                    operation_list_load_failed: '运营任务列表读取失败',
+                    task_not_visible_in_operation_list: '运营列表未回读到该任务',
+                    task_bridge_read_failed: '任务关联状态读取失败',
+                    task_readback_mismatch: '任务关联范围校验失败',
+                    permission_denied: '当前账号无权创建运营任务',
+                }[otaPublicPageDiagnosisOperationSurfaceStatus.value] || '运营入口暂不可用');
+            });
+            const otaPublicPageDiagnosisTaskReadbackText = computed(() => {
+                const intent = otaPublicPageDiagnosisExecutionIntent.value;
+                if (!intent) return '';
+                const identityText = String(intent.identity_version || '') === 'legacy_v1' ? '历史任务' : '当前任务';
+                const attempt = Math.max(1, Number(intent.intent_attempt || 1));
+                return `执行意图 #${Number(intent.id || 0)} · ${otaPublicPageDiagnosisTaskStatusText.value} · ${identityText}${attempt > 1 ? ` · 第 ${attempt} 次尝试` : ''} · ${otaPublicPageDiagnosisOperationSurfaceText.value}`;
+            });
+            const otaPublicPageDiagnosisTaskCanRetry = computed(() => {
+                const intent = otaPublicPageDiagnosisExecutionIntent.value;
+                if (!intent || !otaPublicPageDiagnosisOperationSurfaceAccessible.value) return false;
+                const status = String(intent.status || '').toLowerCase();
+                const lifecycle = String(intent.lifecycle_status || '').toLowerCase();
+                return ['rejected', 'failed', 'failure', 'cancelled', 'canceled'].includes(status)
+                    || ['execution_failed', 'reviewed_failed'].includes(lifecycle);
+            });
+            const otaPublicPageDiagnosisTaskCanReschedule = computed(() => {
+                const intent = otaPublicPageDiagnosisExecutionIntent.value;
+                return !!intent
+                    && otaPublicPageDiagnosisOperationSurfaceAccessible.value
+                    && ['draft', 'pending_approval'].includes(String(intent.status || '').toLowerCase());
+            });
+            const otaPublicPageDiagnosisTaskActionText = computed(() => {
+                if (otaPublicPageDiagnosisExecutionLoading.value) return '处理中';
+                if (otaPublicPageDiagnosisExecutionIntent.value) {
+                    if (otaPublicPageDiagnosisTaskCanRetry.value) return '重新创建待审批任务';
+                    if (otaPublicPageDiagnosisTaskCanReschedule.value) return '调整排期并打开';
+                    return otaPublicPageDiagnosisOperationSurfaceAccessible.value ? '打开运营任务' : '重新读取状态';
+                }
+                const bridgeState = String(otaPublicPageDiagnosisTaskBridge.value?.state || '');
+                const createStatus = String(otaPublicPageDiagnosisTaskBridge.value?.create_status || '');
+                if (bridgeState === 'readback_mismatch') return '重新读取状态';
+                if (bridgeState === 'create_blocked') {
+                    return createStatus === 'module_not_entitled' ? '运营模块未开通' : '当前不可转任务';
+                }
+                return '创建待审批任务';
+            });
+            const otaPublicPageDiagnosisTaskActionDisabled = computed(() => (
+                otaPublicPageDiagnosisExecutionLoading.value
+                || (String(otaPublicPageDiagnosisTaskBridge.value?.state || '') === 'create_blocked'
+                    && !otaPublicPageDiagnosisExecutionIntent.value)
+            ));
+            const otaPublicPageDiagnosisTaskBridgeNoticeText = computed(() => {
+                if (otaPublicPageDiagnosisExecutionIntent.value) return otaPublicPageDiagnosisTaskReadbackText.value;
+                const bridgeState = String(otaPublicPageDiagnosisTaskBridge.value?.state || '');
+                const status = String(otaPublicPageDiagnosisTaskBridge.value?.create_status || '');
+                if (bridgeState === 'readback_mismatch') return '关联任务回读不一致，诊断证据仍可查看；请重新读取状态。';
+                if (bridgeState !== 'create_blocked') return '';
+                return ({
+                    module_not_entitled: '当前租户未开通运营模块，本页不会创建不可操作的任务。',
+                    permission_denied: '当前账号无权创建该门店运营任务。',
+                    role_permission_denied: '当前角色无权进入运营任务闭环。',
+                    hotel_permission_denied: '当前账号无权进入该门店运营任务闭环。',
+                    operation_access_check_failed: '运营模块权限校验失败，本页未创建任务。',
+                    operation_capability_unavailable: '运营模块当前不可用，本页未创建任务。',
+                    task_bridge_read_failed: '任务关联状态读取失败，本页未创建新任务。',
+                }[status] || '当前无法创建运营任务。');
             });
             const otaPublicPageDiagnosisError = ref('');
             const otaPublicPageDiagnosisFilter = ref({
@@ -1771,12 +1958,41 @@
                 business_date: ctripCompetitiveLocalDate(0),
             });
             let otaPublicPageDiagnosisRequestSeq = 0;
+            let otaPublicPageDiagnosisExecutionRequestSeq = 0;
             const otaPublicPageDiagnosisCoverage = computed(() => otaPublicPageDiagnosisPayload.value?.evidence_coverage || {});
             const otaPublicPageDiagnosisDimensions = computed(() => (
                 Array.isArray(otaPublicPageDiagnosisPayload.value?.dimensions) ? otaPublicPageDiagnosisPayload.value.dimensions : []
             ));
             const otaPublicPageDiagnosisSources = computed(() => (
                 Array.isArray(otaPublicPageDiagnosisPayload.value?.sources) ? otaPublicPageDiagnosisPayload.value.sources : []
+            ));
+            const otaPublicPageEvidenceStatusText = (status) => ({
+                readback_verified: '已保存回读',
+                source_verified: '来源已验证',
+                verified: '已验证',
+                source_observed: '已观察（未验证）',
+                unverified: '未验证',
+                collection_failed: '采集失败',
+            }[String(status || '')] || String(status || '未记录'));
+            const otaPublicPageDiagnosisLatestDate = computed(() => String(
+                otaPublicPageDiagnosisPayload.value?.latest_available_date || ''
+            ).trim());
+            const otaPublicPageDiagnosisHasLatestSnapshotAction = computed(() => (
+                !!otaPublicPageDiagnosisLatestDate.value
+                && otaPublicPageDiagnosisLatestDate.value !== String(otaPublicPageDiagnosisFilter.value.business_date || '')
+            ));
+            const otaPublicPageEvidenceActionText = computed(() => {
+                if (otaPublicPageEvidenceSaving.value) return '保存中';
+                if (otaPublicPageDiagnosisHasLatestSnapshotAction.value) return `查看 ${otaPublicPageDiagnosisLatestDate.value}`;
+                return String(otaPublicPageDiagnosisFilter.value.platform || '') === 'ctrip' ? '刷新公开页' : '录入公开证据';
+            });
+            const otaPublicPageEvidenceActionDisabled = computed(() => (
+                !selectedCtripHotelId.value
+                || otaPublicPageDiagnosisLoading.value
+                || otaPublicPageDiagnosisExecutionLoading.value
+                || otaPublicPageEvidenceSaving.value
+                || ctripPublicProfileRefreshing.value
+                || (!otaPublicPageDiagnosisHasLatestSnapshotAction.value && !canMaintainOtaConfig())
             ));
             const ctripCompetitiveOperationsPayload = ref(null);
             const ctripCompetitiveOperationsLoading = ref(false);
@@ -1924,14 +2140,50 @@
             const ctripForm = ref(createCtripFetchForm());
             const ctripTrafficForm = ref(createCtripTrafficForm());
             const ctripTrafficView = ref('future');
+            const ctripTrafficBundleLoading = ref(false);
             const ctripTrafficSummary = ref(null);
             const ctripTrafficRows = ref([]);
             const ctripTrafficAnalysis = ref(null);
+            const ctripTrafficSummaryCards = Object.freeze([
+                { key: 'listExposure', label: '列表曝光量', tone: 'border-blue-200 bg-blue-50 divide-blue-200' },
+                { key: 'detailExposure', label: '详情访客量', tone: 'border-emerald-200 bg-emerald-50 divide-emerald-200' },
+                { key: 'flowRate', label: '曝光转化率', tone: 'border-amber-200 bg-amber-50 divide-amber-200', rate: true },
+                { key: 'orderFillRate', label: '下单转化率', tone: 'border-indigo-200 bg-indigo-50 divide-indigo-200', rate: true },
+                { key: 'submitRate', label: '成交转化率', tone: 'border-rose-200 bg-rose-50 divide-rose-200', rate: true },
+            ]);
+            const ctripTrafficCompareMetrics = Object.freeze([
+                { key: 'listExposure', label: '列表曝光', sortKey: 'selfListExposure' },
+                { key: 'detailExposure', label: '详情访客', sortKey: 'selfDetailExposure' },
+                { key: 'flowRate', label: '曝光转化率', sortKey: 'selfFlowRate', rate: true },
+                { key: 'orderFillingNum', label: '订单页访客', sortKey: 'selfOrderFillingNum' },
+                { key: 'orderFillRate', label: '下单转化率', sortKey: 'selfOrderFillRate', rate: true },
+                { key: 'orderSubmitNum', label: '订单提交人数', sortKey: 'selfOrderSubmitNum' },
+                { key: 'submitRate', label: '成交转化率', sortKey: 'selfSubmitRate', rate: true },
+            ]);
+            const ctripTrafficAnalysisMetrics = Object.freeze([
+                { key: 'exposure_gap', label: '曝光差距', color: 'text-blue-700' },
+                { key: 'detail_gap', label: '详情访客差距', color: 'text-green-700' },
+                { key: 'order_gap', label: '订单页访客差距', color: 'text-indigo-700' },
+                { key: 'submit_gap', label: '成交提交差距', color: 'text-rose-700' },
+                { key: 'potential_submit_gap', label: '潜在成交增量', color: 'text-orange-700' },
+                { key: 'exposure_achieve_rate', label: '曝光达成率', color: 'text-blue-700', rate: true },
+                { key: 'detail_achieve_rate', label: '详情访客达成率', color: 'text-green-700', rate: true },
+                { key: 'order_achieve_rate', label: '订单页达成率', color: 'text-indigo-700', rate: true },
+                { key: 'submit_achieve_rate', label: '成交达成率', color: 'text-rose-700', rate: true },
+                { key: 'max_loss_stage', label: '最大流失阶段', color: 'text-gray-800', text: true },
+            ]);
+            const formatCtripTrafficAnalysisMetric = (summary, metric) => {
+                const value = summary?.[metric.key];
+                if (metric.text) return value || '流失阶段未返回';
+                if (value == null) return '—';
+                return metric.rate ? `${toFixedSafe(value, 2)}%` : formatNumber(Math.round(value));
+            };
+            const ctripTrafficHistoryResult = ref(null);
             const ctripRealtimeTrafficRecord = ref(null);
             const ctripTrafficSortField = ref('date');
             const ctripTrafficSortOrder = ref('asc');
             const ctripRealtimeTrafficView = computed(() => {
-                if (ctripRealtimeTrafficRecord.value?.status === 'available') {
+                if (ctripRealtimeTrafficRecord.value) {
                     return ctripRealtimeTrafficRecord.value;
                 }
                 const rows = [
@@ -2388,6 +2640,7 @@
             const isMeituanOrderDataRow = requireMeituanStatic('isMeituanOrderDataRow');
             const isMeituanAdsDataRow = requireMeituanStatic('isMeituanAdsDataRow');
             const buildMeituanDownloadData = requireMeituanStatic('buildMeituanDownloadData');
+            const resolveMeituanAdsApplicability = requireMeituanStatic('resolveMeituanAdsApplicability');
             const buildMeituanOrderDomCollectorScript = requireMeituanStatic('buildMeituanOrderDomCollectorScript');
             const runMeituanOrderCsvImportFlow = requireMeituanStatic('runMeituanOrderCsvImportFlow');
             const shouldShowMeituanPreviousDayUpdateNotice = requireMeituanStatic('shouldShowMeituanPreviousDayUpdateNotice');
@@ -2656,6 +2909,7 @@
             const competitorSummary = ref(null);
             const competitorSummaryLoading = ref(false);
             const competitorSummaryLoadFailed = ref(false);
+            const competitorSummaryError = ref('');
             let competitorSummaryRequestSeq = 0;
             const hotelCompetitorSummaries = ref({});
             const resolveMeituanRankSourceNotice = requireMeituanStatic('resolveMeituanRankSourceNotice');
@@ -3155,10 +3409,47 @@
             const coreOperationsHotelId = ref('');
             const coreOperationsLoading = ref(false);
             const coreOperationsError = ref('');
+            const coreOperationsCanExecute = computed(() => {
+                const capability = operationExecutionFlow.value?.capabilities || {};
+                const hotelId = String(coreOperationsHotelId.value || '').trim();
+                return hotelId !== ''
+                    && String(capability.hotel_id || '') === hotelId
+                    && capability.can_execute === true;
+            });
+            const coreOperationsCanGenerateDiagnosis = computed(() => {
+                const capability = operationExecutionFlow.value?.capabilities || {};
+                const hotelId = String(coreOperationsHotelId.value || '').trim();
+                return hotelId !== ''
+                    && String(capability.hotel_id || '') === hotelId
+                    && capability.can_generate_diagnosis === true;
+            });
+            const coreOperationsCanCollect = computed(() => {
+                const capability = operationExecutionFlow.value?.capabilities || {};
+                const hotelId = String(coreOperationsHotelId.value || '').trim();
+                return hotelId !== ''
+                    && String(capability.hotel_id || '') === hotelId
+                    && capability.can_collect_ota === true;
+            });
+            const coreOperationsSourceFetchState = ref({
+                status: 'idle',
+                message: '',
+                hotelId: '',
+                targetDate: '',
+                runSeq: 0,
+                taskId: '',
+            });
+            let coreOperationsSourceFetchRunSeq = 0;
             const coreOperationsMetrics = ref({
                 ctrip: { status: 'not_loaded', data: null, message: '' },
                 meituan: { status: 'not_loaded', data: null, message: '' },
             });
+            const coreOperationsDiagnoses = ref({
+                ctrip: { status: 'not_loaded', data: null, message: '' },
+                meituan: { status: 'not_loaded', data: null, message: '' },
+            });
+            const coreOperationsDiagnosisGenerating = ref(false);
+            const coreOperationsDiagnosisGenerationMessage = ref('');
+            const coreOperationsDiagnosisIntentLoading = ref('');
             let coreOperationsRequestSeq = 0;
             const dailyWorkbenchPatrol = ref(null);
             const dailyWorkbenchPatrolLoading = ref(false);
@@ -6348,7 +6639,7 @@
             const revenueAiExecutionFocus = ref(null);
             let revenueAiOverviewRequestSeq = 0;
             const revenueAiStaticScript = 'revenue-ai-static.js';
-            const revenueAiStaticVersion = '20260715-truthful-not-loaded-h5b40853608';
+            const revenueAiStaticVersion = '20260715-truthful-not-loaded-h18eaf4e6ed';
             const revenueAiStaticNotLoadedText = 'Revenue AI 展示工具尚未加载';
             const revenueAiStaticNotLoadedClass = 'border-slate-200 bg-slate-100 text-slate-600';
             const revenueAiStaticReady = ref(!!window.SUXI_REVENUE_AI_STATIC);
@@ -6436,6 +6727,7 @@
                 aiDailyReportActionSources: () => '来源未加载',
                 aiDailyReportEvidenceTarget: () => ({ status: 'not_loaded', label: revenueAiStaticNotLoadedText, page: '' }),
                 aiDailyReportActionIsInvestigationOnly: () => true,
+                aiDailyReportActionExecutionReady: () => false,
                 aiDailyReportActionBlockedText: () => revenueAiStaticNotLoadedText,
                 aiDailyReportActionStatusText: () => '未加载',
                 aiDailyReportActionButtonText: () => '等待加载',
@@ -6476,6 +6768,12 @@
                     detailText: revenueAiStaticNotLoadedText,
                     createdCount: null,
                     skippedItems: [],
+                }),
+                normalizeMeituanCompetitionCircle: (payload = {}) => ({
+                    payload,
+                    accepted: false,
+                    status: 'not_loaded',
+                    errorMessage: revenueAiStaticNotLoadedText,
                 }),
                 buildCompetitorMicroscope: () => ({
                     status: 'empty',
@@ -6577,10 +6875,12 @@
             const revenueAiBuildExecutionSummary = requireRevenueAiStatic('buildRevenueAiExecutionSummary');
             const revenueAiBuildExecutionRows = requireRevenueAiStatic('buildRevenueAiExecutionRows');
             const revenueAiBuildEffectReviewRows = requireRevenueAiStatic('buildRevenueAiEffectReviewRows');
+            const revenueAiNormalizeMeituanCompetitionCircle = requireRevenueAiStatic('normalizeMeituanCompetitionCircle');
             const revenueAiBuildCompetitorMicroscope = requireRevenueAiStatic('buildCompetitorMicroscope');
             const aiDailyReportActionSources = requireRevenueAiStatic('aiDailyReportActionSources');
             const revenueAiDailyReportEvidenceTarget = requireRevenueAiStatic('aiDailyReportEvidenceTarget');
             const aiDailyReportActionIsInvestigationOnly = requireRevenueAiStatic('aiDailyReportActionIsInvestigationOnly');
+            const revenueAiDailyReportActionExecutionReady = requireRevenueAiStatic('aiDailyReportActionExecutionReady');
             const aiDailyReportActionBlockedText = requireRevenueAiStatic('aiDailyReportActionBlockedText');
             const aiDailyReportActionStatusText = requireRevenueAiStatic('aiDailyReportActionStatusText');
             const aiDailyReportActionButtonText = requireRevenueAiStatic('aiDailyReportActionButtonText');
@@ -7608,9 +7908,12 @@
             const competitorDevicesLoading = ref(false);
             const competitorDevicesError = ref('');
             const competitorDevicesStale = ref(false);
+            const competitorDevicePagination = ref({ total: 0, page: 1, page_size: 20, total_page: 1 });
             const competitorDevicePlatforms = ref([]);
             const competitorDeviceSaving = ref(false);
             const competitorDeviceActionId = ref(0);
+            const competitorDeviceEditingId = ref(0);
+            const competitorDeviceTokenCopied = ref(false);
             const showCompetitorDeviceModal = ref(false);
             const competitorDeviceCredential = ref(null);
             const competitorDeviceForm = ref({
@@ -7619,9 +7922,11 @@
                 platform: '',
                 store_id: '',
                 user_id: '',
+                token_version: 0,
             });
             const competitorDeviceManagementReady = ref(false);
             const competitorDeviceManagementBody = shallowRef(null);
+            const competitorDeviceManagementError = ref('');
             let competitorDeviceManagementLoadPromise = null;
             const ensureCompetitorDeviceManagementReady = async () => {
                 if (competitorDeviceManagementReady.value && competitorDeviceManagementBody.value) {
@@ -7633,14 +7938,24 @@
                             const component = requireOnlineDataComponent('CompetitorDeviceManagementBody');
                             competitorDeviceManagementBody.value = markRaw(component);
                             competitorDeviceManagementReady.value = true;
+                            competitorDeviceManagementError.value = '';
                             return component;
                         })
                         .catch((error) => {
                             competitorDeviceManagementLoadPromise = null;
+                            competitorDeviceManagementError.value = error?.message || '竞对采集设备管理组件加载失败';
                             throw error;
                         });
                 }
                 return competitorDeviceManagementLoadPromise;
+            };
+            const retryCompetitorDeviceManagement = async () => {
+                competitorDeviceManagementError.value = '';
+                try {
+                    return await ensureCompetitorDeviceManagementReady();
+                } catch (error) {
+                    return null;
+                }
             };
             const competitorHotelFilter = ref({ store_id: '', platform: '', status: '' });
             const competitorLogFilter = ref({ store_id: '', platform: '', city: '', hotel_id: '' });
@@ -7848,7 +8163,10 @@
                 source_ref_missing_or_redacted: '来源引用缺失或已脱敏',
                 readback_unverified: '未完成入库回读',
                 ota_hotel_id_missing_or_unverified: '本条观测未记录或未核验 OTA 酒店 ID',
+                competitor_target_ota_identity_missing: '竞品目标缺少可核对的 OTA 酒店 ID',
+                ota_hotel_id_target_mismatch: '本条观测 OTA 酒店 ID 与竞品目标不一致',
                 observation_ota_identity_unverified: '历史观测未记录或未核验 OTA 酒店 ID',
+                observation_ota_identity_mismatch: '观测 OTA 酒店 ID 与竞品目标不一致',
                 competitor_ota_identity_binding_missing: '竞品目标未绑定 OTA 酒店 ID',
                 validation_status_not_eligible: '验证状态不可用于决策',
                 availability_scope_key_missing: '缺可售范围键',
@@ -8828,14 +9146,14 @@
                         return null;
                     }
                     await loadOnlineDataList({ cacheMs: ONLINE_DATA_PANEL_CACHE_TTL_MS });
-                    if (context.source === 'meituan') {
-                        await loadPlatformDataSources({ cacheMs: PLATFORM_SOURCE_PANEL_CACHE_TTL_MS });
-                    }
                     if (seq !== downloadCenterTabLoadSeq || !isCurrentTab()) return null;
                     scheduleDelayedPageTask(() => {
                         if (seq !== downloadCenterTabLoadSeq || !isCurrentTab()) return null;
                         return loadOnlineDataHotelList({ cacheMs: ONLINE_DATA_HOTEL_LIST_CACHE_TTL_MS });
                     }, 720);
+                    if (context.source === 'meituan') {
+                        void loadPlatformDataSources({ cacheMs: PLATFORM_SOURCE_PANEL_CACHE_TTL_MS });
+                    }
                     if (tab === 'ai') {
                         await ensureAiAnalysisStaticReady();
                         if (seq !== downloadCenterTabLoadSeq || !isCurrentTab()) return null;
@@ -9542,7 +9860,7 @@
 
                 const values = await openWorkflowFormDialog({
                     title: '补录真实 OTA 竞品观测',
-                    description: `入住 ${stayDate}、离店次日、2 成人、0 儿童、CNY。只填刚看到的公开页面事实；公开起价不会进入收益定价。`,
+                    description: `入住 ${stayDate}、离店次日、2 成人、0 儿童、CNY。只填刚看到的公开页面事实，并粘贴所选竞品卡片自己的链接；公开起价不会进入收益定价。`,
                     submitText: '保存并加入事件线',
                     fields: [
                         {
@@ -9556,7 +9874,7 @@
                         { name: 'availability', label: 'OTA 可售状态', type: 'select', required: true, value: 'bookable', options: [{ value: 'bookable', label: '可订' }, { value: 'sold_out', label: '售罄' }, { value: 'unavailable', label: '不可订' }] },
                         { name: 'price', label: '页面可见起价（CNY）', type: 'number', placeholder: '售罄/不可订可留空' },
                         { name: 'source_surface', label: '公开页面类型', type: 'select', required: true, value: 'public_nearby_card', options: [{ value: 'public_nearby_card', label: '附近酒店公开卡片' }, { value: 'public_hotel_page', label: '酒店公开详情页' }] },
-                        { name: 'source_ref', label: '本次观测来源 URL', type: 'url', required: true, placeholder: 'OTA 公开页面 URL' },
+                        { name: 'source_ref', label: '所选竞品卡片/详情页 URL', type: 'url', required: true, placeholder: '链接必须包含该竞品 OTA 酒店 ID' },
                     ],
                 });
                 if (!values) return;
@@ -10517,7 +10835,7 @@
                 return ['127.0.0.1', 'localhost', '::1'].includes(hostname);
             };
 
-            const triggerPlatformProfileLogin = async (platform, item = null) => {
+            const triggerPlatformProfileLogin = async (platform, item = null, options = {}) => {
                 const hotelId = getAutoFetchHotelId();
                 if (!hotelId) {
                     showToast('请先选择酒店', 'error');
@@ -10551,9 +10869,11 @@
                     if (!canLaunchLocalPlatformProfileBrowser()) {
                         clearPlatformProfileLoginTimer(platform);
                         browserAssistImportForm.value.system_hotel_id = String(hotelId);
-                        currentPage.value = 'online-data';
-                        await nextTick();
-                        openPlatformSourcesTab({ force: true, delayMs: 0 });
+                        if (options.keepCurrentSurface !== true) {
+                            currentPage.value = 'online-data';
+                            await nextTick();
+                            openPlatformSourcesTab({ force: true, delayMs: 0 });
+                        }
                         openTargetSite(localPlatformAuthorizationUrl(platform));
                         showToast(clientLocalAuthorizationRequired(platform), 'warning');
                         upsertPlatformProfileLoginTask(platform, {
@@ -10675,14 +10995,14 @@
                 }
             };
 
-            const loginPlatformProfile = async (item) => {
+            const loginPlatformProfile = async (item, options = {}) => {
                 const hotelId = getAutoFetchHotelId();
                 if (!hotelId || !item?.platform) {
                     showToast('请先选择酒店和平台账号', 'error');
                     return;
                 }
                 fillPlatformProfileForms(item);
-                await triggerPlatformProfileLogin(item.platform, item);
+                await triggerPlatformProfileLogin(item.platform, item, options);
             };
 
             const probePlatformProfileStatus = async (item) => {
@@ -10887,6 +11207,104 @@
                 }
             };
 
+            const requestOtaDiagnosis = body => request('/agent/ota-diagnosis', {
+                method: 'POST',
+                body: JSON.stringify(body),
+            });
+            const readSavedOtaDiagnosis = (hotelId, platform, targetDate) => {
+                const params = new URLSearchParams({
+                    hotel_id: String(hotelId),
+                    platform: String(platform),
+                    start_date: String(targetDate),
+                    end_date: String(targetDate),
+                });
+                return request(`/agent/ota-diagnosis?${params.toString()}`);
+            };
+
+            const loadCoreOperationsDiagnoses = async (hotelId, targetDate, requestSeq) => {
+                const loadPlatform = async (platform) => {
+                    try {
+                        const res = await readSavedOtaDiagnosis(hotelId, platform, targetDate);
+                        const diagnosis = res?.data?.diagnosis;
+                        if (res?.code === 200 && diagnosis && typeof diagnosis === 'object') {
+                            return {
+                                status: String(diagnosis.decision_status || diagnosis.decision_closure?.status || 'ready'),
+                                data: diagnosis,
+                                message: String(res.message || ''),
+                            };
+                        }
+                        if (res?.code === 200 && String(res?.data?.status || '') === 'missing') {
+                            return {
+                                status: 'not_generated',
+                                data: null,
+                                message: `${platform === 'ctrip' ? '携程' : '美团'}目标日尚无已保存诊断，请显式生成。`,
+                            };
+                        }
+                        return {
+                            status: String(res?.code === 403 ? 'permission_denied' : 'failed'),
+                            data: null,
+                            message: String(res?.message || `${platform} OTA诊断未返回`),
+                        };
+                    } catch (error) {
+                        return {
+                            status: 'failed',
+                            data: null,
+                            message: String(error?.message || `${platform} OTA诊断加载失败`),
+                        };
+                    }
+                };
+                const [ctrip, meituan] = await Promise.all([loadPlatform('ctrip'), loadPlatform('meituan')]);
+                if (requestSeq === coreOperationsRequestSeq) {
+                    coreOperationsDiagnoses.value = { ctrip, meituan };
+                }
+            };
+            const generateCoreOperationsDiagnoses = async () => {
+                const hotelId = String(coreOperationsHotelId.value || '').trim();
+                const targetDate = String(coreOperationsTargetDate.value || '').trim();
+                if (!coreOperationsCanGenerateDiagnosis.value) {
+                    coreOperationsDiagnosisGenerationMessage.value = '当前账号只有诊断查看权限，不能生成或覆盖诊断记录。';
+                    return;
+                }
+                if (!hotelId || !/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+                    coreOperationsDiagnosisGenerationMessage.value = '请先选择门店和有效目标日。';
+                    return;
+                }
+                if (coreOperationsDiagnosisGenerating.value) return;
+                const hotel = operationHotelOptions.value.find(item => String(item?.id || '') === hotelId) || null;
+                coreOperationsDiagnosisGenerating.value = true;
+                coreOperationsDiagnosisGenerationMessage.value = '正在基于当前目标日入库证据生成并保存双平台规则诊断。';
+                try {
+                    const settled = await Promise.allSettled(['ctrip', 'meituan'].map(platform => requestOtaDiagnosis({
+                        hotel_id: hotelId,
+                        hotel_name: String(hotel?.name || ''),
+                        platform,
+                        start_date: targetDate,
+                        end_date: targetDate,
+                        analysis_type: 'all',
+                        analysis_mode: 'rules_only',
+                    })));
+                    const responses = settled
+                        .filter(result => result.status === 'fulfilled')
+                        .map(result => result.value);
+                    const savedCount = responses.filter(res => (
+                        res?.code === 200
+                        && res?.data?.saved_record?.saved === true
+                        && res?.data?.saved_record?.readback_verified === true
+                    )).length;
+                    const requestFailureCount = settled.filter(result => result.status === 'rejected').length;
+                    coreOperationsDiagnosisGenerationMessage.value = savedCount === 2
+                        ? '双平台诊断均已保存并回读；是否可转任务仍由证据与决策状态决定。'
+                        : `仅 ${savedCount}/2 平台诊断完成保存回读${requestFailureCount ? `，另有 ${requestFailureCount} 个请求失败` : ''}；失败平台不会按成功处理。`;
+                    await refreshCoreOperationsLoop({ hotelId, targetDate });
+                    showToast(coreOperationsDiagnosisGenerationMessage.value, savedCount === 2 ? 'success' : (savedCount > 0 ? 'warning' : 'error'));
+                } catch (error) {
+                    coreOperationsDiagnosisGenerationMessage.value = `双平台诊断生成失败：${String(error?.message || '未知错误')}`;
+                    showToast(coreOperationsDiagnosisGenerationMessage.value, 'error');
+                } finally {
+                    coreOperationsDiagnosisGenerating.value = false;
+                }
+            };
+
             const coreOperationsOffsetDate = (dateText, offsetDays) => {
                 const parsed = new Date(`${dateText}T12:00:00`);
                 if (Number.isNaN(parsed.getTime())) return dateText;
@@ -10895,21 +11313,53 @@
                 return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}`;
             };
 
+            const resetCoreOperationsScopedState = () => {
+                coreOperationsMetrics.value = {
+                    ctrip: { status: 'not_loaded', data: null, message: '' },
+                    meituan: { status: 'not_loaded', data: null, message: '' },
+                };
+                coreOperationsDiagnoses.value = {
+                    ctrip: { status: 'not_loaded', data: null, message: '' },
+                    meituan: { status: 'not_loaded', data: null, message: '' },
+                };
+                coreOperationsDiagnosisGenerationMessage.value = '';
+                dailyWorkbench.value = null;
+                dailyWorkbenchError.value = '';
+                dailyWorkbenchPatrol.value = null;
+                dailyWorkbenchPatrolError.value = '';
+                phase3OperationEffectLoop.value = null;
+                phase3OperationEffectLoopLedger.value = null;
+                phase3OperationEffectLoopError.value = '';
+                ctripCompetitiveOperationsPayload.value = null;
+                ctripCompetitiveOperationsError.value = '';
+                competitorSummary.value = null;
+                competitorSummaryLoadFailed.value = false;
+                competitorSummaryError.value = '';
+                coreOperationsLoading.value = false;
+            };
+
             const refreshCoreOperationsLoop = async (options = {}) => {
                 const hotelId = String(options.hotelId || coreOperationsHotelId.value || getAutoFetchHotelId() || '').trim();
                 const targetDate = String(options.targetDate || coreOperationsTargetDate.value || coreOperationsMaxDate).trim();
                 const requestSeq = ++coreOperationsRequestSeq;
                 coreOperationsError.value = '';
                 if (!hotelId) {
+                    resetCoreOperationsScopedState();
                     coreOperationsHotelId.value = '';
                     coreOperationsError.value = '请先选择一家可访问酒店，再读取昨日经营闭环。';
                     return;
                 }
                 if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate) || targetDate > coreOperationsMaxDate) {
+                    resetCoreOperationsScopedState();
                     coreOperationsError.value = '经营闭环目标日必须是昨日或更早日期。';
                     return;
                 }
 
+                const scopeChanged = hotelId !== String(coreOperationsHotelId.value || '')
+                    || targetDate !== String(coreOperationsTargetDate.value || '');
+                if (scopeChanged || options.resetScope === true) {
+                    resetCoreOperationsScopedState();
+                }
                 coreOperationsHotelId.value = hotelId;
                 coreOperationsTargetDate.value = targetDate;
                 autoFetchHotelId.value = hotelId;
@@ -10918,6 +11368,7 @@
                 try {
                     const jobs = [
                         loadCoreOperationsMetrics(hotelId, targetDate, requestSeq),
+                        loadCoreOperationsDiagnoses(hotelId, targetDate, requestSeq),
                         loadCtripCompetitiveOperations({
                             systemHotelId: hotelId,
                             startDate: coreOperationsOffsetDate(targetDate, -29),
@@ -10932,6 +11383,7 @@
                             force: true,
                         }),
                         loadDailyWorkbenchPatrols({ hotelId, targetDate }),
+                        loadPlatformProfileStatus({ silent: true, force: true }),
                         loadOperationActions(),
                     ];
                     if (options.includeDailyWorkbench !== false) {
@@ -11459,6 +11911,325 @@
                     loadBackendGlobalNotifications: scheduleBackendNotificationRefresh,
                 });
             };
+            const coreOperationsSourceFetchVisibleState = computed(() => {
+                const state = coreOperationsSourceFetchState.value || {};
+                const sameHotel = String(state.hotelId || '') === String(coreOperationsHotelId.value || '');
+                const sameDate = String(state.targetDate || '') === String(coreOperationsTargetDate.value || '');
+                return sameHotel && sameDate ? state : { status: 'idle', message: '' };
+            });
+            const coreOperationsProfileSessionRows = computed(() => {
+                const hotelId = String(coreOperationsHotelId.value || '').trim();
+                return ['ctrip', 'meituan'].map(platform => {
+                    const item = platformProfileStatusByPlatform.value?.[platform] || null;
+                    const source = getBrowserProfileDataSourceByHotelAndPlatform(hotelId, platform);
+                    const statusCode = String(item?.status_code || '').toLowerCase();
+                    const currentSessionVerified = item?.binding_contract?.current_session_verified === true
+                        && statusCode === 'logged_in';
+                    return {
+                        platform,
+                        label: platform === 'ctrip' ? '携程' : '美团',
+                        item,
+                        hasProfile: Boolean(source || Number(item?.data_source_id || 0) > 0),
+                        currentSessionVerified,
+                        statusCode: statusCode || 'unverified',
+                    };
+                });
+            });
+            const coreOperationsProfileSessionBlockedRows = computed(() => (
+                coreOperationsProfileSessionRows.value.filter(row => row.hasProfile && !row.currentSessionVerified)
+            ));
+            const coreOperationsSourceFetchRunning = computed(() => (
+                ['checking_session', 'submitting', 'running', 'verifying'].includes(String(coreOperationsSourceFetchVisibleState.value.status || ''))
+            ));
+            const coreOperationsSourceFetchActionText = computed(() => {
+                const status = String(coreOperationsSourceFetchVisibleState.value.status || '');
+                if (coreOperationsProfileSessionBlockedRows.value.length > 0) return '先验证平台登录';
+                if (status === 'checking_session') return '检查会话中';
+                if (status === 'submitting') return '正在提交';
+                if (status === 'running' || fetchingData.value) return '后台采集中';
+                if (status === 'verifying') return '回读核验中';
+                return '补采双平台昨日数据';
+            });
+            const coreOperationsSourceFetchStatusClass = computed(() => {
+                const status = String(coreOperationsSourceFetchVisibleState.value.status || '');
+                if (status === 'verified') return 'border-emerald-200 bg-emerald-50 text-emerald-800';
+                if (['login_required', 'partial', 'unverified', 'verified_existing'].includes(status)) return 'border-amber-200 bg-amber-50 text-amber-800';
+                if (status === 'failed') return 'border-red-200 bg-red-50 text-red-800';
+                return 'border-blue-200 bg-blue-50 text-blue-800';
+            });
+            const coreOperationsSourceFetchModeText = computed(() => {
+                const hotelId = String(coreOperationsHotelId.value || '').trim();
+                if (!hotelId) return '选择门店后检查双平台来源';
+                const profileCount = ['ctrip', 'meituan'].filter(platform => (
+                    Boolean(getBrowserProfileDataSourceByHotelAndPlatform(hotelId, platform))
+                )).length;
+                if (profileCount === 2) return '双平台均使用已绑定 Profile';
+                if (profileCount === 1) return '1 个平台使用 Profile；另 1 个平台使用已配置辅助来源';
+                return '未绑定 Profile；仅在已有辅助采集配置时可执行';
+            });
+            const prepareCoreOperationsProfileSession = async (row = {}) => {
+                const hotelId = String(coreOperationsHotelId.value || '').trim();
+                const targetDate = String(coreOperationsTargetDate.value || '').trim();
+                if (!coreOperationsCanCollect.value) {
+                    showToast('当前账号没有所选门店的 OTA 采集权限', 'warning');
+                    return;
+                }
+                if (!hotelId || !row?.platform) {
+                    showToast('请先选择门店和平台', 'error');
+                    return;
+                }
+                autoFetchHotelId.value = hotelId;
+                const item = row.item || platformProfileStatusByPlatform.value?.[row.platform] || null;
+                if (!item) {
+                    coreOperationsSourceFetchState.value = {
+                        status: 'login_required',
+                        message: `${row.label || '平台'} Profile 状态未加载，请刷新闭环后重试。`,
+                        hotelId,
+                        targetDate,
+                        runSeq: Number(coreOperationsSourceFetchState.value?.runSeq || 0),
+                    };
+                    return;
+                }
+                coreOperationsSourceFetchState.value = {
+                    status: 'login_required',
+                    message: `正在打开${row.label}本机授权；完成平台验证后系统会按 ${targetDate} 同步，随后仍需目标日数据库回读。`,
+                    hotelId,
+                    targetDate,
+                    runSeq: Number(coreOperationsSourceFetchState.value?.runSeq || 0),
+                };
+                await loginPlatformProfile(
+                    { ...item, target_date: targetDate, data_date: targetDate },
+                    { keepCurrentSurface: true }
+                );
+            };
+            const coreOperationsSourceFetchFailureText = (message = '') => {
+                const text = String(message || '').trim();
+                if (/login|unauthorized|forbidden|401|403|登录|授权|过期/i.test(text)) {
+                    return '平台登录状态未就绪，请账号使用者完成本机授权后重试；本次未计为采集成功。';
+                }
+                if (/config|profile|binding|store|poi|配置|绑定|门店标识|未配置/i.test(text)) {
+                    return '平台来源或门店绑定未就绪，请在本页“数据源状态 / 证据链”补齐后重试；本次未计为采集成功。';
+                }
+                return '后台采集未完成，请查看本页数据源状态与失败原因；本次未计为采集成功。';
+            };
+            const coreOperationsFetchPlatformOutcome = (platformResults = []) => {
+                const rows = Array.isArray(platformResults) ? platformResults : [];
+                const byPlatform = new Map();
+                rows.forEach(row => {
+                    const platform = String(row?.platform || '').trim().toLowerCase();
+                    if (['ctrip', 'meituan'].includes(platform)) byPlatform.set(platform, row || {});
+                });
+                const results = [
+                    { platform: 'ctrip', label: '携程' },
+                    { platform: 'meituan', label: '美团' },
+                ].map(({ platform, label }) => {
+                    const row = byPlatform.get(platform);
+                    const succeeded = row?.success === true && row?.skipped !== true;
+                    return {
+                        platform,
+                        label,
+                        present: Boolean(row),
+                        succeeded,
+                        skipped: row?.skipped === true,
+                        savedCount: Math.max(0, Number(row?.saved_count || 0)),
+                    };
+                });
+                const successCount = results.filter(item => item.succeeded).length;
+                return {
+                    results,
+                    successCount,
+                    allSucceeded: successCount === results.length,
+                    savedCount: results.reduce((total, item) => total + item.savedCount, 0),
+                    summary: results.map(item => `${item.label}${item.succeeded ? '成功' : (item.skipped ? '已跳过' : (item.present ? '失败' : '未返回'))}`).join('、'),
+                };
+            };
+            const finalizeCoreOperationsSourceFetchReadback = async ({
+                runSeq,
+                backendSucceeded = false,
+                backendMessage = '',
+                platformResults = [],
+                savedCount = 0,
+            } = {}) => {
+                const state = coreOperationsSourceFetchState.value || {};
+                if (!runSeq || Number(state.runSeq || 0) !== Number(runSeq)) return;
+                const runOutcome = coreOperationsFetchPlatformOutcome(platformResults);
+                const strictBackendSucceeded = backendSucceeded === true && runOutcome.allSucceeded;
+                const runSavedCount = Math.max(Number(savedCount || 0), Number(runOutcome.savedCount || 0));
+                const hotelId = String(state.hotelId || '').trim();
+                const targetDate = String(state.targetDate || '').trim();
+                const scopeStillVisible = hotelId === String(coreOperationsHotelId.value || '').trim()
+                    && targetDate === String(coreOperationsTargetDate.value || '').trim();
+                if (!scopeStillVisible) {
+                    coreOperationsSourceFetchState.value = {
+                        ...state,
+                        status: strictBackendSucceeded ? 'unverified' : (runOutcome.successCount > 0 ? 'partial' : 'failed'),
+                        message: strictBackendSucceeded
+                            ? `本次平台结果：${runOutcome.summary}。但当前已切换门店或日期；返回原目标范围并刷新后才能确认入库回读。`
+                            : coreOperationsSourceFetchFailureText(backendMessage),
+                    };
+                    return;
+                }
+
+                coreOperationsSourceFetchState.value = {
+                    ...state,
+                    status: 'verifying',
+                    message: `本次平台结果：${runOutcome.summary}。正在重新读取目标日数据；此时仍不计为成功。`,
+                };
+                await refreshCoreOperationsLoop({ hotelId, targetDate });
+                if (Number(coreOperationsSourceFetchState.value?.runSeq || 0) !== Number(runSeq)) return;
+
+                const platformCards = Array.isArray(coreOperationsPlatformCards.value)
+                    ? coreOperationsPlatformCards.value
+                    : [];
+                const verifiedPlatforms = platformCards.filter(item => item.truthStatus === 'verified').length;
+                const evidencePlatforms = platformCards.filter(item => (
+                    Number(item.sourceRows || 0) > 0
+                    || item.metrics.some(metric => metric.calculationStatus === 'calculated')
+                )).length;
+                const verifiedMetrics = platformCards.reduce((total, item) => total + Number(item.verifiedMetricCount || 0), 0);
+                const readbackText = `目标日回读：${verifiedPlatforms}/2 平台完整验证，${evidencePlatforms}/2 平台有证据，${verifiedMetrics}/8 项经营指标已验证。`;
+                if (!strictBackendSucceeded) {
+                    coreOperationsSourceFetchState.value = {
+                        ...state,
+                        status: runOutcome.successCount > 0 ? 'partial' : 'failed',
+                        message: `本次双平台未全部成功（${runOutcome.summary}）。${coreOperationsSourceFetchFailureText(backendMessage)}${readbackText}`,
+                    };
+                    return;
+                }
+                const verifiedExisting = verifiedPlatforms === 2 && runSavedCount === 0;
+                coreOperationsSourceFetchState.value = {
+                    ...state,
+                    status: verifiedPlatforms === 2
+                        ? (verifiedExisting ? 'verified_existing' : 'verified')
+                        : (evidencePlatforms > 0 ? 'partial' : 'unverified'),
+                    message: verifiedPlatforms === 2
+                        ? (verifiedExisting
+                            ? `本次携程、美团均返回成功，但未新增写入；仅确认已有目标日证据可回读，不冒充本次新采集。${readbackText}`
+                            : `本次携程、美团均成功，并完成数据库目标日回读。${readbackText}`)
+                        : `采集任务已结束，但真实经营证据仍未补齐，不能进入成功态。${readbackText}`,
+                };
+            };
+            const runCoreOperationsYesterdayFetch = async () => {
+                const hotelId = String(coreOperationsHotelId.value || '').trim();
+                const targetDate = String(coreOperationsTargetDate.value || '').trim();
+                const runSeq = ++coreOperationsSourceFetchRunSeq;
+                const setFailure = message => {
+                    coreOperationsSourceFetchState.value = {
+                        status: 'failed',
+                        message,
+                        hotelId,
+                        targetDate,
+                        runSeq,
+                    };
+                };
+                if (!coreOperationsCanCollect.value) {
+                    setFailure('当前账号缺少 OTA 数据采集权限，未发起任何平台请求。');
+                    return { status: 'permission_denied' };
+                }
+                if (!hotelId) {
+                    setFailure('请先选择目标门店，未发起任何平台请求。');
+                    return { status: 'missing_hotel' };
+                }
+                if (targetDate !== coreOperationsMaxDate) {
+                    setFailure(`同页补采仅支持昨日 ${coreOperationsMaxDate}；更早日期请使用历史补抓并在此页回读。`);
+                    return { status: 'unsupported_target_date' };
+                }
+                if (fetchingData.value || coreOperationsSourceFetchRunning.value) {
+                    showToast('已有平台采集任务正在执行，请等待目标日回读完成', 'warning');
+                    return { status: 'already_running' };
+                }
+                if (!canTriggerAutoFetchByHotelId(hotelId)) {
+                    setFailure('双平台均没有可用的 Profile 或辅助采集配置，请先在本页补齐来源与门店绑定。');
+                    return { status: 'missing_source' };
+                }
+
+                autoFetchHotelId.value = hotelId;
+                coreOperationsSourceFetchState.value = {
+                    status: 'checking_session',
+                    message: '正在读取双平台当天会话证据；未验证前不会发起正式采集。',
+                    hotelId,
+                    targetDate,
+                    runSeq,
+                };
+                await loadPlatformProfileStatus({ silent: true, force: true });
+                const loginBlockedRows = coreOperationsProfileSessionBlockedRows.value;
+                if (loginBlockedRows.length > 0) {
+                    const platformText = loginBlockedRows.map(row => row.label).join('、');
+                    setFailure(`${platformText}今天的 Profile 会话尚未验证，请先使用本区“验证/登录”按钮；未发起正式采集。`);
+                    coreOperationsSourceFetchState.value.status = 'login_required';
+                    return { status: 'login_required', platforms: loginBlockedRows.map(row => row.platform) };
+                }
+
+                const ctripMode = coreOperationsProfileSessionRows.value.find(row => row.platform === 'ctrip')?.hasProfile
+                    ? 'profile_browser'
+                    : 'cookie_config';
+                const meituanMode = coreOperationsProfileSessionRows.value.find(row => row.platform === 'meituan')?.hasProfile
+                    ? 'profile_browser'
+                    : 'cookie_config';
+                coreOperationsSourceFetchState.value = {
+                    status: 'submitting',
+                    message: '正在提交双平台昨日采集；提交成功不等于数据成功，任务结束后将自动回读。',
+                    hotelId,
+                    targetDate,
+                    runSeq,
+                };
+                const result = await triggerAutoFetch({
+                    dataPeriod: 'historical_daily',
+                    requestBodyExtra: {
+                        auto_fetch_mode: 'hybrid_auto',
+                        ctrip_auto_fetch_mode: ctripMode,
+                        meituan_auto_fetch_mode: meituanMode,
+                    },
+                });
+                if (Number(coreOperationsSourceFetchState.value?.runSeq || 0) !== runSeq) return result;
+                if (result?.status === 'accepted') {
+                    if (coreOperationsSourceFetchState.value.status === 'submitting') {
+                        coreOperationsSourceFetchState.value = {
+                            ...coreOperationsSourceFetchState.value,
+                            status: 'running',
+                            taskId: String(result?.response?.data?.task_id || ''),
+                            message: '后台采集中；当前不计成功，任务结束后将自动回读目标日数据库证据。',
+                        };
+                    }
+                    return result;
+                }
+                await finalizeCoreOperationsSourceFetchReadback({
+                    runSeq,
+                    backendSucceeded: result?.status === 'success',
+                    backendMessage: result?.response?.message || result?.error?.message || result?.status || '',
+                    platformResults: result?.response?.data?.platform_results || [],
+                    savedCount: Number(result?.response?.data?.saved_count || 0),
+                });
+                return result;
+            };
+            watch(autoFetchRunState, (current, previous) => {
+                const state = coreOperationsSourceFetchState.value || {};
+                if (state.status !== 'running' || current?.active === true) return;
+                const taskJustFinished = previous?.active === true || Boolean(current?.finished_at);
+                if (!taskJustFinished) return;
+                const expectedTaskId = String(state.taskId || '').trim();
+                const completedTaskId = String(autoFetchStatus.value?.last_result?.task_id || '').trim();
+                const completedDataDate = String(autoFetchStatus.value?.last_data_date || '').trim();
+                const completedDataPeriod = String(autoFetchStatus.value?.last_result?.data_period || '').trim();
+                if (!expectedTaskId || completedTaskId !== expectedTaskId
+                    || completedDataDate !== String(state.targetDate || '')
+                    || completedDataPeriod !== 'historical_daily'
+                ) {
+                    coreOperationsSourceFetchState.value = {
+                        ...state,
+                        status: 'failed',
+                        message: '后台完成状态与本次任务、门店目标日或采集口径不一致；未计成功，请刷新状态后重试。',
+                    };
+                    return;
+                }
+                void finalizeCoreOperationsSourceFetchReadback({
+                    runSeq: Number(state.runSeq || 0),
+                    backendSucceeded: current?.type === 'success',
+                    backendMessage: current?.message || '',
+                    platformResults: autoFetchStatus.value?.last_result?.platform_results || [],
+                    savedCount: Number(autoFetchStatus.value?.last_result?.saved_count || 0),
+                });
+            }, { deep: true });
             const triggerCookieConfigAutoFetch = async (hotelId = '', options = {}) => {
                 const targetHotelId = String(hotelId || getAutoFetchHotelId() || '').trim();
                 if (!targetHotelId) {
@@ -11637,20 +12408,10 @@
                 pageLoadRequests.set(key, { loadedAt: current?.loadedAt || 0, promise });
                 return promise;
             };
-            const activateAiWorkbenchAfterLogin = () => {
-                const targetPage = 'ai-workbench';
-                const pageChanged = currentPage.value !== targetPage;
-                currentPage.value = targetPage;
-                if (pageChanged) {
-                    // The currentPage watcher owns the first workbench load.
-                    return;
-                }
-
-                homeSecondaryPanelsReady.value = false;
-                scheduleHomeSecondaryPanelsReady();
-                scheduleDualOtaWorkbenchAutoFetch();
-                scheduleDualOtaSystemMetricDrilldownHydration();
-                runPageLoadOnce(targetPage, 'main', () => loadCompassData({ skipOtaBackground: true }));
+            const activateCoreOperationsAfterLogin = () => {
+                // Login/default-session entry owns only the default landing page. Explicit
+                // deep links are preserved by the mounted-session guard below.
+                return openOnlineDataEntryTab('data-health');
             };
             const isVisibleOnlineDataTab = isOnlineDataTabVisible;
             const schedulePlatformDataSourcePanelLoad = (options = {}) => runPageLoadOnce(
@@ -12141,7 +12902,7 @@
                         ensureCompetitorDeviceManagementReady(),
                         loadCompetitorDeviceWorkbench(),
                     ]).catch((error) => {
-                        competitorDevicesError.value = error?.message || '竞对采集设备管理加载失败';
+                        competitorDeviceManagementError.value = error?.message || '竞对采集设备管理组件加载失败';
                         return null;
                     }));
                 }
@@ -12564,8 +13325,19 @@
             const BOSS_PAGE_TITLE_OVERRIDES = {
                 'ai-workbench': '今日经营看板',
                 compass: '今日结论',
+                'online-data': '昨日经营闭环',
             };
             const BOSS_VISIBLE_NAVIGATION_CONFIG = [
+                {
+                    type: 'source',
+                    sourcePath: 'online-data',
+                    sourceTab: 'data-health',
+                    overrides: {
+                        name: '昨日经营闭环',
+                        icon: 'fas fa-rotate',
+                        testid: 'nav-core-operations-loop',
+                    },
+                },
                 {
                     type: 'source',
                     sourcePath: 'compass',
@@ -12593,7 +13365,6 @@
                     icon: 'fas fa-cloud-download-alt',
                     testid: 'nav-lean-ota-data',
                     children: [
-                        { type: 'source', sourcePath: 'online-data', sourceTab: 'data-health', overrides: { name: '数据可信度' } },
                         { type: 'source', sourcePath: 'ctrip-ebooking', overrides: { name: '携程数据' } },
                         { type: 'source', sourcePath: 'meituan-ebooking', overrides: { name: '美团数据' } },
                     ],
@@ -13325,6 +14096,38 @@
             const showPermissionModal = ref(false);
             const showSystemConfigModal = ref(false);
             const showDataConfigModal = ref(false);
+            const dataConfigDialogsReady = ref(false);
+            const dataConfigDialogsBody = shallowRef(null);
+            const dataConfigDialogsError = ref('');
+            let dataConfigDialogsLoadPromise = null;
+            const ensureDataConfigDialogsReady = async () => {
+                if (dataConfigDialogsReady.value && dataConfigDialogsBody.value) {
+                    return dataConfigDialogsBody.value;
+                }
+                if (!dataConfigDialogsLoadPromise) {
+                    dataConfigDialogsLoadPromise = loadOnlineDataComponentScript(dataConfigDialogsScript)
+                        .then(() => {
+                            const component = requireSystemComponent('DataConfigDialogsBody');
+                            dataConfigDialogsBody.value = markRaw(component);
+                            dataConfigDialogsReady.value = true;
+                            dataConfigDialogsError.value = '';
+                            return component;
+                        })
+                        .catch((error) => {
+                            dataConfigDialogsLoadPromise = null;
+                            dataConfigDialogsError.value = error?.message || '数据配置组件加载失败';
+                            throw error;
+                        });
+                }
+                return dataConfigDialogsLoadPromise;
+            };
+            const retryDataConfigDialogs = () => {
+                dataConfigDialogsError.value = '';
+                return ensureDataConfigDialogsReady().catch((error) => {
+                    console.error('数据配置组件加载失败:', error);
+                    return null;
+                });
+            };
             const showAiModelConfigModal = ref(false);
             const aiModelConfigs = ref([]);
             const aiModelConfigLoading = ref(false);
@@ -14509,6 +15312,203 @@
                 if (value && typeof value === 'object') return Object.entries(value).map(([key, item]) => `${key}:${item}`).join('；') || '未知';
                 return value === null || value === undefined || String(value).trim() === '' ? '未知' : String(value);
             };
+            const resetOtaPublicPageDiagnosisTaskSchedule = () => {
+                otaPublicPageDiagnosisTaskSchedule.value = {
+                    assignee_id: String(user.value?.id || ''),
+                    due_at: otaPublicPageTaskDateTime(1, 18),
+                    review_at: otaPublicPageTaskDateTime(2, 10),
+                };
+            };
+            const applyOtaPublicPageDiagnosisTaskBridge = (bridge, expectedScope) => {
+                const failReadback = () => {
+                    otaPublicPageDiagnosisTaskBridge.value = {
+                        state: 'readback_mismatch',
+                        create_status: 'task_bridge_read_failed',
+                        identity_version: String(bridge?.identity_version || '') || null,
+                        readback_status: 'readback_mismatch',
+                        execution_intent: null,
+                        operation_surface: { accessible: false, status: 'task_readback_mismatch' },
+                    };
+                    otaPublicPageDiagnosisExecutionIntent.value = null;
+                    otaPublicPageDiagnosisOperationSurfaceAccessible.value = false;
+                    otaPublicPageDiagnosisOperationSurfaceStatus.value = 'task_readback_mismatch';
+                    return false;
+                };
+                if (!bridge || typeof bridge !== 'object' || Array.isArray(bridge)) return failReadback();
+                const state = String(bridge.state || '');
+                if (!['no_intent', 'create_blocked', 'existing_intent', 'readback_mismatch'].includes(state)) return failReadback();
+                const operationSurface = bridge.operation_surface && typeof bridge.operation_surface === 'object'
+                    ? bridge.operation_surface
+                    : { accessible: false, status: 'operation_capability_unavailable' };
+
+                otaPublicPageDiagnosisTaskBridge.value = bridge;
+                otaPublicPageDiagnosisExecutionIntent.value = null;
+                otaPublicPageDiagnosisOperationSurfaceAccessible.value = operationSurface.accessible === true;
+                otaPublicPageDiagnosisOperationSurfaceStatus.value = String(operationSurface.status || 'operation_capability_unavailable');
+
+                if (state === 'readback_mismatch') return failReadback();
+                if (state === 'no_intent') {
+                    if (bridge.execution_intent || String(bridge.readback_status || '') !== 'not_applicable') return failReadback();
+                    resetOtaPublicPageDiagnosisTaskSchedule();
+                    return true;
+                }
+                if (state === 'create_blocked') {
+                    if (bridge.execution_intent || String(bridge.create_status || '') === 'available') return failReadback();
+                    resetOtaPublicPageDiagnosisTaskSchedule();
+                    return true;
+                }
+
+                const summary = bridge.execution_intent;
+                const schedule = summary?.workflow_schedule;
+                const intentId = Number(summary?.id || 0);
+                const expectedHotelId = Number(expectedScope?.systemHotelId || 0);
+                const expectedPlatform = String(expectedScope?.platform || '').toLowerCase();
+                if (String(bridge.readback_status || '') !== 'readback_verified'
+                    || !Number.isInteger(intentId) || intentId <= 0
+                    || Number(summary?.hotel_id || 0) !== expectedHotelId
+                    || String(summary?.platform || '').toLowerCase() !== expectedPlatform
+                    || !String(summary?.lifecycle_status || '')
+                    || !schedule || typeof schedule !== 'object'
+                    || Number(schedule.assignee_id || 0) <= 0
+                    || !String(schedule.due_at || '').trim()
+                    || !String(schedule.review_at || '').trim()
+                ) return failReadback();
+
+                const normalizedSchedule = {
+                    ...schedule,
+                    assignee_id: Number(schedule.assignee_id),
+                };
+                otaPublicPageDiagnosisExecutionIntent.value = {
+                    id: intentId,
+                    hotel_id: expectedHotelId,
+                    platform: expectedPlatform,
+                    status: String(summary.approval_status || ''),
+                    lifecycle_status: String(summary.lifecycle_status || ''),
+                    task_status: String(summary.task_status || ''),
+                    identity_version: String(summary.identity_version || bridge.identity_version || ''),
+                    intent_attempt: Math.max(1, Number(summary.intent_attempt || 1)),
+                    retry_of_intent_id: Number(summary.retry_of_intent_id || 0),
+                    assignee_name: String(summary.assignee_name || ''),
+                    execution_lifecycle: summary.execution_lifecycle || {},
+                    target_value: { workflow_schedule: normalizedSchedule },
+                };
+                otaPublicPageDiagnosisTaskSchedule.value = {
+                    assignee_id: String(normalizedSchedule.assignee_id),
+                    due_at: String(normalizedSchedule.due_at || '').replace(' ', 'T').slice(0, 16),
+                    review_at: String(normalizedSchedule.review_at || '').replace(' ', 'T').slice(0, 16),
+                };
+                return true;
+            };
+            const editOtaPublicPageDiagnosisTaskSchedule = async () => {
+                const schedule = otaPublicPageDiagnosisTaskSchedule.value || {};
+                const values = await openWorkflowFormDialog({
+                    title: otaPublicPageDiagnosisExecutionIntent.value ? '调整待审批任务排期' : '设置待审批任务排期',
+                    description: '仅更新宿析OS待审批执行意图，不会写入携程或美团。复核时间必须晚于截止时间。',
+                    submitText: '确认排期',
+                    fields: [
+                        { name: 'assignee_id', label: '负责人用户 ID', type: 'number', required: true, value: String(schedule.assignee_id || '') },
+                        { name: 'due_at', label: '截止时间', type: 'datetime-local', required: true, value: String(schedule.due_at || '') },
+                        { name: 'review_at', label: '复核时间', type: 'datetime-local', required: true, value: String(schedule.review_at || '') },
+                    ],
+                });
+                if (values === null) return false;
+                otaPublicPageDiagnosisTaskSchedule.value = {
+                    assignee_id: String(values.assignee_id || '').trim(),
+                    due_at: String(values.due_at || '').trim(),
+                    review_at: String(values.review_at || '').trim(),
+                };
+                return true;
+            };
+            const parseOtaPublicPageJsonObject = (value, label) => {
+                let parsed;
+                try {
+                    parsed = JSON.parse(String(value || '').trim() || '{}');
+                } catch {
+                    throw new Error(`${label}必须是有效 JSON 对象`);
+                }
+                if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                    throw new Error(`${label}必须是 JSON 对象`);
+                }
+                return parsed;
+            };
+            const saveMeituanPublicPageEvidence = async () => {
+                const systemHotelId = String(selectedCtripHotelId.value || '').trim();
+                const businessDate = String(otaPublicPageDiagnosisFilter.value.business_date || '').trim();
+                const config = findMeituanConfigByHotelId(systemHotelId) || {};
+                const configuredPoiId = String(config.poi_id || config.poiId || '').trim();
+                const now = new Date();
+                const localNow = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+                const collectedAt = businessDate === ctripCompetitiveLocalDate(0) ? localNow : `${businessDate}T12:00`;
+                const values = await openWorkflowFormDialog({
+                    title: '录入美团消费者公开页证据',
+                    description: '只录入消费者公开页可见事实；字段与定位 JSON 的键必须对应。保存后来源仍为人工观察，不借用商家后台数据。',
+                    submitText: '保存并回读',
+                    fields: [
+                        { name: 'role', label: '对象', type: 'select', required: true, value: 'self', options: [{ value: 'self', label: '本店' }, { value: 'competitor', label: '竞品' }] },
+                        { name: 'ota_hotel_id', label: '美团公开酒店/POI ID', type: 'number', required: true, value: configuredPoiId },
+                        { name: 'source_url', label: '消费者公开页 HTTPS 地址', type: 'url', required: true, value: '' },
+                        { name: 'collected_at', label: '页面核对时间', type: 'datetime-local', required: true, value: collectedAt },
+                        { name: 'fields_json', label: '公开页字段 JSON', type: 'textarea', required: true, value: '{}', placeholder: '{"name":"页面可见酒店名","rating":4.8}' },
+                        { name: 'evidence_paths_json', label: '字段定位 JSON', type: 'textarea', required: true, value: '{}', placeholder: '{"name":"页面标题","rating":"评分区域"}' },
+                        { name: 'screenshot_ref', label: '截图引用（可选）', value: '' },
+                    ],
+                });
+                if (values === null) return null;
+                let fields;
+                let evidencePaths;
+                try {
+                    fields = parseOtaPublicPageJsonObject(values.fields_json, '公开页字段');
+                    evidencePaths = parseOtaPublicPageJsonObject(values.evidence_paths_json, '字段定位');
+                } catch (error) {
+                    showToast(String(error?.message || '公开页证据 JSON 格式错误'), 'error');
+                    return null;
+                }
+                otaPublicPageEvidenceSaving.value = true;
+                otaPublicPageDiagnosisError.value = '';
+                try {
+                    const res = await request('/online-data/public-page-evidence', {
+                        method: 'POST',
+                        businessContext: { hotelId: systemHotelId, platform: 'meituan' },
+                        body: JSON.stringify({
+                            system_hotel_id: Number(systemHotelId),
+                            platform: 'meituan',
+                            business_date: businessDate,
+                            ota_hotel_id: String(values.ota_hotel_id || '').trim(),
+                            role: String(values.role || 'self'),
+                            source_url: String(values.source_url || '').trim(),
+                            collected_at: String(values.collected_at || '').trim(),
+                            fields,
+                            evidence_paths: evidencePaths,
+                            screenshot_ref: String(values.screenshot_ref || '').trim(),
+                        }),
+                    });
+                    if (res?.code !== 200 || res?.data?.status !== 'saved_readback_verified') {
+                        throw new Error(res?.message || '美团公开页证据保存回读失败');
+                    }
+                    const savedDate = String(res.data?.profile?.data_date || businessDate).trim();
+                    if (savedDate) otaPublicPageDiagnosisFilter.value.business_date = savedDate;
+                    await loadOtaPublicPageDiagnosis({ silent: true });
+                    showToast(res.message || '美团公开页证据已保存并回读', 'success');
+                    return res.data;
+                } catch (error) {
+                    otaPublicPageDiagnosisError.value = String(error?.message || '美团公开页证据保存失败');
+                    showToast(otaPublicPageDiagnosisError.value, 'error');
+                    return null;
+                } finally {
+                    otaPublicPageEvidenceSaving.value = false;
+                }
+            };
+            const handleOtaPublicPageEvidenceAction = async () => {
+                if (otaPublicPageDiagnosisHasLatestSnapshotAction.value) {
+                    otaPublicPageDiagnosisFilter.value.business_date = otaPublicPageDiagnosisLatestDate.value;
+                    return loadOtaPublicPageDiagnosis();
+                }
+                if (String(otaPublicPageDiagnosisFilter.value.platform || '') === 'ctrip') {
+                    otaPublicPageDiagnosisFilter.value.business_date = ctripCompetitiveLocalDate(0);
+                    return refreshCtripPublicProfiles();
+                }
+                return saveMeituanPublicPageEvidence();
+            };
             const loadOtaPublicPageDiagnosis = async (options = {}) => {
                 const systemHotelId = String(options.systemHotelId || selectedCtripHotelId.value || '').trim();
                 const platform = String(otaPublicPageDiagnosisFilter.value.platform || 'ctrip').trim().toLowerCase();
@@ -14518,12 +15518,25 @@
                     otaPublicPageDiagnosisPayload.value = null;
                     otaPublicPageDiagnosisExecutionIntent.value = null;
                     otaPublicPageDiagnosisOperationSurfaceAccessible.value = false;
+                    otaPublicPageDiagnosisOperationSurfaceStatus.value = '';
+                    otaPublicPageDiagnosisTaskBridge.value = {
+                        state: 'no_intent', create_status: 'available', identity_version: null,
+                        readback_status: 'not_applicable', execution_intent: null,
+                        operation_surface: { accessible: false, status: '' },
+                    };
                     otaPublicPageDiagnosisError.value = '';
                     return null;
                 }
                 if (!['ctrip', 'meituan'].includes(platform) || !/^\d{4}-\d{2}-\d{2}$/.test(businessDate)) {
                     otaPublicPageDiagnosisPayload.value = null;
                     otaPublicPageDiagnosisExecutionIntent.value = null;
+                    otaPublicPageDiagnosisOperationSurfaceAccessible.value = false;
+                    otaPublicPageDiagnosisOperationSurfaceStatus.value = '';
+                    otaPublicPageDiagnosisTaskBridge.value = {
+                        state: 'readback_mismatch', create_status: 'invalid_scope', identity_version: null,
+                        readback_status: 'readback_mismatch', execution_intent: null,
+                        operation_surface: { accessible: false, status: 'task_readback_mismatch' },
+                    };
                     otaPublicPageDiagnosisError.value = '请选择平台和有效业务日期';
                     if (options.silent !== true) showToast(otaPublicPageDiagnosisError.value, 'warning');
                     return null;
@@ -14531,6 +15544,7 @@
                 otaPublicPageDiagnosisLoading.value = true;
                 otaPublicPageDiagnosisExecutionIntent.value = null;
                 otaPublicPageDiagnosisOperationSurfaceAccessible.value = false;
+                otaPublicPageDiagnosisOperationSurfaceStatus.value = '';
                 otaPublicPageDiagnosisError.value = '';
                 try {
                     const res = await request(
@@ -14539,17 +15553,34 @@
                     );
                     if (requestSeq !== otaPublicPageDiagnosisRequestSeq
                         || systemHotelId !== String(selectedCtripHotelId.value || '')
+                        || platform !== String(otaPublicPageDiagnosisFilter.value.platform || '').trim().toLowerCase()
+                        || businessDate !== String(otaPublicPageDiagnosisFilter.value.business_date || '').trim()
                     ) return null;
                     if (res?.code !== 200 || !res?.data || !Array.isArray(res.data.dimensions)) {
                         throw new Error(res?.message || 'OTA 公开页诊断返回格式不完整');
                     }
                     otaPublicPageDiagnosisPayload.value = res.data;
+                    const bridgeApplied = applyOtaPublicPageDiagnosisTaskBridge(res.data.task_bridge, {
+                        systemHotelId,
+                        platform,
+                        businessDate,
+                    });
+                    if (!bridgeApplied) {
+                        otaPublicPageDiagnosisError.value = '诊断证据已读取，但关联任务回读不一致';
+                        if (options.silent !== true) showToast(otaPublicPageDiagnosisError.value, 'warning');
+                    }
                     return res.data;
                 } catch (error) {
                     if (requestSeq !== otaPublicPageDiagnosisRequestSeq) return null;
                     otaPublicPageDiagnosisPayload.value = null;
                     otaPublicPageDiagnosisExecutionIntent.value = null;
                     otaPublicPageDiagnosisOperationSurfaceAccessible.value = false;
+                    otaPublicPageDiagnosisOperationSurfaceStatus.value = '';
+                    otaPublicPageDiagnosisTaskBridge.value = {
+                        state: 'readback_mismatch', create_status: 'task_bridge_read_failed', identity_version: null,
+                        readback_status: 'readback_mismatch', execution_intent: null,
+                        operation_surface: { accessible: false, status: 'task_bridge_read_failed' },
+                    };
                     otaPublicPageDiagnosisError.value = String(error?.message || 'OTA 公开页诊断读取失败');
                     if (options.silent !== true) showToast(otaPublicPageDiagnosisError.value, 'error');
                     return null;
@@ -14557,15 +15588,44 @@
                     if (requestSeq === otaPublicPageDiagnosisRequestSeq) otaPublicPageDiagnosisLoading.value = false;
                 }
             };
+            const openOtaPublicPageDiagnosisExecutionIntent = async (intent) => {
+                const intentId = Number(intent?.id || 0);
+                const hotelId = Number(intent?.hotel_id || 0);
+                if (!Number.isInteger(intentId) || intentId <= 0 || !Number.isInteger(hotelId) || hotelId <= 0) {
+                    otaPublicPageDiagnosisOperationSurfaceAccessible.value = false;
+                    otaPublicPageDiagnosisOperationSurfaceStatus.value = 'task_not_visible_in_operation_list';
+                    return false;
+                }
+                operationFilters.value.hotel_id = String(hotelId);
+                revenueAiExecutionFocus.value = { intentId };
+                await loadOperationActions({ focusIntentId: intentId });
+                if (operationError.value.actions) {
+                    otaPublicPageDiagnosisOperationSurfaceAccessible.value = false;
+                    otaPublicPageDiagnosisOperationSurfaceStatus.value = 'operation_list_load_failed';
+                    return false;
+                }
+                const taskIsVisible = operationExecutionItems.value.some(item => Number(item?.id || 0) === intentId);
+                if (!taskIsVisible) {
+                    otaPublicPageDiagnosisOperationSurfaceAccessible.value = false;
+                    otaPublicPageDiagnosisOperationSurfaceStatus.value = 'task_not_visible_in_operation_list';
+                    return false;
+                }
+                otaPublicPageDiagnosisOperationSurfaceAccessible.value = true;
+                otaPublicPageDiagnosisOperationSurfaceStatus.value = 'available';
+                currentPage.value = 'ops-track';
+                await nextTick();
+                requestAnimationFrame(() => {
+                    document.querySelector(`[data-operation-execution-intent-id="${intentId}"]`)
+                        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                });
+                return true;
+            };
             const createOtaPublicPageDiagnosisExecutionIntent = async () => {
+                if (otaPublicPageDiagnosisExecutionLoading.value) return null;
                 const diagnosis = otaPublicPageDiagnosisPayload.value;
                 const systemHotelId = String(selectedCtripHotelId.value || '').trim();
                 const platform = String(otaPublicPageDiagnosisFilter.value.platform || '').trim().toLowerCase();
                 const businessDate = String(otaPublicPageDiagnosisFilter.value.business_date || '').trim();
-                const schedule = otaPublicPageDiagnosisTaskSchedule.value || {};
-                const assigneeId = Number(schedule.assignee_id || 0);
-                const dueAt = String(schedule.due_at || '').trim();
-                const reviewAt = String(schedule.review_at || '').trim();
                 if (!diagnosis || !systemHotelId) {
                     showToast('请先读取当前门店的公开页证据诊断', 'warning');
                     return null;
@@ -14577,15 +15637,69 @@
                     showToast('门店、平台或日期已变化，请重新读取诊断后再转任务', 'warning');
                     return null;
                 }
+                const existingIntent = otaPublicPageDiagnosisExecutionIntent.value;
+                const bridgeState = String(otaPublicPageDiagnosisTaskBridge.value?.state || '');
+                const willRetry = !!existingIntent && otaPublicPageDiagnosisTaskCanRetry.value;
+                const willReschedule = !!existingIntent && otaPublicPageDiagnosisTaskCanReschedule.value;
+                if (willRetry) {
+                    resetOtaPublicPageDiagnosisTaskSchedule();
+                } else if (willReschedule) {
+                    const confirmed = await editOtaPublicPageDiagnosisTaskSchedule();
+                    if (!confirmed) return existingIntent;
+                } else if (existingIntent || bridgeState === 'readback_mismatch') {
+                    otaPublicPageDiagnosisExecutionLoading.value = true;
+                    try {
+                        if (existingIntent && otaPublicPageDiagnosisOperationSurfaceAccessible.value) {
+                            const opened = await openOtaPublicPageDiagnosisExecutionIntent(existingIntent);
+                            showToast(
+                                opened
+                                    ? `已定位执行意图 #${Number(existingIntent.id)}`
+                                    : `执行意图 #${Number(existingIntent.id)} 已回读；${otaPublicPageDiagnosisOperationSurfaceText.value}`,
+                                opened ? 'success' : 'warning'
+                            );
+                            return existingIntent;
+                        }
+                        const refreshed = await loadOtaPublicPageDiagnosis({ silent: true });
+                        showToast(refreshed ? '任务关联状态已重新读取' : '任务关联状态读取失败', refreshed ? 'success' : 'warning');
+                        return otaPublicPageDiagnosisExecutionIntent.value;
+                    } finally {
+                        otaPublicPageDiagnosisExecutionLoading.value = false;
+                    }
+                }
+                if (bridgeState === 'create_blocked') {
+                    const createStatus = String(otaPublicPageDiagnosisTaskBridge.value?.create_status || 'operation_capability_unavailable');
+                    const message = ({
+                        module_not_entitled: '当前租户未开通运营模块，未创建任务',
+                        permission_denied: '当前账号无权创建该门店运营任务',
+                        role_permission_denied: '当前角色无权创建运营任务',
+                        hotel_permission_denied: '当前账号无权创建该门店运营任务',
+                        operation_access_check_failed: '运营模块权限校验失败，未创建任务',
+                    }[createStatus] || '当前运营模块不可用，未创建任务');
+                    showToast(message, 'warning');
+                    return null;
+                }
+
+                if (!existingIntent && new Date(otaPublicPageDiagnosisTaskSchedule.value?.due_at || '').getTime() <= Date.now()) {
+                    resetOtaPublicPageDiagnosisTaskSchedule();
+                }
+                const schedule = otaPublicPageDiagnosisTaskSchedule.value || {};
+                const assigneeId = Number(schedule.assignee_id || 0);
+                const dueAt = String(schedule.due_at || '').trim();
+                const reviewAt = String(schedule.review_at || '').trim();
                 if (!assigneeId || !dueAt || !reviewAt) {
                     showToast('请确认负责人、截止时间和复核时间', 'warning');
                     return null;
                 }
-                if (new Date(reviewAt).getTime() < new Date(dueAt).getTime()) {
-                    showToast('复核时间不能早于截止时间', 'warning');
+                if (new Date(dueAt).getTime() <= Date.now()) {
+                    showToast('截止时间必须晚于当前时间', 'warning');
+                    return null;
+                }
+                if (new Date(reviewAt).getTime() <= new Date(dueAt).getTime()) {
+                    showToast('复核时间必须晚于截止时间', 'warning');
                     return null;
                 }
 
+                const requestSeq = ++otaPublicPageDiagnosisExecutionRequestSeq;
                 otaPublicPageDiagnosisExecutionLoading.value = true;
                 otaPublicPageDiagnosisError.value = '';
                 try {
@@ -14601,61 +15715,50 @@
                             review_at: reviewAt,
                         }),
                     });
-                    const intentId = Number(res?.data?.execution_intent?.id || 0);
-                    if (res?.code !== 200 || !Number.isInteger(intentId) || intentId <= 0) {
+                    if (requestSeq !== otaPublicPageDiagnosisExecutionRequestSeq
+                        || systemHotelId !== String(selectedCtripHotelId.value || '').trim()
+                        || platform !== String(otaPublicPageDiagnosisFilter.value.platform || '').trim().toLowerCase()
+                        || businessDate !== String(otaPublicPageDiagnosisFilter.value.business_date || '').trim()
+                    ) return null;
+                    if (res?.code !== 200 || !res?.data?.task_bridge) {
                         throw new Error(res?.message || '公开页诊断转任务结果不完整');
                     }
-                    const persistedIntent = res.data.execution_intent;
-                    const persistedSchedule = persistedIntent?.target_value?.workflow_schedule || {};
-                    const reusedExistingIntent = res.data?.reused_existing_intent === true;
-                    const assignmentReadbackStatus = String(res.data?.assignment_readback_status || '');
-                    const operationSurfaceAccessible = res.data?.operation_surface_accessible === true;
-                    const intentStatus = String(persistedIntent?.status || '').trim().toLowerCase();
-                    const normalizeScheduleDateTime = value => String(value || '').replace('T', ' ').slice(0, 16);
-                    const scheduleMatches = Number(persistedSchedule.assignee_id || 0) === assigneeId
-                        && normalizeScheduleDateTime(persistedSchedule.due_at) === normalizeScheduleDateTime(dueAt)
-                        && normalizeScheduleDateTime(persistedSchedule.review_at) === normalizeScheduleDateTime(reviewAt);
-                    if (Number(persistedIntent.hotel_id || 0) !== Number(systemHotelId)
-                        || String(persistedIntent.source_module || '') !== 'ota_diagnosis'
-                        || String(persistedIntent.platform || '').toLowerCase() !== platform
-                        || String(persistedIntent.object_type || '') !== 'data_collection'
-                        || String(persistedIntent.date_start || '').slice(0, 10) !== businessDate
-                        || String(res.data?.execution_intent_readback_status || '') !== 'readback_verified'
-                        || !intentStatus
-                        || (!scheduleMatches && !(reusedExistingIntent && assignmentReadbackStatus === 'existing_schedule_preserved'))
-                    ) {
+                    const applied = applyOtaPublicPageDiagnosisTaskBridge(res.data.task_bridge, {
+                        systemHotelId,
+                        platform,
+                        businessDate,
+                    });
+                    const persistedIntent = otaPublicPageDiagnosisExecutionIntent.value;
+                    if (!applied || !persistedIntent) {
                         throw new Error('运营任务回读范围与当前公开页诊断不一致');
                     }
-                    otaPublicPageDiagnosisExecutionIntent.value = persistedIntent;
-                    otaPublicPageDiagnosisOperationSurfaceAccessible.value = operationSurfaceAccessible;
-                    if (operationSurfaceAccessible) {
-                        operationFilters.value.hotel_id = systemHotelId;
-                        currentPage.value = 'ops-track';
-                        await nextTick();
-                        await loadOperationActions();
-                    }
-                    const intentStatusLabel = ({
-                        pending_approval: '待审批', approved: '已审批', rejected: '已驳回',
-                        executing: '执行中', completed: '已完成', failed: '执行失败', cancelled: '已取消',
-                    })[intentStatus] || intentStatus;
-                    const successText = !reusedExistingIntent
-                        ? `待审批运营任务草稿 #${intentId} 已创建并回读`
-                        : (intentStatus === 'pending_approval'
-                            ? (assignmentReadbackStatus === 'existing_schedule_preserved'
-                                ? `已打开现有运营任务草稿 #${intentId}，保留原排期`
-                                : `已打开现有运营任务草稿 #${intentId}`)
-                            : `已打开现有运营记录 #${intentId}（${intentStatusLabel}）`);
+                    const openedOperationTask = otaPublicPageDiagnosisOperationSurfaceAccessible.value
+                        ? await openOtaPublicPageDiagnosisExecutionIntent(persistedIntent)
+                        : false;
+                    const intentId = Number(persistedIntent.id || 0);
+                    const successText = res.data?.retry_performed === true
+                        ? `第 ${Number(res.data.intent_attempt || persistedIntent.intent_attempt || 1)} 次待审批执行意图 #${intentId} 已创建并回读`
+                        : (res.data?.schedule_updated === true
+                            ? `执行意图 #${intentId} 排期已更新并回读`
+                            : (res.data?.create_performed === true
+                                ? `待审批执行意图 #${intentId} 已创建并回读`
+                                : `现有执行意图 #${intentId} 已回读（${otaPublicPageDiagnosisTaskStatusText.value}）`));
                     showToast(
-                        operationSurfaceAccessible ? successText : `${successText}；运营模块未开通，已在本页保留回读编号`,
-                        'success'
+                        openedOperationTask
+                            ? successText
+                            : `${successText}；${otaPublicPageDiagnosisOperationSurfaceText.value}，已在本页保留回读编号`,
+                        openedOperationTask ? 'success' : 'warning'
                     );
                     return persistedIntent;
                 } catch (error) {
+                    if (requestSeq !== otaPublicPageDiagnosisExecutionRequestSeq) return null;
                     otaPublicPageDiagnosisError.value = String(error?.message || 'OTA 公开页诊断转任务失败');
                     showToast(otaPublicPageDiagnosisError.value, 'error');
                     return null;
                 } finally {
-                    otaPublicPageDiagnosisExecutionLoading.value = false;
+                    if (requestSeq === otaPublicPageDiagnosisExecutionRequestSeq) {
+                        otaPublicPageDiagnosisExecutionLoading.value = false;
+                    }
                 }
             };
             const loadCtripCompetitiveOperations = async (options = {}) => {
@@ -16803,7 +17906,7 @@
             const platformSyncActionText = (message) => autoFetchStatic.value?.platformSyncActionText?.(message) || '';
 
             const operationStaticScript = 'operation-static.js';
-            const operationStaticScriptVersion = '20260719-h08b0d114a0';
+            const operationStaticScriptVersion = '20260719-h41c2131a16';
             let operationStaticLoadPromise = null;
             const loadOperationStatic = () => {
                 const currentStatic = window.SUXI_OPERATION_STATIC;
@@ -17302,7 +18405,13 @@
             let buildOperationSourceBrief = () => ({ status: '-', summary: '', className: 'bg-gray-50 text-gray-500' });
             let buildOperationDecisionCards = () => [];
             let operationCanApproveExecution = (item) => item?.approval?.status === 'pending_approval';
-            let operationCanExecuteWithEvidence = (item) => ['pending_execute', 'executing'].includes(item?.execution?.status || '') && Number(item?.execution?.task_id || 0) > 0;
+            const operationExecutionAssignedToCurrentUser = (item) => {
+                const assigneeId = Number(item?.assignment?.assignee_id || 0);
+                return assigneeId <= 0 || assigneeId === Number(user.value?.id || 0);
+            };
+            let operationCanExecuteWithEvidence = (item) => ['pending_execute', 'executing'].includes(item?.execution?.status || '')
+                && Number(item?.execution?.task_id || 0) > 0
+                && operationExecutionAssignedToCurrentUser(item);
             let operationCanReviewExecution = (item) => item?.execution?.status === 'executed' && item?.review?.is_available !== false && !['success', 'near_success', 'failed'].includes(item?.review?.status || '') && Number(item?.execution?.task_id || 0) > 0;
             let operationExecutionActionAvailable = (item) => operationCanApproveExecution(item) || operationCanExecuteWithEvidence(item) || operationCanReviewExecution(item);
             const operationExecutionRowClass = (item) => {
@@ -17385,9 +18494,14 @@
                     buildOperationSourceBrief = requireOperationStatic(staticConfig, 'buildOperationSourceBrief');
                     buildOperationDecisionCards = requireOperationStatic(staticConfig, 'buildOperationDecisionCards');
                     operationCanApproveExecution = requireOperationStatic(staticConfig, 'operationCanApproveExecution');
-                    operationCanExecuteWithEvidence = requireOperationStatic(staticConfig, 'operationCanExecuteWithEvidence');
+                    const staticCanExecuteWithEvidence = requireOperationStatic(staticConfig, 'operationCanExecuteWithEvidence');
+                    operationCanExecuteWithEvidence = (item) => staticCanExecuteWithEvidence(item)
+                        && operationExecutionAssignedToCurrentUser(item);
                     operationCanReviewExecution = requireOperationStatic(staticConfig, 'operationCanReviewExecution');
-                    operationExecutionActionAvailable = requireOperationStatic(staticConfig, 'operationExecutionActionAvailable');
+                    requireOperationStatic(staticConfig, 'operationExecutionActionAvailable');
+                    operationExecutionActionAvailable = (item) => operationCanApproveExecution(item)
+                        || operationCanExecuteWithEvidence(item)
+                        || operationCanReviewExecution(item);
                     buildOperationExecutionTraceRows = requireOperationStatic(staticConfig, 'buildOperationExecutionTraceRows');
                     buildOperationExecutionSummaryCards = requireOperationStatic(staticConfig, 'buildOperationExecutionSummaryCards');
                     operationExecutionBottleneckTextForSummary = requireOperationStatic(staticConfig, 'operationExecutionBottleneckText');
@@ -17850,7 +18964,7 @@
             const aiDailyReportAbnormalMetrics = computed(() => aiDailyReportObjectList(aiDailyReport.value?.abnormal_metrics, 'evidence'));
             const aiDailyReportCompetitorChanges = computed(() => aiDailyReportObjectList(aiDailyReport.value?.competitor_changes, 'label'));
             const aiDailyReportSourceCount = computed(() => aiDailyReportList(aiDailyReport.value?.source_refs).length);
-            const aiDailyReportTransferableCount = computed(() => aiDailyReportActions.value.filter(action => action && !action.execution_intent_id && action.can_create_execution_intent !== false).length);
+            const aiDailyReportTransferableCount = computed(() => aiDailyReportActions.value.filter(action => action && !action.execution_intent_id && revenueAiDailyReportActionExecutionReady(action)).length);
             const aiDailyReportResultReadiness = computed(() => aiDailyReport.value?.result_readiness || aiDailyReport.value?.result_status || null);
             const aiDailyReportWorkflowReadiness = computed(() => aiDailyReport.value?.workflow_readiness || aiDailyReport.value?.workflow_status || aiDailyReport.value?.report_readiness || null);
             const aiDailyReportReadiness = computed(() => aiDailyReportWorkflowReadiness.value);
@@ -17950,11 +19064,11 @@
                 if (aiDailyReportActionIsInvestigationOnly(action)) return 'bg-slate-100 text-slate-700 border-slate-200';
                 if (action?.action_readiness?.stage) return aiDailyReportReadinessClass(action.action_readiness.stage);
                 if (action?.execution_intent_id && !action?.execution_blocked_reason) return 'bg-green-50 text-green-700';
-                if (action?.execution_intent_id || action?.can_create_execution_intent === false) return 'bg-amber-50 text-amber-700';
+                if (action?.execution_intent_id || !revenueAiDailyReportActionExecutionReady(action)) return 'bg-amber-50 text-amber-700';
                 return 'bg-blue-50 text-blue-700';
             };
             const handleAiDailyReportActionPrimary = async (action, index) => {
-                if (action?.can_create_execution_intent === false || aiDailyReportActionBlockedText(action)) {
+                if (!revenueAiDailyReportActionExecutionReady(action) || aiDailyReportActionBlockedText(action)) {
                     await openAiDailyReportEvidenceTarget({
                         ...action,
                         source_ref: aiDailyReportActionSources(action),
@@ -18277,6 +19391,7 @@
             const operationSourceBrief = computed(() => buildOperationSourceBrief(operationFullData.value));
             const operationDecisionCards = computed(() => buildOperationDecisionCards(operationFullData.value || {}, operationDisplayFormatters));
             const operationUnreadCount = computed(() => operationAlerts.value?.unread_count || (operationAlerts.value?.list || []).filter(item => item.status !== 'read').length);
+            const operationCanMarkAlertsRead = computed(() => operationAlerts.value?.capabilities?.can_mark_read === true);
             const filteredOperationAlerts = computed(() => {
                 const list = operationAlerts.value?.list || [];
                 if (operationAlertFilter.value === 'all') return list;
@@ -18352,6 +19467,7 @@
                 try {
                     const params = new URLSearchParams();
                     const hotelId = normalizeOperationHotelSelection(operationFilters, {
+                        requireHotel: true,
                         errorKey: 'alerts',
                         fallbackMessage: '请选择有权限的酒店',
                     });
@@ -18404,7 +19520,14 @@
                 if (hotelId) operationFilters.value.hotel_id = hotelId;
                 revenueAiExecutionFocus.value = { intentId };
                 currentPage.value = 'ops-track';
-                await loadOperationActions();
+                await loadOperationActions({ focusIntentId: intentId });
+                await nextTick();
+                const row = document.querySelector(`[data-operation-execution-intent-id="${intentId}"]`);
+                if (row) {
+                    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                } else {
+                    showToast('任务已关联，但执行池未返回对应记录，请刷新后重试', 'warning');
+                }
             };
 
             const createOperationAlertTask = async (alert) => {
@@ -18452,6 +19575,15 @@
                             : Number(operationAlerts.value.unread_count || 0),
                     };
                     showToast(res.data?.reused_existing_intent ? '已关联现有待审批任务' : '已转为待审批运营任务');
+                    await openOperationAlertTask({
+                        ...alert,
+                        status: 'read',
+                        task_bridge: {
+                            linked: true,
+                            intent_id: intentId,
+                            intent_status: intent.status || 'pending_approval',
+                        },
+                    });
                 } catch (error) {
                     showToast(operationErrorMessage(error, '预警转任务失败'), 'error');
                 } finally {
@@ -18919,7 +20051,7 @@
 
             const createAiDailyExecutionIntent = async (action, index) => {
                 if (!aiDailyReport.value?.id || !action) return;
-                if (action.can_create_execution_intent === false) {
+                if (!revenueAiDailyReportActionExecutionReady(action)) {
                     showToast(action.blocked_reason || '该建议不能转执行单', 'warning');
                     return;
                 }
@@ -18951,10 +20083,19 @@
                 }
             };
 
-            const loadOperationActions = async () => {
+            let operationActionsRequestSeq = 0;
+            const loadOperationActions = async (options = {}) => {
+                const requestSeq = ++operationActionsRequestSeq;
+                const focusIntentId = Number(options?.focusIntentId || 0);
                 await ensureOperationStaticReady();
+                if (requestSeq !== operationActionsRequestSeq) return;
                 operationLoading.value.actions = true;
                 operationError.value.actions = '';
+                let requestHotelId = '';
+                const isCurrentRequest = () => (
+                    requestSeq === operationActionsRequestSeq
+                    && requestHotelId === String(operationFilters.value.hotel_id || '').trim()
+                );
                 try {
                     const params = new URLSearchParams();
                     const hotelId = normalizeOperationHotelSelection(operationFilters, {
@@ -18962,13 +20103,20 @@
                         fallbackMessage: '请选择有权限的酒店',
                     });
                     if (hotelId === null) return;
-                    if (hotelId) params.append('hotel_id', hotelId);
+                    requestHotelId = String(hotelId || '').trim();
+                    if (requestHotelId) params.append('hotel_id', requestHotelId);
                     const query = params.toString() ? '?' + params.toString() : '';
+                    const flowParams = new URLSearchParams(params);
+                    if (Number.isInteger(focusIntentId) && focusIntentId > 0) {
+                        flowParams.set('intent_id', String(focusIntentId));
+                    }
+                    const flowQuery = flowParams.toString() ? '?' + flowParams.toString() : '';
                     const [res, flowRes, closureRes] = await Promise.all([
                         apiRequest(`/operation/action-tracking${query}`),
-                        apiRequest(`/operation/execution-flow${query}`),
+                        apiRequest(`/operation/execution-flow${flowQuery}`),
                         apiRequest(`/operation/closure-overview${query}`),
                     ]);
+                    if (!isCurrentRequest()) return;
                     if (res.code !== 200) throw new Error(res.message || '策略追踪加载失败');
                     if (flowRes.code !== 200) throw new Error(flowRes.message || '执行闭环加载失败');
                     if (closureRes.code !== 200) throw new Error(closureRes.message || '闭环总览加载失败');
@@ -18977,10 +20125,13 @@
                     operationClosureOverview.value = closureRes.data || { summary: {}, modules: [], weak_modules: [], data_gaps: [], data_status: '' };
                     operationEffectValidation.value = res.data?.effect_validation || { status: 'data_gap', metrics: [], data_gaps: [], action_counts: {} };
                 } catch (error) {
+                    if (!isCurrentRequest()) return;
                     operationError.value.actions = operationErrorMessage(error, '策略追踪加载失败');
                     showToast(operationError.value.actions, 'error');
                 } finally {
-                    operationLoading.value.actions = false;
+                    if (requestSeq === operationActionsRequestSeq) {
+                        operationLoading.value.actions = false;
+                    }
                 }
             };
 
@@ -19491,8 +20642,23 @@
                 const id = Number(selectedOpeningProjectId.value);
                 return openingProjects.value.find(project => Number(project.id) === id) || null;
             });
+            const openingOverviewProject = computed(() => {
+                const project = openingOverview.value?.project || null;
+                return project && Number(project.id) === Number(selectedOpeningProjectId.value)
+                    ? project
+                    : null;
+            });
+            const openingPersistedHotelId = computed(() => Number(openingOverviewProject.value?.hotel_id || 0));
+            const openingProjectBindingDirty = computed(() => (
+                Number(openingProjectForm.value?.hotel_id || 0) !== openingPersistedHotelId.value
+            ));
+            const openingExecutionReady = computed(() => (
+                Number(selectedOpeningProjectId.value) > 0
+                && openingPersistedHotelId.value > 0
+                && openingProjectBindingDirty.value === false
+            ));
             const openingExecutionIntentId = computed(() => {
-                const overviewId = Number(openingOverview.value?.project?.execution_intent_id || 0);
+                const overviewId = Number(openingOverviewProject.value?.execution_intent_id || 0);
                 if (overviewId > 0) return overviewId;
                 return Number(selectedOpeningProject.value?.execution_intent_id || 0);
             });
@@ -19678,6 +20844,9 @@
                     openingProjectForm.value = resetOpeningProjectForm();
                     return;
                 }
+                openingOverview.value = null;
+                openingTasks.value = [];
+                clearSelectedOpeningTasks();
                 syncOpeningProjectForm();
                 await Promise.all([loadOpeningOverview(), loadOpeningTasks()]);
             };
@@ -19824,6 +20993,15 @@
             const createOpeningExecutionIntent = async () => {
                 if (!selectedOpeningProjectId.value) {
                     showToast('请先选择开业项目', 'error');
+                    return;
+                }
+                if (!openingExecutionReady.value) {
+                    showToast(
+                        openingProjectBindingDirty.value
+                            ? '门店绑定尚未保存，请先保存项目并等待回读确认'
+                            : '项目尚未绑定已保存的系统门店，不能转执行跟踪',
+                        'warning'
+                    );
                     return;
                 }
                 if (openingExecutionIntentId.value) {
@@ -20551,7 +21729,7 @@
                         isLoggedIn.value = true;
                         showToast(`欢迎回来，${res.data.user.realname || res.data.user.username}！`, 'success');
                         setTimeout(() => showAuthNotices(res.data), 600);
-                        activateAiWorkbenchAfterLogin();
+                        activateCoreOperationsAfterLogin();
                         loadData();
                         scheduleInitialBackendNotificationRefresh();
                         try {
@@ -20990,10 +22168,7 @@
             };
 
             const isMeituanAdsNotApplicableForHotel = (hotelId) => {
-                return browserProfileDataSourcesByHotelAndPlatform(hotelId, 'meituan').some(item => (
-                    item?.config?.ads_status_reason === 'ads_service_not_opened'
-                    || item?.config?.module_states?.ads?.reason === 'ads_service_not_opened'
-                ));
+                return resolveMeituanAdsApplicability(platformDataSources.value, hotelId).status === 'not_applicable';
             };
 
             const hotelPlatformConfigured = (hotelId, platform) => {
@@ -24271,13 +25446,26 @@
                 return competitorDevicePlatforms.value;
             };
 
-            const loadCompetitorDevices = async () => {
+            const loadCompetitorDevices = async (page = competitorDevicePagination.value.page) => {
+                const requestedPage = Math.max(1, Number(page) || 1);
                 competitorDevicesLoading.value = true;
                 competitorDevicesError.value = '';
+                competitorDevicesStale.value = competitorDevices.value.length > 0;
                 try {
-                    const res = await request('/admin/competitor-devices');
+                    const params = new URLSearchParams({
+                        page: String(requestedPage),
+                        page_size: String(competitorDevicePagination.value.page_size || 20),
+                    });
+                    const res = await request(`/admin/competitor-devices?${params}`);
                     if (res.code !== 200) throw new Error(res.message || '设备列表加载失败');
                     competitorDevices.value = Array.isArray(res.data?.list) ? res.data.list : [];
+                    const pagination = res.data?.pagination || {};
+                    competitorDevicePagination.value = {
+                        total: Math.max(0, Number(pagination.total) || 0),
+                        page: Math.max(1, Number(pagination.page) || requestedPage),
+                        page_size: Math.max(1, Number(pagination.page_size) || 20),
+                        total_page: Math.max(1, Number(pagination.total_page) || 1),
+                    };
                     competitorDevicesStale.value = false;
                     return competitorDevices.value;
                 } catch (e) {
@@ -24287,6 +25475,14 @@
                 } finally {
                     competitorDevicesLoading.value = false;
                 }
+            };
+
+            const changeCompetitorDevicePage = async (page) => {
+                if (competitorDevicesLoading.value) return;
+                const totalPage = Math.max(1, Number(competitorDevicePagination.value.total_page) || 1);
+                const nextPage = Math.min(totalPage, Math.max(1, Number(page) || 1));
+                if (nextPage === Number(competitorDevicePagination.value.page)) return;
+                await loadCompetitorDevices(nextPage);
             };
 
             const loadCompetitorDeviceWorkbench = async () => {
@@ -24315,7 +25511,27 @@
                 return item.realname && item.username ? `${name}（${item.username}）` : name;
             };
 
-            const competitorDeviceEligibleUsers = () => users.value.filter(item => Number(item.status) === 1);
+            const competitorDeviceEligibleUsers = () => {
+                const storeId = Number(competitorDeviceForm.value.store_id || 0);
+                return users.value.filter(item => {
+                    if (Number(item.status) !== 1) return false;
+                    if (!storeId || item.is_super_admin === true || Number(item.is_super_admin) === 1) return true;
+                    const hotelIds = [
+                        item.hotel_id,
+                        ...(Array.isArray(item.hotel_ids) ? item.hotel_ids : []),
+                        ...(Array.isArray(item.assigned_hotel_ids) ? item.assigned_hotel_ids : []),
+                    ].map(Number);
+                    return hotelIds.includes(storeId);
+                });
+            };
+
+            const setCompetitorDeviceStoreId = (value) => {
+                competitorDeviceForm.value.store_id = String(value || '');
+                const selectedUserId = Number(competitorDeviceForm.value.user_id || 0);
+                if (selectedUserId > 0 && !competitorDeviceEligibleUsers().some(item => Number(item.id) === selectedUserId)) {
+                    competitorDeviceForm.value.user_id = '';
+                }
+            };
 
             const competitorDeviceLastSeenText = (item = {}) => {
                 if (Number(item.status) !== 1) return '绑定已停用';
@@ -24323,13 +25539,15 @@
                 return item.last_time ? `离线 · ${item.last_time}` : '从未成功握手';
             };
 
-            const openCompetitorDeviceModal = () => {
+            const openCompetitorDeviceModal = (item = null) => {
+                competitorDeviceEditingId.value = Number(item?.id || 0);
                 competitorDeviceForm.value = {
-                    device_id: '',
-                    name: '',
-                    platform: String(competitorDevicePlatforms.value[0]?.value || ''),
-                    store_id: '',
-                    user_id: '',
+                    device_id: String(item?.device_id || ''),
+                    name: String(item?.name || ''),
+                    platform: String(item?.platform || competitorDevicePlatforms.value[0]?.value || ''),
+                    store_id: item?.store_id ? String(item.store_id) : '',
+                    user_id: item?.user_id ? String(item.user_id) : '',
+                    token_version: Number(item?.token_version || 0),
                 };
                 showCompetitorDeviceModal.value = true;
             };
@@ -24337,10 +25555,12 @@
             const closeCompetitorDeviceModal = () => {
                 if (competitorDeviceSaving.value) return;
                 showCompetitorDeviceModal.value = false;
+                competitorDeviceEditingId.value = 0;
             };
 
             const clearCompetitorDeviceCredential = () => {
                 competitorDeviceCredential.value = null;
+                competitorDeviceTokenCopied.value = false;
             };
 
             const saveCompetitorDevice = async () => {
@@ -24359,13 +25579,30 @@
                     showToast('请选择平台、门店和绑定员工', 'warning');
                     return;
                 }
+                const editingId = Number(competitorDeviceEditingId.value || 0);
+                if (editingId > 0 && !confirm('确认重新绑定该设备？旧 Token 将立即失效，并生成只显示一次的新 Token。')) return;
                 competitorDeviceSaving.value = true;
                 try {
-                    const res = await request('/admin/competitor-devices', {
-                        method: 'POST',
-                        body: JSON.stringify(payload),
+                    const res = await request(editingId > 0 ? `/admin/competitor-devices/${editingId}/rebind` : '/admin/competitor-devices', {
+                        method: editingId > 0 ? 'PUT' : 'POST',
+                        body: JSON.stringify(editingId > 0 ? {
+                            name: payload.name,
+                            platform: payload.platform,
+                            store_id: payload.store_id,
+                            user_id: payload.user_id,
+                            expected_token_version: Number(competitorDeviceForm.value.token_version || 0),
+                        } : payload),
                     });
-                    if (res.code !== 200 || !res.data?.device_token || res.data?.token_visible_once !== true) {
+                    if (res.code === 409 && res.data?.reason === 'binding_changed') {
+                        await loadCompetitorDevices(competitorDevicePagination.value.page);
+                        showToast('设备状态已变化，已刷新列表，请重新操作', 'warning');
+                        return;
+                    }
+                    if (res.code !== 200) {
+                        showToast(res.message || '设备绑定保存失败', res.code >= 400 && res.code < 500 ? 'warning' : 'error');
+                        return;
+                    }
+                    if (!res.data?.device_token || res.data?.token_visible_once !== true) {
                         throw new Error(res.message || '设备绑定创建失败');
                     }
                     competitorDeviceCredential.value = {
@@ -24373,11 +25610,26 @@
                         device_token: res.data.device_token,
                         token_hint: res.data.token_hint,
                         token_version: res.data.token_version,
+                        platform: res.data.platform,
+                        store_id: res.data.store_id,
+                        user_id: res.data.user_id,
+                        status: res.data.status,
                     };
+                    competitorDeviceTokenCopied.value = false;
                     showCompetitorDeviceModal.value = false;
-                    await loadCompetitorDevices();
+                    competitorDeviceEditingId.value = 0;
+                    await loadCompetitorDevices(editingId > 0 ? competitorDevicePagination.value.page : 1);
                 } catch (e) {
-                    showToast(e?.message || '设备绑定创建失败', 'error');
+                    if (e?.data?.code === 409 && e.data?.data?.reason === 'binding_changed') {
+                        await loadCompetitorDevices(competitorDevicePagination.value.page);
+                        showToast('设备状态已变化，已刷新列表，请重新操作', 'warning');
+                        return;
+                    }
+                    if (Number(e?.data?.code) >= 400 && Number(e?.data?.code) < 500) {
+                        showToast(e.data.message || '设备绑定保存失败', 'warning');
+                        return;
+                    }
+                    showToast(`${e?.message || '设备绑定保存失败'}；如服务端可能已成功，请刷新列表后轮换 Token 恢复`, 'error');
                 } finally {
                     competitorDeviceSaving.value = false;
                 }
@@ -24387,8 +25639,20 @@
                 if (!confirm(`确认轮换设备 ${item.device_id} 的 Token？旧 Token 将立即失效。`)) return;
                 competitorDeviceActionId.value = Number(item.id);
                 try {
-                    const res = await request(`/admin/competitor-devices/${item.id}/rotate-token`, { method: 'POST' });
-                    if (res.code !== 200 || !res.data?.device_token || res.data?.token_visible_once !== true) {
+                    const res = await request(`/admin/competitor-devices/${item.id}/rotate-token`, {
+                        method: 'POST',
+                        body: JSON.stringify({ expected_token_version: Number(item.token_version || 0) }),
+                    });
+                    if (res.code === 409 && res.data?.reason === 'binding_changed') {
+                        await loadCompetitorDevices();
+                        showToast('设备状态已变化，已刷新列表，请重新操作', 'warning');
+                        return;
+                    }
+                    if (res.code !== 200) {
+                        showToast(res.message || 'Token 轮换失败', res.code >= 400 && res.code < 500 ? 'warning' : 'error');
+                        return;
+                    }
+                    if (!res.data?.device_token || res.data?.token_visible_once !== true) {
                         throw new Error(res.message || 'Token 轮换失败');
                     }
                     competitorDeviceCredential.value = {
@@ -24396,10 +25660,24 @@
                         device_token: res.data.device_token,
                         token_hint: res.data.token_hint,
                         token_version: res.data.token_version,
+                        platform: res.data.platform,
+                        store_id: res.data.store_id,
+                        user_id: res.data.user_id,
+                        status: res.data.status,
                     };
+                    competitorDeviceTokenCopied.value = false;
                     await loadCompetitorDevices();
                 } catch (e) {
-                    showToast(e?.message || 'Token 轮换失败', 'error');
+                    if (e?.data?.code === 409 && e.data?.data?.reason === 'binding_changed') {
+                        await loadCompetitorDevices();
+                        showToast('设备状态已变化，已刷新列表，请重新操作', 'warning');
+                        return;
+                    }
+                    if (Number(e?.data?.code) >= 400 && Number(e?.data?.code) < 500) {
+                        showToast(e.data.message || 'Token 轮换失败', 'warning');
+                        return;
+                    }
+                    showToast(`${e?.message || 'Token 轮换失败'}；请刷新列表后再次轮换以恢复`, 'error');
                 } finally {
                     competitorDeviceActionId.value = 0;
                 }
@@ -24408,27 +25686,44 @@
             const updateCompetitorDeviceStatus = async (item) => {
                 const nextStatus = Number(item.status) === 1 ? 0 : 1;
                 const actionText = nextStatus === 1 ? '启用' : '停用';
-                if (!confirm(`确认${actionText}设备 ${item.device_id}？${nextStatus === 0 ? '停用后采集接口会立即拒绝该设备。' : ''}`)) return;
+                if (nextStatus === 1 && (!String(item.token_hint || '').trim() || item.revoked_at)) {
+                    showToast('该设备已停用并废除旧Token，请先轮换Token，再执行启用', 'warning');
+                    return;
+                }
+                if (!confirm(`确认${actionText}设备 ${item.device_id}？${nextStatus === 0 ? '停用会立即废除当前 Token；再次启用前必须先轮换 Token。' : ''}`)) return;
                 competitorDeviceActionId.value = Number(item.id);
                 try {
                     const res = await request(`/admin/competitor-devices/${item.id}/status`, {
                         method: 'PUT',
-                        body: JSON.stringify({ status: nextStatus }),
+                        body: JSON.stringify({
+                            status: nextStatus,
+                            expected_token_version: Number(item.token_version || 0),
+                        }),
                     });
+                    if (res.code === 409 && res.data?.reason === 'binding_changed') {
+                        await loadCompetitorDevices();
+                        showToast('设备状态已变化，已刷新列表，请重新操作', 'warning');
+                        return;
+                    }
                     if (res.code !== 200) throw new Error(res.message || `${actionText}失败`);
                     showToast(res.message || `设备已${actionText}`);
                     await loadCompetitorDevices();
                 } catch (e) {
+                    if (e?.data?.code === 409 && e.data?.data?.reason === 'binding_changed') {
+                        await loadCompetitorDevices();
+                        showToast('设备状态已变化，已刷新列表，请重新操作', 'warning');
+                        return;
+                    }
                     showToast(e?.message || `${actionText}失败`, 'error');
                 } finally {
                     competitorDeviceActionId.value = 0;
                 }
             };
 
-            const copyCompetitorDeviceToken = () => {
+            const copyCompetitorDeviceToken = async () => {
                 const tokenValue = String(competitorDeviceCredential.value?.device_token || '');
                 if (!tokenValue) return;
-                copyToClipboard(tokenValue);
+                competitorDeviceTokenCopied.value = await copyToClipboard(tokenValue);
             };
 
             const loadCompetitorRobots = async () => {
@@ -25377,6 +26672,7 @@
                 available: '证据可用',
                 proved: '已证明',
                 complete: '已闭合',
+                no_action: '无需新增行动',
                 partial: '部分可用',
                 warning: '需要复核',
                 unverified: '未验证',
@@ -25385,6 +26681,8 @@
                 empty: '未返回',
                 failed: '读取失败',
                 request_failed: '读取失败',
+                permission_denied: '无权读取',
+                collection_failed: '采集失败',
                 blocked: '已阻断',
                 pending: '待处理',
                 observing: '继续观察',
@@ -25394,13 +26692,13 @@
             }[String(status || '').trim().toLowerCase()] || '状态待确认');
             const coreOperationsEvidenceStatusClass = (status) => {
                 const normalized = String(status || '').trim().toLowerCase();
-                if (['ready', 'success', 'available', 'proved', 'complete'].includes(normalized)) {
+                if (['ready', 'success', 'available', 'proved', 'complete', 'no_action'].includes(normalized)) {
                     return 'border-emerald-200 bg-emerald-50 text-emerald-700';
                 }
                 if (['partial', 'warning', 'pending', 'observing', 'stale', 'unverified'].includes(normalized)) {
                     return 'border-amber-200 bg-amber-50 text-amber-800';
                 }
-                if (['failed', 'request_failed', 'blocked', 'high'].includes(normalized)) {
+                if (['failed', 'request_failed', 'permission_denied', 'collection_failed', 'blocked', 'high'].includes(normalized)) {
                     return 'border-red-200 bg-red-50 text-red-700';
                 }
                 if (normalized === 'medium') return 'border-amber-200 bg-amber-50 text-amber-800';
@@ -25497,7 +26795,15 @@
                     const platformEvidence = Array.isArray(workbenchRow?.platformRows)
                         ? workbenchRow.platformRows.find(item => item.platform === platform)
                         : null;
-                    const sourceRows = Number(platformEvidence?.target_date_rows || 0);
+                    const rawSourceRows = platformEvidence?.target_date_rows;
+                    const parsedSourceRows = Number(rawSourceRows);
+                    const sourceRows = rawSourceRows !== null
+                        && rawSourceRows !== undefined
+                        && rawSourceRows !== ''
+                        && Number.isInteger(parsedSourceRows)
+                        && parsedSourceRows >= 0
+                        ? parsedSourceRows
+                        : null;
                     const status = String(result.status || 'not_loaded');
                     const metrics = [
                         {
@@ -25538,6 +26844,7 @@
                         statusText: coreOperationsEvidenceStatusText(status),
                         statusClass: coreOperationsEvidenceStatusClass(status),
                         sourceRows,
+                        sourceRowsText: sourceRows === null ? '未验证/未知' : `${sourceRows} 行`,
                         evidenceStatus: String(platformEvidence?.evidence_status || 'unknown'),
                         message: String(result.message || ''),
                         metrics,
@@ -25562,8 +26869,13 @@
                 const targetDate = String(coreOperationsTargetDate.value || '');
                 const rows = [];
                 const ctripComparison = ctripCompetitiveOperationsComparison.value || {};
+                const ctripPayload = ctripCompetitiveOperationsPayload.value || {};
+                const ctripContext = ctripPayload.context || {};
+                const ctripCoverage = ctripPayload.data_coverage || {};
                 const ctripDate = String(ctripComparison.latest_date || '');
                 const ctripStatus = ctripDate && ctripDate !== targetDate ? 'stale' : String(ctripComparison.status || 'data_missing');
+                const ctripStoredRows = Number(ctripCoverage.business_row_count || 0) + Number(ctripCoverage.traffic_row_count || 0);
+                const ctripSourceEvidence = `online_daily_data · 门店 #${ctripContext.system_hotel_id || coreOperationsHotelId.value || '-'} · 绑定 ${ctripContext.binding_status || '未返回'} · 入库 ${ctripStoredRows} 行/决策可用 ${Number(ctripCoverage.decision_eligible_row_count || 0)} 行 · 更新 ${ctripContext.latest_fetched_at || '未返回'}`;
                 const ctripDefinitions = [
                     { key: 'amount', label: '成交金额', currency: true, decimals: 2 },
                     { key: 'room_nights', label: '间夜', decimals: 2 },
@@ -25585,6 +26897,7 @@
                         competitorText: coreOperationsMetricValueText(competitor, definition),
                         differenceText: coreOperationsDifferenceText(difference, definition),
                         evidenceDate: ctripDate || '未返回',
+                        sourceEvidence: ctripSourceEvidence,
                         status: ctripStatus,
                     });
                 });
@@ -25596,6 +26909,7 @@
                 const meituanStatus = meituanDate && meituanDate !== targetDate
                     ? 'stale'
                     : String(competitorSummary.value?.readiness?.status || competitorSummary.value?.data_status || competitorSummary.value?.status || 'data_missing');
+                const meituanSourceEvidence = `online_daily_data · 门店 #${competitorSummary.value?.system_hotel_id || coreOperationsHotelId.value || '-'} · POI ${competitorSummary.value?.target_poi_id ? '已绑定' : '未返回'} · 入库 ${Number(competitorSummary.value?.record_count || 0)} 行/展示 ${Number(competitorSummary.value?.display_hotel_count || 0)} 店 · 更新 ${competitorSummary.value?.latest_fetched_at || '未返回'}`;
                 const meituanDefinitions = [
                     { key: 'avgRoomPrice', label: '平均房价', currency: true, decimals: 2 },
                     { key: 'avgSalesPrice', label: '销售客单', currency: true, decimals: 2 },
@@ -25617,6 +26931,7 @@
                         competitorText: coreOperationsMetricValueText(competitor, definition),
                         differenceText: coreOperationsDifferenceText(difference, definition),
                         evidenceDate: meituanDate || '未返回',
+                        sourceEvidence: meituanSourceEvidence,
                         status: meituanStatus,
                     });
                 });
@@ -25661,20 +26976,61 @@
                 return rows.slice(0, 8);
             });
             const coreOperationsAiSuggestions = computed(() => {
-                const row = coreOperationsSelectedWorkbenchRow.value;
-                if (!row) return [];
-                const aiStatus = String(row.statuses?.ai_evidence || 'not_loaded');
-                const action = String(row.aiEvidenceNextStepText || '').trim();
-                const ready = ['proved', 'ready', 'complete'].includes(aiStatus.toLowerCase()) && action !== '';
-                return [{
-                    key: `ai-${row.hotelId}`,
-                    title: ready ? (row.aiExplanationText || 'AI辅助解释') : 'AI行动建议未形成',
-                    action: ready ? action : '当前仅识别到证据缺口，未生成可执行的 AI 行动建议。',
-                    evidence: row.aiEvidenceMissingText || row.metricGapText || '证据范围未返回',
-                    boundary: row.aiEvidenceBoundaryText || 'AI仅提供 OTA 渠道辅助建议，不自动执行。',
-                    status: ready ? aiStatus : 'blocked',
-                    ready,
-                }];
+                const rows = [];
+                const platformLabels = { ctrip: '携程', meituan: '美团' };
+                Object.entries(coreOperationsDiagnoses.value || {}).forEach(([platform, result]) => {
+                    const diagnosis = result?.data && typeof result.data === 'object' ? result.data : null;
+                    const recordId = Number(diagnosis?.saved_record?.id || 0);
+                    const recordStatus = String(diagnosis?.record_status || diagnosis?.saved_record?.status || '').toLowerCase();
+                    const actionItems = Array.isArray(diagnosis?.action_items) ? diagnosis.action_items : [];
+                    actionItems.forEach((item, actionIndex) => {
+                        const ready = item?.execution_ready === true
+                            && item?.can_create_execution_intent === true
+                            && item?.decision_quality?.contract_version === 'ai_recommendation_quality.v2'
+                            && item?.decision_quality?.execution_ready === true
+                            && recordId > 0
+                            && recordStatus !== 'superseded';
+                        const refs = Array.isArray(item?.evidence_refs) ? item.evidence_refs.filter(Boolean) : [];
+                        const missing = Array.isArray(item?.missing_evidence)
+                            ? item.missing_evidence.map(entry => entry?.label || entry?.code || '').filter(Boolean)
+                            : [];
+                        rows.push({
+                            key: `diagnosis-${platform}-${recordId || 'missing'}-${actionIndex}`,
+                            title: `${platformLabels[platform] || platform.toUpperCase()} · ${item?.title || 'OTA渠道建议'}`,
+                            action: String(item?.action || '诊断未返回明确行动。'),
+                            evidence: refs.length ? refs.join(' · ') : (missing.join('、') || result?.message || '目标日诊断证据不足'),
+                            boundary: `${diagnosis?.source_policy || item?.source_policy || 'database_only'} · 诊断记录 #${recordId || '-' } · 不自动写 OTA`,
+                            status: ready ? 'ready' : String(item?.status || result?.status || 'blocked'),
+                            ready,
+                            platform,
+                            recordId,
+                            recordStatus,
+                            actionItemId: String(item?.id || '').trim(),
+                            actionIndex,
+                            hotelId: Number(diagnosis?.hotel?.id || coreOperationsHotelId.value || 0),
+                        });
+                    });
+                    if (actionItems.length === 0) {
+                        const gaps = Array.isArray(diagnosis?.data_gaps)
+                            ? diagnosis.data_gaps.map(item => item?.message || item?.label || item?.code || '').filter(Boolean)
+                            : [];
+                        rows.push({
+                            key: `diagnosis-${platform}-blocked`,
+                            title: `${platformLabels[platform] || platform.toUpperCase()} · AI行动建议未形成`,
+                            action: '当前仅形成证据缺口或无需行动结论，不创建运营任务。',
+                            evidence: gaps.slice(0, 3).join('、') || result?.message || '诊断响应未返回',
+                            boundary: `${diagnosis?.source_policy || '真实 OTA 诊断未就绪'} · 不使用默认话术替代`,
+                            status: String(result?.status || 'blocked'),
+                            ready: false,
+                            platform,
+                            recordId,
+                            recordStatus,
+                            actionIndex: -1,
+                            hotelId: Number(coreOperationsHotelId.value || 0),
+                        });
+                    }
+                });
+                return rows.sort((left, right) => Number(right.ready) - Number(left.ready));
             });
             const coreOperationsActionRows = computed(() => {
                 const hotelId = String(coreOperationsHotelId.value || '');
@@ -25694,31 +27050,106 @@
                 const targetDate = String(coreOperationsTargetDate.value || '');
                 return operationExecutionItems.value.filter(item => {
                     const recommendation = item?.recommendation || {};
-                    return String(recommendation.source_module || '').toLowerCase() === 'ota_diagnosis'
+                    return ['ota_diagnosis_saved', 'daily_workbench_patrol', 'ota_diagnosis'].includes(String(recommendation.source_module || '').toLowerCase())
                         && (!hotelId || String(item?.hotel_id || '') === hotelId)
                         && (!targetDate || String(recommendation.date_start || '') === targetDate);
                 });
             });
+            const coreOperationsAiExecutionItems = computed(() => coreOperationsExecutionItems.value.filter(item => (
+                String(item?.recommendation?.source_module || '').toLowerCase() === 'ota_diagnosis_saved'
+            )));
+            const coreOperationsCompetitorError = computed(() => [
+                ctripCompetitiveOperationsError.value
+                    ? `携程竞品读取失败：${ctripCompetitiveOperationsError.value}`
+                    : '',
+                competitorSummaryError.value
+                    ? `美团竞品读取失败：${competitorSummaryError.value}`
+                    : '',
+            ].filter(Boolean).join('；'));
             const coreOperationsStepRows = computed(() => {
                 const readyStatuses = ['ready', 'available', 'success', 'proved', 'complete', 'ok'];
                 const platformReadyCount = coreOperationsPlatformCards.value.filter(item => item.truthStatus === 'verified').length;
                 const platformEvidenceCount = coreOperationsPlatformCards.value.filter(item => item.metrics.some(metric => metric.calculationStatus === 'calculated')).length;
-                const comparableCount = coreOperationsCompetitorRows.value.filter(item => (
+                const comparableRows = coreOperationsCompetitorRows.value.filter(item => (
                     readyStatuses.includes(String(item.status || '').toLowerCase())
                     && item.ownText !== '未返回'
                     && item.competitorText !== '未返回'
-                )).length;
-                const patrolReady = !!dailyWorkbenchPatrolLatest.value;
-                const reviewedCount = coreOperationsExecutionItems.value.filter(item => ['success', 'near_success', 'failed', 'observing'].includes(String(item?.review?.status || ''))).length;
-                const anomalyEvidenceReady = !!coreOperationsSelectedWorkbenchRow.value && (platformReadyCount > 0 || comparableCount > 0);
-                const aiSuggestion = coreOperationsAiSuggestions.value[0] || null;
+                ));
+                const comparablePlatforms = new Set(comparableRows.map(item => String(item.key || '').split('-')[0]));
+                const comparableCount = comparableRows.length;
+                const dataComplete = platformReadyCount === 2;
+                const comparisonComplete = dataComplete
+                    && comparablePlatforms.has('ctrip')
+                    && comparablePlatforms.has('meituan')
+                    && !coreOperationsCompetitorError.value;
+                const anomalyEvidenceReady = comparisonComplete && !!coreOperationsSelectedWorkbenchRow.value;
+                const readyAiSuggestions = coreOperationsAiSuggestions.value.filter(item => item.ready === true);
+                const aiSuggestion = readyAiSuggestions[0] || coreOperationsAiSuggestions.value[0] || null;
+                const diagnosisStatuses = ['ctrip', 'meituan'].map(platform => {
+                    const result = coreOperationsDiagnoses.value?.[platform] || {};
+                    return String(result?.data?.decision_status || result?.data?.decision_closure?.status || result?.status || '').toLowerCase();
+                });
+                const diagnosesResolved = diagnosisStatuses.every(status => ['action_required', 'no_action'].includes(status));
+                const noActionRequired = diagnosisStatuses.length === 2 && diagnosisStatuses.every(status => status === 'no_action');
+                const adviceComplete = anomalyEvidenceReady
+                    && diagnosesResolved
+                    && (noActionRequired || readyAiSuggestions.length > 0);
+                const aiExecutionItems = coreOperationsAiExecutionItems.value;
+                const requiredActionKeys = new Set(readyAiSuggestions.map(item => {
+                    const recordId = Number(item?.recordId || 0);
+                    const actionItemId = String(item?.actionItemId || '').trim();
+                    return recordId > 0 && actionItemId ? `${recordId}:${actionItemId}` : '';
+                }).filter(Boolean));
+                const executionActionKey = (item) => {
+                    const recommendation = item?.recommendation || {};
+                    const evidence = recommendation?.evidence && typeof recommendation.evidence === 'object'
+                        ? recommendation.evidence
+                        : {};
+                    const recordId = Number(recommendation?.source_record_id || 0);
+                    const actionItemId = String(evidence?.action_item_id || '').trim();
+                    return String(recommendation?.source_module || '').toLowerCase() === 'ota_diagnosis_saved'
+                        && recordId > 0
+                        && actionItemId
+                        ? `${recordId}:${actionItemId}`
+                        : '';
+                };
+                const latestAiExecutionByActionKey = new Map();
+                aiExecutionItems.forEach(item => {
+                    const key = executionActionKey(item);
+                    if (!requiredActionKeys.has(key)) return;
+                    const current = latestAiExecutionByActionKey.get(key);
+                    if (!current || Number(item?.id || 0) > Number(current?.id || 0)) {
+                        latestAiExecutionByActionKey.set(key, item);
+                    }
+                });
+                const matchedAiExecutionItems = Array.from(latestAiExecutionByActionKey.values()).filter(item => (
+                    !['blocked', 'rejected', 'cancelled', 'canceled'].includes(String(item?.approval?.status || '').toLowerCase())
+                ));
+                const matchedActionKeys = new Set(matchedAiExecutionItems.map(executionActionKey).filter(Boolean));
+                const requiredActionCount = readyAiSuggestions.length;
+                const matchedTaskCount = matchedActionKeys.size;
+                const actionIdentityComplete = requiredActionCount > 0
+                    && requiredActionKeys.size === requiredActionCount
+                    && matchedTaskCount === requiredActionCount;
+                const taskComplete = noActionRequired || (adviceComplete && actionIdentityComplete);
+                const today = formatDate(new Date());
+                const reviewedActionKeys = new Set(matchedAiExecutionItems.filter(item => {
+                    const status = String(item?.review?.status || '');
+                    const availableOn = String(item?.review?.available_on || '');
+                    return ['success', 'near_success', 'failed'].includes(status)
+                        && item?.review?.is_available === true
+                        && (!availableOn || availableOn <= today);
+                }).map(executionActionKey).filter(Boolean));
+                const reviewedCount = reviewedActionKeys.size;
+                const reviewComplete = noActionRequired
+                    || (taskComplete && requiredActionCount > 0 && reviewedCount === requiredActionCount);
                 const steps = [
-                    { key: 'data', number: '01', label: '昨日数据', status: platformReadyCount === 2 ? 'ready' : (platformEvidenceCount ? 'partial' : 'data_missing'), detail: `${platformReadyCount}/2 平台指标已验证` },
-                    { key: 'compare', number: '02', label: '竞品对比', status: comparableCount ? 'ready' : 'data_missing', detail: `${comparableCount} 项可比` },
-                    { key: 'anomaly', number: '03', label: '异常判断', status: coreOperationsAnomalyRows.value.length ? 'warning' : (coreOperationsLoading.value ? 'not_loaded' : (anomalyEvidenceReady ? 'ready' : 'data_missing')), detail: coreOperationsAnomalyRows.value.length ? `${coreOperationsAnomalyRows.value.length} 条信号` : (anomalyEvidenceReady ? '未见规则异常' : '异常证据未返回') },
-                    { key: 'advice', number: '04', label: 'AI建议', status: aiSuggestion?.status || 'data_missing', detail: aiSuggestion?.ready ? '已形成辅助建议' : '建议未形成' },
-                    { key: 'task', number: '05', label: '运营任务', status: coreOperationsExecutionItems.value.length ? 'ready' : (patrolReady ? 'pending' : 'not_loaded'), detail: coreOperationsExecutionItems.value.length ? `${coreOperationsExecutionItems.value.length} 条任务` : (patrolReady ? '待转任务' : '待生成清单') },
-                    { key: 'review', number: '06', label: '次日复盘', status: reviewedCount ? 'ready' : (coreOperationsExecutionItems.value.length ? 'observing' : 'not_loaded'), detail: reviewedCount ? `${reviewedCount} 条已复盘` : '等待执行证据' },
+                    { key: 'data', number: '01', label: '昨日数据', status: dataComplete ? 'ready' : (platformEvidenceCount ? 'partial' : 'data_missing'), detail: `${platformReadyCount}/2 平台指标已验证` },
+                    { key: 'compare', number: '02', label: '竞品对比', status: comparisonComplete ? 'ready' : (comparablePlatforms.size ? 'partial' : (dataComplete ? 'data_missing' : 'blocked')), detail: coreOperationsCompetitorError.value || `${comparablePlatforms.size}/2 平台、${comparableCount} 项可比` },
+                    { key: 'anomaly', number: '03', label: '异常判断', status: anomalyEvidenceReady ? (coreOperationsAnomalyRows.value.length ? 'warning' : 'ready') : (coreOperationsLoading.value ? 'not_loaded' : 'blocked'), detail: anomalyEvidenceReady ? (coreOperationsAnomalyRows.value.length ? `${coreOperationsAnomalyRows.value.length} 条信号` : '双平台未见规则异常') : '等待双平台同日竞品证据' },
+                    { key: 'advice', number: '04', label: 'AI建议', status: adviceComplete ? (noActionRequired ? 'no_action' : 'ready') : (anomalyEvidenceReady ? (aiSuggestion?.status || 'data_missing') : 'blocked'), detail: noActionRequired ? '双平台诊断均无需新增行动' : (readyAiSuggestions.length ? `${readyAiSuggestions.length} 条可转任务` : '建议未形成') },
+                    { key: 'task', number: '05', label: '运营任务', status: taskComplete ? (noActionRequired ? 'no_action' : 'ready') : (adviceComplete ? 'pending' : 'blocked'), detail: noActionRequired ? '本次无需创建任务' : (requiredActionCount ? `${matchedTaskCount}/${requiredActionCount} 条行动已精确转任务` : '等待 AI 建议转任务') },
+                    { key: 'review', number: '06', label: '次日复盘', status: reviewComplete ? (noActionRequired ? 'no_action' : 'ready') : (taskComplete ? 'observing' : 'blocked'), detail: noActionRequired ? '本次无任务需复盘' : (requiredActionCount ? `${reviewedCount}/${requiredActionCount} 条行动已复盘` : '等待次日来源回读') },
                 ];
                 return steps.map(step => ({
                     ...step,
@@ -27015,6 +28446,12 @@
                 if (readiness.stage !== 'research_ready_for_execution' || readiness.execution_ready !== true) {
                     return readiness.next_action || '研究结果尚未达到可执行状态。';
                 }
+                const artifact = result.execution_artifact && typeof result.execution_artifact === 'object'
+                    ? result.execution_artifact
+                    : {};
+                if (artifact.status !== 'available' || !/^[a-f0-9]{32}$/.test(String(artifact.id || ''))) {
+                    return '服务端研究凭证未完成持久化与回读，请重新生成研究结果后再转执行。';
+                }
                 return '';
             };
             const revenueResearchCanCreateExecutionIntent = (result = {}) => revenueResearchExecutionBlockedText(result) === '';
@@ -27024,21 +28461,6 @@
                 if (['forecast_low_confidence', 'forecast_backtest_missing', 'forecast_not_priced'].includes(stage)) return 'bg-amber-50 text-amber-700 border-amber-200';
                 if (stage === 'forecast_metric_missing') return 'bg-rose-50 text-rose-700 border-rose-200';
                 return 'bg-gray-50 text-gray-600 border-gray-200';
-            };
-            const revenueCompetitorReadinessClass = (stage) => {
-                if (stage === 'competitor_pricing_closed') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-                if (['competitor_pricing_applied', 'competitor_pricing_approved', 'competitor_pricing_linked'].includes(stage)) return 'bg-blue-50 text-blue-700 border-blue-200';
-                if (['competitor_room_type_missing', 'competitor_price_stale', 'competitor_not_priced', 'competitor_signal_observed'].includes(stage)) return 'bg-amber-50 text-amber-700 border-amber-200';
-                if (['competitor_price_missing', 'competitor_pricing_rejected'].includes(stage)) return 'bg-rose-50 text-rose-700 border-rose-200';
-                return 'bg-gray-50 text-gray-600 border-gray-200';
-            };
-            const revenueCompetitorGapText = (row = {}) => {
-                const readiness = row.price_signal_readiness || {};
-                const value = readiness.price_gap_percent ?? row.diff_percent;
-                if (value === null || value === undefined || value === '') return '-';
-                const num = toNumber(value, NaN);
-                if (!Number.isFinite(num)) return '-';
-                return `${num > 0 ? '+' : ''}${toFixedSafe(num, 1)}%`;
             };
             const revenueResearchForecastCards = (result = {}) => {
                 const forecast = result.business_forecast || {};
@@ -27156,7 +28578,7 @@
                         method: 'POST',
                         body: JSON.stringify({
                             hotel_id: hotelId,
-                            research,
+                            research_artifact_id: research.execution_artifact.id,
                         }),
                     });
                     if (res.code !== 200) throw new Error(res.message || '转运营执行失败');
@@ -27325,9 +28747,42 @@
             });
 
             // 竞对分析
-            const competitorAnalysis = ref({ price_matrix: {}, alerts: [], trends: {} });
+            const emptyCompetitorAnalysis = (hotelId = '', date = '') => ({
+                price_matrix: {},
+                alerts: [],
+                trends: {},
+                date,
+                query_scope: {
+                    hotel_id: hotelId ? Number(hotelId) : 0,
+                    date,
+                    metric_scope: 'ota_channel',
+                },
+                meituan_competition_circle: {
+                    data_status: 'not_loaded',
+                    source: 'online_daily_data',
+                    system_hotel_id: hotelId ? Number(hotelId) : null,
+                    latest_data_date: '',
+                    display_hotels: [],
+                    message: '',
+                },
+                source_errors: {},
+            });
+            const competitorAnalysis = ref(emptyCompetitorAnalysis());
+            const competitorAnalysisLoading = ref(false);
+            const competitorAnalysisError = ref('');
+            let competitorAnalysisRequestSeq = 0;
             const competitorFilter = ref({ date: formatDate(new Date()) });
             const competitorMicroscopeSelectedKey = ref('');
+            const resetCompetitorAnalysisView = () => {
+                competitorAnalysisRequestSeq += 1;
+                competitorAnalysisLoading.value = false;
+                competitorAnalysisError.value = '';
+                competitorMicroscopeSelectedKey.value = '';
+                competitorAnalysis.value = emptyCompetitorAnalysis(
+                    String(filterReportHotel.value || '').trim(),
+                    String(competitorFilter.value.date || '').trim(),
+                );
+            };
             const createCompetitorPriceForm = () => ({
                 analysis_date: competitorFilter.value.date || priceSuggestionFilter.value.date || formatDate(new Date()),
                 room_type_id: firstEnabledRoomTypeId(),
@@ -27338,22 +28793,6 @@
             });
             const competitorPriceSaving = ref(false);
             const competitorPriceForm = ref(createCompetitorPriceForm());
-            const competitorPriceMatrixRows = computed(() => {
-                const matrix = competitorAnalysis.value?.price_matrix || {};
-                const rows = [];
-                Object.entries(matrix).forEach(([roomTypeName, competitorRows]) => {
-                    if (!competitorRows || typeof competitorRows !== 'object') return;
-                    Object.entries(competitorRows).forEach(([competitorName, row]) => {
-                        const item = row && typeof row === 'object' ? row : {};
-                        rows.push({
-                            ...item,
-                            room_type_name: item.room_type_name || roomTypeName,
-                            competitor_name: item.competitor_name || competitorName,
-                        });
-                    });
-                });
-                return rows;
-            });
             const competitorMicroscope = computed(() => revenueAiBuildCompetitorMicroscope(
                 competitorAnalysis.value || {},
                 competitorMicroscopeSelectedKey.value
@@ -27365,19 +28804,6 @@
                 if (!Number.isFinite(gap) || gap === 0) return 'text-gray-700';
                 return gap > 0 ? 'text-rose-700' : 'text-emerald-700';
             };
-            const competitorMicroscopeSummaryCards = computed(() => {
-                const detail = competitorMicroscopeDetail.value;
-                if (!detail) return [];
-                const gapText = detail.priceGap === null
-                    ? '—'
-                    : `${detail.priceGap > 0 ? '+' : ''}${formatCurrency(detail.priceGap)}${detail.priceGapPercent === null ? '' : ` (${detail.priceGapPercent > 0 ? '+' : ''}${detail.priceGapPercent}%)`}`;
-                return [
-                    { key: 'our', label: '本店同口径均价', value: detail.avgOurPrice === null ? '—' : formatCurrency(detail.avgOurPrice), className: 'text-gray-900' },
-                    { key: 'competitor', label: '竞对同口径均价', value: detail.avgCompetitorPrice === null ? '—' : formatCurrency(detail.avgCompetitorPrice), className: 'text-gray-900' },
-                    { key: 'gap', label: '本店相对价差', value: gapText, className: competitorMicroscopeGapClass(detail.priceGap) },
-                    { key: 'coverage', label: '当前样本覆盖', value: `${detail.roomTypeCount} 房型 / ${detail.sampleCount} 样本`, className: 'text-gray-900' },
-                ];
-            });
             const roundAgentMetric = (value, digits = 1) => {
                 if (value === null || value === undefined || value === '') return null;
                 const number = Number(value);
@@ -27517,10 +28943,7 @@
                     hotelOptions: otaDiagnosisHotelOptions.value,
                     getModelKey: getSafeOtaDiagnosisModelKey,
                     runHotelFetch: runOtaDiagnosisHotelFetch,
-                    requestDiagnosis: body => request('/agent/ota-diagnosis', {
-                        method: 'POST',
-                        body: JSON.stringify(body),
-                    }),
+                    requestDiagnosis: requestOtaDiagnosis,
                     setLoading: value => { otaDiagnosisLoading.value = value; },
                     setError: value => { otaDiagnosisError.value = value; },
                     setResult: value => { otaDiagnosisResult.value = value; },
@@ -27580,6 +29003,64 @@
                     showToast(error?.message || '转运营执行失败', 'error');
                 } finally {
                     otaDiagnosisExecutionLoading.value = '';
+                }
+            };
+
+            const createCoreOperationsDiagnosisIntent = async (item) => {
+                const recordId = Number(item?.recordId || 0);
+                const actionIndex = Number(item?.actionIndex);
+                const actionItemId = String(item?.actionItemId || '').trim();
+                if (!coreOperationsCanExecute.value) {
+                    showToast('当前账号只有运营查看权限，不能转任务', 'warning');
+                    return;
+                }
+                if (item?.recordStatus === 'superseded') {
+                    showToast('该诊断已被更新记录替代，不能转运营任务', 'warning');
+                    return;
+                }
+                if (item?.ready !== true || !recordId || !actionItemId || !Number.isInteger(actionIndex) || actionIndex < 0) {
+                    showToast('该建议尚未通过证据门槛，不能转运营任务', 'warning');
+                    return;
+                }
+                const assigneeId = Number(user.value?.id || 0);
+                if (assigneeId <= 0) {
+                    showToast('当前登录用户无法作为任务负责人', 'warning');
+                    return;
+                }
+
+                const loadingKey = String(item?.key || `${recordId}-${actionIndex}`);
+                coreOperationsDiagnosisIntentLoading.value = loadingKey;
+                try {
+                    const res = await request(`/agent/ota-diagnoses/${recordId}/actions/${actionIndex}/execution-intent`, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            assignee_id: assigneeId,
+                            due_at: otaDiagnosisScheduleDateTime(1, 18),
+                            review_at: otaDiagnosisScheduleDateTime(2, 10),
+                        }),
+                    });
+                    if (res.code !== 200) throw new Error(res.message || '转运营任务失败');
+                    const intent = res.data?.execution_intent || {};
+                    if (Number(intent.id || 0) <= 0) throw new Error('运营任务未返回可跟踪记录');
+                    const hotelId = String(intent.hotel_id || item?.hotelId || coreOperationsHotelId.value || '').trim();
+                    const persistedIntent = await readOperationExecutionIntent(intent.id);
+                    const persistedEvidence = persistedIntent?.evidence && typeof persistedIntent.evidence === 'object'
+                        ? persistedIntent.evidence
+                        : {};
+                    if (String(persistedIntent.hotel_id || '') !== hotelId
+                        || String(persistedIntent.source_module || '') !== 'ota_diagnosis_saved'
+                        || Number(persistedIntent.source_record_id || 0) !== recordId
+                        || String(persistedEvidence.action_item_id || '').trim() !== actionItemId
+                    ) {
+                        throw new Error('运营任务数据库回读与来源诊断不一致');
+                    }
+                    if (hotelId) operationFilters.value.hotel_id = hotelId;
+                    await loadOperationActions();
+                    showToast(res.data?.reused_existing_intent ? '已读取现有运营任务' : '已转为运营任务，等待人工审批');
+                } catch (error) {
+                    showToast(error?.message || '转运营任务失败', 'error');
+                } finally {
+                    coreOperationsDiagnosisIntentLoading.value = '';
                 }
             };
 
@@ -28058,24 +29539,89 @@
 
             // 加载竞对分析
             const loadCompetitorAnalysis = async () => {
+                const requestSeq = ++competitorAnalysisRequestSeq;
+                const hotelId = String(filterReportHotel.value || '').trim();
+                const date = String(competitorFilter.value.date || '').trim();
+                const isCurrentRequest = () => requestSeq === competitorAnalysisRequestSeq
+                    && hotelId === String(filterReportHotel.value || '').trim()
+                    && date === String(competitorFilter.value.date || '').trim();
+                competitorAnalysisLoading.value = true;
+                competitorAnalysisError.value = '';
+                competitorMicroscopeSelectedKey.value = '';
+                competitorAnalysis.value = emptyCompetitorAnalysis(hotelId, date);
                 try {
+                    if (!hotelId) throw new Error('请先选择酒店');
+                    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('请选择有效的分析日期');
                     await ensureRevenueAiStaticReady();
-                    const params = new URLSearchParams();
-                    params.append('hotel_id', filterReportHotel.value || 0);
-                    params.append('date', competitorFilter.value.date);
-                    const res = await request(`/agent/competitor-analysis?${params}`);
-                    if (res.code === 200) {
-                        competitorAnalysis.value = res.data || { price_matrix: {}, alerts: [], trends: {} };
+                    if (!isCurrentRequest()) return;
+                    const priceParams = new URLSearchParams({ hotel_id: hotelId, date });
+                    const meituanParams = new URLSearchParams({ hotel_id: hotelId, target_date: date, range: 'yesterday' });
+                    const [priceResult, meituanResult] = await Promise.allSettled([
+                        request(`/agent/competitor-analysis?${priceParams}`),
+                        request(`/online-data/competitor-summary?${meituanParams}`),
+                    ]);
+                    if (!isCurrentRequest()) return;
+
+                    const response = emptyCompetitorAnalysis(hotelId, date);
+                    const sourceErrors = {};
+                    let acceptedSourceCount = 0;
+                    if (priceResult.status === 'fulfilled' && priceResult.value?.code === 200) {
+                        const priceResponse = priceResult.value.data || emptyCompetitorAnalysis(hotelId, date);
+                        const responseHotelId = String(priceResponse?.query_scope?.hotel_id || '').trim();
+                        const responseDate = String(priceResponse?.query_scope?.date || priceResponse?.date || '').trim();
+                        if (responseHotelId !== hotelId || responseDate !== date) {
+                            sourceErrors.ctrip = '携程竞对价格响应与当前酒店或日期不一致';
+                        } else {
+                            acceptedSourceCount += 1;
+                            Object.assign(response, priceResponse);
+                        }
+                    } else {
+                        sourceErrors.ctrip = priceResult.status === 'rejected'
+                            ? (priceResult.reason?.message || '携程竞对价格读取失败')
+                            : (priceResult.value?.message || '携程竞对价格读取失败');
+                    }
+
+                    if (meituanResult.status === 'fulfilled' && meituanResult.value?.code === 200) {
+                        const normalized = revenueAiNormalizeMeituanCompetitionCircle(
+                            meituanResult.value.data || response.meituan_competition_circle,
+                            hotelId,
+                            date
+                        );
+                        response.meituan_competition_circle = normalized.payload;
+                        if (normalized.accepted) acceptedSourceCount += 1;
+                        else sourceErrors.meituan = normalized.errorMessage || '美团竞争圈响应不可用';
+                    } else {
+                        const message = meituanResult.status === 'rejected'
+                            ? (meituanResult.reason?.message || '美团竞争圈读取失败')
+                            : (meituanResult.value?.message || '美团竞争圈读取失败');
+                        sourceErrors.meituan = message;
+                        response.meituan_competition_circle = {
+                            ...response.meituan_competition_circle,
+                            data_status: 'error',
+                            message,
+                        };
+                    }
+
+                    if (acceptedSourceCount > 0) {
+                        response.source_errors = sourceErrors;
+                        competitorAnalysis.value = response;
                         competitorMicroscopeSelectedKey.value = revenueAiBuildCompetitorMicroscope(
                             competitorAnalysis.value,
-                            competitorMicroscopeSelectedKey.value
+                            ''
                         ).selectedKey || '';
                     } else {
-                        throw new Error(res.message || '竞对分析加载失败');
+                        throw new Error([sourceErrors.ctrip, sourceErrors.meituan].filter(Boolean).join('；') || '竞对分析加载失败');
                     }
                 } catch (e) {
+                    if (!isCurrentRequest()) return;
                     console.error('加载竞对分析失败:', e);
-                    showToast(e.message || '竞对分析加载失败', 'error');
+                    competitorAnalysis.value = emptyCompetitorAnalysis(hotelId, date);
+                    competitorAnalysisError.value = e.message || '竞对分析加载失败';
+                    showToast(competitorAnalysisError.value, 'error');
+                } finally {
+                    if (requestSeq === competitorAnalysisRequestSeq) {
+                        competitorAnalysisLoading.value = false;
+                    }
                 }
             };
 
@@ -28239,6 +29785,9 @@
                 }
                 showDataConfigModal.value = true;
                 debugLog('showDataConfigModal set to:', showDataConfigModal.value);
+                void ensureDataConfigDialogsReady().catch((error) => {
+                    console.error('数据配置组件加载失败:', error);
+                });
                 deferUiTask(async () => {
                     const isCurrentConfigModal = () => loadSeq === dataConfigModalLoadSeq
                         && showDataConfigModal.value
@@ -28525,6 +30074,7 @@
                 const query = params.toString();
                 const requestKey = `${requestSession.epoch}:${requestPage}:${requestTab}:${query || 'all'}`;
                 if (!force && readRequestCache(competitorSummaryResultCache, requestKey, cacheMs)) {
+                    competitorSummaryError.value = '';
                     return competitorSummary.value;
                 }
                 if (competitorSummaryRequestPromises.has(requestKey)) {
@@ -28550,6 +30100,7 @@
                 );
                 competitorSummaryLoading.value = true;
                 competitorSummaryLoadFailed.value = false;
+                competitorSummaryError.value = '';
                 const run = (async () => {
                     try {
                         const res = await request(`/online-data/competitor-summary${query ? '?' + query : ''}`);
@@ -28566,6 +30117,7 @@
                             writeRequestCache(competitorSummaryResultCache, requestKey, cacheMs);
                         } else {
                             competitorSummaryLoadFailed.value = true;
+                            competitorSummaryError.value = String(res?.message || '美团竞品摘要读取失败');
                             competitorSummary.value = null;
                             competitorSummaryResultCache.delete(requestKey);
                             if (includeByHotel) {
@@ -28575,6 +30127,7 @@
                     } catch (e) {
                         if (!isCurrentRequest()) return null;
                         competitorSummaryLoadFailed.value = true;
+                        competitorSummaryError.value = String(e?.message || '美团竞品摘要读取失败');
                         console.error('加载竞对摘要失败:', e);
                         competitorSummaryResultCache.delete(requestKey);
                         competitorSummary.value = null;
@@ -28732,6 +30285,9 @@
             });
 
             watch(filterReportHotel, () => {
+                if (currentPage.value === 'agent-center') {
+                    resetCompetitorAnalysisView();
+                }
                 if (suppressNextReportHotelDashboardRefresh) {
                     suppressNextReportHotelDashboardRefresh = false;
                     return;
@@ -29083,8 +30639,21 @@
                 const scopedRows = selfRows.length ? selfRows : rows;
                 const nonzeroRows = scopedRows.filter(ctripTrafficRowHasNonzeroCoreMetric).length;
                 const zeroRows = Math.max(0, scopedRows.length - nonzeroRows);
-                const savedCount = Number(onlineDataResult.value?.saved_count || 0);
-                const httpCode = onlineDataResult.value?.http_code || 200;
+                const historyResult = ctripTrafficHistoryResult.value || {};
+                const savedCount = Number(historyResult.saved_count || 0);
+                const httpCode = historyResult.http_code || 200;
+                const rowDates = scopedRows
+                    .map(row => String(row?.date || row?.data_date || '').slice(0, 10))
+                    .filter(value => /^\d{4}-\d{2}-\d{2}$/.test(value));
+                const latestDataDate = rowDates.length ? [...rowDates].sort().at(-1) : '';
+                const settledDate = new Date();
+                settledDate.setDate(settledDate.getDate() - 1);
+                const targetDataDate = String(
+                    historyResult.request_end_date
+                    || (ctripTrafficForm.value?.dateRange === 'custom' ? ctripTrafficForm.value?.endDate : '')
+                    || formatDate(settledDate)
+                ).slice(0, 10);
+                const targetDatePresent = targetDataDate !== '' && rowDates.includes(targetDataDate);
 
                 if (scopedRows.length <= 0) {
                     return {
@@ -29108,6 +30677,19 @@
                     };
                 }
 
+                if (targetDataDate && !targetDatePresent) {
+                    return {
+                        status: 'partial',
+                        className: 'bg-amber-50 border-amber-200 text-amber-800',
+                        title: '历史流量部分可用',
+                        detail: `历史数据已展示，但最新仅到 ${latestDataDate || '未标明日期'}，目标日期 ${targetDataDate} 尚未返回；HTTP ${httpCode}，本次保存 ${savedCount} 条，${nonzeroRows} 行核心指标非 0。`,
+                        nonzeroRows,
+                        zeroRows,
+                        latestDataDate,
+                        targetDataDate,
+                    };
+                }
+
                 return {
                     status: 'ready',
                     className: 'bg-green-50 border-green-200 text-green-800',
@@ -29126,9 +30708,27 @@
             const applyLatestCtripSnapshot = (payload, options = {}) => {
                 const snapshotModel = buildLatestCtripSnapshotModel(payload || {});
                 const hydrateDisplay = options.hydrateDisplay === true;
+                const hydrateRealtime = options.hydrateRealtime === true;
 
                 ctripLatestMeta.value = snapshotModel.metadata;
                 ctripLatestComparison.value = payload?.rank?.comparison || null;
+
+                if (hydrateRealtime) {
+                    const realtimeSnapshot = extractCtripRealtimeTrafficSnapshot([
+                        ...snapshotModel.rankRows,
+                        ...snapshotModel.trafficRows,
+                        ...snapshotModel.displayTrafficRows,
+                    ]);
+                    const realtimeTargetDate = String(snapshotModel.metadata?.target_data_date || formatDate(new Date())).slice(0, 10);
+                    ctripRealtimeTrafficRecord.value = {
+                        ...realtimeSnapshot,
+                        message: realtimeSnapshot.status === 'available'
+                            ? ''
+                            : (snapshotModel.hasTraffic
+                                ? '今日实时记录已读取，但未包含可验证的实时访客、排名或订单指标。'
+                                : `今日 ${realtimeTargetDate} 暂无已入库实时数据；不会沿用历史值冒充今日数据。`),
+                    };
+                }
 
                 if (hydrateDisplay && !snapshotModel.hasRank) {
                     clearCtripRankingDisplayState();
@@ -29181,7 +30781,7 @@
             };
 
             let ctripLatestRequestSeq = 0;
-            const loadLatestCtripData = async ({ silent = false, hotelId = '', hydrateDisplay = null, range = '' } = {}) => {
+            const loadLatestCtripData = async ({ silent = false, hotelId = '', hydrateDisplay = null, hydrateRealtime = false, range = '' } = {}) => {
                 if (!isLoggedIn.value && !token.value) return false;
                 const requestSession = captureAuthSession();
                 const requestPage = currentPage.value;
@@ -29206,6 +30806,12 @@
                     )
                 );
                 ctripLatestLoading.value = true;
+                if (hydrateRealtime) {
+                    ctripRealtimeTrafficRecord.value = {
+                        status: 'loading',
+                        message: '正在读取今日实时数据…',
+                    };
+                }
                 try {
                     const params = new URLSearchParams();
                     if (selectedHotelId) params.append('hotel_id', selectedHotelId);
@@ -29234,17 +30840,30 @@
                     if (res.code === 200) {
                         applyLatestCtripSnapshot(res.data || {}, {
                             hydrateDisplay: shouldHydrateLatestCtripDisplay(hydrateDisplay),
+                            hydrateRealtime,
                         });
                         return (res.data?.metadata?.status === 'success');
                     }
                     if (!silent) {
                         showToast(res.message || '加载最近采集数据失败', 'error');
                     }
+                    if (hydrateRealtime) {
+                        ctripRealtimeTrafficRecord.value = {
+                            status: 'error',
+                            message: res.message || '今日实时数据读取失败。',
+                        };
+                    }
                     return false;
                 } catch (e) {
                     if (!isCurrentRequest()) return null;
                     if (!silent) {
                         showToast('加载最近采集数据失败: ' + e.message, 'error');
+                    }
+                    if (hydrateRealtime) {
+                        ctripRealtimeTrafficRecord.value = {
+                            status: 'error',
+                            message: e.message || '今日实时数据读取失败。',
+                        };
                     }
                     return false;
                 } finally {
@@ -29284,7 +30903,10 @@
                             body: JSON.stringify(body),
                         }),
                         useCtripTrafficDisplayRows,
-                        setOnlineDataResult: value => { onlineDataResult.value = value; },
+                        setOnlineDataResult: value => {
+                            onlineDataResult.value = value;
+                            ctripTrafficHistoryResult.value = value;
+                        },
                         refreshOnlineHistory: scheduleOnlineHistoryRefresh,
                         getOnlineDataTab: () => onlineDataTab.value,
                         refreshOnlineData: scheduleOnlineDataRefresh,
@@ -29626,7 +31248,10 @@
                 findCtripConfigByHotelId,
                 applyCtripConfigObject,
                 getForm: () => ctripCookieApiForm.value,
-                getOverviewForm: () => ctripOverviewForm.value,
+                getOverviewForm: () => ({
+                    ...ctripOverviewForm.value,
+                    dataDate: String(options.dataDate || ctripOverviewForm.value.dataDate || '').trim(),
+                }),
                 getHotelNameById,
                 resolveProfileId: resolveCtripCookieApiProfileId,
                 resolveRequestHotelId: resolveCtripCookieApiRequestHotelId,
@@ -30097,6 +31722,7 @@
                 ctripTrafficRows.value = [];
                 ctripTrafficSummary.value = null;
                 ctripTrafficAnalysis.value = null;
+                ctripTrafficHistoryResult.value = null;
                 latestTrafficData.value = [];
                 ctripCommentResult.value = null;
                 onlineDataResult.value = null;
@@ -30348,20 +31974,31 @@
                 const cookieResult = await runCtripOverviewCookieApiCapture(
                     ['traffic_report'],
                     '流量数据',
-                    { silent: true, requestSource: 'traffic_report' }
+                    { silent: true, requestSource: 'traffic_report', dataDate: formatDate(new Date()) }
                 );
                 const cookieData = cookieResult?.response?.data || {};
                 if (cookieResult?.status === 'success'
                     && cookieData.is_ready !== false
                     && Number(cookieData.saved_count || 0) > 0
                 ) {
-                    ctripRealtimeTrafficRecord.value = extractCtripRealtimeTrafficSnapshot(
+                    const realtimeSnapshot = extractCtripRealtimeTrafficSnapshot(
                         Array.isArray(cookieData.responses) ? cookieData.responses : []
                     );
+                    ctripRealtimeTrafficRecord.value = {
+                        ...realtimeSnapshot,
+                        message: realtimeSnapshot.status === 'available'
+                            ? ''
+                            : '本次已保存携程流量记录，但未返回可验证的今日实时指标。',
+                    };
                     showToast('携程流量数据获取完成');
                     return cookieResult;
                 }
-                showToast(ctripTrafficFetchFailureMessage(cookieResult), 'error');
+                const failureMessage = ctripTrafficFetchFailureMessage(cookieResult);
+                ctripRealtimeTrafficRecord.value = {
+                    status: 'error',
+                    message: failureMessage,
+                };
+                showToast(failureMessage, 'error');
                 return cookieResult;
             };
 
@@ -30391,7 +32028,7 @@
                 ctripOverviewFetchActionLoading.value = tabName;
                 try {
                     await prepareCtripOverviewFetchAction(tabName);
-                    await action();
+                    return await action();
                 } finally {
                     ctripOverviewFetchActionLoading.value = '';
                     if (options.refreshAfter !== false) {
@@ -30401,19 +32038,64 @@
             };
 
             const runCtripOverviewFetchAction = async (tabName) => {
-                await runCtripOverviewFetchActionInternal(tabName);
+                return await runCtripOverviewFetchActionInternal(tabName);
+            };
+
+            const runCtripTrafficBundleStep = async (label, action) => {
+                try {
+                    return await action();
+                } catch (error) {
+                    showToast(`${label}更新失败：${error.message || '未知错误'}`, 'error');
+                    return { status: 'exception', error };
+                }
             };
 
             const fetchCtripTrafficAndSearchData = async () => {
-                await fetchCtripTrafficData();
-                await runCtripOverviewFetchAction('ctrip-traffic');
-                await loadCtripSearchOpportunity();
-                await loadLatestCtripData({
-                    silent: true,
-                    hotelId: selectedCtripHotelId.value,
-                    range: 'realtime',
-                    hydrateDisplay: false,
-                });
+                if (ctripTrafficBundleLoading.value) return null;
+                ctripTrafficBundleLoading.value = true;
+                ctripRealtimeTrafficRecord.value = {
+                    status: 'loading',
+                    message: '正在读取今日实时数据…',
+                };
+                try {
+                    const historyResult = await runCtripTrafficBundleStep('历史数据', async () => {
+                        return await fetchCtripTrafficData();
+                    });
+                    const captureResult = await runCtripTrafficBundleStep('今日实时与未来搜索数据', async () => {
+                        return await runCtripOverviewFetchAction('ctrip-traffic');
+                    });
+                    const captureFailureMessage = captureResult?.status && captureResult.status !== 'success'
+                        ? ctripTrafficFetchFailureMessage(captureResult)
+                        : '';
+                    const futureResult = await runCtripTrafficBundleStep('未来搜索数据', async () => {
+                        return await loadCtripSearchOpportunity();
+                    });
+                    const realtimeResult = await runCtripTrafficBundleStep('今日实时数据', async () => {
+                        return await loadLatestCtripData({
+                            silent: true,
+                            hotelId: selectedCtripHotelId.value,
+                            range: 'realtime',
+                            hydrateDisplay: false,
+                            hydrateRealtime: true,
+                        });
+                    });
+                    if (captureFailureMessage && ctripRealtimeTrafficRecord.value?.status !== 'available') {
+                        ctripRealtimeTrafficRecord.value = {
+                            ...ctripRealtimeTrafficRecord.value,
+                            status: 'error',
+                            message: captureFailureMessage,
+                        };
+                    }
+                    if (!ctripSearchOpportunityError.value
+                        && ctripSearchOpportunityView.value.status === 'not_collected'
+                        && captureFailureMessage
+                    ) {
+                        ctripSearchOpportunityError.value = captureFailureMessage;
+                    }
+                    return { historyResult, captureResult, futureResult, realtimeResult };
+                } finally {
+                    ctripTrafficBundleLoading.value = false;
+                }
             };
 
             const handleCtripTrafficHotelChange = (event) => {
@@ -30430,6 +32112,7 @@
                 ctripTrafficRows.value = [];
                 ctripTrafficSummary.value = null;
                 ctripTrafficAnalysis.value = null;
+                ctripTrafficHistoryResult.value = null;
                 ctripRealtimeTrafficRecord.value = null;
                 latestTrafficData.value = [];
                 onlineDataResult.value = null;
@@ -32207,19 +33890,18 @@
                 meituanAiAnalysisResult.value = sanitizeAiReportHtml(record.report);
             };
 
-            const copyToClipboard = (text) => {
+            const copyToClipboard = async (text) => {
                 // 优先使用 navigator.clipboard API
                 if (navigator.clipboard && navigator.clipboard.writeText) {
-                    navigator.clipboard.writeText(text).then(() => {
+                    try {
+                        await navigator.clipboard.writeText(text);
                         showToast('已复制到剪贴板');
-                    }).catch(() => {
-                        // 备用方案：使用 document.execCommand
-                        fallbackCopy(text);
-                    });
-                } else {
-                    // 备用方案：使用 document.execCommand
-                    fallbackCopy(text);
+                        return true;
+                    } catch (error) {
+                        return fallbackCopy(text);
+                    }
                 }
+                return fallbackCopy(text);
             };
 
             const fallbackCopy = (text) => {
@@ -32232,12 +33914,15 @@
                 textarea.focus();
                 textarea.select();
                 try {
-                    document.execCommand('copy');
-                    showToast('已复制到剪贴板');
+                    const copied = document.execCommand('copy') === true;
+                    showToast(copied ? '已复制到剪贴板' : '复制失败，请手动复制', copied ? 'success' : 'error');
+                    return copied;
                 } catch (err) {
                     showToast('复制失败，请手动复制', 'error');
+                    return false;
+                } finally {
+                    document.body.removeChild(textarea);
                 }
-                document.body.removeChild(textarea);
             };
 
             const copyOnlineDataResult = () => {
@@ -33434,7 +35119,7 @@
                             loadData();
                             showAuthNotices(res.data);
                             if (isCompassDataPage()) {
-                                activateAiWorkbenchAfterLogin();
+                                activateCoreOperationsAfterLogin();
                             }
                             scheduleInitialBackendNotificationRefresh();
                             if (currentPage.value === 'opening-overview' || currentPage.value === 'opening-checklist') {
@@ -35096,7 +36781,7 @@
                 operationStrategyRequirementText, operationStrategyAmountRequired, operationStrategyDiscountRequired,
                 operationAlertFilter, operationAlertFilters, operationStrategyTypes, operationHotelOptions, operationSummaryCards, operationOtaCards, operationCompetitorCards,
                 operationSourceBrief, operationDecisionCards,
-                operationUnreadCount, filteredOperationAlerts, operationAlertTaskLoadingIds, isOperationAlertTaskLoading, loadOperationFullData, analyzeOperationRootCause, loadOperationAlerts,
+                operationUnreadCount, operationCanMarkAlertsRead, filteredOperationAlerts, operationAlertTaskLoadingIds, isOperationAlertTaskLoading, loadOperationFullData, analyzeOperationRootCause, loadOperationAlerts,
                 markOperationAlertsRead, createOperationAlertTask, openOperationAlertTask, simulateOperationStrategy, createOperationAction, loadOperationActions, finishOperationAction,
                 aiDailyReport, aiDailyReportForm, aiDailyFactGate, aiDailyFactGateLoading, loadAiDailyFactGate, aiDailyReportAiExplanation, aiDailyReportAiInterpretation, aiDailyReportMetricCards, aiDailyReportActions, aiDailyReportDataGaps, aiDailyReportAbnormalMetrics, aiDailyReportCompetitorChanges, aiDailyReportSourceCount, aiDailyReportTransferableCount, aiDailyReportResultReadiness, aiDailyReportWorkflowReadiness, aiDailyReportReadiness, aiDailyReportResultContract, aiDailyReportResultLayers, aiDailyReportHumanJudgments, aiDailyReportConfidenceText, aiDailyReportLayerCards, aiDailyReportReadinessCards, aiDailyReportBlockingRows, aiDailyReportBlockingSummary, aiDailyReportEvidenceRows,
                 aiDailyReportGenerationTask, aiDailyReportGenerationTaskPolling, aiDailyReportGenerationOutcome, aiDailyReportGenerationProgress, aiDailyReportGenerationRunning, aiDailyReportGenerationStageText, aiDailyReportGenerationStatusClass, aiDailyReportGenerationDetailText,
@@ -35118,6 +36803,7 @@
                 openingProjectForm, openingPositioningImpact, openingTaskFilter, openingTaskPage, openingTaskPagination, pagedOpeningTasks, openingCategories, openingStatusOptions, openingProgressQuickValues, openingOverviewCards, openingCategoryProgressCards, openingTaskStats, openingTaskProgressCards, openingTaskProgressStages, openingAiOutputResult, openingStatusFilterChips, openingAttentionFilterChips, filteredOpeningTasks,
                 selectedOpeningTaskIds, selectedOpeningTasks, isAllFilteredOpeningTasksSelected, toggleSelectAllFilteredOpeningTasks, clearSelectedOpeningTasks, batchUpdateOpeningTasks,
                 loadOpeningProjects, createOpeningProject, saveOpeningProject, archiveOpeningProject, startOpeningProjectCreate, selectOpeningProject, generateOpeningTasks, openOpeningChecklist, createOpeningExecutionIntent, updateOpeningTask, setOpeningTaskStatus, resetOpeningTaskFilter, changeOpeningTaskPage, recalculateOpening,
+                openingPersistedHotelId, openingProjectBindingDirty, openingExecutionReady,
                 openingTaskDueLabel, openingTaskDueClass, openingTaskProgressPercent, openingTaskProgressStage, openingTaskProgressTextClass, handleOpeningTaskProgressInput, handleOpeningTaskStatusChange, setOpeningTaskProgress, saveOpeningTaskProgress,
                 openingRiskText, openingRiskTextClass, openingRiskClass,
                 homeObservation, homeTrendCards, homeTrendRanges, homeTrendRange, homeTrendMetrics, homeTrendMetric, homeTrendLoading, homeTrendCustomRange, homeTrendHasSamples, homeTrendInterpretation, homeTrendEmptyState,
@@ -35127,7 +36813,7 @@
                 dualOtaConnectionClass, dualOtaConnectionPlatformValue, switchDualOtaConnection, setDualOtaPlatform, setDualOtaRange, setDualOtaStoreScope, dualOtaMetricComparisonText, toggleDualOtaCompare, dualOtaModuleNavigationTarget, openDualOtaModule, openDualOtaSystemMetric, dualOtaTrustClass, dualOtaSeverityClass, dualOtaHeatClass, dualOtaActionStatusClass, setDualOtaLossNode, setDualOtaAnomaly, syncDualOtaActionStatus, toggleDualOtaAction, copyDualOtaAdvice, openDualOtaBackendPlaceholder, recordDualOtaExecution, toggleDualOtaMemory,
                 revenueAiStaticReady, revenueAiStaticLoading, revenueAiStaticError, revenueAiOverview, revenueAiOverviewLoading, revenueAiOverviewError, revenueAiBusinessClosure, revenueAiStatusRows, revenueAiMetricCards, revenueAiGapRows, revenueAiGapSummary, revenueAiSignalRows, revenueAiActionRows, revenueAiEvidenceWorkbenchRows, revenueAiEvidenceWorkbenchSummary, revenueAiPricingGateRows, revenueAiAgentActivitySummary, revenueAiAgentActivityRows, revenueAiExecutionSummary, revenueAiExecutionRows, revenueAiEffectReviewRows, revenueAiStatusClass, revenueAiStatusLabel, revenueAiSeverityClass, openRevenueAiGap, openRevenueAiMetric, openRevenueAiDecisionBasis, openRevenueAiExecutionItem, openRevenueAiReviewItem, submitRevenueAiReviewAction, isRevenueAiReviewActionLoading,
                 selectHomeTrendRange, selectHomeTrendMetric, loadHomeTrends,
-                macroSignalCards, macroSignalViewCards, macroSignalLoading, activeMacroSignal, macroSignalDetail, macroSignalDetailLoading, macroSignalLevelClass, loadMacroSignalDetail, closeMacroSignalDetail, homeDataSources, homeMarketForecastItems, homeMarketForecastStatus, homeMarketForecastSummaryRows, homeMarketForecastAction, holidayRevenue, holidayRevenueLoading, holidayOperationCountdown, holidayOperationStageText, holidayOperationSuggestions,
+                macroSignalCards, macroSignalViewCards, macroSignalLoading, activeMacroSignal, macroSignalDetail, macroSignalDetailLoading, macroSignalLevelClass, loadMacroSignalDetail, closeMacroSignalDetail, homeDataSources, homeMarketForecastItems, homeMarketForecastStatus, homeMarketForecastSummaryRows, homeMarketForecastAction, holidayRevenue, holidayRevenueLoading, holidayOperationCountdown, holidayOperationStageText, holidayOperationSuggestions, competitorSummaryLoading,
                 compassHotelOptions, dualOtaCurrentHotelOptions, dualOtaHotelOrderRows, dualOtaHotelOrderModeText, showDualOtaHotelOrderModal, openDualOtaHotelOrder, closeDualOtaHotelOrder, moveDualOtaHotelOrder, moveDualOtaHotelOrderToTop, saveDualOtaHotelOrder, resetDualOtaHotelOrder, compassLoading, compassLastSyncedAt, compassDataReadiness, homeSecondaryPanelsReady, homeClosedLoopStages, homeAiTraceRows, refreshCompassDashboard,
                 dailyOpsPrimaryActions, dailyOpsStatusCards, dailyOpsMetricRows, dailyOpsFieldCount, dailyOpsReviewSteps, dailyOpsMonitorConclusion,
                 autoFetchFieldScopeGroups, autoFetchScopeStatusClass,
@@ -35148,7 +36834,7 @@
                 revenueResearchProducts, revenueResearchStatusClass, revenueResearchRuns, revenueResearchHotelId, revenueResearchHotelOptions, revenueResearchSteps, revenueResearchRunFor,
                 revenueResearchStepClass, revenueResearchStepIcon, revenueResearchResultStatusLabel, revenueResearchResultStatusClass, revenueResearchReadinessClass, revenueResearchMissingText,
                 revenueResearchExecutionBlockedText, revenueResearchCanCreateExecutionIntent, createRevenueResearchExecutionIntent, openRevenueResearchExecutionIntent,
-                revenueResearchForecastCards, revenueForecastReadinessClass, revenueCompetitorReadinessClass, revenueCompetitorGapText, runRevenueResearchProduct, openRevenueResearchModule,
+                revenueResearchForecastCards, revenueForecastReadinessClass, runRevenueResearchProduct, openRevenueResearchModule,
                 menuTestId, pageTestId,
                 expandedMenus, toggleSubmenu, handleParentMenuClick,
                 showHotelUserAuthorizationModal, hotelUserAuthorizationTarget, hotelUserAuthorizationUserIds, hotelUserAuthorizationSearch, hotelUserAuthorizationLoading, hotelUserAuthorizationSaving, hotelUserAuthorizationError, hotelAuthorizationCandidateDisabled, filteredHotelAuthorizationUsers,
@@ -35181,6 +36867,7 @@
                 aiGovernanceStatusText, aiGovernanceStatusClass, aiGovernanceConfirmText, aiGovernanceConfirmClass, aiGovernanceConfidenceText, aiGovernanceJsonBrief, loadAiGovernance, loadAiGovernanceLogs, openAiGovernanceLogDetail, confirmAiGovernanceLog,
                 // 数据配置
                 showDataConfigModal, currentDataConfigType, dataConfigTitle, dataConfigMeta, testingConfig, savingConfig, dataConfigForm,
+                dataConfigDialogsReady, dataConfigDialogsBody, dataConfigDialogsError, retryDataConfigDialogs,
                 showDataConfigSpidertoken, showDataConfigCookie, showDataConfigPayload,
                 openDataConfigModal, saveDataConfig, testDataConfig,
                 showHotelModal, showHotelDeleteModal, hotelDeleteTarget, hotelDeleteLoading, hotelDeleteError, hotelDeleteReferences, hotelDeleteCanForce, hotelDeleteConfirmationName, showHotelMergeModal, hotelMergeForm, hotelMergePreview, hotelMergeConfirmationInput, hotelMergeLoading, hotelMergeExecuting, hotelMergeError, hotelMergeVisibleItems, hotelMergeSkippableConflictCount, hotelMergeCanExecute, hotelMergeFlowState, showUserModal, showUserLoginInfoModal, userLoginInfoTarget, userLoginInfoPassword, userLoginInfoShowPassword, userLoginInfoSaving, userLoginInfoError, showUserStatusConfirmModal, userStatusConfirmTarget, userStatusConfirmAction, userStatusConfirmLoading, userStatusConfirmError, userStatusConfirmName, userStatusConfirmTitle, userStatusConfirmDescription, userStatusConfirmPrimaryText, showUserDeleteModal, userDeleteTarget, userDeleteLoading, userDeleteError, userDeleteReferences, userDeleteCanForce, lastUserIssueGuideText, userDeleteName, userDeletePrimaryText, showPermissionModal, showHotelOtaConfig,
@@ -35211,7 +36898,8 @@
                 platformStoreAccountCenterRows,
                 filteredPlatformAccountCenterRows,
                 platformAccountCenterSummaryCards,
-                ctripTrafficView, ctripRealtimeTrafficView,
+                ctripTrafficView, ctripTrafficBundleLoading, ctripRealtimeTrafficView,
+                ctripTrafficSummaryCards, ctripTrafficCompareMetrics, ctripTrafficAnalysisMetrics, formatCtripTrafficAnalysisMetric,
                 otaFetchResultView,
                 onlineDataTab, shouldShowOnlineFetchResult, platformDataSources, platformSyncTasks, platformSyncLogs, platformCollectionResources, platformCollectionStatus, platformCollectionResourceLoading, platformCollectionResourceError, platformCollectionStatusLoading, platformCollectionStatusError, platformCollectionStatusRows, platformContextSummaryCards, platformCollectionBoundaryRows, platformCollectionStatusText, platformCollectionStatusClass, platformReviewCollectionText, platformRowLatestText, platformCollectionFailureReasonText, platformCollectionFailureReasonClass, platformProfileFlowRows, platformProfileFlowStepClass, platformProfileFlowStepDotClass, authContext, platformCollectionResourceRows, platformCollectionResourceSummary, platformCollectionTypeRows, platformCollectionResourceStatusText, platformCollectionResourceStatusClass, platformCollectionEtlStatusText, platformCollectionFreshnessText, platformDataSourceLoading, platformDataSourceSaving, platformDataSourceSyncingId, platformDataSourceDeletingId, platformDataImporting, browserAssistImporting, browserAssistImportResult, browserAssistImportFileName, browserAssistImportForm, browserAssistImportPackages, browserAssistImportWarnings, platformDataSourceError, platformDataSourceForm, platformDataSourceConfigPlaceholder, platformDataSourceSecretPlaceholder, platformAccountBindingGuideRows, platformAccountBindingStatusRows, platformBatchHealthRows, platformBatchHealthSummaryCards, platformBatchHealthBadgeClass, applyPlatformAccountBindingGuide, togglePlatformAccountCenterDetails, openPlatformAccountCenterAction, platformProfileStatus, platformProfileStatusLoading, platformProfileStatusRows, meituanPlatformProfileStatusRow, ctripPlatformProfileStatusRow, meituanPlatformProfileLoginTask, ctripPlatformProfileLoginTask, platformProfileSummary, platformProfileLoginTasks, platformProfileLoginTask, platformProfileLoginRunning, triggerPlatformProfileLogin, loadPlatformProfileStatus, loginPlatformProfile, probePlatformProfileStatus, openPlatformProfileAction, platformProfileStatusLabel, platformProfileStatusRawText, platformProfileStatusBadgeClass, platformProfileCheckClass, platformProfileBindingText, platformProfileBindingRawText, platformProfileStrategyText, platformProfilePrimaryActionText, platformProfileNextActionText, platformProfileLoginTaskText, platformProfileLoginTaskRawText, platformImportForm, platformDataSourceHotelOptions, platformSourceGuidePanelsReady, loadPlatformDataSourcePanel, openPlatformSourcesTab, schedulePlatformDataSourcePanelLoad, schedulePlatformSyncLogPanelRefresh, loadPlatformCollectionResources, loadPlatformCollectionStatus, savePlatformDataSource, resetPlatformDataSourceForm, editPlatformDataSource, deletePlatformDataSource, deletePlatformProfileBinding, syncPlatformDataSource, importPlatformDataRowsFromText, readBrowserAssistCaptureFile, copyBrowserAssistCollectorScript, importBrowserAssistCaptureFromText, clearBrowserAssistImportForm, loadPlatformSyncTasks, loadPlatformSyncLogs, platformSourceStatusClass, platformTaskStatusClass, platformSyncActionText, downloadCenterTab, fetchingData, onlineDataResult, topTenHotels, ctripHotelsList, ctripBusinessSummaryCards, ctripBusinessSourceNotice, ctripSortedHotelsList, pagedCtripSortedHotelsList, ctripTablePagination, ctripTableRankOffset, ctripTablePage, changeCtripTablePage, ctripTableTab, ctripSortField, ctripSortOrder, sortCtripTable, showRawData, ctripForm, ctripTrafficForm, ctripTrafficSummary, ctripTrafficRows, ctripTrafficAnalysis, ctripTrafficCompareRows, ctripTrafficBusinessQuality, ctripTrafficSortField, ctripTrafficSortOrder, sortCtripTrafficTable, ctripTrafficSortIndicator, ctripAdsBrowserCaptureForm, ctripAdsBrowserCaptureResult, ctripAdsBrowserCaptureRunning, ctripOverviewApiKeywords, ctripFlowOverviewApiKeywords, ctripOverviewForm, ctripFlowOverviewForm, ctripOverviewResult, ctripFlowOverviewResult, ctripOverviewFetching, ctripFlowOverviewFetching, ctripOverviewMetricCards, ctripOverviewTopRankTables, ctripFlowOverviewMetricCards, ctripFlowOverviewInterfaceRows, ctripBrowserCaptureForm, ctripBrowserCaptureResult, ctripBrowserCaptureRunning, ctripCookieApiForm, ctripCookieApiRunning, ctripProfileStatus, ctripProfileStatusChecking, ctripProfileStatusText, ctripProfileStatusClass, ctripEndpointEvidenceForm, ctripEndpointEvidenceResult, ctripEndpointEvidenceValidating, ctripCommentForm, ctripCommentResult, ctripReviewMatchForm, ctripReviewMatchLoading, ctripReviewMatchLookupLoadingCommentId, ctripReviewMatchResult, ctripReviewMatchSamples, ctripReviewMatchStatusLabel, ctripReviewMatchStatusClass, applyCtripReviewMatchSample, showCtripReviewMatchManualPanel, runCtripReviewMatchAutomation, ctripCommentBrowserCaptureForm, ctripCommentBrowserCaptureResult, ctripCommentBrowserCaptureRunning, showCtripCommentManualCapture, showCtripCommentSpidertoken, showCtripCommentCookies, showCtripCommentPayload, meituanForm, meituanTrafficForm, meituanOrderForm, meituanOrderResult, meituanAdsForm, meituanAdsResult, defaultCtripLoginUrl, defaultMeituanAdsUrl, meituanBrowserCaptureForm, meituanBrowserCaptureResult, meituanBrowserCaptureRunning, meituanBrowserCapturePresets, meituanBrowserCaptureCommand, meituanBrowserCaptureSelectedSectionsText, meituanBrowserCaptureReadinessNotice, meituanBrowserCaptureSupplementModules, meituanBrowserCaptureSupplementCounts, meituanCommentForm, fetchingCommentData, meituanCommentSuccess, meituanCommentResult, showMeituanCommentHelp, showMeituanCommentAdvanced, customForm, newCookies, cookiesList, selectedCookieKeys, isAllCookiesSelected, cookieRowKey, toggleSelectAllCookies, batchDeleteCookiesConfig, cookieStatusList, cookieAlerts, bookmarkletCode,
                 ctripProfileFields, ctripProfileFieldSummary, ctripProfileFieldLoading, ctripProfileFieldSampleLoading, ctripProfileFieldSamplesLoaded, ctripProfileFieldSaving, ctripProfileFieldTogglingId, ctripProfileFieldVerifyingId, ctripProfileFieldRechecking, ctripProfileFieldConfigPanelReady, ctripProfileFieldConfigPanelBody, ctripProfileFieldRecheckState, ctripProfileFieldRecheckProgress, ctripProfileFieldRecheckEstimatedText, ctripProfileFieldRecheckSectionText, ctripProfileFieldRecheckTargetCount, showCtripProfileFieldForm, selectedCtripProfileSampleField, selectedCtripProfileFieldSamples, ctripProfileSamplePanel, editingCtripProfileField, editingCtripProfileFieldSamples, ctripProfileModules, ctripProfileAllModules, ctripProfilePrimaryCategoryOptions, ctripProfilePrimaryCategoryCards, ctripProfileModuleCategoryFilter, ctripProfileModuleRows, showCtripProfileModuleManager, ctripProfileModuleSaving, ctripProfileModuleDeletingId, ctripProfileModuleForm, ctripProfileFieldSectionOptions, ctripProfileFieldForm, ctripProfileFieldFilters, ctripProfileFieldSampleText, ctripProfileFieldSampleValueText, ctripProfileFieldSampleItems, ctripProfileFieldDisplaySampleItems, ctripProfileFieldDisplaySampleLabel, ctripProfileFieldPreviewSampleItems, ctripProfileFieldLatestBatchSampleCount, ctripProfileFieldDisplaySampleCount, ctripProfileFieldLatestSampleTime, ctripProfileFieldSampleMetaText, ctripProfileFieldSampleBriefMetaText, ctripProfileFieldSampleSourceText, ctripProfileFieldSampledCount, ctripProfileEnabledFieldCount, ctripProfileEnabledSampledFieldCount, ctripProfileEnabledMissingFieldCount, ctripProfileCaptureResultText, ctripProfileEnabledVisibleFieldCount, ctripProfileSampledVisibleFieldCount, ctripProfileFieldCurrentBatchSampledCount, ctripProfileConfirmedFieldCount, ctripProfileDoubtfulFieldCount, ctripProfileForbiddenFieldAssets, ctripProfileFieldAssetLedgerCards, ctripProfileFieldInferredSectionText, ctripProfileFieldInferredEndpoint, ctripProfileFieldInferredSourceKey, ctripProfileFieldInferredFieldKey, ctripProfileFieldInferredStorageField, filteredCtripProfileFields, resetCtripProfileModuleForm, openCtripProfileModuleManager, closeCtripProfileModuleManager, editCtripProfileModule, saveCtripProfileModule, deleteCtripProfileModule, ctripProfileModulePageUrl, ctripProfileModulePageDisplay, openCtripProfileModulePage, resetCtripProfileFieldFilters, resetCtripProfileFieldForm, openCtripProfileFieldCreateForm, openCtripProfileFieldSamplePanel, closeCtripProfileFieldSamplePanel, loadCtripProfileFields, openCtripProfileFieldsForReview, applyCtripProfileFieldSections, recheckCtripProfileMismatchedFields, editCtripProfileField, applyCtripProfileFieldSmartDefaults, selectCtripProfileCorrectSample, isCtripProfileCorrectSampleSelected, ctripProfileFieldNeedsSecondConfirmation, saveCtripProfileField, toggleCtripProfileFieldEnabled, setCtripProfileFieldVerification, deleteCtripProfileField, ctripProfileCaptureSectionText, ctripProfileFieldStatusText, ctripProfileFieldStatusDetailText, ctripProfileFieldStatusClass, normalizeCtripProfileFieldVerificationStatus, ctripProfileFieldVerificationText, ctripProfileFieldVerificationBadgeClass, ctripProfileFieldVerificationLightClass,
@@ -35224,8 +36912,9 @@
                 loadOnlineDataCorrectionLedger, toggleOnlineDataCorrectionLedger, changeOnlineDataCorrectionLedgerPage, restoreOnlineDataCorrectionLedger,
                 onlineDataCorrectionLedgerOperationText, onlineDataCorrectionLedgerChangedFieldsText, onlineDataCorrectionLedgerStatusText, onlineDataCorrectionLedgerStatusClass,
                 collectionReliability, collectionReliabilityLoading, collectionReliabilityError,
+                coreOperationsProfileSessionRows, coreOperationsProfileSessionBlockedRows, prepareCoreOperationsProfileSession, coreOperationsCanExecute, coreOperationsCanGenerateDiagnosis, coreOperationsCanCollect, coreOperationsDiagnosisGenerating, coreOperationsDiagnosisGenerationMessage, generateCoreOperationsDiagnoses,
                 otaConfigOverviewPageSize, otaConfigOverviewPages, otaConfigOverviewRefreshing, otaConfigOverviewProbeState, otaConfigOverviewSelectedCount, otaConfigOverviewHiddenSelectedCount, otaConfigOverviewPageCount, otaConfigOverviewPageNumber, otaConfigOverviewPageSummary, changeOtaConfigOverviewPage, isOtaConfigOverviewRowSelected, toggleOtaConfigOverviewRow, isOtaConfigOverviewPageSelected, toggleSelectOtaConfigOverviewPage, clearOtaConfigOverviewSelection, refreshOtaConfigOverviewStatus, probeOtaConfigOverviewRow, probeSelectedOtaConfigOverviewRows, runOtaConfigOverviewRowCollection, runSelectedOtaConfigOverviewCollection, deleteOtaConfigOverviewRow,
-                dailyWorkbench, dailyWorkbenchLoading, dailyWorkbenchError, dailyWorkbenchPatrol, dailyWorkbenchPatrolLoading, dailyWorkbenchPatrolRunning, dailyWorkbenchPatrolActionUpdating, dailyWorkbenchPatrolError, coreOperationsTargetDate, coreOperationsMaxDate, coreOperationsHotelId, coreOperationsLoading, coreOperationsError, coreOperationsMetrics, coreOperationsSelectedWorkbenchRow, coreOperationsPlatformCards, coreOperationsCompetitorRows, coreOperationsAnomalyRows, coreOperationsAiSuggestions, coreOperationsActionRows, coreOperationsExecutionItems, coreOperationsStepRows, coreOperationsEvidenceStatusText, coreOperationsEvidenceStatusClass, refreshCoreOperationsLoop, phase3OperationEffectLoop, phase3OperationEffectLoopLedger, phase3OperationEffectLoopLoading, phase3OperationEffectLoopError, phase3OperationEffectLoopActionUpdating, phase3OperationEffectLoopSummary, phase3OperationEffectLoopCards, phase3OperationEffectLoopRows, phase3OperationEffectLoopBoundaryText, phase3OperationEffectLoopLedgerText, phase3OperationEffectLoopEmptyText, phase3OperationEffectLoopStatusText, phase3OperationEffectLoopStatusClass, phase3OperationEffectLoopActionKey, dailyWorkbenchWriteBoundary, dailyWorkbenchSummary, dailyWorkbenchScopeText, dailyWorkbenchSummaryCards, dailyWorkbenchRows, employeeOtaChecklistScopeText, employeeOtaChecklistCards, employeeOtaChecklistHeadline, employeeOtaChecklistRows, employeeOtaChecklistEmptyText, employeeOtaChecklistActionRunning, runEmployeeOtaChecklistAction, dataAcquisitionWorkbenchRows, dataAcquisitionIssueGroups, dataAcquisitionWorkbenchCards, dataAcquisitionWorkbenchScopeText, dataAcquisitionWorkbenchHeadline, dataAcquisitionWorkbenchEmptyText, dataAcquisitionPrimaryFetchHotelId, dataAcquisitionFetchableHotelIds, otaConfigOverviewGroups, otaConfigOverviewExpanded, otaConfigOverviewFilters, otaConfigOverviewTotalCount, otaConfigOverviewFilteredCount, otaConfigOverviewHasFilters, resetOtaConfigOverviewFilters, otaConfigOverviewVisibleRows, toggleOtaConfigOverview, manageOtaConfigOverview, editOtaConfigOverviewRow, otaDirectViewCards, otaDirectIssueRows, handleOtaDirectIssueAction, manualOneClickFetchRunning, manualOneClickFetchRows, manualOneClickFetchDisplayRows, manualOneClickFetchPagedRows, manualOneClickFetchPagination, manualOneClickFetchPage, manualOneClickFetchPageSize, setManualOneClickFetchStatusFilter, changeManualOneClickFetchPage, changeManualOneClickFetchPageSize, manualOneClickFetchCards, manualOneClickFetchScopeText, manualOneClickFetchEvidenceError, manualOneClickFetchStatusFilter, manualOneClickFetchFilterOptions, manualOneClickFetchFilteredEmptyText, manualOneClickFetchEmptyText, manualOneClickFetchStatusClass, canEditManualOneClickFetchRow, canRetryManualOneClickFetchRow, canDeleteManualOneClickFetchRow, canSupplementManualOneClickFetchRow, editManualOneClickFetchFailure, retryManualOneClickFetchFailure, deleteManualOneClickFetchConfig, supplementManualOneClickFetchConfig, runManualOneClickFetch, refreshManualOneClickFetchConfig, dailyWorkbenchNextActions, dailyWorkbenchPatrolVisibleActions, dailyWorkbenchEmptyText, dailyWorkbenchStatusText, dailyWorkbenchStatusClass, dailyWorkbenchPatrolLatest, dailyWorkbenchPatrolHealth, dailyWorkbenchPatrolHealthText, dailyWorkbenchPatrolHealthClass, dailyWorkbenchPatrolAutomationText, dailyWorkbenchPatrolAutomationClass, dailyWorkbenchPatrolNextActionText, dailyWorkbenchPatrolLatestText, dailyWorkbenchPatrolLatestRawText, dailyWorkbenchPatrolActionText, dailyWorkbenchPatrolBoundaryText, dailyWorkbenchPatrolTrackedStatusText, dailyWorkbenchPatrolTrackedStatusClass, dailyWorkbenchPatrolExecutionText, dailyWorkbenchPatrolTaskId, dailyWorkbenchPatrolReviewText, dailyWorkbenchPatrolReviewClass, dailyWorkbenchPatrolActionUpdatingKey, dailyWorkbenchPatrolReviewUpdatingKey,
+                dailyWorkbench, dailyWorkbenchLoading, dailyWorkbenchError, dailyWorkbenchPatrol, dailyWorkbenchPatrolLoading, dailyWorkbenchPatrolRunning, dailyWorkbenchPatrolActionUpdating, dailyWorkbenchPatrolError, coreOperationsTargetDate, coreOperationsMaxDate, coreOperationsHotelId, coreOperationsLoading, coreOperationsError, coreOperationsMetrics, coreOperationsDiagnoses, coreOperationsDiagnosisIntentLoading, coreOperationsSourceFetchVisibleState, coreOperationsSourceFetchRunning, coreOperationsSourceFetchActionText, coreOperationsSourceFetchStatusClass, coreOperationsSourceFetchModeText, coreOperationsSelectedWorkbenchRow, coreOperationsPlatformCards, coreOperationsCompetitorRows, coreOperationsCompetitorError, coreOperationsAnomalyRows, coreOperationsAiSuggestions, coreOperationsActionRows, coreOperationsExecutionItems, coreOperationsStepRows, coreOperationsEvidenceStatusText, coreOperationsEvidenceStatusClass, refreshCoreOperationsLoop, runCoreOperationsYesterdayFetch, createCoreOperationsDiagnosisIntent, phase3OperationEffectLoop, phase3OperationEffectLoopLedger, phase3OperationEffectLoopLoading, phase3OperationEffectLoopError, phase3OperationEffectLoopActionUpdating, phase3OperationEffectLoopSummary, phase3OperationEffectLoopCards, phase3OperationEffectLoopRows, phase3OperationEffectLoopBoundaryText, phase3OperationEffectLoopLedgerText, phase3OperationEffectLoopEmptyText, phase3OperationEffectLoopStatusText, phase3OperationEffectLoopStatusClass, phase3OperationEffectLoopActionKey, dailyWorkbenchWriteBoundary, dailyWorkbenchSummary, dailyWorkbenchScopeText, dailyWorkbenchSummaryCards, dailyWorkbenchRows, employeeOtaChecklistScopeText, employeeOtaChecklistCards, employeeOtaChecklistHeadline, employeeOtaChecklistRows, employeeOtaChecklistEmptyText, employeeOtaChecklistActionRunning, runEmployeeOtaChecklistAction, dataAcquisitionWorkbenchRows, dataAcquisitionIssueGroups, dataAcquisitionWorkbenchCards, dataAcquisitionWorkbenchScopeText, dataAcquisitionWorkbenchHeadline, dataAcquisitionWorkbenchEmptyText, dataAcquisitionPrimaryFetchHotelId, dataAcquisitionFetchableHotelIds, otaConfigOverviewGroups, otaConfigOverviewExpanded, otaConfigOverviewFilters, otaConfigOverviewTotalCount, otaConfigOverviewFilteredCount, otaConfigOverviewHasFilters, resetOtaConfigOverviewFilters, otaConfigOverviewVisibleRows, toggleOtaConfigOverview, manageOtaConfigOverview, editOtaConfigOverviewRow, otaDirectViewCards, otaDirectIssueRows, handleOtaDirectIssueAction, manualOneClickFetchRunning, manualOneClickFetchRows, manualOneClickFetchDisplayRows, manualOneClickFetchPagedRows, manualOneClickFetchPagination, manualOneClickFetchPage, manualOneClickFetchPageSize, setManualOneClickFetchStatusFilter, changeManualOneClickFetchPage, changeManualOneClickFetchPageSize, manualOneClickFetchCards, manualOneClickFetchScopeText, manualOneClickFetchEvidenceError, manualOneClickFetchStatusFilter, manualOneClickFetchFilterOptions, manualOneClickFetchFilteredEmptyText, manualOneClickFetchEmptyText, manualOneClickFetchStatusClass, canEditManualOneClickFetchRow, canRetryManualOneClickFetchRow, canDeleteManualOneClickFetchRow, canSupplementManualOneClickFetchRow, editManualOneClickFetchFailure, retryManualOneClickFetchFailure, deleteManualOneClickFetchConfig, supplementManualOneClickFetchConfig, runManualOneClickFetch, refreshManualOneClickFetchConfig, dailyWorkbenchNextActions, dailyWorkbenchPatrolVisibleActions, dailyWorkbenchEmptyText, dailyWorkbenchStatusText, dailyWorkbenchStatusClass, dailyWorkbenchPatrolLatest, dailyWorkbenchPatrolHealth, dailyWorkbenchPatrolHealthText, dailyWorkbenchPatrolHealthClass, dailyWorkbenchPatrolAutomationText, dailyWorkbenchPatrolAutomationClass, dailyWorkbenchPatrolNextActionText, dailyWorkbenchPatrolLatestText, dailyWorkbenchPatrolLatestRawText, dailyWorkbenchPatrolActionText, dailyWorkbenchPatrolBoundaryText, dailyWorkbenchPatrolTrackedStatusText, dailyWorkbenchPatrolTrackedStatusClass, dailyWorkbenchPatrolExecutionText, dailyWorkbenchPatrolTaskId, dailyWorkbenchPatrolReviewText, dailyWorkbenchPatrolReviewClass, dailyWorkbenchPatrolActionUpdatingKey, dailyWorkbenchPatrolReviewUpdatingKey,
                 dashboardAccountOverview, dashboardHotelPortrait, dashboardDataSources, hotelDashboardLoading, hotelDashboardError, dataHealthFullDiagnosticsLoaded, dataHealthSecondaryPanelsReady, dataHealthDetailPanelsReady, dataHealthEmployeePanelsReady, ctripEbookingModuleCardsReady, ctripEbookingSecondaryPanelsReady, ctripEbookingDeepPanelsReady, ctripEbookingBusinessDetailsReady, ctripEbookingDiagnosticsPanelsReady, handleCtripEbookingDiagnosticsToggle, dashboardHotelId,
                 dashboardStateText, dashboardStateClass, dashboardMetricText, dashboardEvidenceText, dashboardHotelOptions,
                 dashboardAccountSummaryCards, dashboardCoreKpis, dashboardRiskAlerts, dashboardTodayActions, dashboardPortraitSections, dashboardDataSourceDiagnostics,
@@ -35271,8 +36960,8 @@
                 ctripConfigForm, ctripConfigSaving, ctripConfigList, ctripTargetHotelOptions, ctripConfigListLoading, ctripConfigListLoaded, ctripConfigListLoadFailed, selectedCtripConfigIds, ctripBookmarklet, showCtripCookieGuide, selectedCtripConfigId, selectedCtripHotelId, selectedCtripHotelConfig, selectedCtripManualCredentialState, buildCtripManualCredentialState, shouldShowCtripRankingManualAuxiliary, normalizeCtripManualAuxiliaryText, canFetchCtripManualData,
                 ctripPublicProfileHotelOptions, ctripPublicProfilePayload, ctripPublicProfiles, ctripPublicProfilesSorted, ctripPublicProfileSummary, ctripPublicProfileOwnBinding, ctripPublicProfileLoading, ctripPublicProfileSaving, ctripPublicProfileRefreshing, ctripPublicProfileError, ctripPublicProfileForm,
                 loadCtripPublicProfiles, handleCtripPublicProfileHotelChange, addCtripPublicProfileById, refreshCtripPublicProfiles, ctripPublicProfileRoleText, ctripPublicProfileStatusText, ctripPublicProfileStatusClass, ctripPublicProfileDisplayName, ctripPublicProfileSourceUrl, ctripPublicProfileGradeText, ctripPublicProfileFacilityCount, ctripPublicProfileCompletenessText, ctripPublicProfileFacilities, ctripPublicProfileHighlights, ctripPublicProfileMissingFieldsText, ctripPublicProfileSummaryCards, ctripPublicProfileMetricCards, ctripPublicProfileDetailRows,
-                otaPublicPageDiagnosisPayload, otaPublicPageDiagnosisLoading, otaPublicPageDiagnosisExecutionLoading, otaPublicPageDiagnosisExecutionIntent, otaPublicPageDiagnosisOperationSurfaceAccessible, otaPublicPageDiagnosisTaskSchedule, otaPublicPageDiagnosisTaskScheduleText, otaPublicPageDiagnosisError, otaPublicPageDiagnosisFilter, otaPublicPageDiagnosisCoverage, otaPublicPageDiagnosisDimensions, otaPublicPageDiagnosisSources,
-                loadOtaPublicPageDiagnosis, createOtaPublicPageDiagnosisExecutionIntent, otaPublicPageDiagnosisStatusText, otaPublicPageDiagnosisStatusClass, otaPublicPageDiagnosisDimensionClass, otaPublicPageDiagnosisFactValue,
+                otaPublicPageDiagnosisPayload, otaPublicPageDiagnosisLoading, otaPublicPageEvidenceSaving, otaPublicPageDiagnosisExecutionLoading, otaPublicPageDiagnosisExecutionIntent, otaPublicPageDiagnosisOperationSurfaceAccessible, otaPublicPageDiagnosisOperationSurfaceStatus, otaPublicPageDiagnosisOperationSurfaceText, otaPublicPageDiagnosisTaskBridge, otaPublicPageDiagnosisTaskStatusText, otaPublicPageDiagnosisTaskReadbackText, otaPublicPageDiagnosisTaskActionText, otaPublicPageDiagnosisTaskActionDisabled, otaPublicPageDiagnosisTaskBridgeNoticeText, otaPublicPageDiagnosisTaskSchedule, otaPublicPageDiagnosisTaskScheduleText, otaPublicPageDiagnosisError, otaPublicPageDiagnosisFilter, otaPublicPageDiagnosisCoverage, otaPublicPageDiagnosisDimensions, otaPublicPageDiagnosisSources, otaPublicPageEvidenceStatusText, otaPublicPageDiagnosisLatestDate, otaPublicPageDiagnosisHasLatestSnapshotAction, otaPublicPageEvidenceActionText, otaPublicPageEvidenceActionDisabled,
+                loadOtaPublicPageDiagnosis, handleOtaPublicPageEvidenceAction, createOtaPublicPageDiagnosisExecutionIntent, otaPublicPageDiagnosisStatusText, otaPublicPageDiagnosisStatusClass, otaPublicPageDiagnosisDimensionClass, otaPublicPageDiagnosisFactValue,
                 ctripCompetitiveOperationsPayload, ctripCompetitiveOperationsLoading, ctripCompetitiveOperationsError, ctripCompetitiveOperationsRange, ctripCompetitiveOperationsCoverage, ctripCompetitiveOperationsComparison, ctripCompetitiveOperationsFunnel, ctripCompetitiveOperationsAnomalies, ctripCompetitiveOperationsCoverageCards, ctripCompetitiveOperationsMetricPanels,
                 loadCtripCompetitiveOperations, loadCtripCompetitorEventFeed, loadCtripCompetitionWorkspace, openCtripCompetitorEventWorkspace, ctripCompetitorEventFeedMatchesSelection, ctripCompetitorEventRows,
                 ctripCompetitiveOperationsStatusText, ctripCompetitiveOperationsStatusClass, ctripCompetitiveAnomalyClass,
@@ -35322,19 +37011,19 @@
                 loadCompassData, loadHolidayRevenueCountdown, loadHomeTemporalInsights, generateHomeTemporalForecast, moveCompassBlock, toggleCompassBlock, saveCompassLayout, compassBlockLabel, getHotelName,
                 // 竞对价格监控
                 competitorTab, competitorHotels, competitorLogs, competitorDevices, competitorRobots,
-                competitorDevicesLoading, competitorDevicesError, competitorDevicesStale,
-                competitorDevicePlatforms, competitorDeviceSaving, competitorDeviceActionId,
+                competitorDevicesLoading, competitorDevicesError, competitorDevicesStale, competitorDevicePagination,
+                competitorDevicePlatforms, competitorDeviceSaving, competitorDeviceActionId, competitorDeviceEditingId, competitorDeviceTokenCopied,
                 showCompetitorDeviceModal, competitorDeviceForm, competitorDeviceCredential,
-                competitorDeviceManagementReady, competitorDeviceManagementBody,
+                competitorDeviceManagementReady, competitorDeviceManagementBody, competitorDeviceManagementError,
                 competitorHotelFilter, competitorLogFilter, competitorRobotFilter,
                 showCompetitorHotelModal, competitorHotelForm, competitorStores,
                 showCompetitorRobotModal, competitorRobotForm,
                 loadCompetitorHotels, openCompetitorHotelModal, saveCompetitorHotel, deleteCompetitorHotel,
-                loadCompetitorLogs, loadCompetitorDevices, loadCompetitorStores, loadCompetitorDeviceWorkbench,
-                openCompetitorDeviceModal, closeCompetitorDeviceModal, saveCompetitorDevice,
+                loadCompetitorLogs, loadCompetitorDevices, loadCompetitorStores, loadCompetitorDeviceWorkbench, changeCompetitorDevicePage,
+                openCompetitorDeviceModal, closeCompetitorDeviceModal, saveCompetitorDevice, retryCompetitorDeviceManagement,
                 rotateCompetitorDeviceToken, updateCompetitorDeviceStatus, clearCompetitorDeviceCredential,
                 copyCompetitorDeviceToken, competitorDevicePlatformLabel, competitorDeviceUserLabel,
-                competitorDeviceEligibleUsers, competitorDeviceLastSeenText,
+                competitorDeviceEligibleUsers, setCompetitorDeviceStoreId, competitorDeviceLastSeenText,
                 loadCompetitorRobots, openCompetitorRobotModal, saveCompetitorRobot, deleteCompetitorRobot, testCompetitorRobot, getCompetitorStoreName,
                 // Agent中心 - 基础
                 agentTab, agentTabs, agentOverview, hotelAiToolboxLinks, agentConfigs,
@@ -35355,9 +37044,9 @@
                 // Agent中心 - 收益管理增强
                 demandForecasts, forecastFilter, demandForecastForm, demandForecastSaving, forecastAccuracy, highDemandDates, revenueDashboard,
                 revenueAnalysisData, revenueAnalysisDataNotice, revenueAccuracyText, revenueRevparRows,
-                competitorAnalysis, competitorFilter, competitorPriceForm, competitorPriceSaving, competitorPriceMatrixRows,
-                competitorMicroscopeSelectedKey, competitorMicroscope, competitorMicroscopeOptions, competitorMicroscopeDetail, competitorMicroscopeGapClass, competitorMicroscopeSummaryCards,
-                loadDemandForecasts, resetDemandForecastForm, saveDemandForecastInput, loadCompetitorAnalysis, resetCompetitorPriceForm, saveCompetitorPriceInput, loadRevenueDashboard, loadRevenueAnalysis, loadRevenueAnalysisBundle,
+                competitorAnalysis, competitorAnalysisLoading, competitorAnalysisError, competitorFilter, competitorPriceForm, competitorPriceSaving,
+                competitorMicroscopeSelectedKey, competitorMicroscope, competitorMicroscopeOptions, competitorMicroscopeDetail, competitorMicroscopeGapClass,
+                loadDemandForecasts, resetDemandForecastForm, saveDemandForecastInput, loadCompetitorAnalysis, resetCompetitorAnalysisView, resetCompetitorPriceForm, saveCompetitorPriceInput, loadRevenueDashboard, loadRevenueAnalysis, loadRevenueAnalysisBundle,
                 // 侧边栏
                 sidebarCollapsed, toggleSidebar,
             };

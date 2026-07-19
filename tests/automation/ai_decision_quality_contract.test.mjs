@@ -24,8 +24,12 @@ test('user-facing AI recommendation backends apply the decision quality contract
   for (const key of ['priority', 'data_basis', 'expected_effect', 'risk', 'generic_talk_rejected']) {
     assert.match(contract, new RegExp(`['"]${key}['"]`), `quality contract must expose ${key}`);
   }
-  assert.match(contract, /can_create_execution_intent['"]\]\s*=\s*false/);
+  assert.match(contract, /CONTRACT_VERSION\s*=\s*['"]ai_recommendation_quality\.v2['"]/);
+  assert.match(contract, /can_create_execution_intent['"]\]\s*=\s*\$executionReady/);
+  assert.match(contract, /if\s*\(!\$executionReady\)/);
   assert.match(contract, /human_confirmation_required['"]\s*=>\s*true/);
+  assert.match(contract, /当前建议不得执行/);
+  assert.match(read('public/app-main.js'), /data-testid': 'ai-decision-quality-blocked'[\s\S]*质量门禁：不合格，不可执行/);
 });
 
 test('AI decision surfaces show basis priority action effect and risk', () => {

@@ -2946,7 +2946,7 @@ final class OnlineDataTest extends TestCase
             ['dimension' => '入住间夜榜', 'top_value' => 15, 'self_value' => 10, 'column' => 'quantity'],
             ['dimension' => '销售额榜', 'top_value' => 3000, 'self_value' => 2000, 'column' => 'amount'],
             ['dimension' => '曝光榜', 'top_value' => 1000, 'self_value' => 700, 'column' => 'data_value'],
-            ['dimension' => '支付转化榜', 'top_value' => 0.12, 'self_value' => 0.08, 'column' => 'data_value'],
+            ['dimension' => '支付转化榜', 'top_value' => 12, 'self_value' => 8, 'column' => 'data_value'],
         ] as $item) {
             foreach ([
                 ['poi' => 'TOP', 'name' => 'Top Hotel', 'value' => $item['top_value'], 'rank' => 1],
@@ -2986,6 +2986,20 @@ final class OnlineDataTest extends TestCase
         self::assertSame(['ok', 'ok', 'ok', 'ok'], array_column($payload['rank_health_rows'], 'status'));
         self::assertSame('returned_empty', $payload['display_summary']['platform_tag_summary']['status']);
         self::assertSame(0, $payload['display_summary']['platform_tag_summary']['vip_count']);
+        $rowsByPoi = [];
+        foreach ($payload['display_hotels'] as $row) {
+            $rowsByPoi[$row['poiId']] = $row;
+        }
+        $topConversion = array_values(array_filter(
+            $rowsByPoi['TOP']['rankHistory'],
+            static fn(array $row): bool => ($row['rankType'] ?? '') === 'P_ZH'
+        ))[0];
+        $selfConversion = array_values(array_filter(
+            $rowsByPoi['SELF']['rankHistory'],
+            static fn(array $row): bool => ($row['rankType'] ?? '') === 'P_ZH'
+        ))[0];
+        self::assertSame(0.12, $topConversion['value']);
+        self::assertSame(0.08, $selfConversion['value']);
     }
 
     public function testStoredMeituanSummaryDerivesPercentOnlyRowsFromSelfMetrics(): void
@@ -3135,6 +3149,7 @@ final class OnlineDataTest extends TestCase
         self::assertSame(0.0, $rowsByPoi['TOP']['roomNights']);
         self::assertSame(0.0, $rowsByPoi['SECOND']['roomNights']);
         self::assertSame(0.0, $rowsByPoi['SELF']['roomNights']);
+        self::assertNull($rowsByPoi['SELF']['rankHistory'][0]['value']);
         self::assertArrayNotHasKey('roomNights', $rowsByPoi['SELF']['metricDerived']);
         self::assertSame(0.0, $payload['display_summary']['metrics']['totalRoomNights']);
         self::assertStringContainsString('未返回可展示数值', $payload['source_notice']);
@@ -5917,6 +5932,48 @@ final class OnlineDataTest extends TestCase
 
         self::assertSame([
             ['where', 'update_time', '2026-05-18 16:54:51'],
+        ], $query->calls);
+    }
+
+    public function testCtripLatestBatchScopeUsesSnapshotBucketForMultiSecondRealtimeCapture(): void
+    {
+        $controller = $this->controller();
+        $query = new OnlineDataQuerySpy();
+
+        $this->invokeNonPublic($controller, 'applyCtripLatestBatchScope', [
+            $query,
+            [
+                'system_hotel_id' => 7,
+                'snapshot_bucket' => '202607200132',
+                'update_time' => '2026-07-20 01:32:16',
+            ],
+            '7',
+            ['system_hotel_id' => true, 'snapshot_bucket' => true, 'update_time' => true],
+        ]);
+
+        self::assertSame([
+            ['where', 'snapshot_bucket', '202607200132'],
+        ], $query->calls);
+    }
+
+    public function testCtripLatestRankSectionIncludesRealtimeRankingRows(): void
+    {
+        $controller = $this->controller();
+        $query = new OnlineDataQuerySpy();
+
+        $this->invokeNonPublic($controller, 'applyCtripSectionTypeFilter', [
+            $query,
+            'rank',
+            ['data_type' => true],
+        ]);
+
+        self::assertSame([
+            ['whereGroup', [
+                ['where', 'data_type', 'business'],
+                ['whereOr', 'data_type', ''],
+                ['whereOr', 'data_type', 'competitor'],
+                ['whereOr', 'data_type', 'ranking'],
+            ]],
         ], $query->calls);
     }
 
@@ -10543,11 +10600,23 @@ final class OnlineDataQuerySpy
 
     public mixed $valueResult = null;
 
-    public function where(string $field, mixed $value, mixed $thirdValue = null): self
+    public function where(mixed $field, mixed $value = null, mixed $thirdValue = null): self
     {
+        if ($field instanceof \Closure) {
+            $nested = new self();
+            $field($nested);
+            $this->calls[] = ['whereGroup', $nested->calls];
+            return $this;
+        }
         $this->calls[] = func_num_args() === 3
             ? ['where', $field, $value, $thirdValue]
             : ['where', $field, $value];
+        return $this;
+    }
+
+    public function whereOr(string $field, mixed $value): self
+    {
+        $this->calls[] = ['whereOr', $field, $value];
         return $this;
     }
 

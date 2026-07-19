@@ -8,8 +8,11 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
+  buildDataConfigDialogsComponent,
   buildFrontendStartupRender,
   buildFrontendTemplateRender,
+  DATA_CONFIG_DIALOGS_ARTIFACT_RELATIVE_PATH,
+  DATA_CONFIG_DIALOGS_TEMPLATE_RELATIVE_PATH,
   FRONTEND_TEMPLATE_MINIFY_OPTIONS,
   inspectFrontendTemplateBuild,
 } from '../../scripts/lib/frontend_template_build.mjs';
@@ -35,6 +38,8 @@ const compilerVuePath = path.join(repoRoot, 'public/vue.global.prod.js');
 const pinnedRuntimeVuePath = path.join(repoRoot, 'node_modules/vue/dist/vue.runtime.global.prod.js');
 const indexPath = path.join(repoRoot, 'public/index.html');
 const appMainPath = path.join(repoRoot, 'public/app-main.js');
+const dataConfigDialogsTemplatePath = path.join(repoRoot, DATA_CONFIG_DIALOGS_TEMPLATE_RELATIVE_PATH);
+const dataConfigDialogsArtifactPath = path.join(repoRoot, DATA_CONFIG_DIALOGS_ARTIFACT_RELATIVE_PATH);
 
 async function withTemplateTestLock(owner, action) {
   const release = await acquireFrontendTemplateLock(repoRoot, { owner });
@@ -165,6 +170,14 @@ test('business template fragments assemble byte-for-byte to the canonical templa
   assert.doesNotMatch(homeFragments.get('page-ai-workbench'), /data-testid="home-full-detail-fold"/);
   assert.match(homeFragments.get('page-compass-detail'), /data-testid="home-full-detail-fold"/);
   assert.match(homeFragments.get('home-shared-secondary'), /data-testid="home-secondary-detail-fold"/);
+  assert.match(
+    homeFragments.get('dialogs-data-config'),
+    /<data-config-dialogs v-if="showDataConfigModal" :ctx="\$root"><\/data-config-dialogs>/,
+  );
+  assert.doesNotMatch(homeFragments.get('dialogs-data-config'), /<form @submit\.prevent="saveDataConfig"/);
+  const dataConfigDialogsTemplate = fs.readFileSync(dataConfigDialogsTemplatePath, 'utf8');
+  assert.match(dataConfigDialogsTemplate, /<form @submit\.prevent="saveDataConfig"/);
+  assert.match(dataConfigDialogsTemplate, /v-if="showDataConfigModal"/);
   for (const requiredId of [
     'shared-expansion-history',
     'shared-transfer-context',
@@ -192,14 +205,18 @@ test('root template render and runtime-only Vue are deterministic pinned artifac
   const artifact = fs.readFileSync(renderPath, 'utf8');
   const startupArtifact = fs.readFileSync(startupRenderPath, 'utf8');
   const runtimeVue = fs.readFileSync(runtimeVuePath, 'utf8');
+  const dataConfigDialogsTemplate = fs.readFileSync(dataConfigDialogsTemplatePath, 'utf8');
+  const dataConfigDialogsArtifact = fs.readFileSync(dataConfigDialogsArtifactPath, 'utf8');
   const pinnedRuntimeVue = fs.readFileSync(pinnedRuntimeVuePath, 'utf8');
   const rebuilt = await buildFrontendTemplateRender(template);
   const { loadFrontendStartupTemplateSource } = await import('../../scripts/lib/frontend_template_source.mjs');
   const startupSource = loadFrontendStartupTemplateSource(repoRoot);
   const startupRebuilt = await buildFrontendStartupRender(startupSource.template);
+  const dataConfigDialogsRebuilt = await buildDataConfigDialogsComponent(dataConfigDialogsTemplate);
 
   assert.equal(artifact, rebuilt);
   assert.equal(startupArtifact, startupRebuilt);
+  assert.equal(dataConfigDialogsArtifact, dataConfigDialogsRebuilt);
   assert.ok(Buffer.byteLength(startupArtifact) < Buffer.byteLength(artifact) * 0.2);
   assert.match(startupSource.template, /data-testid="home-executive-answer"/);
   assert.match(startupSource.template, /data-testid="deferred-page-loading"/);
@@ -209,7 +226,24 @@ test('root template render and runtime-only Vue are deterministic pinned artifac
   assert.ok(Buffer.byteLength(runtimeVue) < Buffer.byteLength(fs.readFileSync(compilerVuePath)) * 0.75);
   assert.doesNotMatch(artifact, /\bwith\s*\(/);
   assert.doesNotThrow(() => new Function('Vue', artifact));
+  assert.doesNotThrow(() => new Function('Vue', 'window', dataConfigDialogsArtifact));
+  assert.match(dataConfigDialogsArtifact, /SUXI_SYSTEM_COMPONENTS/);
+  assert.match(dataConfigDialogsArtifact, /DataConfigDialogsBody/);
+  assert.doesNotMatch(dataConfigDialogsArtifact, /template:/);
+  const componentWindow = {};
+  const VueRuntime = await import('vue');
+  new Function('window', 'Vue', dataConfigDialogsArtifact)(componentWindow, VueRuntime);
+  const dataConfigDialogsComponent = componentWindow.SUXI_SYSTEM_COMPONENTS?.DataConfigDialogsBody;
+  assert.equal(typeof dataConfigDialogsComponent?.render, 'function');
+  assert.equal(typeof dataConfigDialogsComponent?.setup, 'function');
+  const componentContext = { dataConfigTitle: '数据配置', showDataConfigModal: true };
+  const componentSetup = dataConfigDialogsComponent.setup({ ctx: componentContext });
+  assert.equal(componentSetup.dataConfigTitle, '数据配置');
+  componentSetup.showDataConfigModal = false;
+  assert.equal(componentContext.showDataConfigModal, false);
   assert.equal(FRONTEND_TEMPLATE_MINIFY_OPTIONS.compress.booleans_as_integers, true);
+  assert.equal(FRONTEND_TEMPLATE_MINIFY_OPTIONS.compress.conditionals, false);
+  assert.equal(FRONTEND_TEMPLATE_MINIFY_OPTIONS.compress.unused, false);
   assert.equal(artifact.endsWith('\n'), false);
   });
 });
@@ -241,6 +275,9 @@ test('authenticated asset manifest loads the hashed runtime Vue and render befor
   const report = await inspectFrontendTemplateBuild(repoRoot, { lockHeld: true });
   assert.deepEqual(report.failures, []);
   assert.equal(report.metrics.render_hash, hash);
+  assert.ok(report.metrics.render_gzip_headroom_bytes >= 2_000);
+  assert.ok(report.metrics.data_config_dialogs_artifact_bytes > 0);
+  assert.ok(report.metrics.data_config_dialogs_artifact_gzip_bytes > 0);
   assert.ok(report.metrics.startup_render_gzip_bytes < 35_000);
   assert.ok(report.metrics.fragment_count >= 30);
   assert.equal(report.metrics.template_snapshot_matches, true);

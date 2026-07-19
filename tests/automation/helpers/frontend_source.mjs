@@ -13,5 +13,6 @@ export function readFrontendContractSource() {
     read('public/index.html'),
     decodeTemplateSource(read('resources/frontend/app-template.html')),
     read('public/app-main.js'),
+    decodeTemplateSource(read('resources/frontend/templates/components/data-config-dialogs.html')),
   ].join('\n');
 }

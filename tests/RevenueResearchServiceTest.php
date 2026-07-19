@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use app\service\AiDecisionQualityService;
 use app\service\RevenueResearchService;
 use app\service\RevenueOperationsKnowledgeService;
 use app\service\OperationManagementService;
@@ -127,6 +128,9 @@ final class RevenueResearchServiceTest extends TestCase
             'available' => true,
         ], [
             'recommended_actions' => ['进入收益管理生成调价建议'],
+            'decision_recommendations' => [
+                $this->readyDecisionRecommendation('进入收益管理复核未来7天订单预测，并记录实际订单偏差率'),
+            ],
         ]);
 
         self::assertSame('research_ready_for_execution', $readiness['stage']);
@@ -154,6 +158,9 @@ final class RevenueResearchServiceTest extends TestCase
                 'title' => '需求预测经营预测',
                 'summary' => '未来 7 天需求上升',
                 'recommended_actions' => ['复核未来 7 天价格策略'],
+                'decision_recommendations' => [
+                    $this->readyDecisionRecommendation('复核未来 7 天价格策略'),
+                ],
                 'data_gaps' => [],
                 'next_review_date' => '2026-06-26',
             ],
@@ -295,6 +302,9 @@ final class RevenueResearchServiceTest extends TestCase
             ],
             'result' => [
                 'recommended_actions' => ['复核未来 7 天价格策略'],
+                'decision_recommendations' => [
+                    $this->readyDecisionRecommendation('复核未来 7 天价格策略'),
+                ],
             ],
         ], [
             'source_record_id' => 903,
@@ -955,6 +965,20 @@ final class RevenueResearchServiceTest extends TestCase
             'truth_context' => [
                 'status' => 'verified',
                 'metric_scope' => 'ota_channel',
+            ],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function readyDecisionRecommendation(string $action): array
+    {
+        return [
+            'title' => '收益研究执行建议',
+            'action' => $action,
+            'can_create_execution_intent' => true,
+            'decision_quality' => [
+                'contract_version' => AiDecisionQualityService::CONTRACT_VERSION,
+                'execution_ready' => true,
             ],
         ];
     }

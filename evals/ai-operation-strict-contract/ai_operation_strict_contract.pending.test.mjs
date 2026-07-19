@@ -88,7 +88,7 @@ test('daily report source references derive platform labels instead of hard-codi
   const snapshot = block(dailyReport, 'private function buildSnapshot', 'private function sanitizeExecutionFlowForSnapshot');
   assertMatches(snapshot, /evidenceOtaPlatform\(\$evidence\)/, 'snapshot source platform must come from its evidence');
   assertMatches(snapshot, /'platform'\s*=>\s*\(string\)\(\$evidence\['platform'\]/, 'snapshot source reference must retain platform');
-  assertMatches(snapshot, /default\s*=>\s*'OTA channel fact \(platform unknown\)'/, 'unknown platform must remain generic OTA');
+  assertMatches(snapshot, /default\s*=>\s*'来源待核验'/, 'unknown platform must remain explicitly unverified');
 });
 
 test('frontend defines strict resource readback helpers', () => {

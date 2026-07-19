@@ -85,6 +85,7 @@ test('Revenue AI static helper exposes the required display contract', () => {
     'aiDailyReportActionSources',
     'aiDailyReportEvidenceTarget',
     'aiDailyReportActionIsInvestigationOnly',
+    'aiDailyReportActionExecutionReady',
     'aiDailyReportActionBlockedText',
     'aiDailyReportActionStatusText',
     'aiDailyReportActionButtonText',
@@ -135,6 +136,7 @@ test('Revenue AI entry lazy-loads the versioned helper outside the startup chain
   assert.match(appMain, /revenueAiStaticRevision\.value \+= 1;/);
   assert.match(appMain, /buildRevenueAiGapSummary: \(\) => \(\{ status: 'not_loaded', total: null/);
   assert.match(appMain, /buildAiDailyFactGate: \(\) => \(\{[\s\S]*status: 'not_loaded'[\s\S]*configuredCount: null/);
+  assert.match(appMain, /aiDailyReportActionExecutionReady: \(\) => false/);
   assert.match(appMain, /const HOME_SECONDARY_PANEL_DELAY_MS = 4200;/);
   assert.match(appMain, /homeSecondaryPanelsReady\.value = true;[\s\S]*ensureRevenueAiStaticReady\(\)[\s\S]*loadRevenueAiOverview\(\)/);
   assert.match(appMain, /if \(newPage === 'agent-center'\) \{[\s\S]*runPageLoadOnce\(newPage, 'revenue-ai-static', \(\) => ensureRevenueAiStaticReady\(\)\)/);

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\controller\Agent;
+use app\service\AiDecisionQualityService;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use Tests\Support\ReflectionHelper;
@@ -82,11 +83,15 @@ final class AgentTest extends TestCase
         self::assertSame('source_summary', $sources[0]['ref']);
         self::assertCount(3, $items);
         self::assertSame('pending_manual_review', $items[0]['status']);
-        self::assertTrue($items[0]['execution_ready']);
-        self::assertSame('pending', $items[0]['human_confirmation_status']);
+        self::assertFalse($items[0]['execution_ready']);
+        self::assertFalse($items[0]['can_request_execution_intent']);
+        self::assertFalse($items[0]['decision_quality']['execution_ready']);
+        self::assertSame('blocked', $items[0]['human_confirmation_status']);
         self::assertNotEmpty($items[0]['evidence_refs']);
         self::assertSame('pending_manual_review', $items[1]['status']);
-        self::assertTrue($items[1]['execution_ready']);
+        self::assertFalse($items[1]['execution_ready']);
+        self::assertFalse($items[1]['can_request_execution_intent']);
+        self::assertFalse($items[1]['decision_quality']['execution_ready']);
         self::assertContains('competitor', $items[1]['required_evidence']);
         self::assertSame('blocked_by_data_gap', $items[2]['status']);
         self::assertFalse($items[2]['execution_ready']);
@@ -159,6 +164,7 @@ final class AgentTest extends TestCase
                 [
                     'id' => 2,
                     'source' => 'ctrip',
+                    'system_hotel_id' => 7,
                     'hotel_id' => '1001',
                     'data_type' => 'traffic',
                     'data_date' => '2026-05-24',
@@ -197,6 +203,25 @@ final class AgentTest extends TestCase
         self::assertFalse($byRef['online_daily_data_excluded#3']['decision_eligible']);
         self::assertSame('stale', $byRef['online_daily_data_excluded#3']['quality_status']);
         self::assertSame([], $byRef['online_daily_data_excluded#3']['metrics']);
+
+        $positiveSources = array_values(array_filter(
+            $sources,
+            static fn(array $source): bool => in_array((string)($source['ref'] ?? ''), ['source_summary', 'online_daily_data#2'], true)
+        ));
+        $actions = $this->invokeNonPublic($controller, 'buildOtaDiagnosisActionItems', [[
+            'Review Ctrip traffic exposure for 2026-05-24, update the main image, and record detail visitor rate before and after.',
+        ], $positiveSources, [
+            'hotel' => ['id' => 7],
+            'platform' => 'ctrip',
+            'date_range' => ['start_date' => '2026-05-24', 'end_date' => '2026-05-24'],
+            'priority' => 'high',
+            'core_conclusion' => 'Ctrip traffic evidence requires a specific conversion review.',
+        ]]);
+        self::assertCount(1, $actions);
+        self::assertSame(AiDecisionQualityService::CONTRACT_VERSION, $actions[0]['decision_quality']['contract_version']);
+        self::assertTrue($actions[0]['decision_quality']['execution_ready'], json_encode($actions[0], JSON_UNESCAPED_UNICODE));
+        self::assertTrue($actions[0]['can_create_execution_intent']);
+        self::assertTrue($actions[0]['execution_ready']);
     }
 
     public function testOtaDiagnosisUsesAdvertisingAndQualityWithoutCommentDependency(): void
@@ -648,6 +673,11 @@ final class AgentTest extends TestCase
             'status' => 'pending_manual_review',
             'execution_ready' => true,
             'can_request_execution_intent' => true,
+            'can_create_execution_intent' => true,
+            'decision_quality' => [
+                'contract_version' => AiDecisionQualityService::CONTRACT_VERSION,
+                'execution_ready' => true,
+            ],
             'evidence_refs' => ['online_daily_data#901'],
         ], 77, 80, [
             'assignee_id' => 9,
@@ -662,13 +692,74 @@ final class AgentTest extends TestCase
         self::assertSame('listing_conversion_optimization', $input['action_type']);
         self::assertSame(0, $input['current_value']['book_order_num'], 'A verified zero must remain observable.');
         self::assertSame('target_not_quantified_until_manual_confirmation', $input['target_value']['measurement_policy']);
+        self::assertSame('increase', $input['target_value']['expected_direction']);
         self::assertArrayNotHasKey('expected_delta', $input);
         self::assertSame('not_quantified', $input['evidence']['expected_delta_status']);
+        self::assertSame('increase', $input['evidence']['expected_direction']);
         self::assertSame(['online_daily_data#901'], $input['evidence']['evidence_refs']);
         self::assertSame(9, $input['target_value']['assignee_id']);
         self::assertSame('2099-07-18 18:00:00', $input['target_value']['due_at']);
         self::assertSame('2099-07-19 10:00:00', $input['target_value']['review_at']);
         self::assertSame($input['target_value']['workflow_schedule'], $input['evidence']['workflow_schedule']);
+    }
+
+    public function testOtaDiagnosisExecutionIntentRejectsLegacyReadyFlagsWithoutV2DecisionQuality(): void
+    {
+        $controller = $this->controller();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('not execution ready');
+        $this->invokeNonPublic($controller, 'buildOtaDiagnosisExecutionIntentInput', [[
+            'hotel' => ['id' => 80],
+            'platform' => 'ctrip',
+            'date_range' => ['start_date' => '2026-07-19', 'end_date' => '2026-07-19'],
+            'decision_status' => 'action_required',
+            'evidence_sources' => [[
+                'ref' => 'online_daily_data#902',
+                'table' => 'online_daily_data',
+                'record_id' => 902,
+            ]],
+        ], [
+            'action' => 'Review the Ctrip rate for 2026-07-19 and compare OTA ADR after execution.',
+            'execution_ready' => true,
+            'can_request_execution_intent' => true,
+            'evidence_refs' => ['online_daily_data#902'],
+        ], 78, 80, [
+            'assignee_id' => 9,
+            'due_at' => '2099-07-20T18:00',
+            'review_at' => '2099-07-21T10:00',
+        ]]);
+    }
+
+    public function testOtaDiagnosisHotelPermissionUsesViewAndExecuteCapabilities(): void
+    {
+        $controller = $this->controller();
+        $user = $this->createMock(\app\model\User::class);
+        $user->method('hasHotelPermission')->willReturnCallback(
+            static fn(int $hotelId, string $capability): bool => $hotelId === 80 && $capability === 'operation.view'
+        );
+        $base = (new ReflectionClass(Agent::class))->getParentClass();
+        self::assertNotFalse($base);
+        $property = $base->getProperty('currentUser');
+        $property->setAccessible(true);
+        $property->setValue($controller, $user);
+
+        $this->invokeNonPublic($controller, 'assertOtaDiagnosisHotelPermission', [80, 'operation.view']);
+
+        try {
+            $this->invokeNonPublic($controller, 'assertOtaDiagnosisHotelPermission', [80, 'operation.execute']);
+            self::fail('A view-only hotel operator must not create an execution intent.');
+        } catch (\RuntimeException $e) {
+            self::assertSame(403, $e->getCode());
+        }
+
+        try {
+            $this->invokeNonPublic($controller, 'assertOtaDiagnosisHotelPermission', [81, 'operation.view', true]);
+            self::fail('Cross-hotel diagnosis records must not be enumerable.');
+        } catch (\RuntimeException $e) {
+            self::assertSame(404, $e->getCode());
+            self::assertSame('saved OTA diagnosis not found', $e->getMessage());
+        }
     }
 
     public function testOtaDiagnosisExecutionScheduleRequiresOwnerAndOrderedReviewTime(): void

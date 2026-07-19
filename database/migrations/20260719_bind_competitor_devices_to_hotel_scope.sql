@@ -1,14 +1,25 @@
 -- Bind every competitor collector credential to one user, platform and hotel.
--- Existing rows cannot be assigned safely, so they are disabled until an
--- administrator recreates or updates the binding and rotates its token.
+-- Competitor targets inherit tenant scope only from the authoritative hotels
+-- table. Orphaned targets remain unassigned and are disabled for manual repair.
 
 ALTER TABLE `competitor_hotel`
   ADD COLUMN IF NOT EXISTS `tenant_id` INT UNSIGNED DEFAULT NULL AFTER `id`,
   ADD INDEX IF NOT EXISTS `idx_competitor_hotel_tenant_store` (`tenant_id`, `store_id`, `status`);
 
-UPDATE `competitor_hotel`
-SET `tenant_id` = `store_id`
-WHERE `tenant_id` IS NULL AND `store_id` > 0;
+UPDATE `competitor_hotel` AS `ch`
+JOIN `hotels` AS `h` ON `h`.`id` = `ch`.`store_id`
+SET `ch`.`tenant_id` = `h`.`tenant_id`
+WHERE `h`.`tenant_id` IS NOT NULL
+  AND `h`.`tenant_id` > 0
+  AND (`ch`.`tenant_id` IS NULL OR `ch`.`tenant_id` <> `h`.`tenant_id`);
+
+UPDATE `competitor_hotel` AS `ch`
+LEFT JOIN `hotels` AS `h` ON `h`.`id` = `ch`.`store_id`
+SET `ch`.`tenant_id` = NULL,
+    `ch`.`status` = 0
+WHERE `h`.`id` IS NULL
+   OR `h`.`tenant_id` IS NULL
+   OR `h`.`tenant_id` = 0;
 
 ALTER TABLE `competitor_device`
   ADD COLUMN IF NOT EXISTS `tenant_id` INT UNSIGNED DEFAULT NULL AFTER `id`,

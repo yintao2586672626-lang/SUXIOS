@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\AiDailyReportService;
+use app\service\AiDecisionQualityService;
 use PHPUnit\Framework\TestCase;
 
 final class AiDailyReportReadinessServiceTest extends TestCase
@@ -231,6 +232,10 @@ final class AiDailyReportReadinessServiceTest extends TestCase
             'recommended_actions' => [[
                 'title' => 'Review price',
                 'can_create_execution_intent' => true,
+                'decision_quality' => [
+                    'contract_version' => AiDecisionQualityService::CONTRACT_VERSION,
+                    'execution_ready' => true,
+                ],
             ]],
         ]);
 
@@ -465,14 +470,15 @@ final class AiDailyReportReadinessServiceTest extends TestCase
         $rows = $service->enrichReportRows([[
             'id' => 0,
             'hotel_id' => 2,
+            'report_date' => '2026-07-19',
             'created_by' => 1,
             'yesterday_result_json' => '{"metrics":[{"key":"orders","value":8}]}',
             'abnormal_metrics_json' => '[]',
             'competitor_changes_json' => '[]',
             'data_gaps_json' => '[]',
-            'recommended_actions_json' => '[{"title":"Review price","can_create_execution_intent":true}]',
-            'source_refs_json' => '[{"key":"operation.full_data"}]',
-            'snapshot_json' => '{"input_trust":{"readback_verified":true}}',
+            'recommended_actions_json' => '[{"title":"Review Ctrip room price","action":"Review the Ctrip room rate for 2026-07-19 and compare ADR before and after","expected_effect":{"metric":"ota_adr","direction":"verify","summary":"Verify the ADR effect after the reviewed rate change","review_window":"Review after 7 days using the same room and rate plan"},"can_create_execution_intent":true}]',
+            'source_refs_json' => '[{"key":"online_daily_data#2#ctrip#2026-07-19","source":"online_daily_data","system_hotel_id":2,"platform":"ctrip","scope":"ota_channel","data_date":"2026-07-19","date_role":"target","readback_verified":true}]',
+            'snapshot_json' => '{"input_trust":{"readback_verified":true},"report_scope":{"hotel_id":2,"report_date":"2026-07-19","source_scope":"ota_channel"}}',
         ]]);
 
         self::assertSame('pending_execution_transfer', $rows[0]['report_readiness']['stage']);

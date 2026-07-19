@@ -131,7 +131,7 @@ test('AI workbench personalizes hotel order per account and opens the matching m
   const mountedBootstrap = sliceBetween(appMain, 'onMounted(() => {', 'onUnmounted(() => {');
   assert.match(hotelOrder, /suxios_dual_ota_hotel_search_counts_\$\{user\.value\?\.id \|\| 'guest'\}_v1/);
   assert.match(hotelOrder, /\.sort\(\(a, b\) => \(b\.count - a\.count\) \|\| \(a\.index - b\.index\)\)/);
-  assert.match(mountedBootstrap, /if \(isCompassDataPage\(\)\) \{\s*activateAiWorkbenchAfterLogin\(\);/);
+  assert.match(mountedBootstrap, /if \(isCompassDataPage\(\)\) \{\s*activateCoreOperationsAfterLogin\(\);/);
   assert.match(appTemplate, /<option value="">全部门店<\/option>[\s\S]*v-for="hotel in dualOtaCurrentHotelOptions"/);
 
   const shortcuts = sliceBetween(appMain, 'const dualOtaModuleNavigationTarget', 'const dualOtaSystemMetricPlatform');

@@ -1,18 +1,14 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import vm from 'node:vm';
 
 const source = await readFile(new URL('../../public/data-health-static.js', import.meta.url), 'utf8');
+const context = { window: {} };
+vm.runInNewContext(source, context, { filename: 'public/data-health-static.js' });
+const { buildOnlineAnalysisSummaryCards } = context.window.SUXI_DATA_HEALTH_STATIC;
 
 test('online analysis cards distinguish missing metrics from real zero', () => {
-    const metricHelper = source.match(/const onlineAnalysisMetricText = [\s\S]*?\n\s*};/)?.[0] || '';
-    const cardBuilder = source.match(/const buildOnlineAnalysisSummaryCards = [\s\S]*?\n\s*];/)?.[0] || '';
-    assert.ok(metricHelper);
-    assert.ok(cardBuilder);
-
-    const { buildOnlineAnalysisSummaryCards } = Function(
-        `${metricHelper}\n${cardBuilder}\nreturn { buildOnlineAnalysisSummaryCards };`,
-    )();
     const missing = buildOnlineAnalysisSummaryCards({}, 'day', String);
     const zero = buildOnlineAnalysisSummaryCards({
         total_amount: 0,

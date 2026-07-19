@@ -188,6 +188,14 @@ final class CompetitorEventFeedService
                 (string)($event['ota_hotel_id'] ?? '')
             ) === 1
         ));
+        $identityVerifiedCount = count(array_filter(
+            $events,
+            static fn(array $event): bool => ($event['identity_status'] ?? '') === 'observation_identity_verified'
+        ));
+        $identityMismatchCount = count(array_filter(
+            $events,
+            static fn(array $event): bool => ($event['identity_status'] ?? '') === 'observation_identity_mismatch'
+        ));
         $targetIdentityBoundCount = count(array_filter(
             $events,
             static fn(array $event): bool => preg_match(
@@ -215,10 +223,12 @@ final class CompetitorEventFeedService
         $truncated = $sampleCount > $returnedCount;
         $decisionGate = match (true) {
             $status === 'empty' => 'no_matching_events',
+            $status === 'insufficient_evidence' && $identityMismatchCount > 0
+                => 'observation_identity_mismatch',
             $status === 'insufficient_evidence' && $returnedCount > 0
-                && $identityBoundCount === 0 && $targetIdentityBoundCount > 0
+                && $identityVerifiedCount === 0 && $targetIdentityBoundCount > 0
                 => 'observation_identity_unverified',
-            $status === 'insufficient_evidence' && $returnedCount > 0 && $identityBoundCount === 0
+            $status === 'insufficient_evidence' && $returnedCount > 0 && $targetIdentityBoundCount === 0
                 => 'competitor_identity_binding_missing',
             $status === 'insufficient_evidence' => 'no_readback_verified_comparable_events',
             $truncated => 'returned_window_only_matching_events_truncated',
@@ -228,10 +238,12 @@ final class CompetitorEventFeedService
         };
         $dataGaps = match (true) {
             $status === 'empty' => ['no_matching_competitor_price_events'],
+            $status === 'insufficient_evidence' && $identityMismatchCount > 0
+                => ['observation_ota_identity_mismatch'],
             $status === 'insufficient_evidence' && $returnedCount > 0
-                && $identityBoundCount === 0 && $targetIdentityBoundCount > 0
+                && $identityVerifiedCount === 0 && $targetIdentityBoundCount > 0
                 => ['observation_ota_identity_unverified'],
-            $status === 'insufficient_evidence' && $returnedCount > 0 && $identityBoundCount === 0
+            $status === 'insufficient_evidence' && $returnedCount > 0 && $targetIdentityBoundCount === 0
                 => ['competitor_ota_identity_binding_missing'],
             $status === 'insufficient_evidence' => ['no_readback_verified_comparable_events'],
             $status === 'partial' => ['some_events_excluded_from_decision'],
@@ -305,6 +317,8 @@ final class CompetitorEventFeedService
             'decision_eligible_count_scope' => $truncated ? 'latest_returned_events_only' : 'all_matching_events',
             'readback_verified_count' => $readbackVerifiedCount,
             'identity_bound_sample_count' => $identityBoundCount,
+            'identity_verified_sample_count' => $identityVerifiedCount,
+            'identity_mismatch_sample_count' => $identityMismatchCount,
             'target_identity_bound_sample_count' => $targetIdentityBoundCount,
             'truncated' => $truncated,
             'summary_scope' => $truncated ? 'latest_returned_events_only' : 'all_matching_events',
@@ -403,6 +417,10 @@ final class CompetitorEventFeedService
         if ($targetOtaHotelId === null || preg_match('/^[1-9][0-9]{0,19}$/D', $targetOtaHotelId) !== 1) {
             $targetOtaHotelId = null;
         }
+        $observationIdentityNumeric = preg_match('/^[1-9][0-9]{0,19}$/D', (string)$otaHotelId) === 1;
+        $observationIdentityVerified = $observationIdentityNumeric
+            && $targetOtaHotelId !== null
+            && hash_equals($targetOtaHotelId, (string)$otaHotelId);
         $availabilityScopeKey = $this->nullableHash($row['availability_scope_key'] ?? null);
         $comparisonKey = $this->nullableHash($row['comparison_key'] ?? null);
         $price = is_numeric($row['price'] ?? null) && (float)$row['price'] > 0
@@ -414,8 +432,12 @@ final class CompetitorEventFeedService
         if ($sourceMethod === null) $commonGaps[] = 'source_method_missing';
         if ($sourceRef === null) $commonGaps[] = 'source_ref_missing_or_redacted';
         if (!$readbackVerified) $commonGaps[] = 'readback_unverified';
-        if ($otaHotelId === null || preg_match('/^[1-9][0-9]{0,19}$/D', $otaHotelId) !== 1) {
+        if (!$observationIdentityNumeric) {
             $commonGaps[] = 'ota_hotel_id_missing_or_unverified';
+        } elseif ($targetOtaHotelId === null) {
+            $commonGaps[] = 'competitor_target_ota_identity_missing';
+        } elseif (!$observationIdentityVerified) {
+            $commonGaps[] = 'ota_hotel_id_target_mismatch';
         }
 
         $availabilityGaps = $commonGaps;
@@ -453,9 +475,11 @@ final class CompetitorEventFeedService
             'competitor_hotel_name' => $this->nullableText($row['competitor_hotel_name'] ?? null, 160),
             'ota_hotel_id' => $otaHotelId,
             'target_ota_hotel_id' => $targetOtaHotelId,
-            'identity_status' => preg_match('/^[1-9][0-9]{0,19}$/D', (string)$otaHotelId) === 1
+            'identity_status' => $observationIdentityVerified
                 ? 'observation_identity_verified'
-                : ($targetOtaHotelId !== null ? 'target_bound_observation_unverified' : 'target_binding_missing'),
+                : ($observationIdentityNumeric && $targetOtaHotelId !== null
+                    ? 'observation_identity_mismatch'
+                    : ($targetOtaHotelId !== null ? 'target_bound_observation_unverified' : 'target_binding_missing')),
             'stay_date' => $stayDate,
             'check_out_date' => $this->storedDate($row['check_out_date'] ?? null),
             'collected_at' => $collectedAt,

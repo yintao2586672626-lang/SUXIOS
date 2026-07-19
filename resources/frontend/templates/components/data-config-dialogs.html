@@ -1,0 +1,469 @@
+        <!-- 数据配置模态框 -->
+        <div v-if="showDataConfigModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="p-4 border-b flex justify-between items-center sticky top-0 bg-white">
+                    <div>
+                        <h3 class="text-lg font-semibold">{{ dataConfigTitle }}</h3>
+                        <p class="text-xs text-gray-500 mt-1">{{ dataConfigMeta.description }}</p>
+                    </div>
+                    <button @click="showDataConfigModal = false" class="text-gray-500 hover:text-gray-700">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <form @submit.prevent="saveDataConfig" class="p-4 space-y-4">
+                    <div class="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                        <div class="flex flex-col md:flex-row md:items-center justify-between gap-2 mb-4">
+                            <div>
+                                <h4 class="font-medium text-gray-800">基础配置</h4>
+                                <p class="text-xs text-gray-500 mt-1">先定义配置名称、日期口径与启用状态，再关联平台凭据配置。</p>
+                            </div>
+                            <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+                                <input v-model="dataConfigForm.enabled" type="checkbox" class="rounded border-gray-300">
+                                启用此配置
+                            </label>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">配置名称</label>
+                                <input v-model="dataConfigForm.config_name" type="text" placeholder="例如：总部默认配置 / 华东门店配置" class="input-field w-full">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">默认日期范围</label>
+                                <select v-model="dataConfigForm.date_range" class="input-field w-full">
+                                    <option value="1">昨日</option>
+                                    <option value="0">今日实时</option>
+                                    <option value="7">近7天</option>
+                                    <option value="30">近30天</option>
+                                    <option value="custom">自定义</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">采集频率</label>
+                                <select v-model="dataConfigForm.fetch_frequency" class="input-field w-full">
+                                    <option value="manual">手动</option>
+                                    <option value="daily">每日</option>
+                                    <option value="weekly">每周</option>
+                                </select>
+                            </div>
+                            <div v-if="dataConfigForm.date_range === 'custom'">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">开始日期</label>
+                                <input v-model="dataConfigForm.start_date" type="date" class="input-field w-full">
+                            </div>
+                            <div v-if="dataConfigForm.date_range === 'custom'">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">结束日期</label>
+                                <input v-model="dataConfigForm.end_date" type="date" class="input-field w-full">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">定时执行时间</label>
+                                <input v-model="dataConfigForm.schedule_time" type="time" class="input-field w-full">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Cookie预警(天)</label>
+                                <input v-model="dataConfigForm.cookie_expire_days" type="number" min="1" class="input-field w-full">
+                            </div>
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">备注</label>
+                                <input v-model="dataConfigForm.remark" type="text" placeholder="账号来源、适用门店或维护说明" class="input-field w-full">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                        <div class="rounded-lg border border-gray-100 bg-white px-3 py-2 text-gray-600">
+                            <span class="font-medium text-gray-800">必填项：</span>{{ dataConfigMeta.requiredText }}
+                        </div>
+                        <div class="rounded-lg border border-gray-100 bg-white px-3 py-2 text-gray-600">
+                            <span class="font-medium text-gray-800">输出数据：</span>{{ dataConfigMeta.outputText }}
+                        </div>
+                    </div>
+                    <!-- 携程ebooking配置 -->
+                    <div v-if="currentDataConfigType === 'ctrip-ebooking'">
+                        <div class="bg-blue-50 p-3 rounded text-sm text-blue-700 mb-4">
+                            <i class="fas fa-info-circle mr-2"></i>配置携程ebooking经营榜单接口。Node ID 通常来自 Network 请求体，Cookie 来自登录后的 Request Headers。
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">接口URL</label>
+                                <input v-model="dataConfigForm.url" type="text" placeholder="https://ebooking.ctrip.com/..." class="input-field w-full">
+                                <p class="text-xs text-gray-400 mt-1">默认接口：getDayReportCompeteHotelReport，可按抓包结果覆盖。</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Node ID</label>
+                                <input v-model="dataConfigForm.node_id" type="text" placeholder="请输入 nodeId，例如 24588" class="input-field w-full">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">关联门店</label>
+                                <select v-model="dataConfigForm.system_hotel_id" class="input-field w-full">
+                                    <option value="">请选择门店</option>
+                                    <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                </select>
+                            </div>
+                            <div class="md:col-span-2">
+                                <div class="flex items-center justify-between mb-1">
+                                    <label class="block text-sm font-medium text-gray-700">Cookies</label>
+                                    <button type="button" @click="showDataConfigCookie = !showDataConfigCookie" class="text-gray-400 hover:text-blue-600" :title="showDataConfigCookie ? '隐藏' : '显示'">
+                                        <i :class="showDataConfigCookie ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
+                                    </button>
+                                </div>
+                                <textarea v-model="dataConfigForm.cookies" rows="4" disabled="" placeholder="凭据请在携程平台配置中保存；这里仅使用 config_id" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
+                            </div>
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">认证附加参数（JSON，可选）</label>
+                                <textarea v-model="dataConfigForm.auth_data" rows="2" disabled="" placeholder="认证附加参数由凭据保险库管理" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 美团ebooking配置 -->
+                    <div v-if="currentDataConfigType === 'meituan-ebooking'">
+                        <div class="bg-yellow-50 p-3 rounded text-sm text-yellow-700 mb-4">
+                            <i class="fas fa-info-circle mr-2"></i>配置美团ebooking竞对排名接口。平台接口标识和门店标识通常可在页面地址或接口参数中找到。
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">接口URL</label>
+                                <input v-model="dataConfigForm.url" type="text" placeholder="https://ebooking.meituan.com/..." class="input-field w-full">
+                                <p class="text-xs text-gray-400 mt-1">默认接口：/api/v1/ebooking/business/peer/rank/data/detail。</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">平台接口标识</label>
+                                <input v-model="dataConfigForm.partner_id" type="text" placeholder="请输入商家接口标识" class="input-field w-full">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">平台门店标识</label>
+                                <input v-model="dataConfigForm.poi_id" type="text" placeholder="请输入门店标识" class="input-field w-full">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">排名类型</label>
+                                <select v-model="dataConfigForm.rank_type" class="input-field w-full">
+                                    <option value="P_RZ">入住榜（入住间夜/房费收入）</option>
+                                    <option value="P_XS">销售榜（销售间夜/销售额）</option>
+                                    <option value="P_ZH">转化榜（浏览/支付转化）</option>
+                                    <option value="P_LL">流量榜（曝光/浏览）</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">数据范围</label>
+                                <select v-model="dataConfigForm.data_scope" class="input-field w-full">
+                                    <option value="vpoi">门店维度</option>
+                                    <option value="partner">商家维度</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">关联门店</label>
+                                <select v-model="dataConfigForm.system_hotel_id" class="input-field w-full">
+                                    <option value="">请选择门店</option>
+                                    <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">本店房量（可选）</label>
+                                <input v-model="dataConfigForm.hotel_room_count" type="number" min="0" placeholder="用于竞对口径备注" class="input-field w-full">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">竞争圈总房量（可选）</label>
+                                <input v-model="dataConfigForm.competitor_room_count" type="number" min="0" placeholder="用于分析占比" class="input-field w-full">
+                            </div>
+                            <div class="md:col-span-2">
+                                <div class="flex items-center justify-between mb-1">
+                                    <label class="block text-sm font-medium text-gray-700">Cookies</label>
+                                    <button type="button" @click="showDataConfigCookie = !showDataConfigCookie" class="text-gray-400 hover:text-yellow-600" :title="showDataConfigCookie ? '隐藏' : '显示'">
+                                        <i :class="showDataConfigCookie ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
+                                    </button>
+                                </div>
+                                <textarea v-model="dataConfigForm.cookies" rows="4" disabled="" placeholder="凭据请在美团平台配置中保存；这里仅使用 config_id" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
+                            </div>
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">认证附加参数（JSON，可选）</label>
+                                <textarea v-model="dataConfigForm.auth_data" rows="2" disabled="" placeholder="认证附加参数由凭据保险库管理" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 携程流量配置 -->
+                    <div v-if="currentDataConfigType === 'ctrip-traffic'">
+                        <div class="bg-green-50 p-3 rounded text-sm text-green-700 mb-4">
+                            <i class="fas fa-info-circle mr-2"></i>配置携程流量分析接口，支持 Ctrip / Qunar 平台与 extra_params JSON。
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">接口URL</label>
+                                <input v-model="dataConfigForm.url" type="text" placeholder="https://ebooking.ctrip.com/..." class="input-field w-full">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">平台</label>
+                                <select v-model="dataConfigForm.platform" class="input-field w-full">
+                                    <option value="Ctrip">携程</option>
+                                    <option value="Qunar">去哪儿</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">spiderkey（可选）</label>
+                                <input v-model="dataConfigForm.spiderkey" type="text" disabled="" placeholder="由凭据保险库管理" class="input-field w-full bg-gray-100 text-gray-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">关联门店</label>
+                                <select v-model="dataConfigForm.system_hotel_id" class="input-field w-full">
+                                    <option value="">请选择门店</option>
+                                    <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                </select>
+                            </div>
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Cookies</label>
+                                <textarea v-model="dataConfigForm.cookies" rows="3" disabled="" placeholder="凭据请在携程平台配置中保存" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
+                            </div>
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">额外参数 (JSON格式)</label>
+                                <textarea v-model="dataConfigForm.extra_params" rows="3" disabled="" placeholder="敏感请求参数不再保存到通用配置" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 携程 Cookie API 配置 -->
+                    <div v-if="currentDataConfigType === 'ctrip-cookie-api'">
+                        <div class="bg-emerald-50 p-3 rounded text-sm text-emerald-700 mb-4">
+                            <i class="fas fa-info-circle mr-2"></i>配置携程 Cookie API 临时诊断接口清单；Cookie 可留空，系统会尝试从已验证 Profile 读取临时 Cookie，不代表长期授权。
+                        </div>
+                        <div class="flex justify-end mb-3">
+                            <button type="button" @click="fillDataConfigCtripCookieApiCorePreset" class="px-3 py-2 border border-emerald-200 text-emerald-700 rounded-lg hover:bg-emerald-50 text-sm">
+                                <i class="fas fa-list-check mr-2"></i>填入核心诊断接口
+                            </button>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">关联门店</label>
+                                <select v-model="dataConfigForm.system_hotel_id" class="input-field w-full">
+                                    <option value="">请选择门店</option>
+                                    <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Profile ID</label>
+                                <input v-model="dataConfigForm.profile_id" type="text" placeholder="例如门店ID；对应 storage/ctrip_profile_&lt;id&gt;" class="input-field w-full">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">携程酒店ID（hotelId）</label>
+                                <input v-model="dataConfigForm.hotel_id" type="text" placeholder="填写该门店携程返回的 hotelId（不要填 nodeId）" class="input-field w-full">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">单接口 Method</label>
+                                <select v-model="dataConfigForm.method" class="input-field w-full">
+                                    <option value="GET">GET</option>
+                                    <option value="POST">POST</option>
+                                </select>
+                            </div>
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Request URL 清单</label>
+                                <textarea v-model="dataConfigForm.request_urls" rows="4" placeholder="每行一个 https://ebooking.ctrip.com/... JSON 接口" class="input-field w-full font-mono text-xs"></textarea>
+                            </div>
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">单个 Request URL（可选）</label>
+                                <input v-model="dataConfigForm.request_url" type="text" placeholder="https://ebooking.ctrip.com/..." class="input-field w-full">
+                            </div>
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Endpoints JSON（可选）</label>
+                                <textarea v-model="dataConfigForm.endpoints_json" rows="4" disabled="" placeholder="嵌套请求定义已停用；请使用 Request URL 清单" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
+                            </div>
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Payload JSON（单接口 POST 可选）</label>
+                                <textarea v-model="dataConfigForm.payload_json" rows="3" disabled="" placeholder="请求体不在通用配置中保存" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
+                            </div>
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Headers JSON（可选）</label>
+                                <textarea v-model="dataConfigForm.headers_json" rows="2" disabled="" placeholder="请求头由凭据保险库管理" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
+                            </div>
+                            <div class="md:col-span-2">
+                                <div class="flex items-center justify-between mb-1">
+                                    <label class="block text-sm font-medium text-gray-700">Cookies（可选）</label>
+                                    <button type="button" @click="showDataConfigCookie = !showDataConfigCookie" class="text-gray-400 hover:text-emerald-600" :title="showDataConfigCookie ? '隐藏' : '显示'">
+                                        <i :class="showDataConfigCookie ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
+                                    </button>
+                                </div>
+                                <textarea v-model="dataConfigForm.cookies" rows="4" disabled="" placeholder="凭据请在携程平台配置中保存" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 美团流量配置 -->
+                    <div v-if="currentDataConfigType === 'meituan-traffic'">
+                        <div class="bg-orange-50 p-3 rounded text-sm text-orange-700 mb-4">
+                            <i class="fas fa-info-circle mr-2"></i>配置美团流量接口，接口地址以当前排障地址为准，并补齐平台接口标识、门店标识和 Cookie/API 辅助内容。
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">接口URL</label>
+                                <input v-model="dataConfigForm.url" type="text" placeholder="https://ebooking.meituan.com/..." class="input-field w-full">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">平台接口标识</label>
+                                <input v-model="dataConfigForm.partner_id" type="text" placeholder="请输入商家接口标识" class="input-field w-full">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">平台门店标识</label>
+                                <input v-model="dataConfigForm.poi_id" type="text" placeholder="请输入门店标识" class="input-field w-full">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">关联门店</label>
+                                <select v-model="dataConfigForm.system_hotel_id" class="input-field w-full">
+                                    <option value="">请选择门店</option>
+                                    <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                </select>
+                            </div>
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Cookies</label>
+                                <textarea v-model="dataConfigForm.cookies" rows="3" disabled="" placeholder="凭据请在美团平台配置中保存" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
+                            </div>
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">额外参数 (JSON格式)</label>
+                                <textarea v-model="dataConfigForm.extra_params" rows="3" disabled="" placeholder="敏感请求参数不再保存到通用配置" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 国际 OTA 通用配置 -->
+                    <div v-if="['booking-ota', 'agoda-ota', 'expedia-ota'].includes(currentDataConfigType)">
+                        <div class="bg-indigo-50 p-3 rounded text-sm text-indigo-700 mb-4">
+                            <i class="fas fa-info-circle mr-2"></i>{{ dataConfigMeta.description }} 当前仅用于配置归档：保存平台口径、后台入口和凭证备注；尚未接入自动采集。
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">平台</label>
+                                <select v-model="dataConfigForm.platform" class="input-field w-full">
+                                    <option value="booking">Booking.com</option>
+                                    <option value="agoda">Agoda</option>
+                                    <option value="expedia">Expedia</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">关联门店</label>
+                                <select v-model="dataConfigForm.system_hotel_id" class="input-field w-full">
+                                    <option value="">请选择门店</option>
+                                    <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
+                                </select>
+                            </div>
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">后台入口 / 数据源 URL</label>
+                                <input v-model="dataConfigForm.url" type="text" placeholder="https://admin.booking.com/ 或平台数据导出页面" class="input-field w-full">
+                            </div>
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Cookies / Token / 登录备注</label>
+                                <textarea v-model="dataConfigForm.cookies" rows="3" disabled="" placeholder="通用配置不托管 Cookies、Token 或登录凭据" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
+                            </div>
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">字段映射 / 额外参数 (JSON)</label>
+                                <textarea v-model="dataConfigForm.extra_params" rows="4" disabled="" placeholder="该入口暂不保存可执行请求参数" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 携程点评配置 -->
+                    <!-- 美团点评配置 -->
+                    <!-- 携程广告配置 -->
+                    <div v-if="currentDataConfigType === 'ctrip-ads'">
+                        <div class="bg-indigo-50 p-3 rounded text-sm text-indigo-700 mb-4">
+                            <i class="fas fa-info-circle mr-2"></i>配置携程广告效果页直接获取参数；接口 URL 可留空，系统默认使用 queryCampaignReportList。
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">效果报表接口URL（可选）</label>
+                                <input v-model="dataConfigForm.url" type="text" placeholder="留空使用默认 queryCampaignReportList；需要时粘贴 Network Request URL" class="input-field w-full">
+                            </div>
+                            <div class="col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">API类型</label>
+                                <div class="input-field w-full bg-gray-50 text-gray-800">效果报表</div>
+                                <p class="text-xs text-gray-500 mt-1">广告配置固定为效果页口径。</p>
+                            </div>
+                            <div class="col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Cookie</label>
+                                <textarea v-model="dataConfigForm.cookie" rows="3" disabled="" placeholder="凭据请在携程平台配置中保存" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">开始日期</label>
+                                <input v-model="dataConfigForm.start_date" type="date" class="input-field w-full">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">结束日期</label>
+                                <input v-model="dataConfigForm.end_date" type="date" class="input-field w-full">
+                            </div>
+                            <div class="col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Payload JSON（可选）</label>
+                                <textarea v-model="dataConfigForm.payload_json" rows="3" disabled="" placeholder="请求体不在通用配置中保存" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 美团广告配置 -->
+                    <div v-if="currentDataConfigType === 'meituan-ads'">
+                        <div class="bg-red-50 p-3 rounded text-sm text-red-700 mb-4">
+                            <i class="fas fa-info-circle mr-2"></i>配置美团推广通广告接口参数，URL 应为 Network 中 cureShops 等 JSON Request URL
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">接口 Request URL</label>
+                                <input v-model="dataConfigForm.url" type="text" placeholder="Network 中 cureShops 的 Request URL" class="input-field w-full">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">请求方式</label>
+                                <select v-model="dataConfigForm.method" class="input-field w-full">
+                                    <option value="GET">GET</option>
+                                    <option value="POST">POST</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Partner ID（可选）</label>
+                                <input v-model="dataConfigForm.partner_id" type="text" placeholder="接口需要时填写" class="input-field w-full">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Shop ID / POI ID</label>
+                                <input v-model="dataConfigForm.shop_id" type="text" placeholder="推广通店铺 ID 或门店 POI ID" class="input-field w-full">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">POI ID（可选）</label>
+                                <input v-model="dataConfigForm.poi_id" type="text" placeholder="为空时使用 Shop ID" class="input-field w-full">
+                            </div>
+                            <div class="col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Cookie</label>
+                                <textarea v-model="dataConfigForm.cookie" rows="3" disabled="" placeholder="凭据请在美团平台配置中保存" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">开始日期</label>
+                                <input v-model="dataConfigForm.begin_date" type="date" class="input-field w-full">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">结束日期</label>
+                                <input v-model="dataConfigForm.end_date" type="date" class="input-field w-full">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">时间单位</label>
+                                <select v-model="dataConfigForm.time_unit" class="input-field w-full">
+                                    <option value="day">日</option>
+                                    <option value="week">周</option>
+                                    <option value="month">月</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">mtgsig</label>
+                                <input v-model="dataConfigForm.mtgsig" type="text" disabled="" placeholder="由凭据保险库管理" class="input-field w-full bg-gray-100 text-gray-500">
+                            </div>
+                            <div class="col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Payload JSON（可选）</label>
+                                <textarea v-model="dataConfigForm.payload_json" rows="3" disabled="" placeholder="请求体不在通用配置中保存" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
+                            </div>
+                            <div class="col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">额外参数 JSON（可选）</label>
+                                <textarea v-model="dataConfigForm.extra_params" rows="2" disabled="" placeholder="敏感请求参数不在通用配置中保存" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end space-x-3 pt-4 border-t">
+                        <button type="button" @click="testDataConfig" :disabled="testingConfig" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50">
+                            <i class="fas fa-play mr-2"></i>{{ testingConfig ? '校验中...' : '校验配置' }}
+                        </button>
+                        <button type="button" @click="showDataConfigModal = false" class="px-4 py-2 border rounded-lg hover:bg-gray-50">取消</button>
+                        <button type="submit" :disabled="savingConfig" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50">
+                            {{ savingConfig ? '保存中...' : '保存配置' }}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>

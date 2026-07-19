@@ -105,6 +105,7 @@ final class OperationAuditClassifierTest extends TestCase
             'opening project archive form' => ['DELETE', '/api/opening/projects/8', 'opening', 'archive_form'],
             'opening task update form' => ['PUT', '/api/opening/tasks/18', 'opening', 'save_form'],
             'operation action create form' => ['POST', '/api/operation/actions', 'operation', 'save_form'],
+            'public page diagnosis task bridge' => ['POST', '/api/online-data/public-page-diagnosis/execution-intent', 'online_data', 'save_form'],
         ];
     }
 }

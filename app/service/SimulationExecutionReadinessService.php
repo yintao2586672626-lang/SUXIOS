@@ -84,7 +84,7 @@ class SimulationExecutionReadinessService
         $projectName = trim((string)($record['project_name'] ?? $input['project_name'] ?? ''));
         $executionDates = $this->executionIntentDates($overrides);
 
-        return [
+        $payload = [
             'source_module' => 'strategy_simulation',
             'source_record_id' => $recordId,
             'hotel_id' => (int)($overrides['hotel_id'] ?? 0),
@@ -108,12 +108,24 @@ class SimulationExecutionReadinessService
             'evidence' => $this->simulationExecutionEvidence('strategy_simulation', $recordId, $readiness, $readyForIntent, [
                 'source_scope' => 'strategy_simulation_records',
                 'data_snapshot_sources' => array_values(array_filter((array)($dataSnapshot['source_summary'] ?? []), 'is_scalar')),
+                'source_record_digest' => $this->sourceRecordDigest('strategy_simulation', [
+                    'id' => $recordId,
+                    'project_name' => $projectName,
+                    'input' => $input,
+                    'scores' => $scores,
+                    'recommendation' => $recommendation,
+                    'risk' => $risk,
+                    'data_snapshot' => $dataSnapshot,
+                ]),
             ]),
             'expected_metric' => 'strategy_simulation_closure',
             'expected_delta' => 0,
             'risk_level' => $this->executionRiskLevel((string)($risk['risk_level'] ?? $record['risk_level'] ?? ''), $readyForIntent),
             'status' => 'pending_approval',
         ];
+        $payload['evidence']['simulation_payload_digest'] = $this->simulationPayloadDigest($payload);
+
+        return $payload;
     }
 
     public function buildQuantExecutionIntentInput(array $record, array $overrides = []): array
@@ -129,7 +141,7 @@ class SimulationExecutionReadinessService
         $projectName = trim((string)($record['project_name'] ?? $input['projectName'] ?? $input['project_name'] ?? ''));
         $executionDates = $this->executionIntentDates($overrides);
 
-        return [
+        $payload = [
             'source_module' => 'quant_simulation',
             'source_record_id' => $recordId,
             'hotel_id' => (int)($overrides['hotel_id'] ?? 0),
@@ -153,12 +165,98 @@ class SimulationExecutionReadinessService
             'evidence' => $this->simulationExecutionEvidence('quant_simulation', $recordId, $readiness, $readyForIntent, [
                 'source_scope' => 'quant_simulation_records',
                 'scenario_count' => count($scenarios),
+                'source_record_digest' => $this->sourceRecordDigest('quant_simulation', [
+                    'id' => $recordId,
+                    'project_name' => $projectName,
+                    'input' => $input,
+                    'result' => $result,
+                    'scenarios' => $scenarios,
+                    'risk_hints' => $riskHints,
+                ]),
             ]),
             'expected_metric' => 'quant_simulation_closure',
             'expected_delta' => 0,
             'risk_level' => $this->executionRiskLevel((string)($result['riskLevel'] ?? $record['risk_level'] ?? ''), $readyForIntent),
             'status' => 'pending_approval',
         ];
+        $payload['evidence']['simulation_payload_digest'] = $this->simulationPayloadDigest($payload);
+
+        return $payload;
+    }
+
+    /** @param array<string, mixed> $payload */
+    public function simulationPayloadDigest(array $payload): string
+    {
+        $evidence = is_array($payload['evidence'] ?? null) ? $payload['evidence'] : [];
+        unset($evidence['simulation_payload_digest']);
+        $stable = [];
+        foreach ([
+            'source_module',
+            'source_record_id',
+            'hotel_id',
+            'platform',
+            'object_type',
+            'action_type',
+            'date_start',
+            'date_end',
+            'current_value',
+            'target_value',
+            'expected_metric',
+            'expected_delta',
+            'risk_level',
+        ] as $field) {
+            if (array_key_exists($field, $payload)) {
+                $stable[$field] = $payload[$field];
+            }
+        }
+        $stable['evidence'] = $evidence;
+
+        return $this->stableDigest($stable);
+    }
+
+    /** @param array<string, mixed> $record */
+    private function sourceRecordDigest(string $sourceModule, array $record): string
+    {
+        return $this->stableDigest([
+            'source_module' => $sourceModule,
+            'record' => $record,
+        ]);
+    }
+
+    private function stableDigest(mixed $value): string
+    {
+        return hash('sha256', json_encode(
+            $this->canonicalizeDigestValue($value),
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION
+        ) ?: '{}');
+    }
+
+    private function canonicalizeDigestValue(mixed $value): mixed
+    {
+        if (is_int($value)) {
+            return ['__number' => (string)$value];
+        }
+        if (is_float($value)) {
+            $number = is_finite($value) ? sprintf('%.15G', $value) : (string)$value;
+            if (is_finite($value) && floor($value) === $value && abs($value) <= PHP_INT_MAX) {
+                $number = sprintf('%.0F', $value);
+            }
+
+            return ['__number' => $number];
+        }
+        if (!is_array($value)) {
+            return $value;
+        }
+        if (array_is_list($value)) {
+            return array_map(fn(mixed $item): mixed => $this->canonicalizeDigestValue($item), $value);
+        }
+
+        ksort($value, SORT_STRING);
+        foreach ($value as $key => $item) {
+            $value[$key] = $this->canonicalizeDigestValue($item);
+        }
+
+        return $value;
     }
 
     private function executionIntentDates(array $overrides): array

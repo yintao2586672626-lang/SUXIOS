@@ -182,10 +182,10 @@
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-gray-100">
-                                        <tr v-for="item in operationExecutionItems" :key="item.id" :class="operationExecutionRowClass(item)">
+                                        <tr v-for="item in operationExecutionItems" :key="item.id" :data-operation-execution-intent-id="item.id" :class="operationExecutionRowClass(item)">
                                             <td class="px-4 py-3">
                                                 <div class="font-medium text-gray-900">{{ operationExecutionSourceText(item) }}</div>
-                                                <div class="text-xs text-gray-400">{{ item.recommendation?.platform || '-' }} · {{ item.recommendation?.date_start || '-' }}</div>
+                                                <div class="text-xs text-gray-400">任务 #{{ item.id }} · {{ item.recommendation?.platform || '-' }} · {{ item.recommendation?.date_start || '-' }}</div>
                                             </td>
                                             <td class="px-4 py-3">
                                                 <div>{{ operationExecutionActionText(item) }}</div>

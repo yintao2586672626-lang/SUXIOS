@@ -194,6 +194,7 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
                             'status' => 'blocked',
                             'reason' => 'profile_session_unverified',
                             'external_action_required' => true,
+                            'entry_url' => $adsUrl,
                         ],
                     ]),
                 ];
@@ -227,6 +228,7 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
                             'status' => $moduleStatus,
                             'reason' => $reason,
                             'external_action_required' => $reason === 'ads_service_not_opened',
+                            'entry_url' => $adsUrl,
                         ],
                     ]),
                 ];
@@ -288,6 +290,7 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
                             'status' => $moduleStatus,
                             'reason' => $reason,
                             'external_action_required' => $reason === 'ads_service_not_opened',
+                            'entry_url' => $adsUrl,
                         ],
                     ]),
                 ];

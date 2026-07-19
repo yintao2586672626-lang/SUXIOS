@@ -344,6 +344,7 @@ final class AiDailyReportTrustedInputTest extends TestCase
                 [
                     'key' => 'online_daily_data#42',
                     'source' => 'ctrip',
+                    'system_hotel_id' => 7,
                     'platform' => 'Ctrip',
                     'scope' => 'ota_channel',
                     'data_date' => '2026-07-15',
@@ -373,9 +374,9 @@ final class AiDailyReportTrustedInputTest extends TestCase
         );
         self::assertSame('ota_channel', $refsBySource['ctrip']['scope']);
         self::assertContains($refsBySource['ctrip']['quality_status'], ['verified', 'readback_verified']);
-        self::assertSame('whole_hotel_daily_report', $refsBySource['daily_reports']['scope']);
-        self::assertSame('unverified', $refsBySource['daily_reports']['quality_status']);
-        self::assertSame('partial', $result['recommended_actions'][0]['data_basis']['status']);
+        self::assertArrayNotHasKey('daily_reports', $refsBySource);
+        self::assertSame('verified', $result['recommended_actions'][0]['data_basis']['status']);
+        self::assertStringContainsString('daily_reports#7', (string)($result['source_refs'][1]['key'] ?? ''));
     }
 
     public function testYesterdayMetricsPreserveUpstreamMetricScopes(): void

@@ -57,6 +57,7 @@ trait AutoFetchConcern
         }
 
         $requestData = $this->requestData();
+        $backgroundTaskId = trim((string)($requestData['task_id'] ?? $requestData['taskId'] ?? ''));
         $dataPeriod = $this->normalizeOnlineDailyDataPeriod($requestData['data_period'] ?? $requestData['dataPeriod'] ?? 'realtime_snapshot');
         if ($dataPeriod === '') {
             $dataPeriod = 'realtime_snapshot';
@@ -118,6 +119,7 @@ trait AutoFetchConcern
         try {
             $result = $this->executeAutoFetch((int)$systemHotelId, $targetDataDate, $fetchOptions);
             $this->updateFetchStatus((int)$systemHotelId, (bool)$result['success'], (string)$result['message'], $targetDataDate, [
+                'task_id' => $backgroundTaskId,
                 'saved_count' => (int)($result['saved_count'] ?? 0),
                 'auto_fetch_mode' => $result['auto_fetch_mode'] ?? null,
                 'platform_results' => $result['platform_results'] ?? [],
@@ -167,6 +169,7 @@ trait AutoFetchConcern
             ]);
 
             $this->updateFetchStatus((int)$systemHotelId, false, 'auto_fetch_execution_failed', $targetDataDate, [
+                'task_id' => $backgroundTaskId,
                 'data_period' => $dataPeriod,
                 'ctrip_section_concurrency' => $fetchOptions['ctrip_section_concurrency'] ?? 3,
             ]);
@@ -453,12 +456,16 @@ trait AutoFetchConcern
 
         $runAt = date('Y-m-d H:i:s');
         $dataDate = $dataDate ?: date('Y-m-d', strtotime('-1 day'));
+        $taskId = trim((string)($details['task_id'] ?? $details['taskId'] ?? $status['running_task']['task_id'] ?? ''));
         $runRecord = [
             'run_at' => $runAt,
             'data_date' => $dataDate,
             'success' => $success,
             'message' => $message,
         ];
+        if ($taskId !== '') {
+            $runRecord['task_id'] = $taskId;
+        }
         $dataPeriod = $this->normalizeOnlineDailyDataPeriod($details['data_period'] ?? $details['dataPeriod'] ?? '');
         $slotId = trim((string)($details['slot_id'] ?? ''));
         $normalizePlatforms = static function (mixed $platforms): array {
@@ -515,6 +522,9 @@ trait AutoFetchConcern
             'message' => $message,
             'status' => $statusCode,
         ];
+        if ($taskId !== '') {
+            $status['last_result']['task_id'] = $taskId;
+        }
         if ($dataPeriod !== '') {
             $status['last_result']['data_period'] = $dataPeriod;
         }
@@ -4381,8 +4391,15 @@ trait AutoFetchConcern
             ];
         }
 
+        $requestedPlatformCount = count($platformResults);
+        $allRequestedPlatformsSucceeded = $requestedPlatformCount > 0
+            && $successCount === $requestedPlatformCount;
+
         return [
-            'success' => $successCount > 0,
+            'success' => $allRequestedPlatformsSucceeded,
+            'partial_success' => $successCount > 0 && !$allRequestedPlatformsSucceeded,
+            'success_count' => $successCount,
+            'requested_platform_count' => $requestedPlatformCount,
             'message' => implode('；', $messages),
             'saved_count' => $totalSaved,
             'data_period' => $options['data_period'],

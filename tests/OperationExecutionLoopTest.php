@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use app\service\AiDecisionQualityService;
 use app\service\OperationManagementService;
+use app\service\RevenuePricingRecommendationService;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 
@@ -204,10 +206,11 @@ final class OperationExecutionLoopTest extends TestCase
 
     public function testPriceSuggestionBuildsExecutionIntentInput(): void
     {
-        $service = new OperationManagementService();
+        $service = $this->priceIntentService();
 
         $input = $service->buildPriceSuggestionExecutionIntentInput([
             'id' => 77,
+            'status' => \app\model\PriceSuggestion::STATUS_APPROVED,
             'hotel_id' => 7,
             'room_type_id' => 3,
             'suggestion_date' => '2026-06-01',
@@ -240,10 +243,11 @@ final class OperationExecutionLoopTest extends TestCase
 
     public function testPriceSuggestionExecutionIntentUsesManualApprovedPrice(): void
     {
-        $service = new OperationManagementService();
+        $service = $this->priceIntentService();
 
         $input = $service->buildPriceSuggestionExecutionIntentInput([
             'id' => 77,
+            'status' => \app\model\PriceSuggestion::STATUS_APPROVED,
             'hotel_id' => 7,
             'room_type_id' => 3,
             'suggestion_date' => '2026-06-01',
@@ -271,6 +275,44 @@ final class OperationExecutionLoopTest extends TestCase
         self::assertSame('approve_with_changes', $input['evidence']['manual_review']['action']);
         self::assertSame('price_suggestions.factors.manual_review_versions', $input['evidence']['manual_review_storage']);
         self::assertFalse($input['evidence']['auto_write_ota']);
+    }
+
+    public function testApprovedPriceSuggestionStillRejectsLegacyOrBlockedDecisionQuality(): void
+    {
+        foreach ([
+            [
+                'can_create_execution_intent' => true,
+                'blocked_reason' => '',
+                'decision_quality' => ['contract_version' => 'ai_recommendation_quality.v1', 'execution_ready' => true],
+            ],
+            [
+                'can_create_execution_intent' => false,
+                'blocked_reason' => 'fresh bound price evidence is missing',
+                'decision_quality' => ['contract_version' => AiDecisionQualityService::CONTRACT_VERSION, 'execution_ready' => false],
+            ],
+        ] as $recommendation) {
+            $service = $this->priceIntentServiceWithRecommendation($recommendation);
+            try {
+                $service->buildPriceSuggestionExecutionIntentInput([
+                    'id' => 77,
+                    'status' => \app\model\PriceSuggestion::STATUS_APPROVED,
+                    'hotel_id' => 7,
+                    'room_type_id' => 3,
+                    'suggestion_date' => '2026-06-01',
+                    'current_price' => 280,
+                    'suggested_price' => 318,
+                    'reason' => 'competitor price higher',
+                    'factors' => [],
+                ], [
+                    'platform' => 'ctrip',
+                    'room_type_key' => 'RT-1001',
+                    'rate_plan_key' => 'BAR',
+                ]);
+                self::fail('Approved status alone must not bypass exact-v2 decision quality.');
+            } catch (InvalidArgumentException $exception) {
+                self::assertNotSame('', $exception->getMessage());
+            }
+        }
     }
 
     public function testExecutionRequiresApprovedIntent(): void
@@ -430,6 +472,114 @@ final class OperationExecutionLoopTest extends TestCase
         self::assertSame(50.0, $summary['avg_roi']);
     }
 
+    public function testExecutionFlowUsesNewestTaskAttemptInsteadOfOlderTerminalStatus(): void
+    {
+        $item = (new OperationManagementService())->buildExecutionFlowItem([
+            'id' => 12,
+            'source_module' => 'ota_diagnosis',
+            'source_record_id' => 23,
+            'hotel_id' => 7,
+            'platform' => 'ctrip',
+            'object_type' => 'data_collection',
+            'action_type' => 'complete_public_page_evidence',
+            'date_start' => '2026-07-18',
+            'date_end' => '2026-07-18',
+            'current_value_json' => '{}',
+            'target_value_json' => '{}',
+            'evidence_json' => '{}',
+            'expected_metric' => 'public_page_verified_field_count',
+            'expected_delta' => 1,
+            'risk_level' => 'medium',
+            'status' => 'approved',
+            'blocked_reason' => '',
+        ], [
+            [
+                'id' => 31,
+                'intent_id' => 12,
+                'hotel_id' => 7,
+                'status' => 'executed',
+                'result_status' => 'success',
+                'current_value_json' => '{}',
+                'target_value_json' => '{}',
+            ],
+            [
+                'id' => 32,
+                'intent_id' => 12,
+                'hotel_id' => 7,
+                'status' => 'pending_execute',
+                'result_status' => 'observing',
+                'current_value_json' => '{}',
+                'target_value_json' => '{}',
+            ],
+        ], [[
+            'id' => 41,
+            'task_id' => 31,
+            'evidence_type' => 'manual',
+            'before_json' => '{}',
+            'after_json' => '{}',
+            'platform_response_json' => '{}',
+        ]]);
+
+        self::assertSame(32, $item['execution']['task_id']);
+        self::assertSame('pending_execute', $item['execution']['status']);
+        self::assertSame(0, $item['evidence']['count']);
+    }
+
+    public function testSourceVerifiedWorseningMetricCannotSurfaceAsSuccessfulReview(): void
+    {
+        $service = new OperationManagementService();
+        $item = $service->buildExecutionFlowItem([
+            'id' => 111,
+            'source_module' => 'ota_diagnosis_saved',
+            'source_record_id' => 222,
+            'hotel_id' => 7,
+            'platform' => 'ctrip',
+            'object_type' => 'campaign',
+            'action_type' => 'booking_conversion_optimization',
+            'date_start' => '2026-07-18',
+            'date_end' => '2026-07-18',
+            'target_value_json' => json_encode(['target_metric' => 'orders'], JSON_UNESCAPED_UNICODE),
+            'evidence_json' => json_encode(['expected_delta_status' => 'quantified'], JSON_UNESCAPED_UNICODE),
+            'expected_metric' => 'orders',
+            'expected_delta' => 10,
+            'status' => 'approved',
+        ], [[
+            'id' => 311,
+            'intent_id' => 111,
+            'hotel_id' => 7,
+            'status' => 'executed',
+            'result_status' => 'success',
+            'executed_at' => '2026-07-18 12:00:00',
+        ]], [[
+            'id' => 411,
+            'task_id' => 311,
+            'evidence_type' => 'source_verified_metric_readback',
+            'before_json' => json_encode(['orders' => 100], JSON_UNESCAPED_UNICODE),
+            'after_json' => json_encode(['orders' => 90], JSON_UNESCAPED_UNICODE),
+            'platform_response_json' => $this->sourceVerifiedPlatformResponse(
+                7,
+                'ctrip',
+                'campaign',
+                '2026-07-18',
+                '2026-07-18',
+                'orders',
+                'online_daily_data#worsening-orders'
+            ),
+            'created_by' => 0,
+            'created_at' => '2026-07-19 13:00:00',
+        ]]);
+
+        self::assertTrue($item['evidence_truth']['source_verified']);
+        self::assertSame('adverse', $item['outcome_truth']['status']);
+        self::assertSame('metric_worsened', $item['outcome_truth']['failure_reason']);
+        self::assertSame('unverified', $item['review']['status']);
+        self::assertSame('success', $item['review']['reported_status']);
+        self::assertSame('partial', $item['truth_context']['status']);
+        self::assertSame('review', $item['stage']);
+        self::assertSame('partial', $item['roi']['status']);
+        self::assertSame('metric_worsened', $item['roi']['failure_reason']);
+    }
+
     public function testNewerReadbackEvidenceDoesNotReplaceFinancialEvidenceForRoi(): void
     {
         $service = new OperationManagementService();
@@ -446,6 +596,7 @@ final class OperationExecutionLoopTest extends TestCase
             'date_end' => '2026-07-16',
             'target_value_json' => json_encode(['budget' => 200], JSON_UNESCAPED_UNICODE),
             'expected_metric' => 'revenue',
+            'expected_delta' => 10,
             'status' => 'approved',
         ], [[
             'id' => 32,
@@ -951,7 +1102,9 @@ final class OperationExecutionLoopTest extends TestCase
             'action_type' => 'price_adjust',
             'date_start' => '2026-07-18',
             'date_end' => '2026-07-18',
+            'target_value_json' => json_encode(['expected_delta_status' => 'quantified'], JSON_UNESCAPED_UNICODE),
             'expected_metric' => 'revenue',
+            'expected_delta' => 0,
             'status' => 'approved',
         ], [[
             'id' => 51,
@@ -1100,6 +1253,33 @@ final class OperationExecutionLoopTest extends TestCase
 
         self::assertSame($nextReviewDate, $item['review']['available_on']);
         self::assertFalse($item['review']['is_available']);
+    }
+
+    private function priceIntentService(): OperationManagementService
+    {
+        return $this->priceIntentServiceWithRecommendation([
+            'can_create_execution_intent' => true,
+            'blocked_reason' => '',
+            'decision_quality' => [
+                'contract_version' => AiDecisionQualityService::CONTRACT_VERSION,
+                'execution_ready' => true,
+            ],
+        ]);
+    }
+
+    /** @param array<string, mixed> $recommendation */
+    private function priceIntentServiceWithRecommendation(array $recommendation): OperationManagementService
+    {
+        $pricingService = $this->createMock(RevenuePricingRecommendationService::class);
+        $pricingService->method('enrichSuggestionRows')->willReturnCallback(static function (array $rows) use ($recommendation): array {
+            if (isset($rows[0]) && is_array($rows[0])) {
+                $rows[0]['decision_recommendation'] = $recommendation;
+            }
+
+            return $rows;
+        });
+
+        return new OperationManagementService($pricingService);
     }
 
     private function sourceVerifiedPlatformResponse(

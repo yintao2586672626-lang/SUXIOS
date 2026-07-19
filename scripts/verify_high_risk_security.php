@@ -227,6 +227,9 @@ $competitorSource = file_get_contents(__DIR__ . '/../app/controller/CompetitorAp
 $competitorAnalysisModelSource = file_get_contents(__DIR__ . '/../app/model/CompetitorAnalysis.php');
 $systemConfigControllerSource = file_get_contents(__DIR__ . '/../app/controller/SystemConfigController.php');
 $aiConfigSource = file_get_contents(__DIR__ . '/../app/controller/AiConfig.php');
+$llmClientSource = file_get_contents(__DIR__ . '/../app/service/LlmClient.php');
+$apiDataSourceAdapterSource = file_get_contents(__DIR__ . '/../app/service/platform/ApiDataSourceAdapter.php');
+$revenueResearchSource = file_get_contents(__DIR__ . '/../app/service/RevenueResearchService.php');
 $userSource = file_get_contents(__DIR__ . '/../app/controller/User.php');
 $protectedCapabilitySource = file_get_contents(__DIR__ . '/../app/service/ProtectedCapabilityService.php');
 $lifecycleSource = file_get_contents(__DIR__ . '/../app/controller/Lifecycle.php');
@@ -277,6 +280,18 @@ assert_true(str_contains($authSource, 'enforceRateLimit'), 'authenticated APIs m
 assert_true(str_contains($authSource, 'rate_limited'), 'rate-limited requests must be written to operation logs');
 assert_true(str_contains($authControllerSource, 'private const TOKEN_TTL_SECONDS = 259200'), 'login tokens must use the product-approved 72-hour TTL');
 assert_true(str_contains($authControllerSource, 'new LoginRateLimiter()') && str_contains($authControllerSource, 'consumeAttempt($ip, $username)') && str_contains($authControllerSource, "'Retry-After'"), 'public login must reserve a bounded attempt before password verification');
+$loginValidationBranch = substr(
+    $authControllerSource,
+    strpos($authControllerSource, "\$rawUsername = \$this->request->post('username', '')"),
+    strpos($authControllerSource, "\$user = User::with(['role', 'hotel'])") - strpos($authControllerSource, "\$rawUsername = \$this->request->post('username', '')")
+);
+assert_true(!str_contains($loginValidationBranch, 'recordLoginFailure') && !str_contains($loginValidationBranch, 'LoginLog::record'), 'malformed and empty login payloads must not append persistent login audit rows');
+$loginDeniedBranch = substr(
+    $authControllerSource,
+    strpos($authControllerSource, "if (!\$rateLimit['allowed'])"),
+    strpos($authControllerSource, "\$reservationBucket = isset(\$rateLimit['reservation_bucket'])") - strpos($authControllerSource, "if (!\$rateLimit['allowed'])")
+);
+assert_true(!str_contains($loginDeniedBranch, 'recordLoginFailure') && !str_contains($loginDeniedBranch, 'LoginLog::record'), '429 login responses must not create one persistent audit row per denied request');
 assert_true(str_contains($authControllerSource, 'invalidLoginPayload()') && str_contains($authControllerSource, 'normalizeLoginClientInfo'), 'public login must reject malformed input before authentication and log persistence');
 assert_true(strpos($authControllerSource, 'invalidLoginPayload()') < strpos($authControllerSource, "User::with(['role', 'hotel'])"), 'login input validation must run before the user lookup');
 assert_true(str_contains($loginRateLimiterSource, 'IDENTITY_LIMIT = 10') && str_contains($loginRateLimiterSource, 'USERNAME_LIMIT = 25') && str_contains($loginRateLimiterSource, 'IP_LIMIT = 40'), 'login rate limiting must cover identity, distributed source rotation, and source IP abuse');
@@ -294,7 +309,7 @@ foreach (['X-Content-Type-Options: nosniff', 'X-Frame-Options: SAMEORIGIN', 'Ref
 }
 assert_true(str_contains($publicRouterSource, 'Content-Security-Policy-Report-Only') && str_contains($publicRouterSource, "script-src-attr 'none'"), 'PHP development router must stage CSP in report-only mode');
 assert_true(!str_contains($publicRouterSource, "header('Content-Security-Policy:"), 'PHP development router must not enforce CSP before violations are reviewed');
-assert_true(str_contains($publicRouterSource, 'Strict-Transport-Security: max-age=31536000') && str_contains($publicRouterSource, "SERVER_PORT") && !str_contains($publicRouterSource, 'HTTP_X_FORWARDED_PROTO'), 'PHP development router must emit HSTS only for directly verified HTTPS');
+assert_true(str_contains($publicRouterSource, 'Strict-Transport-Security: max-age=31536000') && !str_contains($publicRouterSource, "SERVER_PORT") && !str_contains($publicRouterSource, 'HTTP_X_FORWARDED_PROTO'), 'PHP development router must emit HSTS only for explicitly verified HTTPS');
 assert_true(str_contains($exceptionHandleSource, "'route_not_found'") && str_contains($exceptionHandleSource, "'internal_error'"), 'exception handler must return stable API reasons without framework details');
 assert_true(!str_contains($exceptionHandleSource, "return parent::render(\$request, \$e);"), 'exception handler must not delegate public errors to the debug stack renderer');
 assert_true(!str_contains($dailyPatrolCronSource, "'Daily workbench patrol cron failed: ' . \$e->getMessage()"), 'public patrol cron must not return raw exception messages');
@@ -318,7 +333,37 @@ assert_true(str_contains($competitorSource, 'enforceExternalRateLimit'), 'public
 assert_true(str_contains($competitorTaskSource, 'findAuthorizedBinding(') && !str_contains($competitorTaskSource, '$device = new CompetitorDevice();'), 'competitor task endpoint must require a pre-registered hotel-scoped device binding');
 assert_true(str_contains($competitorTaskSource, "where('tenant_id', \$tenantId)") && str_contains($competitorTaskSource, "where('store_id', \$storeId)"), 'competitor tasks must stay inside the bound tenant and store');
 assert_true(str_contains($competitorDeviceAuthSource, 'password_verify') && str_contains($competitorDeviceAuthSource, 'bindingScopeIsActive'), 'competitor device tokens must be one-way and revalidate current hotel permission');
-assert_true(str_contains($competitorDeviceMigrationSource, 'SET `status` = 0') && str_contains($competitorDeviceMigrationSource, '`token_hash`'), 'legacy unbound competitor devices must fail closed during migration');
+assert_true(str_contains($competitorDeviceAuthSource, "authorize(\$user, 'ota.collect', \$storeId)"), 'competitor device activation must pass the full ota.collect authorization gate for the target hotel');
+assert_true(str_contains($competitorDeviceAuthSource, '$userTenantId !== $tenantId'), 'competitor device activation must reject a user whose tenant differs from the hotel tenant');
+assert_true(
+    str_contains($competitorDeviceMigrationSource, 'JOIN `hotels` AS `h` ON `h`.`id` = `ch`.`store_id`')
+    && str_contains($competitorDeviceMigrationSource, 'SET `ch`.`tenant_id` = `h`.`tenant_id`'),
+    'competitor hotel tenant backfill must use the authoritative hotels table'
+);
+assert_true(
+    str_contains($competitorDeviceMigrationSource, 'LEFT JOIN `hotels` AS `h` ON `h`.`id` = `ch`.`store_id`')
+    && str_contains($competitorDeviceMigrationSource, 'SET `ch`.`tenant_id` = NULL,')
+    && str_contains($competitorDeviceMigrationSource, '`ch`.`status` = 0'),
+    'orphaned or tenantless competitor hotels must be unbound and disabled during migration'
+);
+assert_true(
+    str_contains($competitorDeviceMigrationSource, 'SET `status` = 0,')
+    && str_contains($competitorDeviceMigrationSource, '`revoked_at` = COALESCE(`revoked_at`, NOW())')
+    && str_contains($competitorDeviceMigrationSource, '`tenant_id` IS NULL')
+    && str_contains($competitorDeviceMigrationSource, '`user_id` IS NULL')
+    && str_contains($competitorDeviceMigrationSource, '`store_id` IS NULL')
+    && str_contains($competitorDeviceMigrationSource, "`platform` = ''")
+    && str_contains($competitorDeviceMigrationSource, "`token_hash` = ''"),
+    'legacy competitor devices with an incomplete binding must be revoked and disabled during migration'
+);
+$baseTenantMigrationOffset = strpos($initFullSource, '20260529_add_tenant_security_fields.sql');
+$competitorDeviceMigrationOffset = strpos($initFullSource, '20260719_bind_competitor_devices_to_hotel_scope.sql');
+assert_true(
+    $baseTenantMigrationOffset !== false
+    && $competitorDeviceMigrationOffset !== false
+    && $baseTenantMigrationOffset < $competitorDeviceMigrationOffset,
+    'full database initialization must apply competitor device scope binding after the base tenant fields exist'
+);
 assert_true(str_contains($competitorTaskSource, "enforceExternalRateLimit('task'"), 'competitor task endpoint must rate limit external devices');
 assert_true(str_contains($competitorReportSource, "enforceExternalRateLimit('report'"), 'competitor report endpoint must rate limit external devices');
 assert_true(str_contains($competitorSource, "\$ipHash = substr(sha1((string)\$this->request->ip()), 0, 16);"), 'public competitor token APIs must rate limit pre-auth attempts by IP hash');
@@ -527,5 +572,17 @@ assert_true(str_contains($deleteCtripConfig, "checkActionPermission('can_delete_
 assert_true(!str_contains($legacyCronSource, "online_data_cookies_list"), 'legacy cron script must not use global cookie list');
 assert_true(!str_contains($legacyCronSource, "whereNull('system_hotel_id')"), 'legacy cron script must not write unbound OTA data');
 assert_true(!str_contains($legacyCronSource, "'system_hotel_id' => null"), 'legacy cron script must bind saved rows to a system hotel');
+foreach ([
+    'LLM client' => $llmClientSource,
+    'API data source adapter' => $apiDataSourceAdapterSource,
+    'AI config connectivity test' => $aiConfigSource,
+    'Revenue research request' => $revenueResearchSource,
+] as $label => $guardedTransportSource) {
+    assert_true(
+        str_contains($guardedTransportSource, "CURLOPT_PROXY => ''")
+        && str_contains($guardedTransportSource, "CURLOPT_NOPROXY => '*'"),
+        $label . ' must disable environment proxies so CURLOPT_RESOLVE remains authoritative'
+    );
+}
 
 echo 'High-risk security verification passed.' . PHP_EOL;

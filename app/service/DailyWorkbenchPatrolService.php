@@ -368,9 +368,12 @@ final class DailyWorkbenchPatrolService
 
         $reviewSummary = $this->safeNote((string)($input['result_summary'] ?? $input['review_summary'] ?? ''));
         $operationExecution = is_array($items[$key]['operation_execution'] ?? null) ? $items[$key]['operation_execution'] : [];
-        if (is_array($input['operation_execution'] ?? null)) {
-            $operationExecution = array_replace($operationExecution, $input['operation_execution']);
-        }
+        $incomingOperationExecution = is_array($input['operation_execution'] ?? null) ? $input['operation_execution'] : [];
+        $operationExecution = $this->mergeReviewOperationExecution(
+            $operationExecution,
+            $incomingOperationExecution,
+            $input
+        );
 
         $reviewResult = [
             'result_status' => $reviewStatus,
@@ -756,6 +759,42 @@ final class DailyWorkbenchPatrolService
         }
 
         return $status;
+    }
+
+    private function mergeReviewOperationExecution(array $stored, array $incoming, array $input): array
+    {
+        foreach (['task_id', 'intent_id', 'source_record_id'] as $field) {
+            $storedValue = isset($stored[$field]) && is_numeric($stored[$field]) ? (int)$stored[$field] : 0;
+            $candidates = [];
+            foreach ([$input, $incoming] as $source) {
+                if (!array_key_exists($field, $source) || $source[$field] === null || trim((string)$source[$field]) === '') {
+                    continue;
+                }
+                if (!is_numeric($source[$field]) || (int)$source[$field] < 0) {
+                    throw new \RuntimeException('Daily workbench patrol review operation identity is invalid: ' . $field . '.', 422);
+                }
+                $candidates[] = (int)$source[$field];
+            }
+
+            if ($storedValue > 0) {
+                foreach ($candidates as $candidate) {
+                    if ($candidate !== $storedValue) {
+                        throw new \RuntimeException('Daily workbench patrol review operation identity conflicts with the runtime snapshot: ' . $field . '.', 422);
+                    }
+                }
+            } elseif (count(array_unique($candidates, SORT_NUMERIC)) > 1) {
+                throw new \RuntimeException('Daily workbench patrol review operation identity conflicts between request fields: ' . $field . '.', 422);
+            }
+        }
+
+        $merged = array_replace($stored, $incoming);
+        foreach (['task_id', 'intent_id', 'source_record_id'] as $field) {
+            if (isset($stored[$field]) && is_numeric($stored[$field]) && (int)$stored[$field] > 0) {
+                $merged[$field] = $stored[$field];
+            }
+        }
+
+        return $merged;
     }
 
     private function safeNote(string $value): string

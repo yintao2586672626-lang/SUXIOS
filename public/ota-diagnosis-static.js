@@ -283,6 +283,9 @@ window.SUXI_OTA_DIAGNOSIS_STATIC = (() => {
         const expectedEffect = item.expected_effect && typeof item.expected_effect === 'object' ? item.expected_effect : {};
         const risk = item.risk && typeof item.risk === 'object' ? item.risk : {};
         const quality = item.decision_quality && typeof item.decision_quality === 'object' ? item.decision_quality : {};
+        const qualityV2Ready = quality.contract_version === 'ai_recommendation_quality.v2'
+            && quality.execution_ready === true
+            && item.can_create_execution_intent === true;
         const status = superseded
             ? 'superseded'
             : (item.status || (item.execution_ready ? 'pending_human_confirmation' : 'blocked'));
@@ -296,8 +299,11 @@ window.SUXI_OTA_DIAGNOSIS_STATIC = (() => {
             status,
             statusText: superseded ? '已被新诊断替代' : otaDiagnosisDecisionStatusText(status),
             statusClass: superseded ? 'bg-slate-100 text-slate-600 border-slate-200' : otaDiagnosisDecisionStatusClass(status),
-            executionReady: !superseded && item.execution_ready === true,
-            canCreateIntent: !superseded && item.execution_ready === true && item.can_request_execution_intent !== false,
+            executionReady: !superseded && item.execution_ready === true && qualityV2Ready,
+            canCreateIntent: !superseded
+                && item.execution_ready === true
+                && item.can_request_execution_intent !== false
+                && qualityV2Ready,
             evidenceText: evidenceRefs.length ? evidenceRefs.slice(0, 3).join('、') : '-',
             dataBasisText: dataBasis.summary || dataBasis.quality_note || '未提供可追溯依据',
             dataBasisMeta: [dataBasis.scope, dataBasis.platform, dataBasis.date].filter(Boolean).join(' · ') || '范围/日期待核验',

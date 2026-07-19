@@ -625,7 +625,37 @@ final class OperationManagementServiceTest extends TestCase
         self::assertSame(85.4, $summary['avg_psi_score']);
         self::assertSame(89.25, $summary['avg_service_score']);
         self::assertSame(2, $summary['sample_count']);
+        self::assertSame(2, $summary['psi_sample_count']);
+        self::assertSame(2, $summary['service_score_sample_count']);
         self::assertSame('ok', $summary['data_status']);
+    }
+
+    public function testMissingPsiRemainsNullAndCannotBecomeMetricReadbackZero(): void
+    {
+        $service = new OperationManagementService();
+        $rows = [
+            $this->trustedOtaOperatingRow([
+                'id' => 93,
+                'data_type' => 'business',
+                'raw_data' => json_encode(['orders' => 5], JSON_UNESCAPED_UNICODE),
+            ]),
+            $this->trustedOtaOperatingRow([
+                'id' => 94,
+                'data_type' => 'quality',
+                'raw_data' => json_encode(['serviceScore' => 91.2], JSON_UNESCAPED_UNICODE),
+            ]),
+        ];
+
+        $quality = $this->invokeNonPublic($service, 'buildServiceQualityFromRows', [$rows]);
+
+        self::assertNull($quality['avg_psi_score']);
+        self::assertSame(0, $quality['psi_sample_count']);
+        self::assertSame(1, $quality['service_score_sample_count']);
+        self::assertNull($this->invokeNonPublic(
+            $service,
+            'executionReadbackMetricValue',
+            ['avg_psi_score', $rows, 7, '2026-07-15']
+        ));
     }
 
     public function testMeituanRankBatchChangesDetectTopSelfRankAndVipSignals(): void
@@ -849,6 +879,8 @@ final class OperationManagementServiceTest extends TestCase
         self::assertStringContainsString('execution task state changed; refresh before review', $source);
         self::assertStringContainsString('$hasSourceVerifiedReviewEvidence', $source);
         self::assertStringContainsString('source-verified business metric readback is required before success review', $source);
+        self::assertStringContainsString('executionPositiveOutcomeAllowsStatus', $source);
+        self::assertStringContainsString('target-aligned source-verified metric outcome is required before success review', $source);
     }
 
     public function testSourceVerifiedExecutionEvidenceRequiresAllTruthDimensions(): void
@@ -916,6 +948,148 @@ final class OperationManagementServiceTest extends TestCase
         $assessment = $this->invokeNonPublic($service, 'assessExecutionEvidenceTruth', [$intent, $task, $clientAuthored]);
         self::assertFalse($assessment['source_verified']);
         self::assertContains('system_readback_authority_missing', $assessment['failure_reasons']);
+    }
+
+    public function testPositiveOutcomeTruthSeparatesProvenanceFromTargetAchievement(): void
+    {
+        $service = new OperationManagementService();
+        $task = ['id' => 88, 'status' => 'executed', 'result_status' => 'observing'];
+        $platformResponse = [
+            'verification_authority' => 'system_readback',
+            'source' => 'online_daily_data',
+            'source_ref' => 'online_daily_data#outcome-88',
+            'system_hotel_id' => 7,
+            'platform' => 'ctrip',
+            'object_type' => 'campaign',
+            'date_start' => '2026-07-18',
+            'date_end' => '2026-07-18',
+            'metric_key' => 'orders',
+            'database_written' => true,
+            'readback_verified' => true,
+            'readback_count' => 1,
+            'readback_at' => '2026-07-19 13:00:00',
+            'validation_status' => 'verified',
+        ];
+        $intent = [
+            'hotel_id' => 7,
+            'platform' => 'ctrip',
+            'object_type' => 'campaign',
+            'date_start' => '2026-07-18',
+            'date_end' => '2026-07-18',
+            'expected_metric' => 'orders',
+            'expected_delta' => 10,
+            'target_value' => [],
+            'evidence' => [],
+        ];
+        $evidence = [[
+            'id' => 99,
+            'task_id' => 88,
+            'evidence_type' => 'source_verified_metric_readback',
+            'before' => ['orders' => 100],
+            'after' => ['orders' => 90],
+            'platform_response' => $platformResponse,
+            'created_by' => 0,
+        ]];
+
+        $adverse = $this->invokeNonPublic($service, 'buildExecutionOutcomeTruth', [$intent, $task, $evidence]);
+        self::assertTrue($adverse['source_verified'], 'The source remains verified even when the outcome is adverse.');
+        self::assertSame('increase', $adverse['direction']);
+        self::assertSame('adverse', $adverse['status']);
+        self::assertFalse($adverse['positive_outcome_verified']);
+        self::assertSame('metric_worsened', $adverse['failure_reason']);
+        self::assertFalse($this->invokeNonPublic(
+            $service,
+            'executionPositiveOutcomeAllowsStatus',
+            [$adverse, 'success']
+        ));
+
+        $evidence[0]['after'] = ['orders' => 108];
+        $near = $this->invokeNonPublic($service, 'buildExecutionOutcomeTruth', [$intent, $task, $evidence]);
+        self::assertSame('near', $near['status']);
+        self::assertFalse($this->invokeNonPublic(
+            $service,
+            'executionPositiveOutcomeAllowsStatus',
+            [$near, 'success']
+        ));
+        self::assertTrue($this->invokeNonPublic(
+            $service,
+            'executionPositiveOutcomeAllowsStatus',
+            [$near, 'near_success']
+        ));
+
+        $evidence[0]['after'] = ['orders' => 112];
+        $met = $this->invokeNonPublic($service, 'buildExecutionOutcomeTruth', [$intent, $task, $evidence]);
+        self::assertSame('met', $met['status']);
+        self::assertTrue($this->invokeNonPublic(
+            $service,
+            'executionPositiveOutcomeAllowsStatus',
+            [$met, 'success']
+        ));
+    }
+
+    public function testPositiveOutcomeTruthRejectsUnquantifiedTargetAndUnknownDirection(): void
+    {
+        $service = new OperationManagementService();
+        $task = ['id' => 88, 'status' => 'executed', 'result_status' => 'observing'];
+        $intent = [
+            'hotel_id' => 7,
+            'platform' => 'ctrip',
+            'object_type' => 'campaign',
+            'date_start' => '2026-07-18',
+            'date_end' => '2026-07-18',
+            'expected_metric' => 'orders',
+            'expected_delta' => 0,
+            'target_value' => [],
+            'evidence' => ['expected_delta_status' => 'not_quantified'],
+        ];
+        $platformResponse = [
+            'verification_authority' => 'system_readback',
+            'source' => 'online_daily_data',
+            'source_ref' => 'online_daily_data#unquantified-88',
+            'system_hotel_id' => 7,
+            'platform' => 'ctrip',
+            'object_type' => 'campaign',
+            'date_start' => '2026-07-18',
+            'date_end' => '2026-07-18',
+            'metric_key' => 'orders',
+            'database_written' => true,
+            'readback_verified' => true,
+            'readback_count' => 1,
+            'readback_at' => '2026-07-19 13:00:00',
+            'validation_status' => 'verified',
+        ];
+        $evidence = [[
+            'id' => 99,
+            'task_id' => 88,
+            'evidence_type' => 'source_verified_metric_readback',
+            'before' => ['orders' => 100],
+            'after' => ['orders' => 120],
+            'platform_response' => $platformResponse,
+            'created_by' => 0,
+        ]];
+
+        $unquantified = $this->invokeNonPublic($service, 'buildExecutionOutcomeTruth', [$intent, $task, $evidence]);
+        self::assertTrue($unquantified['source_verified']);
+        self::assertSame('unverified', $unquantified['status']);
+        self::assertSame('target_not_quantified', $unquantified['failure_reason']);
+
+        $intent['expected_metric'] = 'custom_quality_index';
+        $intent['expected_delta'] = 10;
+        $intent['evidence'] = [];
+        $platformResponse['metric_key'] = 'custom_quality_index';
+        $evidence[0]['before'] = ['custom_quality_index' => 50];
+        $evidence[0]['after'] = ['custom_quality_index' => 60];
+        $evidence[0]['platform_response'] = $platformResponse;
+        $unknownDirection = $this->invokeNonPublic($service, 'buildExecutionOutcomeTruth', [$intent, $task, $evidence]);
+        self::assertTrue($unknownDirection['source_verified']);
+        self::assertSame('unverified', $unknownDirection['status']);
+        self::assertSame('expected_direction_unknown', $unknownDirection['failure_reason']);
+
+        $intent['target_value'] = ['expected_direction' => 'decrease'];
+        $evidence[0]['after'] = ['custom_quality_index' => 40];
+        $explicitDecrease = $this->invokeNonPublic($service, 'buildExecutionOutcomeTruth', [$intent, $task, $evidence]);
+        self::assertSame('met', $explicitDecrease['status']);
+        self::assertSame('decrease', $explicitDecrease['direction']);
     }
 
     public function testOperatorAttestationRejectsLegacyAndClientClaimedSourceVerification(): void

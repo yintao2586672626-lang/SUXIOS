@@ -25,6 +25,8 @@ const appStartupRenderRuntimePath = path.join(repoRoot, 'public/app-startup-rend
 const publicRouterPath = path.join(repoRoot, 'public/router.php');
 const publicHtaccessPath = path.join(repoRoot, 'public/.htaccess');
 const competitorDeviceComponentPath = path.join(repoRoot, 'public/components/admin/competitor-device-management.js');
+const dataConfigDialogsTemplatePath = path.join(repoRoot, 'resources/frontend/templates/components/data-config-dialogs.html');
+const dataConfigDialogsComponentPath = path.join(repoRoot, 'public/components/system/data-config-dialogs.js');
 const systemStaticPath = path.join(repoRoot, 'public/system-static.js');
 const revenueAiStaticPath = path.join(repoRoot, 'public/revenue-ai-static.js');
 const operationStaticPath = path.join(repoRoot, 'public/operation-static.js');
@@ -157,6 +159,12 @@ if (!fs.existsSync(indexPath)) {
   const ctripProfileFieldConfigPanelPath = path.join(repoRoot, 'public/components/online-data/ctrip-profile-field-config-panel.js');
   const ctripProfileFieldConfigPanelContent = fs.existsSync(ctripProfileFieldConfigPanelPath)
     ? fs.readFileSync(ctripProfileFieldConfigPanelPath, 'utf8')
+    : '';
+  const dataConfigDialogsTemplateContent = fs.existsSync(dataConfigDialogsTemplatePath)
+    ? fs.readFileSync(dataConfigDialogsTemplatePath, 'utf8')
+    : '';
+  const dataConfigDialogsComponentContent = fs.existsSync(dataConfigDialogsComponentPath)
+    ? fs.readFileSync(dataConfigDialogsComponentPath, 'utf8')
     : '';
 
   if (stat.size < 5_000) {
@@ -920,6 +928,24 @@ if (!runtimeAssetPaths.includes('system-static.js')
     || /await loadDataConfig\(type\);[\s\S]*showDataConfigModal\.value = true;/.test(openDataConfigModalSource)
     || /await ensureAutoFetchStaticReady\(\);[\s\S]*currentDataConfigType\.value = type;/.test(openDataConfigModalSource)) {
     failures.push('public/index.html data-source config modal must open before loading auto-fetch-static.js or saved system-config data.');
+  }
+  const dataConfigModalShownAt = openDataConfigModalSource.indexOf('showDataConfigModal.value = true;');
+  const dataConfigComponentLoadAt = openDataConfigModalSource.indexOf('void ensureDataConfigDialogsReady()');
+  const dataConfigDeferredLoadAt = openDataConfigModalSource.indexOf('deferUiTask(async () => {');
+  if (!appMainContent.includes("const dataConfigDialogsScript = 'components/system/data-config-dialogs.js?v=20260720-data-config-template-split-v1';")
+    || !appMainContent.includes("requireSystemComponent('DataConfigDialogsBody')")
+    || !appMainContent.includes('const DataConfigDialogs = {')
+    || !appTemplateContent.includes('<data-config-dialogs v-if="showDataConfigModal" :ctx="$root"></data-config-dialogs>')
+    || appTemplateContent.includes('<form @submit.prevent="saveDataConfig"')
+    || !dataConfigDialogsTemplateContent.includes('<form @submit.prevent="saveDataConfig"')
+    || !dataConfigDialogsComponentContent.includes('SUXI_SYSTEM_COMPONENTS')
+    || !dataConfigDialogsComponentContent.includes('DataConfigDialogsBody')
+    || htmlContent.includes('<script src="components/system/data-config-dialogs.js')
+    || dataConfigModalShownAt < 0
+    || dataConfigComponentLoadAt <= dataConfigModalShownAt
+    || dataConfigDeferredLoadAt <= dataConfigComponentLoadAt
+    || openDataConfigModalSource.includes('await ensureDataConfigDialogsReady()')) {
+    failures.push('The data-config modal must keep an immediate synchronous shell and lazy-load its precompiled versioned body after opening.');
   }
   if (!/const loadDataConfig = async \(type, options = \{\}\) => \{[\s\S]*const shouldApply = typeof options\.shouldApply === 'function' \? options\.shouldApply : \(\) => true;[\s\S]*if \(!shouldApply\(\)\) return;/.test(content)
     || !/const saveDataConfig = async[\s\S]*await ensureAutoFetchStaticReady\(\);[\s\S]*const testDataConfig = async[\s\S]*await ensureAutoFetchStaticReady\(\);[\s\S]*requireAutoFetchStatic\(['"]runDataConfigTestFlow['"]\)/.test(content)) {
@@ -3474,7 +3500,8 @@ if (!fs.existsSync(publicRouterPath)) {
     failures.push('public/router.php must not enforce CSP until report-only violations are reviewed.');
   }
   if (!routerSource.includes("header('Strict-Transport-Security: max-age=31536000')")
-    || !routerSource.includes("SERVER_PORT")
+    || !routerSource.includes("$suxiHttpsValue")
+    || routerSource.includes("SERVER_PORT")
     || routerSource.includes('HTTP_X_FORWARDED_PROTO')) {
     failures.push('public/router.php must emit HSTS only for a directly verified HTTPS request.');
   }
@@ -3501,7 +3528,7 @@ if (!fs.existsSync(competitorDeviceComponentPath)) {
 } else {
   const competitorDeviceComponentSource = fs.readFileSync(competitorDeviceComponentPath, 'utf8');
   const appMainSource = fs.existsSync(appMainPath) ? fs.readFileSync(appMainPath, 'utf8') : '';
-  if (!appMainSource.includes('components/admin/competitor-device-management.js?v=20260719-device-lifecycle-v1')
+  if (!appMainSource.includes('components/admin/competitor-device-management.js?v=20260719-device-lifecycle-v3')
     || !appMainSource.includes("requireOnlineDataComponent('CompetitorDeviceManagementBody')")) {
     failures.push('The admin data-config page must lazy-load the versioned competitor device management component.');
   }

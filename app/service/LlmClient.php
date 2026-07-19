@@ -452,15 +452,13 @@ class LlmClient
             ];
         }
 
-        $ch = curl_init((string)$target['url']);
-        if ($ch === false) {
-            return ['response' => false, 'http_status' => 0, 'error' => 'Network request failed'];
-        }
-        curl_setopt_array($ch, $this->buildCurlOptions($target, $config, $payloadJson, $options));
-        $response = curl_exec($ch);
-        $statusCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlErrorNumber = curl_errno($ch);
-        curl_close($ch);
+        $transport = $this->performCurlRequest(
+            (string)$target['url'],
+            $this->buildCurlOptions($target, $config, $payloadJson, $options)
+        );
+        $response = $transport['response'];
+        $statusCode = $transport['http_status'];
+        $curlErrorNumber = $transport['curl_errno'];
 
         $error = $response === false
             ? ($curlErrorNumber === CURLE_OPERATION_TIMEDOUT ? 'Network request timed out' : 'Network request failed')
@@ -471,6 +469,31 @@ class LlmClient
             'http_status' => $statusCode,
             'error' => $error,
         ];
+    }
+
+    /**
+     * Isolated cURL execution seam for deterministic transport tests.
+     *
+     * @param array<int, mixed> $curlOptions
+     * @return array{response:string|false,http_status:int,curl_errno:int}
+     */
+    protected function performCurlRequest(string $url, array $curlOptions): array
+    {
+        $ch = curl_init($url);
+        if ($ch === false) {
+            return ['response' => false, 'http_status' => 0, 'curl_errno' => 0];
+        }
+
+        try {
+            curl_setopt_array($ch, $curlOptions);
+            return [
+                'response' => curl_exec($ch),
+                'http_status' => (int)curl_getinfo($ch, CURLINFO_HTTP_CODE),
+                'curl_errno' => curl_errno($ch),
+            ];
+        } finally {
+            curl_close($ch);
+        }
     }
 
     /**
@@ -494,6 +517,8 @@ class LlmClient
             CURLOPT_POSTFIELDS => $payloadJson,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_PROXY => '',
+            CURLOPT_NOPROXY => '*',
             CURLOPT_RESOLVE => $target['curl_resolve'],
         ];
         if (defined('CURLOPT_PROTOCOLS') && defined('CURLPROTO_HTTPS')) {

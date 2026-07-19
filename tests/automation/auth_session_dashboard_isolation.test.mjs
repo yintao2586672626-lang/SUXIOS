@@ -54,10 +54,10 @@ test('login, logout, and account switches reset hotel-scoped browser state', () 
 });
 
 test('hotel and dashboard loaders reject stale responses and reuse in-flight requests', () => {
-  const pageLoadGuard = sliceBetween('const runPageLoadOnce = (page, loadingKey, task, options = {}) => {', 'const activateAiWorkbenchAfterLogin = () => {');
+  const pageLoadGuard = sliceBetween('const runPageLoadOnce = (page, loadingKey, task, options = {}) => {', 'const activateCoreOperationsAfterLogin = () => {');
   const workbench = sliceBetween('let dualOtaWorkbenchRequestSeq = 0;', 'const setDualOtaPlatform = (platform, options = {}) => {');
   const competitor = sliceBetween('const loadCompetitorSummary = async (options = {}) => {', 'const loadRevenueAiOverview = async () => {');
-  const latest = sliceBetween("const loadLatestCtripData = async ({ silent = false, hotelId = '', hydrateDisplay = null, range = '' } = {}) => {", 'const hasVisibleCtripSnapshot = () => {');
+  const latest = sliceBetween('const loadLatestCtripData = async (', 'const hasVisibleCtripSnapshot = () => {');
   const hotelSwitch = sliceBetween('watch(filterReportHotel, () => {', 'watch(weatherLocationName, () => {');
   const clearHotel = sliceBetween('const clearActiveHotelDashboardSnapshots = () => {', 'const beginAuthSession = (nextToken) => {');
 

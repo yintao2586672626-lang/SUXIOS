@@ -330,12 +330,7 @@ trait OperationWorkbenchConcern
             }
 
             $operationExecution = is_array($tracked['operation_execution'] ?? null) ? $tracked['operation_execution'] : [];
-            $taskId = isset($data['task_id']) && is_numeric($data['task_id'])
-                ? (int)$data['task_id']
-                : (int)($operationExecution['task_id'] ?? 0);
-            if ($taskId <= 0) {
-                throw new \RuntimeException('Daily workbench patrol action has no execution task to review.');
-            }
+            $taskId = $this->dailyWorkbenchPatrolReviewTaskId($operationExecution, $data);
 
             $reviewedTask = (new OperationManagementService())->reviewExecutionTask($taskId, [$hotelId], [
                 'result_status' => (string)($data['result_status'] ?? $data['review_status'] ?? ''),
@@ -394,7 +389,7 @@ trait OperationWorkbenchConcern
         } catch (HttpException $e) {
             return $this->error($e->getMessage(), $this->safeHttpCode($e->getCode()));
         } catch (\RuntimeException $e) {
-            return $this->error($e->getMessage(), 404);
+            return $this->error($e->getMessage(), $e->getCode() === 422 ? 422 : 404);
         } catch (\Throwable $e) {
             return $this->operationWorkbenchInternalError($e, 'daily_workbench_patrol_action_review', 'Daily workbench patrol action review failed');
         }
@@ -629,6 +624,33 @@ trait OperationWorkbenchConcern
     {
         $identity = $actionCode !== '' ? $actionCode : $questionKey;
         return $hotelId . '|' . preg_replace('/[^a-zA-Z0-9_.:-]+/', '_', $identity);
+    }
+
+    private function dailyWorkbenchPatrolReviewTaskId(array $operationExecution, array $data): int
+    {
+        $runtimeTaskId = isset($operationExecution['task_id']) && is_numeric($operationExecution['task_id'])
+            ? (int)$operationExecution['task_id']
+            : 0;
+        $hasRequestedTaskId = array_key_exists('task_id', $data)
+            && $data['task_id'] !== null
+            && trim((string)$data['task_id']) !== '';
+        $requestedTaskId = 0;
+        if ($hasRequestedTaskId) {
+            if (!is_numeric($data['task_id']) || (int)$data['task_id'] <= 0) {
+                throw new \RuntimeException('Daily workbench patrol review task identity is invalid.', 422);
+            }
+            $requestedTaskId = (int)$data['task_id'];
+        }
+        if ($runtimeTaskId > 0 && $requestedTaskId > 0 && $runtimeTaskId !== $requestedTaskId) {
+            throw new \RuntimeException('Daily workbench patrol review task identity conflicts with the runtime snapshot.', 422);
+        }
+
+        $taskId = $runtimeTaskId > 0 ? $runtimeTaskId : $requestedTaskId;
+        if ($taskId <= 0) {
+            throw new \RuntimeException('Daily workbench patrol action has no execution task to review.');
+        }
+
+        return $taskId;
     }
 
     private function requireOperationHotelCapability(int $hotelId, string $capability): void

@@ -106,6 +106,7 @@ final class DailyWorkbenchPatrolServiceTest extends TestCase
             'note' => "Operator completed the task.\0",
             'operation_execution' => [
                 'intent_id' => 701,
+                'source_record_id' => 601,
                 'intent_status' => 'approved',
                 'task_id' => 801,
                 'task_status' => 'executed',
@@ -132,6 +133,70 @@ final class DailyWorkbenchPatrolServiceTest extends TestCase
         self::assertSame(1, $reviewed['action_tracking']['review_summary']['success']);
         self::assertSame(1, $reviewed['action_tracking']['review_summary']['reviewed_count']);
         self::assertSame('success', $item['operation_execution']['review_status']);
+        self::assertSame(701, $item['operation_execution']['intent_id']);
+        self::assertSame(601, $item['operation_execution']['source_record_id']);
+        self::assertSame(801, $item['operation_execution']['task_id']);
+    }
+
+    public function testReviewRejectsEveryRuntimeIdentityConflictWithoutChangingSnapshot(): void
+    {
+        $service = new DailyWorkbenchPatrolService();
+        $snapshot = $this->writeSnapshot($service);
+        $service->updateActionStatus([
+            'run_id' => $snapshot['run_id'],
+            'hotel_id' => 7,
+            'action_code' => 'price_adjust',
+            'question_key' => 'conversion_gap',
+            'status' => 'done',
+            'operation_execution' => [
+                'intent_id' => 701,
+                'source_record_id' => 601,
+                'task_id' => 801,
+            ],
+        ], 5);
+        $snapshotPath = $this->createdSnapshotPaths[array_key_last($this->createdSnapshotPaths)];
+
+        foreach ([
+            'task_id' => 802,
+            'intent_id' => 702,
+            'source_record_id' => 602,
+        ] as $field => $conflictingValue) {
+            $before = (string)file_get_contents($snapshotPath);
+            try {
+                $service->updateActionReview([
+                    'run_id' => $snapshot['run_id'],
+                    'hotel_id' => 7,
+                    'action_code' => 'price_adjust',
+                    'question_key' => 'conversion_gap',
+                    'result_status' => 'success',
+                    'operation_execution' => [$field => $conflictingValue],
+                ], 6);
+                self::fail('Expected identity conflict for ' . $field . '.');
+            } catch (\RuntimeException $exception) {
+                self::assertSame(422, $exception->getCode(), $field);
+                self::assertStringContainsString($field, $exception->getMessage());
+            }
+            self::assertSame($before, (string)file_get_contents($snapshotPath), $field);
+        }
+    }
+
+    public function testReviewTaskRequestCannotOverrideRuntimeTaskIdentity(): void
+    {
+        $reflection = new ReflectionClass(OnlineData::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+        $resolveTaskId = $reflection->getMethod('dailyWorkbenchPatrolReviewTaskId');
+        $resolveTaskId->setAccessible(true);
+
+        self::assertSame(801, $resolveTaskId->invoke($controller, ['task_id' => 801], []));
+        self::assertSame(801, $resolveTaskId->invoke($controller, ['task_id' => 801], ['task_id' => 801]));
+
+        try {
+            $resolveTaskId->invoke($controller, ['task_id' => 801], ['task_id' => 802]);
+            self::fail('Expected runtime task identity conflict.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame(422, $exception->getCode());
+            self::assertStringContainsString('runtime snapshot', $exception->getMessage());
+        }
     }
 
     public function testHotelScopedReadersDoNotExposeAnotherHotelSnapshot(): void

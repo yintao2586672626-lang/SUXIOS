@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -9,8 +9,10 @@ const projectRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const migrationDirectory = join(projectRoot, 'database', 'migrations');
 const initializationPath = join(projectRoot, 'database', 'init_full.sql');
 const workerPath = join(projectRoot, 'scripts', 'mysql_execution_intent_concurrency_worker.php');
+const loginWorkerPath = join(projectRoot, 'scripts', 'mysql_login_rate_limiter_concurrency_worker.php');
 const migrationRuns = 2;
 const workerCount = 8;
+const loginWorkerCount = 16;
 const mysqlCommandTimeoutMs = 120000;
 const workerCompletionTimeoutMs = 60000;
 const workerOutputLimitBytes = 1024 * 1024;
@@ -182,6 +184,41 @@ function spawnWorker(index, commonEnvironment) {
   });
 }
 
+function spawnLoginWorker(index, commonEnvironment) {
+  const child = spawn(phpBinary, [loginWorkerPath], {
+    cwd: projectRoot,
+    env: { ...process.env, ...commonEnvironment, SUXI_CI_WORKER_INDEX: String(index) },
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  children.push(child);
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', chunk => { stdout = `${stdout}${chunk}`.slice(-workerOutputLimitBytes); });
+  child.stderr.on('data', chunk => { stderr = `${stderr}${chunk}`.slice(-workerOutputLimitBytes); });
+  return new Promise((resolveWorker, rejectWorker) => {
+    child.once('error', rejectWorker);
+    child.once('close', code => {
+      if (code !== 0) {
+        rejectWorker(new Error(`login concurrency worker ${index} failed: ${(stderr || stdout).trim().slice(-2000)}`));
+        return;
+      }
+      const lines = stdout.trim().split(/\r?\n/).filter(Boolean);
+      try {
+        const result = JSON.parse(lines.at(-1) || '{}');
+        if (typeof result.allowed !== 'boolean' || !Number.isInteger(result.worker)) {
+          throw new Error('allowed/worker result is missing');
+        }
+        resolveWorker(result);
+      } catch (error) {
+        rejectWorker(new Error(`login concurrency worker ${index} returned invalid JSON: ${error.message}`));
+      }
+    });
+  });
+}
+
 async function waitForReady(directory, expected) {
   const deadline = Date.now() + 30000;
   while (Date.now() < deadline) {
@@ -233,7 +270,7 @@ async function withTimeout(promise, timeoutMs, label) {
 }
 
 try {
-  for (const path of [initializationPath, workerPath, ...migrationPaths]) {
+  for (const path of [initializationPath, workerPath, loginWorkerPath, ...migrationPaths]) {
     if (!existsSync(path)) throw new Error(`Required verifier input is missing: ${path}`);
   }
 
@@ -415,6 +452,77 @@ try {
     throw new Error(`Concurrency contract mismatch: workers=${workerResults.length}, unique_intent_ids=${uniqueIntentIds.size}, database_rows=${databaseRows}`);
   }
 
+  rmSync(barrierDirectory, { recursive: true, force: true });
+  barrierDirectory = mkdtempSync(join(tmpdir(), 'suxi-login-rate-concurrency-'));
+  const loginIp = `198.18.${randomBytes(1)[0]}.${randomBytes(1)[0]}`;
+  const loginUsername = `ci-login-${randomBytes(6).toString('hex')}`;
+  const loginWorkerEnvironment = {
+    ...workerEnvironment,
+    SUXI_CI_LOGIN_IP: loginIp,
+    SUXI_CI_LOGIN_USERNAME: loginUsername,
+    SUXI_CI_BARRIER_DIR: barrierDirectory,
+  };
+  const loginWorkerPromises = Array.from(
+    { length: loginWorkerCount },
+    (_, index) => spawnLoginWorker(index + 1, loginWorkerEnvironment),
+  );
+  const allLoginWorkers = Promise.all(loginWorkerPromises);
+  const loginWorkerEarlyExit = allLoginWorkers.then(
+    () => { throw new Error('Login concurrency workers exited before the barrier was released'); },
+    error => { throw error; },
+  );
+  await Promise.race([waitForReady(barrierDirectory, loginWorkerCount), loginWorkerEarlyExit]);
+  writeFileSync(join(barrierDirectory, 'go'), 'go', { flag: 'wx' });
+  const loginWorkerResults = await withTimeout(
+    allLoginWorkers,
+    workerCompletionTimeoutMs,
+    'login concurrency workers',
+  );
+  const loginAllowed = loginWorkerResults.filter(result => result.allowed === true).length;
+  const loginDenied = loginWorkerResults.length - loginAllowed;
+  const normalizedUsername = loginUsername.trim().toLowerCase();
+  const subjectHashes = {
+    ip: createHash('sha256').update(loginIp.trim()).digest('hex'),
+    username: createHash('sha256').update(normalizedUsername).digest('hex'),
+    identity: createHash('sha256').update(`${loginIp.trim()}\0${normalizedUsername}`).digest('hex'),
+  };
+  const loginCounts = Object.fromEntries(Object.entries(subjectHashes).map(([scope, subjectHash]) => [
+    scope,
+    queryScalar(
+      `SELECT COALESCE(MAX(attempt_count), 0) FROM login_rate_limit_counters WHERE scope_type = '${scope}' AND subject_hash = '${subjectHash}';`,
+      `login ${scope} concurrent count`,
+    ),
+  ]));
+  if (loginWorkerResults.length !== loginWorkerCount
+      || loginAllowed !== 10
+      || loginDenied !== loginWorkerCount - 10
+      || Object.values(loginCounts).some(count => count !== 10)
+  ) {
+    throw new Error(`Login limiter concurrency mismatch: allowed=${loginAllowed}, denied=${loginDenied}, counts=${JSON.stringify(loginCounts)}`);
+  }
+
+  runMysql({
+    database: databaseName,
+    input: 'DROP TABLE login_rate_limit_counters;\n',
+    label: 'drop login limiter table for fail-closed proof',
+  });
+  const missingTableProbe = spawnSync(phpBinary, [loginWorkerPath], {
+    cwd: projectRoot,
+    env: {
+      ...process.env,
+      ...loginWorkerEnvironment,
+      SUXI_CI_WORKER_INDEX: '999',
+      SUXI_CI_SKIP_BARRIER: '1',
+    },
+    encoding: 'utf8',
+    timeout: workerCompletionTimeoutMs,
+    windowsHide: true,
+  });
+  const missingTableOutput = `${missingTableProbe.stdout || ''}\n${missingTableProbe.stderr || ''}`;
+  if (missingTableProbe.status === 0 || !/login_rate_limit_counters/i.test(missingTableOutput)) {
+    throw new Error(`Missing login limiter table did not fail closed: ${missingTableOutput.trim().slice(-2000)}`);
+  }
+
   process.stdout.write(`${JSON.stringify({
     ok: true,
     engine: `${serverVersion} / MariaDB project dialect`,
@@ -430,6 +538,11 @@ try {
     unique_intent_ids: uniqueIntentIds.size,
     database_rows: databaseRows,
     intent_id: storedIntentId,
+    login_workers: loginWorkerResults.length,
+    login_allowed: loginAllowed,
+    login_denied: loginDenied,
+    login_counts: loginCounts,
+    login_missing_table_fail_closed: true,
   })}\n`);
 } finally {
   await stopChildren();

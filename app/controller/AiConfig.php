@@ -540,6 +540,8 @@ class AiConfig extends Base
             CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE),
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_PROXY => '',
+            CURLOPT_NOPROXY => '*',
             CURLOPT_RESOLVE => $target['curl_resolve'],
         ];
         if (defined('CURLOPT_PROTOCOLS') && defined('CURLPROTO_HTTPS')) {

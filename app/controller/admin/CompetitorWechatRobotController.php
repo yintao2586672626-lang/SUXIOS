@@ -408,6 +408,8 @@ class CompetitorWechatRobotController extends Base
                 'header' => "Content-Type: application/json\r\n",
                 'content' => json_encode($data, JSON_UNESCAPED_UNICODE),
                 'timeout' => 10,
+                'follow_location' => 0,
+                'ignore_errors' => true,
             ],
             'ssl' => [
                 'verify_peer' => true,
@@ -419,7 +421,50 @@ class CompetitorWechatRobotController extends Base
         if ($response === false) {
             return ['success' => false, 'error' => $this->robotWebhookRequestFailureMessage()];
         }
-        return ['success' => true, 'data' => $response];
+        return $this->interpretRobotWebhookResponse(
+            $response,
+            isset($http_response_header) && is_array($http_response_header) ? $http_response_header : []
+        );
+    }
+
+    /**
+     * @param array<int, string> $responseHeaders
+     * @return array{success: bool, data?: array<string, mixed>, error?: string}
+     */
+    private function interpretRobotWebhookResponse(string $response, array $responseHeaders = []): array
+    {
+        $status = 0;
+        foreach ($responseHeaders as $header) {
+            if (preg_match('/^HTTP\/\S+\s+(\d{3})\b/i', $header, $matches) === 1) {
+                $status = (int)$matches[1];
+            }
+        }
+        if ($status !== 0 && ($status < 200 || $status >= 300)) {
+            return ['success' => false, 'error' => '企业微信 Webhook 返回 HTTP ' . $status];
+        }
+
+        try {
+            $decoded = json_decode($response, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            return ['success' => false, 'error' => '企业微信 Webhook 返回格式异常'];
+        }
+        if (!is_array($decoded) || !array_key_exists('errcode', $decoded) || !is_numeric($decoded['errcode'])) {
+            return ['success' => false, 'error' => '企业微信 Webhook 返回缺少结果状态'];
+        }
+
+        $errorCode = (int)$decoded['errcode'];
+        if ($errorCode !== 0) {
+            $errorMessage = trim((string)($decoded['errmsg'] ?? ''));
+            $errorMessage = preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $errorMessage) ?? '';
+            $errorMessage = mb_substr($errorMessage, 0, 160, 'UTF-8');
+            return [
+                'success' => false,
+                'error' => '企业微信 Webhook 拒绝请求（errcode=' . $errorCode . '）'
+                    . ($errorMessage !== '' ? ': ' . $errorMessage : ''),
+            ];
+        }
+
+        return ['success' => true, 'data' => $decoded];
     }
 
     private function robotWebhookRequestFailureMessage(): string

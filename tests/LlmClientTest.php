@@ -313,6 +313,8 @@ final class LlmClientTest extends TestCase
         ]);
 
         self::assertSame(['llm.example.com:443:93.184.216.34'], $options[CURLOPT_RESOLVE]);
+        self::assertSame('', $options[CURLOPT_PROXY]);
+        self::assertSame('*', $options[CURLOPT_NOPROXY]);
         self::assertFalse($options[CURLOPT_FOLLOWLOCATION]);
         self::assertSame(0, $options[CURLOPT_MAXREDIRS]);
         self::assertTrue($options[CURLOPT_SSL_VERIFYPEER]);

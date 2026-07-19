@@ -79,6 +79,7 @@ function e2eAssertSchemaReady(): array
         'roles' => ['id', 'name'],
         'users' => ['id', 'username', 'role_id', 'hotel_id', 'tenant_id'],
         'hotels' => ['id', 'name', 'tenant_id'],
+        'login_rate_limit_counters' => ['scope_type', 'subject_hash', 'bucket_start', 'attempt_count', 'expires_at'],
         'user_hotel_permissions' => ['user_id', 'hotel_id'],
         'online_daily_data' => [
             'id', 'tenant_id', 'system_hotel_id', 'hotel_id', 'data_date',

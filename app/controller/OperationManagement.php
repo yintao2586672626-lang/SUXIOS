@@ -48,10 +48,14 @@ class OperationManagement extends Base
     {
         try {
             [$hotelIds, $hotelId] = $this->resolveHotelScope();
+            if ($hotelId === null || $hotelId <= 0) {
+                throw new \InvalidArgumentException('请选择单个酒店查看运营预警');
+            }
+            $canExecute = $this->currentUser?->hasHotelPermission($hotelId, 'operation.execute') === true;
 
-            return $this->success($this->service->alerts($hotelIds, $hotelId));
+            return $this->success($this->service->alerts($hotelIds, $hotelId, $canExecute));
         } catch (Throwable $e) {
-            return $this->error($this->safeErrorMessage($e, '获取预警失败'), 400);
+            return $this->error($this->safeErrorMessage($e, '获取预警失败'), $this->operationThrowableStatus($e));
         }
     }
 
@@ -228,7 +232,23 @@ class OperationManagement extends Base
     {
         try {
             [$hotelIds, $hotelId] = $this->resolveHotelScope((int)$this->request->param('hotel_id', 0));
-            return $this->success($this->service->executionFlow($hotelIds, $hotelId, $this->request->get()));
+            $result = $this->service->executionFlow($hotelIds, $hotelId, $this->request->get());
+            $canView = $hotelId !== null
+                && $hotelId > 0
+                && $this->currentUser?->hasHotelPermission($hotelId, 'operation.view') === true;
+            $result['capabilities'] = [
+                'hotel_id' => $hotelId,
+                'can_view' => $canView,
+                'can_generate_diagnosis' => $canView,
+                'can_execute' => $hotelId !== null
+                    && $hotelId > 0
+                    && $this->currentUser?->hasHotelPermission($hotelId, 'operation.execute') === true,
+                'can_collect_ota' => $hotelId !== null
+                    && $hotelId > 0
+                    && $this->currentUser?->hasHotelPermission($hotelId, 'can_fetch_online_data') === true,
+            ];
+
+            return $this->success($result);
         } catch (Throwable $e) {
             return $this->error($this->safeErrorMessage($e, 'execution flow query failed'), $this->operationThrowableStatus($e));
         }
@@ -255,6 +275,8 @@ class OperationManagement extends Base
     {
         try {
             $input = $this->requestData();
+            $input['source_module'] = 'manual';
+            $input['source_record_id'] = 0;
             [$hotelIds, $hotelId] = $this->resolveHotelScope((int)($input['hotel_id'] ?? 0), 'operation.execute');
             $userId = (int)($this->currentUser->id ?? 0);
 
@@ -428,7 +450,7 @@ class OperationManagement extends Base
         ];
 
         return [
-            'source_module' => 'strategy_simulation',
+            'source_module' => 'operation_strategy_simulation',
             'source_record_id' => (int)($input['source_record_id'] ?? 0),
             'hotel_id' => $hotelId,
             'platform' => (string)($input['platform'] ?? $input['channel'] ?? ''),

@@ -16,6 +16,7 @@ import {
   buildMeituanOrderFlowReplayUrls,
   isImportableMeituanTrafficRow,
   normalizeMeituanFlowAnalysisRows,
+  normalizeMeituanOrderRows,
   normalizeMeituanOrderFlowRows,
   normalizeMeituanPeerRankRows,
   normalizeMeituanSearchKeywordRows,
@@ -894,6 +895,7 @@ async function captureMeituanResponse(response, target) {
       payload_key: targetPayloadKey,
       status,
       row_count: rows.length,
+      request_data_date: requestDateEvidence.date || '',
       request_date_source: requestDateEvidence.date_source || '',
       date_range: supplementalMeta.dateRange,
       rank_type: supplementalMeta.rankType,
@@ -963,7 +965,10 @@ function meituanRowsForPayloadKey(payloadKey, safeBody, normalizedRows, meta) {
     return normalizedRows.filter(row => isImportableMeituanTrafficRow(row));
   }
   if (payloadKey === 'orders') {
-    return normalizedRows.filter(isImportableMeituanOrderCaptureRow);
+    const orderRows = normalizeMeituanOrderRows(safeBody, meta);
+    return orderRows.length > 0
+      ? orderRows
+      : normalizedRows.filter(isImportableMeituanOrderCaptureRow);
   }
   if (payloadKey === 'reviews') {
     return normalizedRows.filter(isImportableMeituanReviewCaptureRow);
@@ -1017,6 +1022,7 @@ function meituanPayloadKeyForResponse(url, body, section) {
 function meituanSupplementalResponseMeta(url, requestDateEvidence = {}) {
   const query = urlQueryParams(url);
   return {
+    endpointPath: otaResponsePathname(url),
     requestDateEvidence,
     defaultDataDate,
     capturedAt,
@@ -1028,6 +1034,14 @@ function meituanSupplementalResponseMeta(url, requestDateEvidence = {}) {
     periodStart: query.get('startDate') || '',
     periodEnd: query.get('endDate') || '',
   };
+}
+
+function otaResponsePathname(value) {
+  try {
+    return new URL(String(value || '')).pathname;
+  } catch {
+    return '';
+  }
 }
 
 function filterMeituanOrderFlowRowsByPeriod(rows, period) {
@@ -1220,6 +1234,8 @@ async function collectMeituanTrafficDomRows(page) {
       rows.push({
         _capture_source: 'dom:traffic:flow_funnel',
         _source_path: 'dom.traffic.flow_funnel',
+        compare_type: 'self',
+        is_self: true,
         _dom_text: fullText.slice(0, 1600),
         ...withDate,
         listExposure: normalizeNumber(flowFunnel[1]),
@@ -1240,6 +1256,8 @@ async function collectMeituanTrafficDomRows(page) {
         rows.push({
           _capture_source: 'dom:traffic:home_summary',
           _source_path: 'dom.traffic.home_summary',
+          compare_type: 'self',
+          is_self: true,
           _dom_text: fullText.slice(0, 1200),
           ...withDate,
           listExposure: exposure,
@@ -1359,6 +1377,15 @@ async function collectMeituanOrderDomAggregate(page, target) {
     || !Number.isInteger(queryEpoch)
     || queryEpoch <= 0
   ) {
+    return;
+  }
+  if (target.orders.some(row => (
+    row?._capture_source === 'xhr:orders:daily_summary'
+    && String(row?.dataDate || row?.data_date || '') === targetDate
+    && Number.isFinite(Number(row?.amount))
+    && Number.isInteger(Number(row?.quantity))
+    && Number.isInteger(Number(row?.book_order_num))
+  ))) {
     return;
   }
 

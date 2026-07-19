@@ -17,6 +17,7 @@
             const stores = Array.isArray(c.competitorStores) ? c.competitorStores : [];
             const users = typeof c.competitorDeviceEligibleUsers === 'function' ? c.competitorDeviceEligibleUsers() : [];
             const activeCount = devices.filter(item => Number(item.status) === 1).length;
+            const pagination = c.competitorDevicePagination || { total: devices.length, page: 1, total_page: 1 };
 
             const actionButton = (label, onClick, className, disabled = false) => h('button', {
                 type: 'button',
@@ -34,7 +35,14 @@
                 actionButton('重新加载', c.loadCompetitorDeviceWorkbench, 'mt-2 underline'),
             ]) : null;
 
-            const listState = c.competitorDevicesLoading && !devices.length
+            const refreshingState = c.competitorDevicesLoading && devices.length ? h('div', {
+                class: 'mb-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700',
+                'data-testid': 'competitor-device-refreshing',
+            }, '正在刷新，当前显示上次成功结果。') : null;
+
+            const listState = c.competitorDevicesError && !devices.length && !c.competitorDevicesLoading
+                ? null
+                : (c.competitorDevicesLoading && !devices.length
                 ? h('div', {
                     class: 'py-10 text-center text-sm text-gray-500',
                     'data-testid': 'competitor-device-loading',
@@ -58,6 +66,7 @@
                                 const enabled = Number(item.status) === 1;
                                 const online = enabled && item.is_online === true;
                                 const busy = Number(c.competitorDeviceActionId) === Number(item.id);
+                                const canEnable = enabled || (Boolean(String(item.token_hint || '').trim()) && !item.revoked_at);
                                 return h('tr', { key: item.id }, [
                                     h('td', { class: 'px-3 py-3 align-top' }, [
                                         h('div', { class: 'font-medium text-gray-800' }, item.name || item.device_id),
@@ -77,12 +86,24 @@
                                     }, c.competitorDeviceLastSeenText(item))]),
                                     h('td', { class: 'whitespace-nowrap px-3 py-3 text-right align-top' }, [
                                         actionButton('轮换 Token', () => c.rotateCompetitorDeviceToken(item), 'rounded px-2 py-1 text-xs text-blue-700 hover:bg-blue-50 disabled:opacity-50', busy),
-                                        actionButton(enabled ? '停用' : '启用', () => c.updateCompetitorDeviceStatus(item), `ml-1 rounded px-2 py-1 text-xs disabled:opacity-50 ${enabled ? 'text-red-700 hover:bg-red-50' : 'text-emerald-700 hover:bg-emerald-50'}`, busy),
+                                        actionButton('重新绑定', () => c.openCompetitorDeviceModal(item), 'ml-1 rounded px-2 py-1 text-xs text-indigo-700 hover:bg-indigo-50 disabled:opacity-50', busy),
+                                        actionButton(enabled ? '停用' : (canEnable ? '启用' : '待轮换后启用'), () => c.updateCompetitorDeviceStatus(item), `ml-1 rounded px-2 py-1 text-xs disabled:opacity-50 ${enabled ? 'text-red-700 hover:bg-red-50' : 'text-emerald-700 hover:bg-emerald-50'}`, busy || (!enabled && !canEnable)),
                                     ]),
                                 ]);
                             })),
                         ]),
-                    ]));
+                    ])));
+
+            const paginationState = devices.length && Number(pagination.total_page || 1) > 1 ? h('div', {
+                class: 'mt-4 flex items-center justify-between border-t pt-3 text-xs text-gray-500',
+                'data-testid': 'competitor-device-pagination',
+            }, [
+                h('span', null, `第 ${pagination.page} / ${pagination.total_page} 页 · 共 ${pagination.total} 条`),
+                h('div', { class: 'flex gap-2' }, [
+                    actionButton('上一页', () => c.changeCompetitorDevicePage(Number(pagination.page) - 1), 'rounded border px-2 py-1 disabled:opacity-50', c.competitorDevicesLoading || Number(pagination.page) <= 1),
+                    actionButton('下一页', () => c.changeCompetitorDevicePage(Number(pagination.page) + 1), 'rounded border px-2 py-1 disabled:opacity-50', c.competitorDevicesLoading || Number(pagination.page) >= Number(pagination.total_page)),
+                ]),
+            ]) : null;
 
             const panel = h('section', {
                 class: 'mt-6 rounded-lg bg-white shadow',
@@ -92,7 +113,7 @@
                     h('div', null, [
                         h('div', { class: 'flex items-center gap-2' }, [
                             h('h3', { class: 'font-medium' }, '竞对采集设备'),
-                            h('span', { class: 'rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600' }, `有效绑定 ${activeCount} 条`),
+                            h('span', { class: 'rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600' }, `本页有效 ${activeCount} 条 · 共 ${pagination.total} 条`),
                         ]),
                         h('p', { class: 'mt-1 text-sm text-gray-500' }, '只有成功握手后才视为采集可用。'),
                     ]),
@@ -101,7 +122,7 @@
                         actionButton('新建设备绑定', c.openCompetitorDeviceModal, 'rounded-lg bg-blue-600 px-3 py-2 text-sm text-white'),
                     ]),
                 ]),
-                h('div', { class: 'p-4' }, [errorState, listState]),
+                h('div', { class: 'p-4' }, [errorState, refreshingState, listState, paginationState]),
             ]);
 
             const createModal = c.showCompetitorDeviceModal ? h('div', {
@@ -116,7 +137,7 @@
             }, [
                 h('div', { class: 'flex items-center justify-between border-b p-5' }, [
                     h('div', null, [
-                        h('h3', { class: 'font-semibold text-gray-800' }, '新建竞对采集设备绑定'),
+                        h('h3', { class: 'font-semibold text-gray-800' }, c.competitorDeviceEditingId ? '重新绑定竞对采集设备' : '新建竞对采集设备绑定'),
                         h('p', { class: 'mt-1 text-xs text-gray-500' }, 'Token 只显示一次，请立即复制。'),
                     ]),
                     actionButton('关闭', c.closeCompetitorDeviceModal, 'text-sm text-gray-500'),
@@ -124,6 +145,7 @@
                 h('div', { class: 'grid grid-cols-1 gap-4 p-5 md:grid-cols-2' }, [
                     h('label', { class: 'text-sm text-gray-700' }, ['设备标识', h('input', {
                         value: c.competitorDeviceForm.device_id,
+                        disabled: Boolean(c.competitorDeviceEditingId),
                         required: true,
                         minLength: 3,
                         maxLength: 120,
@@ -148,7 +170,7 @@
                         value: c.competitorDeviceForm.store_id,
                         required: true,
                         class: 'mt-1 w-full rounded-lg border px-3 py-2',
-                        onChange: event => { c.competitorDeviceForm.store_id = event.target.value; },
+                        onChange: event => { c.setCompetitorDeviceStoreId(event.target.value); },
                     }, [h('option', { value: '', disabled: true }, '请选择门店'), ...stores.map(item => h('option', { value: item.id, key: item.id }, item.name))])]),
                     h('label', { class: 'text-sm text-gray-700 md:col-span-2' }, ['绑定员工', h('select', {
                         value: c.competitorDeviceForm.user_id,
@@ -159,7 +181,7 @@
                 ]),
                 h('div', { class: 'flex justify-end gap-2 border-t p-5' }, [
                     actionButton('取消', c.closeCompetitorDeviceModal, 'rounded-lg border px-4 py-2 disabled:opacity-50', c.competitorDeviceSaving),
-                    h('button', { type: 'submit', disabled: c.competitorDeviceSaving, class: 'rounded-lg bg-blue-600 px-4 py-2 text-white disabled:opacity-50' }, c.competitorDeviceSaving ? '正在创建' : '创建并生成 Token'),
+                    h('button', { type: 'submit', disabled: c.competitorDeviceSaving, class: 'rounded-lg bg-blue-600 px-4 py-2 text-white disabled:opacity-50' }, c.competitorDeviceSaving ? '正在保存' : (c.competitorDeviceEditingId ? '重新绑定并生成 Token' : '创建并生成 Token')),
                 ]),
             ])]) : null;
 
@@ -175,6 +197,7 @@
                 h('div', { class: 'space-y-4 p-5' }, [
                     h('div', { class: 'rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800' }, '任务领取使用 X-Task-Token，结果上报使用 X-Report-Token，填写同一个值。'),
                     h('div', { class: 'text-xs text-gray-500' }, `设备 ${credential.device_id} · Token 版本 ${credential.token_version}`),
+                    h('div', { class: 'text-xs text-gray-600' }, `平台 ${c.competitorDevicePlatformLabel(credential.platform)} · 门店 ${c.getCompetitorStoreName(credential.store_id)} · 员工 ${c.competitorDeviceUserLabel(credential.user_id)} · ${Number(credential.status) === 1 ? '已启用' : '待启用'}`),
                     h('div', { class: 'flex gap-2' }, [
                         h('input', {
                             value: credential.device_token,
@@ -183,7 +206,7 @@
                             'data-testid': 'competitor-device-one-time-token',
                             onFocus: event => event.target.select(),
                         }),
-                        actionButton('复制', c.copyCompetitorDeviceToken, 'rounded-lg bg-blue-600 px-4 py-2 text-white'),
+                        actionButton(c.competitorDeviceTokenCopied ? '已复制' : '复制', c.copyCompetitorDeviceToken, 'rounded-lg bg-blue-600 px-4 py-2 text-white'),
                     ]),
                 ]),
                 h('div', { class: 'flex justify-end border-t p-5' }, [actionButton('我已保存，关闭', c.clearCompetitorDeviceCredential, 'rounded-lg bg-gray-800 px-4 py-2 text-white')]),

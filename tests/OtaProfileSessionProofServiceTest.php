@@ -466,6 +466,45 @@ final class OtaProfileSessionProofServiceTest extends TestCase
         self::assertSame('login_required', $config['current_session_status']);
     }
 
+    public function testCollectionFailureDoesNotDemoteVerifiedLoginAndMatchedIdentity(): void
+    {
+        $sourceId = $this->insertBoundSource(10, 1, 'meituan', 'store-10');
+        $proofService = $this->service('2026-07-11 07:30:00');
+        $syncService = new PlatformDataSyncService(null, null, $proofService);
+        $method = new \ReflectionMethod($syncService, 'recordBrowserProfileCollectionPreflight');
+        $method->setAccessible(true);
+        $source = Db::name('platform_data_sources')->where('id', $sourceId)->find();
+        self::assertIsArray($source);
+        $source['config'] = json_decode((string)$source['config_json'], true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertTrue($method->invoke($syncService, $source, [
+            'status' => 'failed',
+            'payload' => [
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'platform_identity_validation' => [
+                    'status' => 'matched',
+                    'validated_identifier' => 'store-10',
+                ],
+            ],
+        ]));
+
+        $config = json_decode((string)Db::name('platform_data_sources')->where('id', $sourceId)->value('config_json'), true, 512, JSON_THROW_ON_ERROR);
+        self::assertTrue($config['current_session_verified']);
+        self::assertSame('verified', $config['current_session_status']);
+
+        $source['config'] = $config;
+        self::assertFalse($method->invoke($syncService, $source, [
+            'status' => 'failed',
+            'payload' => [
+                'auth_status' => ['ok' => true, 'status' => 'logged_in'],
+                'platform_identity_validation' => ['status' => 'unverified'],
+            ],
+        ]));
+        $preserved = json_decode((string)Db::name('platform_data_sources')->where('id', $sourceId)->value('config_json'), true, 512, JSON_THROW_ON_ERROR);
+        self::assertTrue($preserved['current_session_verified']);
+        self::assertSame('matched', $preserved['current_session_probe_identity_status']);
+    }
+
     public function testCollectionPreflightPersistsExactProbeBlockersAndStopsBackgroundReuse(): void
     {
         $sourceId = $this->insertBoundSource(10, 1, 'ctrip', 'profile-10');

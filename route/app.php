@@ -225,6 +225,7 @@ Route::group('api/online-data', function () {
     Route::get('/ctrip/competitive-operations', 'OnlineData/ctripCompetitiveOperations');
     Route::get('/ctrip/public-profiles', 'OnlineData/ctripPublicProfiles');
     Route::get('/public-page-diagnosis', 'OnlineData/otaPublicPageDiagnosis');
+    Route::post('/public-page-evidence', 'OnlineData/saveOtaPublicPageEvidence');
     Route::post('/public-page-diagnosis/execution-intent', 'OnlineData/createOtaPublicPageDiagnosisExecutionIntent');
     Route::post('/ctrip/public-profiles/add', 'OnlineData/addCtripPublicProfile');
     Route::post('/ctrip/public-profiles/sync', 'OnlineData/syncCtripPublicProfiles');
@@ -556,6 +557,7 @@ Route::group('api/admin/competitor-price-logs', function () {
 Route::group('api/admin/competitor-devices', function () {
     Route::get('/', 'admin.CompetitorDeviceController/index');
     Route::post('/', 'admin.CompetitorDeviceController/create');
+    Route::put('/:id/rebind', 'admin.CompetitorDeviceController/rebind');
     Route::post('/:id/rotate-token', 'admin.CompetitorDeviceController/rotateToken');
     Route::put('/:id/status', 'admin.CompetitorDeviceController/updateStatus');
 })->middleware(\app\middleware\Auth::class);
@@ -651,6 +653,7 @@ Route::group('api/agent', function () {
     // 概览
     Route::get('/overview', 'Agent/overview');
     Route::post('/test-llm', 'Agent/testLlm');
+    Route::get('/ota-diagnosis', 'Agent/latestOtaDiagnosis');
     Route::post('/ota-diagnosis', 'Agent/otaDiagnosis');
     Route::post('/ota-diagnoses/:id/actions/:actionIndex/execution-intent', 'Agent/createOtaDiagnosisExecutionIntent');
     Route::post('/analyze-captured-ota-data', 'Agent/analyzeCapturedOtaData');

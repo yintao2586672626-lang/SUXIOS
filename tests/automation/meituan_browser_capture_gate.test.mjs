@@ -46,6 +46,17 @@ test('collector never promotes the configured Profile key into OTA source identi
   assert.doesNotMatch(source, /next\.store_id\s*=\s*storeId/);
 });
 
+test('Meituan own-hotel DOM traffic rows persist explicit self identity', () => {
+  const source = readFileSync('scripts/meituan_browser_capture.mjs', 'utf8');
+  const block = source.slice(
+    source.indexOf('async function collectMeituanTrafficDomRows'),
+    source.indexOf('async function collectDomFallback'),
+  );
+
+  assert.equal((block.match(/compare_type: 'self'/g) || []).length, 2);
+  assert.equal((block.match(/is_self: true/g) || []).length, 2);
+});
+
 test('capture normalizer applies traffic-card parsing only to traffic and date evidence to ads rows', () => {
   const source = readFileSync('scripts/meituan_browser_capture.mjs', 'utf8');
   const normalizeBlock = source.slice(source.indexOf('function normalizeCapturedList'), source.indexOf('function joinSourcePath'));
@@ -60,6 +71,7 @@ test('capture normalizer applies traffic-card parsing only to traffic and date e
   assert.match(source, /meituan_orders_purchase_date_query/);
   assert.match(source, /payload\.responses = payload\.responses\.filter/);
   assert.match(source, /requestQueryEvidence/);
+  assert.match(source, /request_data_date: requestDateEvidence\.date \|\| ''/);
   assert.match(source, /waitForPendingResponseCaptures/);
   assert.match(source, /inputValue\(\)/);
   assert.match(source, /collectMeituanOrderDomAggregate/);
@@ -153,6 +165,34 @@ test('accepts an authoritative successful zero-row response without discarding o
   assert.equal(gate.section_statuses.orders, 'empty_confirmed');
   assert.equal(gate.section_statuses.reviews, 'empty_confirmed');
   assert.equal(gate.section_statuses.traffic, 'captured');
+});
+
+test('target-date review emptiness requires matching request date evidence', () => {
+  const undated = evaluateMeituanCaptureGate({
+    auth_status: { ok: true },
+    responses: [{ section: 'reviews', status: 200, row_count: 0 }],
+    reviews: [],
+  }, ['reviews'], { targetDate: '2026-07-19' });
+
+  assert.equal(undated.status, 'fail');
+  assert.equal(undated.section_statuses.reviews, 'not_captured');
+  assert.equal(undated.failed_check_ids.includes('section_reviews_not_captured'), true);
+
+  const dated = evaluateMeituanCaptureGate({
+    auth_status: { ok: true },
+    responses: [{
+      section: 'reviews',
+      status: 200,
+      row_count: 0,
+      request_data_date: '2026-07-19',
+      request_date_source: 'request.query.startTime',
+      data: { code: 10000, data: {} },
+    }],
+    reviews: [],
+  }, ['reviews'], { targetDate: '2026-07-19' });
+
+  assert.equal(dated.status, 'pass');
+  assert.equal(dated.section_statuses.reviews, 'empty_confirmed');
 });
 
 test('accepts Meituan code 10000 all-zero order summary only with target-date query evidence', () => {

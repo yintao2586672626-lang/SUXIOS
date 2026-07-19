@@ -130,7 +130,15 @@ class RevenueAi extends Base
                 'expected_delta' => (float)($input['expected_delta'] ?? $this->request->param('expected_delta', 0)),
                 'risk_level' => (string)($input['risk_level'] ?? $this->request->param('risk_level', 'medium')),
             ]);
-            $intent = $service->createExecutionIntent($hotelIds, $hotelId, $intentInput, (int)($this->currentUser->id ?? 0));
+            $intent = $service->createExecutionIntent(
+                $hotelIds,
+                $hotelId,
+                $intentInput,
+                (int)($this->currentUser->id ?? 0),
+                false,
+                null,
+                true
+            );
             $payload = $this->priceSuggestionExecutionIntentPayload($suggestion->toArray(), $intent, false);
 
             $this->recordRevenueAiPriceLog(

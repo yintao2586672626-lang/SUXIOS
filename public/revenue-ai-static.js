@@ -2076,12 +2076,16 @@
             && /fallback|investigation-only|investigation item|review daily operating signal|调查项/i.test(text);
     };
 
+    const aiDailyReportActionExecutionReady = (action) => action?.can_create_execution_intent === true
+        && action?.decision_quality?.contract_version === 'ai_recommendation_quality.v2'
+        && action?.decision_quality?.execution_ready === true;
+
     const aiDailyReportActionBlockedText = (action) => {
         if (!action) return '';
         if (aiDailyReportActionIsInvestigationOnly(action)) {
             return '调查项不可转执行单，仅用于查看证据和判断是否需要进一步分析。';
         }
-        if (action.can_create_execution_intent === false) {
+        if (!aiDailyReportActionExecutionReady(action) && !action.execution_intent_id) {
             return action.blocked_reason || action.action_readiness?.notice || action.action_readiness?.next_action || '该建议受数据缺口阻断，不能直接转执行单。';
         }
         if (action.execution_blocked_reason) return action.execution_blocked_reason;
@@ -2099,14 +2103,14 @@
         if (action?.execution_intent_id) {
             return action.execution_blocked_reason ? '已生成，待补齐' : '已生成执行单';
         }
-        if (action?.can_create_execution_intent === false) return action.blocked_reason || '不可转执行单';
+        if (!aiDailyReportActionExecutionReady(action)) return action.blocked_reason || '不可转执行单';
         return '可转执行单';
     };
 
     const aiDailyReportActionButtonText = (action) => {
         if (aiDailyReportActionIsInvestigationOnly(action)) return '查看证据';
         if (action?.execution_intent_id) return '已转单';
-        if (action?.can_create_execution_intent === false) return '处理缺口';
+        if (!aiDailyReportActionExecutionReady(action)) return '处理缺口';
         if (aiDailyReportActionBlockedText(action)) return '待处理';
         return '转单';
     };
@@ -2471,6 +2475,16 @@
         return Number.isFinite(number) ? number : null;
     };
 
+    const competitorMicroscopePrice = (value) => {
+        const number = competitorMicroscopeNumber(value);
+        return number !== null && number > 0 ? number : null;
+    };
+
+    const competitorMicroscopeCurrencyText = (value) => {
+        const price = competitorMicroscopePrice(value);
+        return price === null ? '—' : `¥${price.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    };
+
     const competitorMicroscopeAverage = (values) => {
         const valid = values.map(competitorMicroscopeNumber).filter(value => value !== null && value > 0);
         return valid.length ? Number((valid.reduce((sum, value) => sum + value, 0) / valid.length).toFixed(2)) : null;
@@ -2486,9 +2500,53 @@
         ).trim();
     };
 
+    const competitorMicroscopePlatformKey = (row = {}) => {
+        const metadata = competitorMicroscopeObject(row.competitor_data);
+        const raw = String(
+            row.ota_platform
+            ?? row.platform
+            ?? metadata.ota_platform
+            ?? metadata.platform_key
+            ?? metadata.platform
+            ?? ''
+        ).trim().toLowerCase();
+        const aliases = {
+            '1': 'ctrip',
+            ctrip: 'ctrip',
+            trip: 'ctrip',
+            'trip.com': 'ctrip',
+            ebooking: 'ctrip',
+            '携程': 'ctrip',
+            '2': 'meituan',
+            meituan: 'meituan',
+            'meituan hotel': 'meituan',
+            '美团': 'meituan',
+            '3': 'fliggy',
+            fliggy: 'fliggy',
+            '飞猪': 'fliggy',
+        };
+        return aliases[raw] || (raw ? raw.replace(/[^a-z0-9_-]+/g, '_') : 'unknown');
+    };
+
+    const competitorMicroscopePlatformLabel = (platformKey) => ({
+        ctrip: '携程',
+        meituan: '美团',
+        fliggy: '飞猪',
+        unknown: '平台未返回',
+    }[platformKey] || platformKey || '平台未返回');
+
+    const competitorMicroscopeMetadataText = (metadata, keys) => {
+        for (const key of keys) {
+            const value = metadata?.[key];
+            if (value !== null && value !== undefined && String(value).trim() !== '') return String(value).trim();
+        }
+        return '';
+    };
+
     const competitorMicroscopeKey = (row = {}) => {
         const id = Number(row.competitor_hotel_id || 0);
-        return id > 0 ? `id:${id}` : `name:${competitorMicroscopeName(row).toLowerCase()}`;
+        const competitorKey = id > 0 ? `id:${id}` : `name:${competitorMicroscopeName(row).toLowerCase()}`;
+        return `${competitorKey}|platform:${competitorMicroscopePlatformKey(row)}`;
     };
 
     const competitorMicroscopeSourceStatus = (row = {}) => {
@@ -2496,10 +2554,15 @@
         const evidenceStatus = String(metadata.evidence_status || row.evidence_status || '').toLowerCase();
         const sourceMethod = String(metadata.source_method || row.source_method || '').toLowerCase();
         const validationStatus = String(metadata.validation_status || row.validation_status || '').toLowerCase();
+        const sourceRef = String(metadata.source_ref || row.source_ref || '').trim();
+        const capturedAt = String(metadata.captured_at || metadata.collected_at || row.captured_at || row.update_time || '').trim();
         const readback = metadata.readback_verified ?? row.readback_verified;
         const readbackVerified = readback === true || readback === 1 || ['1', 'true', 'verified'].includes(String(readback).toLowerCase());
         const operatorProvided = evidenceStatus === 'operator_provided' || /(?:^|[_\-\s])manual(?:$|[_\-\s])/.test(sourceMethod);
         const verified = !operatorProvided
+            && sourceMethod !== ''
+            && sourceRef !== ''
+            && capturedAt !== ''
             && readbackVerified
             && ['verified', 'available', 'normal', 'ok', 'valid'].includes(validationStatus);
         if (verified) return 'verified';
@@ -2508,18 +2571,36 @@
     };
 
     const competitorMicroscopeRow = (row = {}, roomTypeName = '') => {
-        const ourPrice = competitorMicroscopeNumber(row.our_price);
-        const competitorPrice = competitorMicroscopeNumber(row.competitor_price);
+        const metadata = competitorMicroscopeObject(row.competitor_data);
+        const ourPrice = competitorMicroscopePrice(row.our_price);
+        const competitorPrice = competitorMicroscopePrice(row.competitor_price);
         const gap = ourPrice !== null && competitorPrice !== null ? Number((ourPrice - competitorPrice).toFixed(2)) : null;
         const explicitGapPercent = competitorMicroscopeNumber(row.diff_percent ?? row.price_gap_percent);
-        const gapPercent = explicitGapPercent !== null
+        const gapPercent = gap === null
+            ? null
+            : (explicitGapPercent !== null
             ? explicitGapPercent
-            : (gap !== null && competitorPrice > 0 ? Number((gap / competitorPrice * 100).toFixed(2)) : null);
+            : (competitorPrice > 0 ? Number((gap / competitorPrice * 100).toFixed(2)) : null));
+        const platformKey = competitorMicroscopePlatformKey(row);
+        const resolvedRoomTypeName = String(row.room_type_name || row.room_type?.name || roomTypeName || '未知房型');
+        const roomTypeId = Number(row.room_type_id || 0);
+        const roomKey = roomTypeId > 0 ? `room:${roomTypeId}` : `room-name:${resolvedRoomTypeName.toLowerCase()}`;
+        const breakfast = competitorMicroscopeMetadataText(metadata, ['breakfast', 'breakfast_policy', 'meal_plan']);
+        const cancellationPolicy = competitorMicroscopeMetadataText(metadata, ['cancellation_policy', 'cancel_policy']);
+        const ratePlan = competitorMicroscopeMetadataText(metadata, ['rate_plan_key', 'rate_plan', 'package_name']);
+        const comparisonBasisComplete = breakfast !== '' && cancellationPolicy !== '';
+        const comparisonKey = [platformKey, roomKey, breakfast || 'unknown-breakfast', cancellationPolicy || 'unknown-cancel', ratePlan || 'unknown-rate-plan'].join('|');
         return {
             ...row,
             competitor_key: competitorMicroscopeKey(row),
             competitor_name: competitorMicroscopeName(row),
-            room_type_name: String(row.room_type_name || row.room_type?.name || roomTypeName || '未知房型'),
+            platform_key: platformKey,
+            platform_label: competitorMicroscopePlatformLabel(platformKey),
+            room_type_name: resolvedRoomTypeName,
+            room_key: roomKey,
+            comparison_key: comparisonKey,
+            comparison_basis_complete: comparisonBasisComplete,
+            comparison_basis_text: comparisonBasisComplete ? '房型、早餐与取消口径已记录' : '仅房型口径，早餐或取消政策待核',
             our_price: ourPrice,
             competitor_price: competitorPrice,
             price_gap: gap,
@@ -2528,13 +2609,382 @@
         };
     };
 
+    const competitorMicroscopeComparableAverage = (rows, field) => {
+        const groups = new Map();
+        rows.forEach(row => {
+            const value = competitorMicroscopePrice(row?.[field]);
+            if (value === null) return;
+            const key = String(row?.comparison_key || row?.room_key || 'unknown');
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(value);
+        });
+        return competitorMicroscopeAverage(Array.from(groups.values()).map(values => competitorMicroscopeAverage(values)));
+    };
+
+    const competitorMicroscopeMeituanRankDefinitions = [
+        { key: 'P_RZ', label: '入住榜', metrics: ['roomNights', 'roomRevenue'] },
+        { key: 'P_XS', label: '销售榜', metrics: ['salesRoomNights', 'sales'] },
+        { key: 'P_LL', label: '流量榜', metrics: ['exposure', 'views'] },
+        { key: 'P_ZH', label: '转化榜', metrics: ['viewConversion', 'payConversion'] },
+    ];
+
+    const competitorMicroscopeMeituanRankRangeKey = (value) => {
+        const range = String(value ?? '').trim().toLowerCase();
+        return ({ yesterday: '1', realtime: '0' })[range] ?? range;
+    };
+
+    const competitorMicroscopeMeituanRankRangePriority = (value) => {
+        const range = competitorMicroscopeMeituanRankRangeKey(value);
+        return ({ '1': 0, '0': 1, '': 2, '7': 3, '30': 4 })[range] ?? 5;
+    };
+
+    const competitorMicroscopeMeituanRankEntry = (row, definition, preferredRange = null, preferredMetric = null) => {
+        const entries = Array.isArray(row?.rankHistory) ? row.rankHistory : [];
+        const preferred = preferredRange === null ? null : competitorMicroscopeMeituanRankRangeKey(preferredRange);
+        const metric = preferredMetric === null ? null : String(preferredMetric).trim();
+        const candidates = entries.filter(entry => (
+            String(entry?.rankType || '').trim().toUpperCase() === definition.key
+            && (metric === null || String(entry?.metric || '').trim() === metric)
+        ));
+        return (preferred === null
+            ? candidates
+            : candidates.filter(entry => competitorMicroscopeMeituanRankRangeKey(entry?.dateRange) === preferred))
+            .slice()
+            .sort((left, right) => {
+                const leftRange = competitorMicroscopeMeituanRankRangeKey(left?.dateRange);
+                const rightRange = competitorMicroscopeMeituanRankRangeKey(right?.dateRange);
+                const rangeCompare = competitorMicroscopeMeituanRankRangePriority(leftRange)
+                    - competitorMicroscopeMeituanRankRangePriority(rightRange);
+                if (rangeCompare !== 0) return rangeCompare;
+                const leftMetric = definition.metrics.indexOf(String(left?.metric || ''));
+                const rightMetric = definition.metrics.indexOf(String(right?.metric || ''));
+                return (leftMetric < 0 ? 99 : leftMetric) - (rightMetric < 0 ? 99 : rightMetric);
+            })[0] || null;
+    };
+
+    const competitorMicroscopeMeituanRank = (entry) => {
+        const rank = competitorMicroscopeNumber(entry?.rank);
+        return rank !== null && rank > 0 ? Math.round(rank) : null;
+    };
+
+    const competitorMicroscopeMeituanMetricText = (entry) => {
+        const value = competitorMicroscopeNumber(entry?.value);
+        if (value === null || value < 0) return '数值未返回';
+        const metric = String(entry?.metric || '');
+        if (['viewConversion', 'payConversion'].includes(metric)) {
+            const ratio = Math.abs(value) > 1 ? value / 100 : value;
+            return `${Number((ratio * 100).toFixed(2))}%`;
+        }
+        if (['roomRevenue', 'sales'].includes(metric)) return `¥${value.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
+        return value.toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+    };
+
+    const competitorMicroscopeDateOffset = (date, offsetDays) => {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) return '';
+        const [year, month, day] = String(date).split('-').map(Number);
+        return new Date(Date.UTC(year, month - 1, day) + offsetDays * 86400000).toISOString().slice(0, 10);
+    };
+
+    const normalizeMeituanCompetitionCircle = (payload = {}, expectedHotelId = '', expectedDate = '', requestedRange = 'yesterday') => {
+        let circle = {
+            ...competitorMicroscopeObject(payload),
+            requested_rank_range: competitorMicroscopeMeituanRankRangeKey(requestedRange),
+        };
+        const dataStatus = String(circle.data_status || circle.status || 'missing').trim().toLowerCase();
+        const usableStatuses = ['success', 'ready', 'available', 'partial', 'unverified'];
+        const missingStatuses = ['missing', 'empty', 'not_found'];
+        if (missingStatuses.includes(dataStatus)) {
+            const responseHotelId = String(circle.system_hotel_id ?? circle.hotel_id ?? '').trim();
+            const responseDate = String(circle.target_date || circle.query_scope?.date || '').trim();
+            if (responseHotelId !== String(expectedHotelId).trim() || responseDate !== String(expectedDate).trim()) {
+                circle = { ...circle, data_status: 'scope_mismatch', message: '美团竞争圈空结果与当前酒店或日期不一致' };
+                return { payload: circle, accepted: false, status: 'scope_mismatch', errorMessage: circle.message };
+            }
+            return { payload: circle, accepted: true, status: 'missing', errorMessage: '' };
+        }
+        if (usableStatuses.includes(dataStatus)) {
+            const responseHotelId = String(circle.system_hotel_id ?? circle.hotel_id ?? '').trim();
+            const responseDate = String(circle.latest_data_date || '').trim();
+            if (responseHotelId !== String(expectedHotelId).trim() || responseDate !== String(expectedDate).trim()) {
+                circle = {
+                    ...circle,
+                    data_status: 'scope_mismatch',
+                    display_hotels: [],
+                    comparison: null,
+                    message: '美团竞争圈响应与当前酒店或日期不一致',
+                };
+                return { payload: circle, accepted: false, status: 'scope_mismatch', errorMessage: circle.message };
+            }
+            if (circle.comparison) {
+                const previousDate = competitorMicroscopeDateOffset(expectedDate, -1);
+                const comparisonHotelId = String(circle.comparison.system_hotel_id ?? '').trim();
+                if (
+                    comparisonHotelId !== String(expectedHotelId).trim()
+                    || String(circle.comparison.data_date || '').trim() !== previousDate
+                ) {
+                    circle = { ...circle, comparison: null, comparison_scope_mismatch: true };
+                }
+            }
+            return { payload: circle, accepted: true, status: dataStatus, errorMessage: '' };
+        }
+        const errorMessage = String(circle.message || ({
+            stale: '美团竞争圈数据已过期',
+            permission_denied: '无权读取美团竞争圈',
+            collection_failed: '美团竞争圈采集失败',
+            failed: '美团竞争圈读取失败',
+            error: '美团竞争圈读取失败',
+        }[dataStatus] || `美团竞争圈状态不可用：${dataStatus}`));
+        return { payload: circle, accepted: false, status: dataStatus, errorMessage };
+    };
+
+    const competitorMicroscopeMeituanHotelKey = (row = {}) => {
+        const poiId = String(row?.poiId ?? row?.poi_id ?? '').trim();
+        if (poiId !== '') return `poi:${poiId.replace(/\|/g, '_')}|platform:meituan`;
+        const name = String(row?.hotelName ?? row?.hotel_name ?? '未知竞对').trim().toLowerCase();
+        return `name:${name}|platform:meituan`;
+    };
+
+    const competitorMicroscopeMeituanFindHotel = (rows, target = {}) => {
+        const poiId = String(target?.poiId ?? target?.poi_id ?? '').trim();
+        if (poiId !== '') {
+            const byPoi = rows.find(row => String(row?.poiId ?? row?.poi_id ?? '').trim() === poiId);
+            if (byPoi) return byPoi;
+        }
+        return null;
+    };
+
+    const competitorMicroscopeMeituanContext = (analysis = {}) => {
+        const hasPayload = Object.prototype.hasOwnProperty.call(analysis || {}, 'meituan_competition_circle');
+        const circle = competitorMicroscopeObject(analysis?.meituan_competition_circle);
+        const dataStatus = String(circle.data_status || circle.status || (hasPayload ? 'missing' : 'not_loaded')).trim().toLowerCase();
+        const expectedHotelId = String(analysis?.query_scope?.hotel_id || '').trim();
+        const expectedDate = String(analysis?.query_scope?.date || analysis?.date || '').trim();
+        const responseHotelId = String(circle.system_hotel_id ?? circle.hotel_id ?? '').trim();
+        const responseDate = String(circle.latest_data_date || '').trim();
+        const usable = ['success', 'ready', 'available', 'partial', 'unverified'].includes(dataStatus);
+        const scopeMismatch = usable && (
+            (expectedHotelId !== '' && responseHotelId !== expectedHotelId)
+            || (expectedDate !== '' && responseDate !== expectedDate)
+        );
+        const rows = !scopeMismatch && usable && Array.isArray(circle.display_hotels) ? circle.display_hotels : [];
+        const requestedRange = competitorMicroscopeMeituanRankRangeKey(circle.requested_rank_range ?? '1');
+        const targetPoiId = String(circle.target_poi_id || '').trim();
+        const selfRow = rows.find(row => row?.isSelf === true)
+            || (targetPoiId !== '' ? rows.find(row => String(row?.poiId ?? row?.poi_id ?? '').trim() === targetPoiId) : null)
+            || null;
+        const competitors = rows.filter(row => row && row !== selfRow && row.isSelf !== true);
+        let status = 'not_loaded';
+        let label = '未查询';
+        let message = '尚未读取目标日美团竞争圈';
+        if (scopeMismatch || dataStatus === 'scope_mismatch') {
+            status = 'scope_mismatch';
+            label = '范围不匹配';
+            message = '美团竞争圈响应与当前酒店或日期不一致，已拒绝使用';
+        } else if (dataStatus === 'permission_denied') {
+            status = 'permission_denied';
+            label = '权限不足';
+            message = String(circle.message || '无权读取美团竞争圈');
+        } else if (dataStatus === 'collection_failed') {
+            status = 'collection_failed';
+            label = '采集失败';
+            message = String(circle.message || '美团竞争圈采集失败');
+        } else if (dataStatus === 'stale') {
+            status = 'stale';
+            label = '数据过期';
+            message = String(circle.message || '美团竞争圈数据已过期，未用于当前判断');
+        } else if (['error', 'failed'].includes(dataStatus)) {
+            status = 'error';
+            label = '读取失败';
+            message = String(circle.message || '美团竞争圈读取失败');
+        } else if (['missing', 'empty', 'not_found'].includes(dataStatus) || (usable && competitors.length === 0)) {
+            status = 'missing';
+            label = '目标日无数据';
+            message = String(circle.message || '目标日未找到美团竞争圈竞对行');
+        } else if (dataStatus === 'partial') {
+            status = 'partial';
+            label = '部分可用';
+            message = String(circle.message || circle?.readiness?.detail || '美团竞争圈仅部分可用');
+        } else if (dataStatus === 'unverified') {
+            status = 'unverified';
+            label = '来源未核验';
+            message = String(circle.message || '美团竞争圈来源未核验');
+        } else if (usable) {
+            const readiness = String(circle?.readiness?.status || '').trim().toLowerCase();
+            status = readiness === 'ok' ? 'ready' : 'partial';
+            label = readiness === 'ok' ? '已入库' : '部分可用';
+            message = String(circle?.readiness?.detail || circle.source_notice || '已读取目标日美团竞争圈入库记录');
+        } else if (dataStatus !== 'not_loaded') {
+            status = dataStatus;
+            label = '状态不可用';
+            message = String(circle.message || `美团竞争圈状态不可用：${dataStatus}`);
+        }
+        const options = competitors.map(row => {
+            const rankEntries = competitorMicroscopeMeituanRankDefinitions
+                .map(definition => competitorMicroscopeMeituanRankEntry(row, definition, requestedRange))
+                .filter(Boolean);
+            const ranks = rankEntries.map(competitorMicroscopeMeituanRank).filter(rank => rank !== null);
+            return {
+                key: competitorMicroscopeMeituanHotelKey(row),
+                competitorId: 0,
+                poiId: String(row?.poiId ?? row?.poi_id ?? '').trim(),
+                name: String(row?.hotelName ?? row?.hotel_name ?? '未知竞对').trim(),
+                platformKey: 'meituan',
+                platformLabel: '美团',
+                sampleCount: ranks.length,
+                roomTypeCount: 0,
+                maxAbsGapPercent: null,
+                sourceStatus: 'stored_unverified',
+                kind: 'meituan_competition_circle',
+                optionSummary: `四榜 ${ranks.length}/4`,
+                bestRank: ranks.length ? Math.min(...ranks) : null,
+            };
+        }).sort((left, right) => (
+            Number(left.bestRank ?? 999) - Number(right.bestRank ?? 999)
+            || right.sampleCount - left.sampleCount
+            || left.name.localeCompare(right.name, 'zh-CN')
+        ));
+        return { circle, status, label, message, options, rows, selfRow, responseDate, requestedRange };
+    };
+
+    const competitorMicroscopeMeituanDetail = (analysis, option, context) => {
+        const circle = context.circle;
+        const competitorRow = context.rows.find(row => competitorMicroscopeMeituanHotelKey(row) === option.key) || null;
+        const expectedDate = String(analysis?.query_scope?.date || analysis?.date || '').trim();
+        const expectedHotelId = String(analysis?.query_scope?.hotel_id ?? '').trim();
+        const comparisonDate = String(circle?.comparison?.data_date || '').trim();
+        const comparisonHotelId = String(circle?.comparison?.system_hotel_id ?? '').trim();
+        const comparisonScopeMismatch = circle.comparison_scope_mismatch === true
+            || (circle.comparison && (
+                comparisonHotelId !== expectedHotelId
+                || comparisonDate !== competitorMicroscopeDateOffset(expectedDate, -1)
+            ));
+        const comparisonRows = !comparisonScopeMismatch && Array.isArray(circle?.comparison?.display_hotels)
+            ? circle.comparison.display_hotels
+            : [];
+        const previousCompetitor = competitorMicroscopeMeituanFindHotel(comparisonRows, competitorRow || {});
+        const previousSelf = context.selfRow ? competitorMicroscopeMeituanFindHotel(comparisonRows, context.selfRow) : null;
+        const rows = competitorMicroscopeMeituanRankDefinitions.map(definition => {
+            const competitorEntry = competitorMicroscopeMeituanRankEntry(competitorRow, definition, context.requestedRange);
+            const range = context.requestedRange;
+            const metric = competitorEntry === null ? null : String(competitorEntry.metric || '').trim();
+            const selfEntry = competitorEntry === null ? null : competitorMicroscopeMeituanRankEntry(context.selfRow, definition, range, metric);
+            const previousCompetitorEntry = competitorEntry === null ? null : competitorMicroscopeMeituanRankEntry(previousCompetitor, definition, range, metric);
+            const previousSelfEntry = competitorEntry === null ? null : competitorMicroscopeMeituanRankEntry(previousSelf, definition, range, metric);
+            const ourRank = competitorMicroscopeMeituanRank(selfEntry);
+            const competitorRank = competitorMicroscopeMeituanRank(competitorEntry);
+            const previousCompetitorRank = competitorMicroscopeMeituanRank(previousCompetitorEntry);
+            const gap = ourRank !== null && competitorRank !== null ? ourRank - competitorRank : null;
+            const rankChange = competitorRank !== null && previousCompetitorRank !== null
+                ? previousCompetitorRank - competitorRank
+                : null;
+            const gapText = gap === null
+                ? '差距未知'
+                : (gap > 0 ? `竞对领先${gap}名` : (gap < 0 ? `本店领先${Math.abs(gap)}名` : '名次持平'));
+            const trendText = rankChange === null
+                ? '前日未返回'
+                : (rankChange > 0 ? `较前日上升${rankChange}名` : (rankChange < 0 ? `较前日下降${Math.abs(rankChange)}名` : '较前日持平'));
+            const metricText = competitorMicroscopeMeituanMetricText(competitorEntry);
+            return {
+                id: `${option.key}|${definition.key}`,
+                room_type_name: definition.label,
+                rank_type: definition.key,
+                rank_range: range || '',
+                our_price: null,
+                competitor_price: null,
+                price_gap: gap,
+                price_gap_percent: null,
+                our_rank: ourRank,
+                competitor_rank: competitorRank,
+                previous_our_rank: competitorMicroscopeMeituanRank(previousSelfEntry),
+                previous_competitor_rank: previousCompetitorRank,
+                our_value_text: ourRank === null ? '未返回' : `第${ourRank}名`,
+                competitor_value_text: competitorRank === null ? '未返回' : `第${competitorRank}名`,
+                gap_text: gapText,
+                trend_text: trendText,
+                price_signal_readiness: {
+                    status_label: `${String(competitorEntry?.sourceLabel || '美团榜单入库')} · ${metricText}`,
+                },
+            };
+        });
+        const rankCoverage = rows.filter(row => row.competitor_rank !== null).length;
+        const dataGaps = ['same_product_price_not_returned', 'source_validation_status_not_returned'];
+        if (!context.selfRow) dataGaps.push('meituan_self_row_missing');
+        if (rankCoverage < 4) dataGaps.push('meituan_rank_types_incomplete');
+        if (competitorRow && Object.keys(competitorMicroscopeObject(competitorRow.metricDerived)).length > 0) {
+            dataGaps.push('meituan_derived_metrics_present');
+        }
+        if (comparisonScopeMismatch) dataGaps.push('meituan_comparison_scope_mismatch');
+        const dataGapLabelMap = {
+            same_product_price_not_returned: '美团竞争圈未返回同房型价格证据',
+            source_validation_status_not_returned: '入库记录未返回平台源核验状态',
+            meituan_self_row_missing: '竞争圈未命中本店 POI，无法计算本店名次差',
+            meituan_rank_types_incomplete: `目标日四榜仅覆盖 ${rankCoverage}/4`,
+            meituan_derived_metrics_present: '部分榜单数值由平台百分比推导',
+            meituan_comparison_scope_mismatch: '前日对比日期不匹配，已拒绝使用',
+        };
+        const trend = rows.map(row => ({
+            date: row.rank_type,
+            label: row.room_type_name,
+            ourPrice: null,
+            competitorPrice: null,
+            gap: row.price_gap,
+            gapPercent: null,
+            missing: row.competitor_rank === null,
+            comparisonText: `本店${row.our_value_text} / 竞对${row.competitor_value_text}`,
+            gapText: row.gap_text,
+        }));
+        return {
+            ...option,
+            kind: 'meituan_competition_circle',
+            avgOurPrice: null,
+            avgCompetitorPrice: null,
+            priceGap: null,
+            priceGapPercent: null,
+            trendChange: null,
+            trendChangeText: comparisonRows.length ? '含前日升降' : '前日未返回',
+            trend,
+            trendCoverageDays: rankCoverage,
+            trendTargetDays: 4,
+            trendTitle: '四榜排名对比',
+            trendEmptyText: '目标日四榜均未返回',
+            tableTitle: '美团竞争圈榜单证据',
+            ourColumnLabel: '本店排名',
+            competitorColumnLabel: '竞对排名',
+            gapColumnLabel: '名次差',
+            rows,
+            sourceStatus: 'stored_unverified',
+            sourceStatusText: '已入库，平台源核验状态未返回',
+            sourceStatusClass: 'border-amber-200 bg-amber-50 text-amber-700',
+            latestDataDate: String(circle.latest_data_date || ''),
+            hotelId: String(analysis?.query_scope?.hotel_id || ''),
+            displayDate: String(circle.latest_data_date || analysis?.query_scope?.date || analysis?.date || ''),
+            latestFetchedAt: String(circle.latest_fetched_at || ''),
+            dataGaps,
+            dataGapLabels: dataGaps.map(code => dataGapLabelMap[code] || code),
+            sameProductPriceNotice: '美团竞争圈用于酒店级排名、销售、流量和转化观察；未返回同房型、早餐、取消政策与价型价格，不能据此自动调价。',
+            metricScope: 'ota_channel',
+        };
+    };
+
     const buildCompetitorMicroscope = (analysis = {}, requestedKey = '') => {
         const matrix = competitorMicroscopeObject(analysis?.price_matrix);
+        const expectedHotelId = String(analysis?.query_scope?.hotel_id || '').trim();
+        const expectedScopeDate = String(analysis?.query_scope?.date || '').trim();
+        const responseDate = String(analysis?.date || analysis?.query_scope?.date || '').trim();
         const rows = [];
+        let priceScopeRejectedCount = 0;
         Object.entries(matrix).forEach(([roomTypeName, competitorRows]) => {
             const entries = competitorRows && typeof competitorRows === 'object' ? Object.values(competitorRows) : [];
             entries.forEach(row => {
-                if (row && typeof row === 'object') rows.push(competitorMicroscopeRow(row, roomTypeName));
+                if (!row || typeof row !== 'object') return;
+                const rowHotelId = String(row.hotel_id ?? row.system_hotel_id ?? '').trim();
+                const rowDate = String(row.analysis_date ?? row.date ?? '').trim();
+                if ((expectedHotelId && rowHotelId !== expectedHotelId)
+                    || (expectedScopeDate && rowDate !== expectedScopeDate)) {
+                    priceScopeRejectedCount += 1;
+                    return;
+                }
+                rows.push(competitorMicroscopeRow(row, roomTypeName));
             });
         });
 
@@ -2543,22 +2993,25 @@
             if (!grouped.has(row.competitor_key)) grouped.set(row.competitor_key, []);
             grouped.get(row.competitor_key).push(row);
         });
-        const options = Array.from(grouped.entries()).map(([key, groupRows]) => {
+        const priceOptions = Array.from(grouped.entries()).map(([key, groupRows]) => {
             const gapValues = groupRows
                 .map(row => competitorMicroscopeNumber(row.price_gap_percent))
                 .filter(value => value !== null);
             const sourceStatuses = new Set(groupRows.map(row => row.source_status));
             const sourceStatus = sourceStatuses.size === 1
                 ? Array.from(sourceStatuses)[0]
-                : (sourceStatuses.has('verified') ? 'partial' : (sourceStatuses.has('operator_provided') ? 'operator_provided' : 'unverified'));
+                : 'partial';
             return {
                 key,
                 competitorId: Number(groupRows[0]?.competitor_hotel_id || 0),
                 name: groupRows[0]?.competitor_name || '未知竞对',
+                platformKey: groupRows[0]?.platform_key || 'unknown',
+                platformLabel: groupRows[0]?.platform_label || '平台未返回',
                 sampleCount: groupRows.length,
                 roomTypeCount: new Set(groupRows.map(row => row.room_type_name)).size,
                 maxAbsGapPercent: gapValues.length ? Number(Math.max(...gapValues.map(Math.abs)).toFixed(2)) : null,
                 sourceStatus,
+                optionSummary: gapValues.length ? `|价差| ${Number(Math.max(...gapValues.map(Math.abs)).toFixed(2))}%` : '价差未知',
             };
         }).sort((left, right) => {
             const gapCompare = Number(right.maxAbsGapPercent ?? -1) - Number(left.maxAbsGapPercent ?? -1);
@@ -2566,6 +3019,28 @@
             if (right.sampleCount !== left.sampleCount) return right.sampleCount - left.sampleCount;
             return left.name.localeCompare(right.name, 'zh-CN');
         });
+        const meituanContext = competitorMicroscopeMeituanContext(analysis);
+        const options = [...priceOptions, ...meituanContext.options];
+        const sourceErrors = competitorMicroscopeObject(analysis?.source_errors);
+        const ctripStatus = sourceErrors.ctrip
+            ? 'error'
+            : (priceScopeRejectedCount > 0 ? (priceOptions.length ? 'partial' : 'scope_mismatch') : (priceOptions.length ? 'ready' : 'missing'));
+        const platformStatuses = [
+            {
+                platformKey: 'ctrip',
+                platformLabel: '携程',
+                status: ctripStatus,
+                label: ({ error: '读取失败', partial: '部分行范围不匹配', scope_mismatch: '范围不匹配', ready: '价格样本已返回' })[ctripStatus] || '目标日无价格样本',
+                message: String(sourceErrors.ctrip || (priceScopeRejectedCount ? `${priceScopeRejectedCount} 条价格行缺少或不匹配酒店/日期范围` : '')),
+            },
+            {
+                platformKey: 'meituan',
+                platformLabel: '美团',
+                status: meituanContext.status,
+                label: meituanContext.label,
+                message: meituanContext.message,
+            },
+        ];
 
         const selectedKey = options.some(option => option.key === requestedKey)
             ? requestedKey
@@ -2576,16 +3051,33 @@
                 selectedKey: '',
                 options: [],
                 detail: null,
-                scopeNotice: '仅比较同平台、同日期的 OTA 渠道价格样本；缺少样本时不形成竞对结论。',
+                platformStatuses,
+                scopeNotice: '携程按同品价格样本展示；美团按目标日竞争圈榜单展示。任一来源缺失时保持缺失，不使用旧日或其他酒店数据代替。',
             };
         }
 
         const selectedOption = options.find(option => option.key === selectedKey);
+        if (selectedOption?.kind === 'meituan_competition_circle') {
+            const detail = competitorMicroscopeMeituanDetail(analysis, selectedOption, meituanContext);
+            return {
+                status: 'partial',
+                selectedKey,
+                options,
+                detail,
+                platformStatuses,
+                scopeNotice: `${String(meituanContext.circle.source_notice || '美团竞争圈入库数据').trim()}；仅为美团 OTA 竞争圈口径，不代表全酒店经营事实，且不包含同品价格证据。`,
+            };
+        }
         const selectedRows = (grouped.get(selectedKey) || []).slice().sort((left, right) => (
-            Math.abs(Number(right.price_gap_percent ?? -1)) - Math.abs(Number(left.price_gap_percent ?? -1))
+            (right.price_gap_percent === null ? -1 : Math.abs(Number(right.price_gap_percent)))
+            - (left.price_gap_percent === null ? -1 : Math.abs(Number(left.price_gap_percent)))
         ));
-        const avgOurPrice = competitorMicroscopeAverage(selectedRows.map(row => row.our_price));
-        const avgCompetitorPrice = competitorMicroscopeAverage(selectedRows.map(row => row.competitor_price));
+        const comparableSelectedRows = selectedRows.filter(row => (
+            competitorMicroscopePrice(row?.our_price) !== null
+            && competitorMicroscopePrice(row?.competitor_price) !== null
+        ));
+        const avgOurPrice = competitorMicroscopeComparableAverage(comparableSelectedRows, 'our_price');
+        const avgCompetitorPrice = competitorMicroscopeComparableAverage(comparableSelectedRows, 'competitor_price');
         const priceGap = avgOurPrice !== null && avgCompetitorPrice !== null
             ? Number((avgOurPrice - avgCompetitorPrice).toFixed(2))
             : null;
@@ -2597,31 +3089,72 @@
         const rawTrendRows = Array.isArray(trends[String(selectedOption.competitorId)])
             ? trends[String(selectedOption.competitorId)]
             : (Array.isArray(trends[selectedOption.competitorId]) ? trends[selectedOption.competitorId] : []);
+        const selectedComparisonKeys = new Set(comparableSelectedRows.map(row => row.comparison_key));
         const trendGroups = new Map();
+        let trendScopeRejectedCount = 0;
         rawTrendRows.forEach(rawRow => {
             if (!rawRow || typeof rawRow !== 'object' || competitorMicroscopeKey(rawRow) !== selectedKey) return;
+            const rowHotelId = String(rawRow.hotel_id ?? rawRow.system_hotel_id ?? '').trim();
+            if (expectedHotelId && rowHotelId !== expectedHotelId) {
+                trendScopeRejectedCount += 1;
+                return;
+            }
             const row = competitorMicroscopeRow(rawRow);
+            if (row.our_price === null || row.competitor_price === null) return;
             const date = String(row.analysis_date || '').trim();
-            if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+                trendScopeRejectedCount += 1;
+                return;
+            }
+            if (!selectedComparisonKeys.has(row.comparison_key)) return;
             if (!trendGroups.has(date)) trendGroups.set(date, []);
             trendGroups.get(date).push(row);
         });
-        const trend = Array.from(trendGroups.entries()).sort(([left], [right]) => left.localeCompare(right)).map(([date, dayRows]) => {
-            const ourPrice = competitorMicroscopeAverage(dayRows.map(row => row.our_price));
-            const competitorPrice = competitorMicroscopeAverage(dayRows.map(row => row.competitor_price));
+
+        const expectedTrendDates = [];
+        if (/^\d{4}-\d{2}-\d{2}$/.test(responseDate)) {
+            const [year, month, day] = responseDate.split('-').map(Number);
+            const endTimestamp = Date.UTC(year, month - 1, day);
+            for (let offset = 6; offset >= 0; offset -= 1) {
+                expectedTrendDates.push(new Date(endTimestamp - offset * 86400000).toISOString().slice(0, 10));
+            }
+        } else {
+            expectedTrendDates.push(...Array.from(trendGroups.keys()).sort((left, right) => left.localeCompare(right)));
+        }
+        const populatedTrendKeySets = expectedTrendDates
+            .map(date => trendGroups.get(date) || [])
+            .filter(dayRows => dayRows.length > 0)
+            .map(dayRows => new Set(dayRows.map(row => row.comparison_key)));
+        const commonTrendKeys = populatedTrendKeySets.length
+            ? new Set(Array.from(populatedTrendKeySets[0]).filter(key => populatedTrendKeySets.every(keys => keys.has(key))))
+            : new Set();
+        const trendEvidenceRows = expectedTrendDates.flatMap(date => (
+            (trendGroups.get(date) || []).filter(row => commonTrendKeys.has(row.comparison_key))
+        ));
+        const trend = expectedTrendDates.map(date => {
+            const dayRows = (trendGroups.get(date) || []).filter(row => commonTrendKeys.has(row.comparison_key));
+            const ourPrice = competitorMicroscopeComparableAverage(dayRows, 'our_price');
+            const competitorPrice = competitorMicroscopeComparableAverage(dayRows, 'competitor_price');
             const gap = ourPrice !== null && competitorPrice !== null ? Number((ourPrice - competitorPrice).toFixed(2)) : null;
+            const missing = dayRows.length === 0 || ourPrice === null || competitorPrice === null;
+            const gapPercent = gap !== null && competitorPrice > 0 ? Number((gap / competitorPrice * 100).toFixed(2)) : null;
             return {
                 date,
+                label: date.slice(5),
                 ourPrice,
                 competitorPrice,
                 gap,
-                gapPercent: gap !== null && competitorPrice > 0 ? Number((gap / competitorPrice * 100).toFixed(2)) : null,
+                gapPercent,
                 sampleCount: dayRows.length,
+                missing,
+                comparisonText: missing ? '缺样本' : `本 ${competitorMicroscopeCurrencyText(ourPrice)} / 竞 ${competitorMicroscopeCurrencyText(competitorPrice)}`,
+                gapText: gapPercent === null ? '价差未知' : `${gapPercent > 0 ? '+' : ''}${gapPercent}%`,
             };
         });
+        const trendCoverageDays = trend.filter(point => !point.missing).length;
         const firstTrendGap = trend[0]?.gapPercent ?? null;
         const lastTrendGap = trend[trend.length - 1]?.gapPercent ?? null;
-        const trendChange = trend.length > 1 && firstTrendGap !== null && lastTrendGap !== null
+        const trendChange = trendCoverageDays === 7 && firstTrendGap !== null && lastTrendGap !== null
             ? Number((lastTrendGap - firstTrendGap).toFixed(2))
             : null;
         const sourceStatusText = {
@@ -2638,28 +3171,75 @@
         }[selectedOption.sourceStatus] || 'border-gray-200 bg-gray-50 text-gray-600';
         const dataGaps = [];
         if (avgOurPrice === null || avgCompetitorPrice === null) dataGaps.push('current_comparable_price_missing');
-        if (trend.length === 0) dataGaps.push('seven_day_trend_missing');
+        if (comparableSelectedRows.length < selectedRows.length) dataGaps.push('current_comparable_rows_incomplete');
+        if (selectedOption.platformKey === 'unknown') dataGaps.push('platform_missing');
+        if (selectedRows.some(row => row.comparison_basis_complete !== true)) dataGaps.push('rate_policy_comparability_unverified');
+        if (trendCoverageDays === 0) dataGaps.push('seven_day_trend_missing');
+        else if (trendCoverageDays < 7) dataGaps.push('seven_day_trend_incomplete');
+        if (commonTrendKeys.size > 0 && commonTrendKeys.size < selectedComparisonKeys.size) dataGaps.push('trend_room_mix_reduced');
+        if (trendEvidenceRows.some(row => competitorMicroscopeSourceStatus(row) !== 'verified')) {
+            dataGaps.push('trend_source_unverified');
+        }
+        if (priceScopeRejectedCount > 0 || trendScopeRejectedCount > 0) dataGaps.push('price_scope_rows_rejected');
         if (!['verified'].includes(selectedOption.sourceStatus)) dataGaps.push(`source_${selectedOption.sourceStatus}`);
+        const dataGapLabelMap = {
+            current_comparable_price_missing: '当前同平台有效价格缺失',
+            current_comparable_rows_incomplete: '部分房型缺少同一行双边有效价格，未计入均价',
+            platform_missing: 'OTA平台未返回',
+            rate_policy_comparability_unverified: '早餐或取消政策口径未核验',
+            seven_day_trend_missing: '近7日无同口径趋势样本',
+            seven_day_trend_incomplete: `近7日仅覆盖 ${trendCoverageDays}/7 天`,
+            trend_room_mix_reduced: '趋势已缩小到各日共同房型口径',
+            trend_source_unverified: '趋势中存在未验证来源',
+            price_scope_rows_rejected: `已拒绝 ${priceScopeRejectedCount + trendScopeRejectedCount} 条缺少或不匹配酒店/日期范围的价格行`,
+            source_verified: '来源与回读已验证',
+            source_operator_provided: '当前为人工提供样本',
+            source_partial: '当前样本来源仅部分验证',
+            source_unverified: '当前样本来源未验证',
+        };
+        const dataGapLabels = dataGaps.map(code => dataGapLabelMap[code] || code);
+        const displayRows = selectedRows.map(row => ({
+            ...row,
+            our_value_text: competitorMicroscopeCurrencyText(row.our_price),
+            competitor_value_text: competitorMicroscopeCurrencyText(row.competitor_price),
+            gap_text: row.price_gap_percent === null ? '—' : `${row.price_gap_percent > 0 ? '+' : ''}${row.price_gap_percent}%`,
+        }));
 
         return {
-            status: 'ready',
+            status: dataGaps.length ? 'partial' : 'ready',
             selectedKey,
             options,
             detail: {
                 ...selectedOption,
+                kind: 'ota_price_comparison',
                 avgOurPrice,
                 avgCompetitorPrice,
                 priceGap,
                 priceGapPercent,
                 trendChange,
                 trend,
-                rows: selectedRows,
+                trendCoverageDays,
+                trendTargetDays: 7,
+                trendTitle: '7 日价差轨迹',
+                trendChangeText: trendChange === null ? '变化未知' : `较首日 ${trendChange > 0 ? '+' : ''}${trendChange}pct`,
+                trendEmptyText: '近 7 日无同口径样本',
+                tableTitle: '同日房型证据',
+                ourColumnLabel: '本店',
+                competitorColumnLabel: '竞对',
+                gapColumnLabel: '价差',
+                sameProductPriceNotice: '',
+                trendComparableKeyCount: commonTrendKeys.size,
+                rows: displayRows,
+                hotelId: expectedHotelId,
+                displayDate: responseDate,
                 sourceStatusText,
                 sourceStatusClass,
                 dataGaps,
+                dataGapLabels,
                 metricScope: 'ota_channel',
             },
-            scopeNotice: '仅比较当前门店与所选竞对在同平台、同日期、已显示房型样本中的 OTA 公开价格；人工样本和未验证来源不会升级为全酒店经营结论。',
+            platformStatuses,
+            scopeNotice: '仅比较当前门店与所选竞对在同一 OTA 平台、同一日期及共同房型口径下的公开价格；早餐或取消政策未核验时只视为提示性样本，不形成自动调价或全酒店经营结论。',
         };
     };
 
@@ -2721,6 +3301,7 @@
         aiDailyReportActionSources,
         aiDailyReportEvidenceTarget,
         aiDailyReportActionIsInvestigationOnly,
+        aiDailyReportActionExecutionReady,
         aiDailyReportActionBlockedText,
         aiDailyReportActionStatusText,
         aiDailyReportActionButtonText,
@@ -2731,6 +3312,7 @@
         buildRevenueAiExecutionIntentOpenRow,
         resolveRevenueAiReviewNavigation,
         buildRevenueAiReviewNavigationState,
+        normalizeMeituanCompetitionCircle,
         buildCompetitorMicroscope,
     });
 }());

@@ -10,9 +10,9 @@ use app\model\User;
 
 final class CompetitorDeviceAuthService
 {
-    public function __construct(private ?HotelScopeService $hotelScopeService = null)
+    public function __construct(private ?PermissionService $permissionService = null)
     {
-        $this->hotelScopeService ??= new HotelScopeService();
+        $this->permissionService ??= new PermissionService();
     }
 
     /**
@@ -58,13 +58,14 @@ final class CompetitorDeviceAuthService
         if (!$hotel || !$user) {
             return null;
         }
-        if (!$this->hotelScopeService->canAccessHotel($user, $storeId, 'can_fetch_online_data')) {
+        $tenantId = (int)($hotel->tenant_id ?? 0);
+        $userTenantId = (int)($user->tenant_id ?? 0);
+        if ($tenantId <= 0 || $userTenantId <= 0 || $userTenantId !== $tenantId) {
             return null;
         }
-
-        $tenantId = (int)($hotel->tenant_id ?? 0);
-        if ($tenantId <= 0) {
-            $tenantId = $storeId;
+        $authorization = $this->permissionService->authorize($user, 'ota.collect', $storeId);
+        if (($authorization['allowed'] ?? false) !== true) {
+            return null;
         }
 
         return [
@@ -122,6 +123,39 @@ final class CompetitorDeviceAuthService
 
         $scope = $this->resolveActiveScope($userId, $storeId);
         return $scope !== null && $scope['tenant_id'] === $tenantId;
+    }
+
+    public function bindingSessionIsCurrent(CompetitorDevice $authenticatedBinding): bool
+    {
+        $bindingId = (int)($authenticatedBinding->id ?? 0);
+        if ($bindingId <= 0) {
+            return false;
+        }
+
+        $currentBinding = CompetitorDevice::where('id', $bindingId)->find();
+
+        return $currentBinding !== null
+            && $this->bindingSessionMatches($authenticatedBinding, $currentBinding);
+    }
+
+    public function bindingSessionMatches(
+        CompetitorDevice $authenticatedBinding,
+        CompetitorDevice $currentBinding
+    ): bool {
+        $authenticatedHash = (string)($authenticatedBinding->token_hash ?? '');
+        $currentHash = (string)($currentBinding->token_hash ?? '');
+        if ($authenticatedHash === '' || $currentHash === '') {
+            return false;
+        }
+
+        return (int)$currentBinding->id === (int)$authenticatedBinding->id
+            && (int)$currentBinding->token_version === (int)$authenticatedBinding->token_version
+            && hash_equals($currentHash, $authenticatedHash)
+            && (int)$currentBinding->tenant_id === (int)$authenticatedBinding->tenant_id
+            && (int)$currentBinding->user_id === (int)$authenticatedBinding->user_id
+            && (int)$currentBinding->store_id === (int)$authenticatedBinding->store_id
+            && hash_equals((string)$currentBinding->platform, (string)$authenticatedBinding->platform)
+            && $this->bindingScopeIsActive($currentBinding);
     }
 
     public function bindingMatchesTarget(

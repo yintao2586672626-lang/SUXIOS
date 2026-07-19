@@ -46,6 +46,19 @@ test('action rows keep the saved action index and only enable evidence-ready han
       },
       {
         id: 'ota_action_2',
+        action: 'Review the Ctrip room price and compare ADR after 7 days',
+        status: 'pending_manual_review',
+        execution_ready: true,
+        can_request_execution_intent: true,
+        can_create_execution_intent: true,
+        decision_quality: {
+          contract_version: 'ai_recommendation_quality.v2',
+          execution_ready: true,
+        },
+        evidence_refs: ['online_daily_data#11'],
+      },
+      {
+        id: 'ota_action_3',
         action: 'Collect missing data',
         status: 'blocked_by_data_gap',
         execution_ready: false,
@@ -55,9 +68,11 @@ test('action rows keep the saved action index and only enable evidence-ready han
   });
 
   assert.equal(rows[0].index, 0);
-  assert.equal(rows[0].canCreateIntent, true);
+  assert.equal(rows[0].canCreateIntent, false);
   assert.equal(rows[1].index, 1);
-  assert.equal(rows[1].canCreateIntent, false);
+  assert.equal(rows[1].canCreateIntent, true);
+  assert.equal(rows[2].index, 2);
+  assert.equal(rows[2].canCreateIntent, false);
 });
 
 test('superseded saved diagnosis remains reviewable but cannot create an execution intent', () => {

@@ -158,10 +158,21 @@ final class CompetitorManualObservationServiceTest extends TestCase
         self::assertSame('130079194', $matched['record']['ota_hotel_id']);
 
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('公开详情页 URL 与竞品目标 OTA 酒店 ID 不一致');
+        $this->expectExceptionMessage('公开来源 URL 必须包含并匹配所选竞品 OTA 酒店 ID');
         CompetitorManualObservationService::normalizePublicObservation(
             $this->target(['hotel_code' => '130079195']),
             $this->input(['source_surface' => 'public_hotel_page', 'ota_hotel_id' => ''])
+        );
+    }
+
+    public function testBoundPublicNearbyCardMustMatchStoredTargetIdentity(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('公开来源 URL 必须包含并匹配所选竞品 OTA 酒店 ID');
+
+        CompetitorManualObservationService::normalizePublicObservation(
+            $this->target(['hotel_code' => '130079195']),
+            $this->input(['source_surface' => 'public_nearby_card'])
         );
     }
 

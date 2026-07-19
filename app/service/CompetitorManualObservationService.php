@@ -11,7 +11,8 @@ use think\facade\Db;
  * Persists an authenticated operator's observation of a public OTA card/page.
  *
  * Public starting prices can prove an OTA-channel availability observation
- * only when the selected competitor has a verified numeric OTA identity.
+ * only when the selected competitor has a numeric OTA identity and the
+ * submitted public link proves the same identity.
  * They never become comparable revenue-pricing evidence because exact room,
  * rate-plan, benefit, cancellation, payment and tax terms are not disclosed.
  */
@@ -182,14 +183,13 @@ final class CompetitorManualObservationService
             throw new InvalidArgumentException('提交 OTA 酒店 ID 与竞品目标绑定不一致');
         }
         $otaHotelId = $targetOtaHotelId ?? '';
-        if ($sourceSurface === 'public_hotel_page') {
-            if ($otaHotelId === '') {
-                throw new InvalidArgumentException('酒店公开详情页观测需要先绑定竞品 OTA 酒店 ID');
-            }
+        if ($otaHotelId !== '') {
             $sourceHotelId = self::sourceHotelId($sourceRef, $canonicalPlatform);
             if ($sourceHotelId === null || $sourceHotelId !== $otaHotelId) {
-                throw new InvalidArgumentException('公开详情页 URL 与竞品目标 OTA 酒店 ID 不一致');
+                throw new InvalidArgumentException('公开来源 URL 必须包含并匹配所选竞品 OTA 酒店 ID');
             }
+        } elseif ($sourceSurface === 'public_hotel_page') {
+            throw new InvalidArgumentException('酒店公开详情页观测需要先绑定竞品 OTA 酒店 ID');
         }
 
         $sourceMethod = 'manual_' . $canonicalPlatform . '_public_observation';

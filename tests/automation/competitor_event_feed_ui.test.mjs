@@ -85,7 +85,8 @@ test('authorized manual public observation saves through the API, requires readb
   assert.match(workflowDialogTemplate, /data-testid="workflow-form-dialog"/);
   assert.match(workflowDialogTemplate, /workflowFormDialog\.fields/);
   assert.match(saver, /实际观测时间/);
-  assert.match(saver, /本次观测来源 URL/);
+  assert.match(saver, /所选竞品卡片\/详情页 URL/);
+  assert.match(saver, /链接必须包含该竞品 OTA 酒店 ID/);
   assert.match(saver, /保存并加入事件线/);
   assert.match(saver, /不会进入收益定价/);
   assert.match(saver, /保持 binding_missing/);

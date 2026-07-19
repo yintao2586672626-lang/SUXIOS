@@ -267,14 +267,22 @@ window.SUXI_OPERATION_STATIC = (() => {
     const operationExecutionSourceText = (item) => {
         const source = item?.recommendation?.source || '';
         const resolved = source && !source.endsWith('#0') ? source : (item?.recommendation?.source_module || '');
-        if (String(resolved).toLowerCase() === 'manual') return '人工创建';
+        const sourceKey = String(resolved).toLowerCase();
+        if (sourceKey === 'manual') return '人工创建';
+        if (sourceKey.startsWith('ota_diagnosis_saved')) return 'OTA诊断行动';
+        if (sourceKey.startsWith('daily_workbench_patrol')) return '巡检补证任务';
+        if (sourceKey.startsWith('ota_diagnosis')) return '历史OTA诊断行动';
         return resolved || '来源未返回';
     };
     const operationExecutionActionText = (item, helpers = {}) => {
         const recommendation = item?.recommendation || {};
-        const objectText = ({ price: '价格', inventory: '房态', campaign: '活动' }[recommendation.object_type] || recommendation.object_type || '动作');
+        const objectText = ({ price: '价格', inventory: '房态', campaign: '活动', data_collection: '证据采集' }[recommendation.object_type] || recommendation.object_type || '动作');
         const strategyTypeLabel = typeof helpers.strategyTypeLabel === 'function' ? helpers.strategyTypeLabel : (type => type || '未知策略');
-        return `${objectText} · ${strategyTypeLabel(recommendation.action_type)}`;
+        const actionText = ({
+            complete_public_page_evidence: '补齐公开页证据',
+            review_public_page_evidence: '复核公开页证据',
+        }[recommendation.action_type] || strategyTypeLabel(recommendation.action_type));
+        return `${objectText} · ${actionText}`;
     };
     const operationExecutionReviewText = (item, helpers = {}) => {
         const review = item?.review || {};

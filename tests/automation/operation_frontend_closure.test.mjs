@@ -52,6 +52,8 @@ test('revenue research execution bridge is single-hotel and ready-only', () => {
   assert.match(appMain, /readiness\.stage !== 'research_ready_for_execution'/);
   assert.match(appMain, /readiness\.execution_ready !== true/);
   assert.match(appMain, /result\.status !== 'done'/);
+  assert.match(appMain, /artifact\.status !== 'available'/);
+  assert.match(appMain, /服务端研究凭证未完成持久化与回读/);
   assert.match(researchPage, /revenueResearchCanCreateExecutionIntent/);
   assert.match(researchPage, /createRevenueResearchExecutionIntent/);
   assert.match(researchPage, /不自动审批、不自动执行、不写 OTA 房价、库存或活动/);
@@ -65,7 +67,8 @@ test('revenue research execution bridge creates only an intent then opens ops-tr
   const bridge = appMain.slice(start, end);
 
   assert.match(bridge, /apiRequest\('\/revenue-research\/execution-intent'/);
-  assert.match(bridge, /research,/);
+  assert.match(bridge, /research_artifact_id: research\.execution_artifact\.id/);
+  assert.doesNotMatch(bridge, /\bresearch,\s*\n/);
   assert.match(bridge, /executionIntent: intent/);
   assert.match(bridge, /openRevenueResearchExecutionIntent\(product\)/);
   assert.doesNotMatch(bridge, /\/approve|\/execute|price-update|inventory-update/i);

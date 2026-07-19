@@ -656,7 +656,7 @@
                                                         <i :class="competitorPriceSaving ? 'fas fa-spinner fa-spin' : 'fas fa-save'" class="mr-1"></i>保存样本
                                                     </button>
                                                 </div>
-                                                <input v-model.trim="competitorPriceForm.competitor_name" class="input-field mt-2 w-full" placeholder="竞对名称或样本来源">
+                                                <input v-model.trim="competitorPriceForm.competitor_name" class="input-field mt-2 w-full" placeholder="竞对名称（不知道ID时必填）">
                                             </div>
                                         </div>
                                         <div v-if="priceSuggestionGenerateResult" data-testid="agent-price-suggestion-generate-result" :class="['mb-5 rounded-lg border p-3 text-sm', priceSuggestionGenerateResult.className]">
@@ -1008,20 +1008,20 @@
                                             </div>
 
                                             <div class="bg-white rounded-xl border border-gray-200 p-4">
-                                                <h3 class="font-semibold text-gray-800 mb-4">竞对价格信号</h3>
-                                                <div class="flex flex-wrap gap-3 mb-4">
-                                                    <input type="date" v-model="competitorFilter.date" class="input-field">
-                                                    <button @click="loadCompetitorAnalysis" class="btn-primary"><i class="fas fa-search mr-2"></i>查询</button>
+                                                <h3 id="competitor-microscope-entry" class="font-semibold text-gray-800 mb-4">竞对信号</h3>
+                                                <div class="flex flex-col gap-3 mb-4 sm:flex-row sm:items-end">
+                                                    <label class="block w-full sm:w-auto">
+                                                        <span class="mb-1 block text-xs text-gray-500">分析日期</span>
+                                                        <input type="date" v-model="competitorFilter.date" @change="resetCompetitorAnalysisView" class="input-field w-full sm:w-auto">
+                                                    </label>
+                                                    <button @click="loadCompetitorAnalysis" :disabled="competitorAnalysisLoading" class="btn-primary w-full disabled:cursor-wait disabled:opacity-60 sm:w-auto"><i :class="competitorAnalysisLoading ? 'fas fa-spinner fa-spin' : 'fas fa-search'" class="mr-2"></i>{{ competitorAnalysisLoading ? '查询中...' : '查询' }}</button>
                                                 </div>
                                                 <div data-testid="agent-ctrip-competitor-price-manual-input" class="mb-4 rounded-lg border border-blue-100 bg-blue-50 p-3">
                                                     <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
                                                         <div>
                                                             <div class="text-sm font-semibold text-blue-900">携程竞品价样本补录</div>
-                                                            <div class="text-xs text-blue-700">人工提供项，固定写入携程 OTA 样本范围；不代表全酒店经营数据，不写 OTA。</div>
+                                                    <div class="text-xs text-blue-700">人工携程 OTA 样本；不代表全酒店经营数据，不写 OTA。</div>
                                                         </div>
-                                                        <button @click="resetCompetitorPriceForm" class="rounded border border-blue-200 bg-white px-2.5 py-1.5 text-xs text-blue-700 hover:bg-blue-50">
-                                                            <i class="fas fa-eraser mr-1"></i>清空
-                                                        </button>
                                                     </div>
                                                     <div class="grid grid-cols-1 md:grid-cols-6 gap-2">
                                                         <input type="date" v-model="competitorPriceForm.analysis_date" class="input-field">
@@ -1036,120 +1036,77 @@
                                                         <input type="number" v-model.number="competitorPriceForm.competitor_hotel_id" class="input-field" min="1" step="1" placeholder="竞对ID（未知请留空）">
                                                     </div>
                                                     <div class="mt-2 flex flex-wrap items-center gap-2">
-                                                        <input v-model.trim="competitorPriceForm.competitor_name" class="input-field flex-1 min-w-[220px]" placeholder="竞对名称或样本来源">
+                                                        <input v-model.trim="competitorPriceForm.competitor_name" class="input-field flex-1 min-w-[220px]" placeholder="竞对名称（不知道ID时必填）">
                                                         <button @click="saveCompetitorPriceInput" :disabled="competitorPriceSaving" class="rounded bg-blue-700 px-3 py-2 text-sm text-white hover:bg-blue-800 disabled:opacity-50">
                                                             <i :class="competitorPriceSaving ? 'fas fa-spinner fa-spin' : 'fas fa-save'" class="mr-1"></i>保存样本
                                                         </button>
                                                     </div>
                                                 </div>
-                                                <section data-testid="competitor-microscope" class="mb-4 overflow-hidden rounded-xl border border-[#e5dcc8] bg-[#fcfaf5]">
-                                                    <div class="flex flex-col gap-3 border-b border-[#eee7d8] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-                                                        <div>
-                                                            <div class="flex flex-wrap items-center gap-2">
-                                                                <h4 class="font-semibold text-gray-900"><i class="fas fa-microscope mr-1.5 text-[#a88a52]"></i>重点竞对显微镜</h4>
-                                                                <span class="rounded-full border border-[#dcc591] bg-white px-2 py-0.5 text-[11px] text-[#6f572f]">默认聚焦绝对价差最大竞对</span>
-                                                            </div>
-                                                            <p class="mt-1 text-xs text-gray-500">下钻同日房型价差与截至所选日期的 7 日变化；只读分析，不自动生成调价。</p>
-                                                        </div>
-                                                        <select v-if="competitorMicroscopeOptions.length" v-model="competitorMicroscopeSelectedKey" data-testid="competitor-microscope-selector" class="min-w-[220px] rounded-lg border border-[#dcc591] bg-white px-3 py-2 text-sm text-gray-800">
-                                                            <option v-for="option in competitorMicroscopeOptions" :key="option.key" :value="option.key">
-                                                                {{ option.name }} · {{ option.maxAbsGapPercent === null ? '价差未知' : '|价差| ' + option.maxAbsGapPercent + '%' }}
-                                                            </option>
-                                                        </select>
+                                                <div v-if="competitorAnalysisLoading" data-testid="competitor-microscope-loading" class="mb-4 rounded-lg bg-blue-50 p-4 text-center text-sm text-blue-700"><i class="fas fa-spinner fa-spin mr-2"></i>正在读取当前门店与日期...</div>
+                                                <div v-else-if="competitorAnalysisError" data-testid="competitor-microscope-error" class="mb-4 rounded-lg bg-red-50 p-4 text-sm text-red-700">读取失败：{{ competitorAnalysisError }}</div>
+                                                <section v-else data-testid="competitor-microscope" class="mb-4 overflow-hidden rounded-xl border border-[#e5dcc8] bg-[#fcfaf5]">
+                                                    <div class="flex flex-wrap items-end justify-between gap-3 border-b border-[#eee7d8] p-3">
+                                                        <h4 class="font-semibold text-gray-900"><i class="fas fa-microscope mr-1.5 text-[#a88a52]"></i>重点竞对显微镜</h4>
+                                                        <label v-if="competitorMicroscopeOptions.length" class="block w-full lg:w-auto">
+                                                            <span class="mb-1 block text-[11px] text-gray-500">竞对 / OTA</span>
+                                                            <select v-model="competitorMicroscopeSelectedKey" data-testid="competitor-microscope-selector" class="input-field w-full lg:w-auto">
+                                                                <option v-for="option in competitorMicroscopeOptions" :key="option.key" :value="option.key">{{ option.name }} · {{ option.platformLabel }} · {{ option.optionSummary }}</option>
+                                                            </select>
+                                                        </label>
+                                                    </div>
+                                                    <div v-if="competitorMicroscope.platformStatuses?.length" class="border-b p-2 text-xs text-gray-500">
+                                                        <span v-for="status in competitorMicroscope.platformStatuses" :key="status.platformKey">{{ status.platformLabel }}：{{ status.label }}　</span>
                                                     </div>
 
                                                     <div v-if="competitorMicroscopeDetail" class="space-y-4 p-4">
                                                         <div class="flex flex-wrap items-center justify-between gap-2">
-                                                            <div class="font-semibold text-gray-900">{{ competitorMicroscopeDetail.name }}</div>
-                                                            <span :class="['rounded-full border px-2.5 py-1 text-xs font-medium', competitorMicroscopeDetail.sourceStatusClass]">{{ competitorMicroscopeDetail.sourceStatusText }}</span>
-                                                        </div>
-                                                        <div class="grid grid-cols-2 gap-2 lg:grid-cols-4">
-                                                            <div v-for="card in competitorMicroscopeSummaryCards" :key="card.key" class="rounded-lg bg-white p-3 shadow-sm">
-                                                                <div class="text-[11px] text-gray-500">{{ card.label }}</div>
-                                                                <div :class="['mt-1 text-lg font-semibold', card.className]">{{ card.value }}</div>
+                                                            <div>
+                                                                <div class="font-semibold text-gray-900">{{ competitorMicroscopeDetail.name }} · {{ competitorMicroscopeDetail.platformLabel }}</div>
+                                                                <div class="mt-1 text-xs text-gray-500">#{{ competitorMicroscopeDetail.hotelId || '-' }} · {{ competitorMicroscopeDetail.displayDate || '日期未返回' }}</div>
                                                             </div>
                                                         </div>
 
                                                         <div class="grid grid-cols-1 gap-3 xl:grid-cols-5">
                                                             <div class="rounded-lg border border-[#eee7d8] bg-white p-3 xl:col-span-2">
                                                                 <div class="mb-2 flex items-center justify-between gap-2 text-xs">
-                                                                    <span class="font-semibold text-gray-800">7 日价差轨迹</span>
-                                                                    <span :class="competitorMicroscopeGapClass(competitorMicroscopeDetail.trendChange)">{{ competitorMicroscopeDetail.trendChange === null ? '变化未知' : '较首日 ' + (competitorMicroscopeDetail.trendChange &gt; 0 ? '+' : '') + competitorMicroscopeDetail.trendChange + 'pct' }}</span>
+                                                                    <span class="font-semibold text-gray-800">{{ competitorMicroscopeDetail.trendTitle }}（覆盖 {{ competitorMicroscopeDetail.trendCoverageDays }}/{{ competitorMicroscopeDetail.trendTargetDays }}）</span>
+                                                                    <span :class="competitorMicroscopeGapClass(competitorMicroscopeDetail.trendChange)">{{ competitorMicroscopeDetail.trendChangeText }}</span>
                                                                 </div>
-                                                                <div v-if="competitorMicroscopeDetail.trend.length" class="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-2">
-                                                                    <div v-for="point in competitorMicroscopeDetail.trend" :key="point.date" class="rounded border border-gray-100 bg-gray-50 px-2 py-1.5 text-xs">
-                                                                        <div class="font-medium text-gray-700">{{ point.date.slice(5) }}</div>
-                                                                        <div class="mt-1 text-gray-500">本 {{ point.ourPrice === null ? '—' : formatCurrency(point.ourPrice) }} / 竞 {{ point.competitorPrice === null ? '—' : formatCurrency(point.competitorPrice) }}</div>
-                                                                        <div :class="['mt-0.5 font-medium', competitorMicroscopeGapClass(point.gap)]">{{ point.gapPercent === null ? '价差未知' : (point.gapPercent &gt; 0 ? '+' : '') + point.gapPercent + '%' }}</div>
+                                                                <div v-if="competitorMicroscopeDetail.trendCoverageDays &gt; 0" class="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-2">
+                                                                    <div v-for="point in competitorMicroscopeDetail.trend" :key="point.date" :class="['rounded border px-2 py-1.5 text-xs', point.missing ? 'border-dashed border-gray-200 bg-white text-gray-400' : 'border-gray-100 bg-gray-50']">
+                                                                        <div class="font-medium text-gray-700">{{ point.label }}</div>
+                                                                        <div class="mt-1 text-gray-500">{{ point.comparisonText }}</div>
+                                                                        <div :class="['mt-0.5 font-medium', competitorMicroscopeGapClass(point.gap)]">{{ point.gapText }}</div>
                                                                     </div>
                                                                 </div>
-                                                                <div v-else class="rounded border border-dashed border-gray-200 bg-gray-50 px-3 py-5 text-center text-xs text-gray-500">暂无截至所选日期的 7 日同竞对轨迹</div>
+                                                                <div v-else class="rounded border border-dashed border-gray-200 bg-gray-50 px-3 py-5 text-center text-xs text-gray-500">{{ competitorMicroscopeDetail.trendEmptyText }}</div>
                                                             </div>
                                                             <div class="overflow-hidden rounded-lg border border-[#eee7d8] bg-white xl:col-span-3">
-                                                                <div class="border-b border-gray-100 px-3 py-2 text-xs font-semibold text-gray-800">同日房型证据</div>
+                                                                <div class="border-b border-gray-100 px-3 py-2 text-xs font-semibold text-gray-800">{{ competitorMicroscopeDetail.tableTitle || '同日房型证据' }}</div>
                                                                 <div class="overflow-x-auto">
                                                                     <table class="min-w-[520px] w-full text-xs">
-                                                                        <thead class="bg-gray-50 text-gray-500"><tr><th class="px-3 py-2 text-left">房型</th><th class="px-3 py-2 text-right">本店</th><th class="px-3 py-2 text-right">竞对</th><th class="px-3 py-2 text-right">价差</th><th class="px-3 py-2 text-left">证据</th></tr></thead>
+                                                                        <thead class="bg-gray-50 text-gray-500"><tr><th class="px-3 py-2 text-left">维度</th><th class="px-3 py-2 text-right">{{ competitorMicroscopeDetail.ourColumnLabel }}</th><th class="px-3 py-2 text-right">{{ competitorMicroscopeDetail.competitorColumnLabel }}</th><th class="px-3 py-2 text-right">{{ competitorMicroscopeDetail.gapColumnLabel }}</th><th class="px-3 py-2 text-left">证据</th></tr></thead>
                                                                         <tbody class="divide-y divide-gray-100">
                                                                             <tr v-for="row in competitorMicroscopeDetail.rows" :key="`microscope-${row.id || row.room_type_name}`">
                                                                                 <td class="px-3 py-2 font-medium text-gray-800">{{ row.room_type_name }}</td>
-                                                                                <td class="px-3 py-2 text-right">{{ row.our_price === null ? '—' : formatCurrency(row.our_price) }}</td>
-                                                                                <td class="px-3 py-2 text-right">{{ row.competitor_price === null ? '—' : formatCurrency(row.competitor_price) }}</td>
-                                                                                <td :class="['px-3 py-2 text-right font-medium', competitorMicroscopeGapClass(row.price_gap)]">{{ row.price_gap_percent === null ? '—' : (row.price_gap_percent &gt; 0 ? '+' : '') + row.price_gap_percent + '%' }}</td>
-                                                                                <td class="px-3 py-2 text-gray-500">{{ row.price_signal_readiness?.status_label || (row.source_status === 'verified' ? '已验证' : row.source_status === 'operator_provided' ? '人工样本' : '未验证') }}</td>
+                                                                                <td class="px-3 py-2 text-right">{{ row.our_value_text }}</td>
+                                                                                <td class="px-3 py-2 text-right">{{ row.competitor_value_text }}</td>
+                                                                                <td :class="['px-3 py-2 text-right font-medium', competitorMicroscopeGapClass(row.price_gap)]">{{ row.gap_text }}</td>
+                                                                                <td class="px-3 py-2 text-gray-500">
+                                                                                    <div>{{ row.price_signal_readiness?.status_label || (row.source_status === 'verified' ? '已验证' : row.source_status === 'operator_provided' ? '人工样本' : '未验证') }}</div>
+                                                                                    <div v-if="row.trend_text">{{ row.trend_text }}</div>
+                                                                                </td>
                                                                             </tr>
                                                                         </tbody>
                                                                     </table>
                                                                 </div>
                                                             </div>
                                                         </div>
-                                                        <div v-if="competitorMicroscopeDetail.dataGaps.length" class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">证据缺口：{{ competitorMicroscopeDetail.dataGaps.join('、') }}</div>
-                                                        <div class="text-xs leading-5 text-[#6f572f]">{{ competitorMicroscope.scopeNotice }}</div>
+                                                        <div v-if="competitorMicroscopeDetail.dataGaps.length" class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">证据缺口：{{ competitorMicroscopeDetail.dataGapLabels.join('、') }}</div>
+                                                        <div class="text-xs leading-5 text-[#6f572f]">{{ competitorMicroscopeDetail.sameProductPriceNotice || competitorMicroscope.scopeNotice }}</div>
                                                     </div>
-                                                    <div v-else data-testid="competitor-microscope-empty" class="px-4 py-8 text-center text-sm text-gray-500">当前日期暂无可选择的竞对价格样本；不会用 0 或旧数据代替。</div>
+                                                    <div v-else data-testid="competitor-microscope-empty" class="px-4 py-8 text-center text-sm text-gray-500">本日无竞对样本；不以 0 或旧数据代替。</div>
                                                 </section>
-                                                <div class="overflow-x-auto">
-                                                    <table class="w-full text-sm">
-                                                        <thead class="bg-gray-50 text-gray-500">
-                                                            <tr>
-                                                                <th class="px-3 py-2 text-left">房型</th>
-                                                                <th class="px-3 py-2 text-left">竞对</th>
-                                                                <th class="px-3 py-2 text-right">本店价</th>
-                                                                <th class="px-3 py-2 text-right">竞对价</th>
-                                                                <th class="px-3 py-2 text-right">价差</th>
-                                                                <th class="px-3 py-2 text-left">闭环</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody class="divide-y divide-gray-100">
-                                                            <tr v-for="row in competitorPriceMatrixRows" :key="`${row.room_type_name || 'room'}-${row.competitor_name || row.competitor_hotel_id || 'competitor'}-${row.id || row.analysis_date}`">
-                                                                <td class="px-3 py-2 font-medium text-gray-800">{{ row.room_type_name || '-' }}</td>
-                                                                <td class="px-3 py-2 text-gray-600">{{ row.competitor_name || row.competitor_hotel_id || '-' }}</td>
-                                                                <td class="px-3 py-2 text-right">{{ toNumber(row.our_price, 0) &gt; 0 ? formatCurrency(row.our_price) : '-' }}</td>
-                                                                <td class="px-3 py-2 text-right">{{ toNumber(row.competitor_price, 0) &gt; 0 ? formatCurrency(row.competitor_price) : '-' }}</td>
-                                                                <td class="px-3 py-2 text-right" :class="toNumber(row.price_signal_readiness?.price_gap_percent ?? row.diff_percent, 0) &gt; 0 ? 'text-red-600' : 'text-green-600'">
-                                                                    {{ revenueCompetitorGapText(row) }}
-                                                                </td>
-                                                                <td class="px-3 py-2">
-                                                                    <span v-if="row.price_signal_readiness" :title="row.price_signal_readiness.notice" :class="['inline-flex rounded border px-2 py-0.5 text-xs whitespace-nowrap', revenueCompetitorReadinessClass(row.price_signal_readiness.stage)]">
-                                                                        {{ row.price_signal_readiness.status_label }}
-                                                                    </span>
-                                                                    <div v-if="row.price_signal_readiness" class="mt-1 text-[11px] text-gray-400 line-clamp-1">
-                                                                        引用 {{ row.price_signal_readiness.suggestion_count || 0 }} 条 · {{ row.price_signal_readiness.next_action }}
-                                                                    </div>
-                                                                </td>
-                                                            </tr>
-                                                            <tr v-if="!competitorPriceMatrixRows.length">
-                                                                <td colspan="6" class="px-3 py-8 text-center text-gray-400">暂无竞对价格样本</td>
-                                                            </tr>
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                                <div v-if="(competitorAnalysis.alerts || []).length" class="mt-4 space-y-2">
-                                                    <div v-for="item in competitorAnalysis.alerts" :key="item.id || item.competitor_hotel_id" class="rounded-lg bg-orange-50 border border-orange-100 p-3 text-sm text-orange-800">
-                                                        {{ competitorAlertPriceText(item) }}
-                                                    </div>
-                                                </div>
-                                                <div v-else="" class="mt-4 py-4 text-center text-gray-400">暂无竞对价格预警</div>
                                             </div>
                                         </div>
                                     </div>

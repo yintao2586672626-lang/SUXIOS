@@ -23,7 +23,7 @@ test('Meituan owner navigation exposes only capturable data categories as primar
   assert.match(navigation, /同行榜单/);
   assert.match(navigation, /流量分析/);
   assert.match(navigation, /订单流向/);
-  assert.match(navigation, /订单数据/);
+  assert.match(navigation, /订单线索/);
   assert.match(navigation, /广告数据/);
   assert.doesNotMatch(navigation, /经营数据/);
   assert.match(navigation, /openHotelManagementForOta[^>]*>[\s\S]*?设置/);
@@ -68,7 +68,7 @@ test('competition-circle and stored-data actions remain truthful without exposin
   assert.doesNotMatch(ranking, /data-testid="meituan-ranking-advanced-tools"/);
   assert.doesNotMatch(ranking, /查看原始结果|复制排障数据|JSON\.stringify\(onlineDataResult/);
   assert.match(storedData, /同行榜单明细/);
-  assert.match(storedData, /卡片统计仅对应当前筛选的当前页/);
+  assert.match(storedData, /卡片仅统计本页数据/);
   assert.match(storedData, /@click="queryMeituanStoredData"/);
   assert.match(storedData, /当前第 \{\{ onlineDataPage \}\} 页/);
   assert.match(storedData, /当前筛选暂无美团流量数据/);

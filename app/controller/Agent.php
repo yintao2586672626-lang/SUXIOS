@@ -157,6 +157,24 @@ class Agent extends Base
         }
     }
 
+    private function assertOtaDiagnosisHotelPermission(
+        int $hotelId,
+        string $capability,
+        bool $hideUnauthorizedRecord = false
+    ): void {
+        if ($hotelId <= 0) {
+            throw new \InvalidArgumentException('saved OTA diagnosis hotel scope is invalid', 422);
+        }
+        if (!$this->currentUser || !$this->currentUser->hasHotelPermission($hotelId, $capability)) {
+            throw new \RuntimeException(
+                $hideUnauthorizedRecord
+                    ? 'saved OTA diagnosis not found'
+                    : 'no ' . $capability . ' permission for this hotel',
+                $hideUnauthorizedRecord ? 404 : 403
+            );
+        }
+    }
+
     // ==================== Agent概览 ====================
 
     /**
@@ -223,9 +241,95 @@ class Agent extends Base
         return $this->success(['content' => $result['content']], 'success');
     }
 
+    /**
+     * Read the latest active diagnosis for one exact OTA scope without generating a new record.
+     */
+    public function latestOtaDiagnosis(): Response
+    {
+        $this->checkLogin();
+        $hotelId = (int)$this->request->get('hotel_id', 0);
+        $platform = strtolower(trim((string)$this->request->get('platform', '')));
+        $startDate = trim((string)$this->request->get('start_date', ''));
+        $endDate = trim((string)$this->request->get('end_date', ''));
+
+        if ($hotelId <= 0) {
+            return $this->error('hotel_id must be a positive system hotel id', 422);
+        }
+        if (!in_array($platform, ['ctrip', 'meituan', 'qunar'], true)) {
+            return $this->error('platform 仅支持 ctrip、meituan、qunar', 422);
+        }
+        if (!$this->isDateString($startDate) || !$this->isDateString($endDate) || strtotime($startDate) > strtotime($endDate)) {
+            return $this->error('start_date 和 end_date 必须是有效的 YYYY-MM-DD 范围', 422);
+        }
+
+        try {
+            $this->assertOtaDiagnosisHotelPermission($hotelId, 'operation.view');
+            $targetRange = $this->normalizeOtaDiagnosisScopeDateRange([
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+            ]);
+            $records = AgentLog::where('hotel_id', $hotelId)
+                ->where('agent_type', AgentLog::AGENT_TYPE_REVENUE)
+                ->where('action', 'ota_diagnosis')
+                ->order('id', 'desc')
+                ->limit(100)
+                ->select();
+
+            foreach ($records as $record) {
+                $context = $record->context_data;
+                if (is_string($context)) {
+                    $decoded = json_decode($context, true);
+                    $context = is_array($decoded) ? $decoded : [];
+                }
+                if (!is_array($context)
+                    || strtolower((string)($context['platform'] ?? '')) !== $platform
+                    || (string)($context['record_status'] ?? '') !== 'active'
+                    || $this->normalizeOtaDiagnosisScopeDateRange((array)($context['requested_date_range'] ?? [])) !== $targetRange
+                ) {
+                    continue;
+                }
+                $snapshot = is_array($context['diagnosis_result'] ?? null) ? $context['diagnosis_result'] : [];
+                if ($snapshot === [] || (string)($snapshot['record_status'] ?? 'active') !== 'active') {
+                    continue;
+                }
+                $snapshot['saved_record'] = array_replace([
+                    'id' => (int)$record->id,
+                    'saved' => true,
+                    'readback_verified' => true,
+                    'storage' => 'agent_logs.context_data',
+                ], is_array($snapshot['saved_record'] ?? null) ? $snapshot['saved_record'] : []);
+
+                return $this->success([
+                    'status' => 'ready',
+                    'diagnosis' => $snapshot,
+                    'scope' => [
+                        'hotel_id' => $hotelId,
+                        'platform' => $platform,
+                        'start_date' => $startDate,
+                        'end_date' => $endDate,
+                    ],
+                ], '已读取保存的 OTA 诊断');
+            }
+
+            return $this->success([
+                'status' => 'missing',
+                'diagnosis' => null,
+                'scope' => [
+                    'hotel_id' => $hotelId,
+                    'platform' => $platform,
+                    'start_date' => $startDate,
+                    'end_date' => $endDate,
+                ],
+            ], '该门店目标日尚无已保存 OTA 诊断');
+        } catch (\Throwable $e) {
+            $status = $e->getCode() >= 400 && $e->getCode() <= 599 ? (int)$e->getCode() : 500;
+            return $this->error('读取 OTA 诊断失败: ' . $this->sanitizeLlmErrorMessage($e->getMessage()), $status);
+        }
+    }
+
     public function otaDiagnosis(): Response
     {
-        $this->checkAdmin();
+        $this->checkLogin();
 
         $hotelIdRaw = trim((string) $this->request->param('hotel_id', ''));
         $hotelId = (int) $hotelIdRaw;
@@ -276,6 +380,10 @@ class Agent extends Base
             if ($hotelIdRaw === '') {
                 return $this->error('请选择有效的酒店配置，诊断必须包含 hotel_id', 422);
             }
+            if ($hotelId <= 0) {
+                return $this->error('hotel_id must be a positive system hotel id', 422);
+            }
+            $this->assertOtaDiagnosisHotelPermission($hotelId, 'operation.view');
 
             $dataSet = $this->queryOtaDiagnosisData($hotelId, $hotelIdRaw, $platformHotelIdRaw, $platform, $startDate, $endDate, $analysisType);
             if (!$this->hasOtaDiagnosisData($dataSet)) {
@@ -398,13 +506,14 @@ class Agent extends Base
 
             return $this->success($result, 'success');
         } catch (\Throwable $e) {
-            return $this->error('OTA 诊断失败: ' . $this->sanitizeLlmErrorMessage($e->getMessage()), 500);
+            $status = $e->getCode() >= 400 && $e->getCode() <= 599 ? (int)$e->getCode() : 500;
+            return $this->error('OTA 诊断失败: ' . $this->sanitizeLlmErrorMessage($e->getMessage()), $status);
         }
     }
 
     public function createOtaDiagnosisExecutionIntent(int $id, int $actionIndex): Response
     {
-        $this->checkAdmin();
+        $this->checkLogin();
         if ($id <= 0 || $actionIndex < 0) {
             return $this->error('invalid OTA diagnosis action identity', 422);
         }
@@ -421,6 +530,10 @@ class Agent extends Base
                 if (!is_array($log)) {
                     throw new \RuntimeException('saved OTA diagnosis not found', 404);
                 }
+
+                $hotelId = (int)($log['hotel_id'] ?? 0);
+                $this->assertOtaDiagnosisHotelPermission($hotelId, 'operation.view', true);
+                $this->assertOtaDiagnosisHotelPermission($hotelId, 'operation.execute');
 
                 $rawContext = is_string($log['context_data'] ?? null)
                     ? (string)$log['context_data']
@@ -443,11 +556,11 @@ class Agent extends Base
                 if (!is_array($action)
                     || ($action['execution_ready'] ?? false) !== true
                     || ($action['can_request_execution_intent'] ?? false) !== true
+                    || !$this->isOtaDiagnosisActionDecisionQualityExecutionReady($action)
                 ) {
                     throw new \RuntimeException('saved OTA diagnosis action lacks executable evidence', 409);
                 }
 
-                $hotelId = (int)($log['hotel_id'] ?? 0);
                 if ($hotelId <= 0
                     || ((int)($snapshot['hotel']['id'] ?? $hotelId) > 0 && (int)$snapshot['hotel']['id'] !== $hotelId)
                 ) {
@@ -489,7 +602,8 @@ class Agent extends Base
                         $intentInput,
                         (int)($this->currentUser->id ?? 0),
                         false,
-                        $atomicIdempotencyKey
+                        $atomicIdempotencyKey,
+                        true
                     );
                 $reused = $reused || ($intent['idempotent_replay'] ?? false) === true;
                 $persistedSchedule = $this->otaDiagnosisIntentWorkflowSchedule($intent);
@@ -738,7 +852,11 @@ class Agent extends Base
 
             $actionItems = array_values(array_filter((array)($snapshot['action_items'] ?? []), 'is_array'));
             $action = $actionItems[$actionIndex] ?? null;
-            if (!is_array($action) || ($action['execution_ready'] ?? false) !== true || ($action['can_request_execution_intent'] ?? false) !== true) {
+            if (!is_array($action)
+                || ($action['execution_ready'] ?? false) !== true
+                || ($action['can_request_execution_intent'] ?? false) !== true
+                || !$this->isOtaDiagnosisActionDecisionQualityExecutionReady($action)
+            ) {
                 return $this->error('该行动缺少可执行证据，不能转入运营执行', 409);
             }
 
@@ -774,7 +892,10 @@ class Agent extends Base
                     [$hotelId],
                     $hotelId,
                     $intentInput,
-                    (int)($this->currentUser->id ?? 0)
+                    (int)($this->currentUser->id ?? 0),
+                    false,
+                    null,
+                    true
                 );
 
             return $this->success([
@@ -1959,6 +2080,8 @@ class Agent extends Base
                 'ref' => implode('#', array_filter(['captured_ota_summary', $platform, $startDate, $endDate])),
                 'source' => 'authorized_captured_ota_summary',
                 'date' => $endDate,
+                'platform' => $platform,
+                'date_role' => 'historical',
                 'scope' => 'ota_channel_multi_hotel',
                 'quality_status' => $qualityStatus,
                 'metric_keys' => array_values(array_filter(array_keys((array)($summary['totals'] ?? [])))),
@@ -3638,7 +3761,9 @@ class Agent extends Base
 
         return [
             'platform' => strtolower(trim((string)($row['source'] ?? $row['platform'] ?? ''))),
+            'system_hotel_id' => (int)($row['system_hotel_id'] ?? 0),
             'platform_hotel_id' => trim((string)($row['hotel_id'] ?? '')),
+            'date_role' => trim((string)($row['date_role'] ?? 'target')),
             'quality_status' => $this->otaDiagnosisRowQualityStatus($row),
             'readback_verified' => (int)($row['readback_verified'] ?? 0) === 1,
             'readback_verified_at' => (string)($row['readback_verified_at'] ?? ''),
@@ -3827,6 +3952,7 @@ class Agent extends Base
                 'missing_evidence' => $missingEvidence,
                 'execution_ready' => $executionReady,
                 'can_request_execution_intent' => $executionReady,
+                'can_create_execution_intent' => $executionReady,
                 'human_confirmation_required' => true,
                 'human_confirmation_status' => $executionReady ? 'pending' : 'blocked',
                 'blocked_reason' => $blockedReason,
@@ -3837,7 +3963,7 @@ class Agent extends Base
             ];
         }
 
-        return (new AiDecisionQualityService())->enrichRecommendations($items, [
+        $enriched = (new AiDecisionQualityService())->enrichRecommendations($items, [
             'scope' => 'ota_channel',
             'hotel_id' => (int)($context['hotel']['id'] ?? 0),
             'platform' => (string)($context['platform'] ?? ''),
@@ -3846,7 +3972,40 @@ class Agent extends Base
             'default_priority' => (string)($context['priority'] ?? 'medium'),
             'basis_summary' => (string)($context['core_conclusion'] ?? $context['diagnosis']['summary'] ?? ''),
             'review_window' => '执行后在下一可用数据日按同酒店、同平台、同指标口径与执行前数据复核',
+            'expected_effect_policy' => [
+                'status' => 'verification_target',
+                'direction' => 'verify',
+                'summary' => '预期效果仅作为服务端核验目标：执行后按动作对应指标比较同酒店、同平台、同口径的前后数据；完成回读前不承诺改善幅度。',
+                'review_window' => '执行后在下一可用数据日按同酒店、同平台、同指标口径与执行前数据复核',
+            ],
         ]);
+
+        foreach ($enriched as &$item) {
+            $legacyAllowsExecution = ($item['execution_ready'] ?? false) === true
+                && ($item['can_request_execution_intent'] ?? false) === true;
+            $executionReady = $legacyAllowsExecution
+                && $this->isOtaDiagnosisActionDecisionQualityExecutionReady($item);
+            $item['execution_ready'] = $executionReady;
+            $item['can_request_execution_intent'] = $executionReady;
+            if (!$executionReady) {
+                $item['human_confirmation_status'] = 'blocked';
+            }
+        }
+        unset($item);
+
+        return $enriched;
+    }
+
+    /** @param array<string, mixed> $action */
+    private function isOtaDiagnosisActionDecisionQualityExecutionReady(array $action): bool
+    {
+        $decisionQuality = is_array($action['decision_quality'] ?? null)
+            ? $action['decision_quality']
+            : [];
+
+        return ($action['can_create_execution_intent'] ?? false) === true
+            && ($decisionQuality['contract_version'] ?? '') === AiDecisionQualityService::CONTRACT_VERSION
+            && ($decisionQuality['execution_ready'] ?? false) === true;
     }
 
     private function requiredOtaEvidenceTagsForAction(string $action): array
@@ -4262,7 +4421,9 @@ class Agent extends Base
             ->where('action', 'ota_diagnosis')
             ->where('id', '<', $newLogId)
             ->order('id', 'desc')
+            ->lock(true)
             ->select();
+        $operationService = new OperationManagementService();
         foreach ($records as $record) {
             $context = $record->context_data;
             if (is_string($context)) {
@@ -4284,6 +4445,9 @@ class Agent extends Base
             if ($recordPlatform !== $platform
                 || $recordRange !== $targetRange
             ) {
+                continue;
+            }
+            if ($operationService->hasOtaDiagnosisExecutionReference($hotelId, (int)$record->id)) {
                 continue;
             }
 
@@ -4368,7 +4532,10 @@ class Agent extends Base
         if (($snapshot['decision_status'] ?? $snapshot['decision_closure']['status'] ?? '') !== 'action_required') {
             throw new \InvalidArgumentException('saved OTA diagnosis is not action_required');
         }
-        if (($action['execution_ready'] ?? false) !== true) {
+        if (($action['execution_ready'] ?? false) !== true
+            || ($action['can_request_execution_intent'] ?? false) !== true
+            || !$this->isOtaDiagnosisActionDecisionQualityExecutionReady($action)
+        ) {
             throw new \InvalidArgumentException('saved OTA diagnosis action is not execution ready');
         }
 
@@ -4416,6 +4583,7 @@ class Agent extends Base
             'target_value' => [
                 'campaign_type' => $actionType,
                 'target_metric' => $targetMetric,
+                'expected_direction' => 'increase',
                 'action_text' => $actionText,
                 'measurement_policy' => 'target_not_quantified_until_manual_confirmation',
                 'assignee_id' => $workflowSchedule['assignee_id'],
@@ -4437,7 +4605,9 @@ class Agent extends Base
                 'diagnosis_summary' => (string)($snapshot['core_conclusion'] ?? $snapshot['diagnosis']['summary'] ?? ''),
                 'metric_scope' => 'ota_channel',
                 'expected_delta_status' => 'not_quantified',
+                'expected_direction' => 'increase',
                 'workflow_schedule' => $workflowSchedule,
+                'decision_recommendation' => $action,
             ],
             'expected_metric' => $targetMetric,
             'risk_level' => $priority === 'high' ? 'high' : ($priority === 'low' ? 'low' : 'medium'),
@@ -4865,6 +5035,7 @@ class Agent extends Base
     private function buildOtaDiagnosisSummary(array $rows, int $hotelId, string $hotelName, string $platform, string $startDate, string $endDate, string $analysisType): array
     {
         $ownHotelNames = array_values(array_filter([$hotelName], static fn ($value): bool => trim((string)$value) !== ''));
+        $ownPlatformHotelIds = $this->otaDiagnosisOwnPlatformHotelIds($rows, $hotelId, $platform);
         $summary = [
             'scope' => [
                 'hotel_id' => $hotelId,
@@ -4967,7 +5138,12 @@ class Agent extends Base
                 : null;
             $dataValue = $this->readRowNumber($row, 'data_value');
 
-            $isOwnOperatingRow = OtaOperatingScope::isOwnOperatingRow($row, $raw, $ownHotelNames);
+            $isOwnOperatingRow = OtaOperatingScope::isOwnOperatingRow(
+                $row,
+                $raw,
+                $ownHotelNames,
+                $ownPlatformHotelIds
+            );
             if (!$isOwnOperatingRow && !in_array($dataType, ['advertising', 'quality', 'review'], true)) {
                 $summary['excluded_non_operating_rows'] = (int)($summary['excluded_non_operating_rows'] ?? 0) + 1;
                 continue;
@@ -5120,6 +5296,62 @@ class Agent extends Base
         }
 
         return $summary;
+    }
+
+    /**
+     * Resolve only the OTA identifiers carried by the exact persisted data
+     * sources represented in the diagnosis rows. This keeps name drift from
+     * excluding the hotel's own facts without treating every hotel-bound row
+     * as self evidence.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, string>
+     */
+    private function otaDiagnosisOwnPlatformHotelIds(array $rows, int $hotelId, string $platform): array
+    {
+        $platform = strtolower(trim($platform));
+        if ($hotelId <= 0 || !in_array($platform, ['ctrip', 'meituan'], true)) {
+            return [];
+        }
+
+        $sourceIds = array_values(array_unique(array_filter(array_map(
+            static fn (array $row): int => (int)($row['data_source_id'] ?? 0),
+            array_values(array_filter($rows, 'is_array'))
+        ), static fn (int $id): bool => $id > 0)));
+        if ($sourceIds === []) {
+            return [];
+        }
+
+        try {
+            $sources = Db::name('platform_data_sources')
+                ->field('id,config_json')
+                ->whereIn('id', $sourceIds)
+                ->where('system_hotel_id', $hotelId)
+                ->where('platform', $platform)
+                ->select()
+                ->toArray();
+        } catch (\Throwable) {
+            return [];
+        }
+
+        $keys = $platform === 'meituan'
+            ? ['store_id', 'storeId', 'poi_id', 'poiId']
+            : ['ota_hotel_id', 'otaHotelId', 'ctrip_hotel_id', 'ctripHotelId', 'platform_hotel_id', 'platformHotelId', 'external_hotel_id'];
+        $ids = [];
+        foreach ($sources as $source) {
+            $config = json_decode((string)($source['config_json'] ?? ''), true);
+            if (!is_array($config)) {
+                continue;
+            }
+            foreach ($keys as $key) {
+                $value = trim((string)($config[$key] ?? ''));
+                if ($value !== '') {
+                    $ids[] = $value;
+                }
+            }
+        }
+
+        return array_values(array_unique($ids));
     }
 
     private function extractOtaTrafficMetrics(array $row, array $raw): array
@@ -6108,6 +6340,12 @@ class Agent extends Base
         
         $hotelId = (int) $this->request->param('hotel_id', 0);
         $date = (string) $this->request->param('date', date('Y-m-d'));
+        if ($hotelId <= 0) {
+            return $this->error('hotel_id is required', 422);
+        }
+        if (!$this->isDateString($date)) {
+            return $this->error('date must be YYYY-MM-DD', 422);
+        }
         
         // 获取价格矩阵
         $priceMatrix = CompetitorAnalysis::getPriceMatrix($hotelId, $date);
@@ -6122,10 +6360,12 @@ class Agent extends Base
         );
         
         // 获取价格波动预警
-        $alerts = CompetitorAnalysis::getAlertCompetitors($hotelId, 20);
+        $alerts = CompetitorAnalysis::getAlertCompetitors($hotelId, 20, $date);
         
         // 获取价格趋势
+        $trendStartDate = date('Y-m-d', strtotime($date . ' -6 days'));
         $competitors = CompetitorAnalysis::where('hotel_id', $hotelId)
+            ->whereBetween('analysis_date', [$trendStartDate, $date])
             ->group('competitor_hotel_id')
             ->column('competitor_hotel_id');
         
@@ -6139,6 +6379,11 @@ class Agent extends Base
             'alerts' => $alerts,
             'trends' => $trends,
             'date' => $date,
+            'query_scope' => [
+                'hotel_id' => $hotelId,
+                'date' => $date,
+                'metric_scope' => 'ota_channel',
+            ],
         ]);
     }
 
@@ -6787,18 +7032,25 @@ class Agent extends Base
             return $this->error('price suggestion not found', 404);
         }
 
-        $service = new OperationManagementService();
-        $input = $service->buildPriceSuggestionExecutionIntentInput($suggestion->toArray(), [
-            'platform' => (string)$this->request->param('platform', $this->request->param('channel', '')),
-            'room_type_key' => (string)$this->request->param('room_type_key', ''),
-            'rate_plan_key' => (string)$this->request->param('rate_plan_key', ''),
-            'expected_metric' => (string)$this->request->param('expected_metric', 'orders'),
-            'expected_delta' => (float)$this->request->param('expected_delta', 0),
-        ]);
-        $hotelIds = [(int)$suggestion->hotel_id];
-
         try {
-            $intent = $service->createExecutionIntent($hotelIds, (int)$suggestion->hotel_id, $input, (int)($this->currentUser->id ?? 0));
+            $service = new OperationManagementService();
+            $input = $service->buildPriceSuggestionExecutionIntentInput($suggestion->toArray(), [
+                'platform' => (string)$this->request->param('platform', $this->request->param('channel', '')),
+                'room_type_key' => (string)$this->request->param('room_type_key', ''),
+                'rate_plan_key' => (string)$this->request->param('rate_plan_key', ''),
+                'expected_metric' => (string)$this->request->param('expected_metric', 'orders'),
+                'expected_delta' => (float)$this->request->param('expected_delta', 0),
+            ]);
+            $hotelIds = [(int)$suggestion->hotel_id];
+            $intent = $service->createExecutionIntent(
+                $hotelIds,
+                (int)$suggestion->hotel_id,
+                $input,
+                (int)($this->currentUser->id ?? 0),
+                false,
+                null,
+                true
+            );
         } catch (\Throwable $e) {
             return $this->error($e->getMessage() ?: 'create execution intent failed', $e instanceof \InvalidArgumentException ? 422 : 500);
         }

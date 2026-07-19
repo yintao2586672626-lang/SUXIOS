@@ -65,6 +65,7 @@ hotelx_dump.sql
 *_backup*.sql
 
 # Local assistant/workspace files
+.codex-tmp/
 .codebuddy/
 .workbuddy/
 .snapshots/

@@ -2579,25 +2579,10 @@
                             <div class="flex flex-wrap items-center gap-3">
                                 <select v-model="selectedOpeningProjectId" @change="selectOpeningProject" class="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white min-w-[220px]">
                                     <option value="">选择已有开业项目</option>
-                                    <option v-for="project in openingProjects" :key="project.id" :value="project.id">{{ project.project_name }} · {{ project.hotel_name }}</option>
+                                    <option v-for="project in openingProjects" :key="project.id" :value="project.id">{{ project.project_name }} · {{ project.hotel_name }}{{ project.hotel_id ? '' : '（未绑定）' }}</option>
                                 </select>
                                 <button @click="startOpeningProjectCreate" class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm hover:bg-slate-800"><i class="fas fa-plus mr-1"></i>新建项目</button>
                                 <button @click="loadOpeningProjects" class="px-3 py-2 rounded-lg border border-gray-200 text-gray-700 text-sm hover:bg-gray-50"><i class="fas fa-sync-alt mr-1"></i>刷新</button>
-                            </div>
-                        </div>
-
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            <div :class="selectedOpeningProjectId || openingProjectForm.project_name ? 'border-blue-200 bg-blue-50 text-blue-800' : 'border-gray-100 bg-white text-gray-600'" class="rounded-xl border p-4">
-                                <div class="text-xs font-medium mb-1">1. 项目建档</div>
-                                <div class="text-sm">录入项目基础信息</div>
-                            </div>
-                            <div :class="openingTasks.length &gt; 0 ? 'border-blue-200 bg-blue-50 text-blue-800' : 'border-gray-100 bg-white text-gray-600'" class="rounded-xl border p-4">
-                                <div class="text-xs font-medium mb-1">2. 生成清单</div>
-                                <div class="text-sm">生成标准检查项并分派责任人</div>
-                            </div>
-                            <div :class="openingOverview ? 'border-blue-200 bg-blue-50 text-blue-800' : 'border-gray-100 bg-white text-gray-600'" class="rounded-xl border p-4">
-                                <div class="text-xs font-medium mb-1">3. 跟踪风险</div>
-                                <div class="text-sm">更新状态后刷新评分和风险等级</div>
                             </div>
                         </div>
 
@@ -2638,7 +2623,8 @@
                                             <option value="">暂不绑定</option>
                                             <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
                                         </select>
-                                        <div v-if="!openingProjectForm.hotel_id" class="mt-1 text-xs text-amber-600">未绑定时只能作为开业清单，不能证明真实门店闭环。</div>
+                                        <div v-if="!openingPersistedHotelId" class="mt-1 text-xs text-amber-600">未保存并回读门店绑定前，只能维护开业清单。</div>
+                                        <div v-else-if="openingProjectBindingDirty" class="mt-1 text-xs text-amber-600">门店绑定已修改但尚未保存，执行仍使用原绑定；请先保存项目。</div>
                                     </div>
                                     <div class="grid grid-cols-2 gap-3">
                                         <div>
@@ -2677,11 +2663,10 @@
                                             <input v-model="openingProjectForm.opening_date" type="date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
                                         </div>
                                     </div>
-                                    <button @click="saveOpeningProject" :disabled="openingLoading" class="w-full px-4 py-2.5 rounded-lg bg-slate-900 text-white text-sm hover:bg-slate-800 disabled:opacity-50"><i class="fas fa-save mr-1"></i>{{ selectedOpeningProjectId ? '保存项目' : '创建并生成清单' }}</button>
                                     <div v-if="selectedOpeningProjectId" class="grid grid-cols-2 gap-3">
                                         <button @click="openOpeningChecklist" :disabled="openingLoading" class="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 text-sm hover:bg-gray-50 disabled:opacity-50"><i class="fas fa-tasks mr-1"></i>查看清单</button>
                                         <button @click="recalculateOpening" :disabled="openingLoading" class="px-4 py-2 rounded-lg border border-blue-200 text-blue-700 text-sm hover:bg-blue-50 disabled:opacity-50"><i class="fas fa-calculator mr-1"></i>刷新评分</button>
-                                        <button @click="createOpeningExecutionIntent" :disabled="openingLoading || !selectedOpeningProjectId || openingExecutionIntentId || !openingProjectForm.hotel_id" class="px-4 py-2 rounded-lg border border-indigo-200 text-indigo-700 text-sm hover:bg-indigo-50 disabled:opacity-50"><i class="fas fa-tasks mr-1"></i>{{ openingExecutionIntentId ? '已转跟踪' : '转执行跟踪' }}</button>
+                                        <button @click="createOpeningExecutionIntent" :disabled="openingLoading || !openingExecutionReady || openingExecutionIntentId" class="px-4 py-2 rounded-lg border border-indigo-200 text-indigo-700 text-sm hover:bg-indigo-50 disabled:opacity-50"><i class="fas fa-tasks mr-1"></i>{{ openingExecutionIntentId ? '已转跟踪' : '转执行跟踪' }}</button>
                                         <div v-if="openingExecutionIntentId" class="px-4 py-2 rounded-lg bg-indigo-50 text-indigo-700 text-sm">执行 #{{ openingExecutionIntentId }}</div>
                                     </div>
                                     <button v-if="selectedOpeningProjectId &amp;&amp; openingTasks.length === 0" @click="generateOpeningTasks" :disabled="openingLoading" class="w-full px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50"><i class="fas fa-magic mr-1"></i>生成检查清单</button>
@@ -3313,7 +3298,7 @@
                                     <label class="block">
                                         <span class="mb-1 block text-xs text-gray-500">目标门店</span>
                                         <select v-model="operationFilters.hotel_id" data-testid="ops-insight-hotel" class="min-w-[180px] rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
-                                            <option value="">全部可见门店</option>
+                                            <option value="">请选择单个门店</option>
                                             <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name || ('酒店' + hotel.id) }}</option>
                                         </select>
                                     </label>
@@ -3337,7 +3322,7 @@
                                         <span class="rounded-full border border-rose-100 bg-rose-50 px-3 py-1 text-sm font-semibold text-rose-800">未读 {{ operationUnreadCount }}</span>
                                         <span class="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs text-gray-600">数据状态：{{ operationDataStatusText(operationAlerts.data_status) }}</span>
                                     </div>
-                                    <button type="button" @click="markOperationAlertsRead((operationAlerts.list || []).filter(item =&gt; item.status !== 'read').map(item =&gt; item.id))" :disabled="operationUnreadCount === 0" class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50">全部标记已读</button>
+                                    <button v-if="operationCanMarkAlertsRead" type="button" @click="markOperationAlertsRead((operationAlerts.list || []).filter(item =&gt; item.status !== 'read').map(item =&gt; item.id))" :disabled="operationUnreadCount === 0" class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50">全部标记已读</button>
                                 </div>
                                 <div class="mt-4 flex flex-wrap gap-2">
                                     <button v-for="filter in operationAlertFilters" :key="filter.key" type="button" @click="operationAlertFilter = filter.key" :class="['rounded-full border px-3 py-1.5 text-xs font-medium transition', operationAlertFilter === filter.key ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50']">{{ filter.label }}</button>
@@ -3360,13 +3345,14 @@
                                         </div>
                                         <div class="flex shrink-0 flex-col items-stretch gap-2 sm:flex-row lg:flex-col">
                                             <button v-if="alert.task_bridge?.linked" type="button" data-testid="operation-alert-open-task" @click="openOperationAlertTask(alert)" class="rounded-lg border border-[#dcc591] bg-[#fcfaf5] px-3 py-2 text-sm font-semibold text-[#6f572f] hover:bg-[#f8f3e8]">
-                                                <i class="fas fa-tasks mr-1.5"></i>查看待审批任务 #{{ alert.task_bridge.intent_id }}
+                                                <i class="fas fa-tasks mr-1.5"></i>查看任务 #{{ alert.task_bridge.intent_id }} · {{ operationExecutionStatusLabel(alert.task_bridge.intent_status) }}
                                             </button>
+                                            <span v-if="alert.task_bridge?.linked &amp;&amp; alert.task_bridge?.blocked_reason" class="max-w-[220px] rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">{{ alert.task_bridge.blocked_reason }}</span>
                                             <button v-else-if="alert.task_bridge?.can_convert" type="button" data-testid="operation-alert-create-task" @click="createOperationAlertTask(alert)" :disabled="isOperationAlertTaskLoading(alert)" class="rounded-lg bg-[#6f572f] px-3 py-2 text-sm font-semibold text-white hover:bg-[#594625] disabled:cursor-wait disabled:opacity-60" title="创建待人工审批的运营任务，不自动执行或写入 OTA">
                                                 <i :class="[isOperationAlertTaskLoading(alert) ? 'fas fa-spinner fa-spin' : 'fas fa-share-square', 'mr-1.5']"></i>{{ isOperationAlertTaskLoading(alert) ? '转任务中...' : '直接转任务' }}
                                             </button>
                                             <span v-else-if="alert.task_bridge?.unavailable_reason" data-testid="operation-alert-task-unavailable" class="max-w-[220px] rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">{{ alert.task_bridge.unavailable_reason }}</span>
-                                            <button v-if="alert.status !== 'read'" type="button" @click="markOperationAlertsRead([alert.id])" class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">标记已读</button>
+                                            <button v-if="operationCanMarkAlertsRead &amp;&amp; alert.status !== 'read'" type="button" @click="markOperationAlertsRead([alert.id])" class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">标记已读</button>
                                         </div>
                                     </div>
                                 </article>
@@ -4039,10 +4025,10 @@
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-gray-100">
-                                        <tr v-for="item in operationExecutionItems" :key="item.id" :class="operationExecutionRowClass(item)">
+                                        <tr v-for="item in operationExecutionItems" :key="item.id" :data-operation-execution-intent-id="item.id" :class="operationExecutionRowClass(item)">
                                             <td class="px-4 py-3">
                                                 <div class="font-medium text-gray-900">{{ operationExecutionSourceText(item) }}</div>
-                                                <div class="text-xs text-gray-400">{{ item.recommendation?.platform || '-' }} · {{ item.recommendation?.date_start || '-' }}</div>
+                                                <div class="text-xs text-gray-400">任务 #{{ item.id }} · {{ item.recommendation?.platform || '-' }} · {{ item.recommendation?.date_start || '-' }}</div>
                                             </td>
                                             <td class="px-4 py-3">
                                                 <div>{{ operationExecutionActionText(item) }}</div>
@@ -7866,7 +7852,7 @@
                                         <div class="grid grid-cols-1 gap-4 xl:grid-cols-12 xl:items-end">
                                             <div class="xl:col-span-3">
                                                 <label class="mb-1 block text-sm font-medium text-gray-700">系统门店 <span class="text-red-500">*</span></label>
-                                                <select v-model="selectedCtripHotelId" @change="handleCtripPublicProfileHotelChange" data-testid="ctrip-public-profile-hotel-select" :disabled="ctripPublicProfileLoading || ctripPublicProfileSaving || ctripPublicProfileRefreshing" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-gray-100">
+                                                <select v-model="selectedCtripHotelId" @change="handleCtripPublicProfileHotelChange" data-testid="ctrip-public-profile-hotel-select" :disabled="ctripPublicProfileLoading || ctripPublicProfileSaving || ctripPublicProfileRefreshing || otaPublicPageDiagnosisExecutionLoading" class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-gray-100">
                                                     <option value="">请选择门店</option>
                                                     <option v-for="hotel in ctripPublicProfileHotelOptions" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
                                                 </select>
@@ -7959,17 +7945,18 @@
                                                     <h4 class="text-base font-semibold text-gray-900">OTA 公开页十二维证据诊断</h4>
                                                     <span v-if="otaPublicPageDiagnosisPayload" :class="['rounded-full border px-2 py-0.5 text-xs font-medium', otaPublicPageDiagnosisStatusClass(otaPublicPageDiagnosisPayload.status)]">{{ otaPublicPageDiagnosisStatusText(otaPublicPageDiagnosisPayload.status) }}</span>
                                                 </div>
-                                                <p class="mt-1 text-xs leading-5 text-gray-500">数据库回读与 OTA 来源验证分开显示；诊断评分不计算。</p>
+                                                <p class="mt-1 text-xs text-gray-500">保存回读 ≠ 来源验证；不评分。</p>
                                             </div>
-                                            <div class="grid grid-cols-1 gap-2 sm:grid-cols-[130px_150px_auto] sm:items-end">
+                                            <div class="grid grid-cols-1 gap-2 sm:grid-cols-[120px_145px_auto_auto] sm:items-end">
                                                 <label class="text-xs text-gray-500">平台<select v-model="otaPublicPageDiagnosisFilter.platform" data-testid="ota-public-page-platform" :disabled="otaPublicPageDiagnosisLoading || otaPublicPageDiagnosisExecutionLoading" class="mt-1 w-full rounded-lg border border-gray-300 bg-white px-2.5 py-2 text-sm text-gray-800"><option value="ctrip">携程</option><option value="meituan">美团</option></select></label>
                                                 <label class="text-xs text-gray-500">业务日期<input v-model="otaPublicPageDiagnosisFilter.business_date" data-testid="ota-public-page-business-date" type="date" :disabled="otaPublicPageDiagnosisLoading || otaPublicPageDiagnosisExecutionLoading" class="mt-1 w-full rounded-lg border border-gray-300 px-2.5 py-2 text-sm text-gray-800"></label>
                                                 <button type="button" data-testid="ota-public-page-diagnose" @click="loadOtaPublicPageDiagnosis" :disabled="!selectedCtripHotelId || otaPublicPageDiagnosisLoading || otaPublicPageDiagnosisExecutionLoading" class="inline-flex items-center justify-center rounded-lg bg-emerald-800 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-gray-300">{{ otaPublicPageDiagnosisLoading ? '读取中' : '读取证据' }}</button>
+                                                <button type="button" data-testid="ota-public-page-evidence-action" @click="handleOtaPublicPageEvidenceAction" :disabled="otaPublicPageEvidenceActionDisabled" class="rounded-lg border border-emerald-700 px-3 py-2 text-sm text-emerald-800 disabled:opacity-50">{{ otaPublicPageEvidenceActionText }}</button>
                                             </div>
                                         </div>
 
                                         <div v-if="otaPublicPageDiagnosisError" data-testid="ota-public-page-diagnosis-error" class="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{{ otaPublicPageDiagnosisError }}</div>
-                                        <div v-if="otaPublicPageDiagnosisLoading" data-testid="ota-public-page-diagnosis-loading" class="mt-4 rounded-lg border border-gray-200 bg-gray-50 px-4 py-6 text-center text-sm text-gray-500"><i class="fas fa-spinner fa-spin mr-2 text-emerald-700"></i>正在按所选日期回读公开页证据</div>
+                                        <div v-if="otaPublicPageDiagnosisLoading" data-testid="ota-public-page-diagnosis-loading" class="mt-4 rounded-lg border border-gray-200 bg-gray-50 px-4 py-6 text-center text-sm text-gray-500">正在按所选日期回读公开页证据</div>
                                         <div v-else-if="!selectedCtripHotelId" data-testid="ota-public-page-diagnosis-empty" class="mt-4 rounded-lg border border-dashed border-gray-300 px-4 py-6 text-center text-sm text-gray-500">请先在本页上方选择系统门店。</div>
                                         <div v-else-if="otaPublicPageDiagnosisPayload" class="mt-4 space-y-4">
                                             <div class="flex flex-wrap gap-x-5 gap-y-1 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
@@ -7978,7 +7965,7 @@
                                                 <span>来源已验证 {{ otaPublicPageDiagnosisCoverage.verified_field_count || 0 }} 个</span>
                                                 <span>覆盖率 {{ otaPublicPageDiagnosisCoverage.coverage_rate ?? 0 }}%</span>
                                             </div>
-                                            <div v-if="otaPublicPageDiagnosisPayload.platform_source_status === 'public_profile_source_not_connected'" class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">美团公开页证据源尚未接入；12 个维度保持未知，不借用携程或内部经营数据。</div>
+                                            <div v-if="otaPublicPageDiagnosisPayload.platform_source_status === 'manual_public_profile_entry_available'" class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">尚无美团消费者公开页观察；可人工录入，不借用商家后台、携程或内部经营数据。</div>
                                             <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
                                                 <article v-for="dimension in otaPublicPageDiagnosisDimensions" :key="dimension.key" data-testid="ota-public-page-dimension" class="rounded-lg border border-gray-200 p-3">
                                                     <div class="flex items-start justify-between gap-3"><span class="text-sm font-semibold text-gray-900">{{ dimension.label }} <small class="font-normal text-gray-400">{{ dimension.observed_field_count }} / {{ dimension.expected_field_count }}</small></span><span :class="['rounded-full border px-2 py-0.5 text-[11px]', otaPublicPageDiagnosisDimensionClass(dimension.status)]">{{ dimension.status === 'verified' ? '字段齐全' : (dimension.status === 'partial' ? '部分证据' : '未知') }}</span></div>
@@ -7991,14 +7978,14 @@
                                             <div data-testid="ota-public-page-sources" class="rounded-lg border border-gray-200 p-3">
                                                 <div class="text-sm font-semibold text-gray-900">来源与回读凭据</div>
                                                 <div v-if="otaPublicPageDiagnosisSources.length" class="mt-2 space-y-1 text-xs text-gray-600">
-                                                    <div v-for="source in otaPublicPageDiagnosisSources" :key="source.response_ref || source.platform_hotel_id" class="break-all rounded bg-gray-50 px-2 py-1.5"><a v-if="source.source_url" :href="source.source_url" target="_blank" rel="noopener noreferrer" class="font-medium text-emerald-700 hover:underline">{{ source.source_url }}</a><span> · 采集 {{ source.collected_at || '未记录' }} · 响应 {{ source.response_ref || '未记录' }} · 截图 {{ source.screenshot_ref || '未提供' }} · 保存回读 {{ source.persistence_readback_status }} · 来源验证 {{ source.source_validation_status }}</span></div>
+                                                    <div v-for="source in otaPublicPageDiagnosisSources" :key="source.response_ref || source.platform_hotel_id" class="break-all rounded bg-gray-50 px-2 py-1.5"><a v-if="source.source_url" :href="source.source_url" target="_blank" rel="noopener noreferrer" class="font-medium text-emerald-700 hover:underline">{{ source.source_url }}</a><span> · 采集 {{ source.collected_at || '未记录' }} · 响应 {{ source.response_ref || '未记录' }} · 截图 {{ source.screenshot_ref || '未提供' }} · 保存回读 {{ otaPublicPageEvidenceStatusText(source.persistence_readback_status) }} · 来源 {{ otaPublicPageEvidenceStatusText(source.source_validation_status) }}</span></div>
                                                 </div>
                                                 <div v-else class="mt-2 text-xs text-gray-500">所选日期没有带来源网址、采集时间和响应引用的持久化证据。</div>
                                             </div>
-                                            <div class="flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 lg:flex-row lg:items-center">
-                                                <p class="flex-1 text-xs text-amber-950"><b>诊断下一步：</b>{{ otaPublicPageDiagnosisPayload.next_action }}<br><span data-testid="ota-public-page-task-schedule" class="text-[11px]">{{ otaPublicPageDiagnosisTaskScheduleText }}</span><br><span class="text-[11px]">只创建待审批的运营任务草稿，不修改 OTA。{{ otaPublicPageDiagnosisPayload.scope_notice }}</span></p>
-                                                <span v-if="otaPublicPageDiagnosisExecutionIntent" data-testid="ota-public-page-task-readback" class="text-xs font-medium text-emerald-700">已回读任务 #{{ otaPublicPageDiagnosisExecutionIntent.id }}</span>
-                                                <button type="button" data-testid="ota-public-page-create-task" @click="createOtaPublicPageDiagnosisExecutionIntent" :disabled="otaPublicPageDiagnosisExecutionLoading" class="rounded-lg bg-amber-800 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{{ otaPublicPageDiagnosisExecutionLoading ? '转任务中' : (otaPublicPageDiagnosisExecutionIntent ? (otaPublicPageDiagnosisOperationSurfaceAccessible ? '打开运营任务' : '重新回读任务') : '一键转任务') }}</button>
+                                            <div role="status" aria-live="polite" :aria-busy="otaPublicPageDiagnosisExecutionLoading ? 'true' : 'false'" class="flex flex-wrap items-center gap-2 rounded-lg bg-amber-50 p-3">
+                                                <p class="flex-1 text-xs text-amber-950"><b>下一步：</b>{{ otaPublicPageDiagnosisPayload.next_action }}<br><span data-testid="ota-public-page-task-schedule">{{ otaPublicPageDiagnosisTaskScheduleText }}</span><br><span>待审批，不写 OTA，不代表全酒店。</span></p>
+                                                <span v-if="otaPublicPageDiagnosisTaskBridgeNoticeText" data-testid="ota-public-page-task-readback" :class="otaPublicPageDiagnosisExecutionIntent && otaPublicPageDiagnosisOperationSurfaceAccessible ? 'text-emerald-700' : 'text-amber-800'" class="text-xs">{{ otaPublicPageDiagnosisTaskBridgeNoticeText }}</span>
+                                                <button type="button" data-testid="ota-public-page-create-task" @click="createOtaPublicPageDiagnosisExecutionIntent" :disabled="otaPublicPageDiagnosisTaskActionDisabled" :aria-busy="otaPublicPageDiagnosisExecutionLoading ? 'true' : 'false'" class="rounded-lg bg-amber-800 px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50">{{ otaPublicPageDiagnosisTaskActionText }}</button>
                                             </div>
                                         </div>
                                         <div v-else data-testid="ota-public-page-diagnosis-empty" class="mt-4 rounded-lg border border-dashed border-gray-300 px-4 py-6 text-center text-sm text-gray-500">选择平台和业务日期后读取 12 维公开页证据。</div>
@@ -8155,8 +8142,8 @@
                                     </div>
 
                                     <div class="mb-4">
-                                        <button @click="fetchCtripTrafficAndSearchData" :disabled="fetchingData || !!ctripOverviewFetchActionLoading || !selectedCtripHotelId" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400">
-                                            <i class="fas fa-download mr-2"></i>{{ (fetchingData || ctripOverviewFetchActionLoading === 'ctrip-traffic') ? '正在获取...' : '获取流量数据' }}
+                                        <button @click="fetchCtripTrafficAndSearchData" :disabled="ctripTrafficBundleLoading || fetchingData || !!ctripOverviewFetchActionLoading || !selectedCtripHotelId" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400">
+                                            <i class="fas fa-download mr-2"></i>{{ (ctripTrafficBundleLoading || fetchingData || ctripOverviewFetchActionLoading === 'ctrip-traffic') ? '正在获取...' : '获取流量数据' }}
                                         </button>
                                     </div>
 
@@ -8186,9 +8173,6 @@
                                                 <input data-testid="ctrip-history-end-date" v-model="ctripTrafficForm.endDate" type="date" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none">
                                             </label>
                                         </div>
-                                        <button data-testid="ctrip-history-fetch" type="button" @click="fetchCtripTrafficData" :disabled="fetchingData || !selectedCtripHotelId" class="mt-4 inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400">
-                                            <i class="fas fa-history mr-2"></i>{{ fetchingData ? '正在获取...' : '获取历史流量' }}
-                                        </button>
                                     </div>
 
                                     <div v-if="ctripTrafficView === 'realtime'" class="mb-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -8234,7 +8218,7 @@
                                             </div>
                                         </div>
                                         <div v-else="" class="mt-5 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">
-                                            暂无已验证的今日实时数据；点击“获取流量数据”后展示携程实际返回的实时指标。
+                                            <i v-if="ctripTrafficBundleLoading || ctripRealtimeTrafficView.status === 'loading'" class="fas fa-spinner fa-spin mr-2"></i>{{ ctripRealtimeTrafficView.message || '暂无已验证的今日实时数据；点击“获取流量数据”后展示携程实际返回的实时指标。' }}
                                         </div>
                                     </div>
 
@@ -8395,45 +8379,17 @@
                                     </div>
 
                                     <div v-if="ctripTrafficView === 'history' &amp;&amp; ctripTrafficRows.length" class="mt-4">
-                                        <div :class="['border rounded-lg p-3 mb-4 text-sm', ctripTrafficBusinessQuality.className]">
+                                        <div data-testid="ctrip-traffic-history-quality" :class="['border rounded-lg p-3 mb-4 text-sm', ctripTrafficBusinessQuality.className]">
                                             <div class="font-medium">{{ ctripTrafficBusinessQuality.title }}</div>
                                             <div class="mt-1 text-xs">{{ ctripTrafficBusinessQuality.detail }}</div>
                                         </div>
 
                                         <div v-if="ctripTrafficSummary" data-testid="ctrip-traffic-summary-compare" class="grid grid-cols-1 gap-3 mb-4 sm:grid-cols-2 xl:grid-cols-5">
-                                            <div class="rounded-lg border border-blue-200 bg-blue-50 p-3">
-                                                <div class="text-sm font-semibold text-slate-800">列表曝光量</div>
-                                                <div class="mt-3 grid grid-cols-2 divide-x divide-blue-200 text-center">
-                                                    <div><div class="text-xs text-slate-500">本店</div><div class="mt-1 text-lg font-bold text-blue-700">{{ formatNumber(ctripTrafficSummary.self.listExposure) }}</div></div>
-                                                    <div><div class="text-xs text-slate-500">竞争圈</div><div class="mt-1 text-lg font-bold text-emerald-700">{{ formatNumber(ctripTrafficSummary.avg.listExposure) }}</div></div>
-                                                </div>
-                                            </div>
-                                            <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
-                                                <div class="text-sm font-semibold text-slate-800">详情访客量</div>
-                                                <div class="mt-3 grid grid-cols-2 divide-x divide-emerald-200 text-center">
-                                                    <div><div class="text-xs text-slate-500">本店</div><div class="mt-1 text-lg font-bold text-blue-700">{{ formatNumber(ctripTrafficSummary.self.detailExposure) }}</div></div>
-                                                    <div><div class="text-xs text-slate-500">竞争圈</div><div class="mt-1 text-lg font-bold text-emerald-700">{{ formatNumber(ctripTrafficSummary.avg.detailExposure) }}</div></div>
-                                                </div>
-                                            </div>
-                                            <div class="rounded-lg border border-amber-200 bg-amber-50 p-3">
-                                                <div class="text-sm font-semibold text-slate-800">曝光转化率</div>
-                                                <div class="mt-3 grid grid-cols-2 divide-x divide-amber-200 text-center">
-                                                    <div><div class="text-xs text-slate-500">本店</div><div class="mt-1 text-lg font-bold text-blue-700">{{ toFixedSafe(ctripTrafficSummary.self.flowRate, 2) }}%</div></div>
-                                                    <div><div class="text-xs text-slate-500">竞争圈</div><div class="mt-1 text-lg font-bold text-emerald-700">{{ toFixedSafe(ctripTrafficSummary.avg.flowRate, 2) }}%</div></div>
-                                                </div>
-                                            </div>
-                                            <div class="rounded-lg border border-indigo-200 bg-indigo-50 p-3">
-                                                <div class="text-sm font-semibold text-slate-800">下单转化率</div>
-                                                <div class="mt-3 grid grid-cols-2 divide-x divide-indigo-200 text-center">
-                                                    <div><div class="text-xs text-slate-500">本店</div><div class="mt-1 text-lg font-bold text-blue-700">{{ toFixedSafe(ctripTrafficSummary.self.orderFillRate, 2) }}%</div></div>
-                                                    <div><div class="text-xs text-slate-500">竞争圈</div><div class="mt-1 text-lg font-bold text-emerald-700">{{ toFixedSafe(ctripTrafficSummary.avg.orderFillRate, 2) }}%</div></div>
-                                                </div>
-                                            </div>
-                                            <div class="rounded-lg border border-rose-200 bg-rose-50 p-3">
-                                                <div class="text-sm font-semibold text-slate-800">成交转化率</div>
-                                                <div class="mt-3 grid grid-cols-2 divide-x divide-rose-200 text-center">
-                                                    <div><div class="text-xs text-slate-500">本店</div><div class="mt-1 text-lg font-bold text-blue-700">{{ toFixedSafe(ctripTrafficSummary.self.submitRate, 2) }}%</div></div>
-                                                    <div><div class="text-xs text-slate-500">竞争圈</div><div class="mt-1 text-lg font-bold text-emerald-700">{{ toFixedSafe(ctripTrafficSummary.avg.submitRate, 2) }}%</div></div>
+                                            <div v-for="metric in ctripTrafficSummaryCards" :key="metric.key" :class="['rounded-lg border p-3', metric.tone]">
+                                                <div class="text-sm font-semibold text-slate-800">{{ metric.label }}</div>
+                                                <div :class="['mt-3 grid grid-cols-2 divide-x text-center', metric.tone]">
+                                                    <div><div class="text-xs text-slate-500">本店</div><div class="mt-1 text-lg font-bold text-blue-700">{{ metric.rate ? `${toFixedSafe(ctripTrafficSummary.self[metric.key], 2)}%` : formatNumber(ctripTrafficSummary.self[metric.key]) }}</div></div>
+                                                    <div><div class="text-xs text-slate-500">竞争圈</div><div class="mt-1 text-lg font-bold text-emerald-700">{{ metric.rate ? `${toFixedSafe(ctripTrafficSummary.avg[metric.key], 2)}%` : formatNumber(ctripTrafficSummary.avg[metric.key]) }}</div></div>
                                                 </div>
                                             </div>
                                         </div>
@@ -8448,45 +8404,9 @@
                                             <div class="p-4 border-t border-blue-100">
                                                 <p class="text-sm text-gray-700 mb-4">{{ ctripTrafficAnalysis.diagnosis }}</p>
                                                 <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
-                                                    <div class="border rounded-lg p-3 text-center">
-                                                        <div class="text-lg font-bold text-blue-700">{{ ctripTrafficAnalysis.summary.exposure_gap == null ? '—' : formatNumber(Math.round(ctripTrafficAnalysis.summary.exposure_gap)) }}</div>
-                                                        <div class="text-xs text-gray-500">曝光差距</div>
-                                                    </div>
-                                                    <div class="border rounded-lg p-3 text-center">
-                                                        <div class="text-lg font-bold text-green-700">{{ ctripTrafficAnalysis.summary.detail_gap == null ? '—' : formatNumber(Math.round(ctripTrafficAnalysis.summary.detail_gap)) }}</div>
-                                                        <div class="text-xs text-gray-500">详情访客差距</div>
-                                                    </div>
-                                                    <div class="border rounded-lg p-3 text-center">
-                                                        <div class="text-lg font-bold text-indigo-700">{{ ctripTrafficAnalysis.summary.order_gap == null ? '—' : formatNumber(Math.round(ctripTrafficAnalysis.summary.order_gap)) }}</div>
-                                                        <div class="text-xs text-gray-500">订单页访客差距</div>
-                                                    </div>
-                                                    <div class="border rounded-lg p-3 text-center">
-                                                        <div class="text-lg font-bold text-rose-700">{{ ctripTrafficAnalysis.summary.submit_gap == null ? '—' : formatNumber(Math.round(ctripTrafficAnalysis.summary.submit_gap)) }}</div>
-                                                        <div class="text-xs text-gray-500">成交提交差距</div>
-                                                    </div>
-                                                    <div class="border rounded-lg p-3 text-center">
-                                                        <div class="text-lg font-bold text-orange-700">{{ ctripTrafficAnalysis.summary.potential_submit_gap == null ? '—' : formatNumber(Math.round(ctripTrafficAnalysis.summary.potential_submit_gap)) }}</div>
-                                                        <div class="text-xs text-gray-500">潜在成交增量</div>
-                                                    </div>
-                                                    <div class="border rounded-lg p-3 text-center">
-                                                        <div class="text-lg font-bold text-blue-700">{{ ctripTrafficAnalysis.summary.exposure_achieve_rate == null ? '—' : toFixedSafe(ctripTrafficAnalysis.summary.exposure_achieve_rate, 2) + '%' }}</div>
-                                                        <div class="text-xs text-gray-500">曝光达成率</div>
-                                                    </div>
-                                                    <div class="border rounded-lg p-3 text-center">
-                                                        <div class="text-lg font-bold text-green-700">{{ ctripTrafficAnalysis.summary.detail_achieve_rate == null ? '—' : toFixedSafe(ctripTrafficAnalysis.summary.detail_achieve_rate, 2) + '%' }}</div>
-                                                        <div class="text-xs text-gray-500">详情访客达成率</div>
-                                                    </div>
-                                                    <div class="border rounded-lg p-3 text-center">
-                                                        <div class="text-lg font-bold text-indigo-700">{{ ctripTrafficAnalysis.summary.order_achieve_rate == null ? '—' : toFixedSafe(ctripTrafficAnalysis.summary.order_achieve_rate, 2) + '%' }}</div>
-                                                        <div class="text-xs text-gray-500">订单页达成率</div>
-                                                    </div>
-                                                    <div class="border rounded-lg p-3 text-center">
-                                                        <div class="text-lg font-bold text-rose-700">{{ ctripTrafficAnalysis.summary.submit_achieve_rate == null ? '—' : toFixedSafe(ctripTrafficAnalysis.summary.submit_achieve_rate, 2) + '%' }}</div>
-                                                        <div class="text-xs text-gray-500">成交达成率</div>
-                                                    </div>
-                                                    <div class="border rounded-lg p-3 text-center">
-                                                        <div class="text-lg font-bold text-gray-800">{{ ctripTrafficAnalysis.summary.max_loss_stage || '流失阶段未返回' }}</div>
-                                                        <div class="text-xs text-gray-500">最大流失阶段</div>
+                                                    <div v-for="metric in ctripTrafficAnalysisMetrics" :key="metric.key" class="border rounded-lg p-3 text-center">
+                                                        <div :class="['text-lg font-bold', metric.color]">{{ formatCtripTrafficAnalysisMetric(ctripTrafficAnalysis.summary, metric) }}</div>
+                                                        <div class="text-xs text-gray-500">{{ metric.label }}</div>
                                                     </div>
                                                 </div>
                                                 <div class="bg-gray-50 border rounded-lg p-3">
@@ -8501,25 +8421,13 @@
                                                 <thead>
                                                     <tr class="bg-gray-50 text-gray-600">
                                                         <th class="px-4 py-2 border text-center min-w-[7.5rem] whitespace-nowrap cursor-pointer hover:bg-gray-100 select-none" @click="sortCtripTrafficTable('date')">日期 <span class="text-blue-600">{{ ctripTrafficSortIndicator('date') }}</span></th>
-                                                        <th class="min-w-[10rem] border px-3 py-2 text-center cursor-pointer hover:bg-gray-100 select-none" title="按本店数据排序" @click="sortCtripTrafficTable('selfListExposure')"><div>列表曝光 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfListExposure') }}</span></div><div class="mt-1 grid grid-cols-2 text-[10px] font-normal"><span class="text-blue-700">本店</span><span class="text-emerald-700">竞争圈</span></div></th>
-                                                        <th class="min-w-[10rem] border px-3 py-2 text-center cursor-pointer hover:bg-gray-100 select-none" title="按本店数据排序" @click="sortCtripTrafficTable('selfDetailExposure')"><div>详情访客 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfDetailExposure') }}</span></div><div class="mt-1 grid grid-cols-2 text-[10px] font-normal"><span class="text-blue-700">本店</span><span class="text-emerald-700">竞争圈</span></div></th>
-                                                        <th class="min-w-[10rem] border px-3 py-2 text-center cursor-pointer hover:bg-gray-100 select-none" title="按本店数据排序" @click="sortCtripTrafficTable('selfFlowRate')"><div>曝光转化率 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfFlowRate') }}</span></div><div class="mt-1 grid grid-cols-2 text-[10px] font-normal"><span class="text-blue-700">本店</span><span class="text-emerald-700">竞争圈</span></div></th>
-                                                        <th class="min-w-[10rem] border px-3 py-2 text-center cursor-pointer hover:bg-gray-100 select-none" title="按本店数据排序" @click="sortCtripTrafficTable('selfOrderFillingNum')"><div>订单页访客 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfOrderFillingNum') }}</span></div><div class="mt-1 grid grid-cols-2 text-[10px] font-normal"><span class="text-blue-700">本店</span><span class="text-emerald-700">竞争圈</span></div></th>
-                                                        <th class="min-w-[10rem] border px-3 py-2 text-center cursor-pointer hover:bg-gray-100 select-none" title="按本店数据排序" @click="sortCtripTrafficTable('selfOrderFillRate')"><div>下单转化率 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfOrderFillRate') }}</span></div><div class="mt-1 grid grid-cols-2 text-[10px] font-normal"><span class="text-blue-700">本店</span><span class="text-emerald-700">竞争圈</span></div></th>
-                                                        <th class="min-w-[10rem] border px-3 py-2 text-center cursor-pointer hover:bg-gray-100 select-none" title="按本店数据排序" @click="sortCtripTrafficTable('selfOrderSubmitNum')"><div>订单提交人数 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfOrderSubmitNum') }}</span></div><div class="mt-1 grid grid-cols-2 text-[10px] font-normal"><span class="text-blue-700">本店</span><span class="text-emerald-700">竞争圈</span></div></th>
-                                                        <th class="min-w-[10rem] border px-3 py-2 text-center cursor-pointer hover:bg-gray-100 select-none" title="按本店数据排序" @click="sortCtripTrafficTable('selfSubmitRate')"><div>成交转化率 <span class="text-blue-600">{{ ctripTrafficSortIndicator('selfSubmitRate') }}</span></div><div class="mt-1 grid grid-cols-2 text-[10px] font-normal"><span class="text-blue-700">本店</span><span class="text-emerald-700">竞争圈</span></div></th>
+                                                        <th v-for="metric in ctripTrafficCompareMetrics" :key="metric.key" class="min-w-[10rem] border px-3 py-2 text-center cursor-pointer hover:bg-gray-100 select-none" title="按本店数据排序" @click="sortCtripTrafficTable(metric.sortKey)"><div>{{ metric.label }} <span class="text-blue-600">{{ ctripTrafficSortIndicator(metric.sortKey) }}</span></div><div class="mt-1 grid grid-cols-2 text-[10px] font-normal"><span class="text-blue-700">本店</span><span class="text-emerald-700">竞争圈</span></div></th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
                                                     <tr v-for="row in ctripTrafficCompareRows" :key="row.date" class="even:bg-slate-50/70 hover:bg-blue-50/50">
                                                         <td class="px-4 py-2 border text-center min-w-[7.5rem] whitespace-nowrap">{{ row.date }}</td>
-                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatOptionalNumber(row.self.listExposure) }}</span><span class="font-semibold text-emerald-700">{{ formatOptionalNumber(row.avg.listExposure) }}</span></div></td>
-                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatOptionalNumber(row.self.detailExposure) }}</span><span class="font-semibold text-emerald-700">{{ formatOptionalNumber(row.avg.detailExposure) }}</span></div></td>
-                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatOptionalPercent(row.self.flowRate) }}</span><span class="font-semibold text-emerald-700">{{ formatOptionalPercent(row.avg.flowRate) }}</span></div></td>
-                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatOptionalNumber(row.self.orderFillingNum) }}</span><span class="font-semibold text-emerald-700">{{ formatOptionalNumber(row.avg.orderFillingNum) }}</span></div></td>
-                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatOptionalPercent(row.self.orderFillRate) }}</span><span class="font-semibold text-emerald-700">{{ formatOptionalPercent(row.avg.orderFillRate) }}</span></div></td>
-                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatOptionalNumber(row.self.orderSubmitNum) }}</span><span class="font-semibold text-emerald-700">{{ formatOptionalNumber(row.avg.orderSubmitNum) }}</span></div></td>
-                                                        <td class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ formatOptionalPercent(row.self.submitRate) }}</span><span class="font-semibold text-emerald-700">{{ formatOptionalPercent(row.avg.submitRate) }}</span></div></td>
+                                                        <td v-for="metric in ctripTrafficCompareMetrics" :key="metric.key" class="border px-3 py-2"><div class="grid grid-cols-2 divide-x divide-slate-200 text-center"><span class="font-semibold text-blue-700">{{ metric.rate ? formatOptionalPercent(row.self[metric.key]) : formatOptionalNumber(row.self[metric.key]) }}</span><span class="font-semibold text-emerald-700">{{ metric.rate ? formatOptionalPercent(row.avg[metric.key]) : formatOptionalNumber(row.avg[metric.key]) }}</span></div></td>
                                                     </tr>
                                                 </tbody>
                                             </table>
@@ -11330,7 +11238,7 @@
                                     </div>
 
                                     <div v-if="onlineDataPagination.total &gt; 0" class="mt-5 flex flex-col gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                                        <div class="text-sm text-gray-600">共 {{ onlineDataPagination.total }} 条 · 当前第 {{ onlineDataPage }} 页 · 本页 {{ onlineDataList.length }} 条</div>
+                                        <div class="text-sm text-gray-600">卡片仅统计本页数据 · 源记录共 {{ onlineDataPagination.total }} 条 · 当前第 {{ onlineDataPage }} 页 · 本页显示 {{ meituanDownloadData.visibleRowsCountByTab?.[downloadCenterTab] ?? onlineDataList.length }} 条去重事实</div>
                                         <div class="flex items-center gap-2">
                                             <button type="button" @click="changeOnlineDataPage(onlineDataPage - 1)" :disabled="onlineDataPage &lt;= 1" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 disabled:bg-gray-100 disabled:text-gray-400">上一页</button>
                                             <button type="button" @click="changeOnlineDataPage(onlineDataPage + 1)" :disabled="onlineDataPage * onlineDataPagination.page_size &gt;= onlineDataPagination.total" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 disabled:bg-gray-100 disabled:text-gray-400">下一页</button>
@@ -12293,7 +12201,7 @@
                                                         <i :class="competitorPriceSaving ? 'fas fa-spinner fa-spin' : 'fas fa-save'" class="mr-1"></i>保存样本
                                                     </button>
                                                 </div>
-                                                <input v-model.trim="competitorPriceForm.competitor_name" class="input-field mt-2 w-full" placeholder="竞对名称或样本来源">
+                                                <input v-model.trim="competitorPriceForm.competitor_name" class="input-field mt-2 w-full" placeholder="竞对名称（不知道ID时必填）">
                                             </div>
                                         </div>
                                         <div v-if="priceSuggestionGenerateResult" data-testid="agent-price-suggestion-generate-result" :class="['mb-5 rounded-lg border p-3 text-sm', priceSuggestionGenerateResult.className]">
@@ -12645,20 +12553,20 @@
                                             </div>
 
                                             <div class="bg-white rounded-xl border border-gray-200 p-4">
-                                                <h3 class="font-semibold text-gray-800 mb-4">竞对价格信号</h3>
-                                                <div class="flex flex-wrap gap-3 mb-4">
-                                                    <input type="date" v-model="competitorFilter.date" class="input-field">
-                                                    <button @click="loadCompetitorAnalysis" class="btn-primary"><i class="fas fa-search mr-2"></i>查询</button>
+                                                <h3 id="competitor-microscope-entry" class="font-semibold text-gray-800 mb-4">竞对信号</h3>
+                                                <div class="flex flex-col gap-3 mb-4 sm:flex-row sm:items-end">
+                                                    <label class="block w-full sm:w-auto">
+                                                        <span class="mb-1 block text-xs text-gray-500">分析日期</span>
+                                                        <input type="date" v-model="competitorFilter.date" @change="resetCompetitorAnalysisView" class="input-field w-full sm:w-auto">
+                                                    </label>
+                                                    <button @click="loadCompetitorAnalysis" :disabled="competitorAnalysisLoading" class="btn-primary w-full disabled:cursor-wait disabled:opacity-60 sm:w-auto"><i :class="competitorAnalysisLoading ? 'fas fa-spinner fa-spin' : 'fas fa-search'" class="mr-2"></i>{{ competitorAnalysisLoading ? '查询中...' : '查询' }}</button>
                                                 </div>
                                                 <div data-testid="agent-ctrip-competitor-price-manual-input" class="mb-4 rounded-lg border border-blue-100 bg-blue-50 p-3">
                                                     <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
                                                         <div>
                                                             <div class="text-sm font-semibold text-blue-900">携程竞品价样本补录</div>
-                                                            <div class="text-xs text-blue-700">人工提供项，固定写入携程 OTA 样本范围；不代表全酒店经营数据，不写 OTA。</div>
+                                                    <div class="text-xs text-blue-700">人工携程 OTA 样本；不代表全酒店经营数据，不写 OTA。</div>
                                                         </div>
-                                                        <button @click="resetCompetitorPriceForm" class="rounded border border-blue-200 bg-white px-2.5 py-1.5 text-xs text-blue-700 hover:bg-blue-50">
-                                                            <i class="fas fa-eraser mr-1"></i>清空
-                                                        </button>
                                                     </div>
                                                     <div class="grid grid-cols-1 md:grid-cols-6 gap-2">
                                                         <input type="date" v-model="competitorPriceForm.analysis_date" class="input-field">
@@ -12673,120 +12581,77 @@
                                                         <input type="number" v-model.number="competitorPriceForm.competitor_hotel_id" class="input-field" min="1" step="1" placeholder="竞对ID（未知请留空）">
                                                     </div>
                                                     <div class="mt-2 flex flex-wrap items-center gap-2">
-                                                        <input v-model.trim="competitorPriceForm.competitor_name" class="input-field flex-1 min-w-[220px]" placeholder="竞对名称或样本来源">
+                                                        <input v-model.trim="competitorPriceForm.competitor_name" class="input-field flex-1 min-w-[220px]" placeholder="竞对名称（不知道ID时必填）">
                                                         <button @click="saveCompetitorPriceInput" :disabled="competitorPriceSaving" class="rounded bg-blue-700 px-3 py-2 text-sm text-white hover:bg-blue-800 disabled:opacity-50">
                                                             <i :class="competitorPriceSaving ? 'fas fa-spinner fa-spin' : 'fas fa-save'" class="mr-1"></i>保存样本
                                                         </button>
                                                     </div>
                                                 </div>
-                                                <section data-testid="competitor-microscope" class="mb-4 overflow-hidden rounded-xl border border-[#e5dcc8] bg-[#fcfaf5]">
-                                                    <div class="flex flex-col gap-3 border-b border-[#eee7d8] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-                                                        <div>
-                                                            <div class="flex flex-wrap items-center gap-2">
-                                                                <h4 class="font-semibold text-gray-900"><i class="fas fa-microscope mr-1.5 text-[#a88a52]"></i>重点竞对显微镜</h4>
-                                                                <span class="rounded-full border border-[#dcc591] bg-white px-2 py-0.5 text-[11px] text-[#6f572f]">默认聚焦绝对价差最大竞对</span>
-                                                            </div>
-                                                            <p class="mt-1 text-xs text-gray-500">下钻同日房型价差与截至所选日期的 7 日变化；只读分析，不自动生成调价。</p>
-                                                        </div>
-                                                        <select v-if="competitorMicroscopeOptions.length" v-model="competitorMicroscopeSelectedKey" data-testid="competitor-microscope-selector" class="min-w-[220px] rounded-lg border border-[#dcc591] bg-white px-3 py-2 text-sm text-gray-800">
-                                                            <option v-for="option in competitorMicroscopeOptions" :key="option.key" :value="option.key">
-                                                                {{ option.name }} · {{ option.maxAbsGapPercent === null ? '价差未知' : '|价差| ' + option.maxAbsGapPercent + '%' }}
-                                                            </option>
-                                                        </select>
+                                                <div v-if="competitorAnalysisLoading" data-testid="competitor-microscope-loading" class="mb-4 rounded-lg bg-blue-50 p-4 text-center text-sm text-blue-700"><i class="fas fa-spinner fa-spin mr-2"></i>正在读取当前门店与日期...</div>
+                                                <div v-else-if="competitorAnalysisError" data-testid="competitor-microscope-error" class="mb-4 rounded-lg bg-red-50 p-4 text-sm text-red-700">读取失败：{{ competitorAnalysisError }}</div>
+                                                <section v-else data-testid="competitor-microscope" class="mb-4 overflow-hidden rounded-xl border border-[#e5dcc8] bg-[#fcfaf5]">
+                                                    <div class="flex flex-wrap items-end justify-between gap-3 border-b border-[#eee7d8] p-3">
+                                                        <h4 class="font-semibold text-gray-900"><i class="fas fa-microscope mr-1.5 text-[#a88a52]"></i>重点竞对显微镜</h4>
+                                                        <label v-if="competitorMicroscopeOptions.length" class="block w-full lg:w-auto">
+                                                            <span class="mb-1 block text-[11px] text-gray-500">竞对 / OTA</span>
+                                                            <select v-model="competitorMicroscopeSelectedKey" data-testid="competitor-microscope-selector" class="input-field w-full lg:w-auto">
+                                                                <option v-for="option in competitorMicroscopeOptions" :key="option.key" :value="option.key">{{ option.name }} · {{ option.platformLabel }} · {{ option.optionSummary }}</option>
+                                                            </select>
+                                                        </label>
+                                                    </div>
+                                                    <div v-if="competitorMicroscope.platformStatuses?.length" class="border-b p-2 text-xs text-gray-500">
+                                                        <span v-for="status in competitorMicroscope.platformStatuses" :key="status.platformKey">{{ status.platformLabel }}：{{ status.label }}　</span>
                                                     </div>
 
                                                     <div v-if="competitorMicroscopeDetail" class="space-y-4 p-4">
                                                         <div class="flex flex-wrap items-center justify-between gap-2">
-                                                            <div class="font-semibold text-gray-900">{{ competitorMicroscopeDetail.name }}</div>
-                                                            <span :class="['rounded-full border px-2.5 py-1 text-xs font-medium', competitorMicroscopeDetail.sourceStatusClass]">{{ competitorMicroscopeDetail.sourceStatusText }}</span>
-                                                        </div>
-                                                        <div class="grid grid-cols-2 gap-2 lg:grid-cols-4">
-                                                            <div v-for="card in competitorMicroscopeSummaryCards" :key="card.key" class="rounded-lg bg-white p-3 shadow-sm">
-                                                                <div class="text-[11px] text-gray-500">{{ card.label }}</div>
-                                                                <div :class="['mt-1 text-lg font-semibold', card.className]">{{ card.value }}</div>
+                                                            <div>
+                                                                <div class="font-semibold text-gray-900">{{ competitorMicroscopeDetail.name }} · {{ competitorMicroscopeDetail.platformLabel }}</div>
+                                                                <div class="mt-1 text-xs text-gray-500">#{{ competitorMicroscopeDetail.hotelId || '-' }} · {{ competitorMicroscopeDetail.displayDate || '日期未返回' }}</div>
                                                             </div>
                                                         </div>
 
                                                         <div class="grid grid-cols-1 gap-3 xl:grid-cols-5">
                                                             <div class="rounded-lg border border-[#eee7d8] bg-white p-3 xl:col-span-2">
                                                                 <div class="mb-2 flex items-center justify-between gap-2 text-xs">
-                                                                    <span class="font-semibold text-gray-800">7 日价差轨迹</span>
-                                                                    <span :class="competitorMicroscopeGapClass(competitorMicroscopeDetail.trendChange)">{{ competitorMicroscopeDetail.trendChange === null ? '变化未知' : '较首日 ' + (competitorMicroscopeDetail.trendChange &gt; 0 ? '+' : '') + competitorMicroscopeDetail.trendChange + 'pct' }}</span>
+                                                                    <span class="font-semibold text-gray-800">{{ competitorMicroscopeDetail.trendTitle }}（覆盖 {{ competitorMicroscopeDetail.trendCoverageDays }}/{{ competitorMicroscopeDetail.trendTargetDays }}）</span>
+                                                                    <span :class="competitorMicroscopeGapClass(competitorMicroscopeDetail.trendChange)">{{ competitorMicroscopeDetail.trendChangeText }}</span>
                                                                 </div>
-                                                                <div v-if="competitorMicroscopeDetail.trend.length" class="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-2">
-                                                                    <div v-for="point in competitorMicroscopeDetail.trend" :key="point.date" class="rounded border border-gray-100 bg-gray-50 px-2 py-1.5 text-xs">
-                                                                        <div class="font-medium text-gray-700">{{ point.date.slice(5) }}</div>
-                                                                        <div class="mt-1 text-gray-500">本 {{ point.ourPrice === null ? '—' : formatCurrency(point.ourPrice) }} / 竞 {{ point.competitorPrice === null ? '—' : formatCurrency(point.competitorPrice) }}</div>
-                                                                        <div :class="['mt-0.5 font-medium', competitorMicroscopeGapClass(point.gap)]">{{ point.gapPercent === null ? '价差未知' : (point.gapPercent &gt; 0 ? '+' : '') + point.gapPercent + '%' }}</div>
+                                                                <div v-if="competitorMicroscopeDetail.trendCoverageDays &gt; 0" class="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-2">
+                                                                    <div v-for="point in competitorMicroscopeDetail.trend" :key="point.date" :class="['rounded border px-2 py-1.5 text-xs', point.missing ? 'border-dashed border-gray-200 bg-white text-gray-400' : 'border-gray-100 bg-gray-50']">
+                                                                        <div class="font-medium text-gray-700">{{ point.label }}</div>
+                                                                        <div class="mt-1 text-gray-500">{{ point.comparisonText }}</div>
+                                                                        <div :class="['mt-0.5 font-medium', competitorMicroscopeGapClass(point.gap)]">{{ point.gapText }}</div>
                                                                     </div>
                                                                 </div>
-                                                                <div v-else class="rounded border border-dashed border-gray-200 bg-gray-50 px-3 py-5 text-center text-xs text-gray-500">暂无截至所选日期的 7 日同竞对轨迹</div>
+                                                                <div v-else class="rounded border border-dashed border-gray-200 bg-gray-50 px-3 py-5 text-center text-xs text-gray-500">{{ competitorMicroscopeDetail.trendEmptyText }}</div>
                                                             </div>
                                                             <div class="overflow-hidden rounded-lg border border-[#eee7d8] bg-white xl:col-span-3">
-                                                                <div class="border-b border-gray-100 px-3 py-2 text-xs font-semibold text-gray-800">同日房型证据</div>
+                                                                <div class="border-b border-gray-100 px-3 py-2 text-xs font-semibold text-gray-800">{{ competitorMicroscopeDetail.tableTitle || '同日房型证据' }}</div>
                                                                 <div class="overflow-x-auto">
                                                                     <table class="min-w-[520px] w-full text-xs">
-                                                                        <thead class="bg-gray-50 text-gray-500"><tr><th class="px-3 py-2 text-left">房型</th><th class="px-3 py-2 text-right">本店</th><th class="px-3 py-2 text-right">竞对</th><th class="px-3 py-2 text-right">价差</th><th class="px-3 py-2 text-left">证据</th></tr></thead>
+                                                                        <thead class="bg-gray-50 text-gray-500"><tr><th class="px-3 py-2 text-left">维度</th><th class="px-3 py-2 text-right">{{ competitorMicroscopeDetail.ourColumnLabel }}</th><th class="px-3 py-2 text-right">{{ competitorMicroscopeDetail.competitorColumnLabel }}</th><th class="px-3 py-2 text-right">{{ competitorMicroscopeDetail.gapColumnLabel }}</th><th class="px-3 py-2 text-left">证据</th></tr></thead>
                                                                         <tbody class="divide-y divide-gray-100">
                                                                             <tr v-for="row in competitorMicroscopeDetail.rows" :key="`microscope-${row.id || row.room_type_name}`">
                                                                                 <td class="px-3 py-2 font-medium text-gray-800">{{ row.room_type_name }}</td>
-                                                                                <td class="px-3 py-2 text-right">{{ row.our_price === null ? '—' : formatCurrency(row.our_price) }}</td>
-                                                                                <td class="px-3 py-2 text-right">{{ row.competitor_price === null ? '—' : formatCurrency(row.competitor_price) }}</td>
-                                                                                <td :class="['px-3 py-2 text-right font-medium', competitorMicroscopeGapClass(row.price_gap)]">{{ row.price_gap_percent === null ? '—' : (row.price_gap_percent &gt; 0 ? '+' : '') + row.price_gap_percent + '%' }}</td>
-                                                                                <td class="px-3 py-2 text-gray-500">{{ row.price_signal_readiness?.status_label || (row.source_status === 'verified' ? '已验证' : row.source_status === 'operator_provided' ? '人工样本' : '未验证') }}</td>
+                                                                                <td class="px-3 py-2 text-right">{{ row.our_value_text }}</td>
+                                                                                <td class="px-3 py-2 text-right">{{ row.competitor_value_text }}</td>
+                                                                                <td :class="['px-3 py-2 text-right font-medium', competitorMicroscopeGapClass(row.price_gap)]">{{ row.gap_text }}</td>
+                                                                                <td class="px-3 py-2 text-gray-500">
+                                                                                    <div>{{ row.price_signal_readiness?.status_label || (row.source_status === 'verified' ? '已验证' : row.source_status === 'operator_provided' ? '人工样本' : '未验证') }}</div>
+                                                                                    <div v-if="row.trend_text">{{ row.trend_text }}</div>
+                                                                                </td>
                                                                             </tr>
                                                                         </tbody>
                                                                     </table>
                                                                 </div>
                                                             </div>
                                                         </div>
-                                                        <div v-if="competitorMicroscopeDetail.dataGaps.length" class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">证据缺口：{{ competitorMicroscopeDetail.dataGaps.join('、') }}</div>
-                                                        <div class="text-xs leading-5 text-[#6f572f]">{{ competitorMicroscope.scopeNotice }}</div>
+                                                        <div v-if="competitorMicroscopeDetail.dataGaps.length" class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">证据缺口：{{ competitorMicroscopeDetail.dataGapLabels.join('、') }}</div>
+                                                        <div class="text-xs leading-5 text-[#6f572f]">{{ competitorMicroscopeDetail.sameProductPriceNotice || competitorMicroscope.scopeNotice }}</div>
                                                     </div>
-                                                    <div v-else data-testid="competitor-microscope-empty" class="px-4 py-8 text-center text-sm text-gray-500">当前日期暂无可选择的竞对价格样本；不会用 0 或旧数据代替。</div>
+                                                    <div v-else data-testid="competitor-microscope-empty" class="px-4 py-8 text-center text-sm text-gray-500">本日无竞对样本；不以 0 或旧数据代替。</div>
                                                 </section>
-                                                <div class="overflow-x-auto">
-                                                    <table class="w-full text-sm">
-                                                        <thead class="bg-gray-50 text-gray-500">
-                                                            <tr>
-                                                                <th class="px-3 py-2 text-left">房型</th>
-                                                                <th class="px-3 py-2 text-left">竞对</th>
-                                                                <th class="px-3 py-2 text-right">本店价</th>
-                                                                <th class="px-3 py-2 text-right">竞对价</th>
-                                                                <th class="px-3 py-2 text-right">价差</th>
-                                                                <th class="px-3 py-2 text-left">闭环</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody class="divide-y divide-gray-100">
-                                                            <tr v-for="row in competitorPriceMatrixRows" :key="`${row.room_type_name || 'room'}-${row.competitor_name || row.competitor_hotel_id || 'competitor'}-${row.id || row.analysis_date}`">
-                                                                <td class="px-3 py-2 font-medium text-gray-800">{{ row.room_type_name || '-' }}</td>
-                                                                <td class="px-3 py-2 text-gray-600">{{ row.competitor_name || row.competitor_hotel_id || '-' }}</td>
-                                                                <td class="px-3 py-2 text-right">{{ toNumber(row.our_price, 0) &gt; 0 ? formatCurrency(row.our_price) : '-' }}</td>
-                                                                <td class="px-3 py-2 text-right">{{ toNumber(row.competitor_price, 0) &gt; 0 ? formatCurrency(row.competitor_price) : '-' }}</td>
-                                                                <td class="px-3 py-2 text-right" :class="toNumber(row.price_signal_readiness?.price_gap_percent ?? row.diff_percent, 0) &gt; 0 ? 'text-red-600' : 'text-green-600'">
-                                                                    {{ revenueCompetitorGapText(row) }}
-                                                                </td>
-                                                                <td class="px-3 py-2">
-                                                                    <span v-if="row.price_signal_readiness" :title="row.price_signal_readiness.notice" :class="['inline-flex rounded border px-2 py-0.5 text-xs whitespace-nowrap', revenueCompetitorReadinessClass(row.price_signal_readiness.stage)]">
-                                                                        {{ row.price_signal_readiness.status_label }}
-                                                                    </span>
-                                                                    <div v-if="row.price_signal_readiness" class="mt-1 text-[11px] text-gray-400 line-clamp-1">
-                                                                        引用 {{ row.price_signal_readiness.suggestion_count || 0 }} 条 · {{ row.price_signal_readiness.next_action }}
-                                                                    </div>
-                                                                </td>
-                                                            </tr>
-                                                            <tr v-if="!competitorPriceMatrixRows.length">
-                                                                <td colspan="6" class="px-3 py-8 text-center text-gray-400">暂无竞对价格样本</td>
-                                                            </tr>
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                                <div v-if="(competitorAnalysis.alerts || []).length" class="mt-4 space-y-2">
-                                                    <div v-for="item in competitorAnalysis.alerts" :key="item.id || item.competitor_hotel_id" class="rounded-lg bg-orange-50 border border-orange-100 p-3 text-sm text-orange-800">
-                                                        {{ competitorAlertPriceText(item) }}
-                                                    </div>
-                                                </div>
-                                                <div v-else="" class="mt-4 py-4 text-center text-gray-400">暂无竞对价格预警</div>
                                             </div>
                                         </div>
                                     </div>
@@ -14853,7 +14718,7 @@
                                 <!-- Tabs -->
                                 <div class="online-data-primary-tabs flex flex-wrap gap-2 border-b border-gray-200 pb-3 mb-6" role="navigation" aria-label="线上数据主导航">
                                     <button @click="openOnlineDataTab('data-health')" :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'data-health' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
-                                        数据一键获取
+                                        昨日经营闭环
                                     </button>
                                     <button @click="openPlatformAutoTab()" :class="['px-4 py-2 rounded-lg text-sm font-medium transition', onlineDataTab === 'platform-auto' ? 'bg-gray-900 text-white shadow-sm' : 'text-gray-600 hover:bg-white hover:text-gray-900']">
                                         配置：自动采集
@@ -14929,13 +14794,28 @@
                                             <div v-if="coreOperationsError" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ coreOperationsError }}</div>
 
                                             <section data-testid="core-loop-yesterday-data" class="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
-                                                <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                                                 <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                                                     <div>
                                                         <div class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">01 · Yesterday evidence</div>
                                                         <h5 class="mt-1 text-base font-bold text-slate-900">携程 / 美团昨日数据</h5>
-                                                        <p class="mt-1 text-xs leading-5 text-slate-500">只读目标日已入库 OTA 数据；缺失、未验证或读取失败不会按 0 展示。</p>
+                                                        <p class="mt-1 text-xs leading-5 text-slate-500">读取目标日已入库 OTA 数据；缺失、未验证或读取失败不会按 0 展示。</p>
                                                     </div>
-                                                    <span class="text-xs text-slate-500">{{ coreOperationsTargetDate }} · 门店 #{{ coreOperationsHotelId || '-' }}</span>
+                                                    <div class="flex flex-col items-stretch gap-1.5 sm:items-end">
+                                                        <span class="text-xs text-slate-500">{{ coreOperationsTargetDate }} · 门店 #{{ coreOperationsHotelId || '-' }}</span>
+                                                        <button v-if="coreOperationsCanCollect" data-testid="core-loop-yesterday-fetch" type="button" @click="runCoreOperationsYesterdayFetch()" :disabled="coreOperationsSourceFetchRunning || fetchingData || !coreOperationsHotelId || coreOperationsTargetDate !== coreOperationsMaxDate || coreOperationsProfileSessionBlockedRows.length > 0" class="inline-flex items-center justify-center rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-black disabled:cursor-not-allowed disabled:opacity-50">
+                                                            <i :class="coreOperationsSourceFetchRunning || fetchingData ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-cloud-download-alt mr-2'"></i>{{ coreOperationsSourceFetchActionText }}
+                                                        </button>
+                                                        <span v-else class="text-[11px] text-amber-700">当前账号无 OTA 采集权限；仍可只读查看闭环。</span>
+                                                        <span class="text-[10px] text-slate-400">{{ coreOperationsSourceFetchModeText }}</span>
+                                                    </div>
+                                                </div>
+                                                <div v-if="coreOperationsCanCollect &amp;&amp; coreOperationsProfileSessionRows.some(row => row.hasProfile)" class="mt-3 flex flex-wrap gap-2" data-testid="core-loop-profile-session-gate">
+                                                    <button v-for="row in coreOperationsProfileSessionRows.filter(item => item.hasProfile)" :key="row.platform" type="button" @click="prepareCoreOperationsProfileSession(row)" :disabled="row.currentSessionVerified || platformProfileLoginRunning(row.platform) || platformProfileStatusLoading" :class="['inline-flex items-center rounded-full border px-3 py-1.5 text-[11px] font-medium disabled:cursor-not-allowed', row.currentSessionVerified ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100']">
+                                                        <i :class="platformProfileLoginRunning(row.platform) ? 'fas fa-spinner fa-spin mr-1.5' : (row.currentSessionVerified ? 'fas fa-check-circle mr-1.5' : 'fas fa-user-shield mr-1.5')"></i>{{ row.currentSessionVerified ? (row.label + '当天会话已验证') : ('验证/登录' + row.label) }}
+                                                    </button>
+                                                </div>
+                                                <div v-if="coreOperationsSourceFetchVisibleState.message" data-testid="core-loop-yesterday-fetch-status" :class="['mt-3 rounded-lg border px-3 py-2 text-xs leading-5', coreOperationsSourceFetchStatusClass]">
+                                                    {{ coreOperationsSourceFetchVisibleState.message }}
                                                 </div>
                                                 <div class="mt-4 grid gap-4 lg:grid-cols-2">
                                                     <article v-for="platform in coreOperationsPlatformCards" :key="platform.key" :data-testid="'core-operations-platform-card-' + platform.key" class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -14944,7 +14824,7 @@
                                                                 <span :class="['flex h-9 w-9 items-center justify-center rounded-lg text-white', platform.accentClass]"><i :class="platform.icon"></i></span>
                                                                 <div>
                                                                     <h6 class="text-sm font-bold text-slate-900">{{ platform.label }}</h6>
-                                                                    <div class="mt-0.5 text-[11px] text-slate-500">目标日源数据 {{ platform.sourceRows }} 行 · {{ platform.evidenceStatus }}</div>
+                                                                    <div class="mt-0.5 text-[11px] text-slate-500">目标日源数据 {{ platform.sourceRowsText }} · {{ platform.evidenceStatus }}</div>
                                                                 </div>
                                                             </div>
                                                             <div class="flex flex-col items-end gap-1.5">
@@ -14976,9 +14856,15 @@
                                                         <div class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">02 · Comparable set</div>
                                                         <h5 class="mt-1 text-base font-bold text-slate-900">本店与竞品圈同口径对比</h5>
                                                         <p class="mt-1 text-xs leading-5 text-slate-500">携程使用竞争圈平均；美团只使用榜单明确可展示的本店与竞品字段。证据日期不等于目标日时标记为日期不匹配。</p>
-                                                    </div>
+                                                     </div>
+                                                 </div>
+                                                <div v-if="ctripCompetitiveOperationsLoading || competitorSummaryLoading" class="mt-4 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-700">
+                                                    正在读取携程 / 美团同店同日竞品证据…
                                                 </div>
-                                                <div class="mt-4 overflow-x-auto rounded-xl border border-slate-200">
+                                                <div v-if="coreOperationsCompetitorError" data-testid="core-operations-competitor-error" class="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs leading-5 text-red-700">
+                                                    {{ coreOperationsCompetitorError }}；本次不会按“无竞品数据”或“无异常”处理。
+                                                </div>
+                                                 <div class="mt-4 overflow-x-auto rounded-xl border border-slate-200">
                                                     <table class="min-w-full text-sm">
                                                         <thead class="bg-slate-50 text-xs text-slate-500">
                                                             <tr>
@@ -14987,7 +14873,7 @@
                                                                 <th class="px-4 py-3 text-right">本店</th>
                                                                 <th class="px-4 py-3 text-right">竞品平均</th>
                                                                 <th class="px-4 py-3 text-right">差值</th>
-                                                                <th class="px-4 py-3 text-left">证据日期 / 状态</th>
+                                                                <th class="px-4 py-3 text-left">证据日期 / 来源 / 状态</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody class="divide-y divide-slate-100 bg-white">
@@ -14999,13 +14885,17 @@
                                                                 <td class="px-4 py-3 text-right font-medium text-slate-900">{{ row.differenceText }}</td>
                                                                 <td class="px-4 py-3">
                                                                     <div class="text-xs text-slate-600">{{ row.evidenceDate }}</div>
+                                                                    <div data-testid="core-loop-competitor-source-evidence" class="mt-1 max-w-[320px] text-[10px] leading-4 text-slate-500">{{ row.sourceEvidence }}</div>
                                                                     <span :class="['mt-1 inline-flex rounded-full border px-2 py-0.5 text-[10px]', coreOperationsEvidenceStatusClass(row.status)]">{{ coreOperationsEvidenceStatusText(row.status) }}</span>
                                                                 </td>
                                                             </tr>
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                            </section>
+                                                         </tbody>
+                                                     </table>
+                                                    <div v-if="!coreOperationsCompetitorRows.length &amp;&amp; !coreOperationsCompetitorError &amp;&amp; !ctripCompetitiveOperationsLoading &amp;&amp; !competitorSummaryLoading" class="p-5 text-center text-xs text-slate-500">
+                                                        目标日尚无双平台同口径竞品证据，竞品对比与后续异常判断保持未闭合。
+                                                    </div>
+                                                 </div>
+                                             </section>
 
                                             <div class="grid gap-5 xl:grid-cols-2">
                                                 <section data-testid="core-loop-anomaly-judgment" class="rounded-xl border border-slate-200 bg-white p-4">
@@ -15029,18 +14919,31 @@
                                                 </section>
 
                                                 <section data-testid="core-loop-ai-actions" class="rounded-xl border border-slate-200 bg-white p-4">
-                                                    <div class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">04 · AI assistance</div>
-                                                    <h5 class="mt-1 text-base font-bold text-slate-900">AI行动建议</h5>
-                                                    <p class="mt-1 text-xs leading-5 text-slate-500">建议必须带证据状态和下一步；证据不足时只建议补证，不生成确定性经营结论。</p>
+                                                    <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                                                        <div>
+                                                            <div class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">04 · AI assistance</div>
+                                                            <h5 class="mt-1 text-base font-bold text-slate-900">AI行动建议</h5>
+                                                            <p class="mt-1 text-xs leading-5 text-slate-500">刷新仅回读已保存诊断；点击生成才会写入新诊断。证据不足时只建议补证。</p>
+                                                        </div>
+                                                        <button v-if="coreOperationsCanGenerateDiagnosis" data-testid="core-loop-generate-diagnosis" type="button" @click="generateCoreOperationsDiagnoses()" :disabled="coreOperationsDiagnosisGenerating || coreOperationsLoading || !coreOperationsHotelId" class="inline-flex shrink-0 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50">
+                                                            <i :class="coreOperationsDiagnosisGenerating ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-magic mr-2'"></i>{{ coreOperationsDiagnosisGenerating ? '生成中' : '生成/更新双平台诊断' }}
+                                                        </button>
+                                                        <span v-else class="text-[11px] text-slate-500">当前账号可查看已保存诊断，但不能生成新诊断。</span>
+                                                    </div>
+                                                    <div v-if="coreOperationsDiagnosisGenerationMessage" data-testid="core-loop-diagnosis-generation-status" class="mt-3 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-800">{{ coreOperationsDiagnosisGenerationMessage }}</div>
                                                     <article v-for="item in coreOperationsAiSuggestions" :key="item.key" class="mt-4 rounded-xl border border-blue-100 bg-blue-50/60 p-4">
                                                         <div class="flex items-start justify-between gap-3">
                                                             <h6 class="text-sm font-bold text-slate-900">{{ item.title }}</h6>
                                                             <span :class="['shrink-0 rounded-full border px-2 py-0.5 text-[10px]', coreOperationsEvidenceStatusClass(item.status)]">{{ coreOperationsEvidenceStatusText(item.status) }}</span>
                                                         </div>
-                                                        <div class="mt-3 rounded-lg bg-white px-3 py-2.5 text-sm font-medium leading-6 text-blue-900">{{ item.action }}</div>
-                                                        <div class="mt-3 text-xs leading-5 text-slate-600">证据/缺口：{{ item.evidence }}</div>
-                                                        <div class="mt-2 text-[11px] leading-5 text-slate-500">{{ item.boundary }}</div>
-                                                    </article>
+                                                         <div class="mt-3 rounded-lg bg-white px-3 py-2.5 text-sm font-medium leading-6 text-blue-900">{{ item.action }}</div>
+                                                         <div class="mt-3 text-xs leading-5 text-slate-600">证据/缺口：{{ item.evidence }}</div>
+                                                         <div class="mt-2 text-[11px] leading-5 text-slate-500">{{ item.boundary }}</div>
+                                                         <button v-if="item.ready &amp;&amp; coreOperationsCanExecute" data-testid="core-loop-ai-to-operation" type="button" @click="createCoreOperationsDiagnosisIntent(item)" :disabled="coreOperationsDiagnosisIntentLoading === item.key" class="mt-3 inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+                                                             <i :class="coreOperationsDiagnosisIntentLoading === item.key ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-arrow-right mr-2'"></i>{{ coreOperationsDiagnosisIntentLoading === item.key ? '转入中' : '转运营任务' }}
+                                                         </button>
+                                                         <div v-else-if="item.ready" class="mt-3 text-[11px] text-amber-700">当前账号只有运营查看权限，不能转任务。</div>
+                                                     </article>
                                                     <div v-if="!coreOperationsAiSuggestions.length" class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-5 text-center text-xs text-slate-500">AI辅助建议尚未返回；不会用默认话术替代。</div>
                                                 </section>
                                             </div>
@@ -15049,10 +14952,10 @@
                                                 <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                                                     <div>
                                                         <div class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">05 · Action handoff</div>
-                                                        <h5 class="mt-1 text-base font-bold text-slate-900">转运营任务</h5>
-                                                        <p class="mt-1 text-xs leading-5 text-slate-500">先生成该门店/目标日行动清单，再把单条建议转为待审批执行意图；不会自动改价、改库存或写 OTA。</p>
+                                                         <h5 class="mt-1 text-base font-bold text-slate-900">运营任务与巡检补证</h5>
+                                                         <p class="mt-1 text-xs leading-5 text-slate-500">真实诊断建议从上方直接转任务；本区行动清单只负责证据缺口巡检与补办，不冒充 AI 经营建议，也不会自动改价、改库存或写 OTA。</p>
                                                     </div>
-                                                    <button v-if="!dailyWorkbenchPatrolLatest" type="button" @click="runDailyWorkbenchPatrol" :disabled="dailyWorkbenchPatrolRunning || dailyWorkbenchLoading" class="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60">
+                                                    <button v-if="!dailyWorkbenchPatrolLatest &amp;&amp; coreOperationsCanExecute" type="button" @click="runDailyWorkbenchPatrol" :disabled="dailyWorkbenchPatrolRunning || dailyWorkbenchLoading" class="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60">
                                                         <i :class="dailyWorkbenchPatrolRunning ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-list-check mr-2'"></i>{{ dailyWorkbenchPatrolRunning ? '生成中' : '生成行动清单' }}
                                                     </button>
                                                 </div>
@@ -15069,13 +14972,13 @@
                                                                 <div class="mt-2 text-sm font-semibold leading-6 text-slate-900">{{ action.actionText }}</div>
                                                                 <div v-if="action.executionText" class="mt-1 text-xs text-blue-700">{{ action.executionText }}</div>
                                                             </div>
-                                                            <button v-if="dailyWorkbenchPatrolLatest &amp;&amp; ['pending', 'skipped', 'review_needed'].includes(action.trackedStatus)" type="button" @click="updateDailyWorkbenchPatrolAction(action, 'in_progress')" :disabled="dailyWorkbenchPatrolActionUpdating === dailyWorkbenchPatrolActionUpdatingKey(action, 'in_progress')" class="inline-flex shrink-0 items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
-                                                                <i :class="dailyWorkbenchPatrolActionUpdating === dailyWorkbenchPatrolActionUpdatingKey(action, 'in_progress') ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-arrow-right mr-2'"></i>转运营任务
+                                                            <button v-if="coreOperationsCanExecute &amp;&amp; dailyWorkbenchPatrolLatest &amp;&amp; ['pending', 'skipped', 'review_needed'].includes(action.trackedStatus)" type="button" @click="updateDailyWorkbenchPatrolAction(action, 'in_progress')" :disabled="dailyWorkbenchPatrolActionUpdating === dailyWorkbenchPatrolActionUpdatingKey(action, 'in_progress')" class="inline-flex shrink-0 items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
+                                                                 <i :class="dailyWorkbenchPatrolActionUpdating === dailyWorkbenchPatrolActionUpdatingKey(action, 'in_progress') ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-arrow-right mr-2'"></i>转补证任务
                                                             </button>
                                                             <span v-else-if="action.trackedStatus === 'in_progress'" class="shrink-0 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">已进入执行闭环</span>
                                                         </div>
                                                     </article>
-                                                    <div v-if="!coreOperationsActionRows.length" class="rounded-xl border border-slate-200 bg-slate-50 p-5 text-center text-xs text-slate-500">{{ dailyWorkbenchPatrolLatest ? '该目标日没有待处理行动。' : '生成行动清单后，可在这里逐条转运营任务。' }}</div>
+                                                     <div v-if="!coreOperationsActionRows.length" class="rounded-xl border border-slate-200 bg-slate-50 p-5 text-center text-xs text-slate-500">{{ dailyWorkbenchPatrolLatest ? '该目标日没有待处理的补证行动。' : '生成行动清单后，可在这里逐条转为补证任务。' }}</div>
                                                 </div>
                                                 <div data-testid="daily-workbench-write-boundary" class="mt-4 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-800">{{ dailyWorkbenchPatrolBoundaryText }}</div>
                                             </section>
@@ -15114,10 +15017,10 @@
                                                                 <td class="px-4 py-3"><span :class="operationExecutionNextActionClass(item.next_action)" class="rounded-full px-2 py-1 text-[11px]">{{ item.next_action?.label || '-' }}</span></td>
                                                                 <td class="px-4 py-3">
                                                                     <div class="flex flex-wrap gap-2">
-                                                                        <button v-if="operationCanApproveExecution(item)" @click="approveOperationExecutionIntent(item, true)" class="rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700">审批</button>
-                                                                        <button v-if="operationCanApproveExecution(item)" @click="approveOperationExecutionIntent(item, false)" class="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50">驳回</button>
-                                                                        <button v-if="operationCanExecuteWithEvidence(item)" @click="recordOperationExecutionEvidence(item)" class="rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700">执行留证</button>
-                                                                        <button v-if="operationCanReviewExecution(item)" @click="reviewOperationExecutionTask(item)" class="rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800">次日复盘</button>
+                                                                        <button v-if="coreOperationsCanExecute &amp;&amp; operationCanApproveExecution(item)" @click="approveOperationExecutionIntent(item, true)" class="rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700">审批</button>
+                                                                        <button v-if="coreOperationsCanExecute &amp;&amp; operationCanApproveExecution(item)" @click="approveOperationExecutionIntent(item, false)" class="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50">驳回</button>
+                                                                        <button v-if="coreOperationsCanExecute &amp;&amp; operationCanExecuteWithEvidence(item)" @click="recordOperationExecutionEvidence(item)" class="rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700">执行留证</button>
+                                                                        <button v-if="coreOperationsCanExecute &amp;&amp; operationCanReviewExecution(item)" @click="reviewOperationExecutionTask(item)" class="rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800">次日复盘</button>
                                                                         <span v-if="item.execution?.status === 'executed' &amp;&amp; item.review?.is_available === false" class="text-xs text-amber-700">{{ item.review.available_on || '次日' }} 可复盘</span>
                                                                         <span v-else-if="!operationExecutionActionAvailable(item)" class="text-xs text-slate-400">等待下一阶段</span>
                                                                     </div>
@@ -15125,7 +15028,7 @@
                                                             </tr>
                                                         </tbody>
                                                     </table>
-                                                    <div v-if="!coreOperationsExecutionItems.length &amp;&amp; !operationLoading.actions" class="p-6 text-center text-xs text-slate-500">尚无该门店的 OTA 诊断执行任务；请先从上方行动清单转任务。</div>
+                                                     <div v-if="!coreOperationsExecutionItems.length &amp;&amp; !operationLoading.actions" class="p-6 text-center text-xs text-slate-500">尚无该门店的 OTA 执行任务；可从 AI 建议直接转任务，或先生成巡检补证清单。</div>
                                                     <div v-if="operationLoading.actions" class="p-6 text-center text-xs text-slate-500"><i class="fas fa-spinner fa-spin mr-2"></i>正在读取执行闭环...</div>
                                                 </div>
                                             </section>
@@ -19245,474 +19148,7 @@ Authorization: Bearer xxx"></textarea>
         </div>
 
         <!-- 数据配置模态框 -->
-        <div v-if="showDataConfigModal" class="fixed inset-0 z-50 flex items-center justify-center modal-overlay">
-            <div class="bg-white rounded-lg shadow-xl w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto">
-                <div class="p-4 border-b flex justify-between items-center sticky top-0 bg-white">
-                    <div>
-                        <h3 class="text-lg font-semibold">{{ dataConfigTitle }}</h3>
-                        <p class="text-xs text-gray-500 mt-1">{{ dataConfigMeta.description }}</p>
-                    </div>
-                    <button @click="showDataConfigModal = false" class="text-gray-500 hover:text-gray-700">
-                        <i class="fas fa-times"></i>
-                    </button>
-                </div>
-                <form @submit.prevent="saveDataConfig" class="p-4 space-y-4">
-                    <div class="rounded-lg border border-gray-200 bg-gray-50 p-4">
-                        <div class="flex flex-col md:flex-row md:items-center justify-between gap-2 mb-4">
-                            <div>
-                                <h4 class="font-medium text-gray-800">基础配置</h4>
-                                <p class="text-xs text-gray-500 mt-1">先定义配置名称、日期口径与启用状态，再关联平台凭据配置。</p>
-                            </div>
-                            <label class="inline-flex items-center gap-2 text-sm text-gray-700">
-                                <input v-model="dataConfigForm.enabled" type="checkbox" class="rounded border-gray-300">
-                                启用此配置
-                            </label>
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                            <div class="md:col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">配置名称</label>
-                                <input v-model="dataConfigForm.config_name" type="text" placeholder="例如：总部默认配置 / 华东门店配置" class="input-field w-full">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">默认日期范围</label>
-                                <select v-model="dataConfigForm.date_range" class="input-field w-full">
-                                    <option value="1">昨日</option>
-                                    <option value="0">今日实时</option>
-                                    <option value="7">近7天</option>
-                                    <option value="30">近30天</option>
-                                    <option value="custom">自定义</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">采集频率</label>
-                                <select v-model="dataConfigForm.fetch_frequency" class="input-field w-full">
-                                    <option value="manual">手动</option>
-                                    <option value="daily">每日</option>
-                                    <option value="weekly">每周</option>
-                                </select>
-                            </div>
-                            <div v-if="dataConfigForm.date_range === 'custom'">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">开始日期</label>
-                                <input v-model="dataConfigForm.start_date" type="date" class="input-field w-full">
-                            </div>
-                            <div v-if="dataConfigForm.date_range === 'custom'">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">结束日期</label>
-                                <input v-model="dataConfigForm.end_date" type="date" class="input-field w-full">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">定时执行时间</label>
-                                <input v-model="dataConfigForm.schedule_time" type="time" class="input-field w-full">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Cookie预警(天)</label>
-                                <input v-model="dataConfigForm.cookie_expire_days" type="number" min="1" class="input-field w-full">
-                            </div>
-                            <div class="md:col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">备注</label>
-                                <input v-model="dataConfigForm.remark" type="text" placeholder="账号来源、适用门店或维护说明" class="input-field w-full">
-                            </div>
-                        </div>
-                    </div>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                        <div class="rounded-lg border border-gray-100 bg-white px-3 py-2 text-gray-600">
-                            <span class="font-medium text-gray-800">必填项：</span>{{ dataConfigMeta.requiredText }}
-                        </div>
-                        <div class="rounded-lg border border-gray-100 bg-white px-3 py-2 text-gray-600">
-                            <span class="font-medium text-gray-800">输出数据：</span>{{ dataConfigMeta.outputText }}
-                        </div>
-                    </div>
-                    <!-- 携程ebooking配置 -->
-                    <div v-if="currentDataConfigType === 'ctrip-ebooking'">
-                        <div class="bg-blue-50 p-3 rounded text-sm text-blue-700 mb-4">
-                            <i class="fas fa-info-circle mr-2"></i>配置携程ebooking经营榜单接口。Node ID 通常来自 Network 请求体，Cookie 来自登录后的 Request Headers。
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div class="md:col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">接口URL</label>
-                                <input v-model="dataConfigForm.url" type="text" placeholder="https://ebooking.ctrip.com/..." class="input-field w-full">
-                                <p class="text-xs text-gray-400 mt-1">默认接口：getDayReportCompeteHotelReport，可按抓包结果覆盖。</p>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Node ID</label>
-                                <input v-model="dataConfigForm.node_id" type="text" placeholder="请输入 nodeId，例如 24588" class="input-field w-full">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">关联门店</label>
-                                <select v-model="dataConfigForm.system_hotel_id" class="input-field w-full">
-                                    <option value="">请选择门店</option>
-                                    <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
-                                </select>
-                            </div>
-                            <div class="md:col-span-2">
-                                <div class="flex items-center justify-between mb-1">
-                                    <label class="block text-sm font-medium text-gray-700">Cookies</label>
-                                    <button type="button" @click="showDataConfigCookie = !showDataConfigCookie" class="text-gray-400 hover:text-blue-600" :title="showDataConfigCookie ? '隐藏' : '显示'">
-                                        <i :class="showDataConfigCookie ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
-                                    </button>
-                                </div>
-                                <textarea v-model="dataConfigForm.cookies" rows="4" disabled="" placeholder="凭据请在携程平台配置中保存；这里仅使用 config_id" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
-                            </div>
-                            <div class="md:col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">认证附加参数（JSON，可选）</label>
-                                <textarea v-model="dataConfigForm.auth_data" rows="2" disabled="" placeholder="认证附加参数由凭据保险库管理" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 美团ebooking配置 -->
-                    <div v-if="currentDataConfigType === 'meituan-ebooking'">
-                        <div class="bg-yellow-50 p-3 rounded text-sm text-yellow-700 mb-4">
-                            <i class="fas fa-info-circle mr-2"></i>配置美团ebooking竞对排名接口。平台接口标识和门店标识通常可在页面地址或接口参数中找到。
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div class="md:col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">接口URL</label>
-                                <input v-model="dataConfigForm.url" type="text" placeholder="https://ebooking.meituan.com/..." class="input-field w-full">
-                                <p class="text-xs text-gray-400 mt-1">默认接口：/api/v1/ebooking/business/peer/rank/data/detail。</p>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">平台接口标识</label>
-                                <input v-model="dataConfigForm.partner_id" type="text" placeholder="请输入商家接口标识" class="input-field w-full">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">平台门店标识</label>
-                                <input v-model="dataConfigForm.poi_id" type="text" placeholder="请输入门店标识" class="input-field w-full">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">排名类型</label>
-                                <select v-model="dataConfigForm.rank_type" class="input-field w-full">
-                                    <option value="P_RZ">入住榜（入住间夜/房费收入）</option>
-                                    <option value="P_XS">销售榜（销售间夜/销售额）</option>
-                                    <option value="P_ZH">转化榜（浏览/支付转化）</option>
-                                    <option value="P_LL">流量榜（曝光/浏览）</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">数据范围</label>
-                                <select v-model="dataConfigForm.data_scope" class="input-field w-full">
-                                    <option value="vpoi">门店维度</option>
-                                    <option value="partner">商家维度</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">关联门店</label>
-                                <select v-model="dataConfigForm.system_hotel_id" class="input-field w-full">
-                                    <option value="">请选择门店</option>
-                                    <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">本店房量（可选）</label>
-                                <input v-model="dataConfigForm.hotel_room_count" type="number" min="0" placeholder="用于竞对口径备注" class="input-field w-full">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">竞争圈总房量（可选）</label>
-                                <input v-model="dataConfigForm.competitor_room_count" type="number" min="0" placeholder="用于分析占比" class="input-field w-full">
-                            </div>
-                            <div class="md:col-span-2">
-                                <div class="flex items-center justify-between mb-1">
-                                    <label class="block text-sm font-medium text-gray-700">Cookies</label>
-                                    <button type="button" @click="showDataConfigCookie = !showDataConfigCookie" class="text-gray-400 hover:text-yellow-600" :title="showDataConfigCookie ? '隐藏' : '显示'">
-                                        <i :class="showDataConfigCookie ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
-                                    </button>
-                                </div>
-                                <textarea v-model="dataConfigForm.cookies" rows="4" disabled="" placeholder="凭据请在美团平台配置中保存；这里仅使用 config_id" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
-                            </div>
-                            <div class="md:col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">认证附加参数（JSON，可选）</label>
-                                <textarea v-model="dataConfigForm.auth_data" rows="2" disabled="" placeholder="认证附加参数由凭据保险库管理" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 携程流量配置 -->
-                    <div v-if="currentDataConfigType === 'ctrip-traffic'">
-                        <div class="bg-green-50 p-3 rounded text-sm text-green-700 mb-4">
-                            <i class="fas fa-info-circle mr-2"></i>配置携程流量分析接口，支持 Ctrip / Qunar 平台与 extra_params JSON。
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div class="md:col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">接口URL</label>
-                                <input v-model="dataConfigForm.url" type="text" placeholder="https://ebooking.ctrip.com/..." class="input-field w-full">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">平台</label>
-                                <select v-model="dataConfigForm.platform" class="input-field w-full">
-                                    <option value="Ctrip">携程</option>
-                                    <option value="Qunar">去哪儿</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">spiderkey（可选）</label>
-                                <input v-model="dataConfigForm.spiderkey" type="text" disabled="" placeholder="由凭据保险库管理" class="input-field w-full bg-gray-100 text-gray-500">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">关联门店</label>
-                                <select v-model="dataConfigForm.system_hotel_id" class="input-field w-full">
-                                    <option value="">请选择门店</option>
-                                    <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
-                                </select>
-                            </div>
-                            <div class="md:col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Cookies</label>
-                                <textarea v-model="dataConfigForm.cookies" rows="3" disabled="" placeholder="凭据请在携程平台配置中保存" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
-                            </div>
-                            <div class="md:col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">额外参数 (JSON格式)</label>
-                                <textarea v-model="dataConfigForm.extra_params" rows="3" disabled="" placeholder="敏感请求参数不再保存到通用配置" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 携程 Cookie API 配置 -->
-                    <div v-if="currentDataConfigType === 'ctrip-cookie-api'">
-                        <div class="bg-emerald-50 p-3 rounded text-sm text-emerald-700 mb-4">
-                            <i class="fas fa-info-circle mr-2"></i>配置携程 Cookie API 临时诊断接口清单；Cookie 可留空，系统会尝试从已验证 Profile 读取临时 Cookie，不代表长期授权。
-                        </div>
-                        <div class="flex justify-end mb-3">
-                            <button type="button" @click="fillDataConfigCtripCookieApiCorePreset" class="px-3 py-2 border border-emerald-200 text-emerald-700 rounded-lg hover:bg-emerald-50 text-sm">
-                                <i class="fas fa-list-check mr-2"></i>填入核心诊断接口
-                            </button>
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">关联门店</label>
-                                <select v-model="dataConfigForm.system_hotel_id" class="input-field w-full">
-                                    <option value="">请选择门店</option>
-                                    <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Profile ID</label>
-                                <input v-model="dataConfigForm.profile_id" type="text" placeholder="例如门店ID；对应 storage/ctrip_profile_&lt;id&gt;" class="input-field w-full">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">携程酒店ID（hotelId）</label>
-                                <input v-model="dataConfigForm.hotel_id" type="text" placeholder="填写该门店携程返回的 hotelId（不要填 nodeId）" class="input-field w-full">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">单接口 Method</label>
-                                <select v-model="dataConfigForm.method" class="input-field w-full">
-                                    <option value="GET">GET</option>
-                                    <option value="POST">POST</option>
-                                </select>
-                            </div>
-                            <div class="md:col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Request URL 清单</label>
-                                <textarea v-model="dataConfigForm.request_urls" rows="4" placeholder="每行一个 https://ebooking.ctrip.com/... JSON 接口" class="input-field w-full font-mono text-xs"></textarea>
-                            </div>
-                            <div class="md:col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">单个 Request URL（可选）</label>
-                                <input v-model="dataConfigForm.request_url" type="text" placeholder="https://ebooking.ctrip.com/..." class="input-field w-full">
-                            </div>
-                            <div class="md:col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Endpoints JSON（可选）</label>
-                                <textarea v-model="dataConfigForm.endpoints_json" rows="4" disabled="" placeholder="嵌套请求定义已停用；请使用 Request URL 清单" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
-                            </div>
-                            <div class="md:col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Payload JSON（单接口 POST 可选）</label>
-                                <textarea v-model="dataConfigForm.payload_json" rows="3" disabled="" placeholder="请求体不在通用配置中保存" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
-                            </div>
-                            <div class="md:col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Headers JSON（可选）</label>
-                                <textarea v-model="dataConfigForm.headers_json" rows="2" disabled="" placeholder="请求头由凭据保险库管理" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
-                            </div>
-                            <div class="md:col-span-2">
-                                <div class="flex items-center justify-between mb-1">
-                                    <label class="block text-sm font-medium text-gray-700">Cookies（可选）</label>
-                                    <button type="button" @click="showDataConfigCookie = !showDataConfigCookie" class="text-gray-400 hover:text-emerald-600" :title="showDataConfigCookie ? '隐藏' : '显示'">
-                                        <i :class="showDataConfigCookie ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
-                                    </button>
-                                </div>
-                                <textarea v-model="dataConfigForm.cookies" rows="4" disabled="" placeholder="凭据请在携程平台配置中保存" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 美团流量配置 -->
-                    <div v-if="currentDataConfigType === 'meituan-traffic'">
-                        <div class="bg-orange-50 p-3 rounded text-sm text-orange-700 mb-4">
-                            <i class="fas fa-info-circle mr-2"></i>配置美团流量接口，接口地址以当前排障地址为准，并补齐平台接口标识、门店标识和 Cookie/API 辅助内容。
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div class="md:col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">接口URL</label>
-                                <input v-model="dataConfigForm.url" type="text" placeholder="https://ebooking.meituan.com/..." class="input-field w-full">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">平台接口标识</label>
-                                <input v-model="dataConfigForm.partner_id" type="text" placeholder="请输入商家接口标识" class="input-field w-full">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">平台门店标识</label>
-                                <input v-model="dataConfigForm.poi_id" type="text" placeholder="请输入门店标识" class="input-field w-full">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">关联门店</label>
-                                <select v-model="dataConfigForm.system_hotel_id" class="input-field w-full">
-                                    <option value="">请选择门店</option>
-                                    <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
-                                </select>
-                            </div>
-                            <div class="md:col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Cookies</label>
-                                <textarea v-model="dataConfigForm.cookies" rows="3" disabled="" placeholder="凭据请在美团平台配置中保存" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
-                            </div>
-                            <div class="md:col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">额外参数 (JSON格式)</label>
-                                <textarea v-model="dataConfigForm.extra_params" rows="3" disabled="" placeholder="敏感请求参数不再保存到通用配置" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 国际 OTA 通用配置 -->
-                    <div v-if="['booking-ota', 'agoda-ota', 'expedia-ota'].includes(currentDataConfigType)">
-                        <div class="bg-indigo-50 p-3 rounded text-sm text-indigo-700 mb-4">
-                            <i class="fas fa-info-circle mr-2"></i>{{ dataConfigMeta.description }} 当前仅用于配置归档：保存平台口径、后台入口和凭证备注；尚未接入自动采集。
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">平台</label>
-                                <select v-model="dataConfigForm.platform" class="input-field w-full">
-                                    <option value="booking">Booking.com</option>
-                                    <option value="agoda">Agoda</option>
-                                    <option value="expedia">Expedia</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">关联门店</label>
-                                <select v-model="dataConfigForm.system_hotel_id" class="input-field w-full">
-                                    <option value="">请选择门店</option>
-                                    <option v-for="hotel in hotels" :key="hotel.id" :value="hotel.id">{{ hotel.name }}</option>
-                                </select>
-                            </div>
-                            <div class="md:col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">后台入口 / 数据源 URL</label>
-                                <input v-model="dataConfigForm.url" type="text" placeholder="https://admin.booking.com/ 或平台数据导出页面" class="input-field w-full">
-                            </div>
-                            <div class="md:col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Cookies / Token / 登录备注</label>
-                                <textarea v-model="dataConfigForm.cookies" rows="3" disabled="" placeholder="通用配置不托管 Cookies、Token 或登录凭据" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
-                            </div>
-                            <div class="md:col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">字段映射 / 额外参数 (JSON)</label>
-                                <textarea v-model="dataConfigForm.extra_params" rows="4" disabled="" placeholder="该入口暂不保存可执行请求参数" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 携程点评配置 -->
-                    <!-- 美团点评配置 -->
-                    <!-- 携程广告配置 -->
-                    <div v-if="currentDataConfigType === 'ctrip-ads'">
-                        <div class="bg-indigo-50 p-3 rounded text-sm text-indigo-700 mb-4">
-                            <i class="fas fa-info-circle mr-2"></i>配置携程广告效果页直接获取参数；接口 URL 可留空，系统默认使用 queryCampaignReportList。
-                        </div>
-                        <div class="grid grid-cols-2 gap-4">
-                            <div class="col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">效果报表接口URL（可选）</label>
-                                <input v-model="dataConfigForm.url" type="text" placeholder="留空使用默认 queryCampaignReportList；需要时粘贴 Network Request URL" class="input-field w-full">
-                            </div>
-                            <div class="col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">API类型</label>
-                                <div class="input-field w-full bg-gray-50 text-gray-800">效果报表</div>
-                                <p class="text-xs text-gray-500 mt-1">广告配置固定为效果页口径。</p>
-                            </div>
-                            <div class="col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Cookie</label>
-                                <textarea v-model="dataConfigForm.cookie" rows="3" disabled="" placeholder="凭据请在携程平台配置中保存" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">开始日期</label>
-                                <input v-model="dataConfigForm.start_date" type="date" class="input-field w-full">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">结束日期</label>
-                                <input v-model="dataConfigForm.end_date" type="date" class="input-field w-full">
-                            </div>
-                            <div class="col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Payload JSON（可选）</label>
-                                <textarea v-model="dataConfigForm.payload_json" rows="3" disabled="" placeholder="请求体不在通用配置中保存" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 美团广告配置 -->
-                    <div v-if="currentDataConfigType === 'meituan-ads'">
-                        <div class="bg-red-50 p-3 rounded text-sm text-red-700 mb-4">
-                            <i class="fas fa-info-circle mr-2"></i>配置美团推广通广告接口参数，URL 应为 Network 中 cureShops 等 JSON Request URL
-                        </div>
-                        <div class="grid grid-cols-2 gap-4">
-                            <div class="col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">接口 Request URL</label>
-                                <input v-model="dataConfigForm.url" type="text" placeholder="Network 中 cureShops 的 Request URL" class="input-field w-full">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">请求方式</label>
-                                <select v-model="dataConfigForm.method" class="input-field w-full">
-                                    <option value="GET">GET</option>
-                                    <option value="POST">POST</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Partner ID（可选）</label>
-                                <input v-model="dataConfigForm.partner_id" type="text" placeholder="接口需要时填写" class="input-field w-full">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Shop ID / POI ID</label>
-                                <input v-model="dataConfigForm.shop_id" type="text" placeholder="推广通店铺 ID 或门店 POI ID" class="input-field w-full">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">POI ID（可选）</label>
-                                <input v-model="dataConfigForm.poi_id" type="text" placeholder="为空时使用 Shop ID" class="input-field w-full">
-                            </div>
-                            <div class="col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Cookie</label>
-                                <textarea v-model="dataConfigForm.cookie" rows="3" disabled="" placeholder="凭据请在美团平台配置中保存" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">开始日期</label>
-                                <input v-model="dataConfigForm.begin_date" type="date" class="input-field w-full">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">结束日期</label>
-                                <input v-model="dataConfigForm.end_date" type="date" class="input-field w-full">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">时间单位</label>
-                                <select v-model="dataConfigForm.time_unit" class="input-field w-full">
-                                    <option value="day">日</option>
-                                    <option value="week">周</option>
-                                    <option value="month">月</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">mtgsig</label>
-                                <input v-model="dataConfigForm.mtgsig" type="text" disabled="" placeholder="由凭据保险库管理" class="input-field w-full bg-gray-100 text-gray-500">
-                            </div>
-                            <div class="col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Payload JSON（可选）</label>
-                                <textarea v-model="dataConfigForm.payload_json" rows="3" disabled="" placeholder="请求体不在通用配置中保存" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
-                            </div>
-                            <div class="col-span-2">
-                                <label class="block text-sm font-medium text-gray-700 mb-1">额外参数 JSON（可选）</label>
-                                <textarea v-model="dataConfigForm.extra_params" rows="2" disabled="" placeholder="敏感请求参数不在通用配置中保存" class="input-field w-full bg-gray-100 text-gray-500"></textarea>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="flex justify-end space-x-3 pt-4 border-t">
-                        <button type="button" @click="testDataConfig" :disabled="testingConfig" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50">
-                            <i class="fas fa-play mr-2"></i>{{ testingConfig ? '校验中...' : '校验配置' }}
-                        </button>
-                        <button type="button" @click="showDataConfigModal = false" class="px-4 py-2 border rounded-lg hover:bg-gray-50">取消</button>
-                        <button type="submit" :disabled="savingConfig" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50">
-                            {{ savingConfig ? '保存中...' : '保存配置' }}
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
+        <data-config-dialogs v-if="showDataConfigModal" :ctx="$root"></data-config-dialogs>
         <div v-if="workflowFormDialog.visible" class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 p-4" data-testid="workflow-form-dialog" role="dialog" aria-modal="true" :aria-label="workflowFormDialog.title" @click.self="closeWorkflowFormDialog()" @keydown.esc.stop="closeWorkflowFormDialog()">
             <form class="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl" @submit.prevent="submitWorkflowFormDialog">
                 <div class="border-b border-slate-100 px-6 py-5">

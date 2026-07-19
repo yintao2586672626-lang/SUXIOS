@@ -256,7 +256,7 @@
                         </div>
                         <div class="input-group">
                             <label for="login-password" class="input-label block text-sm font-medium mb-2"><i class="fas fa-key mr-2"></i>密码</label>
-                            <div class="relative"><i class="fas fa-lock input-icon-prefix"></i><input id="login-password" type="password" name="password" autocomplete="current-password" data-testid="login-password" class="input-field w-full" style="padding-right:3.5rem" placeholder="请输入密码" aria-describedby="public-login-error public-login-caps-lock" required><button id="public-login-toggle-password" type="button" data-testid="login-toggle-password" class="password-toggle absolute" style="right:.75rem;top:50%;transform:translateY(-50%)" aria-label="显示密码" aria-pressed="false" aria-controls="login-password"><i class="fas fa-eye" aria-hidden="true"></i></button></div>
+                            <div class="relative"><i class="fas fa-lock input-icon-prefix"></i><input id="login-password" type="password" name="password" autocomplete="current-password" data-testid="login-password" class="input-field w-full" placeholder="请输入密码" aria-describedby="public-login-error public-login-caps-lock" required><button id="public-login-toggle-password" type="button" data-testid="login-toggle-password" class="password-toggle absolute" aria-label="显示密码" aria-pressed="false" aria-controls="login-password"><i class="fas fa-eye" aria-hidden="true"></i></button></div>
                             <p id="public-login-caps-lock" class="login-caps-lock" role="status" aria-live="polite" hidden><i class="fas fa-arrow-up" aria-hidden="true"></i><span>大写锁定已开启，请注意密码大小写</span></p>
                         </div>
                         <div id="public-login-error" class="login-error flex items-center gap-3" role="alert" aria-live="assertive" aria-atomic="true" hidden><i class="fas fa-exclamation-circle" aria-hidden="true"></i><span></span></div>
@@ -267,7 +267,7 @@
                 </div>
             </div>
             <footer class="login-public-footer" aria-label="登录页使用说明"><span>宿析OS · 酒店经营决策系统</span><span aria-hidden="true">·</span><span>仅限授权用户使用</span><span aria-hidden="true">·</span><span>请勿共享密码、验证码或 Cookie</span></footer>
-            <div id="public-login-support-backdrop" class="login-support-backdrop" style="display:none" hidden>
+            <div id="public-login-support-backdrop" class="login-support-backdrop" hidden>
                 <section data-testid="login-support-dialog" class="login-support-dialog" role="dialog" aria-modal="true" aria-labelledby="public-login-support-title" aria-describedby="public-login-support-description" tabindex="-1">
                     <div class="login-support-head"><div><p class="login-support-kicker">账号协助</p><h2 id="public-login-support-title">联系管理员</h2></div><button id="public-login-support-close" type="button" class="login-support-close" aria-label="关闭联系管理员弹窗"><i class="fas fa-times" aria-hidden="true"></i></button></div>
                     <p id="public-login-support-description" class="login-support-description">开通账号或处理登录问题，请通过以下方式联系管理员。</p>

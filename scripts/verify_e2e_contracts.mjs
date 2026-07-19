@@ -854,8 +854,9 @@ requireText('public/index.html', 'saveCachedAuthUser(res.data.user);', 'login su
 requireText('public/index.html', 'permittedHotels.value = dedupeHotels(res.data.user?.permitted_hotels || []);\n                        hotels.value = [...permittedHotels.value];', 'login seeds hotel options from permitted hotels before full hotel-list refresh');
 requireText('public/index.html', 'const clearAuthSession = () => {', 'auth cleanup clears token and cached auth user together');
 requireText('public/index.html', 'clearCachedAuthUser();', 'auth cleanup removes cached auth profile');
-requireText('public/index.html', 'const activateAiWorkbenchAfterLogin = () => {', 'login startup activates the AI workbench through the page watcher');
-requireText('public/index.html', 'activateAiWorkbenchAfterLogin();', 'login startup hands initial workbench loading to the non-blocking page loader');
+requireText('public/index.html', 'const activateCoreOperationsAfterLogin = () => {', 'login startup owns one default core-operations landing helper');
+requireText('public/index.html', "return openOnlineDataEntryTab('data-health');", 'login startup lands on the one-page yesterday operating loop');
+requireText('public/index.html', 'activateCoreOperationsAfterLogin();', 'fresh login and legacy default sessions share the core-operations entry helper');
 requireText('public/index.html', 'const HOME_SECONDARY_PANEL_DELAY_MS = 4200;', 'home lower panels are delayed so immediate OTA navigation has a lighter first interaction window');
 requireText('public/index.html', 'const homeSecondaryPanelsReady = ref(false);', 'home lower panel rendering is gated behind an explicit readiness flag');
 requireText('public/index.html', 'const scheduleHomeSecondaryPanelsReady = (delayMs = HOME_SECONDARY_PANEL_DELAY_MS) => {', 'home lower panel readiness is scheduled and cancellable');
@@ -1594,6 +1595,14 @@ requireText('public/index.html', "requireAutoFetchStatic('runDataConfigTestFlow'
 requireText('public/index.html', 'let dataConfigModalLoadSeq = 0;', 'data-source config modal tracks stale background config loads');
 requireText('public/index.html', 'const openDataConfigModal = (type) => {', 'data-source config modal opens without waiting for saved system-config data');
 requireText('public/index.html', 'showDataConfigModal.value = true;\n                debugLog', 'data-source config modal is shown before deferred saved-config loading starts');
+requireText('public/index.html', "const dataConfigDialogsScript = 'components/system/data-config-dialogs.js?v=20260720-data-config-template-split-v1';", 'data-source config modal uses a versioned lazy component script');
+requireText('public/index.html', 'void ensureDataConfigDialogsReady().catch((error) => {', 'data-source config modal starts component loading without blocking its visible shell');
+requireText('resources/frontend/templates/fragments/45-dialogs-data-config.html', '<data-config-dialogs v-if="showDataConfigModal" :ctx="$root"></data-config-dialogs>', 'root render retains only the lazy data-source config dialog wrapper');
+requireNoText('resources/frontend/templates/fragments/45-dialogs-data-config.html', '<form @submit.prevent="saveDataConfig"', 'root render excludes the data-source config form body');
+requireText('resources/frontend/templates/components/data-config-dialogs.html', '<form @submit.prevent="saveDataConfig"', 'lazy data-source config template preserves the existing form body');
+requireText('public/components/system/data-config-dialogs.js', 'SUXI_SYSTEM_COMPONENTS', 'precompiled data-source config body registers in the system component registry');
+requireText('public/components/system/data-config-dialogs.js', 'DataConfigDialogsBody', 'precompiled data-source config body registers under the expected key');
+requireNoText('public/index.html', '<script src="components/system/data-config-dialogs.js', 'data-source config body is not eagerly loaded at startup');
 requireText('public/index.html', 'deferUiTask(async () => {\n                    const isCurrentConfigModal = () =>', 'data-source config modal loads saved config in deferred work with stale checks');
 requireText('public/index.html', 'const loadDataConfig = async (type, options = {}) => {', 'data-source config loader supports stale-open guards');
 requireText('public/index.html', "const shouldApply = typeof options.shouldApply === 'function' ? options.shouldApply : () => true;", 'data-source config loader can skip stale saved-config application');

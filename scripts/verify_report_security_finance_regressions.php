@@ -96,7 +96,14 @@ $robotControllerRef = new ReflectionClass(CompetitorWechatRobotController::class
 $robotController = $robotControllerRef->newInstanceWithoutConstructor();
 $validRobotWebhook = 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc123';
 assert_regression_same($validRobotWebhook, call_private_regression($robotController, 'normalizeRobotWebhook', [$validRobotWebhook]), 'competitor robot webhook validator must accept Enterprise WeChat robot URLs');
-$maskedRobotWebhook = call_private_regression($robotController, 'maskRobotWebhook', [$validRobotWebhook]);
+$maskedRobotRow = call_private_regression($robotController, 'formatRobotListRow', [[
+    'id' => 1,
+    'store_id' => 1,
+    'name' => 'regression fixture',
+    'webhook' => $validRobotWebhook,
+    'status' => 1,
+]]);
+$maskedRobotWebhook = is_array($maskedRobotRow) ? (string)($maskedRobotRow['webhook_masked'] ?? '') : '';
 assert_regression(!str_contains((string)$maskedRobotWebhook, 'abc123') && !str_contains((string)$maskedRobotWebhook, 'c123'), 'competitor robot webhook mask must not expose robot key characters');
 assert_regression_same(null, call_private_regression($robotController, 'normalizeRobotWebhook', ['http://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc123']), 'competitor robot webhook validator must reject non-HTTPS URLs');
 assert_regression_same(null, call_private_regression($robotController, 'normalizeRobotWebhook', ['https://qyapi.weixin.qq.com.evil.test/cgi-bin/webhook/send?key=abc123']), 'competitor robot webhook validator must reject lookalike hosts');
@@ -175,7 +182,7 @@ assert_regression(str_contains($competitorSource, "\$ipHash = substr(sha1((strin
 assert_regression(!str_contains($competitorSource, "\$identity . '|' . (string)\$this->request->ip()"), 'competitor public token APIs must not let request identity bypass pre-auth rate limits');
 assert_regression(str_contains($competitorReportSource, 'CompetitorHotel::where'), 'competitor report must validate the target competitor hotel');
 assert_regression(str_contains($competitorReportSource, "where('store_id', \$storeId)"), 'competitor report must bind store_id to the configured competitor hotel');
-assert_regression(str_contains($competitorReportSource, '$this->isValidReportPrice($price)'), 'competitor report must reject unparseable or zero competitor prices');
+assert_regression(str_contains($competitorReportSource, '$this->isValidReportPrice($extractedPrice)'), 'competitor report must reject unparseable or zero competitor prices');
 assert_regression(str_contains($competitorReportSource, "'invalid_report_price'"), 'competitor report must audit invalid competitor price text instead of saving price=0');
 foreach ([
     'Ctrip browser Profile adapter' => $ctripBrowserAdapterSource,
@@ -232,7 +239,7 @@ assert_regression(!str_contains($robotListViewSource . $robotAddViewSource . $ro
 assert_regression(!str_contains($robotEditViewSource, "<?php echo \$robot['name']; ?>"), 'competitor robot edit form must not echo robot names without escaping');
 assert_regression(!str_contains($robotEditViewSource, "<?php echo \$robot['webhook']; ?>"), 'competitor robot edit form must not echo webhooks without escaping');
 assert_regression(str_contains($robotEditViewSource, 'autocomplete="off"') && str_contains($robotEditViewSource, 'webhook_masked'), 'competitor robot edit form must not render full webhook secrets and must show only masked status');
-assert_regression(str_contains($robotControllerSource, 'formatRobotListRow') && str_contains($robotControllerSource, 'maskRobotWebhook'), 'competitor robot list API must mask stored webhook secrets');
+assert_regression(str_contains($robotControllerSource, 'formatRobotListRow') && str_contains($robotControllerSource, "'webhook_masked'") && str_contains($robotControllerSource, 'key=******'), 'competitor robot list API must mask stored webhook secrets');
 assert_regression(str_contains($robotIndexSource, 'formatRobotListRow'), 'competitor robot legacy list must use the masked list row formatter');
 assert_regression(str_contains($robotApiIndexSource, 'formatRobotListRow'), 'competitor robot API list must use the masked list row formatter');
 assert_regression(!str_contains($robotApiIndexSource, '$list = $query->page($pagination[\'page\'], $pagination[\'page_size\'])->select()->toArray();'), 'competitor robot API list must not directly paginate raw database rows');
@@ -241,7 +248,7 @@ assert_regression(str_contains($routeSource, "Route::get('/detail/:id', 'admin.C
 assert_regression(str_contains($robotListViewSource, 'webhook_masked'), 'competitor robot legacy list must display masked webhook text');
 assert_regression(str_contains($robotDetailFormatterSource, "\$row['webhook'] = '';") && str_contains($robotDetailFormatterSource, 'webhook_placeholder'), 'competitor robot detail formatter must not return full webhook secrets');
 assert_regression(!str_contains($robotDetailFormatterSource, "\$row['webhook'] = (string)(\$robot['webhook'] ?? '')"), 'competitor robot detail formatter must not expose stored webhook secrets');
-assert_regression(str_contains($robotControllerSource, 'resolveRobotWebhookForUpdate') && substr_count($robotControllerSource, 'resolveRobotWebhookForUpdate($data, $robot)') >= 2, 'competitor robot updates must preserve existing webhook when edit form leaves the secret blank');
+assert_regression(str_contains($robotControllerSource, 'resolveStoredRobotWebhookForUpdate') && substr_count($robotControllerSource, 'resolveStoredRobotWebhookForUpdate($data, $robot)') >= 2, 'competitor robot updates must preserve existing webhook when edit form leaves the secret blank');
 assert_regression(!str_contains($publicIndexSource, 'competitorRobotForm.value = { ...item };'), 'competitor robot SPA edit form must not reuse masked list rows as editable secrets');
 assert_regression(str_contains($publicIndexSource, '/admin/competitor-wechat-robot/detail/'), 'competitor robot SPA edit form must fetch an explicit detail row instead of reusing masked list rows');
 assert_regression(str_contains($robotWebhookNormalizeSource, "isset(\$parts['user'])") && str_contains($robotWebhookNormalizeSource, "isset(\$parts['pass'])"), 'competitor robot webhook validation must reject URL userinfo credentials');

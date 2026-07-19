@@ -355,7 +355,8 @@ class RevenuePricingRecommendationService
             'stage' => $stage,
             'status_label' => $this->pricingReadinessStageLabel($stage),
             'score' => $score,
-            'ready_for_review' => in_array($stage, ['evidence_ready', 'pricing_ready'], true),
+            'ready_for_review' => in_array($stage, ['approved_pending_execution', 'evidence_ready', 'pricing_ready'], true),
+            'execution_intent_ready' => $stage === 'approved_pending_execution',
             'pricing_ready' => $stage === 'pricing_ready',
             'checks' => $checks,
             'missing_evidence' => $missingEvidence,
@@ -383,36 +384,58 @@ class RevenuePricingRecommendationService
     /** @return array<string, mixed> */
     private function enrichSuggestionDecisionQuality(array $row): array
     {
-        $factors = is_array($row['factors'] ?? null) ? $row['factors'] : [];
+        $factors = is_array($row['factors'] ?? null)
+            ? $row['factors']
+            : $this->decodeJsonObject($row['factors'] ?? null);
+        $row['factors'] = $factors;
         $signals = is_array($factors['signals'] ?? null) ? $factors['signals'] : [];
-        $evidenceSources = [];
-        foreach (['demand_forecast', 'pickup', 'elasticity', 'competitor', 'inventory', 'backtest', 'holiday'] as $key) {
-            $signal = is_array($signals[$key] ?? null) ? $signals[$key] : [];
-            if ($signal === []) {
-                continue;
-            }
-            $source = trim((string)($signal['source'] ?? $key));
-            $signalDate = trim((string)($signal['data_date'] ?? $signal['source_date'] ?? $signal['target_date'] ?? ''));
-            $signalId = (int)($signal['id'] ?? 0);
-            $evidenceSources[] = [
-                'ref' => $source . '#' . ($signalId > 0 ? $signalId : ($signalDate !== '' ? $signalDate : $key)),
-                'source' => $source,
-                'date' => $signalDate,
-                'scope' => 'ota_channel',
-                'quality_status' => (string)($signal['data_status'] ?? 'unverified'),
-                'metric_keys' => array_values(array_filter(array_keys($signal), static fn(string $field): bool => !in_array($field, ['raw_data', 'source_metadata'], true))),
-                'summary' => $this->pricingSignalSummary($key, $signal),
-            ];
-        }
-
         $hotelId = (int)($row['hotel_id'] ?? 0);
         $targetDate = trim((string)($row['suggestion_date'] ?? ''));
+        $authoritativeSignals = $hotelId > 0 && preg_match('/^\d{4}-\d{2}-\d{2}$/', $targetDate) === 1
+            ? $this->hotelSignals($hotelId, $targetDate)
+            : [];
+        $evidenceSources = [];
+        $historyEvidence = is_array($authoritativeSignals['history_evidence'] ?? null)
+            ? $authoritativeSignals['history_evidence']
+            : [];
+        if ($historyEvidence !== []) {
+            $evidenceSources[] = $historyEvidence;
+        }
+
         $roomType = is_array($row['room_type'] ?? null) ? $row['room_type'] : [];
         $roomName = trim((string)($roomType['name'] ?? $row['room_type_name'] ?? '目标房型'));
         $currentPrice = $this->toFloat($row['current_price'] ?? 0);
         $suggestedPrice = $this->toFloat($row['suggested_price'] ?? 0);
+        $manualReview = is_array($factors['manual_review'] ?? null) ? $factors['manual_review'] : [];
+        if (in_array((string)($manualReview['action'] ?? ''), ['approve', 'approve_with_changes'], true)
+            && $this->toFloat($manualReview['approved_price'] ?? 0) > 0
+        ) {
+            $suggestedPrice = $this->toFloat($manualReview['approved_price']);
+        }
         $riskLevel = strtolower(trim((string)($factors['risk_level'] ?? $row['risk_level'] ?? 'medium')));
         $readiness = is_array($row['pricing_readiness'] ?? null) ? $row['pricing_readiness'] : [];
+        $primaryDrivers = [];
+        foreach ((array)($factors['drivers'] ?? []) as $driver) {
+            if (!is_array($driver)) {
+                continue;
+            }
+            $signal = trim((string)($driver['signal'] ?? ''));
+            if (in_array($signal, ['demand_forecast', 'pickup_curve', 'competitor_price', 'inventory', 'price_elasticity'], true)) {
+                $primaryDrivers[$signal] = true;
+            }
+        }
+        $verifiedDriverSignals = [
+            'pickup_curve' => (string)($authoritativeSignals['pickup']['data_status'] ?? '') === 'ok',
+            'price_elasticity' => (string)($authoritativeSignals['elasticity']['data_status'] ?? '') === 'ok',
+        ];
+        $unsupportedDrivers = array_values(array_filter(
+            array_keys($primaryDrivers),
+            static fn(string $driver): bool => ($verifiedDriverSignals[$driver] ?? false) !== true
+        ));
+        $serverEvidenceReady = $historyEvidence !== []
+            && count($primaryDrivers) >= self::MIN_PRIMARY_SIGNAL_COUNT
+            && $unsupportedDrivers === [];
+        $upstreamReady = ($readiness['ready_for_review'] ?? false) === true && $serverEvidenceReady;
         $context = [
             'scope' => 'ota_channel',
             'hotel_id' => $hotelId,
@@ -423,6 +446,13 @@ class RevenuePricingRecommendationService
             'default_priority' => $riskLevel === 'high' ? 'P0' : 'P1',
             'default_risk_level' => $riskLevel,
             'review_window' => '人工执行后观察7天，并按同酒店、同携程房型、同入住日口径复核订单、间夜、ADR与渠道收入',
+            'expected_effect_policy' => [
+                'status' => 'verification_target',
+                'metric' => 'ota_revenue',
+                'direction' => 'verify',
+                'summary' => '预期效果是核验本次携程调价对订单、间夜、ADR与渠道收入组合的影响；完成同口径前后回读前不承诺提升幅度。',
+                'review_window' => '人工执行后观察7天，并按同酒店、同携程房型、同入住日口径复核订单、间夜、ADR与渠道收入',
+            ],
         ];
         $action = sprintf(
             '人工复核后，将%s在%s的携程目标价从¥%s调整为¥%s；本建议不自动写入OTA。',
@@ -437,21 +467,23 @@ class RevenuePricingRecommendationService
             'priority' => $riskLevel === 'high' ? 'P0' : 'P1',
             'reason' => (string)$context['basis_summary'],
             'action_type' => 'price_adjustment',
+            'object_type' => 'price',
+            'platform' => 'ctrip',
+            'target_date' => $targetDate,
+            'room_type_name' => $roomName,
             'recommendation_type' => 'operation',
             'expected_metric' => 'ota_revenue',
-            'expected_effect' => [
-                'status' => 'verification_target',
-                'metric' => 'ota_revenue',
-                'direction' => 'verify',
-                'summary' => '预期验证目标价盘对携程订单、间夜、ADR与渠道收入组合的影响；没有同口径复盘前不承诺提升幅度。',
-            ],
             'risk' => [
                 'level' => $riskLevel !== '' ? $riskLevel : 'medium',
                 'summary' => '调价可能牺牲ADR或订单转化；房型、入住日、早餐和取消政策不可比也会造成错误判断。',
                 'controls' => array_values((array)($factors['review_checklist'] ?? $row['review_checklist'] ?? [])),
             ],
-            'can_create_execution_intent' => ($readiness['ready_for_review'] ?? false) === true,
-            'blocked_reason' => ($readiness['ready_for_review'] ?? false) === true ? '' : (string)($readiness['notice'] ?? ''),
+            'can_create_execution_intent' => $upstreamReady,
+            'blocked_reason' => $upstreamReady
+                ? ''
+                : ($serverEvidenceReady
+                    ? (string)($readiness['notice'] ?? '')
+                    : '调价驱动尚未全部绑定到同酒店、同携程渠道的数据库回读证据；当前仅允许展示和人工复核。'),
         ]], $context);
 
         $row['decision_recommendation'] = $recommendations[0] ?? [];
@@ -771,6 +803,10 @@ class RevenuePricingRecommendationService
         $historyStart = date('Y-m-d', strtotime($asOfDate . ' -60 days'));
         $history = $this->trustedOtaFacts->pricingHistory($hotelId, $historyStart, $asOfDate);
         $historyRows = is_array($history['rows'] ?? null) ? $history['rows'] : [];
+        $historyRows = array_values(array_filter($historyRows, static function (array $row): bool {
+            $source = strtolower(trim((string)($row['source'] ?? '')));
+            return in_array($source, self::CTRIP_TRAFFIC_SOURCE_ALIASES, true);
+        }));
         $elasticity = $this->estimatePriceElasticity($historyRows);
         $pickup = $this->pickupSignal($historyRows, $asOfDate);
         $holiday = $this->holidaySignal($targetDate);
@@ -796,6 +832,20 @@ class RevenuePricingRecommendationService
             'history_data_status' => (string)($history['data_status'] ?? 'unknown'),
             'source_policy' => is_array($history['source_policy'] ?? null) ? $history['source_policy'] : [],
             'history_data_quality' => is_array($history['data_quality'] ?? null) ? $history['data_quality'] : [],
+            'history_evidence' => $historyRows === [] ? [] : [
+                'ref' => 'online_daily_data#pricing_history:' . $hotelId . ':' . $historyStart . ':' . $asOfDate,
+                'source' => 'online_daily_data',
+                'date' => $asOfDate,
+                'date_role' => 'historical',
+                'scope' => 'ota_channel',
+                'system_hotel_id' => $hotelId,
+                'platform' => 'ctrip',
+                'quality_status' => 'decision_eligible',
+                'decision_eligible' => true,
+                'readback_verified' => true,
+                'metric_keys' => ['amount', 'quantity', 'book_order_num'],
+                'summary' => '同系统酒店、携程渠道、历史窗口内的数据库回读核验经营事实。',
+            ],
             'data_gaps' => $dataGaps,
         ];
     }

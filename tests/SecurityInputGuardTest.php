@@ -96,10 +96,10 @@ final class SecurityInputGuardTest extends TestCase
     {
         $controller = $this->controller(CompetitorApi::class);
         $complete = $this->invokeNonPublic($controller, 'normalizeCompetitorRateContext', [[
-            'ota_hotel_id' => 'ctrip-100',
+            'ota_hotel_id' => '100',
             'collected_at' => '2026-07-17 10:20:30',
             'source_method' => 'local_browser_profile',
-            'source_ref' => 'https://hotels.example.com/100?token=must-not-persist',
+            'source_ref' => 'https://hotels.ctrip.com/hotels/100.html?token=must-not-persist',
             'check_in_date' => '2026-07-20',
             'check_out_date' => '2026-07-22',
             'adults' => 2,
@@ -119,16 +119,16 @@ final class SecurityInputGuardTest extends TestCase
         self::assertSame(2, $complete['nights']);
         self::assertSame(0, $complete['tax_fee_included']);
         self::assertSame('CNY', $complete['currency']);
-        self::assertSame('https://hotels.example.com/100', $complete['source_ref']);
+        self::assertSame('https://hotels.ctrip.com/hotels/100.html', $complete['source_ref']);
         self::assertSame(64, strlen($complete['availability_scope_key']));
         self::assertSame(64, strlen($complete['comparison_key']));
         self::assertSame(64, strlen($complete['content_hash']));
 
         $soldOut = $this->invokeNonPublic($controller, 'normalizeCompetitorRateContext', [[
-            'ota_hotel_id' => 'ctrip-100',
+            'ota_hotel_id' => '100',
             'collected_at' => '2026-07-17 11:20:30',
             'source_method' => 'local_browser_profile',
-            'source_ref' => 'https://hotels.example.com/100',
+            'source_ref' => 'https://hotels.ctrip.com/hotels/100.html',
             'check_in_date' => '2026-07-20',
             'check_out_date' => '2026-07-22',
             'adults' => 2,
@@ -148,10 +148,10 @@ final class SecurityInputGuardTest extends TestCase
         self::assertSame($complete['comparison_key'], $soldOut['comparison_key']);
 
         $otherSurface = $this->invokeNonPublic($controller, 'normalizeCompetitorRateContext', [[
-            'ota_hotel_id' => 'ctrip-100',
+            'ota_hotel_id' => '100',
             'collected_at' => '2026-07-17 11:25:30',
             'source_method' => 'local_browser_profile',
-            'source_ref' => 'https://hotels.example.com/100/other-surface',
+            'source_ref' => 'https://hotels.ctrip.com/hotels/100/other-surface',
             'check_in_date' => '2026-07-20',
             'check_out_date' => '2026-07-22',
             'adults' => 2,
@@ -177,6 +177,17 @@ final class SecurityInputGuardTest extends TestCase
         self::assertSame('incomplete', $incomplete['validation_status']);
         self::assertSame('', $incomplete['comparison_key']);
         self::assertStringContainsString('valid_stay_window', $incomplete['failure_reason']);
+        self::assertStringContainsString('ota_hotel_id', $incomplete['failure_reason']);
+
+        try {
+            $this->invokeNonPublic($controller, 'normalizeCompetitorRateContext', [[
+                'ota_hotel_id' => '100',
+                'source_ref' => 'https://www.meituan.com/hotel/100',
+            ], 'ctrip', 388.0]);
+            self::fail('Expected a cross-platform source URL to be rejected.');
+        } catch (InvalidArgumentException $exception) {
+            self::assertStringContainsString('来源 URL 与上报平台不一致', $exception->getMessage());
+        }
         self::assertStringContainsString('readback', (string)file_get_contents(dirname(__DIR__) . '/app/controller/CompetitorApi.php'));
     }
 

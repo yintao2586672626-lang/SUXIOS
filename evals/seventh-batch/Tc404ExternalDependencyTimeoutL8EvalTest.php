@@ -6,20 +6,13 @@ namespace Tests\Eval\SeventhBatch;
 use app\service\LlmClient;
 use PHPUnit\Framework\TestCase;
 use ReflectionMethod;
-use RuntimeException;
 
 /**
- * Local deterministic transport for TC-404.
- *
- * It deliberately never opens a socket. The wrapper only records the timeout
- * passed by LlmClient and rejects the local stream open as a simulated hang.
+ * Local deterministic cURL executor for TC-404. It never opens a socket.
  */
-final class Tc404TimeoutTransport
+final class Tc404TimeoutLlmClient extends LlmClient
 {
-    /** @var resource|null Populated by PHP for userland stream wrappers. */
-    public $context;
-
-    private static int $openCalls = 0;
+    private static int $requestCalls = 0;
     private static int $activeOperations = 0;
 
     /** @var list<int> */
@@ -27,14 +20,14 @@ final class Tc404TimeoutTransport
 
     public static function reset(): void
     {
-        self::$openCalls = 0;
+        self::$requestCalls = 0;
         self::$activeOperations = 0;
         self::$observedTimeouts = [];
     }
 
-    public static function openCalls(): int
+    public static function requestCalls(): int
     {
-        return self::$openCalls;
+        return self::$requestCalls;
     }
 
     public static function activeOperations(): int
@@ -48,25 +41,19 @@ final class Tc404TimeoutTransport
         return self::$observedTimeouts;
     }
 
-    /**
-     * @param string|null $openedPath
-     */
-    public function stream_open(string $path, string $mode, int $options, &$openedPath): bool
+    /** @param array<int, mixed> $curlOptions */
+    protected function performCurlRequest(string $url, array $curlOptions): array
     {
-        self::$openCalls++;
+        self::$requestCalls++;
         self::$activeOperations++;
 
         try {
-            $contextOptions = is_resource($this->context)
-                ? stream_context_get_options($this->context)
-                : [];
-            self::$observedTimeouts[] = (int)($contextOptions['http']['timeout'] ?? -1);
-
-            trigger_error(
-                'Simulated dependency timed out; api_key=TC404_LOCAL_SECRET session_id=TC404_LOCAL_SESSION',
-                E_USER_WARNING
-            );
-            return false;
+            self::$observedTimeouts[] = (int)($curlOptions[CURLOPT_TIMEOUT] ?? -1);
+            return [
+                'response' => false,
+                'http_status' => 0,
+                'curl_errno' => CURLE_OPERATION_TIMEDOUT,
+            ];
         } finally {
             self::$activeOperations--;
         }
@@ -75,37 +62,16 @@ final class Tc404TimeoutTransport
 
 final class Tc404ExternalDependencyTimeoutL8EvalTest extends TestCase
 {
-    private const STREAM_SCHEME = 'tc404fake';
+    private const TARGET_URL = 'https://93.184.216.34/v1/chat/completions?api_key=TC404_LOCAL_SECRET&session_id=TC404_LOCAL_SESSION';
     private const REQUESTED_TIMEOUT_SECONDS = 999;
     private const EXPECTED_TIMEOUT_CAP_SECONDS = 60;
     private const REQUESTED_MAX_RETRIES = 99;
     private const EXPECTED_MAX_RETRIES = 5;
 
-    public static function setUpBeforeClass(): void
-    {
-        parent::setUpBeforeClass();
-
-        if (in_array(self::STREAM_SCHEME, stream_get_wrappers(), true)) {
-            throw new RuntimeException('TC-404 local stream scheme is already registered.');
-        }
-        if (!stream_wrapper_register(self::STREAM_SCHEME, Tc404TimeoutTransport::class)) {
-            throw new RuntimeException('Unable to register TC-404 local deterministic transport.');
-        }
-    }
-
-    public static function tearDownAfterClass(): void
-    {
-        if (in_array(self::STREAM_SCHEME, stream_get_wrappers(), true)) {
-            stream_wrapper_unregister(self::STREAM_SCHEME);
-        }
-
-        parent::tearDownAfterClass();
-    }
-
     protected function setUp(): void
     {
         parent::setUp();
-        Tc404TimeoutTransport::reset();
+        Tc404TimeoutLlmClient::reset();
     }
 
     public function testDx3225AuthorizedCompleteFreshSuccess(): void
@@ -208,10 +174,10 @@ final class Tc404ExternalDependencyTimeoutL8EvalTest extends TestCase
         );
         $this->checkGuardEvidence($violations, $fixture, $factors);
 
-        $client = new LlmClient();
+        $client = new Tc404TimeoutLlmClient();
         $startedAt = microtime(true);
         $transport = $this->invokeNonPublic($client, 'sendWithRetry', [
-            self::STREAM_SCHEME . '://dependency?api_key=TC404_LOCAL_SECRET&session_id=TC404_LOCAL_SESSION',
+            self::TARGET_URL,
             [
                 'provider' => 'tc404_fixture',
                 'api_key' => 'TC404_LOCAL_CONFIG_KEY',
@@ -233,7 +199,7 @@ final class Tc404ExternalDependencyTimeoutL8EvalTest extends TestCase
         $expectedCalls = self::EXPECTED_MAX_RETRIES + 1;
         $this->check(
             $violations,
-            Tc404TimeoutTransport::openCalls() === $expectedCalls,
+            Tc404TimeoutLlmClient::requestCalls() === $expectedCalls,
             'Transport calls did not terminate at the bounded retry count.'
         );
         $this->check(
@@ -254,7 +220,7 @@ final class Tc404ExternalDependencyTimeoutL8EvalTest extends TestCase
             'Timeout was not mapped to a retryable network_error.'
         );
 
-        $observedTimeouts = Tc404TimeoutTransport::observedTimeouts();
+        $observedTimeouts = Tc404TimeoutLlmClient::observedTimeouts();
         $boundedTimeouts = count($observedTimeouts) === $expectedCalls;
         foreach ($observedTimeouts as $timeout) {
             $boundedTimeouts = $boundedTimeouts
@@ -268,7 +234,7 @@ final class Tc404ExternalDependencyTimeoutL8EvalTest extends TestCase
         );
         $this->check(
             $violations,
-            Tc404TimeoutTransport::activeOperations() === 0 && $elapsedMs < 1000,
+            Tc404TimeoutLlmClient::activeOperations() === 0 && $elapsedMs < 1000,
             'Local transport operation did not terminate promptly and release its active call.'
         );
 
@@ -436,7 +402,7 @@ final class Tc404ExternalDependencyTimeoutL8EvalTest extends TestCase
     /** @param list<mixed> $arguments */
     private function invokeNonPublic(object $target, string $method, array $arguments): mixed
     {
-        $reflection = new ReflectionMethod($target, $method);
+        $reflection = new ReflectionMethod(LlmClient::class, $method);
         $reflection->setAccessible(true);
         return $reflection->invokeArgs($target, $arguments);
     }
