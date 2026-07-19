@@ -1098,14 +1098,10 @@ class PlatformProfileLogin extends Command
             ]);
             foreach (['signal_ids', 'advisory_signal_ids', 'candidate_reason_ids'] as $diagnosticIdKey) {
                 $diagnosticIds = $this->compactProfileLoginProbeDiagnosticIds($drift[$diagnosticIdKey] ?? null);
-                if ($diagnosticIds !== []) {
-                    $compact['drift_diagnostics'][$diagnosticIdKey] = $diagnosticIds;
-                }
+                $compact['drift_diagnostics'][$diagnosticIdKey] = $diagnosticIds;
             }
             $candidateRouteSamples = $this->compactProfileLoginCandidateRouteSamples($drift['candidate_route_samples'] ?? null);
-            if ($candidateRouteSamples !== []) {
-                $compact['drift_diagnostics']['candidate_route_samples'] = $candidateRouteSamples;
-            }
+            $compact['drift_diagnostics']['candidate_route_samples'] = $candidateRouteSamples;
         }
         return $compact;
     }
@@ -1168,25 +1164,46 @@ class PlatformProfileLogin extends Command
         $redactNextSegment = false;
         $segments = explode('/', (string)($parsed['path'] ?? ''));
         foreach ($segments as &$segment) {
-            $decoded = rawurldecode($segment);
+            $decoded = $segment;
+            for ($pass = 0; $pass < 2; $pass++) {
+                $nextDecoded = rawurldecode($decoded);
+                if ($nextDecoded === $decoded) {
+                    break;
+                }
+                $decoded = $nextDecoded;
+            }
             if ($redactNextSegment) {
                 $segment = ':redacted';
                 $redactNextSegment = false;
                 continue;
             }
-            if (preg_match('/^(?:access[-_]?token|refresh[-_]?token|spidertoken|spiderkey|token|mtgsig|signature|ticket|authorization|proxy[-_]?authorization|cookie|api[-_]?key|password|secret|sid)$/i', $decoded) === 1) {
-                $segment = strtolower($decoded);
+            if (str_contains($decoded, '/') || str_contains($decoded, '\\')
+                || str_contains($decoded, '?') || str_contains($decoded, '#')
+                || preg_match('/%(?:25|2f|5c|3f|23)/i', $decoded) === 1) {
+                $segment = ':redacted';
+                continue;
+            }
+            if ($this->isSensitiveProfileLoginRouteKey($decoded)) {
+                $segment = strlen($decoded) >= 24 ? ':redacted' : strtolower($decoded);
                 $redactNextSegment = true;
                 continue;
             }
-            if (preg_match('/^([a-z0-9_.-]*(?:token|spiderkey|mtgsig|signature|ticket|authorization|cookie|api[-_]?key|password|secret|sid)[a-z0-9_.-]*)=/i', $decoded, $matches) === 1) {
-                $segment = strtolower((string)$matches[1]) . '=:redacted';
+            $equalsPosition = strpos($decoded, '=');
+            $key = $equalsPosition !== false ? substr($decoded, 0, $equalsPosition) : '';
+            if ($key !== '' && $this->isSensitiveProfileLoginRouteKey($key)) {
+                $segment = strlen($key) >= 24 ? ':redacted' : strtolower($key) . '=:redacted';
                 continue;
             }
+            $jwtLike = preg_match('/^[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}$/D', $decoded) === 1;
+            $opaqueTokenLike = strlen($decoded) >= 24;
             if (preg_match('/^\d+$/D', $decoded) === 1
                 || preg_match('/^[0-9a-f]{16,}$/iD', $decoded) === 1
-                || preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iD', $decoded) === 1) {
+                || preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iD', $decoded) === 1) {
                 $segment = ':id';
+                continue;
+            }
+            if ($jwtLike || $opaqueTokenLike) {
+                $segment = ':redacted';
                 continue;
             }
             $segment = preg_replace('/[^a-z0-9._~:@!$&\'()*+,;=%-]/i', '', $decoded) ?: '';
@@ -1194,6 +1211,15 @@ class PlatformProfileLogin extends Command
         unset($segment);
 
         return mb_substr($host . implode('/', $segments), 0, 320);
+    }
+
+    private function isSensitiveProfileLoginRouteKey(string $value): bool
+    {
+        $key = trim($value);
+        return preg_match('/^(?:cticket|(?:asp\.net_)?sessionid|jsessionid|session_?id|sid|auth_?token|access_?token|login_?token|passport|user_?ticket|ssoid|mt_c_token|_mtsi_eb_u|ctrip.*(?:ticket|session|auth|login)|(?:eb|ebk|ebooking).*(?:session|ticket|token))$/iD', $key) === 1
+            || preg_match('/(?:^|[._-])(?:token|session|ticket|cookie|auth|authorization|password|secret|signature|api[-_]?key)(?:$|[._-])/i', $key) === 1
+            || preg_match('/^(?:ssoid|passport|phpsessid|spidertoken|spiderkey|mtgsig|_mtsi_eb_u)$/iD', $key) === 1
+            || preg_match('/(?:^|[._-])sid$/iD', $key) === 1;
     }
 
     private function compactProfileLoginProbeSignal($signal, array $allowedKeys): array

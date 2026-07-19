@@ -463,6 +463,50 @@ test('Ctrip and Meituan observers can retain bounded candidate routes and reason
   }
 });
 
+test('candidate route sanitization fails closed for modern credential-shaped path segments', () => {
+  const host = 'ebooking.ctrip.com';
+  const samples = [
+    ['01890f4c-7b2a-7cc2-9f2c-4a7d6e5b3c1a', ':id'],
+    ['sessionid/cookie-secret-value', 'sessionid/:redacted'],
+    ['x-api-key/api-secret-value', 'x-api-key/:redacted'],
+    ['eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signatureValue123', ':redacted'],
+    ['AbCdEfGhIjKlMnOpQrStUv123456', ':redacted'],
+    ['token%2Fsuper-secret-value', ':redacted'],
+    ['abcdefghijklmnopqrstuvwxyzABCDEFGH', ':redacted'],
+    ['QWxhZGRpbjpvcGVuIHNlc2FtZQ==', ':redacted'],
+    ['token%252Fdouble-secret-value', ':redacted'],
+    ['token%2525252Fdeep-secret-value', ':redacted'],
+    ['connect.sid/cookie-secret-value', 'connect.sid/:redacted'],
+    ['ctrip_session/shortsecret', 'ctrip_session/:redacted'],
+    ['ctrip-auth/shortsecret', 'ctrip-auth/:redacted'],
+    ['ebk_session/shortsecret', 'ebk_session/:redacted'],
+    ['ebooking-ticket/shortsecret', 'ebooking-ticket/:redacted'],
+    ['ABCDEFGHIJKLMNOPQRSTUVWX.token/shortsecret', ':redacted/:redacted'],
+    ['v4.public.abcdefghijklmnopqrstuvwxyz1234567890.signature/shortsecret', ':redacted/:redacted'],
+    ['abcdefghijklmnopqrstuvwxyz.auth/shortsecret', ':redacted/:redacted'],
+    ['PHPSESSID/shortsecret', 'phpsessid/:redacted'],
+    ['foo.bar.sid/shortsecret', 'foo.bar.sid/:redacted'],
+    ['ebfooToken/shortsecret', 'ebfootoken/:redacted'],
+    ['ebMerchantSession/shortsecret', 'ebmerchantsession/:redacted'],
+  ];
+
+  for (const [path, expected] of samples) {
+    const sanitized = sanitizeOtaObservedRoute(`https://${host}/api/${path}`);
+    assert.equal(sanitized, `${host}/api/${expected}`);
+    assert.equal(sanitized.includes('secret-value'), false);
+    assert.equal(sanitized.includes('eyJ'), false);
+    assert.equal(sanitized.includes('AbCd'), false);
+    assert.equal(sanitized.includes('QWxh'), false);
+    assert.equal(sanitized.includes('double-secret'), false);
+    assert.equal(sanitized.includes('deep-secret'), false);
+    assert.equal(sanitized.includes('abcdefghijklmnopqrstuvwxyz'), false);
+    assert.equal(sanitized.includes('shortsecret'), false);
+    assert.equal(sanitized.includes('ABCDEFGHIJKLMNOP'), false);
+    assert.equal(sanitized.includes('abcdefghijklmnopqrstuvwxyz.auth'), false);
+    assert.equal(sanitized.includes('v4.public.'), false);
+  }
+});
+
 test('HTTP access and rate-limit responses stay distinguishable without response bodies', () => {
   const base = {
     resource_type: 'fetch',

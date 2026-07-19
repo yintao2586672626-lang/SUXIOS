@@ -93,17 +93,25 @@ export function sanitizeOtaObservedRoute(value) {
           return ':redacted';
         }
         const decoded = safeDecodeRouteSegment(segment);
-        if (/^(?:access[-_]?token|refresh[-_]?token|spidertoken|spiderkey|token|mtgsig|signature|ticket|authorization|proxy[-_]?authorization|cookie|api[-_]?key|password|secret|sid)$/i.test(decoded)) {
+        if (decoded.includes('/') || decoded.includes('\\') || decoded.includes('?') || decoded.includes('#')
+          || /%(?:25|2f|5c|3f|23)/i.test(decoded)) {
+          return ':redacted';
+        }
+        if (isSensitiveOtaObservedRouteKey(decoded)) {
           redactNextSegment = true;
-          return decoded.toLowerCase();
+          return decoded.length >= 24 ? ':redacted' : decoded.toLowerCase();
         }
-        if (/^(?:access[-_]?token|refresh[-_]?token|spidertoken|spiderkey|token|mtgsig|signature|ticket|authorization|proxy[-_]?authorization|cookie|api[-_]?key|password|secret|sid)=/i.test(decoded)) {
-          return `${decoded.split('=', 1)[0].toLowerCase()}=:redacted`;
+        const equalsIndex = decoded.indexOf('=');
+        const key = equalsIndex > 0 ? decoded.slice(0, equalsIndex) : '';
+        if (key && isSensitiveOtaObservedRouteKey(key)) {
+          return key.length >= 24 ? ':redacted' : `${key.toLowerCase()}=:redacted`;
         }
+        const jwtLike = /^[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}$/.test(decoded);
+        const opaqueTokenLike = decoded.length >= 24;
         const identifierLike = /^\d+$/.test(decoded)
           || /^[0-9a-f]{16,}$/i.test(decoded)
-          || /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(decoded);
-        return identifierLike ? ':id' : segment;
+          || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(decoded);
+        return identifierLike ? ':id' : (jwtLike || opaqueTokenLike ? ':redacted' : segment);
       })
       .join('/');
     return `${hostname}${path}`.slice(0, 320);
@@ -493,11 +501,26 @@ function sanitizeSessionProbeDiagnosticId(value) {
 }
 
 function safeDecodeRouteSegment(value) {
-  try {
-    return decodeURIComponent(String(value || ''));
-  } catch {
-    return String(value || '');
+  let decoded = String(value || '');
+  for (let pass = 0; pass < 2; pass += 1) {
+    try {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) break;
+      decoded = next;
+    } catch {
+      break;
+    }
   }
+  return decoded;
+}
+
+function isSensitiveOtaObservedRouteKey(value) {
+  const key = String(value || '').trim();
+  return PLATFORM_RULES.ctrip.sessionCookieName.test(key)
+    || PLATFORM_RULES.meituan.sessionCookieName.test(key)
+    || /(?:^|[._-])(?:token|session|ticket|cookie|auth|authorization|password|secret|signature|api[-_]?key)(?:$|[._-])/i.test(key)
+    || /^(?:ssoid|passport|phpsessid|spidertoken|spiderkey|mtgsig|_mtsi_eb_u)$/i.test(key)
+    || /(?:^|[._-])sid$/i.test(key);
 }
 
 function normalizePlatform(platform) {

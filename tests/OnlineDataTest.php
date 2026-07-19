@@ -4056,11 +4056,43 @@ final class OnlineDataTest extends TestCase
                     'https://ebooking.ctrip.com/api/new-dashboard/123456?token=must-not-leak#cookie',
                     'ebooking.ctrip.com/api/new-dashboard/123456?token=second-secret',
                     'https://ebooking.ctrip.com/api/authorization/must-not-leak?cookie=third-secret',
+                    'https://ebooking.ctrip.com/api/store/01890f4c-7b2a-7cc2-9f2c-4a7d6e5b3c1a',
+                    'https://ebooking.ctrip.com/api/sessionid/cookie-secret-value',
+                    'https://ebooking.ctrip.com/api/x-api-key/api-secret-value',
+                    'https://ebooking.ctrip.com/api/eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signatureValue123',
+                    'https://ebooking.ctrip.com/api/AbCdEfGhIjKlMnOpQrStUv123456',
+                    'https://ebooking.ctrip.com/api/token%2Fencoded-secret-value',
+                    'https://ebooking.ctrip.com/api/abcdefghijklmnopqrstuvwxyzABCDEFGH',
+                    'https://ebooking.ctrip.com/api/QWxhZGRpbjpvcGVuIHNlc2FtZQ==',
+                    'https://ebooking.ctrip.com/api/token%252Fdouble-secret-value',
+                    'https://ebooking.ctrip.com/api/token%2525252Fdeep-secret-value',
+                    'https://ebooking.ctrip.com/api/connect.sid/cookie-secret-value',
+                    'https://ebooking.ctrip.com/api/ctrip_session/shortsecret',
+                    'https://ebooking.ctrip.com/api/ctrip-auth/shortsecret',
+                    'https://ebooking.ctrip.com/api/ebk_session/shortsecret',
+                    'https://ebooking.ctrip.com/api/ebooking-ticket/shortsecret',
                 ],
             ],
         ];
 
         $compact = $this->invokeNonPublic($command, 'compactProfileLoginSessionProbe', [$probe]);
+        $emptyDiagnosticsProbe = $probe;
+        $emptyDiagnosticsProbe['drift_diagnostics']['signal_ids'] = [];
+        $emptyDiagnosticsProbe['drift_diagnostics']['advisory_signal_ids'] = [];
+        $emptyDiagnosticsProbe['drift_diagnostics']['candidate_reason_ids'] = [];
+        $emptyDiagnosticsProbe['drift_diagnostics']['candidate_route_samples'] = [];
+        $emptyDiagnosticsCompact = $this->invokeNonPublic($command, 'compactProfileLoginSessionProbe', [$emptyDiagnosticsProbe]);
+        $sensitiveKeyProbe = $probe;
+        $sensitiveKeyProbe['drift_diagnostics']['candidate_route_samples'] = [
+            'https://ebooking.ctrip.com/api/ABCDEFGHIJKLMNOPQRSTUVWX.token/shortsecret',
+            'https://ebooking.ctrip.com/api/v4.public.abcdefghijklmnopqrstuvwxyz1234567890.signature/shortsecret',
+            'https://ebooking.ctrip.com/api/abcdefghijklmnopqrstuvwxyz.auth/shortsecret',
+            'https://ebooking.ctrip.com/api/PHPSESSID/shortsecret',
+            'https://ebooking.ctrip.com/api/foo.bar.sid/shortsecret',
+            'https://ebooking.ctrip.com/api/ebfooToken/shortsecret',
+            'https://ebooking.ctrip.com/api/ebMerchantSession/shortsecret',
+        ];
+        $sensitiveKeyCompact = $this->invokeNonPublic($command, 'compactProfileLoginSessionProbe', [$sensitiveKeyProbe]);
         $cacheSafe = $this->invokeNonPublic($command, 'sanitizeProfileLoginCachePayload', [[
             'session_probe' => $compact,
         ]]);
@@ -4098,15 +4130,48 @@ final class OnlineDataTest extends TestCase
         self::assertSame(['protected_route_rule_miss'], $compact['drift_diagnostics']['signal_ids']);
         self::assertSame(['session_cookie_name_fallback'], $compact['drift_diagnostics']['advisory_signal_ids']);
         self::assertSame(['unknown_business_json_route'], $compact['drift_diagnostics']['candidate_reason_ids']);
+        self::assertSame([], $emptyDiagnosticsCompact['drift_diagnostics']['signal_ids']);
+        self::assertSame([], $emptyDiagnosticsCompact['drift_diagnostics']['advisory_signal_ids']);
+        self::assertSame([], $emptyDiagnosticsCompact['drift_diagnostics']['candidate_reason_ids']);
+        self::assertSame([], $emptyDiagnosticsCompact['drift_diagnostics']['candidate_route_samples']);
+        self::assertSame([
+            'ebooking.ctrip.com/api/:redacted/:redacted',
+            'ebooking.ctrip.com/api/phpsessid/:redacted',
+            'ebooking.ctrip.com/api/foo.bar.sid/:redacted',
+            'ebooking.ctrip.com/api/ebfootoken/:redacted',
+            'ebooking.ctrip.com/api/ebmerchantsession/:redacted',
+        ], $sensitiveKeyCompact['drift_diagnostics']['candidate_route_samples']);
         self::assertSame([
             'ebooking.ctrip.com/api/new-dashboard/:id',
             'ebooking.ctrip.com/api/authorization/:redacted',
+            'ebooking.ctrip.com/api/store/:id',
+            'ebooking.ctrip.com/api/sessionid/:redacted',
+            'ebooking.ctrip.com/api/x-api-key/:redacted',
+            'ebooking.ctrip.com/api/:redacted',
+            'ebooking.ctrip.com/api/connect.sid/:redacted',
+            'ebooking.ctrip.com/api/ctrip_session/:redacted',
+            'ebooking.ctrip.com/api/ctrip-auth/:redacted',
+            'ebooking.ctrip.com/api/ebk_session/:redacted',
+            'ebooking.ctrip.com/api/ebooking-ticket/:redacted',
         ], $compact['drift_diagnostics']['candidate_route_samples']);
         self::assertArrayNotHasKey('raw_cookie', $compact);
         self::assertArrayNotHasKey('raw_text', $compact['signals']['page']);
         self::assertStringNotContainsString('must-not-leak', (string)json_encode($compact, JSON_UNESCAPED_UNICODE));
         self::assertStringNotContainsString('second-secret', (string)json_encode($compact, JSON_UNESCAPED_UNICODE));
         self::assertStringNotContainsString('third-secret', (string)json_encode($compact, JSON_UNESCAPED_UNICODE));
+        self::assertStringNotContainsString('cookie-secret-value', (string)json_encode($compact, JSON_UNESCAPED_UNICODE));
+        self::assertStringNotContainsString('api-secret-value', (string)json_encode($compact, JSON_UNESCAPED_UNICODE));
+        self::assertStringNotContainsString('encoded-secret-value', (string)json_encode($compact, JSON_UNESCAPED_UNICODE));
+        self::assertStringNotContainsString('eyJhbGci', (string)json_encode($compact, JSON_UNESCAPED_UNICODE));
+        self::assertStringNotContainsString('AbCdEfGh', (string)json_encode($compact, JSON_UNESCAPED_UNICODE));
+        self::assertStringNotContainsString('abcdefghijklmnopqrstuvwxyz', (string)json_encode($compact, JSON_UNESCAPED_UNICODE));
+        self::assertStringNotContainsString('QWxhZGRp', (string)json_encode($compact, JSON_UNESCAPED_UNICODE));
+        self::assertStringNotContainsString('double-secret-value', (string)json_encode($compact, JSON_UNESCAPED_UNICODE));
+        self::assertStringNotContainsString('deep-secret-value', (string)json_encode($compact, JSON_UNESCAPED_UNICODE));
+        self::assertStringNotContainsString('shortsecret', (string)json_encode($compact, JSON_UNESCAPED_UNICODE));
+        self::assertStringNotContainsString('shortsecret', (string)json_encode($sensitiveKeyCompact, JSON_UNESCAPED_UNICODE));
+        self::assertStringNotContainsString('ABCDEFGHIJKLMNOP', (string)json_encode($sensitiveKeyCompact, JSON_UNESCAPED_UNICODE));
+        self::assertStringNotContainsString('abcdefghijklmnopqrstuvwxyz.auth', (string)json_encode($sensitiveKeyCompact, JSON_UNESCAPED_UNICODE));
         self::assertStringNotContainsString('?', (string)json_encode($compact['drift_diagnostics']['candidate_route_samples'], JSON_UNESCAPED_UNICODE));
     }
 
