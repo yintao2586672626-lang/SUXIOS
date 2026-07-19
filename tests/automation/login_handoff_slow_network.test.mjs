@@ -73,8 +73,9 @@ test('slow authenticated assets remain interactive while browser password storag
   });
 
   const address = await listen(server);
-  const browser = await chromium.launch({ headless: true });
+  let browser = null;
   try {
+    browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
     await page.addInitScript(() => {
       window.__credentialStoreCalls = 0;
@@ -111,7 +112,12 @@ test('slow authenticated assets remain interactive while browser password storag
     assert(result.metrics?.auth_to_interactive_ms >= 220, 'metric must include throttled authenticated assets');
     assert(result.metrics?.auth_to_interactive_ms < 1200, 'hung password storage must not hold the 1.5s login handoff');
   } finally {
-    await browser.close();
-    await close(server);
+    try {
+      if (browser) {
+        await browser.close();
+      }
+    } finally {
+      await close(server);
+    }
   }
 });
