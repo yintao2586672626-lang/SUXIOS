@@ -30,6 +30,7 @@ test('fresh database verifier is gated, repeats the migration, and launches exac
   const verifier = read('scripts/verify_mysql_fresh_migration_concurrency.mjs');
   const worker = read('scripts/mysql_execution_intent_concurrency_worker.php');
   const loginWorker = read('scripts/mysql_login_rate_limiter_concurrency_worker.php');
+  const databaseConfig = read('config/database.php');
   const initialization = read('database/init_full.sql');
 
   assert.match(verifier, /SUXI_CI_MYSQL_VERIFY/);
@@ -65,6 +66,9 @@ test('fresh database verifier is gated, repeats the migration, and launches exac
   assert.match(verifier, /energy_benchmark_seed_stable:\s*true/);
   assert.match(verifier, /login_allowed:\s*loginAllowed/);
   assert.match(verifier, /login_missing_table_fail_closed:\s*true/);
+  assert.match(databaseConfig, /\$databaseConfigValue = static function/);
+  assert.match(databaseConfig, /if \(\$e2eDatabaseOverride\)[\s\S]*getenv\(\$name\)/);
+  assert.match(databaseConfig, /'password'\s*=>\s*\$databaseConfigValue\('DB_PASS', ''\)/);
 
   assert.match(worker, /SUXI_E2E_DB_OVERRIDE/);
   assert.match(worker, /createExecutionIntent\(/);

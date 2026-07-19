@@ -9,10 +9,20 @@ if ($e2eDatabaseOverride) {
 } else {
     $e2eDatabaseName = '';
 }
+$databaseConfigValue = static function (string $name, mixed $default = null) use ($e2eDatabaseOverride): mixed {
+    if ($e2eDatabaseOverride) {
+        $processValue = getenv($name);
+        if ($processValue !== false) {
+            return $processValue;
+        }
+    }
+
+    return env($name, $default);
+};
 
 return [
     // 默认使用的数据库连接配置
-    'default'         => env('DB_TYPE', 'mysql'),
+    'default'         => $databaseConfigValue('DB_TYPE', 'mysql'),
 
     // 自定义时间查询规则
     'time_query_rule' => [],
@@ -40,23 +50,23 @@ return [
         ],
         'mysql' => [
             // 数据库类型
-            'type'            => env('DB_TYPE', 'mysql'),
+            'type'            => $databaseConfigValue('DB_TYPE', 'mysql'),
             // 服务器地址
-            'hostname'        => env('DB_HOST', '127.0.0.1'),
+            'hostname'        => $databaseConfigValue('DB_HOST', '127.0.0.1'),
             // 数据库名
             'database'        => $e2eDatabaseName !== '' ? $e2eDatabaseName : env('DB_NAME', 'hotelx'),
             // 用户名
-            'username'        => env('DB_USER', 'root'),
+            'username'        => $databaseConfigValue('DB_USER', 'root'),
             // 密码
-            'password'        => env('DB_PASS', ''),
+            'password'        => $databaseConfigValue('DB_PASS', ''),
             // 端口
-            'hostport'        => env('DB_PORT', '3306'),
+            'hostport'        => $databaseConfigValue('DB_PORT', '3306'),
             // 数据库连接参数
             'params'          => [],
             // 数据库编码
-            'charset'         => env('DB_CHARSET', 'utf8mb4'),
+            'charset'         => $databaseConfigValue('DB_CHARSET', 'utf8mb4'),
             // 数据库表前缀
-            'prefix'          => env('DB_PREFIX', ''),
+            'prefix'          => $databaseConfigValue('DB_PREFIX', ''),
 
             // 数据库部署方式:0 集中式(单一服务器),1 分布式(主从服务器)
             'deploy'          => 0,
@@ -71,7 +81,7 @@ return [
             // 是否需要断线重连
             'break_reconnect' => true,
             // 监听SQL
-            'trigger_sql'     => env('APP_DEBUG', false),
+            'trigger_sql'     => $databaseConfigValue('APP_DEBUG', false),
             // 开启字段缓存
             'fields_cache'    => false,
         ],
