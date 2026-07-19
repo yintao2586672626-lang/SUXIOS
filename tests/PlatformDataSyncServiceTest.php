@@ -43,6 +43,61 @@ final class PlatformDataSyncServiceTest extends TestCase
         self::assertFalse($method->invoke($service, []));
     }
 
+    public function testCurrentRunMetricReceiptUsesVerifiedSelfRowsOnly(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'verifiedCoreMetricKeysFromRunRows');
+        $method->setAccessible(true);
+        $facts = [
+            ['metric_key' => 'order_amount', 'status' => 'captured', 'stored_value_present' => true, 'source_key' => 'orderAmount'],
+            ['metric_key' => 'room_nights', 'status' => 'captured', 'stored_value_present' => true, 'source_key' => 'roomNights'],
+        ];
+        $rows = [[
+            'hotel_id' => 'MT-SELF-80',
+            'hotel_name' => '本店',
+            'data_type' => 'business',
+            'amount' => 1200.0,
+            'quantity' => 3,
+            'raw_data' => json_encode([
+                'row' => ['is_self' => true, 'poi_id' => 'MT-SELF-80'],
+                'field_facts' => $facts,
+            ], JSON_UNESCAPED_UNICODE),
+        ], [
+            'hotel_id' => 'MT-PEER-1',
+            'hotel_name' => '竞店',
+            'data_type' => 'competitor_avg',
+            'compare_type' => 'competitor',
+            'amount' => 99999.0,
+            'quantity' => 1,
+            'raw_data' => json_encode([
+                'row' => ['is_self' => false, 'poi_id' => 'MT-PEER-1'],
+                'field_facts' => $facts,
+            ], JSON_UNESCAPED_UNICODE),
+        ]];
+        $source = [
+            'name' => '本店',
+            'platform' => 'meituan',
+            'config_json' => json_encode(['poi_id' => 'MT-SELF-80'], JSON_UNESCAPED_UNICODE),
+        ];
+
+        self::assertSame(
+            ['revenue', 'room_nights', 'adr'],
+            $method->invoke($service, $rows, $source)
+        );
+
+        $rows[0]['raw_data'] = json_encode([
+            'row' => ['is_self' => true, 'poi_id' => 'MT-SELF-80'],
+            'field_facts' => [$facts[0]],
+        ], JSON_UNESCAPED_UNICODE);
+        self::assertSame(['revenue'], $method->invoke($service, $rows, $source));
+
+        $rows[0]['raw_data'] = json_encode([
+            'row' => ['poi_id' => 'MT-SELF-80'],
+            'field_facts' => $facts,
+        ], JSON_UNESCAPED_UNICODE);
+        self::assertSame([], $method->invoke($service, $rows, $source));
+    }
+
     public function testAuthoritativeEmptyOrderCaptureVerifiesOnlyOrderCapability(): void
     {
         $service = new PlatformDataSyncService();
@@ -3106,6 +3161,7 @@ final class PlatformDataSyncServiceTest extends TestCase
 
             self::assertSame('traffic', $trafficRow['data_type']);
             self::assertSame('meituan', $trafficRow['source']);
+            self::assertSame('self', $trafficRow['compare_type']);
             self::assertSame(900, $trafficRow['list_exposure']);
             self::assertSame(180, $trafficRow['detail_exposure']);
             self::assertSame(20.0, $trafficRow['flow_rate']);
@@ -3129,6 +3185,7 @@ final class PlatformDataSyncServiceTest extends TestCase
             );
 
             self::assertSame('order', $orderRow['data_type']);
+            self::assertSame('self', $orderRow['compare_type']);
             self::assertSame(988.0, $orderRow['amount']);
             self::assertSame(5, $orderRow['quantity']);
             self::assertSame(3, $orderRow['book_order_num']);

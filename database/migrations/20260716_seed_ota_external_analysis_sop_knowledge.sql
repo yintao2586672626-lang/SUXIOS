@@ -673,9 +673,9 @@ SET `seed`.`content` = JSON_SET(
 UPDATE `knowledge_chunks` AS `existing`
 INNER JOIN `tmp_ota_external_analysis_seed_chunks` AS `seed`
   ON `existing`.`unit_id` = `seed`.`unit_id`
-  AND JSON_UNQUOTE(JSON_EXTRACT(`existing`.`content`, '$.seed_owner')) = JSON_UNQUOTE(JSON_EXTRACT(`seed`.`content`, '$.seed_owner'))
-  AND JSON_UNQUOTE(JSON_EXTRACT(`existing`.`content`, '$.seed_key')) = JSON_UNQUOTE(JSON_EXTRACT(`seed`.`content`, '$.seed_key'))
-  AND JSON_UNQUOTE(JSON_EXTRACT(`existing`.`content`, '$.seed_version')) = JSON_UNQUOTE(JSON_EXTRACT(`seed`.`content`, '$.seed_version'))
+  AND JSON_UNQUOTE(JSON_EXTRACT(CASE WHEN JSON_VALID(`existing`.`content`) = 1 THEN `existing`.`content` ELSE JSON_OBJECT() END, '$.seed_owner')) = JSON_UNQUOTE(JSON_EXTRACT(`seed`.`content`, '$.seed_owner'))
+  AND JSON_UNQUOTE(JSON_EXTRACT(CASE WHEN JSON_VALID(`existing`.`content`) = 1 THEN `existing`.`content` ELSE JSON_OBJECT() END, '$.seed_key')) = JSON_UNQUOTE(JSON_EXTRACT(`seed`.`content`, '$.seed_key'))
+  AND JSON_UNQUOTE(JSON_EXTRACT(CASE WHEN JSON_VALID(`existing`.`content`) = 1 THEN `existing`.`content` ELSE JSON_OBJECT() END, '$.seed_version')) = JSON_UNQUOTE(JSON_EXTRACT(`seed`.`content`, '$.seed_version'))
 SET
   `existing`.`type` = `seed`.`type`,
   `existing`.`content` = `seed`.`content`,
@@ -693,9 +693,9 @@ WHERE NOT EXISTS (
   SELECT 1
   FROM `knowledge_chunks` AS `existing`
   WHERE `existing`.`unit_id` = `seed`.`unit_id`
-    AND JSON_UNQUOTE(JSON_EXTRACT(`existing`.`content`, '$.seed_owner')) = JSON_UNQUOTE(JSON_EXTRACT(`seed`.`content`, '$.seed_owner'))
-    AND JSON_UNQUOTE(JSON_EXTRACT(`existing`.`content`, '$.seed_key')) = JSON_UNQUOTE(JSON_EXTRACT(`seed`.`content`, '$.seed_key'))
-    AND JSON_UNQUOTE(JSON_EXTRACT(`existing`.`content`, '$.seed_version')) = JSON_UNQUOTE(JSON_EXTRACT(`seed`.`content`, '$.seed_version'))
+    AND JSON_UNQUOTE(JSON_EXTRACT(CASE WHEN JSON_VALID(`existing`.`content`) = 1 THEN `existing`.`content` ELSE JSON_OBJECT() END, '$.seed_owner')) = JSON_UNQUOTE(JSON_EXTRACT(`seed`.`content`, '$.seed_owner'))
+    AND JSON_UNQUOTE(JSON_EXTRACT(CASE WHEN JSON_VALID(`existing`.`content`) = 1 THEN `existing`.`content` ELSE JSON_OBJECT() END, '$.seed_key')) = JSON_UNQUOTE(JSON_EXTRACT(`seed`.`content`, '$.seed_key'))
+    AND JSON_UNQUOTE(JSON_EXTRACT(CASE WHEN JSON_VALID(`existing`.`content`) = 1 THEN `existing`.`content` ELSE JSON_OBJECT() END, '$.seed_version')) = JSON_UNQUOTE(JSON_EXTRACT(`seed`.`content`, '$.seed_version'))
 );
 
 DROP TEMPORARY TABLE `tmp_ota_external_analysis_seed_chunks`;

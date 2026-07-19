@@ -76,9 +76,12 @@ final class OtaExternalAnalysisSopKnowledgeTest extends TestCase
         );
 
         self::assertStringContainsString('UPDATE `knowledge_chunks` AS `existing`', $migration);
-        self::assertSame(2, substr_count($migration, "JSON_EXTRACT(`existing`.`content`, '$.seed_owner')"));
-        self::assertSame(2, substr_count($migration, "JSON_EXTRACT(`existing`.`content`, '$.seed_key')"));
-        self::assertSame(2, substr_count($migration, "JSON_EXTRACT(`existing`.`content`, '$.seed_version')"));
+        $safeExistingJson = 'CASE WHEN JSON_VALID(`existing`.`content`) = 1 THEN `existing`.`content` ELSE JSON_OBJECT() END';
+        self::assertSame(6, substr_count($migration, $safeExistingJson));
+        self::assertSame(2, substr_count($migration, "JSON_EXTRACT({$safeExistingJson}, '$.seed_owner')"));
+        self::assertSame(2, substr_count($migration, "JSON_EXTRACT({$safeExistingJson}, '$.seed_key')"));
+        self::assertSame(2, substr_count($migration, "JSON_EXTRACT({$safeExistingJson}, '$.seed_version')"));
+        self::assertStringNotContainsString("JSON_EXTRACT(`existing`.`content`, '$.seed_", $migration);
         self::assertStringNotContainsString('ALTER TABLE `knowledge_chunks`', $migration);
 
         $seedOwner = 'suxios.ota_external_analysis_sop_knowledge';

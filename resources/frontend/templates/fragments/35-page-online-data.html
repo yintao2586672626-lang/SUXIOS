@@ -54,14 +54,14 @@
                                                 <div class="grid w-full gap-2 sm:grid-cols-[minmax(0,1fr)_160px_auto] xl:w-auto xl:min-w-[620px]">
                                                     <label class="block">
                                                         <span class="mb-1 block text-[11px] font-medium text-slate-400">目标门店</span>
-                                                        <select v-model="coreOperationsHotelId" @change="refreshCoreOperationsLoop()" class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                                                        <select v-model="coreOperationsHotelId" @change="refreshCoreOperationsLoop({ resetScope: true })" class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400">
                                                             <option value="">请选择门店</option>
                                                             <option v-for="hotel in operationHotelOptions" :key="hotel.id" :value="String(hotel.id)">{{ hotel.name || ('门店 ' + hotel.id) }}</option>
                                                         </select>
                                                     </label>
                                                     <label class="block">
                                                         <span class="mb-1 block text-[11px] font-medium text-slate-400">数据目标日</span>
-                                                        <input v-model="coreOperationsTargetDate" @change="refreshCoreOperationsLoop()" type="date" :max="coreOperationsMaxDate" class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                                                        <input v-model="coreOperationsTargetDate" @change="refreshCoreOperationsLoop({ resetScope: true })" type="date" :max="coreOperationsMaxDate" class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400">
                                                     </label>
                                                     <button type="button" @click="refreshCoreOperationsLoop()" :disabled="coreOperationsLoading" class="mt-[19px] inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60">
                                                         <i :class="coreOperationsLoading ? 'fas fa-spinner fa-spin mr-2' : 'fas fa-sync-alt mr-2'"></i>{{ coreOperationsLoading ? '刷新中' : '刷新闭环' }}
@@ -119,7 +119,7 @@
                                                             </div>
                                                             <div class="flex flex-col items-end gap-1.5">
                                                                 <span :class="['rounded-full border px-2.5 py-1 text-[11px] font-medium', platform.statusClass]">计算：{{ platform.statusText }}</span>
-                                                                <span :class="platform.truthStatusClass">真值：{{ platform.truthStatusText }}</span>
+                                                                <span :class="platform.truthStatusClass">核心真值：{{ platform.truthStatusText }}</span>
                                                             </div>
                                                         </div>
                                                         <div class="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">

@@ -11953,7 +11953,7 @@
             const coreOperationsSourceFetchStatusClass = computed(() => {
                 const status = String(coreOperationsSourceFetchVisibleState.value.status || '');
                 if (status === 'verified') return 'border-emerald-200 bg-emerald-50 text-emerald-800';
-                if (['login_required', 'partial', 'unverified', 'verified_existing'].includes(status)) return 'border-amber-200 bg-amber-50 text-amber-800';
+                if (['login_required', 'partial', 'unverified', 'verified_existing', 'verified_mixed', 'written_unbound'].includes(status)) return 'border-amber-200 bg-amber-50 text-amber-800';
                 if (status === 'failed') return 'border-red-200 bg-red-50 text-red-800';
                 return 'border-blue-200 bg-blue-50 text-blue-800';
             });
@@ -12025,6 +12025,19 @@
                 ].map(({ platform, label }) => {
                     const row = byPlatform.get(platform);
                     const succeeded = row?.success === true && row?.skipped !== true;
+                    const runReadback = row?.run_readback && typeof row.run_readback === 'object'
+                        ? row.run_readback
+                        : {};
+                    const rowIds = Array.isArray(runReadback.row_ids) ? runReadback.row_ids.filter(value => Number(value) > 0) : [];
+                    const traceIds = Array.isArray(runReadback.source_trace_ids) ? runReadback.source_trace_ids.filter(Boolean) : [];
+                    const metricKeys = new Set(Array.isArray(runReadback.verified_metric_keys) ? runReadback.verified_metric_keys.map(String) : []);
+                    const readbackBound = runReadback.readback_verified === true
+                        && Number(runReadback.sync_task_id || 0) > 0
+                        && Number(runReadback.data_source_id || 0) > 0
+                        && String(runReadback.started_at || '').trim() !== ''
+                        && rowIds.length > 0
+                        && traceIds.length > 0
+                        && ['revenue', 'room_nights', 'adr'].every(key => metricKeys.has(key));
                     return {
                         platform,
                         label,
@@ -12032,6 +12045,7 @@
                         succeeded,
                         skipped: row?.skipped === true,
                         savedCount: Math.max(0, Number(row?.saved_count || 0)),
+                        readbackBound,
                     };
                 });
                 const successCount = results.filter(item => item.succeeded).length;
@@ -12039,6 +12053,7 @@
                     results,
                     successCount,
                     allSucceeded: successCount === results.length,
+                    allReadbackBound: results.every(item => item.readbackBound === true),
                     savedCount: results.reduce((total, item) => total + item.savedCount, 0),
                     summary: results.map(item => `${item.label}${item.succeeded ? '成功' : (item.skipped ? '已跳过' : (item.present ? '失败' : '未返回'))}`).join('、'),
                 };
@@ -12054,7 +12069,11 @@
                 if (!runSeq || Number(state.runSeq || 0) !== Number(runSeq)) return;
                 const runOutcome = coreOperationsFetchPlatformOutcome(platformResults);
                 const strictBackendSucceeded = backendSucceeded === true && runOutcome.allSucceeded;
-                const runSavedCount = Math.max(Number(savedCount || 0), Number(runOutcome.savedCount || 0));
+                const reportedSavedCount = Math.max(Number(savedCount || 0), Number(runOutcome.savedCount || 0));
+                const allPlatformsReported = runOutcome.results.every(item => item.present);
+                const allPlatformsWrote = allPlatformsReported && runOutcome.results.every(item => item.savedCount > 0);
+                const noPlatformsWrote = allPlatformsReported && runOutcome.results.every(item => item.savedCount === 0);
+                const mixedPlatformWrites = allPlatformsReported && !allPlatformsWrote && !noPlatformsWrote;
                 const hotelId = String(state.hotelId || '').trim();
                 const targetDate = String(state.targetDate || '').trim();
                 const scopeStillVisible = hotelId === String(coreOperationsHotelId.value || '').trim()
@@ -12087,7 +12106,33 @@
                     || item.metrics.some(metric => metric.calculationStatus === 'calculated')
                 )).length;
                 const verifiedMetrics = platformCards.reduce((total, item) => total + Number(item.verifiedMetricCount || 0), 0);
-                const readbackText = `目标日回读：${verifiedPlatforms}/2 平台完整验证，${evidencePlatforms}/2 平台有证据，${verifiedMetrics}/8 项经营指标已验证。`;
+                const readbackText = `目标日回读：${verifiedPlatforms}/2 平台三项核心指标验证，${evidencePlatforms}/2 平台有证据，${verifiedMetrics}/8 项展示指标已验证。`;
+                const verifiedNewWrites = verifiedPlatforms === 2
+                    && strictBackendSucceeded
+                    && allPlatformsWrote
+                    && runOutcome.allReadbackBound;
+                const verifiedExisting = verifiedPlatforms === 2 && noPlatformsWrote;
+                const verifiedMixed = verifiedPlatforms === 2 && mixedPlatformWrites;
+                const writtenUnbound = verifiedPlatforms === 2 && allPlatformsWrote && !runOutcome.allReadbackBound;
+                if (verifiedNewWrites || verifiedExisting || verifiedMixed || writtenUnbound) {
+                    const taskGapText = strictBackendSucceeded
+                        ? ''
+                        : `本次任务未闭环：${coreOperationsSourceFetchFailureText(backendMessage)}`;
+                    coreOperationsSourceFetchState.value = {
+                        ...state,
+                        status: verifiedNewWrites
+                            ? 'verified'
+                            : (verifiedExisting ? 'verified_existing' : (verifiedMixed ? 'verified_mixed' : 'written_unbound')),
+                        message: verifiedNewWrites
+                            ? `本次携程、美团均产生新写入，且本次任务回执已逐平台绑定核心指标与数据库回读。${readbackText}`
+                            : (verifiedExisting
+                                ? `本次双平台未形成新增写入；仅确认已有目标日证据可回读，不冒充本次新采集。${taskGapText}${readbackText}`
+                                : (verifiedMixed
+                                    ? `本次只有部分平台产生新写入（合计 ${reportedSavedCount} 条）；其余平台仅确认已有证据，不能按双平台本次新采集成功处理。${taskGapText}${readbackText}`
+                                    : `本次双平台均报告新写入（合计 ${reportedSavedCount} 条），但返回结果未把本次任务、入库行、来源追踪与三项核心指标逐平台绑定；仅保留为待核验，不宣称本次采集成功。${taskGapText}${readbackText}`)),
+                    };
+                    return;
+                }
                 if (!strictBackendSucceeded) {
                     coreOperationsSourceFetchState.value = {
                         ...state,
@@ -12096,17 +12141,10 @@
                     };
                     return;
                 }
-                const verifiedExisting = verifiedPlatforms === 2 && runSavedCount === 0;
                 coreOperationsSourceFetchState.value = {
                     ...state,
-                    status: verifiedPlatforms === 2
-                        ? (verifiedExisting ? 'verified_existing' : 'verified')
-                        : (evidencePlatforms > 0 ? 'partial' : 'unverified'),
-                    message: verifiedPlatforms === 2
-                        ? (verifiedExisting
-                            ? `本次携程、美团均返回成功，但未新增写入；仅确认已有目标日证据可回读，不冒充本次新采集。${readbackText}`
-                            : `本次携程、美团均成功，并完成数据库目标日回读。${readbackText}`)
-                        : `采集任务已结束，但真实经营证据仍未补齐，不能进入成功态。${readbackText}`,
+                    status: evidencePlatforms > 0 ? 'partial' : 'unverified',
+                    message: `采集任务已结束，但真实经营证据仍未补齐，不能进入成功态。${readbackText}`,
                 };
             };
             const runCoreOperationsYesterdayFetch = async () => {
@@ -26715,6 +26753,15 @@
                 });
                 return `${options.currency ? '¥' : ''}${formatted}${options.unit || ''}`;
             };
+            const coreOperationsEvidenceCount = (value) => {
+                if (value === null || value === undefined || value === '') return null;
+                const numeric = Number(value);
+                return Number.isInteger(numeric) && numeric >= 0 ? numeric : null;
+            };
+            const coreOperationsEvidenceCountText = (value, unit) => {
+                const count = coreOperationsEvidenceCount(value);
+                return count === null ? '未返回' : `${count} ${unit}`;
+            };
             const coreOperationsMetricCardValueText = (value, options = {}) => {
                 if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value))) return '—';
                 return coreOperationsMetricValueText(value, options);
@@ -26762,13 +26809,15 @@
                     calculationStatusClass: coreOperationsMetricCalculationStatusClass(calculationStatus),
                     truth,
                     truthStatus: String(truth.status || 'unverified').toLowerCase(),
+                    requiredForLoop: definition.requiredForLoop !== false,
                 };
             };
             const coreOperationsPlatformTruthStatus = (metrics = []) => {
                 const rows = Array.isArray(metrics) ? metrics : [];
-                const statuses = rows.map(metric => String(metric?.truthStatus || 'unverified'));
+                const requiredRows = rows.filter(metric => metric?.requiredForLoop !== false);
+                const statuses = requiredRows.map(metric => String(metric?.truthStatus || 'unverified'));
                 if (statuses.includes('collection_failed')) return 'collection_failed';
-                if (rows.length > 0 && rows.every(metric => metric.calculationStatus === 'calculated' && metric.truthStatus === 'verified')) {
+                if (requiredRows.length > 0 && requiredRows.every(metric => metric.calculationStatus === 'calculated' && metric.truthStatus === 'verified')) {
                     return 'verified';
                 }
                 if (statuses.some(status => ['verified', 'partial'].includes(status))) return 'partial';
@@ -26832,6 +26881,7 @@
                             label: 'RevPAR',
                             candidates: [{ totalKey: 'revpar', trustKey: 'totals.revpar' }],
                             format: { currency: true, decimals: 2 },
+                            requiredForLoop: false,
                         },
                     ].map(definition => coreOperationsMetricCard(result.data, definition));
                     const truthStatus = coreOperationsPlatformTruthStatus(metrics);
@@ -26874,8 +26924,12 @@
                 const ctripCoverage = ctripPayload.data_coverage || {};
                 const ctripDate = String(ctripComparison.latest_date || '');
                 const ctripStatus = ctripDate && ctripDate !== targetDate ? 'stale' : String(ctripComparison.status || 'data_missing');
-                const ctripStoredRows = Number(ctripCoverage.business_row_count || 0) + Number(ctripCoverage.traffic_row_count || 0);
-                const ctripSourceEvidence = `online_daily_data · 门店 #${ctripContext.system_hotel_id || coreOperationsHotelId.value || '-'} · 绑定 ${ctripContext.binding_status || '未返回'} · 入库 ${ctripStoredRows} 行/决策可用 ${Number(ctripCoverage.decision_eligible_row_count || 0)} 行 · 更新 ${ctripContext.latest_fetched_at || '未返回'}`;
+                const ctripBusinessRows = coreOperationsEvidenceCount(ctripCoverage.business_row_count);
+                const ctripTrafficRows = coreOperationsEvidenceCount(ctripCoverage.traffic_row_count);
+                const ctripStoredRows = ctripBusinessRows !== null && ctripTrafficRows !== null
+                    ? ctripBusinessRows + ctripTrafficRows
+                    : null;
+                const ctripSourceEvidence = `online_daily_data · 门店 #${ctripContext.system_hotel_id || coreOperationsHotelId.value || '-'} · 绑定 ${ctripContext.binding_status || '未返回'} · 入库 ${coreOperationsEvidenceCountText(ctripStoredRows, '行')}/决策可用 ${coreOperationsEvidenceCountText(ctripCoverage.decision_eligible_row_count, '行')} · 更新 ${ctripContext.latest_fetched_at || '未返回'}`;
                 const ctripDefinitions = [
                     { key: 'amount', label: '成交金额', currency: true, decimals: 2 },
                     { key: 'room_nights', label: '间夜', decimals: 2 },
@@ -26909,7 +26963,7 @@
                 const meituanStatus = meituanDate && meituanDate !== targetDate
                     ? 'stale'
                     : String(competitorSummary.value?.readiness?.status || competitorSummary.value?.data_status || competitorSummary.value?.status || 'data_missing');
-                const meituanSourceEvidence = `online_daily_data · 门店 #${competitorSummary.value?.system_hotel_id || coreOperationsHotelId.value || '-'} · POI ${competitorSummary.value?.target_poi_id ? '已绑定' : '未返回'} · 入库 ${Number(competitorSummary.value?.record_count || 0)} 行/展示 ${Number(competitorSummary.value?.display_hotel_count || 0)} 店 · 更新 ${competitorSummary.value?.latest_fetched_at || '未返回'}`;
+                const meituanSourceEvidence = `online_daily_data · 门店 #${competitorSummary.value?.system_hotel_id || coreOperationsHotelId.value || '-'} · POI ${competitorSummary.value?.target_poi_id ? '已绑定' : '未返回'} · 入库 ${coreOperationsEvidenceCountText(competitorSummary.value?.record_count, '行')}/展示 ${coreOperationsEvidenceCountText(competitorSummary.value?.display_hotel_count, '店')} · 更新 ${competitorSummary.value?.latest_fetched_at || '未返回'}`;
                 const meituanDefinitions = [
                     { key: 'avgRoomPrice', label: '平均房价', currency: true, decimals: 2 },
                     { key: 'avgSalesPrice', label: '销售客单', currency: true, decimals: 2 },
@@ -27123,7 +27177,7 @@
                     }
                 });
                 const matchedAiExecutionItems = Array.from(latestAiExecutionByActionKey.values()).filter(item => (
-                    !['blocked', 'rejected', 'cancelled', 'canceled'].includes(String(item?.approval?.status || '').toLowerCase())
+                    !['blocked', 'rejected', 'cancelled', 'canceled', 'failed', 'failure'].includes(String(item?.approval?.status || '').toLowerCase())
                 ));
                 const matchedActionKeys = new Set(matchedAiExecutionItems.map(executionActionKey).filter(Boolean));
                 const requiredActionCount = readyAiSuggestions.length;
@@ -27144,7 +27198,7 @@
                 const reviewComplete = noActionRequired
                     || (taskComplete && requiredActionCount > 0 && reviewedCount === requiredActionCount);
                 const steps = [
-                    { key: 'data', number: '01', label: '昨日数据', status: dataComplete ? 'ready' : (platformEvidenceCount ? 'partial' : 'data_missing'), detail: `${platformReadyCount}/2 平台指标已验证` },
+                    { key: 'data', number: '01', label: '昨日数据', status: dataComplete ? 'ready' : (platformEvidenceCount ? 'partial' : 'data_missing'), detail: `${platformReadyCount}/2 平台三项核心指标已验证` },
                     { key: 'compare', number: '02', label: '竞品对比', status: comparisonComplete ? 'ready' : (comparablePlatforms.size ? 'partial' : (dataComplete ? 'data_missing' : 'blocked')), detail: coreOperationsCompetitorError.value || `${comparablePlatforms.size}/2 平台、${comparableCount} 项可比` },
                     { key: 'anomaly', number: '03', label: '异常判断', status: anomalyEvidenceReady ? (coreOperationsAnomalyRows.value.length ? 'warning' : 'ready') : (coreOperationsLoading.value ? 'not_loaded' : 'blocked'), detail: anomalyEvidenceReady ? (coreOperationsAnomalyRows.value.length ? `${coreOperationsAnomalyRows.value.length} 条信号` : '双平台未见规则异常') : '等待双平台同日竞品证据' },
                     { key: 'advice', number: '04', label: 'AI建议', status: adviceComplete ? (noActionRequired ? 'no_action' : 'ready') : (anomalyEvidenceReady ? (aiSuggestion?.status || 'data_missing') : 'blocked'), detail: noActionRequired ? '双平台诊断均无需新增行动' : (readyAiSuggestions.length ? `${readyAiSuggestions.length} 条可转任务` : '建议未形成') },

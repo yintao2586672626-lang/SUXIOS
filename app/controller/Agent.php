@@ -2891,14 +2891,16 @@ class Agent extends Base
         return ['hotel_id' => $hotelId, 'hotel_name' => $hotelName];
     }
 
-    private function queryOtaDiagnosisData(int $hotelId, string $hotelIdRaw, string $platformHotelIdRaw, string $platform, string $startDate, string $endDate, string $analysisType): array
+    /** @param array<string, bool> $columns */
+    private function otaDiagnosisOnlineRowFields(array $columns): array
     {
-        $columns = $this->onlineDailyDataColumns();
-        $fields = array_values(array_intersect([
+        return array_values(array_intersect([
             'id',
             'hotel_id',
             'hotel_name',
             'system_hotel_id',
+            'data_source_id',
+            'sync_task_id',
             'data_date',
             'amount',
             'quantity',
@@ -2924,6 +2926,12 @@ class Agent extends Base
             'create_time',
             'update_time',
         ], array_keys($columns)));
+    }
+
+    private function queryOtaDiagnosisData(int $hotelId, string $hotelIdRaw, string $platformHotelIdRaw, string $platform, string $startDate, string $endDate, string $analysisType): array
+    {
+        $columns = $this->onlineDailyDataColumns();
+        $fields = $this->otaDiagnosisOnlineRowFields($columns);
 
         $onlineRows = [];
         $effectiveStartDate = $startDate;

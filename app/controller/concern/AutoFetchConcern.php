@@ -4825,6 +4825,7 @@ trait AutoFetchConcern
         $savedCount = 0;
         $messages = [];
         $timing = [];
+        $syncResults = [];
         foreach ($sources as $source) {
             $result = $service->syncDataSource($this->currentUser, (int)$source['id'], [
                 'trigger_type' => 'auto_fetch',
@@ -4838,18 +4839,123 @@ trait AutoFetchConcern
             $timing = $this->sumAutoFetchTiming($timing, is_array($result['timing'] ?? null) ? $result['timing'] : []);
             $messages[] = '数据源' . (int)$source['id'] . ': ' . (string)($result['message'] ?? $result['status'] ?? '-');
             $this->markCtripProfileStatusFromDataSourceSync($hotelId, $source, $result);
+            $syncResults[] = $result;
         }
+
+        $runReadback = $this->selectAutoFetchRunReadback($syncResults);
+        $coreReadbackVerified = $this->autoFetchRunReadbackCoreVerified($runReadback);
 
         return [
             'attempted' => true,
-            'success' => $savedCount > 0,
+            'success' => $this->autoFetchPlatformRunSucceeded($savedCount, $runReadback),
             'saved_count' => $savedCount,
             'data_period' => $periodOptions['data_period'] ?? 'historical_daily',
             'timing' => $timing,
-            'message' => $savedCount > 0
-                ? "携程 Profile 数据源同步成功 {$savedCount} 条"
-                : '携程 Profile 数据源同步失败：' . implode('；', array_slice($messages, 0, 3)),
+            'run_readback' => $runReadback,
+            'message' => $coreReadbackVerified
+                ? "携程 Profile 数据源同步并验证本次任务核心指标回执 {$savedCount} 条"
+                : ($savedCount > 0
+                    ? '携程 Profile 已写入，但本次任务、入库行、来源追踪或三项核心指标未完整绑定'
+                    : '携程 Profile 数据源同步失败：' . implode('；', array_slice($messages, 0, 3))),
         ];
+    }
+
+    private function syncMeituanBrowserProfileDataSourcesForAutoFetch(
+        int $hotelId,
+        string $dataDate,
+        bool $interactiveBrowser,
+        ?array $sources = null,
+        array $periodOptions = []
+    ): array {
+        $sources = $sources ?? $this->listEnabledBrowserProfileDataSources($hotelId, 'meituan');
+        $sources = $this->filterCollectableBrowserProfileDataSources($sources, 'meituan');
+        $sources = $this->selectCurrentBrowserProfileDataSources($sources);
+        if ($sources === []) {
+            return [
+                'attempted' => false,
+                'success' => false,
+                'saved_count' => 0,
+                'message' => '',
+                'run_readback' => [],
+            ];
+        }
+
+        $service = new PlatformDataSyncService();
+        $savedCount = 0;
+        $messages = [];
+        $timing = [];
+        $syncResults = [];
+        foreach ($sources as $source) {
+            $result = $service->syncDataSource($this->currentUser, (int)$source['id'], [
+                'trigger_type' => 'auto_fetch',
+                'data_date' => $dataDate,
+                'interactive_browser' => $interactiveBrowser,
+                'data_period' => $periodOptions['data_period'] ?? 'historical_daily',
+                'snapshot_time' => $periodOptions['snapshot_time'] ?? date('Y-m-d H:i:s'),
+            ]);
+            $savedCount += (int)($result['saved_count'] ?? 0);
+            $timing = $this->sumAutoFetchTiming($timing, is_array($result['timing'] ?? null) ? $result['timing'] : []);
+            $messages[] = '数据源' . (int)$source['id'] . ': ' . (string)($result['message'] ?? $result['status'] ?? '-');
+            $syncResults[] = $result;
+        }
+
+        $runReadback = $this->selectAutoFetchRunReadback($syncResults);
+        $coreReadbackVerified = $this->autoFetchRunReadbackCoreVerified($runReadback);
+        return [
+            'attempted' => true,
+            'success' => $this->autoFetchPlatformRunSucceeded($savedCount, $runReadback),
+            'saved_count' => $savedCount,
+            'data_period' => $periodOptions['data_period'] ?? 'historical_daily',
+            'timing' => $timing,
+            'run_readback' => $runReadback,
+            'message' => $coreReadbackVerified
+                ? "美团 Profile 数据源同步并验证本次任务核心指标回执 {$savedCount} 条"
+                : ($savedCount > 0
+                    ? '美团 Profile 已写入，但本次任务、入库行、来源追踪或三项核心指标未完整绑定'
+                    : '美团 Profile 数据源同步失败：' . implode('；', array_slice($messages, 0, 3))),
+        ];
+    }
+
+    /** @param array<int, array<string, mixed>> $syncResults */
+    private function selectAutoFetchRunReadback(array $syncResults): array
+    {
+        $selected = [];
+        foreach ($syncResults as $result) {
+            $receipt = is_array($result['run_readback'] ?? null) ? $result['run_readback'] : [];
+            if ($receipt === []) {
+                continue;
+            }
+            if ($selected === [] || (int)($receipt['sync_task_id'] ?? 0) > (int)($selected['sync_task_id'] ?? 0)) {
+                $selected = $receipt;
+            }
+        }
+        return $selected;
+    }
+
+    private function autoFetchRunReadbackCoreVerified(array $receipt): bool
+    {
+        $metricKeys = array_values(array_unique(array_map(
+            static fn($value): string => strtolower(trim((string)$value)),
+            is_array($receipt['verified_metric_keys'] ?? null) ? $receipt['verified_metric_keys'] : []
+        )));
+        return ($receipt['readback_verified'] ?? false) === true
+            && (int)($receipt['sync_task_id'] ?? 0) > 0
+            && (int)($receipt['data_source_id'] ?? 0) > 0
+            && trim((string)($receipt['started_at'] ?? '')) !== ''
+            && array_values(array_filter(
+                is_array($receipt['row_ids'] ?? null) ? $receipt['row_ids'] : [],
+                static fn($value): bool => (int)$value > 0
+            )) !== []
+            && array_values(array_filter(
+                is_array($receipt['source_trace_ids'] ?? null) ? $receipt['source_trace_ids'] : [],
+                static fn($value): bool => trim((string)$value) !== ''
+            )) !== []
+            && count(array_intersect(['revenue', 'room_nights', 'adr'], $metricKeys)) === 3;
+    }
+
+    private function autoFetchPlatformRunSucceeded(int $savedCount, array $receipt): bool
+    {
+        return $savedCount > 0 && $this->autoFetchRunReadbackCoreVerified($receipt);
     }
 
     private function selectCurrentBrowserProfileDataSources(array $sources): array
@@ -4983,17 +5089,26 @@ trait AutoFetchConcern
             }
         }
 
+        $runReadback = is_array($browserResult['run_readback'] ?? null) ? $browserResult['run_readback'] : [];
+        $coreReadbackVerified = $this->autoFetchRunReadbackCoreVerified($runReadback);
         if ($savedCount > 0) {
-            \think\facade\Log::info("携程自动获取成功", ['hotel_id' => $hotelId, 'count' => $savedCount]);
+            \think\facade\Log::info("携程自动获取已写入", [
+                'hotel_id' => $hotelId,
+                'count' => $savedCount,
+                'core_readback_verified' => $coreReadbackVerified,
+            ]);
             $this->updateCtripLatestFetchStatus($hotelId, date('Y-m-d H:i:s'), $dataDate, $savedCount);
 
-            return ['platform' => 'ctrip', 'success' => true, 'message' => "完成 {$savedCount} 次写入操作；写入次数不等于唯一指标数，未返回字段保留为缺口", 'saved_count' => $savedCount, 'data_period' => $options['data_period'] ?? 'historical_daily', 'auto_fetch_mode' => $mode, 'mode_label' => $this->autoFetchModeLabel($mode), 'modules' => $modules, 'timing' => is_array($browserResult['timing'] ?? null) ? $browserResult['timing'] : []];
+            $message = $coreReadbackVerified
+                ? "完成 {$savedCount} 次写入并验证本次任务核心指标回执"
+                : "已发生 {$savedCount} 次写入，但本次任务、入库行、来源追踪与收入/间夜/ADR 回执未完整绑定";
+            return ['platform' => 'ctrip', 'success' => $this->autoFetchPlatformRunSucceeded($savedCount, $runReadback), 'message' => $message, 'saved_count' => $savedCount, 'data_period' => $options['data_period'] ?? 'historical_daily', 'auto_fetch_mode' => $mode, 'mode_label' => $this->autoFetchModeLabel($mode), 'modules' => $modules, 'run_readback' => $runReadback, 'timing' => is_array($browserResult['timing'] ?? null) ? $browserResult['timing'] : []];
         }
 
         $message = empty($errors)
             ? '未获取到有效数据'
             : '未获取到有效数据：' . implode('；', array_slice($errors, 0, 3));
-        return ['platform' => 'ctrip', 'success' => false, 'message' => $message, 'saved_count' => 0, 'data_period' => $options['data_period'] ?? 'historical_daily', 'auto_fetch_mode' => $mode, 'mode_label' => $this->autoFetchModeLabel($mode), 'modules' => $modules, 'timing' => is_array($browserResult['timing'] ?? null) ? $browserResult['timing'] : []];
+        return ['platform' => 'ctrip', 'success' => false, 'message' => $message, 'saved_count' => 0, 'data_period' => $options['data_period'] ?? 'historical_daily', 'auto_fetch_mode' => $mode, 'mode_label' => $this->autoFetchModeLabel($mode), 'modules' => $modules, 'run_readback' => $runReadback, 'timing' => is_array($browserResult['timing'] ?? null) ? $browserResult['timing'] : []];
     }
 
     private function executeAutoFetchTask(array $task, int $hotelId, string $dataDate): array
@@ -6295,13 +6410,14 @@ trait AutoFetchConcern
         $mode = $this->resolvePlatformAutoFetchMode($config, $options, 'meituan');
         $runCookieConfig = $this->shouldRunCookieConfigTasks($mode);
         $runProfileBrowser = $this->shouldRunProfileBrowser($mode);
+        $browserProfileSources = $this->listCollectableBrowserProfileDataSources($hotelId, 'meituan');
         $taskPlanForConfig = $this->buildAutoFetchConfigTaskPlan($hotelId, $dataDate, [], $config);
         $hasConfiguredTask = (bool)array_filter($taskPlanForConfig, static fn(array $task): bool => ($task['platform'] ?? '') === 'meituan');
         $hasProfile = $this->meituanProfileExistsForConfig($config);
         $hasProfileSeed = $this->meituanProfileStoreIdFromConfig($config) !== '';
 
         $hasDirectConfig = $hasConfiguredTask;
-        $hasProfileConfig = $runProfileBrowser && ($hasProfile || $hasProfileSeed);
+        $hasProfileConfig = $runProfileBrowser && ($hasProfile || $hasProfileSeed || $browserProfileSources !== []);
         if (!$hasDirectConfig && !$hasProfileConfig) {
             $message = $runProfileBrowser
                 ? '未配置美团浏览器 Profile'
@@ -6350,14 +6466,25 @@ trait AutoFetchConcern
 
         if ($runProfileBrowser) {
             $runProfileByCost = $this->shouldRunProfileBrowserForCost($mode, $savedCount);
-            $browserResult = $runProfileByCost
-                ? $this->executeMeituanBrowserProfileAutoFetch($config, $hotelId, $dataDate, !empty($options['interactive_browser']), $options)
-                : [
+            if ($runProfileByCost) {
+                $browserResult = $this->syncMeituanBrowserProfileDataSourcesForAutoFetch(
+                    $hotelId,
+                    $dataDate,
+                    !empty($options['interactive_browser']),
+                    $browserProfileSources,
+                    $options
+                );
+                if (empty($browserResult['attempted'])) {
+                    $browserResult = $this->executeMeituanBrowserProfileAutoFetch($config, $hotelId, $dataDate, !empty($options['interactive_browser']), $options);
+                }
+            } else {
+                $browserResult = [
                     'success' => false,
                     'skipped' => true,
                     'message' => '当前策略未启动 Profile',
                     'saved_count' => 0,
                 ];
+            }
             if (empty($browserResult['skipped'])) {
                 $savedCount += (int)($browserResult['saved_count'] ?? 0);
             }
@@ -6380,17 +6507,26 @@ trait AutoFetchConcern
             }
         }
 
+        $runReadback = is_array($browserResult['run_readback'] ?? null) ? $browserResult['run_readback'] : [];
+        $coreReadbackVerified = $this->autoFetchRunReadbackCoreVerified($runReadback);
         if ($savedCount > 0) {
-            \think\facade\Log::info("美团自动获取成功", ['hotel_id' => $hotelId, 'count' => $savedCount]);
+            \think\facade\Log::info("美团自动获取已写入", [
+                'hotel_id' => $hotelId,
+                'count' => $savedCount,
+                'core_readback_verified' => $coreReadbackVerified,
+            ]);
             return [
                 'platform' => 'meituan',
-                'success' => true,
-                'message' => "完成 {$savedCount} 次写入操作；排名接口可能仅返回排名或百分比",
+                'success' => $this->autoFetchPlatformRunSucceeded($savedCount, $runReadback),
+                'message' => $coreReadbackVerified
+                    ? "完成 {$savedCount} 次写入并验证本次任务核心指标回执"
+                    : "已发生 {$savedCount} 次写入，但本次任务、入库行、来源追踪与收入/间夜/ADR 回执未完整绑定",
                 'saved_count' => $savedCount,
                 'data_period' => $options['data_period'] ?? 'historical_daily',
                 'auto_fetch_mode' => $mode,
                 'mode_label' => $this->autoFetchModeLabel($mode),
                 'modules' => $modules,
+                'run_readback' => $runReadback,
                 'timing' => is_array($browserResult['timing'] ?? null) ? $browserResult['timing'] : [],
             ];
         }
@@ -6407,6 +6543,7 @@ trait AutoFetchConcern
             'auto_fetch_mode' => $mode,
             'mode_label' => $this->autoFetchModeLabel($mode),
             'modules' => $modules,
+            'run_readback' => $runReadback,
             'timing' => is_array($browserResult['timing'] ?? null) ? $browserResult['timing'] : [],
         ];
     }

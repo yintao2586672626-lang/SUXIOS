@@ -1793,6 +1793,9 @@ final class PlatformDataSyncService
         if (is_array($stats['collection_quality'] ?? null)) {
             $safe['collection_quality'] = $this->sanitizeSyncTaskCollectionQuality($stats['collection_quality']);
         }
+        if (is_array($stats['run_readback'] ?? null)) {
+            $safe['run_readback'] = $this->sanitizeRunReadbackReceipt($stats['run_readback']);
+        }
 
         $period = $this->normalizeDataPeriod($stats['data_period'] ?? '');
         if ($period !== '') {
@@ -1814,6 +1817,49 @@ final class PlatformDataSyncService
         }
 
         return $safe;
+    }
+
+    /** @param array<string, mixed> $receipt @return array<string, mixed> */
+    private function sanitizeRunReadbackReceipt(array $receipt): array
+    {
+        $rowIds = array_values(array_unique(array_filter(array_map(
+            static fn($value): int => max(0, (int)$value),
+            is_array($receipt['row_ids'] ?? null) ? $receipt['row_ids'] : []
+        ))));
+        $traceIds = [];
+        foreach (is_array($receipt['source_trace_ids'] ?? null) ? $receipt['source_trace_ids'] : [] as $traceId) {
+            $traceId = trim((string)$traceId);
+            if (preg_match('/^[A-Za-z0-9._:-]{1,160}$/D', $traceId) === 1) {
+                $traceIds[] = $traceId;
+            }
+        }
+        $metricKeys = array_values(array_intersect(
+            ['revenue', 'room_nights', 'adr'],
+            array_values(array_unique(array_map(
+                static fn($value): string => strtolower(trim((string)$value)),
+                is_array($receipt['verified_metric_keys'] ?? null) ? $receipt['verified_metric_keys'] : []
+            )))
+        ));
+        $platform = strtolower(trim((string)($receipt['platform'] ?? '')));
+        $targetDate = $this->normalizeDate($receipt['target_date'] ?? null) ?? '';
+        $dataPeriod = $this->normalizeDataPeriod($receipt['data_period'] ?? '');
+        $startedAt = $this->normalizeDateTime($receipt['started_at'] ?? '') ?? '';
+
+        return [
+            'readback_verified' => ($receipt['readback_verified'] ?? false) === true,
+            'sync_task_id' => max(0, (int)($receipt['sync_task_id'] ?? 0)),
+            'data_source_id' => max(0, (int)($receipt['data_source_id'] ?? 0)),
+            'system_hotel_id' => max(0, (int)($receipt['system_hotel_id'] ?? 0)),
+            'platform' => in_array($platform, ['ctrip', 'meituan'], true) ? $platform : '',
+            'target_date' => $targetDate,
+            'data_period' => $dataPeriod,
+            'started_at' => $startedAt,
+            'row_ids' => array_slice($rowIds, 0, 50),
+            'source_trace_ids' => array_slice(array_values(array_unique($traceIds)), 0, 50),
+            'verified_metric_keys' => $metricKeys,
+            'readback_count' => max(0, (int)($receipt['readback_count'] ?? 0)),
+            'failure_reason' => mb_substr(trim((string)($receipt['failure_reason'] ?? '')), 0, 120),
+        ];
     }
 
     /**
@@ -3474,6 +3520,13 @@ final class PlatformDataSyncService
                 $stats[$receiptKey] = $saveReceipt[$receiptKey];
             }
         }
+        $stats['run_readback'] = $this->buildRunReadbackReceipt(
+            $taskId,
+            $source,
+            $saveReceipt,
+            $payload,
+            is_array($existingTask) ? $existingTask : []
+        );
         if ($safeDiagnostics !== []) {
             $stats['sync_diagnostics'] = $safeDiagnostics;
         }
@@ -3549,6 +3602,7 @@ final class PlatformDataSyncService
             'updated_count' => (int)($stats['updated_count'] ?? 0),
             'readback_count' => (int)($stats['readback_count'] ?? 0),
             'readback_verified' => ($stats['readback_verified'] ?? false) === true,
+            'run_readback' => is_array($stats['run_readback'] ?? null) ? $stats['run_readback'] : [],
             'rolled_back' => ($stats['rolled_back'] ?? false) === true,
             'failure_reason' => (string)($stats['failure_reason'] ?? ''),
             'predecessor_task_id' => (int)($stats['predecessor_task_id'] ?? 0),
@@ -3593,6 +3647,7 @@ final class PlatformDataSyncService
             'updated_count' => (int)($stats['updated_count'] ?? 0),
             'readback_count' => (int)($stats['readback_count'] ?? 0),
             'readback_verified' => ($stats['readback_verified'] ?? false) === true,
+            'run_readback' => is_array($stats['run_readback'] ?? null) ? $stats['run_readback'] : [],
             'rolled_back' => ($stats['rolled_back'] ?? false) === true,
             'failure_reason' => (string)($stats['failure_reason'] ?? ''),
             'predecessor_task_id' => (int)($stats['predecessor_task_id'] ?? 0),
@@ -3603,6 +3658,230 @@ final class PlatformDataSyncService
             'collection_quality' => is_array($stats['collection_quality'] ?? null) ? $stats['collection_quality'] : [],
             'module_status' => null,
         ];
+    }
+
+    /**
+     * Build a current-run receipt from rows that are bound to the exact sync
+     * task. Aggregate write counts are deliberately insufficient here.
+     *
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $saveReceipt
+     * @param array<string, mixed> $payload
+     * @param array<string, mixed> $task
+     * @return array<string, mixed>
+     */
+    private function buildRunReadbackReceipt(
+        int $taskId,
+        array $source,
+        array $saveReceipt,
+        array $payload,
+        array $task
+    ): array {
+        $sourceId = max(0, (int)($source['id'] ?? 0));
+        $hotelId = max(0, (int)($source['system_hotel_id'] ?? 0));
+        $platform = strtolower(trim((string)($source['platform'] ?? '')));
+        $targetDate = $this->normalizeDate($payload['data_date'] ?? $payload['dataDate'] ?? null) ?? '';
+        $dataPeriod = $this->normalizeDataPeriod($payload['data_period'] ?? $payload['dataPeriod'] ?? '');
+        $startedAt = $this->normalizeDateTime($task['started_at'] ?? '') ?? '';
+        $receipt = [
+            'readback_verified' => false,
+            'sync_task_id' => max(0, $taskId),
+            'data_source_id' => $sourceId,
+            'system_hotel_id' => $hotelId,
+            'platform' => $platform,
+            'target_date' => $targetDate,
+            'data_period' => $dataPeriod,
+            'started_at' => $startedAt,
+            'row_ids' => [],
+            'source_trace_ids' => [],
+            'verified_metric_keys' => [],
+            'readback_count' => 0,
+            'failure_reason' => '',
+        ];
+
+        $expectedReadbackCount = max(0, (int)($saveReceipt['readback_count'] ?? $saveReceipt['saved_count'] ?? 0));
+        $expectedRowIds = array_values(array_unique(array_filter(array_map(
+            static fn($value): int => max(0, (int)$value),
+            is_array($saveReceipt['row_ids'] ?? null) ? $saveReceipt['row_ids'] : []
+        ))));
+        if ($taskId <= 0 || $sourceId <= 0 || $hotelId <= 0 || !in_array($platform, ['ctrip', 'meituan'], true)
+            || $targetDate === '' || $dataPeriod === '' || $startedAt === ''
+            || ($saveReceipt['readback_verified'] ?? false) !== true || $expectedReadbackCount <= 0
+            || $expectedRowIds === []
+        ) {
+            $receipt['failure_reason'] = 'run_identity_or_persistence_readback_missing';
+            return $receipt;
+        }
+
+        try {
+            $columns = $this->tableColumns('online_daily_data');
+            foreach (['id', 'sync_task_id', 'data_source_id', 'system_hotel_id', 'data_date', 'data_period', 'readback_verified', 'source_trace_id'] as $requiredColumn) {
+                if (!isset($columns[$requiredColumn])) {
+                    $receipt['failure_reason'] = 'run_readback_column_missing:' . $requiredColumn;
+                    return $receipt;
+                }
+            }
+            if (!isset($columns['platform']) && !isset($columns['source'])) {
+                $receipt['failure_reason'] = 'run_readback_platform_column_missing';
+                return $receipt;
+            }
+
+            $fields = array_values(array_filter([
+                'id', 'sync_task_id', 'data_source_id', 'system_hotel_id', 'data_date', 'data_period',
+                'readback_verified', 'source_trace_id', 'platform', 'source', 'hotel_id', 'hotel_name',
+                'data_type', 'dimension', 'compare_type', 'amount', 'quantity', 'data_value', 'raw_data',
+            ], static fn(string $field): bool => isset($columns[$field])));
+            $query = Db::name('online_daily_data')
+                ->field(implode(',', $fields))
+                ->where('sync_task_id', $taskId)
+                ->where('data_source_id', $sourceId)
+                ->where('system_hotel_id', $hotelId)
+                ->where('data_date', $targetDate)
+                ->where('data_period', $dataPeriod)
+                ->whereIn('id', $expectedRowIds);
+            if (isset($columns['platform'])) {
+                $query->where('platform', $platform);
+            }
+            if (isset($columns['source'])) {
+                $query->where('source', $platform);
+            }
+            $rows = $query->order('id', 'asc')->select()->toArray();
+        } catch (\Throwable $e) {
+            $receipt['failure_reason'] = 'run_readback_query_failed';
+            return $receipt;
+        }
+
+        $rows = array_values(array_filter($rows, 'is_array'));
+        $rowIds = array_values(array_unique(array_filter(array_map(
+            static fn(array $row): int => max(0, (int)($row['id'] ?? 0)),
+            $rows
+        ))));
+        $traceIds = [];
+        $allRowsReadbackVerified = $rows !== [];
+        $allRowsHaveTrace = $rows !== [];
+        foreach ($rows as $row) {
+            if ((int)($row['readback_verified'] ?? 0) !== 1) {
+                $allRowsReadbackVerified = false;
+            }
+            $traceId = trim((string)($row['source_trace_id'] ?? ''));
+            if ($traceId === '' || preg_match('/^[A-Za-z0-9._:-]{1,160}$/D', $traceId) !== 1) {
+                $allRowsHaveTrace = false;
+                continue;
+            }
+            $traceIds[] = $traceId;
+        }
+        $traceIds = array_values(array_unique($traceIds));
+        $receipt['row_ids'] = array_slice($rowIds, 0, 50);
+        $receipt['source_trace_ids'] = array_slice($traceIds, 0, 50);
+        $receipt['verified_metric_keys'] = $this->verifiedCoreMetricKeysFromRunRows($rows, $source);
+        $receipt['readback_count'] = count($rows);
+
+        // A Profile run may also persist forecast or realtime rows. Verify the
+        // target-day subset against the exact row IDs returned by this save
+        // receipt instead of requiring every row from the run to share one
+        // date and period.
+        $receiptRowsBound = $rows !== []
+            && count($rows) <= $expectedReadbackCount
+            && count($rowIds) === count($rows)
+            && array_diff($rowIds, $expectedRowIds) === [];
+        $receipt['readback_verified'] = $receiptRowsBound && $allRowsReadbackVerified && $allRowsHaveTrace;
+        if (!$receipt['readback_verified']) {
+            $receipt['failure_reason'] = !$receiptRowsBound
+                ? 'run_readback_receipt_mismatch'
+                : (!$allRowsReadbackVerified ? 'run_row_readback_unverified' : 'run_source_trace_missing');
+        }
+
+        return $receipt;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @param array<string, mixed> $source
+     * @return array<int, string>
+     */
+    private function verifiedCoreMetricKeysFromRunRows(array $rows, array $source): array
+    {
+        $config = $this->decodeConfig($source['config_json'] ?? $source['config'] ?? []);
+        $ownNames = array_values(array_unique(array_filter(array_map(
+            static fn($value): string => trim((string)$value),
+            [$source['hotel_name'] ?? '', $source['name'] ?? '', $config['hotel_name'] ?? '', $config['hotelName'] ?? '']
+        ))));
+        $ownIds = [];
+        foreach (['external_hotel_id', 'hotel_id', 'hotelId', 'ota_hotel_id', 'otaHotelId', 'ctrip_hotel_id', 'ctripHotelId', 'platform_hotel_id', 'platformHotelId', 'store_id', 'storeId', 'poi_id', 'poiId'] as $key) {
+            foreach ([$source, $config] as $candidate) {
+                $value = trim((string)($candidate[$key] ?? ''));
+                if ($value !== '') {
+                    $ownIds[] = $value;
+                }
+            }
+        }
+        // Meituan rows must carry an observed self marker from the adapter.
+        // Do not promote a config fallback identifier or source label into
+        // current-run self evidence. Ctrip has a separate payload identity
+        // gate, so its validated bound identifier remains usable here.
+        $isMeituan = strtolower(trim((string)($source['platform'] ?? ''))) === 'meituan';
+        if ($isMeituan) {
+            $ownNames = [];
+            $ownIds = [];
+        }
+        $operatingRows = OtaOperatingScope::filterOwnOperatingRows($rows, $ownNames, array_values(array_unique($ownIds)));
+        if ($isMeituan) {
+            $operatingRows = array_values(array_filter($operatingRows, function (array $row): bool {
+                $raw = $this->decodeConfig($row['raw_data'] ?? []);
+                $observed = is_array($raw['row'] ?? null) ? array_replace($raw['row'], $raw) : $raw;
+                $compareType = strtolower(trim((string)($row['compare_type'] ?? $observed['compare_type'] ?? $observed['compareType'] ?? '')));
+                return in_array($compareType, ['self', 'own', 'mine', 'current'], true)
+                    || ($observed['is_self'] ?? null) === true
+                    || ($observed['isSelf'] ?? null) === true
+                    || (string)($observed['is_self'] ?? '') === '1'
+                    || (string)($observed['isSelf'] ?? '') === '1';
+            }));
+        }
+
+        $revenueVerified = false;
+        $roomNightsVerified = false;
+        $adrVerified = false;
+        $revenueTotal = 0.0;
+        $roomNightsTotal = 0.0;
+        foreach ($operatingRows as $row) {
+            $raw = $this->decodeConfig($row['raw_data'] ?? []);
+            $facts = is_array($raw['field_facts'] ?? null) ? $raw['field_facts'] : [];
+            foreach ($facts as $fact) {
+                if (!is_array($fact) || strtolower(trim((string)($fact['status'] ?? ''))) !== 'captured'
+                    || ($fact['stored_value_present'] ?? false) !== true
+                ) {
+                    continue;
+                }
+                $metricKey = strtolower(trim((string)($fact['metric_key'] ?? '')));
+                if ($metricKey === 'order_amount' && is_numeric($row['amount'] ?? null)) {
+                    $revenueVerified = true;
+                }
+                if ($metricKey === 'room_nights' && is_numeric($row['quantity'] ?? null)) {
+                    $roomNightsVerified = true;
+                }
+                if ($metricKey === 'data_value' && is_numeric($row['data_value'] ?? null)) {
+                    $sourceKey = strtolower((string)preg_replace('/[^a-z0-9]+/', '', (string)($fact['source_key'] ?? '')));
+                    if (in_array($sourceKey, ['adr', 'avgprice', 'averageprice', 'averagedailyrate'], true)) {
+                        $adrVerified = true;
+                    }
+                }
+            }
+            if (is_numeric($row['amount'] ?? null)) {
+                $revenueTotal += (float)$row['amount'];
+            }
+            if (is_numeric($row['quantity'] ?? null)) {
+                $roomNightsTotal += (float)$row['quantity'];
+            }
+        }
+        if ($revenueVerified && $roomNightsVerified && $roomNightsTotal > 0) {
+            $adrVerified = true;
+        }
+
+        return array_values(array_filter([
+            $revenueVerified ? 'revenue' : null,
+            $roomNightsVerified ? 'room_nights' : null,
+            $adrVerified ? 'adr' : null,
+        ]));
     }
 
     private function shouldPreserveSourceStateForModuleResult(string $status, array $payload): bool

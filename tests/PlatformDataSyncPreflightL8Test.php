@@ -101,6 +101,7 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
         $options = [
             'interactive_browser' => true,
             'target_date' => self::TARGET_DATE,
+            'data_period' => 'historical_daily',
             'capture_sections' => 'traffic',
             'trigger_type' => 'manual',
         ];
@@ -162,6 +163,18 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
             $stored['data_date'],
             $message
         );
+        $runReadback = is_array($result['run_readback'] ?? null) ? $result['run_readback'] : [];
+        if ($factors['freshness'] === 'fresh') {
+            self::assertTrue($runReadback['readback_verified'] ?? false, $message);
+            self::assertSame((int)$result['task_id'], (int)($runReadback['sync_task_id'] ?? 0), $message);
+            self::assertSame($sourceId, (int)($runReadback['data_source_id'] ?? 0), $message);
+            self::assertSame(self::TARGET_DATE, $runReadback['target_date'] ?? null, $message);
+            self::assertSame('historical_daily', $runReadback['data_period'] ?? null, $message);
+            self::assertContains((int)$stored['id'], $runReadback['row_ids'] ?? [], $message);
+            self::assertNotEmpty($runReadback['source_trace_ids'] ?? [], $message);
+        } else {
+            self::assertFalse($runReadback['readback_verified'] ?? true, $message);
+        }
 
         $diagnostics = $result['sync_diagnostics'];
         self::assertIsArray($diagnostics, $message);
@@ -191,6 +204,117 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
                 self::assertContains($metric, $fieldFacts['captured_metric_keys'] ?? [], $message);
             }
         }
+    }
+
+    public function testRunReadbackVerifiesTargetDateSubsetOfMultiPeriodReceipt(): void
+    {
+        $sourceId = $this->createBrowserProfileSource('DX-1161');
+        $source = Db::name('platform_data_sources')->where('id', $sourceId)->find();
+        self::assertIsArray($source);
+
+        $taskId = (int)Db::name('platform_data_sync_tasks')->insertGetId([
+            'tenant_id' => self::TENANT_ID,
+            'data_source_id' => $sourceId,
+            'system_hotel_id' => self::SYSTEM_HOTEL_ID,
+            'platform' => 'ctrip',
+            'data_type' => 'business',
+            'ingestion_method' => 'browser_profile',
+            'trigger_type' => 'auto_fetch',
+            'status' => 'success',
+            'attempt_count' => 1,
+            'max_attempts' => 3,
+            'started_at' => '2026-07-15 08:00:00',
+            'finished_at' => '2026-07-15 08:01:00',
+            'create_time' => '2026-07-15 08:00:00',
+            'update_time' => '2026-07-15 08:01:00',
+        ]);
+        $facts = [
+            ['metric_key' => 'order_amount', 'status' => 'captured', 'stored_value_present' => true, 'source_key' => 'orderAmount'],
+            ['metric_key' => 'room_nights', 'status' => 'captured', 'stored_value_present' => true, 'source_key' => 'roomNights'],
+        ];
+        $common = [
+            'tenant_id' => self::TENANT_ID,
+            'hotel_id' => 'CTRIP-TC145-101',
+            'hotel_name' => 'TC-145 Hotel',
+            'system_hotel_id' => self::SYSTEM_HOTEL_ID,
+            'source' => 'ctrip',
+            'platform' => 'ctrip',
+            'compare_type' => 'self',
+            'readback_verified' => 1,
+            'readback_verified_at' => '2026-07-15 08:01:00',
+            'data_source_id' => $sourceId,
+            'sync_task_id' => $taskId,
+            'ingestion_method' => 'browser_profile',
+            'create_time' => '2026-07-15 08:00:30',
+            'update_time' => '2026-07-15 08:00:30',
+        ];
+        $targetRowId = (int)Db::name('online_daily_data')->insertGetId(array_merge($common, [
+            'data_date' => self::TARGET_DATE,
+            'data_period' => 'historical_daily',
+            'data_type' => 'business',
+            'amount' => 1200,
+            'quantity' => 3,
+            'source_trace_id' => 'target-run-trace',
+            'raw_data' => json_encode(['field_facts' => $facts], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ]));
+        $forecastRowId = (int)Db::name('online_daily_data')->insertGetId(array_merge($common, [
+            'data_date' => '2026-07-15',
+            'data_period' => 'next_30_days',
+            'data_type' => 'traffic_forecast',
+            'source_trace_id' => 'forecast-run-trace',
+            'raw_data' => '{}',
+        ]));
+        self::assertCount(1, Db::name('online_daily_data')
+            ->field('id,sync_task_id,data_source_id,system_hotel_id,data_date,data_period,readback_verified,source_trace_id,platform,source,hotel_id,hotel_name,data_type,dimension,compare_type,amount,quantity,data_value,raw_data')
+            ->where('sync_task_id', $taskId)
+            ->where('data_source_id', $sourceId)
+            ->where('system_hotel_id', self::SYSTEM_HOTEL_ID)
+            ->where('data_date', self::TARGET_DATE)
+            ->where('data_period', 'historical_daily')
+            ->whereIn('id', [$targetRowId, $forecastRowId])
+            ->where('platform', 'ctrip')
+            ->where('source', 'ctrip')
+            ->order('id', 'asc')
+            ->select()
+            ->toArray());
+
+        $service = $this->service($this->adapterFor(
+            'DX-1161',
+            self::factors('authorized', 'complete', 'fresh', 'success')
+        ));
+        $method = new \ReflectionMethod($service, 'buildRunReadbackReceipt');
+        $method->setAccessible(true);
+        $receipt = $method->invoke(
+            $service,
+            $taskId,
+            $source,
+            [
+                'readback_verified' => true,
+                'readback_count' => 2,
+                'row_ids' => [$targetRowId, $forecastRowId],
+            ],
+            ['data_date' => self::TARGET_DATE, 'data_period' => 'historical_daily'],
+            ['started_at' => '2026-07-15 08:00:00']
+        );
+
+        self::assertTrue(
+            $receipt['readback_verified'],
+            json_encode($receipt, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+        );
+        self::assertSame([$targetRowId], $receipt['row_ids']);
+        self::assertSame(1, $receipt['readback_count']);
+        self::assertSame(['revenue', 'room_nights', 'adr'], $receipt['verified_metric_keys']);
+
+        $missingTargetReceipt = $method->invoke(
+            $service,
+            $taskId,
+            $source,
+            ['readback_verified' => true, 'readback_count' => 1, 'row_ids' => [$forecastRowId]],
+            ['data_date' => self::TARGET_DATE, 'data_period' => 'historical_daily'],
+            ['started_at' => '2026-07-15 08:00:00']
+        );
+        self::assertFalse($missingTargetReceipt['readback_verified']);
+        self::assertSame('run_readback_receipt_mismatch', $missingTargetReceipt['failure_reason']);
     }
 
     /**

@@ -112,7 +112,8 @@ test('auto-fetch result copy labels saved_count as write operations instead of u
   assert.match(panels, /写入操作 \{\{ row\.saved_count \|\| 0 \}\} 次/);
   assert.doesNotMatch(panels, /入库 \{\{ row\.saved_count \|\| 0 \}\} 条/);
   assert.match(html, /const autoFetchResultMessage = \(message, savedCount = 0\) =>/);
-  assert.match(autoFetchConcern, /完成 \{\$savedCount\} 次写入操作/);
+  assert.match(autoFetchConcern, /完成 \{\$savedCount\} 次写入并验证本次任务核心指标回执/);
+  assert.match(autoFetchConcern, /已发生 \{\$savedCount\} 次写入，但本次任务、入库行、来源追踪与收入\/间夜\/ADR 回执未完整绑定/);
   assert.doesNotMatch(autoFetchStaticSource, /采集完成并入库 \$\{res\.data\?\.saved_count \|\| 0\} 条 OTA 指标行/);
 });
 

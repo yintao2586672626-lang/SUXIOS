@@ -378,6 +378,11 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
                     continue;
                 }
                 $explicitDataDate = $this->normalizeDate((string)($row['data_date'] ?? $row['dataDate'] ?? $row['date'] ?? ''));
+                $observedPlatformHotelId = $this->firstRowString(
+                    $row,
+                    ['poi_id', 'poiId', 'store_id', 'storeId', 'shop_id', 'shopId'],
+                    ''
+                );
                 $row['source'] = 'meituan';
                 $row['platform'] = $row['platform'] ?? 'meituan';
                 $row['system_hotel_id'] = $row['system_hotel_id'] ?? $systemHotelId;
@@ -393,6 +398,26 @@ final class MeituanBrowserProfileDataSourceAdapter implements DataSourceAdapter
                     $row['date_source'] = $explicitDataDate !== '' ? 'row' : 'capture_context.default_data_date';
                 }
                 $row['data_type'] = $row['data_type'] ?? $dataType;
+                $compareType = strtolower(trim((string)($row['compare_type'] ?? $row['compareType'] ?? '')));
+                $hasExplicitNonSelfFlag = (array_key_exists('is_self', $row) && $row['is_self'] === false)
+                    || (array_key_exists('isSelf', $row) && $row['isSelf'] === false);
+                $isCompetitorType = in_array(strtolower(trim((string)$row['data_type'])), [
+                    'competitor',
+                    'competitor_avg',
+                    'competition',
+                    'peer',
+                    'peer_rank',
+                ], true);
+                if ($compareType === ''
+                    && !$hasExplicitNonSelfFlag
+                    && !$isCompetitorType
+                    && $observedPlatformHotelId !== ''
+                    && $platformHotelId !== ''
+                    && hash_equals($platformHotelId, $observedPlatformHotelId)
+                ) {
+                    $row['compare_type'] = 'self';
+                    $row['is_self'] = true;
+                }
                 $row['acquisition_method'] = 'browser_profile';
                 $rows[] = $row;
             }

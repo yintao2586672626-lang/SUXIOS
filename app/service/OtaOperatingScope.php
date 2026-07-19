@@ -23,7 +23,16 @@ final class OtaOperatingScope
         }
 
         $compareType = self::compareType($row, $raw);
-        if (in_array($compareType, ['competitor', 'peer', 'compete', 'rival'], true)) {
+        if (in_array($compareType, [
+            'competitor',
+            'competitor_avg',
+            'competition',
+            'peer',
+            'peer_avg',
+            'peer_rank',
+            'compete',
+            'rival',
+        ], true)) {
             return false;
         }
 

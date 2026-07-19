@@ -69,7 +69,14 @@ class AutoFetchOnlineDataOnce extends Command
         }
         if (!$result['success']) {
             $message = (string)($result['message'] ?? 'background auto-fetch request failed');
-            $this->markFailed($hotelId, $dataDate, $dataPeriod, $message, $body);
+            $this->markFailed(
+                $hotelId,
+                $dataDate,
+                $dataPeriod,
+                $message,
+                $body,
+                is_array($result['data'] ?? null) ? $result['data'] : []
+            );
             $output->writeln($message);
             return 1;
         }
@@ -131,16 +138,25 @@ class AutoFetchOnlineDataOnce extends Command
             return [
                 'success' => false,
                 'message' => is_array($decoded) ? (string)($decoded['message'] ?? ('HTTP ' . $httpCode)) : ('HTTP ' . $httpCode),
+                'data' => is_array($decoded['data'] ?? null) ? $decoded['data'] : [],
             ];
         }
 
         return [
             'success' => is_array($decoded) ? (int)($decoded['code'] ?? 500) === 200 : true,
             'message' => is_array($decoded) ? (string)($decoded['message'] ?? 'ok') : 'ok',
+            'data' => is_array($decoded['data'] ?? null) ? $decoded['data'] : [],
         ];
     }
 
-    private function markFailed(int $hotelId, string $dataDate, string $dataPeriod, string $message, array $body): void
+    private function markFailed(
+        int $hotelId,
+        string $dataDate,
+        string $dataPeriod,
+        string $message,
+        array $body,
+        array $details = []
+    ): void
     {
         if ($hotelId <= 0) {
             return;
@@ -157,8 +173,14 @@ class AutoFetchOnlineDataOnce extends Command
             'status' => 'failed',
             'message' => $message,
             'data_period' => in_array($dataPeriod, ['historical_daily', 'realtime_snapshot'], true) ? $dataPeriod : 'realtime_snapshot',
-            'saved_count' => 0,
+            'saved_count' => max(0, (int)($details['saved_count'] ?? 0)),
         ];
+        if (!empty($body['task_id'])) {
+            $runRecord['task_id'] = (string)$body['task_id'];
+        }
+        if (is_array($details['platform_results'] ?? null)) {
+            $runRecord['platform_results'] = $details['platform_results'];
+        }
         if (!empty($body['auto_fetch_mode'])) {
             $runRecord['auto_fetch_mode'] = (string)$body['auto_fetch_mode'];
         }
@@ -174,7 +196,10 @@ class AutoFetchOnlineDataOnce extends Command
             'status' => 'failed',
             'message' => $message,
             'data_period' => $runRecord['data_period'],
-            'saved_count' => 0,
+            'saved_count' => $runRecord['saved_count'],
+            'task_id' => (string)($body['task_id'] ?? ''),
+            'platform_results' => is_array($details['platform_results'] ?? null) ? $details['platform_results'] : [],
+            'timing' => is_array($details['timing'] ?? null) ? $details['timing'] : [],
         ];
         $recentRuns = is_array($status['recent_runs'] ?? null) ? $status['recent_runs'] : [];
         array_unshift($recentRuns, $runRecord);
@@ -188,7 +213,8 @@ class AutoFetchOnlineDataOnce extends Command
                 'message' => $message,
                 'data_date' => $dataDate,
                 'success' => false,
-                'saved_count' => 0,
+                'saved_count' => max(0, (int)($details['saved_count'] ?? 0)),
+                'platform_results' => is_array($details['platform_results'] ?? null) ? $details['platform_results'] : [],
                 'actor_user_id' => (int)($body['user_id'] ?? 0),
             ]);
         } catch (\Throwable $e) {

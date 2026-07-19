@@ -140,6 +140,7 @@ class AutoFetchOnlineData extends Command
                         'data_period' => $run['period'],
                         'slot_id' => $run['slot_id'],
                         'timing' => is_array($result['timing'] ?? null) ? $result['timing'] : [],
+                        'platform_results' => is_array($result['platform_results'] ?? null) ? $result['platform_results'] : [],
                         'ctrip_section_concurrency' => $result['ctrip_section_concurrency'] ?? $ctripSectionConcurrency,
                         'realtime_schedule_interval_hours' => $realtimeIntervalHours,
                         'failed_platforms' => $outcome['failed_platforms'],
@@ -192,6 +193,7 @@ class AutoFetchOnlineData extends Command
                 'data_period' => $dataPeriod,
                 'timing' => $this->ensureTotalTiming(is_array($profileResult['timing'] ?? null) ? $profileResult['timing'] : [], $startedAt),
                 'ctrip_section_concurrency' => $ctripSectionConcurrency,
+                'platform_results' => is_array($profileResult['platform_results'] ?? null) ? $profileResult['platform_results'] : [],
                 'failed_platforms' => $profileResult['failed_platforms'] ?? [],
                 'successful_platforms' => $profileResult['successful_platforms'] ?? [],
             ];
@@ -205,6 +207,7 @@ class AutoFetchOnlineData extends Command
             'saved_count' => 0,
             'data_period' => $dataPeriod,
             'timing' => $this->ensureTotalTiming([], $startedAt),
+            'platform_results' => [],
             'failed_platforms' => $targetPlatforms ?: ['ctrip', 'meituan'],
         ];
     }
@@ -259,6 +262,7 @@ class AutoFetchOnlineData extends Command
         $savedByPlatform = [];
         $failedCount = 0;
         $failedPlatforms = [];
+        $platformResults = [];
         $timing = [];
         foreach ($sources as $source) {
             $platform = strtolower((string)($source['platform'] ?? 'source'));
@@ -285,7 +289,16 @@ class AutoFetchOnlineData extends Command
                 $timing = $this->sumTiming($timing, $result['timing']);
             }
             $savedByPlatform[$platform] = ($savedByPlatform[$platform] ?? 0) + $sourceSavedCount;
-            if (strtolower(trim((string)($result['status'] ?? ''))) !== 'success' || $sourceSavedCount <= 0) {
+            $runReadback = is_array($result['run_readback'] ?? null) ? $result['run_readback'] : [];
+            $coreReadbackVerified = $this->runReadbackCoreVerified($runReadback);
+            $platformResults[$platform] = [
+                'platform' => $platform,
+                'success' => $coreReadbackVerified,
+                'saved_count' => ($platformResults[$platform]['saved_count'] ?? 0) + $sourceSavedCount,
+                'run_readback' => $runReadback,
+                'message' => (string)($result['message'] ?? $result['status'] ?? '-'),
+            ];
+            if (!$coreReadbackVerified) {
                 $failedCount++;
                 $failedPlatforms[$platform] = true;
             }
@@ -296,14 +309,15 @@ class AutoFetchOnlineData extends Command
             if (($savedByPlatform['ctrip'] ?? 0) > 0) {
                 $this->updateCtripLatestFetchStatus($hotelId, date('Y-m-d H:i:s'), $dataDate, (int)$savedByPlatform['ctrip']);
             }
-            $messagePrefix = $failedCount > 0 ? '浏览器 Profile 数据源部分同步成功' : '浏览器 Profile 数据源同步成功';
+            $messagePrefix = $failedCount > 0 ? '浏览器 Profile 已写入但本次核心指标回执不完整' : '浏览器 Profile 数据源同步并验证本次核心指标回执';
             return [
                 'attempted' => true,
-                'success' => true,
+                'success' => $failedCount === 0,
                 'message' => "{$messagePrefix} {$savedCount} 条",
                 'saved_count' => $savedCount,
                 'data_period' => $dataPeriod,
                 'timing' => $timing,
+                'platform_results' => array_values($platformResults),
                 'failed_platforms' => array_keys($failedPlatforms),
                 'successful_platforms' => array_keys(array_filter(
                     $savedByPlatform,
@@ -320,9 +334,31 @@ class AutoFetchOnlineData extends Command
             'saved_count' => 0,
             'data_period' => $dataPeriod,
             'timing' => $timing,
+            'platform_results' => array_values($platformResults),
             'failed_platforms' => array_keys($failedPlatforms),
             'successful_platforms' => [],
         ];
+    }
+
+    private function runReadbackCoreVerified(array $receipt): bool
+    {
+        $metricKeys = array_values(array_unique(array_map(
+            static fn($value): string => strtolower(trim((string)$value)),
+            is_array($receipt['verified_metric_keys'] ?? null) ? $receipt['verified_metric_keys'] : []
+        )));
+        return ($receipt['readback_verified'] ?? false) === true
+            && (int)($receipt['sync_task_id'] ?? 0) > 0
+            && (int)($receipt['data_source_id'] ?? 0) > 0
+            && trim((string)($receipt['started_at'] ?? '')) !== ''
+            && array_values(array_filter(
+                is_array($receipt['row_ids'] ?? null) ? $receipt['row_ids'] : [],
+                static fn($value): bool => (int)$value > 0
+            )) !== []
+            && array_values(array_filter(
+                is_array($receipt['source_trace_ids'] ?? null) ? $receipt['source_trace_ids'] : [],
+                static fn($value): bool => trim((string)$value) !== ''
+            )) !== []
+            && count(array_intersect(['revenue', 'room_nights', 'adr'], $metricKeys)) === 3;
     }
 
     /**
@@ -573,6 +609,9 @@ class AutoFetchOnlineData extends Command
         if (!empty($timing)) {
             $runRecord['timing'] = $timing;
         }
+        if (is_array($details['platform_results'] ?? null)) {
+            $runRecord['platform_results'] = $details['platform_results'];
+        }
         if (array_key_exists('ctrip_section_concurrency', $details)) {
             $runRecord['ctrip_section_concurrency'] = $this->normalizeCtripSectionConcurrency($details['ctrip_section_concurrency']);
             $status['ctrip_section_concurrency'] = $runRecord['ctrip_section_concurrency'];
@@ -604,6 +643,9 @@ class AutoFetchOnlineData extends Command
         }
         if (!empty($timing)) {
             $status['last_result']['timing'] = $timing;
+        }
+        if (is_array($details['platform_results'] ?? null)) {
+            $status['last_result']['platform_results'] = $details['platform_results'];
         }
         if (array_key_exists('ctrip_section_concurrency', $details)) {
             $status['last_result']['ctrip_section_concurrency'] = $this->normalizeCtripSectionConcurrency($details['ctrip_section_concurrency']);

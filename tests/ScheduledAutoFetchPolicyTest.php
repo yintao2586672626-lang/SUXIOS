@@ -182,7 +182,8 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         self::assertStringContainsString("'target_platforms' => \$schedulePolicy->normalizePlatforms(\$run['target_platforms'] ?? [])", $controller);
         self::assertStringContainsString("in_array('ctrip', \$targetPlatforms, true)", $controller);
         self::assertStringContainsString("in_array('meituan', \$targetPlatforms, true)", $controller);
-        self::assertStringContainsString("!== 'success' || \$sourceSavedCount <= 0", $command);
+        self::assertStringContainsString("\$coreReadbackVerified = \$this->runReadbackCoreVerified(\$runReadback)", $command);
+        self::assertStringContainsString("'platform_results' => array_values(\$platformResults)", $command);
         self::assertStringContainsString("!isset(\$failedPlatforms[\$platform])", $command);
         self::assertStringContainsString("return \$savedCount > 0 ? 'partial_success' : 'failed';", $controller);
     }

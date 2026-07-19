@@ -146,6 +146,27 @@ final class AgentTest extends TestCase
         ]]));
     }
 
+    public function testOtaDiagnosisQueryPreservesSourceBindingAndSyncIdentityFields(): void
+    {
+        $controller = $this->controller();
+        $columns = array_fill_keys([
+            'id',
+            'system_hotel_id',
+            'data_source_id',
+            'sync_task_id',
+            'data_date',
+            'source',
+            'raw_data',
+            'readback_verified',
+        ], true);
+
+        $fields = $this->invokeNonPublic($controller, 'otaDiagnosisOnlineRowFields', [$columns]);
+
+        self::assertContains('data_source_id', $fields);
+        self::assertContains('sync_task_id', $fields);
+        self::assertContains('readback_verified', $fields);
+    }
+
     public function testOtaDiagnosisEvidenceUsesLatestEligibleRowsAndCarriesTraceMetadata(): void
     {
         $controller = $this->controller();

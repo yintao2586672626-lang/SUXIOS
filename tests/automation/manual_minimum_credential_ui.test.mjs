@@ -4614,7 +4614,8 @@ test('Core operations clears old scope values and exposes competitor request fai
   ]) {
     assert.ok(resetScopedState.includes(reset), `scope reset must include ${reset}`);
   }
-  assert.match(refreshLoop, /const scopeChanged = hotelId !== String\(coreOperationsHotelId\.value \|\| ''\)[\s\S]*if \(scopeChanged\) \{\s*resetCoreOperationsScopedState\(\);\s*\}[\s\S]*coreOperationsHotelId\.value = hotelId;/);
+  assert.match(refreshLoop, /const scopeChanged = hotelId !== String\(coreOperationsHotelId\.value \|\| ''\)[\s\S]*if \(scopeChanged \|\| options\.resetScope === true\) \{\s*resetCoreOperationsScopedState\(\);\s*\}[\s\S]*coreOperationsHotelId\.value = hotelId;/);
+  assert.equal((onlineDataTemplateFragment.match(/refreshCoreOperationsLoop\(\{ resetScope: true \}\)/g) || []).length, 2);
   assert.match(competitorLoader, /competitorSummaryError\.value = String\(res\?\.message \|\| '美团竞品摘要读取失败'\)/);
   assert.match(competitorLoader, /competitorSummaryError\.value = String\(e\?\.message \|\| '美团竞品摘要读取失败'\)/);
   assert.match(onlineDataTemplateFragment, /data-testid="core-operations-competitor-error"/);

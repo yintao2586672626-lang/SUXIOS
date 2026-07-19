@@ -86,6 +86,18 @@ final class OtaOperatingScopeTest extends TestCase
             ['poi-own-1']
         ));
         self::assertFalse(OtaOperatingScope::isOwnOperatingRow(
+            [...$ownRow, 'compare_type' => 'competitor_avg'],
+            null,
+            ['System hotel name'],
+            ['poi-own-1']
+        ));
+        self::assertFalse(OtaOperatingScope::isOwnOperatingRow(
+            [...$ownRow, 'compare_type' => 'competition'],
+            null,
+            ['System hotel name'],
+            ['poi-own-1']
+        ));
+        self::assertFalse(OtaOperatingScope::isOwnOperatingRow(
             [...$ownRow, 'data_type' => 'peer_rank'],
             null,
             ['System hotel name'],
