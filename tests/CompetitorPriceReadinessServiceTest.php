@@ -11,7 +11,9 @@ final class CompetitorPriceReadinessServiceTest extends TestCase
 {
     public function testPriceGapAccessorKeepsMissingOrZeroPriceUnknown(): void
     {
-        $model = new CompetitorAnalysis();
+        // This accessor is pure. Bypass the ThinkPHP model constructor so the
+        // unit test never opens the default MySQL connection just to test math.
+        $model = (new \ReflectionClass(CompetitorAnalysis::class))->newInstanceWithoutConstructor();
 
         self::assertNull($model->getPriceDiffPercentAttr(null, [
             'our_price' => 300,

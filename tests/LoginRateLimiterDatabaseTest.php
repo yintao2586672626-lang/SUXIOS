@@ -20,11 +20,26 @@ final class LoginRateLimiterDatabaseTest extends TestCase
 
     protected function setUp(): void
     {
+        $explicitSharedDatabaseAuthorization = (string)getenv('SUXI_LOGIN_RATE_LIMITER_DB_TEST') === '1';
+        $expectedDatabase = trim((string)getenv('SUXI_E2E_DB_NAME'));
+        $dedicatedDatabaseRequested = preg_match(
+            '/(?:^|[_-])(?:test(?:ing)?|e2e)(?:$|[_-])/iD',
+            $expectedDatabase
+        ) === 1;
+        if (!$explicitSharedDatabaseAuthorization && !$dedicatedDatabaseRequested) {
+            self::markTestSkipped(
+                'Set SUXI_LOGIN_RATE_LIMITER_DB_TEST=1 or provide SUXI_E2E_DB_NAME for an authorized database test.'
+            );
+        }
+
         $databaseRow = Db::query('SELECT DATABASE() AS database_name');
         $databaseName = trim((string)($databaseRow[0]['database_name'] ?? ''));
         $dedicated = preg_match('/(?:^|[_-])(?:test(?:ing)?|e2e)(?:$|[_-])/iD', $databaseName) === 1;
-        if (!$dedicated && (string)getenv('SUXI_LOGIN_RATE_LIMITER_DB_TEST') !== '1') {
-            self::markTestSkipped('Set SUXI_LOGIN_RATE_LIMITER_DB_TEST=1 to authorize temporary limiter rows in a non-test local database.');
+        if ($dedicatedDatabaseRequested && (!$dedicated || !hash_equals($expectedDatabase, $databaseName))) {
+            self::fail('Login limiter database test is not connected to the requested dedicated E2E database.');
+        }
+        if (!$dedicated && !$explicitSharedDatabaseAuthorization) {
+            self::markTestSkipped('The active database is not a dedicated test database.');
         }
         $suffix = bin2hex(random_bytes(8));
         $this->ip = '198.18.' . random_int(1, 250) . '.' . random_int(1, 250);
