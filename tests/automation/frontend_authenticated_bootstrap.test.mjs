@@ -43,6 +43,23 @@ test('public login shell defers the authenticated application asset chain', () =
   assert.doesNotMatch(index, /<script defer src="(?:vue\.runtime|ctrip-static|meituan-static|data-health-static|app-render|min\.js|app-main)/);
 });
 
+test('public login locale switch persists the selected locale before authenticated assets load', () => {
+  assert.match(bootstrap, /data-testid="public-login-locale-select"/);
+  assert.match(bootstrap, /const PUBLIC_LOCALES = Object\.freeze\(\['zh-CN', 'en-US'\]\)/);
+  const initialLocaleStart = bootstrap.indexOf('const getInitialPublicLocale = () => {');
+  const initialLocaleEnd = bootstrap.indexOf('\n    const applyPublicLocale', initialLocaleStart);
+  const initialLocaleBlock = bootstrap.slice(initialLocaleStart, initialLocaleEnd);
+  const langParam = initialLocaleBlock.indexOf("params.get('lang')");
+  const cachedLocale = initialLocaleBlock.indexOf('localStorage.getItem(PUBLIC_LOCALE_KEY)');
+  assert(initialLocaleStart >= 0 && initialLocaleEnd > initialLocaleStart);
+  assert(langParam >= 0 && cachedLocale > langParam, 'URL locale must take priority over cached locale');
+  assert.match(bootstrap, /localeSelect\.addEventListener\('change',[\s\S]*?applyPublicLocale\(event\.target\.value\)/);
+  assert.match(bootstrap, /syncPublicLocaleUrl\(normalized\)/);
+  assert.match(bootstrap, /url\.searchParams\.set\('lang', normalizePublicLocale\(value\)\)/);
+  assert.match(bootstrap, /document\.documentElement\.lang = normalized/);
+  assert.match(bootstrap, /localStorage\.setItem\(PUBLIC_LOCALE_KEY, normalized\)/);
+});
+
 test('login bootstrap delegates remembered passwords to the browser credential store', () => {
   assert.match(bootstrap, /fetchJson\('\/api\/auth\/login'/);
   assert.match(bootstrap, /sessionStorage\.setItem\(AUTH_TOKEN_KEY/);

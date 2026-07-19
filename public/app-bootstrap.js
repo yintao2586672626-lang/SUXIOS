@@ -5,6 +5,8 @@
     const REMEMBERED_USERNAME_KEY = 'remembered_username';
     const PASSWORD_SAVE_PREFERENCE_KEY = 'suxios_browser_password_save_v1';
     const LEGACY_PASSWORD_KEY = 'remembered_password';
+    const PUBLIC_LOCALE_KEY = 'suxios_locale';
+    const PUBLIC_LOCALES = Object.freeze(['zh-CN', 'en-US']);
     const LOGIN_AUTOFILL_SYNC_DELAYS = Object.freeze([0, 100, 300, 800, 1600, 3000, 5000, 8000, 12000]);
     const LOGIN_CONNECTION_WARMUP_INTERVAL_MS = 30000;
     const LOGIN_CONNECTION_WARMUP_TIMEOUT_MS = 12000;
@@ -19,6 +21,44 @@
     let loginHandoffMetrics = null;
 
     const appRoot = () => document.getElementById('app');
+
+    const normalizePublicLocale = (value) => (PUBLIC_LOCALES.includes(String(value || '').trim()) ? String(value).trim() : 'zh-CN');
+    const getInitialPublicLocale = () => {
+        try {
+            const params = new URLSearchParams(window.location.search);
+            return normalizePublicLocale(
+                params.get('lang')
+                || params.get('locale')
+                || params.get('think_lang')
+                || localStorage.getItem(PUBLIC_LOCALE_KEY)
+                || document.documentElement.lang,
+            );
+        } catch (error) {
+            return normalizePublicLocale(document.documentElement.lang);
+        }
+    };
+    const applyPublicLocale = (value) => {
+        const normalized = normalizePublicLocale(value);
+        document.documentElement.lang = normalized;
+        try {
+            localStorage.setItem(PUBLIC_LOCALE_KEY, normalized);
+        } catch (error) {
+            // The selector remains usable for this page when browser storage is unavailable.
+        }
+        return normalized;
+    };
+    const syncPublicLocaleUrl = (value) => {
+        try {
+            const url = new URL(window.location.href);
+            url.searchParams.set('lang', normalizePublicLocale(value));
+            url.searchParams.delete('locale');
+            url.searchParams.delete('think_lang');
+            window.history.replaceState(window.history.state, '', url);
+        } catch (error) {
+            // Locale persistence remains authoritative when URL rewriting is unavailable.
+        }
+    };
+    const initialPublicLocale = applyPublicLocale(getInitialPublicLocale());
 
     const readAuthToken = () => {
         try {
@@ -240,6 +280,15 @@
                     <p class="login-hero-subcopy">以数据采集、经营分析、策略推演、结果追踪为核心，帮助酒店从经验判断走向数据决策。</p>
                 </section>
                 <div class="login-card rounded-2xl p-10 w-full max-w-md relative">
+                    <div class="flex justify-end mb-3">
+                        <div data-locale-switch="" data-testid="public-login-locale-switch" class="locale-switch login-locale-switch" role="group" aria-label="Language">
+                            <label for="public-login-locale-select">Language</label>
+                            <select id="public-login-locale-select" data-testid="public-login-locale-select" aria-label="Language">
+                                <option value="zh-CN"${initialPublicLocale === 'zh-CN' ? ' selected' : ''}>简体中文</option>
+                                <option value="en-US"${initialPublicLocale === 'en-US' ? ' selected' : ''}>English</option>
+                            </select>
+                        </div>
+                    </div>
                     <div class="login-card-head text-center mb-8">
                         <div class="login-logo login-logo-brand inline-flex items-center justify-center w-20 h-20 rounded-xl mb-5 shadow-lg">
                             <img src="images/logo.svg" alt="宿析OS" class="login-brand-logo-img">
@@ -494,6 +543,7 @@
         const username = document.getElementById('login-username');
         const password = document.getElementById('login-password');
         const remember = document.getElementById('public-login-remember');
+        const localeSelect = document.getElementById('public-login-locale-select');
         const submit = document.getElementById('public-login-submit');
         const errorBox = document.getElementById('public-login-error');
         const errorText = errorBox.querySelector('span');
@@ -568,6 +618,11 @@
         username.addEventListener('change', handleInput);
         password.addEventListener('input', handleInput);
         password.addEventListener('change', handleInput);
+        localeSelect.addEventListener('change', (event) => {
+            const normalized = applyPublicLocale(event.target.value);
+            localeSelect.value = normalized;
+            syncPublicLocaleUrl(normalized);
+        });
         form.addEventListener('focusin', scheduleLoginAutofillSync);
         form.addEventListener('focusin', warmLoginConnection);
         window.addEventListener('pageshow', scheduleLoginAutofillSync);
