@@ -8827,13 +8827,10 @@
                         }, 720);
                         return null;
                     }
-                    const primaryLoads = [
-                        loadOnlineDataList({ cacheMs: ONLINE_DATA_PANEL_CACHE_TTL_MS }),
-                    ];
+                    await loadOnlineDataList({ cacheMs: ONLINE_DATA_PANEL_CACHE_TTL_MS });
                     if (context.source === 'meituan') {
-                        primaryLoads.push(loadPlatformDataSources({ cacheMs: PLATFORM_SOURCE_PANEL_CACHE_TTL_MS }));
+                        await loadPlatformDataSources({ cacheMs: PLATFORM_SOURCE_PANEL_CACHE_TTL_MS });
                     }
-                    await Promise.all(primaryLoads);
                     if (seq !== downloadCenterTabLoadSeq || !isCurrentTab()) return null;
                     scheduleDelayedPageTask(() => {
                         if (seq !== downloadCenterTabLoadSeq || !isCurrentTab()) return null;
