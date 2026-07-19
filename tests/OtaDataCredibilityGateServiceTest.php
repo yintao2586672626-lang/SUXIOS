@@ -9,6 +9,228 @@ use PHPUnit\Framework\TestCase;
 
 final class OtaDataCredibilityGateServiceTest extends TestCase
 {
+    public function testPhaseOneReadinessRejectsReadyMetricsWhenCriticalEvidenceIsBlocked(): void
+    {
+        $metrics = $this->phaseOneReadyMetrics();
+        $metrics['credibility_gate']['status'] = 'blocked';
+        $metrics['credibility_gate']['decision_use'] = [
+            'revenue_analysis' => ['allowed' => false, 'status' => 'blocked'],
+            'ai_decision_support' => ['allowed' => false, 'status' => 'blocked'],
+        ];
+        $metrics['credibility_gate']['evidence']['failed_critical_metrics'] = [
+            'critical_metric_untrusted:totals.revenue',
+            'critical_metric_untrusted:totals.room_nights',
+            'critical_metric_untrusted:totals.adr',
+        ];
+        $metrics['metric_trust']['totals.revenue']['saved_success'] = false;
+        $metrics['metric_trust']['totals.revenue']['failure_reasons'] = ['source_row_save_failed'];
+
+        $readiness = (new OtaDataCredibilityGateService())->evaluateRevenueAiReadiness(
+            $metrics,
+            $this->phaseOneScope()
+        );
+
+        self::assertFalse($readiness['ready']);
+        self::assertFalse($readiness['revenue_ready']);
+        self::assertFalse($readiness['ai_ready']);
+        self::assertSame('ready', $readiness['metric_status']);
+        self::assertSame('blocked', $readiness['credibility_gate_status']);
+        self::assertContains('credibility_gate_blocked', $readiness['reason_codes']);
+        self::assertContains('critical_metrics_untrusted', $readiness['reason_codes']);
+        self::assertFalse($readiness['revenue_analysis_allowed']);
+        self::assertFalse($readiness['ai_decision_support_allowed']);
+    }
+
+    public function testPhaseOneReadinessAllowsWarningGateWithTrustedCriticalEvidenceAndHumanReview(): void
+    {
+        $readiness = (new OtaDataCredibilityGateService())->evaluateRevenueAiReadiness(
+            $this->phaseOneReadyMetrics(),
+            $this->phaseOneScope()
+        );
+
+        self::assertTrue($readiness['ready']);
+        self::assertTrue($readiness['revenue_ready']);
+        self::assertTrue($readiness['ai_ready']);
+        self::assertSame('warning', $readiness['credibility_gate_status']);
+        self::assertSame([], $readiness['reason_codes']);
+        self::assertTrue($readiness['revenue_analysis_allowed']);
+        self::assertTrue($readiness['ai_decision_support_allowed']);
+    }
+
+    public function testPhaseOneReadinessKeepsRevenueUsableWhenOnlyAiDecisionUseIsBlocked(): void
+    {
+        $metrics = $this->phaseOneReadyMetrics();
+        $metrics['credibility_gate']['decision_use']['ai_decision_support'] = [
+            'allowed' => false,
+            'status' => 'blocked_by_governance',
+        ];
+        $readiness = (new OtaDataCredibilityGateService())->evaluateRevenueAiReadiness(
+            $metrics,
+            $this->phaseOneScope()
+        );
+
+        self::assertFalse($readiness['ready']);
+        self::assertTrue($readiness['revenue_ready']);
+        self::assertFalse($readiness['ai_ready']);
+        self::assertSame([], $readiness['revenue_reason_codes']);
+        self::assertContains('ai_decision_support_not_allowed', $readiness['ai_reason_codes']);
+        self::assertNotContains('revenue_analysis_not_allowed', $readiness['reason_codes']);
+    }
+
+    public function testPhaseOneReadinessFailsClosedWhenExplicitScopeIsMissingOrInvalid(): void
+    {
+        $service = new OtaDataCredibilityGateService();
+        $missingScope = $service->evaluateRevenueAiReadiness($this->phaseOneReadyMetrics());
+
+        self::assertFalse($missingScope['revenue_ready']);
+        self::assertFalse($missingScope['ai_ready']);
+        self::assertContains('readiness_scope_system_hotel_id_missing', $missingScope['common_reason_codes']);
+        self::assertContains('readiness_scope_target_date_missing', $missingScope['common_reason_codes']);
+        self::assertContains('readiness_scope_platform_missing', $missingScope['common_reason_codes']);
+        self::assertContains('readiness_scope_metric_scope_missing', $missingScope['common_reason_codes']);
+
+        $invalidScope = $service->evaluateRevenueAiReadiness(
+            $this->phaseOneReadyMetrics(),
+            $this->phaseOneScope(['metric_scope' => 'whole_hotel'])
+        );
+        self::assertFalse($invalidScope['ready']);
+        self::assertContains('readiness_scope_metric_scope_invalid', $invalidScope['common_reason_codes']);
+
+        $wrongGateScopeMetrics = $this->phaseOneReadyMetrics();
+        $wrongGateScopeMetrics['credibility_gate']['metric_scope'] = 'whole_hotel';
+        $wrongGateScope = $service->evaluateRevenueAiReadiness(
+            $wrongGateScopeMetrics,
+            $this->phaseOneScope()
+        );
+        self::assertFalse($wrongGateScope['ready']);
+        self::assertContains('credibility_gate_scope_invalid', $wrongGateScope['common_reason_codes']);
+    }
+
+    public function testPhaseOneReadinessRejectsMixedHotelEvidence(): void
+    {
+        $metrics = $this->phaseOneReadyMetrics();
+        $metrics['metric_trust']['totals.revenue']['source']['hotels'][] = ['system_hotel_id' => 8];
+
+        $readiness = (new OtaDataCredibilityGateService())->evaluateRevenueAiReadiness(
+            $metrics,
+            $this->phaseOneScope()
+        );
+
+        self::assertFalse($readiness['revenue_ready']);
+        self::assertFalse($readiness['ai_ready']);
+        self::assertContains(
+            'critical_metric_hotel_scope_mismatch:totals.revenue',
+            $readiness['common_reason_codes']
+        );
+    }
+
+    public function testPhaseOneReadinessRejectsWrongTargetDateEvidence(): void
+    {
+        $metrics = $this->phaseOneReadyMetrics();
+        $metrics['metric_trust']['totals.room_nights']['source']['date_range'] = [
+            'start' => '2026-07-17',
+            'end' => '2026-07-17',
+        ];
+
+        $readiness = (new OtaDataCredibilityGateService())->evaluateRevenueAiReadiness(
+            $metrics,
+            $this->phaseOneScope()
+        );
+
+        self::assertFalse($readiness['ready']);
+        self::assertContains(
+            'critical_metric_date_scope_mismatch:totals.room_nights',
+            $readiness['common_reason_codes']
+        );
+    }
+
+    public function testPhaseOneReadinessRejectsWrongPlatformEvidence(): void
+    {
+        $metrics = $this->phaseOneReadyMetrics();
+        $metrics['metric_trust']['totals.adr']['source']['platforms'] = ['meituan'];
+
+        $readiness = (new OtaDataCredibilityGateService())->evaluateRevenueAiReadiness(
+            $metrics,
+            $this->phaseOneScope()
+        );
+
+        self::assertFalse($readiness['ready']);
+        self::assertContains(
+            'critical_metric_platform_scope_mismatch:totals.adr',
+            $readiness['common_reason_codes']
+        );
+    }
+
+    public function testPhaseOneReadinessRejectsIncompleteCriticalGateEvidence(): void
+    {
+        $metrics = $this->phaseOneReadyMetrics();
+        unset(
+            $metrics['credibility_gate']['evidence']['critical_metrics'],
+            $metrics['credibility_gate']['evidence']['failed_critical_metrics']
+        );
+
+        $readiness = (new OtaDataCredibilityGateService())->evaluateRevenueAiReadiness(
+            $metrics,
+            $this->phaseOneScope()
+        );
+
+        self::assertFalse($readiness['revenue_ready']);
+        self::assertFalse($readiness['ai_ready']);
+        self::assertContains('critical_metrics_evidence_missing', $readiness['common_reason_codes']);
+        self::assertContains('failed_critical_metrics_evidence_missing', $readiness['common_reason_codes']);
+    }
+
+    public function testPhaseOneReadinessRejectsIncompleteStorageReadbackProof(): void
+    {
+        $metrics = $this->phaseOneReadyMetrics();
+        $metrics['metric_trust']['totals.revenue']['source']['row_count'] = 2;
+        $metrics['metric_trust']['totals.revenue']['source']['stored_count'] = 2;
+        $metrics['metric_trust']['totals.revenue']['source']['readback_verified_count'] = 1;
+
+        $readiness = (new OtaDataCredibilityGateService())->evaluateRevenueAiReadiness(
+            $metrics,
+            $this->phaseOneScope()
+        );
+
+        self::assertFalse($readiness['ready']);
+        self::assertContains(
+            'critical_metric_storage_readback_unverified:totals.revenue',
+            $readiness['common_reason_codes']
+        );
+    }
+
+    public function testPhaseOneReadinessRejectsMissingOrNonNumericCriticalMetricValues(): void
+    {
+        $service = new OtaDataCredibilityGateService();
+        $missingRevenue = $this->phaseOneReadyMetrics();
+        unset($missingRevenue['totals']['revenue']);
+
+        $missingReadiness = $service->evaluateRevenueAiReadiness(
+            $missingRevenue,
+            $this->phaseOneScope()
+        );
+
+        self::assertFalse($missingReadiness['revenue_ready']);
+        self::assertFalse($missingReadiness['ai_ready']);
+        self::assertContains(
+            'critical_metric_value_missing_or_invalid:totals.revenue',
+            $missingReadiness['common_reason_codes']
+        );
+
+        $nonNumericAdr = $this->phaseOneReadyMetrics();
+        $nonNumericAdr['totals']['adr'] = '120.00';
+        $invalidReadiness = $service->evaluateRevenueAiReadiness(
+            $nonNumericAdr,
+            $this->phaseOneScope()
+        );
+
+        self::assertFalse($invalidReadiness['ready']);
+        self::assertContains(
+            'critical_metric_value_missing_or_invalid:totals.adr',
+            $invalidReadiness['common_reason_codes']
+        );
+    }
+
     public function testGateBlocksWhenDatasetOrCriticalMetricTrustIsMissing(): void
     {
         self::assertTrue(class_exists(OtaDataCredibilityGateService::class), 'OTA data credibility gate service must exist.');
@@ -320,6 +542,68 @@ final class OtaDataCredibilityGateServiceTest extends TestCase
         self::assertSame('blocked', $scopeGate['status']);
         self::assertContains('ota_collection_quality_scope_invalid', $scopeGate['reason_codes']);
         self::assertSame('blocked_by_collection_quality', $scopeGate['decision_use']['revenue_analysis']['status']);
+    }
+
+    /**
+     * @param array<string, mixed> $overrides
+     * @return array<string, mixed>
+     */
+    private function phaseOneScope(array $overrides = []): array
+    {
+        return array_replace([
+            'system_hotel_id' => 7,
+            'target_date' => '2026-07-18',
+            'platform' => 'ctrip',
+            'metric_scope' => 'ota_channel',
+        ], $overrides);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function phaseOneReadyMetrics(): array
+    {
+        $source = [
+            'hotels' => [['system_hotel_id' => 7]],
+            'date_range' => [
+                'start' => '2026-07-18',
+                'end' => '2026-07-18',
+            ],
+            'platforms' => ['ctrip'],
+            'row_count' => 1,
+            'stored_count' => 1,
+            'readback_verified_count' => 1,
+        ];
+        $metricTrust = [];
+        foreach (['totals.revenue', 'totals.room_nights', 'totals.adr'] as $metricKey) {
+            $metricTrust[$metricKey] = [
+                'saved_success' => true,
+                'failure_reasons' => [],
+                'source' => $source,
+            ];
+        }
+
+        return [
+            'status' => 'ready',
+            'totals' => [
+                'revenue' => 1200.0,
+                'room_nights' => 10.0,
+                'adr' => 120.0,
+            ],
+            'metric_trust' => $metricTrust,
+            'credibility_gate' => [
+                'status' => 'warning',
+                'metric_scope' => 'ota_channel',
+                'decision_use' => [
+                    'revenue_analysis' => ['allowed' => true, 'status' => 'allowed_with_data_warnings'],
+                    'ai_decision_support' => ['allowed' => true, 'status' => 'allowed_with_human_review'],
+                ],
+                'evidence' => [
+                    'critical_metrics' => ['totals.revenue', 'totals.room_nights', 'totals.adr'],
+                    'failed_critical_metrics' => [],
+                ],
+            ],
+        ];
     }
 
     /**

@@ -235,6 +235,7 @@ class Agent extends Base
         $startDate = trim((string) $this->request->param('start_date', ''));
         $endDate = trim((string) $this->request->param('end_date', ''));
         $analysisType = strtolower(trim((string) $this->request->param('analysis_type', 'traffic')));
+        $analysisMode = strtolower(trim((string) $this->request->param('analysis_mode', 'auto')));
         $modelKey = trim((string) $this->request->param('model_key', 'deepseek_v4_default'));
         $modelMode = $this->request->param('model_mode', null);
         $modelOptions = $modelMode !== null && trim((string) $modelMode) !== '' ? ['model_mode' => $modelMode] : [];
@@ -242,9 +243,13 @@ class Agent extends Base
             $modelKey = 'deepseek_v4_default';
         }
 
-        if (!$this->isAllowedLlmModelKey($modelKey)) {
-            return $this->error('未找到启用的模型配置：' . $modelKey . '，请先到系统设置 > AI模型配置中配置', 422);
+        if (!in_array($analysisMode, ['auto', 'rules_only'], true)) {
+            return $this->error('analysis_mode 仅支持 auto、rules_only', 422);
         }
+        $analysisRuntime = $this->resolveOtaDiagnosisAnalysisRuntime(
+            $analysisMode,
+            $this->isAllowedLlmModelKey($modelKey)
+        );
         if (!in_array($platform, ['ctrip', 'meituan', 'qunar'], true)) {
             return $this->error('platform 仅支持 ctrip、meituan、qunar', 422);
         }
@@ -281,6 +286,10 @@ class Agent extends Base
                     $startDate,
                     $endDate
                 );
+                $result['analysis_runtime'] = array_merge($analysisRuntime, [
+                    'mode' => 'not_run_no_data',
+                    'model_called' => false,
+                ]);
                 $result = $this->persistOtaDiagnosisResult($result, $hotelId, $platform);
 
                 return $this->success($result, '暂无 OTA 数据');
@@ -309,18 +318,47 @@ class Agent extends Base
                 $result['source_summary']['scope']['requested_start_date'] = $startDate;
                 $result['source_summary']['scope']['requested_end_date'] = $endDate;
             }
-            $llmResult = $this->callLlm($this->buildOtaDiagnosisPrompt($result), $modelKey, $this->buildAiGovernanceMeta('ota_diagnosis', $result, [
-                'hotel_id' => $hotelId,
-                'user_id' => (int)($this->currentUser->id ?? 0),
-            ]), $modelOptions);
-            if (($llmResult['ok'] ?? false) === true) {
-                $result['diagnosis'] = array_merge($result['diagnosis'], $this->parseOtaDiagnosisResult((string) $llmResult['content']));
+            if (($analysisRuntime['use_rules_only'] ?? false) === true) {
+                $llmResult = [
+                    'ok' => true,
+                    'provider' => 'local',
+                    'model_key' => 'deterministic_rules',
+                    'model' => 'ota_diagnosis_rule_engine',
+                    'data' => [
+                        'governance' => [
+                            'status' => (string)($analysisRuntime['fallback_reason'] ?? '') === 'model_not_available'
+                                ? 'skipped_model_unavailable'
+                                : 'skipped_rules_only',
+                            'prompt_version' => 'ota_diagnosis.rules_only.v1',
+                        ],
+                    ],
+                ];
+                $result['diagnosis']['model_note'] = (string)($analysisRuntime['fallback_reason'] ?? '') === 'model_not_available'
+                    ? '模型配置当前不可用，已自动降级为系统规则诊断；结论仅依据真实入库 OTA 数据和确定性规则。'
+                    : '当前使用系统规则诊断；未调用外部模型，结论仅依据真实入库 OTA 数据和确定性规则。';
                 $result['diagnosis'] = $this->applyOtaDiagnosisRuleEvidenceGuard($result['diagnosis'], $ruleDiagnosis);
+                if (!$usedLatestAvailableData) {
+                    $result['source_policy'] = 'database_only_deterministic_rules';
+                }
             } else {
-                $result['missing_sections'][] = 'AI模型诊断';
-                $result['diagnosis']['model_note'] = '模型诊断暂不可用，当前结论仅使用系统规则和真实入库数据。';
-                $result['diagnosis'] = $this->applyOtaDiagnosisRuleEvidenceGuard($result['diagnosis'], $ruleDiagnosis);
+                $llmResult = $this->callLlm($this->buildOtaDiagnosisPrompt($result), $modelKey, $this->buildAiGovernanceMeta('ota_diagnosis', $result, [
+                    'hotel_id' => $hotelId,
+                    'user_id' => (int)($this->currentUser->id ?? 0),
+                ]), $modelOptions);
+                $analysisRuntime['model_called'] = true;
+                if (($llmResult['ok'] ?? false) === true) {
+                    $analysisRuntime['mode'] = 'llm_augmented_rules';
+                    $result['diagnosis'] = array_merge($result['diagnosis'], $this->parseOtaDiagnosisResult((string) $llmResult['content']));
+                    $result['diagnosis'] = $this->applyOtaDiagnosisRuleEvidenceGuard($result['diagnosis'], $ruleDiagnosis);
+                } else {
+                    $analysisRuntime['mode'] = 'deterministic_rules_fallback';
+                    $analysisRuntime['fallback_reason'] = 'model_call_failed';
+                    $result['missing_sections'][] = 'AI模型诊断';
+                    $result['diagnosis']['model_note'] = '模型诊断暂不可用，当前结论仅使用系统规则和真实入库数据。';
+                    $result['diagnosis'] = $this->applyOtaDiagnosisRuleEvidenceGuard($result['diagnosis'], $ruleDiagnosis);
+                }
             }
+            $result['analysis_runtime'] = $analysisRuntime;
             if ($usedLatestAvailableData) {
                 $latestDataAction = sprintf(
                     '所选日期范围暂无OTA明细，当前诊断已基于最近一次已抓取数据（%s 至 %s）生成。',
@@ -3131,6 +3169,11 @@ class Agent extends Base
     {
         $sections = [
             [
+                'key' => 'analysis_mode',
+                'title' => '诊断方式',
+                'items' => $this->normalizeOtaDiagnosisItems($diagnosis['model_note'] ?? ''),
+            ],
+            [
                 'key' => 'data_overview',
                 'title' => '数据概览',
                 'items' => $this->normalizeOtaDiagnosisItems($diagnosis['data_overview'] ?? []),
@@ -3487,6 +3530,28 @@ class Agent extends Base
             'derived_metric_lineage' => $result['derived_metric_lineage'] ?? [],
             'data_gaps' => $result['data_gaps'] ?? [],
             'decision_closure' => $result['decision_closure'] ?? null,
+            'analysis_runtime' => $result['analysis_runtime'] ?? [],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function resolveOtaDiagnosisAnalysisRuntime(string $requestedMode, bool $modelAllowed): array
+    {
+        $requestedMode = strtolower(trim($requestedMode));
+        if (!in_array($requestedMode, ['auto', 'rules_only'], true)) {
+            throw new \InvalidArgumentException('analysis_mode must be auto or rules_only');
+        }
+
+        $useRulesOnly = $requestedMode === 'rules_only' || !$modelAllowed;
+
+        return [
+            'requested_mode' => $requestedMode,
+            'mode' => $useRulesOnly ? 'deterministic_rules' : 'llm_augmented_rules',
+            'use_rules_only' => $useRulesOnly,
+            'model_allowed' => $modelAllowed,
+            'model_called' => false,
+            'rules_evidence_guard_applied' => true,
+            'fallback_reason' => !$modelAllowed ? 'model_not_available' : '',
         ];
     }
 

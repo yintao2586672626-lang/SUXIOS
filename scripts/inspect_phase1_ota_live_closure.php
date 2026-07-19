@@ -2,6 +2,8 @@
 declare(strict_types=1);
 
 use app\service\OtaRevenueMetricService;
+use app\service\OtaDataCredibilityGateService;
+use app\service\OtaDiagnosisPersistenceProofService;
 use app\service\OtaProfileSessionProofService;
 use app\service\OtaStandardEtlService;
 use think\App;
@@ -29,6 +31,18 @@ if (!is_file($autoload)) {
 require $autoload;
 
 $root = dirname(__DIR__);
+
+function strict_positive_integer(mixed $value): ?int
+{
+    if (is_int($value)) {
+        return $value > 0 ? $value : null;
+    }
+    if (!is_string($value) || preg_match('/^[1-9][0-9]*$/D', $value) !== 1) {
+        return null;
+    }
+    $normalized = (int)$value;
+    return $normalized > 0 && (string)$normalized === $value ? $normalized : null;
+}
 
 /**
  * @param array<int, string> $argv
@@ -64,6 +78,11 @@ function parse_args(array $argv): array
 
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$options['date'])) {
         throw new InvalidArgumentException('Invalid --date, expected YYYY-MM-DD.');
+    }
+    if ((string)$options['system_hotel_id'] !== ''
+        && strict_positive_integer($options['system_hotel_id']) === null
+    ) {
+        throw new InvalidArgumentException('Invalid --system_hotel_id, expected a positive integer.');
     }
     if (!in_array((string)$options['format'], ['json', 'markdown'], true)) {
         throw new InvalidArgumentException('Invalid --format, expected json or markdown.');
@@ -170,6 +189,15 @@ function missing_requirement_employee_explanation(string $code, array $details =
         ];
     }
 
+    if (str_ends_with($code, '_ai_input_not_ready')) {
+        return [
+            'employee_explanation' => $platformLabel . '收益指标可复核，但可信度门暂不允许把这些指标用于 AI 决策。',
+            'limited_conclusions' => [$platformLabel . 'AI 自动建议', '执行意图创建', '运营闭环完成判断'],
+            'still_usable_metrics' => [$platformLabel . '已通过收益门的 OTA 收益指标。', 'AI 阻断原因和治理状态。'],
+            'explanation_next_action' => '复核 credibility_gate 的 ai_decision_support 状态；解除治理阻断前不得生成可执行建议。',
+        ];
+    }
+
     if (str_ends_with($code, '_metric_trust_missing')) {
         return [
             'employee_explanation' => $platformLabel . '指标可信度为空，不能判断哪些字段可用于经营结论。',
@@ -235,9 +263,11 @@ function missing_requirement_employee_explanation(string $code, array $details =
         ];
     }
 
-    if ($code === 'ai_diagnosis_evidence_sample_missing') {
+    if ($code === 'ai_diagnosis_evidence_sample_missing' || $code === 'ai_diagnosis_persistence_unverified') {
         return [
-            'employee_explanation' => '缺少可追溯的 AI 诊断证据，不能说明 AI 建议依据来自哪些 OTA 数据和缺口。',
+            'employee_explanation' => $code === 'ai_diagnosis_persistence_unverified'
+                ? 'OTA AI 诊断内容已存在，但尚未证明保存成功并完成数据库回读，不能作为生产闭环证据。'
+                : '缺少可追溯的 AI 诊断证据，不能说明 AI 建议依据来自哪些 OTA 数据和缺口。',
             'limited_conclusions' => [
                 'AI 经营建议',
                 'AI 建议证据来源',
@@ -247,7 +277,7 @@ function missing_requirement_employee_explanation(string $code, array $details =
                 '已验证的 OTA 源数据、收益指标和 data_gaps。',
                 '缺口清单可作为生成诊断前的补证据清单。',
             ],
-            'explanation_next_action' => '调用现有 OTA 诊断接口，并附上包含 evidence_sources、data_gaps、action_items 的脱敏证据 JSON。',
+            'explanation_next_action' => '调用现有 OTA 诊断接口，并按 saved_record.id 在 agent_logs 中完成同门店、同平台、同目标日实时回读。',
         ];
     }
 
@@ -270,7 +300,7 @@ function missing_requirement_employee_explanation(string $code, array $details =
 
     if ($code === 'operation_execution_sample_missing') {
         return [
-            'employee_explanation' => '尚无能追溯到 OTA 诊断的执行意图、审批、执行证据或复盘样例。',
+            'employee_explanation' => '尚无能追溯到 OTA 诊断的执行意图、执行证据或复盘样例。',
             'limited_conclusions' => [
                 '运营执行闭环',
                 '动作完成',
@@ -296,13 +326,13 @@ function missing_requirement_employee_explanation(string $code, array $details =
                 '普通执行流可作为运营参考。',
                 'OTA 诊断缺口和动作队列仍可作为待处理清单。',
             ],
-            'explanation_next_action' => '将执行意图或执行流程的 source/evidence 关联到 OTA 诊断 action_items，再补齐审批、执行证据或复盘。',
+            'explanation_next_action' => '将执行意图或执行流程的 source/evidence 关联到 OTA 诊断 action_items，再补齐执行证据和已执行、复盘或 ROI 状态。',
         ];
     }
 
     if ($code === 'operation_execution_evidence_incomplete') {
         return [
-            'employee_explanation' => '已有执行相关样例，但审批、执行证据、复盘或 ROI 信号不足，不能证明动作已闭环。',
+            'employee_explanation' => '已有执行相关样例，但尚未同时证明执行证据和已执行、复盘或 ROI 状态；仅审批或仅声明已执行都不能证明动作已闭环。',
             'limited_conclusions' => [
                 '动作完成',
                 '执行效果',
@@ -313,13 +343,13 @@ function missing_requirement_employee_explanation(string $code, array $details =
                 '已有执行意图或执行流可作为待补证据入口。',
                 '当前审批/执行状态可用于定位阻断环节。',
             ],
-            'explanation_next_action' => '补齐审批通过、执行证据、复盘状态或 ROI 信号后复跑巡检。',
+            'explanation_next_action' => '补齐执行证据，并确认已执行、复盘或 ROI 状态，再复跑巡检。',
         ];
     }
 
-    if ($code === 'evidence_scope_date_mismatch') {
+    if (in_array($code, ['evidence_scope_date_mismatch', 'evidence_scope_system_hotel_mismatch', 'evidence_scope_platform_mismatch', 'strict_system_hotel_scope_required'], true)) {
         return [
-            'employee_explanation' => '外部证据日期与本次巡检目标日不一致，不能证明目标日 OTA 闭环。',
+            'employee_explanation' => '严格闭环证据必须固定同一系统酒店、OTA 平台和目标日期；当前范围缺失或不一致，不能作为单门店生产证明。',
             'limited_conclusions' => [
                 '目标日 AI 诊断',
                 '目标日运营动作',
@@ -329,7 +359,7 @@ function missing_requirement_employee_explanation(string $code, array $details =
                 '该证据只能作为历史或非目标日参考。',
                 '本次巡检的同日 OTA 数据和缺口仍可单独查看。',
             ],
-            'explanation_next_action' => '重新生成或选择与本次巡检同一业务日期的证据 JSON。',
+            'explanation_next_action' => '指定 --system_hotel_id 和 --platform，并重新生成同系统酒店、同平台、同业务日期的证据 JSON。',
         ];
     }
 
@@ -482,6 +512,20 @@ function next_action_for_missing_requirement(string $code, array $details = []):
         ];
     }
 
+    if (str_ends_with($code, '_ai_input_not_ready')) {
+        return [
+            'action_code' => $code . '_review_credibility_gate',
+            'owner' => 'AI/收益运营人员',
+            'action' => sprintf('收益指标可复核，但 %s 当前未通过 AI 决策输入门；先核对阻断原因，解除前不得生成可执行经营建议。', $platformLabel),
+            'evidence_needed' => [
+                'credibility_gate.status',
+                'decision_use.ai_decision_support.allowed',
+                'ai_reason_codes',
+            ],
+            'protected_boundary' => '只复核可信度与治理状态，不用收益可用性替代 AI 可用性，不自动创建或执行运营动作。',
+        ];
+    }
+
     if (str_ends_with($code, '_traffic_facts_missing')) {
         return [
             'action_code' => $code . '_confirm_traffic_collection',
@@ -530,7 +574,7 @@ function next_action_for_missing_requirement(string $code, array $details = []):
         ];
     }
 
-    if ($code === 'ai_diagnosis_evidence_sample_missing') {
+    if ($code === 'ai_diagnosis_evidence_sample_missing' || $code === 'ai_diagnosis_persistence_unverified') {
         return [
             'action_code' => 'collect_ai_diagnosis_evidence',
             'owner' => 'AI 运营人员',
@@ -539,8 +583,10 @@ function next_action_for_missing_requirement(string $code, array $details = []):
                 'evidence_sources',
                 'data_gaps',
                 'action_items',
+                'saved_record.id',
+                'agent_logs exact hotel/platform/date readback',
             ],
-            'protected_boundary' => 'AI 建议必须引用 OTA 证据，不能把缺失数据写成确定结论。',
+            'protected_boundary' => 'AI 建议必须引用 OTA 证据；外部 JSON 的 saved/readback 布尔值不能单独证明已落库。',
         ];
     }
 
@@ -565,11 +611,10 @@ function next_action_for_missing_requirement(string $code, array $details = []):
             'action' => '创建或附上一个真实执行意图/执行流程样例，并关联到 OTA 诊断动作项。',
             'evidence_needed' => [
                 'execution_intents 或 execution_flow',
-                'approval.status=approved',
-                'execution.status=executed 或 evidence.count>0',
-                'review.status 或 ROI 复盘状态',
+                'evidence.count>0',
+                'execution.status=executed、review.status 或 ROI 复盘状态',
             ],
-            'protected_boundary' => '动作可以处于待审批状态；不能只凭 AI 建议卡片标记闭环完成。',
+            'protected_boundary' => '审批通过只代表允许执行；仅声明已执行也不够，必须有执行证据和落地状态。',
         ];
     }
 
@@ -581,7 +626,7 @@ function next_action_for_missing_requirement(string $code, array $details = []):
             'evidence_needed' => [
                 'source_module=ota_diagnosis 或 source=ota_diagnosis#action_item',
                 'evidence_refs 或 action_item_id',
-                'approval.status=approved、execution.status=executed、evidence.count>0 或 review.status',
+                'evidence.count>0，且 execution.status=executed、review.status 或 ROI 状态',
             ],
             'protected_boundary' => '只补齐执行证据关联，不改携程/美团采集字段和采集逻辑。',
         ];
@@ -591,26 +636,27 @@ function next_action_for_missing_requirement(string $code, array $details = []):
         return [
             'action_code' => 'collect_operation_execution_evidence',
             'owner' => '运营负责人',
-            'action' => '已有执行意图/执行流程样例，但还不能证明动作可进入运营闭环；补齐审批通过、执行证据或复盘状态。',
+            'action' => '已有执行意图/执行流程样例，但还不能证明动作已落地；补齐执行证据，并确认已执行、复盘或 ROI 状态。',
             'evidence_needed' => [
-                'approval.status=approved',
-                'execution.status=executed 或 evidence.count>0',
-                'review.status 或 ROI 复盘状态',
+                'evidence.count>0',
+                'execution.status=executed、review.status 或 ROI 复盘状态',
             ],
-            'protected_boundary' => '动作可以处于待审批状态；不能只凭 AI 建议卡片标记闭环完成。',
+            'protected_boundary' => '审批通过只代表允许执行；仅声明已执行也不够，必须有执行证据和落地状态。',
         ];
     }
 
-    if ($code === 'evidence_scope_date_mismatch') {
+    if (in_array($code, ['evidence_scope_date_mismatch', 'evidence_scope_system_hotel_mismatch', 'evidence_scope_platform_mismatch', 'strict_system_hotel_scope_required'], true)) {
         return [
             'action_code' => 'align_evidence_scope_date',
             'owner' => '产品/技术',
-            'action' => '重新生成或选择与真实闭环巡检同一业务日期的证据 JSON。',
+            'action' => '指定系统酒店和 OTA 平台，并重新生成同系统酒店、同平台、同业务日期的证据 JSON。',
             'evidence_needed' => [
                 'scope.date',
+                'scope.system_hotel_id',
+                'scope.platform',
                 '巡检日期',
             ],
-            'protected_boundary' => '不复用过期证据证明当天 OTA 闭环。',
+            'protected_boundary' => '不混用其他门店、其他平台或过期证据证明当前 OTA 闭环。',
         ];
     }
 
@@ -648,12 +694,17 @@ function inspection_ai_blocking_missing_codes(array $missingCodes): array
         return str_contains($code, 'source_rows_missing')
             || str_contains($code, 'etl_not_ready')
             || str_contains($code, 'revenue_metrics_not_ready')
+            || str_contains($code, 'ai_input_not_ready')
             || str_contains($code, 'traffic_facts_missing')
             || str_contains($code, 'field_facts_missing')
             || str_contains($code, 'field_fact_closure_incomplete')
             || str_contains($code, 'data_gaps_missing')
             || $code === 'evidence_scope_date_mismatch'
+            || $code === 'evidence_scope_system_hotel_mismatch'
+            || $code === 'evidence_scope_platform_mismatch'
+            || $code === 'strict_system_hotel_scope_required'
             || $code === 'ai_diagnosis_evidence_sample_missing'
+            || $code === 'ai_diagnosis_persistence_unverified'
             || $code === 'ai_diagnosis_action_items_blocked';
     }));
 }
@@ -707,6 +758,15 @@ function inspection_operation_signal_counts(array $operation): array
             || in_array((string)($item['approval']['status'] ?? ''), ['blocked', 'rejected'], true)
             || in_array((string)($item['execution']['status'] ?? ''), ['blocked', 'failed'], true))
     );
+    $verifiedCompletionCount = $countItems(static function (array $item): bool {
+        if ((int)($item['evidence']['count'] ?? 0) <= 0) {
+            return false;
+        }
+        return (string)($item['execution']['status'] ?? '') === 'executed'
+            || (string)($item['stage'] ?? '') === 'reviewed'
+            || in_array((string)($item['review']['status'] ?? ''), ['success', 'near_success', 'failed'], true)
+            || (string)($item['roi']['status'] ?? '') === 'ready';
+    });
 
     return [
         'execution_intent_count' => count($intents),
@@ -722,7 +782,7 @@ function inspection_operation_signal_counts(array $operation): array
         'reviewed_count' => $reviewedCount,
         'roi_ready_count' => $roiReadyCount,
         'blocked_execution_count' => $blockedExecutionCount,
-        'completion_signal_count' => $approvedCount + $executedCount + $evidenceReadyCount + $reviewedCount + $roiReadyCount,
+        'completion_signal_count' => $verifiedCompletionCount,
     ];
 }
 
@@ -732,14 +792,16 @@ function inspection_operation_item_has_ota_diagnosis_link(array $item): bool
     $evidence = is_array($recommendation['evidence'] ?? null) ? $recommendation['evidence'] : [];
     $source = strtolower((string)($recommendation['source'] ?? ''));
     $sourceModule = strtolower((string)($recommendation['source_module'] ?? ''));
+    $sourceRecordId = (int)($recommendation['source_record_id'] ?? 0);
+    $diagnosisLogId = (int)($evidence['diagnosis_log_id'] ?? 0);
+    $typedEvidenceLink = $sourceRecordId > 0
+        && $diagnosisLogId === $sourceRecordId
+        && trim((string)($evidence['action_item_id'] ?? '')) !== ''
+        && strtolower(trim((string)($evidence['metric_scope'] ?? ''))) === 'ota_channel';
+    $typedSource = str_starts_with($sourceModule, 'ota_diagnosis')
+        || str_contains($source, 'ota_diagnosis');
 
-    return $sourceModule === 'ota_diagnosis'
-        || str_contains($source, 'ota_diagnosis')
-        || !empty($evidence['evidence_refs'])
-        || !empty($evidence['data_gaps'])
-        || array_key_exists('action_item_id', $evidence)
-        || array_key_exists('action_item_status', $evidence)
-        || array_key_exists('diagnosis_summary', $evidence);
+    return $typedSource && $typedEvidenceLink;
 }
 
 function inspection_operation_intent_has_ota_diagnosis_link(array $intent): bool
@@ -747,14 +809,16 @@ function inspection_operation_intent_has_ota_diagnosis_link(array $intent): bool
     $evidence = is_array($intent['evidence'] ?? null) ? $intent['evidence'] : [];
     $source = strtolower((string)($intent['source'] ?? ''));
     $sourceModule = strtolower((string)($intent['source_module'] ?? ''));
+    $sourceRecordId = (int)($intent['source_record_id'] ?? 0);
+    $diagnosisLogId = (int)($evidence['diagnosis_log_id'] ?? 0);
+    $typedEvidenceLink = $sourceRecordId > 0
+        && $diagnosisLogId === $sourceRecordId
+        && trim((string)($evidence['action_item_id'] ?? '')) !== ''
+        && strtolower(trim((string)($evidence['metric_scope'] ?? ''))) === 'ota_channel';
+    $typedSource = str_starts_with($sourceModule, 'ota_diagnosis')
+        || str_contains($source, 'ota_diagnosis');
 
-    return $sourceModule === 'ota_diagnosis'
-        || str_contains($source, 'ota_diagnosis')
-        || !empty($evidence['evidence_refs'])
-        || !empty($evidence['data_gaps'])
-        || array_key_exists('action_item_id', $evidence)
-        || array_key_exists('action_item_status', $evidence)
-        || array_key_exists('diagnosis_summary', $evidence);
+    return $typedSource && $typedEvidenceLink;
 }
 
 function inspection_operation_payload_signal_count(array $operation): int
@@ -778,11 +842,10 @@ function inspection_operation_linked_payload_signal_count(array $operation): int
 function inspection_operation_evidence_status(array $operation): string
 {
     $counts = inspection_operation_signal_counts($operation);
-    $completionSignalCount = (int)$counts['approved_count']
-        + (int)$counts['executed_count']
-        + (int)$counts['evidence_ready_count']
-        + (int)$counts['reviewed_count']
-        + (int)$counts['roi_ready_count'];
+    if (inspection_operation_linked_payload_signal_count($operation) <= 0) {
+        return inspection_operation_payload_signal_count($operation) > 0 ? 'warning' : 'missing';
+    }
+    $completionSignalCount = (int)$counts['completion_signal_count'];
     if ($completionSignalCount > 0) {
         return 'proved';
     }
@@ -898,6 +961,11 @@ function inspection_next_action_employee_verification_steps(array $action): arra
             '确认' . $platformLabel . '收益输入变为可复核。',
             '确认 AI 依据不再因为该收益缺口被阻断。',
         ],
+        'ai_input_governance' => [
+            '刷新 AI 依据问题。',
+            '确认' . $platformLabel . ' AI 决策输入门变为可用。',
+            '确认未用收益可用状态替代 AI 可用状态。',
+        ],
         'traffic_conversion_facts' => [
             '刷新收入、流量和转化问题。',
             '确认' . $platformLabel . '流量/转化事实变为可复核。',
@@ -916,7 +984,7 @@ function inspection_next_action_employee_verification_steps(array $action): arra
         'operation_execution_evidence' => [
             '刷新运营执行闭环摘要。',
             '确认执行意图能追溯到 OTA 诊断动作。',
-            '确认出现审批、执行证据、复盘或 ROI 信号。',
+            '确认已有执行证据，且出现已执行、复盘或 ROI 信号。',
         ],
         'evidence_scope' => [
             '刷新员工六问闭环。',
@@ -940,6 +1008,9 @@ function inspection_next_action_family(string $code): string
     }
     if (str_contains($code, 'revenue_metrics_not_ready')) {
         return 'revenue_metric_inputs';
+    }
+    if (str_contains($code, 'ai_input_not_ready')) {
+        return 'ai_input_governance';
     }
     if (str_contains($code, 'traffic_facts_missing')) {
         return 'traffic_conversion_facts';
@@ -973,6 +1044,9 @@ function inspection_next_action_question_key(string $code): string
     if (str_contains($code, 'field_facts_missing') || str_contains($code, 'field_fact_closure_incomplete')) {
         return 'trusted_fields';
     }
+    if (str_contains($code, 'ai_input_not_ready')) {
+        return 'ai_evidence';
+    }
     if ($code === 'collect_ai_diagnosis_evidence' || $code === 'resolve_ai_diagnosis_blocked_action_items') {
         return 'ai_evidence';
     }
@@ -992,6 +1066,7 @@ function inspection_next_action_related_question_keys(string $code): array
         'target_date_source_rows' => ['today_ota_collected', 'trusted_fields', 'revenue_traffic_conversion', 'ai_evidence', 'next_operation_action'],
         'standard_facts' => ['trusted_fields', 'revenue_traffic_conversion', 'ai_evidence', 'next_operation_action'],
         'revenue_metric_inputs' => ['trusted_fields', 'revenue_traffic_conversion', 'ai_evidence', 'next_operation_action'],
+        'ai_input_governance' => ['ai_evidence', 'next_operation_action'],
         'traffic_conversion_facts' => ['revenue_traffic_conversion', 'ai_evidence', 'next_operation_action'],
         'field_fact_closure' => ['trusted_fields', 'revenue_traffic_conversion', 'ai_evidence', 'next_operation_action'],
         'ai_diagnosis_evidence' => ['ai_evidence', 'next_operation_action'],
@@ -1156,6 +1231,12 @@ function inspection_next_action_employee_explanation(array $action): array
             'still_usable_metrics' => ['其它已 ready 平台的收益指标可单独复核。', '缺口本身可作为补证据清单。'],
             'explanation_next_action' => '补齐' . $platformLabel . '目标日源数据和标准事实后复跑收益指标。',
         ],
+        'ai_input_governance' => [
+            'employee_explanation' => $platformLabel . '收益指标可复核，但可信度门暂不允许把这些指标用于 AI 决策。',
+            'limited_conclusions' => [$platformLabel . 'AI 自动建议', '执行意图创建', '运营闭环完成判断'],
+            'still_usable_metrics' => [$platformLabel . '已通过收益门的 OTA 收益指标。', 'AI 阻断原因和治理状态。'],
+            'explanation_next_action' => '复核 credibility_gate 的 ai_decision_support 状态；解除治理阻断前不得生成可执行建议。',
+        ],
         'traffic_conversion_facts' => [
             'employee_explanation' => $platformLabel . '目标日缺少流量/转化事实，不能判断曝光、访问、下单链路是否异常。',
             'limited_conclusions' => [$platformLabel . '流量', $platformLabel . '转化率', $platformLabel . '漏斗诊断', 'AI 对流量问题的确定结论'],
@@ -1175,7 +1256,7 @@ function inspection_next_action_employee_explanation(array $action): array
             'explanation_next_action' => '先解除上游 OTA 缺口，再调用现有 OTA 诊断并保留脱敏 evidence_sources、data_gaps、action_items。',
         ],
         'operation_execution_evidence' => [
-            'employee_explanation' => '尚无能追溯到 OTA 诊断的执行意图、审批、执行证据或复盘样例。',
+            'employee_explanation' => '尚无能追溯到 OTA 诊断的执行意图、执行证据或复盘样例。',
             'limited_conclusions' => ['运营执行闭环', '动作完成', '复盘和 ROI 判断'],
             'still_usable_metrics' => ['下一步动作和阻断链可见。', '已验证的 OTA 诊断缺口可继续作为待处理清单。'],
             'explanation_next_action' => '取得可执行 AI action_items 后，创建或附上执行意图和证据。',
@@ -1211,6 +1292,9 @@ function inspection_next_action_entry(string $code): string
         || str_contains($code, 'revenue_metrics_not_ready')
         || str_contains($code, 'traffic_facts_missing')
     ) {
+        return '/api/ota-standard/revenue-metrics';
+    }
+    if (str_contains($code, 'ai_input_not_ready')) {
         return '/api/ota-standard/revenue-metrics';
     }
     if ($code === 'collect_ai_diagnosis_evidence' || $code === 'resolve_ai_diagnosis_blocked_action_items') {
@@ -1397,6 +1481,20 @@ function inspection_traffic_entry_options_with_readiness(string $platform, array
 
 function inspection_next_action_entry_options(string $code): array
 {
+    if (str_contains($code, 'etl_not_ready')
+        || str_contains($code, 'revenue_metrics_not_ready')
+        || str_contains($code, 'ai_input_not_ready')
+    ) {
+        $platform = str_starts_with($code, 'meituan_') ? 'meituan' : 'ctrip';
+        return inspection_entry_options_with_readiness($platform, [[
+            'mode' => 'status_check',
+            'label' => '收益/AI 可信度状态核对',
+            'entry' => '/api/ota-standard/revenue-metrics',
+            'use_when' => '复核标准事实、收益门和 AI 决策输入门的只读状态。',
+            'requires' => '读取现有目标日 OTA 标准事实、metric_trust、data_gaps 和 credibility_gate。',
+            'boundary' => '只读核对，不写 OTA 数据，不生成可执行 AI 动作。',
+        ]]);
+    }
     if (str_contains($code, 'field_facts_missing') || str_contains($code, 'field_fact_closure_incomplete')) {
         $platform = str_starts_with($code, 'meituan_') ? 'meituan' : 'ctrip';
         return inspection_entry_options_with_readiness($platform, [
@@ -1572,6 +1670,9 @@ function inspection_next_action_resolves_missing_codes(string $code): array
     if (preg_match('/^(ctrip|meituan)_revenue_metrics_not_ready_check_metric_inputs$/', $code, $matches)) {
         return [$matches[1] . '_revenue_metrics_not_ready'];
     }
+    if (preg_match('/^(ctrip|meituan)_ai_input_not_ready_review_credibility_gate$/', $code, $matches)) {
+        return [$matches[1] . '_ai_input_not_ready'];
+    }
     if (preg_match('/^(ctrip|meituan)_traffic_facts_missing_confirm_traffic_collection$/', $code, $matches)) {
         return [$matches[1] . '_traffic_facts_missing'];
     }
@@ -1582,7 +1683,7 @@ function inspection_next_action_resolves_missing_codes(string $code): array
         return [$matches[1] . '_field_fact_closure_incomplete'];
     }
     if ($code === 'collect_ai_diagnosis_evidence') {
-        return ['ai_diagnosis_evidence_sample_missing'];
+        return ['ai_diagnosis_evidence_sample_missing', 'ai_diagnosis_persistence_unverified'];
     }
     if ($code === 'resolve_ai_diagnosis_blocked_action_items') {
         return ['ai_diagnosis_action_items_blocked'];
@@ -1591,7 +1692,7 @@ function inspection_next_action_resolves_missing_codes(string $code): array
         return ['operation_execution_sample_missing', 'operation_execution_ai_action_link_missing', 'operation_execution_evidence_incomplete'];
     }
     if ($code === 'align_evidence_scope_date') {
-        return ['evidence_scope_date_mismatch'];
+        return ['evidence_scope_date_mismatch', 'evidence_scope_system_hotel_mismatch', 'evidence_scope_platform_mismatch', 'strict_system_hotel_scope_required'];
     }
     return [];
 }
@@ -1607,6 +1708,9 @@ function inspection_next_action_for_blocker_code(string $code): string
     if (preg_match('/^(ctrip|meituan)_revenue_metrics_not_ready$/', $code, $matches)) {
         return $matches[1] . '_revenue_metrics_not_ready_check_metric_inputs';
     }
+    if (preg_match('/^(ctrip|meituan)_ai_input_not_ready$/', $code, $matches)) {
+        return $matches[1] . '_ai_input_not_ready_review_credibility_gate';
+    }
     if (preg_match('/^(ctrip|meituan)_traffic_facts_missing$/', $code, $matches)) {
         return $matches[1] . '_traffic_facts_missing_confirm_traffic_collection';
     }
@@ -1620,6 +1724,7 @@ function inspection_next_action_for_blocker_code(string $code): string
         || $code === 'ai_evidence_sources_missing'
         || $code === 'ai_data_gaps_missing'
         || $code === 'ai_action_items_missing'
+        || $code === 'ai_diagnosis_persistence_unverified'
     ) {
         return 'collect_ai_diagnosis_evidence';
     }
@@ -1632,7 +1737,7 @@ function inspection_next_action_for_blocker_code(string $code): string
     ) {
         return 'collect_operation_execution_evidence';
     }
-    if ($code === 'evidence_scope_date_mismatch') {
+    if (in_array($code, ['evidence_scope_date_mismatch', 'evidence_scope_system_hotel_mismatch', 'evidence_scope_platform_mismatch', 'strict_system_hotel_scope_required'], true)) {
         return 'align_evidence_scope_date';
     }
     return '';
@@ -1661,6 +1766,9 @@ function inspection_next_action_success_criteria(string $code): string
     if (str_contains($code, 'revenue_metrics_not_ready')) {
         return '对应平台 revenue_status=ready，且 revenue_metrics 输出 metric_trust 与 data_gaps。';
     }
+    if (str_contains($code, 'ai_input_not_ready')) {
+        return '对应平台 ai_status=ready，且 credibility_gate.decision_use.ai_decision_support.allowed=true。';
+    }
     if (str_contains($code, 'traffic_facts_missing')) {
         return '对应平台 traffic_status=ready；未采到时必须保留 data_gaps，不用收益行推断流量或转化。';
     }
@@ -1668,16 +1776,16 @@ function inspection_next_action_success_criteria(string $code): string
         return 'field_facts include capture_evidence, metric_key, source_path, and storage_field; raw_data_exposed remains false.';
     }
     if ($code === 'collect_ai_diagnosis_evidence') {
-        return 'OTA 诊断响应包含 evidence_sources、data_gaps 和至少一个非 blocked action_items。';
+        return 'OTA 诊断响应包含 evidence_sources、data_gaps 和至少一个非 blocked action_items，且 saved_record.id 已按同门店、同平台、同目标日在 agent_logs 实时回读通过。';
     }
     if ($code === 'resolve_ai_diagnosis_blocked_action_items') {
         return 'action_items 不再全部为 blocked，且 blocked_by 上游缺口已清空或显式转为待补证。';
     }
     if ($code === 'collect_operation_execution_evidence') {
-        return '执行意图或执行流程可追溯到 OTA diagnosis action_items，并出现审批通过、执行证据、复盘或 ROI 任一完成信号。';
+        return '执行意图或执行流程可追溯到 OTA diagnosis action_items，必须存在执行证据，且出现已执行、复盘或 ROI 任一落地信号；仅审批或仅声明已执行都不算完成。';
     }
     if ($code === 'align_evidence_scope_date') {
-        return '证据 JSON 的 scope.date 与本次巡检目标日期一致。';
+        return '严格巡检指定 system_hotel_id 与 platform，且诊断/执行分段的 scope.system_hotel_id、scope.platform、scope.date 与本次巡检一致。';
     }
     return '补齐所需证据后重新运行第一阶段真实闭环巡检，相关员工六问不再处于缺失状态。';
 }
@@ -1692,6 +1800,9 @@ function inspection_next_action_type(string $code): string
     }
     if (str_contains($code, 'revenue_metrics_not_ready')) {
         return 'revenue_metric_evidence';
+    }
+    if (str_contains($code, 'ai_input_not_ready')) {
+        return 'ai_input_governance';
     }
     if (str_contains($code, 'traffic_facts_missing')) {
         return 'traffic_conversion_evidence';
@@ -1717,6 +1828,7 @@ function inspection_next_action_priority(string $code): string
         || str_contains($code, 'traffic_facts_missing')
         || str_contains($code, 'field_facts_missing')
         || str_contains($code, 'field_fact_closure_incomplete')
+        || str_contains($code, 'ai_input_not_ready')
         || $code === 'collect_ai_diagnosis_evidence'
         || $code === 'resolve_ai_diagnosis_blocked_action_items'
         || $code === 'align_evidence_scope_date'
@@ -1749,8 +1861,9 @@ function inspection_next_action_family_rank(array $action): int
         'revenue_metric_inputs' => 3,
         'field_fact_closure' => 4,
         'traffic_conversion_facts' => 5,
-        'ai_diagnosis_evidence' => 6,
-        'operation_execution_evidence' => 7,
+        'ai_input_governance' => 6,
+        'ai_diagnosis_evidence' => 7,
+        'operation_execution_evidence' => 8,
         default => 9,
     };
 }
@@ -2648,15 +2761,33 @@ function inspect_platform(string $platform, array $columns, array $options, arra
         ]);
     }
 
-    if (($metrics['status'] ?? '') === 'ready') {
-        add_check($checks, 'revenue_metrics_ready', 'proved', 'Revenue metrics are available for this scope.');
+    $revenueAiReadiness = (new OtaDataCredibilityGateService())->evaluateRevenueAiReadiness($metrics, [
+        'system_hotel_id' => (int)($options['system_hotel_id'] ?? 0),
+        'target_date' => (string)($options['date'] ?? ''),
+        'platform' => $platform,
+        'metric_scope' => 'ota_channel',
+    ]);
+    $revenueReady = ($revenueAiReadiness['revenue_ready'] ?? false) === true;
+    $aiInputReady = ($revenueAiReadiness['ai_ready'] ?? false) === true;
+    if ($revenueReady) {
+        add_check($checks, 'revenue_metrics_ready', 'proved', 'Revenue metrics are trusted for revenue analysis.', $revenueAiReadiness);
     } else {
-        add_check($checks, 'revenue_metrics_ready', 'missing', 'Revenue metrics are not ready for this scope.', [
-            'metric_status' => $metrics['status'] ?? null,
-        ]);
-        add_missing($result, $platform . '_revenue_metrics_not_ready', 'Revenue metrics are not ready.', [
+        add_check($checks, 'revenue_metrics_ready', 'missing', 'Revenue metrics are not trusted for revenue analysis.', $revenueAiReadiness);
+        add_missing($result, $platform . '_revenue_metrics_not_ready', 'Revenue metrics or their critical evidence are not ready for downstream use.', [
             'platform' => $platform,
+            'readiness' => $revenueAiReadiness,
         ]);
+    }
+    if ($aiInputReady) {
+        add_check($checks, 'ai_metric_input_ready', 'proved', 'Trusted OTA metrics are allowed for AI decision support.', $revenueAiReadiness);
+    } elseif ($revenueReady) {
+        add_check($checks, 'ai_metric_input_ready', 'missing', 'Revenue metrics are usable, but AI decision support is blocked by its own governance gate.', $revenueAiReadiness);
+        add_missing($result, $platform . '_ai_input_not_ready', 'Revenue metrics are ready, but AI decision support is not allowed for this platform.', [
+            'platform' => $platform,
+            'readiness' => $revenueAiReadiness,
+        ]);
+    } else {
+        add_check($checks, 'ai_metric_input_ready', 'warning', 'AI decision support remains blocked by the upstream revenue evidence gap.', $revenueAiReadiness);
     }
 
     $metricTrust = is_array($metrics['metric_trust'] ?? null) ? $metrics['metric_trust'] : [];
@@ -2678,7 +2809,7 @@ function inspect_platform(string $platform, array $columns, array $options, arra
     ];
     if ($rows === []) {
         add_check($checks, 'trusted_fields_visible', 'missing', 'Target-date source rows are missing; metric_trust cannot prove field trust for this platform.', $metricTrustContext);
-    } elseif (($metrics['status'] ?? '') !== 'ready') {
+    } elseif (!$revenueReady) {
         add_check($checks, 'trusted_fields_visible', 'missing', 'Revenue metrics are not ready; metric_trust cannot prove field trust for this platform.', $metricTrustContext);
     } elseif ($trustedMetricTrustKeys !== [] && !$fieldFactsReady) {
         add_check($checks, 'trusted_fields_visible', 'warning', 'Field facts are not closed; metric_trust remains reference-only for this platform.', $metricTrustContext);
@@ -2735,13 +2866,17 @@ function inspect_platform(string $platform, array $columns, array $options, arra
             'rejected_rows' => count($dataset['data_quality']['rejected_rows'] ?? []),
         ],
         'metrics' => [
-            'status' => $metrics['status'] ?? null,
+            'status' => $revenueReady ? 'ready' : (($metrics['status'] ?? '') === 'ready' ? 'blocked' : ($metrics['status'] ?? null)),
+            'calculation_status' => $metrics['status'] ?? null,
+            'revenue_status' => $revenueReady ? 'ready' : 'blocked',
+            'ai_status' => $aiInputReady ? 'ready' : 'blocked',
+            'downstream_readiness' => $revenueAiReadiness,
             'totals' => $metrics['totals'] ?? [],
             'traffic' => $metrics['traffic'] ?? [],
             'advertising' => $metrics['advertising'] ?? [],
             'quality' => $metrics['quality'] ?? [],
             'data_gap_codes' => array_values(array_filter(array_column($metrics['data_gaps'] ?? [], 'code'), 'is_string')),
-            'metric_trust_keys' => $trustedMetricTrustKeys,
+            'metric_trust_keys' => $revenueReady ? $trustedMetricTrustKeys : [],
             'reported_metric_trust_key_count' => count($reportedMetricTrustKeys),
         ],
     ];
@@ -2853,33 +2988,135 @@ function read_json_file(string $path): array
 }
 
 /**
+ * Section identity is evaluated from the section itself. The outer wrapper is
+ * never a fallback because that would allow evidence from another hotel or
+ * platform to be relabelled as the requested scope.
+ *
  * @param array<string, mixed> $section
- * @return array{matched: bool, date: ?string, status: string}
+ * @param array<string, mixed> $options
+ * @return array<string, mixed>
  */
-function external_section_scope_date(array $section, string $expectedDate, ?string $fallbackDate, bool $fallbackMatched): array
+function external_section_scope_identity(array $section, array $options): array
 {
-    $explicitStatus = trim((string)($section['scope_date_status'] ?? ''));
     $sectionScope = is_array($section['scope'] ?? null) ? $section['scope'] : [];
-    $sectionDate = trim((string)($section['scope_date'] ?? $sectionScope['date'] ?? ''));
-    if ($explicitStatus !== '') {
-        return [
-            'matched' => $explicitStatus === 'matched',
-            'date' => $sectionDate !== '' ? $sectionDate : null,
-            'status' => $explicitStatus,
-        ];
+    $requestedRange = is_array($section['requested_date_range'] ?? null) ? $section['requested_date_range'] : [];
+    $dateRange = is_array($section['date_range'] ?? null) ? $section['date_range'] : [];
+    $hotel = is_array($section['hotel'] ?? null) ? $section['hotel'] : [];
+    $dateCandidates = [];
+    foreach (array_filter([
+        $section['scope_date'] ?? null,
+        $sectionScope['date'] ?? null,
+        $section['target_date'] ?? null,
+        $section['date'] ?? null,
+        $requestedRange['start_date'] ?? null,
+        $requestedRange['end_date'] ?? null,
+        $requestedRange['start'] ?? null,
+        $requestedRange['end'] ?? null,
+        $dateRange['start_date'] ?? null,
+        $dateRange['end_date'] ?? null,
+        $dateRange['start'] ?? null,
+        $dateRange['end'] ?? null,
+    ], static fn($value): bool => trim((string)$value) !== '') as $value) {
+        $normalized = trim((string)$value);
+        if (!in_array($normalized, $dateCandidates, true)) {
+            $dateCandidates[] = $normalized;
+        }
     }
-    if ($sectionDate !== '') {
-        return [
-            'matched' => $sectionDate === $expectedDate,
-            'date' => $sectionDate,
-            'status' => $sectionDate === $expectedDate ? 'matched' : 'mismatch',
-        ];
+    foreach ((array)($section['scope_date_candidates'] ?? []) as $value) {
+        $normalized = trim((string)$value);
+        if ($normalized !== '' && !in_array($normalized, $dateCandidates, true)) {
+            $dateCandidates[] = $normalized;
+        }
     }
+    $systemHotelCandidates = [];
+    $systemHotelInvalid = ($section['scope_system_hotel_invalid'] ?? false) === true;
+    foreach ([
+        $section['scope_system_hotel_id'] ?? null,
+        $sectionScope['system_hotel_id'] ?? null,
+        $section['system_hotel_id'] ?? null,
+        $hotel['system_hotel_id'] ?? null,
+        $hotel['id'] ?? null,
+    ] as $value) {
+        if ($value === null || $value === '') {
+            continue;
+        }
+        $normalized = strict_positive_integer($value);
+        if ($normalized === null) {
+            $systemHotelInvalid = true;
+            continue;
+        }
+        if (!in_array($normalized, $systemHotelCandidates, true)) {
+            $systemHotelCandidates[] = $normalized;
+        }
+    }
+    foreach ((array)($section['scope_system_hotel_candidates'] ?? []) as $value) {
+        $normalized = strict_positive_integer($value);
+        if ($normalized === null) {
+            $systemHotelInvalid = true;
+        } elseif (!in_array($normalized, $systemHotelCandidates, true)) {
+            $systemHotelCandidates[] = $normalized;
+        }
+    }
+    $platformCandidates = [];
+    foreach (array_filter([
+        $section['scope_platform'] ?? null,
+        $sectionScope['platform'] ?? null,
+        $section['platform'] ?? null,
+    ], static fn($value): bool => trim((string)$value) !== '') as $value) {
+        $normalized = strtolower(trim((string)$value));
+        if (!in_array($normalized, $platformCandidates, true)) {
+            $platformCandidates[] = $normalized;
+        }
+    }
+    foreach ((array)($section['scope_platform_candidates'] ?? []) as $value) {
+        $normalized = strtolower(trim((string)$value));
+        if ($normalized !== '' && !in_array($normalized, $platformCandidates, true)) {
+            $platformCandidates[] = $normalized;
+        }
+    }
+    $sectionDate = (string)($dateCandidates[0] ?? '');
+    $sectionSystemHotelId = (int)($systemHotelCandidates[0] ?? 0);
+    $sectionPlatform = (string)($platformCandidates[0] ?? '');
+    $expectedDate = trim((string)($options['date'] ?? ''));
+    $expectedSystemHotelId = strict_positive_integer($options['system_hotel_id'] ?? null) ?? 0;
+    $expectedPlatform = strtolower(trim((string)($options['platform'] ?? '')));
+    $dateMatched = $expectedDate !== '' && count($dateCandidates) === 1 && $sectionDate === $expectedDate;
+    $systemHotelMatched = !$systemHotelInvalid
+        && $expectedSystemHotelId > 0
+        && count($systemHotelCandidates) === 1
+        && $sectionSystemHotelId === $expectedSystemHotelId;
+    $platformMatched = $expectedPlatform !== '' && count($platformCandidates) === 1 && $sectionPlatform === $expectedPlatform;
+
     return [
-        'matched' => $fallbackMatched,
-        'date' => $fallbackDate,
-        'status' => $fallbackMatched ? 'matched' : 'mismatch',
+        'matched' => $dateMatched && $systemHotelMatched && $platformMatched,
+        'date' => $sectionDate !== '' ? $sectionDate : null,
+        'date_status' => $dateMatched ? 'matched' : ($dateCandidates === [] ? 'missing' : (count($dateCandidates) > 1 ? 'conflict' : 'mismatch')),
+        'date_candidates' => $dateCandidates,
+        'system_hotel_id' => $sectionSystemHotelId > 0 ? $sectionSystemHotelId : null,
+        'system_hotel_status' => $systemHotelMatched
+            ? 'matched'
+            : ($systemHotelInvalid
+                ? ($systemHotelCandidates === [] ? 'mismatch' : 'conflict')
+                : ($systemHotelCandidates === [] ? 'missing' : (count($systemHotelCandidates) > 1 ? 'conflict' : 'mismatch'))),
+        'system_hotel_candidates' => $systemHotelCandidates,
+        'system_hotel_invalid' => $systemHotelInvalid,
+        'platform' => $sectionPlatform !== '' ? $sectionPlatform : null,
+        'platform_status' => $platformMatched ? 'matched' : ($platformCandidates === [] ? 'missing' : (count($platformCandidates) > 1 ? 'conflict' : 'mismatch')),
+        'platform_candidates' => $platformCandidates,
+        'expected_date' => $expectedDate,
+        'expected_system_hotel_id' => $expectedSystemHotelId > 0 ? $expectedSystemHotelId : null,
+        'expected_platform' => $expectedPlatform !== '' ? $expectedPlatform : null,
     ];
+}
+
+/** @return array<int, string> */
+function external_section_scope_missing_codes(array $identity): array
+{
+    return array_values(array_filter([
+        (string)($identity['date_status'] ?? '') === 'matched' ? null : 'evidence_scope_date_mismatch',
+        (string)($identity['system_hotel_status'] ?? '') === 'matched' ? null : 'evidence_scope_system_hotel_mismatch',
+        (string)($identity['platform_status'] ?? '') === 'matched' ? null : 'evidence_scope_platform_mismatch',
+    ]));
 }
 
 function inspection_diagnosis_action_item_statuses(array $diagnosis): array
@@ -2920,6 +3157,7 @@ function build_inspection_blocked_diagnosis_evidence(array $result, array $optio
         return str_contains($code, 'source_rows_missing')
             || str_contains($code, 'etl_not_ready')
             || str_contains($code, 'revenue_metrics_not_ready')
+            || str_contains($code, 'ai_input_not_ready')
             || str_contains($code, 'traffic_facts_missing')
             || str_contains($code, 'field_facts_missing')
             || str_contains($code, 'field_fact_closure_incomplete')
@@ -2965,6 +3203,12 @@ function build_inspection_blocked_diagnosis_evidence(array $result, array $optio
     return [
         'scope' => [
             'date' => (string)$options['date'],
+            'system_hotel_id' => (int)($options['system_hotel_id'] ?? 0) > 0
+                ? (int)$options['system_hotel_id']
+                : null,
+            'platform' => trim((string)($options['platform'] ?? '')) !== ''
+                ? strtolower((string)$options['platform'])
+                : null,
             'metric_scope' => 'ota_channel',
         ],
         'ota_diagnosis' => [
@@ -2973,6 +3217,12 @@ function build_inspection_blocked_diagnosis_evidence(array $result, array $optio
             'source_policy' => 'generated_blocked_from_verified_missing_requirements',
             'scope' => [
                 'date' => (string)$options['date'],
+                'system_hotel_id' => (int)($options['system_hotel_id'] ?? 0) > 0
+                    ? (int)$options['system_hotel_id']
+                    : null,
+                'platform' => trim((string)($options['platform'] ?? '')) !== ''
+                    ? strtolower((string)$options['platform'])
+                    : null,
                 'metric_scope' => 'ota_channel',
             ],
             'summary' => '上游 OTA 数据和指标证据未闭合，当前不能生成确定 AI 经营建议。',
@@ -3022,8 +3272,42 @@ function validate_external_evidence(array $evidence, array $options, array &$res
         add_missing($result, 'evidence_scope_date_mismatch', 'Evidence date does not match requested scope.');
     }
 
+    $expectedSystemHotelId = (int)($options['system_hotel_id'] ?? 0);
+    $evidenceSystemHotelId = (int)($scope['system_hotel_id'] ?? 0);
+    if ($expectedSystemHotelId > 0 && $evidenceSystemHotelId === $expectedSystemHotelId) {
+        add_check($checks, 'evidence_scope_system_hotel', 'proved', 'Evidence system hotel matches requested scope.', [
+            'system_hotel_id' => $expectedSystemHotelId,
+        ]);
+    } elseif ($expectedSystemHotelId > 0) {
+        add_check($checks, 'evidence_scope_system_hotel', 'missing', 'Evidence system hotel does not match requested scope.', [
+            'expected' => $expectedSystemHotelId,
+            'actual' => $evidenceSystemHotelId > 0 ? $evidenceSystemHotelId : null,
+        ]);
+        add_missing($result, 'evidence_scope_system_hotel_mismatch', 'Evidence system hotel does not match requested scope.', [
+            'expected_system_hotel_id' => $expectedSystemHotelId,
+            'actual_system_hotel_id' => $evidenceSystemHotelId > 0 ? $evidenceSystemHotelId : null,
+        ]);
+    }
+
+    $expectedPlatform = strtolower(trim((string)($options['platform'] ?? '')));
+    $evidencePlatform = strtolower(trim((string)($scope['platform'] ?? '')));
+    if ($expectedPlatform !== '' && $evidencePlatform === $expectedPlatform) {
+        add_check($checks, 'evidence_scope_platform', 'proved', 'Evidence platform matches requested scope.', [
+            'platform' => $expectedPlatform,
+        ]);
+    } elseif ($expectedPlatform !== '') {
+        add_check($checks, 'evidence_scope_platform', 'missing', 'Evidence platform does not match requested scope.', [
+            'expected' => $expectedPlatform,
+            'actual' => $evidencePlatform !== '' ? $evidencePlatform : null,
+        ]);
+        add_missing($result, 'evidence_scope_platform_mismatch', 'Evidence platform does not match requested scope.', [
+            'expected_platform' => $expectedPlatform,
+            'actual_platform' => $evidencePlatform !== '' ? $evidencePlatform : null,
+        ]);
+    }
+
     $diagnosis = is_array($evidence['ota_diagnosis'] ?? null) ? $evidence['ota_diagnosis'] : [];
-    $diagnosisScopeDate = external_section_scope_date($diagnosis, (string)$options['date'], $scopeDate !== '' ? $scopeDate : null, $scopeDateMatched);
+    $diagnosisScopeIdentity = external_section_scope_identity($diagnosis, $options);
     $diagnosisEvidence = $diagnosis['evidence_sources'] ?? [];
     $diagnosisActions = $diagnosis['action_items'] ?? [];
     $diagnosisContentPresent = is_array($diagnosisEvidence) && $diagnosisEvidence !== [] && is_array($diagnosisActions) && $diagnosisActions !== [] && array_key_exists('data_gaps', $diagnosis);
@@ -3032,7 +3316,28 @@ function validate_external_evidence(array $evidence, array $options, array &$res
         inspection_diagnosis_action_item_statuses($diagnosis),
         static fn(string $status): bool => inspection_is_blocked_diagnosis_action_status($status)
     ));
-    if ($diagnosisContentPresent && $diagnosisScopeDate['matched']) {
+    $savedRecord = is_array($diagnosis['saved_record'] ?? null) ? $diagnosis['saved_record'] : [];
+    $diagnosisPersistenceProof = (new OtaDiagnosisPersistenceProofService())->verify($diagnosis, [
+        'system_hotel_id' => (int)($options['system_hotel_id'] ?? 0),
+        'target_date' => (string)($options['date'] ?? ''),
+        'platform' => (string)($options['platform'] ?? ''),
+        'metric_scope' => 'ota_channel',
+    ]);
+    $diagnosisPersistenceProved = ($diagnosisPersistenceProof['proved'] ?? false) === true;
+    if ($diagnosisContentPresent && $diagnosisActionableCount <= 0) {
+        $diagnosisDetails = [
+            'evidence_source_count' => count((array)$diagnosisEvidence),
+            'data_gap_count' => count((array)($diagnosis['data_gaps'] ?? [])),
+            'action_item_count' => count((array)$diagnosisActions),
+            'actionable_action_item_count' => 0,
+            'blocked_action_item_count' => $diagnosisBlockedCount,
+            'action_item_statuses' => inspection_diagnosis_action_item_statuses($diagnosis),
+            'source_policy' => trim((string)($diagnosis['source_policy'] ?? $diagnosis['status'] ?? '')),
+            'scope_identity' => $diagnosisScopeIdentity,
+        ];
+        add_check($checks, 'ai_diagnosis_evidence', 'warning', 'OTA diagnosis evidence exists, but action_items are blocked and cannot prove an actionable AI result.', $diagnosisDetails);
+        add_missing($result, 'ai_diagnosis_action_items_blocked', 'OTA diagnosis action_items are blocked and cannot be used as executable advice.', $diagnosisDetails);
+    } elseif ($diagnosisContentPresent && ($diagnosisScopeIdentity['matched'] ?? false) === true) {
         $diagnosisDetails = [
             'evidence_source_count' => count((array)$diagnosisEvidence),
             'data_gap_count' => count((array)($diagnosis['data_gaps'] ?? [])),
@@ -3041,21 +3346,37 @@ function validate_external_evidence(array $evidence, array $options, array &$res
             'blocked_action_item_count' => $diagnosisBlockedCount,
             'action_item_statuses' => inspection_diagnosis_action_item_statuses($diagnosis),
             'source_policy' => trim((string)($diagnosis['source_policy'] ?? $diagnosis['status'] ?? '')),
-            'scope_date_status' => 'matched',
-            'scope_date' => $diagnosisScopeDate['date'],
+            'scope_identity_status' => 'matched',
+            'scope_date_status' => $diagnosisScopeIdentity['date_status'],
+            'scope_date' => $diagnosisScopeIdentity['date'],
+            'scope_system_hotel_status' => $diagnosisScopeIdentity['system_hotel_status'],
+            'scope_system_hotel_id' => $diagnosisScopeIdentity['system_hotel_id'],
+            'scope_platform_status' => $diagnosisScopeIdentity['platform_status'],
+            'scope_platform' => $diagnosisScopeIdentity['platform'],
             'expected_scope_date' => $options['date'],
         ];
-        if ($diagnosisActionableCount > 0) {
-            add_check($checks, 'ai_diagnosis_evidence', 'proved', 'OTA diagnosis carries evidence_sources, data_gaps, and actionable action_items.', $diagnosisDetails);
+        add_check($checks, 'ai_diagnosis_evidence', 'proved', 'OTA diagnosis carries evidence_sources, data_gaps, and actionable action_items.', $diagnosisDetails);
+        if ($diagnosisPersistenceProved) {
+            add_check($checks, 'ai_diagnosis_persistence', 'proved', 'OTA diagnosis record was read back from agent_logs for the exact hotel, platform, and target date.', $diagnosisPersistenceProof);
         } else {
-            add_check($checks, 'ai_diagnosis_evidence', 'warning', 'OTA diagnosis evidence exists, but action_items are blocked.', $diagnosisDetails);
-            add_missing($result, 'ai_diagnosis_action_items_blocked', 'OTA diagnosis action_items are blocked and cannot be used as executable advice.', $diagnosisDetails);
+            add_check($checks, 'ai_diagnosis_persistence', 'missing', 'OTA diagnosis content exists, but exact database readback proof is missing.', [
+                'saved' => ($savedRecord['saved'] ?? false) === true,
+                'readback_verified' => ($savedRecord['readback_verified'] ?? false) === true,
+                'database_proof' => $diagnosisPersistenceProof,
+            ]);
+            add_missing($result, 'ai_diagnosis_persistence_unverified', 'OTA diagnosis must be read back from agent_logs by exact record id, hotel, platform, and target date before it can prove production closure.', $diagnosisPersistenceProof);
         }
     } elseif ($diagnosisContentPresent) {
-        add_check($checks, 'ai_diagnosis_evidence', 'warning', 'OTA diagnosis evidence exists, but its scope.date does not match requested scope.', [
+        add_check($checks, 'ai_diagnosis_evidence', 'warning', 'OTA diagnosis evidence exists, but its own hotel/platform/date identity does not match requested scope.', [
             'expected_scope_date' => $options['date'],
-            'scope_date' => $diagnosisScopeDate['date'],
-            'scope_date_status' => $diagnosisScopeDate['status'],
+            'scope_identity' => $diagnosisScopeIdentity,
+            'scope_identity_status' => 'mismatch',
+            'scope_date_status' => $diagnosisScopeIdentity['date_status'],
+            'scope_date' => $diagnosisScopeIdentity['date'],
+            'scope_system_hotel_status' => $diagnosisScopeIdentity['system_hotel_status'],
+            'scope_system_hotel_id' => $diagnosisScopeIdentity['system_hotel_id'],
+            'scope_platform_status' => $diagnosisScopeIdentity['platform_status'],
+            'scope_platform' => $diagnosisScopeIdentity['platform'],
             'evidence_source_count' => count((array)$diagnosisEvidence),
             'data_gap_count' => count((array)($diagnosis['data_gaps'] ?? [])),
             'action_item_count' => count((array)$diagnosisActions),
@@ -3063,8 +3384,8 @@ function validate_external_evidence(array $evidence, array $options, array &$res
             'blocked_action_item_count' => $diagnosisBlockedCount,
             'action_item_statuses' => inspection_diagnosis_action_item_statuses($diagnosis),
         ]);
-        if ($scopeDateMatched) {
-            add_missing($result, 'evidence_scope_date_mismatch', 'OTA diagnosis evidence date does not match requested scope.');
+        foreach (external_section_scope_missing_codes($diagnosisScopeIdentity) as $scopeMissingCode) {
+            add_missing($result, $scopeMissingCode, 'OTA diagnosis section identity does not match requested hotel/platform/date.', $diagnosisScopeIdentity);
         }
     } else {
         add_check($checks, 'ai_diagnosis_evidence', 'missing', 'OTA diagnosis evidence sample is incomplete.');
@@ -3072,28 +3393,32 @@ function validate_external_evidence(array $evidence, array $options, array &$res
     }
 
     $operation = is_array($evidence['operation_execution'] ?? null) ? $evidence['operation_execution'] : [];
-    $operationScopeDate = external_section_scope_date($operation, (string)$options['date'], $scopeDate !== '' ? $scopeDate : null, $scopeDateMatched);
+    $operationScopeIdentity = external_section_scope_identity($operation, $options);
     $operationCounts = inspection_operation_signal_counts($operation);
     $operationStatus = inspection_operation_evidence_status($operation);
-    if ($operationStatus !== 'missing' && !$operationScopeDate['matched']) {
-        add_check($checks, 'operation_execution_sample', 'warning', 'Operation execution evidence exists, but its scope.date does not match requested scope.', array_merge($operationCounts, [
-            'expected_scope_date' => $options['date'],
-            'scope_date' => $operationScopeDate['date'],
-            'scope_date_status' => $operationScopeDate['status'],
+    if ($operationStatus !== 'missing' && ($operationScopeIdentity['matched'] ?? false) !== true) {
+        add_check($checks, 'operation_execution_sample', 'warning', 'Operation execution evidence exists, but its own hotel/platform/date identity does not match requested scope.', array_merge($operationCounts, [
+            'scope_identity' => $operationScopeIdentity,
         ]));
-        if ($scopeDateMatched) {
-            add_missing($result, 'evidence_scope_date_mismatch', 'Operation execution evidence date does not match requested scope.');
+        foreach (external_section_scope_missing_codes($operationScopeIdentity) as $scopeMissingCode) {
+            add_missing($result, $scopeMissingCode, 'Operation execution section identity does not match requested hotel/platform/date.', $operationScopeIdentity);
         }
     } elseif ($operationStatus === 'proved') {
-        add_check($checks, 'operation_execution_sample', 'proved', 'Operation execution evidence carries approval, execution evidence, review, or ROI signal.', $operationCounts);
+        add_check($checks, 'operation_execution_sample', 'proved', 'Operation execution evidence is linked to OTA diagnosis and carries execution evidence plus executed, review, or ROI state.', array_merge($operationCounts, [
+            'scope_identity' => $operationScopeIdentity,
+        ]));
     } elseif ($operationStatus === 'warning') {
         $operationBlockingCode = inspection_operation_blocking_code($operation);
         if ($operationBlockingCode === 'operation_execution_ai_action_link_missing') {
-            add_check($checks, 'operation_execution_sample', 'warning', 'Operation execution sample exists but is not linked to OTA diagnosis action_items.', $operationCounts);
+            add_check($checks, 'operation_execution_sample', 'warning', 'Operation execution sample exists but is not linked to OTA diagnosis action_items.', array_merge($operationCounts, [
+                'scope_identity' => $operationScopeIdentity,
+            ]));
             add_missing($result, 'operation_execution_ai_action_link_missing', 'Operation execution sample must link to OTA diagnosis action_items before it can prove the operating loop.', $operationCounts);
         } else {
-            add_check($checks, 'operation_execution_sample', 'warning', 'Operation execution sample exists but lacks approval, execution evidence, review, or ROI signal.', $operationCounts);
-            add_missing($result, 'operation_execution_evidence_incomplete', 'Operation execution sample needs approval, execution evidence, review, or ROI signal.', $operationCounts);
+            add_check($checks, 'operation_execution_sample', 'warning', 'Operation execution sample exists but lacks execution evidence paired with executed, review, or ROI state; approval or executed status alone is not completion.', array_merge($operationCounts, [
+                'scope_identity' => $operationScopeIdentity,
+            ]));
+            add_missing($result, 'operation_execution_evidence_incomplete', 'Operation execution sample needs execution evidence plus executed, review, or ROI state; approval or executed status alone is insufficient.', $operationCounts);
         }
     } else {
         add_check($checks, 'operation_execution_sample', 'missing', 'Operation execution sample is missing.');
@@ -3250,6 +3575,8 @@ function inspection_employee_readable_copy(string $text): string
         'meituan_etl_not_ready' => '美团标准事实层未就绪',
         'ctrip_revenue_metrics_not_ready' => '携程收益指标未就绪',
         'meituan_revenue_metrics_not_ready' => '美团收益指标未就绪',
+        'ctrip_ai_input_not_ready' => '携程 AI 决策输入未就绪',
+        'meituan_ai_input_not_ready' => '美团 AI 决策输入未就绪',
         'ctrip_traffic_facts_missing' => '携程流量/转化事实缺失',
         'meituan_traffic_facts_missing' => '美团流量/转化事实缺失',
         'ctrip_field_facts_missing' => 'Ctrip field facts missing',
@@ -3257,12 +3584,15 @@ function inspection_employee_readable_copy(string $text): string
         'ctrip_field_fact_closure_incomplete' => 'Ctrip field fact closure incomplete',
         'meituan_field_fact_closure_incomplete' => 'Meituan field fact closure incomplete',
         'ai_diagnosis_evidence_sample_missing' => 'AI 诊断证据样例缺失',
+        'ai_diagnosis_persistence_unverified' => 'AI 诊断数据库回读未证明',
         'ai_diagnosis_action_items_blocked' => 'AI 动作项被上游缺口阻断',
         'ai_action_items_blocked' => 'AI 动作项被上游缺口阻断',
         'ai_action_items_missing' => 'AI 动作项缺失',
         'operation_execution_sample_missing' => '运营执行样例缺失',
         'operation_execution_ai_action_link_missing' => '运营执行未关联 OTA 诊断动作',
         'operation_execution_evidence_incomplete' => '运营执行证据不完整',
+        'evidence_scope_system_hotel_mismatch' => '证据系统酒店范围不一致',
+        'evidence_scope_platform_mismatch' => '证据 OTA 平台范围不一致',
         '按 metric_trust 判断' => '按指标可信证据判断',
         '按 data_gaps 处理' => '按数据缺口处理',
         '按 数据缺口 处理' => '按数据缺口处理',
@@ -3362,8 +3692,8 @@ function inspection_employee_question_detail(array $question): string
             ? 'AI 建议已有证据来源、数据缺口和可执行动作项支撑。'
             : 'AI 依据被上游 OTA 证据缺口阻断；当前只能定位缺口，不能当作可执行经营建议。',
         'next_operation_action' => $status === 'proved'
-            ? '运营动作已追溯到 OTA 诊断，并有审批、执行证据、复盘或 ROI 信号。'
-            : '执行闭环尚未证明；必须先有可执行 AI 动作项，再保留审批、执行证据和复盘。',
+            ? '运营动作已追溯到 OTA 诊断，并有执行证据及已执行、复盘或 ROI 状态。'
+            : '执行闭环尚未证明；必须先有可执行 AI 动作项，再保留执行证据和复盘。',
         default => '当前员工问题尚未形成完整说明；按动作队列补齐证据后重新巡检。',
     };
 }
@@ -5108,16 +5438,20 @@ function build_inspection_employee_questions(array $result): array
         $rowCount = (int)($platform['source_rows']['count'] ?? 0);
         $metricStatus = (string)($metrics['status'] ?? 'unknown');
         $platformTrafficRows = (int)($traffic['rows'] ?? 0);
-        $platformRevenueReady = $metricStatus === 'ready';
+        $downstreamReadiness = is_array($metrics['downstream_readiness'] ?? null)
+            ? $metrics['downstream_readiness']
+            : [];
+        $platformRevenueReady = ($downstreamReadiness['revenue_ready'] ?? false) === true;
+        $platformAiReady = ($downstreamReadiness['ai_ready'] ?? false) === true;
         $platformTrafficReady = $platformTrafficRows > 0;
         $platformName = strtolower(trim((string)($platform['platform'] ?? '')));
-        $platformTrustKeys = $rowCount > 0 && $metricStatus === 'ready'
+        $platformTrustKeys = $rowCount > 0 && $platformRevenueReady
             ? array_values(array_filter(array_map('strval', (array)($metrics['metric_trust_keys'] ?? []))))
             : [];
         $reportedTrustKeyCount = (int)($metrics['reported_metric_trust_key_count'] ?? count((array)($metrics['metric_trust_keys'] ?? [])));
         $platformTrustStatus = match (true) {
             $rowCount <= 0 => 'target_date_source_missing',
-            $metricStatus === 'ready' && $platformTrustKeys !== [] => 'metric_trust_ready',
+            $platformRevenueReady && $platformTrustKeys !== [] => 'metric_trust_ready',
             $reportedTrustKeyCount > 0 => 'metric_trust_reference_only',
             default => 'metric_trust_missing',
         };
@@ -5125,7 +5459,7 @@ function build_inspection_employee_questions(array $result): array
         if ($rowCount <= 0 && $platformName !== '') {
             $platformTrustReasons[] = $platformName . '_source_rows_missing';
         }
-        if ($metricStatus !== 'ready' && $platformName !== '') {
+        if (!$platformRevenueReady && $platformName !== '') {
             $platformTrustReasons[] = $platformName . '_revenue_metrics_not_ready';
         }
         if ($platformTrustKeys === [] && $reportedTrustKeyCount <= 0 && $platformName !== '') {
@@ -5167,6 +5501,8 @@ function build_inspection_employee_questions(array $result): array
             'field_fact_raw_data_exposed' => (bool)($fieldFacts['raw_data_exposed'] ?? false),
             'etl_status' => (string)($platform['etl']['status'] ?? 'unknown'),
             'metric_status' => $metricStatus,
+            'revenue_status' => $platformRevenueReady ? 'ready' : 'missing',
+            'ai_status' => $platformAiReady ? 'ready' : 'missing',
             'traffic_rows' => $platformTrafficRows,
             'latest_available' => $latestAvailable ?: null,
             'latest_available_date' => $latestAvailable['date'] ?? null,
@@ -5192,6 +5528,7 @@ function build_inspection_employee_questions(array $result): array
                 (array)($platform['source_rows']['data_types'] ?? [])
             ), static fn(string $value): bool => $value !== ''))),
             'revenue_status' => $platformRevenueReady ? 'ready' : 'missing',
+            'ai_status' => $platformAiReady ? 'ready' : 'missing',
             'traffic_status' => $platformTrafficReady ? 'ready' : 'missing',
             'conversion_status' => $platformTrafficReady ? 'ready' : 'missing',
             'missing_domains' => $missingDomains,
@@ -5215,6 +5552,8 @@ function build_inspection_employee_questions(array $result): array
     $aiEvidenceProved = false;
     $aiEvidenceStatus = 'missing';
     $aiEvidenceDetails = [];
+    $aiPersistenceProved = false;
+    $aiPersistenceDetails = [];
     $operationEvidenceProved = false;
     $operationEvidenceStatus = 'missing';
     $operationCounts = [];
@@ -5227,6 +5566,10 @@ function build_inspection_employee_questions(array $result): array
             $aiEvidenceStatus = in_array($checkStatus, ['proved', 'warning', 'missing'], true) ? $checkStatus : 'missing';
             $aiEvidenceProved = $checkStatus === 'proved';
             $aiEvidenceDetails = is_array($check['details'] ?? null) ? $check['details'] : [];
+        }
+        if (($check['code'] ?? '') === 'ai_diagnosis_persistence') {
+            $aiPersistenceProved = $checkStatus === 'proved';
+            $aiPersistenceDetails = is_array($check['details'] ?? null) ? $check['details'] : [];
         }
         if (($check['code'] ?? '') === 'operation_execution_sample') {
             $operationEvidenceProved = $checkStatus === 'proved';
@@ -5242,26 +5585,54 @@ function build_inspection_employee_questions(array $result): array
         return str_contains($code, 'source_rows_missing')
             || str_contains($code, 'etl_not_ready')
             || str_contains($code, 'revenue_metrics_not_ready')
+            || str_contains($code, 'ai_input_not_ready')
             || str_contains($code, 'traffic_facts_missing')
             || str_contains($code, 'field_facts_missing')
             || str_contains($code, 'field_fact_closure_incomplete')
             || str_contains($code, 'data_gaps_missing')
             || $code === 'evidence_scope_date_mismatch'
+            || $code === 'evidence_scope_system_hotel_mismatch'
+            || $code === 'evidence_scope_platform_mismatch'
             || $code === 'ai_diagnosis_evidence_sample_missing'
+            || $code === 'ai_diagnosis_persistence_unverified'
             || $code === 'ai_diagnosis_action_items_blocked';
     }));
+    if ((string)($aiEvidenceDetails['scope_identity_status'] ?? '') === 'matched') {
+        $aiBlockingCodes = array_values(array_filter(
+            $aiBlockingCodes,
+            static fn(string $code): bool => !in_array($code, [
+                'evidence_scope_date_mismatch',
+                'evidence_scope_system_hotel_mismatch',
+                'evidence_scope_platform_mismatch',
+            ], true)
+        ));
+    }
     $aiBlockingText = implode('、', array_slice($aiBlockingCodes, 0, 6));
     $aiPrerequisiteBlockingCodes = array_values(array_filter(
         $aiBlockingCodes,
-        static fn(string $code): bool => $code !== 'ai_diagnosis_evidence_sample_missing'
+        static fn(string $code): bool => !in_array($code, [
+            'ai_diagnosis_evidence_sample_missing',
+            'ai_diagnosis_action_items_blocked',
+            'ai_action_items_blocked',
+            'ai_action_items_missing',
+        ], true)
     ));
-    $aiQuestionBlockingCodes = $aiEvidenceProved
-        ? []
-        : ($aiBlockingCodes !== [] ? $aiBlockingCodes : ['ai_diagnosis_evidence_sample_missing']);
+    $effectiveAiEvidenceProved = $aiEvidenceProved && $aiPersistenceProved && $aiPrerequisiteBlockingCodes === [];
+    $effectiveAiEvidenceStatus = $effectiveAiEvidenceProved
+        ? 'proved'
+        : ($aiEvidenceProved ? 'warning' : $aiEvidenceStatus);
+    $aiQuestionBlockingCodes = $aiPrerequisiteBlockingCodes !== []
+        ? $aiPrerequisiteBlockingCodes
+        : ($aiEvidenceProved ? [] : ($aiBlockingCodes !== [] ? $aiBlockingCodes : ['ai_diagnosis_evidence_sample_missing']));
+    $aiPersistenceUnverified = in_array('ai_diagnosis_persistence_unverified', $aiQuestionBlockingCodes, true);
     $aiQuestionBlockingText = implode('、', array_slice($aiQuestionBlockingCodes, 0, 6));
     $operationGapCode = 'operation_execution_sample_missing';
-    if ((string)($operationCounts['scope_date_status'] ?? '') === 'mismatch') {
-        $operationGapCode = 'evidence_scope_date_mismatch';
+    $operationScopeIdentity = is_array($operationCounts['scope_identity'] ?? null)
+        ? $operationCounts['scope_identity']
+        : [];
+    $operationScopeCodes = external_section_scope_missing_codes($operationScopeIdentity);
+    if (($operationScopeIdentity['matched'] ?? null) === false && $operationScopeCodes !== []) {
+        $operationGapCode = $operationScopeCodes[0];
     } else {
         foreach ([
             'operation_execution_ai_action_link_missing',
@@ -5283,7 +5654,7 @@ function build_inspection_employee_questions(array $result): array
     $operationBlockingCodes = $operationEvidenceStatus === 'proved'
         ? []
         : array_values(array_unique(array_filter(array_merge(
-            $aiEvidenceProved ? [] : array_merge($aiPrerequisiteBlockingCodes, [$aiActionGapCode]),
+            $effectiveAiEvidenceProved ? [] : array_merge($aiPrerequisiteBlockingCodes, [$aiActionGapCode]),
             [$operationGapCode]
         ))));
     $operationQuestionStatus = $operationEvidenceStatus === 'missing' && $operationBlockingCodes !== []
@@ -5411,17 +5782,27 @@ function build_inspection_employee_questions(array $result): array
         [
             'key' => 'ai_evidence',
             'question' => 'AI 建议依据是什么',
-            'status' => $aiEvidenceStatus,
+            'status' => $effectiveAiEvidenceStatus,
             'evidence' => [
                 'external_evidence_path' => $result['external_evidence']['path'] ?? null,
-                'proved' => $aiEvidenceProved,
-                'diagnosis_status' => $aiEvidenceProved ? 'proved' : ($aiPrerequisiteBlockingCodes !== [] ? 'blocked_by_verified_ota_gaps' : 'missing_real_api_response'),
-                'action_item_status' => $aiEvidenceProved ? 'actionable' : ($aiPrerequisiteBlockingCodes !== [] ? 'blocked_by_verified_ota_gaps' : 'missing'),
-                'source_policy' => $aiEvidenceProved
+                'proved' => $effectiveAiEvidenceProved,
+                'diagnosis_status' => $effectiveAiEvidenceProved
+                    ? 'proved'
+                    : ($aiPersistenceUnverified
+                        ? 'persistence_unverified'
+                        : ($aiPrerequisiteBlockingCodes !== [] ? 'blocked_by_verified_ota_gaps' : 'missing_real_api_response')),
+                'action_item_status' => $effectiveAiEvidenceProved
+                    ? 'actionable'
+                    : ($aiPersistenceUnverified
+                        ? 'actionable_persistence_unverified'
+                        : ($aiPrerequisiteBlockingCodes !== [] ? 'blocked_by_verified_ota_gaps' : 'missing')),
+                'source_policy' => $effectiveAiEvidenceProved
                     ? (trim((string)($aiEvidenceDetails['source_policy'] ?? '')) !== ''
                         ? trim((string)$aiEvidenceDetails['source_policy'])
                         : 'read_existing_ai_diagnosis_evidence_only')
-                    : ($aiPrerequisiteBlockingCodes !== [] ? 'read_existing_ota_gap_evidence_only' : 'missing_real_ota_diagnosis_response'),
+                    : ($aiPersistenceUnverified
+                        ? 'database_readback_required'
+                        : ($aiPrerequisiteBlockingCodes !== [] ? 'read_existing_ota_gap_evidence_only' : 'missing_real_ota_diagnosis_response')),
                 'evidence_source_count' => max(0, (int)($aiEvidenceDetails['evidence_source_count'] ?? 0)),
                 'data_gap_count' => max(count($aiBlockingCodes), (int)($aiEvidenceDetails['data_gap_count'] ?? 0)),
                 'action_item_count' => max(0, (int)($aiEvidenceDetails['action_item_count'] ?? 0)),
@@ -5431,9 +5812,13 @@ function build_inspection_employee_questions(array $result): array
                 'scope_date_status' => (string)($aiEvidenceDetails['scope_date_status'] ?? ''),
                 'scope_date' => $aiEvidenceDetails['scope_date'] ?? null,
                 'expected_scope_date' => $aiEvidenceDetails['expected_scope_date'] ?? null,
+                'scope_system_hotel_status' => (string)($aiEvidenceDetails['scope_system_hotel_status'] ?? ''),
+                'scope_platform_status' => (string)($aiEvidenceDetails['scope_platform_status'] ?? ''),
+                'database_persistence_proved' => $aiPersistenceProved,
+                'database_persistence_proof' => $aiPersistenceDetails,
                 'blocking_missing_codes' => $aiQuestionBlockingCodes,
             ],
-            'next_action' => $aiEvidenceProved
+            'next_action' => $effectiveAiEvidenceProved
                 ? ''
                 : '先处理阻断项后再调用现有 OTA 诊断并附脱敏 evidence_sources/data_gaps/action_items：' . ($aiQuestionBlockingText !== '' ? $aiQuestionBlockingText : 'ai_diagnosis_evidence_sample_missing'),
         ],
@@ -5459,20 +5844,20 @@ function build_inspection_employee_questions(array $result): array
                 'completion_signal_count' => (int)($operationCounts['completion_signal_count'] ?? 0),
                 'source_policy' => 'read_existing_operation_execution_state_only',
                 'raw_data_exposed' => false,
-                'scope_date_status' => (string)($operationCounts['scope_date_status'] ?? ''),
-                'scope_date' => $operationCounts['scope_date'] ?? null,
-                'expected_scope_date' => $operationCounts['expected_scope_date'] ?? null,
+                'scope_identity' => is_array($operationCounts['scope_identity'] ?? null)
+                    ? $operationCounts['scope_identity']
+                    : [],
                 'blocking_missing_codes' => $operationBlockingCodes,
             ],
             'next_action' => $operationEvidenceStatus === 'proved'
                 ? ''
-                : ($aiEvidenceProved
+                : ($effectiveAiEvidenceProved
                     ? ($operationGapCode === 'operation_execution_ai_action_link_missing'
                         ? '已有执行流但未关联 OTA 诊断 action_items；先补齐 source、evidence_refs 或 action_item_id 关联。'
                         : ($operationEvidenceStatus === 'warning'
-                        ? '补齐执行意图的审批通过、执行证据或复盘状态；未补齐前不标记运营闭环完成。'
-                        : '创建或附上一个真实执行意图/执行流程样例，包含审批、执行证据或复盘状态。'))
-                    : '先取得真实 OTA 诊断 action_items，再创建执行意图并保留审批、执行证据和复盘。'),
+                        ? '补齐执行证据，并确认已执行、复盘或 ROI 状态；仅审批或仅声明已执行时不标记运营闭环完成。'
+                        : '创建或附上一个真实执行意图/执行流程样例，包含执行证据以及已执行、复盘或 ROI 状态。'))
+                    : '先取得真实 OTA 诊断 action_items，再创建执行意图并保留执行证据和复盘。'),
         ],
     ];
 }
@@ -6160,6 +6545,15 @@ try {
         }
     }
     add_check($result['checks'], 'source_columns_present', 'proved', 'Core online_daily_data columns exist.');
+
+    if ($options['strict'] && (int)($options['system_hotel_id'] ?? 0) <= 0) {
+        add_check($result['checks'], 'strict_system_hotel_scope', 'missing', 'Strict production closure requires one system_hotel_id.');
+        add_missing($result, 'strict_system_hotel_scope_required', 'Strict production closure cannot aggregate multiple hotels; pass --system_hotel_id=<id>.');
+    } elseif ((int)($options['system_hotel_id'] ?? 0) > 0) {
+        add_check($result['checks'], 'strict_system_hotel_scope', 'proved', 'Inspection is scoped to one system hotel.', [
+            'system_hotel_id' => (int)$options['system_hotel_id'],
+        ]);
+    }
 
     foreach ($platforms as $platform) {
         if (!in_array($platform, ['ctrip', 'meituan'], true)) {
