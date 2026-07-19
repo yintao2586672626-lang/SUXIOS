@@ -159,7 +159,8 @@
                             </div>
                             <div v-if="ctx.meituanBrowserCaptureResult?.session_proof_status === 'not_recorded'" data-testid="meituan-session-proof-not-recorded" class="mt-2 rounded border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs leading-5 text-amber-900">
                                 <div class="font-semibold">数据结果已保留，但登录证据未持久化</div>
-                                <div class="mt-1">{{ ctx.meituanBrowserCaptureResult.session_proof_message || '当前响应没有返回可复用登录证据。' }}</div>
+                                <div class="mt-1"><span class="font-semibold">原因：</span>{{ ctx.meituanBrowserCaptureResult.session_proof_message || '当前响应没有返回可复用登录证据。' }}</div>
+                                <div class="mt-1"><span class="font-semibold">影响：</span>本次数据结果与 Profile 登录证据分开判断；当前 Profile 暂不标记为可复用登录态，也不代表其他门店或账号已验证。</div>
                                 <div class="mt-1"><span class="font-semibold">下一步：</span>{{ ctx.meituanBrowserCaptureResult.session_proof_next_action || '刷新登录状态后重新执行一次最小采集。' }}</div>
                             </div>
                             <div v-if="ctx.meituanBrowserCaptureResult?.capture_gate?.section_statuses?.ads === 'not_applicable' || ctx.meituanBrowserCaptureResult?.pages?.some(page => page?.section_evidence?.status === 'not_applicable' && page?.section_evidence?.reason === 'ads_not_enabled')" class="mt-2 rounded border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800">

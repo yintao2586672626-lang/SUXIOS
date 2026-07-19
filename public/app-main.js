@@ -1,4 +1,4 @@
-    const { createApp, ref, shallowRef, computed, onMounted, onUnmounted, watch, nextTick, markRaw } = Vue;
+    const { createApp, ref, shallowRef, computed, onMounted, onUnmounted, watch, nextTick, markRaw, h } = Vue;
 
     const API_BASE = '/api';
     const requireSuxiAppRender = () => {
@@ -435,6 +435,36 @@
     };
     // AI_DAILY_REPORT_TASK_HELPERS_END
 
+    const SessionProofNotice = {
+        name: 'SessionProofNotice',
+        props: {
+            result: { type: Object, default: () => ({}) },
+            platform: { type: String, default: 'ota' },
+        },
+        render() {
+            const result = this.result || {};
+            if (String(result.session_proof_status || '').trim() !== 'not_recorded') return null;
+            const savedCount = Number(result.saved_fact_row_count !== undefined
+                ? result.saved_fact_row_count
+                : (result.saved_count || 0));
+            const detailRow = (label, value) => h('div', { class: 'mt-1' }, [
+                h('span', { class: 'font-semibold' }, label),
+                value,
+            ]);
+            return h('div', {
+                'data-testid': `${this.platform}-session-proof-not-recorded`,
+                class: 'mt-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-950',
+            }, [
+                h('div', { class: 'font-semibold' }, savedCount > 0
+                    ? '数据已保存，但登录证据未持久化'
+                    : '本次未形成可持久化登录证据'),
+                detailRow('原因：', result.session_proof_message || '当前响应没有返回可复用登录证据。'),
+                detailRow('影响：', '本次数据结果与 Profile 登录证据分开判断；当前 Profile 暂不标记为可复用登录态，也不代表其他门店或账号已验证。'),
+                detailRow('下一步：', result.session_proof_next_action || '刷新登录状态后重新执行一次最小采集。'),
+            ]);
+        },
+    };
+
     let recoverSuxiRuntimeError = null;
     let requestSuxiFullRenderForPage = () => false;
     const suxiRootComponent = {
@@ -460,6 +490,7 @@
             DataTable,
             PlatformAutoSettingsPanels,
             PlatformAutoSecondaryPanels,
+            SessionProofNotice,
             CtripProfileFieldConfigPanel
         },
         setup() {

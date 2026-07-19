@@ -13,6 +13,7 @@ const loadWindowApi = (source, apiName) => {
 
 const ctripStatic = read('public/ctrip-static.js');
 const meituanStatic = read('public/meituan-static.js');
+const appMain = read('public/app-main.js');
 const ctripTemplate = read('resources/frontend/templates/fragments/24-page-ctrip-ebooking.html');
 const platformPanels = read('public/components/online-data/platform-auto-settings-panels.js');
 const ctripApi = loadWindowApi(ctripStatic, 'SUXI_CTRIP_STATIC');
@@ -55,12 +56,22 @@ test('confirmed-empty proof notices stay informational and verified responses pr
 });
 
 test('both OTA result panels render the proof reason and next action for operators', () => {
-  assert.match(ctripTemplate, /session_proof_status === 'not_recorded'/);
-  assert.match(ctripTemplate, /br v-if="ctripBrowserCaptureResult.warning"/);
+  assert.match(ctripTemplate, /<session-proof-notice :result="ctripBrowserCaptureResult" platform="ctrip">/);
+  assert.match(appMain, /const SessionProofNotice =/);
+  assert.match(appMain, /session_proof_status/);
+  assert.match(appMain, /data-testid/);
+  assert.match(appMain, /数据已保存，但登录证据未持久化/);
+  assert.match(appMain, /session_proof_message/);
+  assert.match(appMain, /原因：/);
+  assert.match(appMain, /影响：/);
+  assert.match(appMain, /session_proof_next_action/);
+  assert.match(appMain, /下一步：/);
 
   assert.match(platformPanels, /data-testid="meituan-session-proof-not-recorded"/);
   assert.match(platformPanels, /session_proof_status === 'not_recorded'/);
   assert.match(platformPanels, /session_proof_message/);
+  assert.match(platformPanels, /原因：/);
+  assert.match(platformPanels, /影响：/);
   assert.match(platformPanels, /session_proof_next_action/);
   assert.match(platformPanels, /下一步：/);
 });
