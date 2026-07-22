@@ -79,6 +79,14 @@ trait OnlineDataQualityConcern
             $fetchAll = false;
             $pageSize = min(200, max(1, $fetchAllRequested ? 200 : intval($pageSizeInput))); // 默认30条，禁止全量拉取
 
+            if (!$currentUser->isSuperAdmin() && $hotelId !== '') {
+                if (!is_numeric($hotelId)
+                    || (int)$hotelId <= 0
+                    || !$currentUser->hasHotelPermission((int)$hotelId, 'can_view_online_data')) {
+                    return $this->error('无权查看该酒店线上数据', 403);
+                }
+            }
+
             // 简化查询，先不添加复杂的权限过滤
             $query = Db::name('online_daily_data');
 
@@ -121,7 +129,13 @@ trait OnlineDataQualityConcern
 
             // 非超级管理员只能看自己酒店的数据
             if (!$currentUser->isSuperAdmin()) {
-                $permittedHotelIds = $currentUser->getPermittedHotelIds();
+                $permittedHotelIds = array_values(array_filter(
+                    array_map('intval', $currentUser->getPermittedHotelIds()),
+                    static fn(int $candidateHotelId): bool => $currentUser->hasHotelPermission(
+                        $candidateHotelId,
+                        'can_view_online_data'
+                    )
+                ));
                 if (empty($permittedHotelIds)) {
                     return $this->success([
                         'list' => [],

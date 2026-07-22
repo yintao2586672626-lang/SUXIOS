@@ -152,7 +152,10 @@ class HotelDataMergeService
         $updatedItems = [];
         $skippedConflictTotal = 0;
         $mergedConflictTotal = 0;
-        $targetTenantId = (int)($preview['target_hotel']['tenant_id'] ?? $targetHotelId);
+        $targetTenantId = (int)($preview['target_hotel']['tenant_id'] ?? 0);
+        if ($targetTenantId <= 0) {
+            throw new RuntimeException('目标门店缺少有效租户映射，已拒绝迁移');
+        }
         Db::transaction(function () use ($sourceHotelId, $targetHotelId, $targetTenantId, $deactivateSource, $preview, &$updatedItems, &$skippedConflictTotal, &$mergedConflictTotal): void {
             foreach ($preview['items'] as $item) {
                 $sourceCount = (int)($item['source_count'] ?? 0);
@@ -236,15 +239,25 @@ class HotelDataMergeService
      */
     private function hotelSummary(int $hotelId): array
     {
-        $fields = $this->tableColumnExists('hotels', 'tenant_id')
-            ? 'id,name,code,status,tenant_id'
-            : 'id,name,code,status';
-        $hotel = Db::name('hotels')
-            ->field($fields)
-            ->where('id', $hotelId)
-            ->find();
+        if (!$this->tableColumnExists('hotels', 'tenant_id')) {
+            throw new RuntimeException('hotels.tenant_id 为门店合并必需列，已拒绝迁移');
+        }
+
+        try {
+            $hotel = Db::name('hotels')
+                ->field('id,name,code,status,tenant_id')
+                ->where('id', $hotelId)
+                ->find();
+        } catch (\Throwable $e) {
+            throw new RuntimeException('门店租户映射查询失败，已拒绝迁移', 0, $e);
+        }
         if (!$hotel) {
             throw new InvalidArgumentException('门店不存在: ' . $hotelId);
+        }
+
+        $tenantId = (int)($hotel['tenant_id'] ?? 0);
+        if ($tenantId <= 0) {
+            throw new RuntimeException('门店缺少有效租户映射: ' . $hotelId);
         }
 
         return [
@@ -252,7 +265,7 @@ class HotelDataMergeService
             'name' => (string)$hotel['name'],
             'code' => (string)($hotel['code'] ?? ''),
             'status' => (int)($hotel['status'] ?? 0),
-            'tenant_id' => (int)($hotel['tenant_id'] ?? $hotel['id'] ?? 0),
+            'tenant_id' => $tenantId,
         ];
     }
 
@@ -419,7 +432,11 @@ class HotelDataMergeService
      */
     private function uniqueIndexesForColumn(string $table, string $column): array
     {
-        $rows = Db::query('SHOW INDEX FROM ' . $this->quoteIdentifier($table));
+        try {
+            $rows = Db::query('SHOW INDEX FROM ' . $this->quoteIdentifier($table));
+        } catch (\Throwable $showError) {
+            return $this->sqliteUniqueIndexesForColumn($table, $column);
+        }
         $indexes = [];
         foreach ($rows as $row) {
             if ((int)($row['Non_unique'] ?? 1) !== 0) {
@@ -446,14 +463,76 @@ class HotelDataMergeService
         return $result;
     }
 
+    /**
+     * @return array<string, array<int, string>>
+     */
+    private function sqliteUniqueIndexesForColumn(string $table, string $column): array
+    {
+        try {
+            $indexRows = Db::query('PRAGMA index_list(' . $this->quoteIdentifier($table) . ')');
+        } catch (\Throwable $e) {
+            throw new RuntimeException("无法探测 {$table} 的唯一索引", 0, $e);
+        }
+
+        $result = [];
+        foreach ($indexRows as $indexRow) {
+            if ((int)($indexRow['unique'] ?? 0) !== 1) {
+                continue;
+            }
+            $indexName = (string)($indexRow['name'] ?? '');
+            if ($indexName === '') {
+                continue;
+            }
+            $columns = array_values(array_filter(array_map(
+                static fn(array $row): string => (string)($row['name'] ?? ''),
+                Db::query('PRAGMA index_info(' . $this->quoteIdentifier($indexName) . ')')
+            )));
+            if (in_array($column, $columns, true)) {
+                $result[$indexName] = $columns;
+            }
+        }
+
+        return $result;
+    }
+
     private function tableColumnExists(string $table, string $column): bool
     {
         $table = str_replace('`', '', $table);
         $column = str_replace(['`', "'"], '', $column);
 
         try {
-            return !empty(Db::query("SHOW COLUMNS FROM `{$table}` LIKE '{$column}'"));
+            $exists = $this->probeTableColumn($table, $column);
         } catch (\Throwable $e) {
+            if ($table === 'hotels' && $column === 'tenant_id') {
+                throw new RuntimeException('hotels.tenant_id 元数据探测失败，已拒绝迁移', 0, $e);
+            }
+            return false;
+        }
+
+        if (!$exists && $table === 'hotels' && $column === 'tenant_id') {
+            throw new RuntimeException('hotels.tenant_id 为门店合并必需列，已拒绝迁移');
+        }
+
+        return $exists;
+    }
+
+    protected function probeTableColumn(string $table, string $column): bool
+    {
+        try {
+            return !empty(Db::query("SHOW COLUMNS FROM `{$table}` LIKE '{$column}'"));
+        } catch (\Throwable $showError) {
+            try {
+                $rows = Db::query("PRAGMA table_info(`{$table}`)");
+            } catch (\Throwable $pragmaError) {
+                throw new RuntimeException("无法探测 {$table}.{$column}", 0, $pragmaError);
+            }
+
+            foreach ($rows as $row) {
+                if (($row['name'] ?? '') === $column) {
+                    return true;
+                }
+            }
+
             return false;
         }
     }

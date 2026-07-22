@@ -10,6 +10,7 @@ class FeasibilityReportService
 {
     private LlmClient $client;
     private AiDecisionQualityService $decisionQualityService;
+    private bool $tableEnsured = false;
 
     public function __construct(?LlmClient $client = null, ?AiDecisionQualityService $decisionQualityService = null)
     {
@@ -369,33 +370,16 @@ class FeasibilityReportService
 
     public function ensureTable(): void
     {
-        Db::execute("
-            CREATE TABLE IF NOT EXISTS feasibility_reports (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                tenant_id INT UNSIGNED DEFAULT NULL,
-                project_name VARCHAR(120) NOT NULL,
-                input_json JSON NULL,
-                snapshot_json JSON NULL,
-                report_json JSON NULL,
-                conclusion_grade VARCHAR(8),
-                payback_months DECIMAL(10,2) NULL,
-                total_investment DECIMAL(14,2) DEFAULT 0,
-                created_by INT NULL,
-                created_at DATETIME NULL,
-                updated_at DATETIME NULL,
-                deleted_at DATETIME NULL,
-                INDEX idx_feasibility_reports_tenant_user (tenant_id, created_by, id),
-                INDEX idx_created_by (created_by),
-                INDEX idx_grade (conclusion_grade)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        ");
-        $this->ensureTenantColumns();
-    }
+        if ($this->tableEnsured) {
+            return;
+        }
 
-    private function ensureTenantColumns(): void
-    {
-        Db::execute("ALTER TABLE feasibility_reports ADD COLUMN IF NOT EXISTS tenant_id INT UNSIGNED DEFAULT NULL COMMENT 'tenant id, default follows creator user' AFTER id");
-        Db::execute("ALTER TABLE feasibility_reports ADD INDEX IF NOT EXISTS idx_feasibility_reports_tenant_user (tenant_id, created_by, id)");
+        DatabaseSchemaRequirement::assertTableColumns('feasibility_reports', [
+            'id', 'tenant_id', 'project_name', 'input_json', 'snapshot_json', 'report_json',
+            'conclusion_grade', 'payback_months', 'total_investment', 'created_by',
+            'created_at', 'updated_at', 'deleted_at',
+        ]);
+        $this->tableEnsured = true;
     }
 
     private function applyTenantScope($query, int $userId, bool $isSuperAdmin): void
@@ -431,7 +415,12 @@ class FeasibilityReportService
             }
 
             $hotelId = (int)($row['hotel_id'] ?? 0);
-            return $hotelId > 0 ? $hotelId : null;
+            if ($hotelId <= 0) {
+                return null;
+            }
+
+            $hotelTenantId = (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id');
+            return $hotelTenantId > 0 ? $hotelTenantId : null;
         } catch (\Throwable $e) {
             return null;
         }

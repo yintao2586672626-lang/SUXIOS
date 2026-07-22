@@ -5,7 +5,9 @@
 return [
     // 指令定义
     'commands' => [
-        'db:init' => 'app\command\InitDatabase',
+        'db:init' => 'app\command\InitializeDatabaseSchema',
+        'db:check' => 'app\command\CheckDatabaseSchema',
+        'db:migrate' => 'app\command\MigrateDatabaseSchema',
         'migrate:ota-credentials' => 'app\command\MigrateOtaCredentials',
         'migrate:sensitive-storage' => 'app\command\MigrateSensitiveStorage',
         'migrate:online-data' => 'app\command\MigrateOnlineData',
@@ -22,6 +24,8 @@ return [
         'online-data:notify-failure' => 'app\command\NotifyOtaFailure',
         'ai-daily-report:generate-once' => 'app\command\GenerateAiDailyReportOnce',
         'ai-daily-report:cleanup' => 'app\command\CleanupAiReportTasks',
+        'cloud-automation:run' => 'app\command\RunCloudAutomation',
+        'cloud-data-bridge:run' => 'app\command\RunCloudDataBridge',
         'video-factory:director' => 'app\command\VideoFactoryDirector',
     ],
 ];

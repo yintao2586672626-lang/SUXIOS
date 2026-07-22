@@ -1430,7 +1430,8 @@ class RevenuePricingRecommendationService
             return [];
         }
         $columns = $this->tableColumns('online_daily_data');
-        if (!isset($columns['source']) || !isset($columns['data_date'])) {
+        $tenantId = $this->authoritativeTenantIdForHotel($hotelId);
+        if ($tenantId <= 0 || !isset($columns['tenant_id'], $columns['source'], $columns['data_date'])) {
             return [];
         }
         $hotelColumn = isset($columns['system_hotel_id']) ? 'system_hotel_id' : (isset($columns['hotel_id']) ? 'hotel_id' : '');
@@ -1459,6 +1460,7 @@ class RevenuePricingRecommendationService
             ->field(implode(',', $fields))
             ->whereIn('source', self::CTRIP_TRAFFIC_SOURCE_ALIASES)
             ->whereBetween('data_date', [$startDate, $endDate])
+            ->where('tenant_id', $tenantId)
             ->where($hotelColumn, $hotelId);
         if (isset($columns['data_type'])) {
             $query->where(function ($q): void {
@@ -1469,6 +1471,19 @@ class RevenuePricingRecommendationService
         }
 
         return $query->order('data_date', 'asc')->order('id', 'asc')->limit(2000)->select()->toArray();
+    }
+
+    private function authoritativeTenantIdForHotel(int $hotelId): int
+    {
+        if ($hotelId <= 0) {
+            return 0;
+        }
+
+        try {
+            return max(0, (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id'));
+        } catch (\Throwable) {
+            return 0;
+        }
     }
 
     /**
@@ -1939,7 +1954,11 @@ class RevenuePricingRecommendationService
         try {
             return !empty(Db::query("SHOW TABLES LIKE '" . addslashes($table) . "'"));
         } catch (\Throwable) {
-            return false;
+            try {
+                return !empty(Db::query('PRAGMA table_info(`' . $table . '`)'));
+            } catch (\Throwable) {
+                return false;
+            }
         }
     }
 
@@ -1960,7 +1979,16 @@ class RevenuePricingRecommendationService
                 }
             }
         } catch (\Throwable) {
-            return [];
+            try {
+                foreach (Db::query('PRAGMA table_info(`' . $table . '`)') as $row) {
+                    $field = (string)($row['name'] ?? '');
+                    if ($field !== '') {
+                        $columns[$field] = true;
+                    }
+                }
+            } catch (\Throwable) {
+                return [];
+            }
         }
 
         return $columns;

@@ -77,6 +77,55 @@ final class Phase3OperationEffectLoopServiceTest extends TestCase
         self::assertFalse($first['replication']['auto_apply_enabled']);
     }
 
+    public function testExecutedTaskWithoutVerifiedEvidenceAndOutcomeCannotBecomeSopCandidate(): void
+    {
+        $service = new Phase3OperationEffectLoopService();
+        $tracked = $this->trackedExecution(701, 801, 'success');
+        $tracked['operation_execution'] = [
+            'intent_id' => 701,
+            'intent_status' => 'approved',
+            'task_id' => 801,
+            'task_status' => 'executed',
+            'execution_evidence_count' => 0,
+            'evidence_truth' => [
+                'status' => 'unverified',
+                'source_verified' => false,
+                'evidence_count' => 0,
+            ],
+            'outcome_truth' => [
+                'status' => 'unverified',
+                'outcome_verified' => false,
+                'positive_outcome_verified' => false,
+            ],
+            'truth_context' => [
+                'status' => 'unverified',
+                'source_verified' => false,
+                'positive_outcome_verified' => false,
+            ],
+        ];
+
+        $result = $service->buildFromSnapshot(
+            $this->snapshot(
+                [$this->action(7, 'North Hotel')],
+                ['7|price_adjust' => $tracked]
+            ),
+            [
+                'target_date' => '2026-07-14',
+                'metric_window' => $this->metricWindow([7]),
+            ]
+        );
+
+        $stages = $result['rows'][0]['stages'];
+        self::assertSame('executed_evidence_unverified', $stages['execution_evidence']['status']);
+        self::assertFalse($stages['execution_evidence']['source_verified']);
+        self::assertSame(0, $stages['execution_evidence']['evidence_count']);
+        self::assertContains('execution_evidence_missing', $stages['execution_evidence']['missing_codes']);
+        self::assertContains('execution_evidence_source_unverified', $stages['execution_evidence']['missing_codes']);
+        self::assertSame('not_ready', $stages['sop']['status']);
+        self::assertContains('execution_outcome_unverified', $stages['sop']['reason_codes']);
+        self::assertSame([], $result['sop_candidates']);
+    }
+
     public function testEffectMetricsRequireTrustedFinalHistoricalOtaRows(): void
     {
         $service = new Phase3OperationEffectLoopService();
@@ -194,6 +243,23 @@ final class Phase3OperationEffectLoopServiceTest extends TestCase
                 'intent_status' => 'approved',
                 'task_id' => $taskId,
                 'task_status' => 'executed',
+                'execution_evidence_count' => 1,
+                'evidence_truth' => [
+                    'status' => 'verified',
+                    'source_verified' => true,
+                    'evidence_count' => 1,
+                ],
+                'outcome_truth' => [
+                    'status' => 'verified',
+                    'outcome_verified' => true,
+                    'positive_outcome_verified' => true,
+                    'causality_claimed' => false,
+                ],
+                'truth_context' => [
+                    'status' => 'verified',
+                    'source_verified' => true,
+                    'positive_outcome_verified' => true,
+                ],
             ],
             'review_result' => [
                 'result_status' => $reviewStatus,

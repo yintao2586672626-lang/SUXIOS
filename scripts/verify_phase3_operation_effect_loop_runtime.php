@@ -203,6 +203,23 @@ function phase3_fixture_snapshot(string $targetDate): array
                         'intent_status' => 'approved',
                         'task_id' => 801,
                         'task_status' => 'executed',
+                        'execution_evidence_count' => 1,
+                        'evidence_truth' => [
+                            'status' => 'verified',
+                            'source_verified' => true,
+                            'evidence_count' => 1,
+                        ],
+                        'outcome_truth' => [
+                            'status' => 'met',
+                            'outcome_verified' => true,
+                            'positive_outcome_verified' => true,
+                            'causality_claimed' => false,
+                        ],
+                        'truth_context' => [
+                            'status' => 'verified',
+                            'source_verified' => true,
+                            'positive_outcome_verified' => true,
+                        ],
                         'source_policy' => 'fixture_operation_execution_only',
                     ],
                     'review_result' => [

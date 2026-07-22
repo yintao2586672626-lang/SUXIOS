@@ -5,9 +5,49 @@ namespace Tests;
 
 use app\service\PlatformDataSyncService;
 use PHPUnit\Framework\TestCase;
+use think\App;
+use think\facade\Config;
+use think\facade\Db;
 
 final class PlatformDataSyncCaptureTimestampTest extends TestCase
 {
+    private static array $originalDatabaseConfig = [];
+    private static string $databaseConnection = '';
+    private static string $databasePath = '';
+
+    public static function setUpBeforeClass(): void
+    {
+        (new App())->initialize();
+        self::$originalDatabaseConfig = Config::get('database');
+        self::$databaseConnection = 'platform_capture_timestamp_' . getmypid();
+        self::$databasePath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . self::$databaseConnection . '.sqlite';
+        @unlink(self::$databasePath);
+
+        $database = self::$originalDatabaseConfig;
+        $database['default'] = self::$databaseConnection;
+        $database['connections'][self::$databaseConnection] = [
+            'type' => 'sqlite',
+            'database' => self::$databasePath,
+            'prefix' => '',
+            'fields_strict' => false,
+        ];
+        Config::set($database, 'database');
+        Db::connect(null, true);
+        Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL)');
+        Db::name('hotels')->insert(['id' => 80, 'tenant_id' => 1]);
+    }
+
+    public static function tearDownAfterClass(): void
+    {
+        try {
+            Db::connect(self::$databaseConnection)->close();
+        } catch (\Throwable) {
+        }
+        Config::set(self::$originalDatabaseConfig, 'database');
+        Db::connect(null, true);
+        @unlink(self::$databasePath);
+    }
+
     public function testExplicitNonTrafficSectionOverridesProfileLoginTrafficGate(): void
     {
         $service = new PlatformDataSyncService();

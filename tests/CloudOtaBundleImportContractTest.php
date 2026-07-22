@@ -1,0 +1,76 @@
+<?php
+declare(strict_types=1);
+
+namespace Tests;
+
+use app\service\CloudOtaBundleImportService;
+use PHPUnit\Framework\TestCase;
+use ReflectionMethod;
+
+final class CloudOtaBundleImportContractTest extends TestCase
+{
+    public function testImporterCannotTriggerCollectionReportOrWechatDelivery(): void
+    {
+        $source = (string)file_get_contents((new ReflectionMethod(
+            CloudOtaBundleImportService::class,
+            'importBundle'
+        ))->getFileName());
+
+        self::assertStringContainsString('CloudOtaBundleCodec::verify', $source);
+        self::assertStringContainsString('assertDestinationBindings', $source);
+        self::assertStringContainsString('destinationRowMatches', $source);
+        self::assertStringContainsString('markReadbackVerified', $source);
+        self::assertStringNotContainsString('DailyWorkbenchPatrol', $source);
+        self::assertStringNotContainsString('AiDailyReportService', $source);
+        self::assertStringNotContainsString('WechatRobotDeliveryService', $source);
+        self::assertStringNotContainsString('Cookie', $source);
+    }
+
+    public function testEmptyInboxDoesNoCollectionReportOrDatabaseWork(): void
+    {
+        $directory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'suxios-cloud-bridge-' . bin2hex(random_bytes(6));
+        $service = new CloudOtaBundleImportService();
+        try {
+            $result = $service->processInbox($directory, 0, 10, 10);
+            self::assertSame('succeeded', $result['status']);
+            self::assertSame(0, $result['processed_count']);
+            self::assertSame(0, $result['inbox_count']);
+            self::assertFalse($result['collection_triggered']);
+            self::assertFalse($result['report_generation_triggered']);
+        } finally {
+            $this->removeDirectory($directory);
+        }
+    }
+
+    public function testSystemdBridgeIsShortLivedAndResourceBounded(): void
+    {
+        $root = dirname(__DIR__);
+        $service = (string)file_get_contents($root . '/deploy/systemd/suxios-cloud-data-bridge.service');
+        $timer = (string)file_get_contents($root . '/deploy/systemd/suxios-cloud-data-bridge.timer');
+
+        self::assertStringContainsString('Type=oneshot', $service);
+        self::assertStringContainsString('MemoryMax=384M', $service);
+        self::assertStringContainsString('CPUQuota=50%', $service);
+        self::assertStringContainsString('cloud-data-bridge:run --mode=import', $service);
+        self::assertStringContainsString('OnUnitActiveSec=5min', $timer);
+    }
+
+    private function removeDirectory(string $directory): void
+    {
+        if (!is_dir($directory)) {
+            return;
+        }
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST
+        );
+        foreach ($iterator as $entry) {
+            if ($entry->isDir()) {
+                rmdir($entry->getPathname());
+            } else {
+                unlink($entry->getPathname());
+            }
+        }
+        rmdir($directory);
+    }
+}

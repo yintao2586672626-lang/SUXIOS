@@ -2932,17 +2932,21 @@ class Agent extends Base
     {
         $columns = $this->onlineDailyDataColumns();
         $fields = $this->otaDiagnosisOnlineRowFields($columns);
+        $tenantId = $this->authoritativeTenantIdForHotel($hotelId);
 
         $onlineRows = [];
         $effectiveStartDate = $startDate;
         $effectiveEndDate = $endDate;
         $usedLatestAvailableData = false;
         $canQueryOnlineRows = !empty($fields)
+            && $tenantId > 0
+            && isset($columns['tenant_id'])
             && isset($columns['data_date'])
             && isset($columns['readback_verified'])
             && (($hotelId > 0 && isset($columns['system_hotel_id'])) || (($hotelIdRaw !== '' || $platformHotelIdRaw !== '') && isset($columns['hotel_id'])));
         if ($canQueryOnlineRows) {
-            $applyOnlineScope = function ($query) use ($hotelId, $hotelIdRaw, $platformHotelIdRaw, $platform, $analysisType, $columns) {
+            $applyOnlineScope = function ($query) use ($tenantId, $hotelId, $hotelIdRaw, $platformHotelIdRaw, $platform, $analysisType, $columns) {
+                $query->where('tenant_id', $tenantId);
                 if (isset($columns['source'])) {
                     $query->where('source', $platform);
                 }
@@ -4927,7 +4931,11 @@ class Agent extends Base
             return false;
         }
         if (!array_key_exists($table, $cache)) {
-            $cache[$table] = !empty(Db::query("SHOW TABLES LIKE '" . addslashes($table) . "'"));
+            try {
+                $cache[$table] = !empty(Db::query("SHOW TABLES LIKE '" . addslashes($table) . "'"));
+            } catch (\Throwable) {
+                $cache[$table] = !empty(Db::query('PRAGMA table_info(`' . $table . '`)'));
+            }
         }
         return $cache[$table];
     }
@@ -4944,13 +4952,35 @@ class Agent extends Base
         }
 
         $columns = [];
-        foreach (Db::query('SHOW COLUMNS FROM `' . $table . '`') as $row) {
-            if (!empty($row['Field'])) {
-                $columns[(string) $row['Field']] = true;
+        try {
+            $rows = Db::query('SHOW COLUMNS FROM `' . $table . '`');
+            foreach ($rows as $row) {
+                if (!empty($row['Field'])) {
+                    $columns[(string)$row['Field']] = true;
+                }
+            }
+        } catch (\Throwable) {
+            foreach (Db::query('PRAGMA table_info(`' . $table . '`)') as $row) {
+                if (!empty($row['name'])) {
+                    $columns[(string)$row['name']] = true;
+                }
             }
         }
         $cache[$table] = $columns;
         return $columns;
+    }
+
+    private function authoritativeTenantIdForHotel(int $hotelId): int
+    {
+        if ($hotelId <= 0) {
+            return 0;
+        }
+
+        try {
+            return max(0, (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id'));
+        } catch (\Throwable) {
+            return 0;
+        }
     }
 
     private function existingFields(string $table, array $fields): array
@@ -5329,11 +5359,16 @@ class Agent extends Base
         if ($sourceIds === []) {
             return [];
         }
+        $tenantId = $this->authoritativeTenantIdForHotel($hotelId);
+        if ($tenantId <= 0) {
+            return [];
+        }
 
         try {
             $sources = Db::name('platform_data_sources')
                 ->field('id,config_json')
                 ->whereIn('id', $sourceIds)
+                ->where('tenant_id', $tenantId)
                 ->where('system_hotel_id', $hotelId)
                 ->where('platform', $platform)
                 ->select()

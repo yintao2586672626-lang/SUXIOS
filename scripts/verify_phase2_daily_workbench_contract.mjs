@@ -24,7 +24,7 @@ function excludesAll(file, label, source, needles) {
 }
 
 const route = read('route/app.php');
-const onlineDataController = read('app/controller/OnlineData.php');
+const otaActionHandler = read('app/service/Ota/OtaActionHandler.php');
 const controller = read('app/controller/concern/OperationWorkbenchConcern.php');
 const service = read('app/service/DailyWorkbenchPatrolService.php');
 const operationService = read('app/service/OperationManagementService.php');
@@ -81,7 +81,7 @@ includesAll('route/app.php', 'daily workbench and patrol routes exist', route, [
   "Route::get('api/online-data/daily-workbench-patrol-cron', 'OnlineData/dailyWorkbenchPatrolCron');",
 ]);
 
-includesAll('app/controller/OnlineData.php', 'OnlineData composes the split daily workbench concern', onlineDataController, [
+includesAll('app/service/Ota/OtaActionHandler.php', 'OTA handler composes the split daily workbench concern', otaActionHandler, [
   'use app\\controller\\concern\\OperationWorkbenchConcern;',
   'use OperationWorkbenchConcern;',
 ]);

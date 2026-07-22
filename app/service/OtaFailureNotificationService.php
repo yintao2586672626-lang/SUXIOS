@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace app\service;
 
 use app\model\Role;
+use app\model\Hotel;
+use app\model\OperationLog;
 use app\model\SystemNotification;
 use app\model\SystemNotificationUserState;
 use app\model\User;
@@ -529,7 +531,16 @@ final class OtaFailureNotificationService
             if (!$userModel || $hotelId <= 0) {
                 return false;
             }
-            return in_array($hotelId, array_map('intval', $userModel->getPermittedHotelIds()), true);
+            $canAccess = static fn(): bool => in_array(
+                $hotelId,
+                array_map('intval', $userModel->getPermittedHotelIds()),
+                true
+            );
+            if ($hotelTenantId !== null) {
+                return Hotel::runInTenantScope($hotelTenantId, $canAccess);
+            }
+
+            return $canAccess();
         } catch (Throwable) {
             return false;
         }
@@ -814,7 +825,7 @@ final class OtaFailureNotificationService
         ?int $actorUserId,
         string $deliveryStatus
     ): void {
-        $tenantId = $hotelId;
+        $tenantId = null;
         try {
             $hotelColumns = $this->tableColumns('hotels');
             if (isset($hotelColumns['tenant_id'])) {
@@ -824,38 +835,34 @@ final class OtaFailureNotificationService
                 }
             }
         } catch (Throwable) {
-            // Keep the system hotel id as a legacy-schema fallback.
+            // Unknown hotel mappings are recorded as global/system audits.
         }
 
-        $extra = json_encode([
+        $extra = [
             'audit_schema_version' => 1,
             'audit_type' => 'acquisition',
             'outcome' => 'failed',
-            'actor_user_id' => $actorUserId,
-            'tenant_id' => $tenantId,
+            'reported_actor_user_id' => $actorUserId,
             'hotel_id' => $hotelId,
             'delivery_status' => $deliveryStatus,
             'platform' => $platform,
             'reason_code' => $reasonCode,
             'data_date' => $dataDate,
-        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        ];
+        if ($tenantId !== null) {
+            $extra['tenant_id'] = $tenantId;
+        }
 
         try {
-            $columns = $this->tableColumns('operation_logs');
-            if ($columns !== []) {
-                $data = [
-                    'tenant_id' => $tenantId,
-                    'user_id' => $actorUserId,
-                    'hotel_id' => $hotelId,
-                    'module' => 'online_data',
-                    'action' => 'ota_failure_notification_' . $deliveryStatus,
-                    'description' => 'OTA采集失败通知未送达，已记录明确投递状态',
-                    'error_info' => 'delivery_status:' . $deliveryStatus,
-                    'extra_data' => $extra,
-                    'create_time' => date('Y-m-d H:i:s'),
-                ];
-                Db::name('operation_logs')->insert(array_intersect_key($data, $columns));
-            }
+            OperationLog::record(
+                'online_data',
+                'ota_failure_notification_' . $deliveryStatus,
+                'OTA采集失败通知未送达，已记录明确投递状态',
+                $tenantId !== null ? $actorUserId : null,
+                $hotelId,
+                'delivery_status:' . $deliveryStatus,
+                $extra
+            );
         } catch (Throwable $e) {
             Log::warning('OTA failure notification audit write failed', [
                 'hotel_id' => $hotelId,

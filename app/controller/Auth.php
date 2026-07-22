@@ -96,7 +96,7 @@ class Auth extends Base
             return $this->error('请输入用户名和密码');
         }
 
-        $user = User::with(['role', 'hotel'])->where('username', $username)->find();
+        $user = User::with(['role'])->where('username', $username)->find();
         
         // 用户不存在
         if (!$user) {
@@ -128,6 +128,10 @@ class Auth extends Base
         $user->login_count = $user->login_count + 1;
         $user->save();
 
+        // Password verification establishes the request actor for all
+        // tenant-scoped work in the successful login path.
+        $this->request->user = $user;
+
         // 生成更安全的 Token
         $token = $this->generateToken($user->id);
         
@@ -139,27 +143,80 @@ class Auth extends Base
             'user_agent' => substr($userAgent, 0, 255),
             'auth_version' => $user->authSessionVersion(),
         ];
-        cache('token_' . $token, $tokenData, self::TOKEN_TTL_SECONDS);
-        cache('user_token_' . $user->id, $token, self::TOKEN_TTL_SECONDS);
-
-        // 记录登录成功日志
-        LoginLog::record($user->id, $username, 'login', 'success', null, $ip, $userAgent, $clientInfo);
-        OperationLog::record('auth', 'login', '用户登录: ' . $username, $user->id, $user->hotel_id);
-
         $permittedHotels = $this->buildPermittedHotels($user);
+        $authContext = $this->buildAuthContext($user, $permittedHotels);
+        $loginUserPayload = $this->buildLoginUserPayload(
+            $user,
+            $permittedHotels,
+            $this->positiveIntOrNull($authContext['hotelId'] ?? null)
+        );
+        $loginNotices = $this->buildLoginNotices($user, $permittedHotels);
+
+        if (!$this->publishLoginTokenState($token, (int)$user->id, $tokenData)) {
+            return $this->error('登录会话暂不可用，请稍后重试', 503, [
+                'reason' => 'login_session_store_failed',
+            ]);
+        }
+
+        // A successful login is audited only after both session indexes are
+        // durable. This prevents cache failures from producing false success
+        // audits or exposing a token backed by only one index.
+        LoginLog::record($user->id, $username, 'login', 'success', null, $ip, $userAgent, $clientInfo);
+        $loginHotelId = isset($loginUserPayload['hotel_id']) ? (int)$loginUserPayload['hotel_id'] : null;
+        OperationLog::record('auth', 'login', '用户登录: ' . $username, $user->id, $loginHotelId);
 
         return $this->success([
             'token' => $token,
             'expires_in' => self::TOKEN_TTL_SECONDS,
-            'user' => $this->buildLoginUserPayload($user, $permittedHotels),
-            'context' => $this->buildAuthContext($user, $permittedHotels),
-            'notices' => $this->buildLoginNotices($user, $permittedHotels),
+            'user' => $loginUserPayload,
+            'context' => $authContext,
+            'notices' => $loginNotices,
         ], '登录成功');
     }
 
     protected function makeLoginRateLimiter(): LoginRateLimiter
     {
         return new LoginRateLimiter();
+    }
+
+    /** @param array<string, mixed> $tokenData */
+    private function publishLoginTokenState(string $token, int $userId, array $tokenData): bool
+    {
+        $tokenKey = 'token_' . $token;
+        $userTokenKey = 'user_token_' . $userId;
+        $tokenStored = false;
+        $userTokenStored = false;
+
+        try {
+            $tokenStored = $this->writeLoginCacheValue($tokenKey, $tokenData, self::TOKEN_TTL_SECONDS);
+            $userTokenStored = $this->writeLoginCacheValue($userTokenKey, $token, self::TOKEN_TTL_SECONDS);
+        } catch (\Throwable) {
+            // Cleanup below is mandatory even when the cache driver throws.
+        }
+
+        if ($tokenStored && $userTokenStored) {
+            return true;
+        }
+
+        foreach ([$tokenKey, $userTokenKey] as $key) {
+            try {
+                $this->deleteLoginCacheValue($key);
+            } catch (\Throwable) {
+                // The login still fails closed; never publish the token.
+            }
+        }
+
+        return false;
+    }
+
+    protected function writeLoginCacheValue(string $key, mixed $value, int $ttl): bool
+    {
+        return cache($key, $value, $ttl) === true;
+    }
+
+    protected function deleteLoginCacheValue(string $key): void
+    {
+        cache($key, null);
     }
 
     private function releaseLoginRateLimitReservation(
@@ -246,7 +303,11 @@ class Auth extends Base
             return [];
         }
 
-        return Hotel::whereIn('id', array_values(array_map('intval', $permittedHotelIds)))
+        $query = $user->isSuperAdmin()
+            ? Hotel::withoutTenantScope()
+            : Hotel::where([]);
+
+        return $query->whereIn('id', array_values(array_map('intval', $permittedHotelIds)))
             ->select()
             ->toArray();
     }
@@ -255,25 +316,46 @@ class Auth extends Base
      * @param array<int, array<string, mixed>> $permittedHotels
      * @return array<string, mixed>
      */
-    private function buildLoginUserPayload(User $user, array $permittedHotels): array
+    private function buildLoginUserPayload(User $user, array $permittedHotels, ?int $currentHotelId): array
     {
+        $primaryHotel = $this->permittedPrimaryHotel($user, $permittedHotels);
         return [
             'id' => $user->id,
             'username' => $user->username,
             'realname' => $user->realname,
             'role_id' => $user->role_id,
             'role_name' => $user->role ? $user->role->display_name : '',
-            'hotel_id' => $user->hotel_id,
-            'hotel_name' => $user->hotel ? $user->hotel->name : '',
+            'hotel_id' => $primaryHotel !== null ? (int)($primaryHotel['id'] ?? 0) : null,
+            'hotel_name' => (string)($primaryHotel['name'] ?? $primaryHotel['hotel_name'] ?? ''),
             'is_super_admin' => $user->isSuperAdmin(),
             'is_hotel_manager' => $user->isHotelManager(),
             'permitted_hotels' => $permittedHotels,
-            'permissions' => $this->buildUserPermissions($user),
+            'permissions' => $this->buildUserPermissions($user, $currentHotelId),
             'capabilities' => $this->buildUserCapabilities($user),
             'hotel_scope' => $user->getHotelScopeContext(),
             'modules' => $this->buildUserModules($user),
             'notices' => $this->buildLoginNotices($user, $permittedHotels),
         ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $permittedHotels
+     * @return array<string, mixed>|null
+     */
+    private function permittedPrimaryHotel(User $user, array $permittedHotels): ?array
+    {
+        $primaryHotelId = (int)($user->hotel_id ?? 0);
+        if ($primaryHotelId <= 0) {
+            return null;
+        }
+
+        foreach ($permittedHotels as $hotel) {
+            if ((int)($hotel['id'] ?? 0) === $primaryHotelId) {
+                return $hotel;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -384,9 +466,16 @@ class Auth extends Base
         return (int)$value;
     }
 
-    private function buildUserPermissions(User $user): array
+    private function buildUserPermissions(User $user, ?int $hotelId): array
     {
-        $allows = fn(string $permission): bool => $user->hasPermission($permission) && $this->roleAllows($user, $permission);
+        $allows = function (string $permission) use ($user, $hotelId): bool {
+            if ($hotelId === null) {
+                return $user->isSuperAdmin() && $this->roleAllows($user, $permission);
+            }
+
+            return $user->hasHotelPermission($hotelId, $permission)
+                && $this->roleAllows($user, $permission);
+        };
 
         return [
             'can_view_report' => $allows('can_view_report'),
@@ -500,12 +589,16 @@ class Auth extends Base
             return $this->error('未登录', 401);
         }
 
-        $user = User::with(['role', 'hotel'])->find($this->currentUser->id);
+        $user = User::with(['role'])->find($this->currentUser->id);
 
         // 获取用户可访问的酒店（只包含启用的酒店）
         $permittedHotels = $this->buildPermittedHotels($user);
-        
-        $userPermissions = $this->buildUserPermissions($user);
+        $primaryHotel = $this->permittedPrimaryHotel($user, $permittedHotels);
+        $authContext = $this->buildAuthContext($user, $permittedHotels);
+        $userPermissions = $this->buildUserPermissions(
+            $user,
+            $this->positiveIntOrNull($authContext['hotelId'] ?? null)
+        );
 
         return $this->success([
             'id' => $user->id,
@@ -515,8 +608,8 @@ class Auth extends Base
             'phone' => $user->phone,
             'role_id' => $user->role_id,
             'role_name' => $user->role ? $user->role->display_name : '',
-            'hotel_id' => $user->hotel_id,
-            'hotel' => $user->hotel,
+            'hotel_id' => $primaryHotel !== null ? (int)($primaryHotel['id'] ?? 0) : null,
+            'hotel' => $primaryHotel,
             'is_super_admin' => $user->isSuperAdmin(),
             'is_hotel_manager' => $user->isHotelManager(),
             'permitted_hotels' => $permittedHotels,
@@ -524,7 +617,7 @@ class Auth extends Base
             'capabilities' => $this->buildUserCapabilities($user),
             'hotel_scope' => $user->getHotelScopeContext(),
             'modules' => $this->buildUserModules($user),
-            'context' => $this->buildAuthContext($user, $permittedHotels),
+            'context' => $authContext,
             'notices' => $this->buildLoginNotices($user, $permittedHotels),
         ]);
     }

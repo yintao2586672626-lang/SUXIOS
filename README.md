@@ -121,22 +121,15 @@ npm.cmd run verify:frontend-template
 
 ## 数据库
 
-仓库已包含完整初始化入口：
-
-```text
-database/init_full.sql
-```
-
-导入示例：
+新环境完整初始化：
 
 ```powershell
-C:\xampp\mysql\bin\mysql.exe -u root -e "CREATE DATABASE IF NOT EXISTS hotelx CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-C:\xampp\mysql\bin\mysql.exe -u root hotelx < database/init_full.sql
+C:\xampp\php\php.exe scripts\init_database.php
 ```
 
 如果 XAMPP 安装在 D 盘，请把命令中的 `C:\xampp` 改为 `D:\xampp`。
 
-`database/hotel_admin_mysql.sql` 是可提交的基础 dump；`database/init_full.sql` 会继续加载登录日志、投诉表和所有迁移，覆盖当前代码使用的表与字段。
+`database/init_full.sql` 已冻结为历史基线，不再追加 migration。初始化器会导入基线、自动执行 `database/migrations/` 下的待执行文件，并在 `schema_versions` 记录 migration、version、SHA-256 checksum、执行方式和执行时间；4 个冻结 SQL 源另由 `schema_baseline_sources` 记录校验和，失败尝试由 `schema_migration_failures` 留存并在重试成功后关闭。现有环境可先运行 `php think db:check`，再按提示执行 `php think db:migrate`；旧库首次纳管会先做只读结构预检，再由 `--baseline` 登记。业务请求与旧命令不再动态建表或改表。
 
 CI 会在 MariaDB 10.11（项目当前 MySQL 兼容方言）中运行 `npm run verify:mysql-fresh-concurrency`：创建随机 `*_e2e` 临时库、执行全量初始化、把扩张幂等迁移再执行两次，并用 8 个独立 PHP 进程验证只生成 1 条执行意图。该命令必须显式设置 `SUXI_CI_MYSQL_VERIFY=1`，结束后会删除临时库。
 
@@ -168,7 +161,7 @@ route/            路由配置
 public/           Web 根目录和前端页面
 database/         SQL 资源和迁移脚本
 database/hotel_admin_mysql.sql 基础数据库备份
-database/init_full.sql 完整数据库初始化入口
+database/init_full.sql 冻结数据库基线（禁止追加新 migration）
 start-hotel.bat   Windows 一键启动脚本
 QUICK_START.md    下载后运行说明
 ```

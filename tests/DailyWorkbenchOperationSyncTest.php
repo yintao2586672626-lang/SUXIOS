@@ -922,6 +922,7 @@ final class DailyWorkbenchOperationSyncTest extends TestCase
         Db::execute(<<<'SQL'
 CREATE TABLE agent_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id INTEGER NOT NULL DEFAULT 42,
     hotel_id INTEGER NOT NULL,
     agent_type INTEGER NOT NULL,
     action TEXT NOT NULL,

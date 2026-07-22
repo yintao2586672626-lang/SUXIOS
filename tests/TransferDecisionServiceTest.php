@@ -45,6 +45,15 @@ final class TransferDecisionServiceTest extends TestCase
         self::assertSame('万元', $result['unit']);
     }
 
+    public function testSaveRecordUsesAuthoritativeHotelTenantWithoutNumericFallback(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/service/TransferDecisionService.php');
+
+        self::assertStringContainsString("Db::name('hotels')->where('id', \$hotelId)->value('tenant_id')", $source);
+        self::assertStringContainsString("'tenant_id' => \$tenantId", $source);
+        self::assertStringNotContainsString("'tenant_id' => \$hotelId", $source);
+    }
+
     public function testCalculateAssetPricingAddsFallbackAiEvaluation(): void
     {
         $service = new TransferDecisionService(new class extends LlmClient {

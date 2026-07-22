@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 const projectRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const migrationDirectory = join(projectRoot, 'database', 'migrations');
 const initializationPath = join(projectRoot, 'database', 'init_full.sql');
+const freshInitializerPath = join(projectRoot, 'scripts', 'init_database.php');
+const recoveryVerifierPath = join(projectRoot, 'scripts', 'verify_mysql_fresh_initializer_recovery.php');
 const workerPath = join(projectRoot, 'scripts', 'mysql_execution_intent_concurrency_worker.php');
 const loginWorkerPath = join(projectRoot, 'scripts', 'mysql_login_rate_limiter_concurrency_worker.php');
 const migrationRuns = 2;
@@ -37,9 +39,16 @@ if (!/^[a-zA-Z0-9_-]{1,64}$/.test(databaseName)) {
 }
 
 const initializationSql = readFileSync(initializationPath, 'utf8');
+const declaredSourcePaths = Array.from(
+  initializationSql.matchAll(/^SOURCE\s+(.+?);\s*$/gmi),
+  match => match[1].trim().replaceAll('\\', '/').replace(/^\.\//, ''),
+);
 const declaredMigrationFiles = Array.from(
   initializationSql.matchAll(/^SOURCE\s+\.\/database\/migrations\/([^;]+);\s*$/gmi),
   match => match[1],
+);
+const declaredBaselineSources = declaredSourcePaths.filter(
+  source => !source.startsWith('database/migrations/'),
 );
 const diskMigrationFiles = readdirSync(migrationDirectory)
   .filter(name => name.toLowerCase().endsWith('.sql'))
@@ -58,14 +67,20 @@ const trackedMigrationFiles = trackedMigrationResult.status === 0
 const declaredSet = new Set(declaredMigrationFiles);
 const diskSet = new Set(diskMigrationFiles);
 const missingDeclaredMigrations = declaredMigrationFiles.filter(name => !diskSet.has(name));
-const undeclaredTrackedMigrations = trackedMigrationFiles.filter(name => !declaredSet.has(name));
-if (missingDeclaredMigrations.length > 0 || undeclaredTrackedMigrations.length > 0) {
-  throw new Error('database/init_full.sql migration list does not match tracked database/migrations');
+const trackedMigrationsMissingFromDisk = trackedMigrationFiles.filter(name => !diskSet.has(name));
+if (missingDeclaredMigrations.length > 0) {
+  throw new Error(`database/init_full.sql references missing migrations: ${missingDeclaredMigrations.join(', ')}`);
 }
-const ignoredUntrackedMigrationFiles = diskMigrationFiles.filter(
-  name => !declaredSet.has(name) && !trackedMigrationFiles.includes(name),
+if (trackedMigrationsMissingFromDisk.length > 0) {
+  throw new Error(`Tracked migration files are missing from the working tree: ${trackedMigrationsMissingFromDisk.join(', ')}`);
+}
+// init_full.sql is a frozen baseline. Later catalog entries are intentionally
+// pending after the baseline and are applied by SchemaVersionService.
+const catalogPendingMigrationFiles = diskMigrationFiles.filter(name => !declaredSet.has(name));
+const workingTreeUntrackedMigrationFiles = diskMigrationFiles.filter(
+  name => !trackedMigrationFiles.includes(name),
 );
-const migrationPaths = declaredMigrationFiles.map(name => join(migrationDirectory, name));
+const migrationPaths = diskMigrationFiles.map(name => join(migrationDirectory, name));
 
 const mysqlBinary = process.env.MYSQL_BINARY || process.env.SUXI_MYSQL || 'mysql';
 const phpBinary = process.env.PHP_BINARY || 'php';
@@ -111,11 +126,233 @@ function runMysql({ database = '', input = '', label }) {
   return String(result.stdout || '').trim();
 }
 
+function runFreshInitializer() {
+  const result = spawnSync(phpBinary, [
+    freshInitializerPath,
+    `--host=${databaseHost}`,
+    `--port=${databasePort}`,
+    `--database=${databaseName}`,
+    `--user=${databaseUser}`,
+    '--charset=utf8mb4',
+  ], {
+    cwd: projectRoot,
+    env: {
+      ...process.env,
+      DB_TYPE: 'mysql',
+      DB_HOST: databaseHost,
+      DB_PORT: databasePort,
+      DB_USER: databaseUser,
+      DB_PASS: process.env.DB_PASS || '',
+      DB_NAME: databaseName,
+      DB_CHARSET: 'utf8mb4',
+    },
+    encoding: 'utf8',
+    maxBuffer: 8 * 1024 * 1024,
+    timeout: mysqlCommandTimeoutMs,
+    killSignal: 'SIGKILL',
+    windowsHide: true,
+  });
+  if (result.error) {
+    if (result.error.code === 'ETIMEDOUT') {
+      throw new Error(`scripts/init_database.php timed out after ${mysqlCommandTimeoutMs}ms`);
+    }
+    throw new Error(`scripts/init_database.php could not start: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    const detail = String(result.stderr || result.stdout || '').trim().slice(-4000);
+    throw new Error(`scripts/init_database.php failed${detail ? `: ${detail}` : ''}`);
+  }
+  return String(result.stdout || '').trim();
+}
+
+function runSchemaVersionService(label) {
+  const result = spawnSync(phpBinary, ['think', 'db:migrate'], {
+    cwd: projectRoot,
+    env: {
+      ...process.env,
+      APP_ENV: 'testing',
+      APP_DEBUG: '0',
+      DB_TYPE: 'mysql',
+      DB_HOST: databaseHost,
+      DB_PORT: databasePort,
+      DB_USER: databaseUser,
+      DB_PASS: process.env.DB_PASS || '',
+      DB_NAME: databaseName,
+      DB_CHARSET: 'utf8mb4',
+      SUXI_E2E_DB_OVERRIDE: '1',
+      SUXI_E2E_DB_NAME: databaseName,
+    },
+    encoding: 'utf8',
+    maxBuffer: 8 * 1024 * 1024,
+    timeout: mysqlCommandTimeoutMs,
+    killSignal: 'SIGKILL',
+    windowsHide: true,
+  });
+  if (result.error) {
+    throw new Error(`${label} could not start SchemaVersionService: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    const detail = String(result.stderr || result.stdout || '').trim().slice(-4000);
+    throw new Error(`${label} failed${detail ? `: ${detail}` : ''}`);
+  }
+  return String(result.stdout || '').trim();
+}
+
+function runFreshInitializerRecoveryVerifier() {
+  const result = spawnSync(phpBinary, [recoveryVerifierPath], {
+    cwd: projectRoot,
+    env: {
+      ...process.env,
+      DB_TYPE: 'mysql',
+      DB_HOST: databaseHost,
+      DB_PORT: databasePort,
+      DB_USER: databaseUser,
+      DB_PASS: process.env.DB_PASS || '',
+      DB_CHARSET: 'utf8mb4',
+      SUXI_CI_MYSQL_VERIFY: '1',
+    },
+    encoding: 'utf8',
+    maxBuffer: 8 * 1024 * 1024,
+    timeout: mysqlCommandTimeoutMs,
+    killSignal: 'SIGKILL',
+    windowsHide: true,
+  });
+  if (result.error) {
+    throw new Error(`fresh initializer recovery verifier could not start: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    const detail = String(result.stderr || result.stdout || '').trim().slice(-4000);
+    throw new Error(`fresh initializer recovery verifier failed${detail ? `: ${detail}` : ''}`);
+  }
+  const lines = String(result.stdout || '').trim().split(/\r?\n/).filter(Boolean);
+  const summary = JSON.parse(lines.at(-1) || '{}');
+  if (summary.ok !== true
+      || summary.failed_database_removed !== true
+      || summary.retry_registered !== summary.retry_required
+      || summary.temporary_databases_remaining !== 0
+  ) {
+    throw new Error(`fresh initializer recovery verifier returned an invalid result: ${JSON.stringify(summary)}`);
+  }
+  return summary;
+}
+
 function queryScalar(sql, label) {
   const output = runMysql({ database: databaseName, input: `${sql.trim()}\n`, label });
   const value = Number(output.split(/\s+/).filter(Boolean).at(-1));
   if (!Number.isFinite(value)) throw new Error(`${label} did not return a number`);
   return value;
+}
+
+function assertSchemaVersionCatalog(label) {
+  const output = runMysql({
+    database: databaseName,
+    input: 'SELECT migration, version, checksum, execution_kind FROM schema_versions ORDER BY migration;\n',
+    label: `${label} schema_versions rows`,
+  });
+  const rows = output === ''
+    ? []
+    : output.split(/\r?\n/).map(line => line.split('\t'));
+  const registered = new Map(rows.map(([migration, version, checksum, executionKind]) => [
+    migration,
+    { version, checksum, executionKind },
+  ]));
+  const expected = new Map(
+    diskMigrationFiles.map(migration => [migration, {
+      version: migration.slice(0, -4),
+      checksum: createHash('sha256')
+        .update(readFileSync(join(migrationDirectory, migration)))
+        .digest('hex'),
+    }]),
+  );
+  const missing = [...expected.keys()].filter(migration => !registered.has(migration));
+  const unexpected = [...registered.keys()].filter(migration => !expected.has(migration));
+  const mismatched = [...expected.entries()]
+    .filter(([migration, evidence]) => {
+      const stored = registered.get(migration);
+      return stored && (stored.version !== evidence.version
+        || stored.checksum !== evidence.checksum
+        || stored.executionKind !== 'executed');
+    })
+    .map(([migration]) => migration);
+  const executionTimeCount = queryScalar(
+    'SELECT COUNT(*) FROM schema_versions WHERE executed_at IS NOT NULL;',
+    `${label} schema_versions execution timestamps`,
+  );
+  if (rows.length !== expected.size
+      || missing.length > 0
+      || unexpected.length > 0
+      || mismatched.length > 0
+      || executionTimeCount !== expected.size
+  ) {
+    throw new Error(
+      `${label} schema version registry mismatch: registered=${rows.length}/${expected.size}, missing=${missing.join(',') || 'none'}, unexpected=${unexpected.join(',') || 'none'}, mismatched=${mismatched.join(',') || 'none'}, execution_times=${executionTimeCount}/${expected.size}`,
+    );
+  }
+  return rows.length;
+}
+
+function assertBaselineSourceCatalog(label) {
+  const output = runMysql({
+    database: databaseName,
+    input: 'SELECT source, checksum FROM schema_baseline_sources ORDER BY source;\n',
+    label: `${label} schema_baseline_sources rows`,
+  });
+  const rows = output === ''
+    ? []
+    : output.split(/\r?\n/).map(line => line.split('\t'));
+  const registered = new Map(rows.map(([source, checksum]) => [source, checksum]));
+  const expected = new Map(declaredBaselineSources.map(source => [
+    source,
+    createHash('sha256').update(readFileSync(join(projectRoot, source))).digest('hex'),
+  ]));
+  const missing = [...expected.keys()].filter(source => !registered.has(source));
+  const unexpected = [...registered.keys()].filter(source => !expected.has(source));
+  const mismatched = [...expected.entries()]
+    .filter(([source, checksum]) => registered.has(source) && registered.get(source) !== checksum)
+    .map(([source]) => source);
+  const timestampCount = queryScalar(
+    'SELECT COUNT(*) FROM schema_baseline_sources WHERE registered_at IS NOT NULL;',
+    `${label} baseline source timestamps`,
+  );
+  if (rows.length !== expected.size
+      || missing.length > 0
+      || unexpected.length > 0
+      || mismatched.length > 0
+      || timestampCount !== expected.size
+  ) {
+    throw new Error(
+      `${label} baseline registry mismatch: registered=${rows.length}/${expected.size}, missing=${missing.join(',') || 'none'}, unexpected=${unexpected.join(',') || 'none'}, mismatched=${mismatched.join(',') || 'none'}, timestamps=${timestampCount}/${expected.size}`,
+    );
+  }
+  return rows.length;
+}
+
+function assertNoUnresolvedMigrationFailures(label) {
+  const count = queryScalar(
+    'SELECT COUNT(*) FROM schema_migration_failures WHERE resolved_at IS NULL;',
+    `${label} unresolved migration failures`,
+  );
+  if (count !== 0) throw new Error(`${label} has ${count} unresolved migration failure(s)`);
+  return count;
+}
+
+function assertGovernedCompatibilityColumns(label) {
+  const columnCount = queryScalar(
+    `SELECT COUNT(*) FROM information_schema.columns
+      WHERE table_schema = '${databaseName}'
+        AND ((table_name = 'hotels' AND column_name = 'city')
+          OR (table_name = 'users' AND column_name = 'login_count'));`,
+    `${label} governed compatibility column count`,
+  );
+  if (columnCount !== 2) {
+    throw new Error(`${label} is missing hotels.city or users.login_count: columns=${columnCount}/2`);
+  }
+  runMysql({
+    database: databaseName,
+    input: 'SELECT `city` FROM `hotels` ORDER BY `id` LIMIT 1;\nSELECT `login_count` FROM `users` ORDER BY `id` LIMIT 1;\n',
+    label: `${label} governed compatibility column queries`,
+  });
+  return columnCount;
 }
 
 const expectedEnergyBenchmarkKeys = ['1:1', '2:1', '3:1'];
@@ -270,15 +507,9 @@ async function withTimeout(promise, timeoutMs, label) {
 }
 
 try {
-  for (const path of [initializationPath, workerPath, loginWorkerPath, ...migrationPaths]) {
+  for (const path of [initializationPath, freshInitializerPath, recoveryVerifierPath, workerPath, loginWorkerPath, ...migrationPaths]) {
     if (!existsSync(path)) throw new Error(`Required verifier input is missing: ${path}`);
   }
-
-  runMysql({
-    input: `CREATE DATABASE \`${databaseName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\n`,
-    label: 'create dedicated database',
-  });
-  databaseCreated = true;
 
   const serverVersion = runMysql({
     input: 'SELECT VERSION();\n',
@@ -287,12 +518,25 @@ try {
   if (!/mariadb/i.test(serverVersion)) {
     throw new Error(`Fresh database verifier requires the project MariaDB dialect, received ${serverVersion}`);
   }
+  const initializerRecovery = runFreshInitializerRecoveryVerifier();
 
-  runMysql({
-    database: databaseName,
-    input: readFileSync(initializationPath),
-    label: 'fresh init_full.sql import',
-  });
+  const existingDatabaseCount = Number(runMysql({
+    input: `SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = '${databaseName}';\n`,
+    label: 'dedicated database absence check',
+  }).split(/\s+/).filter(Boolean).at(-1));
+  if (!Number.isFinite(existingDatabaseCount) || existingDatabaseCount !== 0) {
+    throw new Error(`Dedicated database already exists and will not be overwritten: ${databaseName}`);
+  }
+
+  // Set this before invoking the initializer so a partial database creation is
+  // still cleaned up if initialization fails.
+  databaseCreated = true;
+  const initializerOutput = runFreshInitializer();
+  const schemaServiceOutputAfterInit = runSchemaVersionService('SchemaVersionService no-op after fresh initialization');
+  const schemaVersionsAfterInit = assertSchemaVersionCatalog('Fresh initialization');
+  const baselineSourcesAfterInit = assertBaselineSourceCatalog('Fresh initialization');
+  const unresolvedFailuresAfterInit = assertNoUnresolvedMigrationFailures('Fresh initialization');
+  const governedColumnsAfterInit = assertGovernedCompatibilityColumns('Fresh initialization');
 
   const tableCount = queryScalar(
     `SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '${databaseName}' AND table_type = 'BASE TABLE';`,
@@ -336,6 +580,11 @@ try {
       `Repeated migrations changed energy benchmark seed counts: before=${JSON.stringify(energyBenchmarkSeedCountsAfterInit)}, after=${JSON.stringify(energyBenchmarkSeedCountsAfterRepeats)}`,
     );
   }
+  const schemaServiceOutputAfterRepeats = runSchemaVersionService('SchemaVersionService no-op after repeated migrations');
+  const schemaVersionsAfterRepeats = assertSchemaVersionCatalog('Repeated migrations');
+  const baselineSourcesAfterRepeats = assertBaselineSourceCatalog('Repeated migrations');
+  const unresolvedFailuresAfterRepeats = assertNoUnresolvedMigrationFailures('Repeated migrations');
+  const governedColumnsAfterRepeats = assertGovernedCompatibilityColumns('Repeated migrations');
 
   const idempotencyColumnCount = queryScalar(
     `SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = '${databaseName}' AND table_name = 'operation_execution_intents' AND column_name = 'idempotency_key';`,
@@ -527,9 +776,30 @@ try {
     ok: true,
     engine: `${serverVersion} / MariaDB project dialect`,
     database: databaseName,
+    initializer: initializerOutput,
+    initializer_recovery: initializerRecovery,
+    schema_version_service_after_init: schemaServiceOutputAfterInit,
+    schema_version_service_after_repeats: schemaServiceOutputAfterRepeats,
     fresh_tables: tableCount,
+    baseline_migration_files: declaredMigrationFiles.length,
+    baseline_source_files: declaredBaselineSources.length,
+    catalog_pending_after_baseline: catalogPendingMigrationFiles.length,
     migration_files: migrationPaths.length,
-    ignored_untracked_migration_files: ignoredUntrackedMigrationFiles.length,
+    working_tree_untracked_migration_files: workingTreeUntrackedMigrationFiles.length,
+    schema_versions_registered_after_init: schemaVersionsAfterInit,
+    schema_versions_registered: schemaVersionsAfterRepeats,
+    schema_versions_required: diskMigrationFiles.length,
+    schema_version_checksums_verified: true,
+    schema_version_execution_kinds_verified: true,
+    baseline_sources_registered_after_init: baselineSourcesAfterInit,
+    baseline_sources_registered: baselineSourcesAfterRepeats,
+    baseline_sources_required: declaredBaselineSources.length,
+    baseline_source_checksums_verified: true,
+    unresolved_migration_failures_after_init: unresolvedFailuresAfterInit,
+    unresolved_migration_failures: unresolvedFailuresAfterRepeats,
+    governed_columns_after_init: governedColumnsAfterInit,
+    governed_columns_after_repeats: governedColumnsAfterRepeats,
+    governed_column_queries_ok: true,
     migration_runs: migrationRuns,
     migration_backfilled_rows: backfilledRows,
     energy_benchmark_seed_counts: energyBenchmarkSeedCountsAfterRepeats,

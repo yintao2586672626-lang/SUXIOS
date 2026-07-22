@@ -429,6 +429,17 @@ final class Phase3OperationEffectLoopService
         $taskStatus = (string)($execution['task_status'] ?? '');
         $intentId = (int)($execution['intent_id'] ?? 0);
         $taskId = (int)($execution['task_id'] ?? 0);
+        $evidenceTruth = is_array($execution['evidence_truth'] ?? null) ? $execution['evidence_truth'] : [];
+        $outcomeTruth = is_array($execution['outcome_truth'] ?? null) ? $execution['outcome_truth'] : [];
+        $truthContext = is_array($execution['truth_context'] ?? null) ? $execution['truth_context'] : [];
+        $evidenceCount = max(0, (int)($execution['execution_evidence_count'] ?? $evidenceTruth['evidence_count'] ?? 0));
+        $sourceVerified = $evidenceCount > 0
+            && ($evidenceTruth['source_verified'] ?? false) === true
+            && (string)($evidenceTruth['status'] ?? '') === 'verified';
+        $outcomeVerified = ($outcomeTruth['outcome_verified'] ?? false) === true;
+        $positiveOutcomeVerified = $outcomeVerified
+            && ($outcomeTruth['positive_outcome_verified'] ?? false) === true;
+        $truthContextStatus = (string)($truthContext['status'] ?? 'unverified');
         $missingCodes = [];
         if ($intentId <= 0) {
             $missingCodes[] = 'operation_execution_intent_missing';
@@ -439,15 +450,30 @@ final class Phase3OperationEffectLoopService
         if ($trackingStatus !== 'done' && $taskStatus !== 'executed') {
             $missingCodes[] = 'execution_not_completed';
         }
+        if ($taskStatus === 'executed' && $evidenceCount <= 0) {
+            $missingCodes[] = 'execution_evidence_missing';
+        }
+        if ($taskStatus === 'executed' && !$sourceVerified) {
+            $missingCodes[] = 'execution_evidence_source_unverified';
+        }
+        if ($taskStatus === 'executed' && !$outcomeVerified) {
+            $missingCodes[] = 'execution_outcome_unverified';
+        }
+        if ($taskStatus === 'executed' && !$positiveOutcomeVerified) {
+            $missingCodes[] = 'execution_positive_outcome_unverified';
+        }
 
         $status = 'execution_in_progress';
         $evidenceStatus = 'pending';
         if ($trackingStatus === 'skipped') {
             $status = 'skipped';
             $evidenceStatus = 'not_applicable';
-        } elseif ($taskStatus === 'executed') {
+        } elseif ($taskStatus === 'executed' && $sourceVerified) {
             $status = 'executed_evidence_recorded';
-            $evidenceStatus = 'recorded';
+            $evidenceStatus = 'source_verified';
+        } elseif ($taskStatus === 'executed') {
+            $status = 'executed_evidence_unverified';
+            $evidenceStatus = 'unverified';
         } elseif ($trackingStatus === 'done') {
             $status = 'done_without_execution_task';
             $evidenceStatus = 'missing';
@@ -462,6 +488,12 @@ final class Phase3OperationEffectLoopService
             'task_id' => $taskId,
             'task_status' => $taskStatus,
             'evidence_status' => $evidenceStatus,
+            'evidence_count' => $evidenceCount,
+            'source_verified' => $sourceVerified,
+            'outcome_status' => (string)($outcomeTruth['status'] ?? 'unverified'),
+            'outcome_verified' => $outcomeVerified,
+            'positive_outcome_verified' => $positiveOutcomeVerified,
+            'truth_context_status' => $truthContextStatus,
             'note' => $this->safeText((string)($tracked['note'] ?? '')),
             'updated_at' => (string)($tracked['updated_at'] ?? ''),
             'missing_codes' => array_values(array_unique($missingCodes)),
@@ -489,6 +521,21 @@ final class Phase3OperationEffectLoopService
             $reasonCodes[] = 'operator_review_missing';
         } elseif ($reviewStatus === 'observing') {
             $status = 'observing';
+        } elseif (in_array($reviewStatus, ['success', 'near_success'], true)
+            && ($executionEvidence['outcome_verified'] ?? false) !== true
+        ) {
+            $status = 'outcome_unverified';
+            $reasonCodes[] = 'execution_outcome_unverified';
+        } elseif (in_array($reviewStatus, ['success', 'near_success'], true)
+            && ($executionEvidence['positive_outcome_verified'] ?? false) !== true
+        ) {
+            $status = 'outcome_unverified';
+            $reasonCodes[] = 'execution_positive_outcome_unverified';
+        } elseif (in_array($reviewStatus, ['success', 'near_success'], true)
+            && (string)($executionEvidence['truth_context_status'] ?? '') !== 'verified'
+        ) {
+            $status = 'outcome_unverified';
+            $reasonCodes[] = 'execution_truth_context_unverified';
         } else {
             $status = 'reviewed';
         }
@@ -502,6 +549,9 @@ final class Phase3OperationEffectLoopService
             'result_status' => $reviewStatus,
             'result_summary' => $reviewSummary,
             'metric_window_status' => $metricStatus,
+            'outcome_status' => (string)($executionEvidence['outcome_status'] ?? 'unverified'),
+            'outcome_verified' => ($executionEvidence['outcome_verified'] ?? false) === true,
+            'positive_outcome_verified' => ($executionEvidence['positive_outcome_verified'] ?? false) === true,
             'metric_window' => [
                 'current' => is_array($metricWindow['current'] ?? null) ? $metricWindow['current'] : [],
                 'previous' => is_array($metricWindow['previous'] ?? null) ? $metricWindow['previous'] : [],
@@ -519,10 +569,27 @@ final class Phase3OperationEffectLoopService
         $ready = in_array((string)($effectReview['result_status'] ?? ''), ['success', 'near_success'], true)
             && (string)($effectReview['status'] ?? '') === 'reviewed'
             && (string)($executionEvidence['status'] ?? '') === 'executed_evidence_recorded'
+            && (int)($executionEvidence['evidence_count'] ?? 0) > 0
+            && ($executionEvidence['source_verified'] ?? false) === true
+            && ($executionEvidence['outcome_verified'] ?? false) === true
+            && ($executionEvidence['positive_outcome_verified'] ?? false) === true
+            && (string)($executionEvidence['truth_context_status'] ?? '') === 'verified'
             && (string)($effectReview['metric_window_status'] ?? '') === 'ready';
         $reasonCodes = [];
-        if ((string)($executionEvidence['status'] ?? '') !== 'executed_evidence_recorded') {
+        if ((int)($executionEvidence['evidence_count'] ?? 0) <= 0) {
             $reasonCodes[] = 'execution_evidence_missing';
+        }
+        if (($executionEvidence['source_verified'] ?? false) !== true) {
+            $reasonCodes[] = 'execution_evidence_source_unverified';
+        }
+        if (($executionEvidence['outcome_verified'] ?? false) !== true) {
+            $reasonCodes[] = 'execution_outcome_unverified';
+        }
+        if (($executionEvidence['positive_outcome_verified'] ?? false) !== true) {
+            $reasonCodes[] = 'execution_positive_outcome_unverified';
+        }
+        if ((string)($executionEvidence['truth_context_status'] ?? '') !== 'verified') {
+            $reasonCodes[] = 'execution_truth_context_unverified';
         }
         if (!in_array((string)($effectReview['result_status'] ?? ''), ['success', 'near_success'], true)) {
             $reasonCodes[] = 'effective_review_missing';
@@ -535,7 +602,7 @@ final class Phase3OperationEffectLoopService
             'status' => $ready ? 'candidate' : 'not_ready',
             'template_key' => $this->sopTemplateKey($action),
             'reason_codes' => array_values(array_unique($reasonCodes)),
-            'source_policy' => 'candidate_from_reviewed_patrol_action_only',
+            'source_policy' => 'candidate_from_source_verified_execution_and_verified_positive_outcome_only',
             'auto_publish_enabled' => false,
         ];
     }

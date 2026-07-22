@@ -223,8 +223,11 @@ final class CompetitorManualObservationService
         }
 
         $targetTenantId = (int)($target['tenant_id'] ?? 0);
+        if ($targetTenantId <= 0) {
+            throw new InvalidArgumentException('Competitor target tenant scope is missing');
+        }
         $record = [
-            'tenant_id' => $targetTenantId > 0 ? $targetTenantId : $systemHotelId,
+            'tenant_id' => $targetTenantId,
             'store_id' => $systemHotelId,
             'hotel_id' => $competitorHotelId,
             'ota_hotel_id' => $otaHotelId !== '' ? $otaHotelId : null,

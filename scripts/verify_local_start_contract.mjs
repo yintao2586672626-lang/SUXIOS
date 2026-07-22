@@ -29,6 +29,8 @@ if (!fs.existsSync(startupScriptPath)) {
     'Start-LocalMySql',
     'Wait-MySql',
     'Assert-DatabaseReady',
+    'Assert-DatabaseVersion',
+    'scripts\\check_database_version.php',
     'Start-ThinkPhp',
     'Test-StaticAsset',
     '/api/health',
@@ -43,8 +45,8 @@ if (!fs.existsSync(startupScriptPath)) {
     }
   }
 
-  if (!/Start-LocalMySql[\s\S]*Assert-DatabaseReady[\s\S]*Start-ThinkPhp/.test(script)) {
-    failures.push('startup script must start/verify MySQL before starting ThinkPHP');
+  if (!/Start-LocalMySql[\s\S]*Assert-DatabaseReady[\s\S]*Assert-DatabaseVersion[\s\S]*Start-ThinkPhp/.test(script)) {
+    failures.push('startup script must verify MySQL and database schema version before starting ThinkPHP');
   }
 
   if (/"think",\s*"run"|public\/index\.php|public\\index\.php/.test(script)) {

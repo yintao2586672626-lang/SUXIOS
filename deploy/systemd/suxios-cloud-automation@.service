@@ -1,0 +1,20 @@
+[Unit]
+Description=SUXIOS cloud automation (%i)
+After=network-online.target mariadb.service php8.3-fpm.service
+Wants=network-online.target
+ConditionPathExists=/var/www/suxios/current/think
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/suxios/current
+Environment=TZ=Asia/Shanghai
+EnvironmentFile=-/etc/suxios/cloud-automation.env
+ExecStart=/usr/bin/php -d memory_limit=384M think cloud-automation:run --mode=%i --limit=30 --max-attempts=10
+Nice=10
+CPUQuota=80%
+MemoryMax=512M
+TasksMax=32
+TimeoutStartSec=30min
+UMask=0027

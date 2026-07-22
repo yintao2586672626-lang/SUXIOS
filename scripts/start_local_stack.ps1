@@ -173,7 +173,7 @@ function Start-LocalMySql {
 function Assert-DatabaseReady {
     $schema = (Invoke-MySql "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='$DbName';" | Select-Object -First 1)
     if ($schema -ne $DbName) {
-        throw "Database '$DbName' was not found. Import database/init_full.sql first."
+        throw "Database '$DbName' was not found. Run php scripts/init_database.php first."
     }
 
     $coreTableSql = @"
@@ -184,10 +184,34 @@ WHERE TABLE_SCHEMA='$DbName'
 "@
     $coreTableCount = [int]((Invoke-MySql $coreTableSql | Select-Object -First 1) -as [int])
     if ($coreTableCount -ne 5) {
-        throw "Database '$DbName' is missing core tables. Re-import database/init_full.sql."
+        throw "Database '$DbName' is missing core tables. Initialize a fresh database with php scripts/init_database.php."
     }
 
     Write-Host "[OK] Database '$DbName' and core tables are ready"
+}
+
+function Assert-DatabaseVersion {
+    # Keep the version probe aligned with the explicit startup parameters and
+    # pass credentials through the child environment rather than command args.
+    $env:DB_TYPE = "mysql"
+    $env:DB_HOST = $DbHost
+    $env:DB_PORT = [string]$DbPort
+    $env:DB_NAME = $DbName
+    $env:DB_USER = $DbUser
+    $env:DB_PASS = $DbPass
+
+    $schemaArgs = $PhpRuntimeArgs + @("scripts\check_database_version.php")
+    $schemaOutput = & $PhpExe @schemaArgs 2>&1
+    $schemaExitCode = $LASTEXITCODE
+    foreach ($line in $schemaOutput) {
+        Write-Host $line
+    }
+    if ($schemaExitCode -ne 0) {
+        if ($schemaExitCode -eq 2) {
+            throw "Database schema upgrade required. Follow the command shown above before starting SUXIOS."
+        }
+        throw "Database schema check failed. Fix the connection or checker error shown above before starting SUXIOS."
+    }
 }
 
 function Invoke-OtaRetentionMaintenance {
@@ -283,6 +307,7 @@ if (-not (Test-Path (Join-Path $RepoRoot "think"))) {
 
 Start-LocalMySql
 Assert-DatabaseReady
+Assert-DatabaseVersion
 Invoke-OtaRetentionMaintenance
 Start-ThinkPhp
 

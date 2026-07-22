@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use app\model\Role;
 use app\model\User;
 use app\service\ProtectedCapabilityService;
 use PHPUnit\Framework\TestCase;
@@ -270,7 +271,7 @@ final class ProtectedCapabilityServiceTest extends TestCase
             'tenant_modules' => [
                 '999' => ['ai_decision'],
             ],
-        ], static fn(int $hotelId): int => $hotelId === 7 ? 71 : 0);
+        ]);
         $capability = $service->classifyPath('POST', '/api/agent/ota-diagnosis');
 
         self::assertIsArray($capability);
@@ -285,13 +286,13 @@ final class ProtectedCapabilityServiceTest extends TestCase
         self::assertSame(71, $authorization['tenant_id']);
     }
 
-    public function testTenantEntitlementIsResolvedFromSelectedHotel(): void
+    public function testTenantEntitlementIsResolvedFromAuthenticatedUser(): void
     {
         $service = new ProtectedCapabilityService([
             'tenant_modules' => [
                 '71' => ['ai_decision'],
             ],
-        ], static fn(int $hotelId): int => $hotelId === 7 ? 71 : 0);
+        ]);
         $capability = $service->classifyPath('POST', '/api/agent/ota-diagnosis');
 
         self::assertIsArray($capability);
@@ -309,7 +310,7 @@ final class ProtectedCapabilityServiceTest extends TestCase
     {
         $service = new ProtectedCapabilityService([
             'default_enabled_modules' => ['ai_decision'],
-        ], static fn(int $hotelId): int => $hotelId);
+        ]);
         $capability = $service->classifyPath('POST', '/api/agent/ota-diagnosis');
 
         self::assertIsArray($capability);
@@ -323,6 +324,19 @@ final class ProtectedCapabilityServiceTest extends TestCase
         self::assertSame('hotel_permission_denied', $authorization['reason']);
     }
 
+    public function testTenantAndHotelResolversRemainIndependent(): void
+    {
+        $service = new ProtectedCapabilityService();
+        $user = $this->userWithPermissions(['can_view_report']);
+
+        self::assertSame(71, $service->resolveTenantId($user));
+        self::assertSame(88, $service->resolveHotelId([
+            'tenant_id' => 999,
+            'system_hotel_id' => 88,
+            'hotel_id' => 7,
+        ], $user));
+    }
+
     /**
      * @param array<int, string> $permissions
      */
@@ -332,23 +346,17 @@ final class ProtectedCapabilityServiceTest extends TestCase
         bool $hotelPermissionAllowed = true
     ): User
     {
-        $role = new class($permissions) {
-            /** @var array<int, string> */
-            private array $permissions;
-
-            /**
-             * @param array<int, string> $permissions
-             */
-            public function __construct(array $permissions)
-            {
-                $this->permissions = $permissions;
-            }
-
-            public function hasPermission(string $permission): bool
-            {
-                return in_array('all', $this->permissions, true) || in_array($permission, $this->permissions, true);
-            }
-        };
+        $role = $this->getMockBuilder(Role::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['getPermissionList', '__get', '__isset'])
+            ->getMock();
+        $role->method('getPermissionList')->willReturn($permissions);
+        $role->method('__isset')->willReturnCallback(
+            static fn(string $key): bool => $key === 'status'
+        );
+        $role->method('__get')->willReturnCallback(
+            static fn(string $key) => $key === 'status' ? Role::STATUS_ENABLED : null
+        );
 
         $user = $this->getMockBuilder(User::class)
             ->disableOriginalConstructor()
@@ -368,7 +376,7 @@ final class ProtectedCapabilityServiceTest extends TestCase
             static function (string $key) use ($role) {
                 return match ($key) {
                     'id' => 42,
-                    'tenant_id' => 7,
+                    'tenant_id' => 71,
                     'hotel_id' => 7,
                     'role' => $role,
                     default => null,

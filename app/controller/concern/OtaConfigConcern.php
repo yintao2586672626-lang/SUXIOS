@@ -1951,23 +1951,6 @@ trait OtaConfigConcern
         return $this->isOtaConfigVisibleToUser($item, $this->currentUser, $permittedHotelIdSet);
     }
 
-    private function currentUserHasOtaConfigMaintenanceCapability(): bool
-    {
-        $user = $this->currentUser ?? null;
-        if (!$user || !isset($user->id) || !$user->id) {
-            return false;
-        }
-
-        if (method_exists($user, 'isSuperAdmin') && $user->isSuperAdmin()) {
-            return true;
-        }
-
-        $canManageOwnHotels = method_exists($user, 'canManageOwnHotels') && $user->canManageOwnHotels();
-        $canFetchOnlineData = method_exists($user, 'hasPermission') && $user->hasPermission('can_fetch_online_data');
-
-        return $canManageOwnHotels || $canFetchOnlineData;
-    }
-
     private function currentUserCanMaintainOtaConfig(?int $hotelId = null): bool
     {
         $user = $this->currentUser ?? null;
@@ -1975,22 +1958,17 @@ trait OtaConfigConcern
             return false;
         }
 
-        if (method_exists($user, 'isSuperAdmin') && $user->isSuperAdmin()) {
-            return true;
-        }
-
-        $canManageOwnHotels = method_exists($user, 'canManageOwnHotels') && $user->canManageOwnHotels();
-        $canFetchOnlineData = method_exists($user, 'hasPermission') && $user->hasPermission('can_fetch_online_data');
-        if (!$canManageOwnHotels && !$canFetchOnlineData) {
-            return false;
-        }
-
         if ($hotelId === null || $hotelId <= 0) {
             return false;
         }
 
-        $permittedHotelIdSet = $this->getPermittedHotelIdSetForUser($user);
-        return isset($permittedHotelIdSet[(string)$hotelId]);
+        if (method_exists($user, 'isSuperAdmin') && $user->isSuperAdmin()) {
+            return method_exists($user, 'hasHotelPermission')
+                && $user->hasHotelPermission($hotelId, 'can_fetch_online_data');
+        }
+
+        return method_exists($user, 'hasHotelPermission')
+            && $user->hasHotelPermission($hotelId, 'can_fetch_online_data');
     }
 
     private function isOtaConfigOwnedByCurrentUser(array $item): bool
@@ -2138,14 +2116,6 @@ trait OtaConfigConcern
         if ($this->otaConfigHasHotelBindingConflict($item)) {
             return false;
         }
-        if (!$this->currentUserHasOtaConfigMaintenanceCapability()) {
-            return false;
-        }
-
-        if ($this->currentUser && method_exists($this->currentUser, 'isSuperAdmin') && $this->currentUser->isSuperAdmin()) {
-            return true;
-        }
-
         $existingHotelId = $this->otaConfigBoundSystemHotelId($item);
         if ($existingHotelId !== null) {
             if ($targetHotelId !== null && $targetHotelId !== $existingHotelId) {
@@ -2192,11 +2162,12 @@ trait OtaConfigConcern
 
         $permittedHotelIdSet = $permittedHotelIdSet ?? $this->getPermittedHotelIdSetForUser($user);
         $systemHotelId = $this->otaConfigBoundSystemHotelId($item);
-        if ($systemHotelId !== null && isset($permittedHotelIdSet[(string)$systemHotelId])) {
-            return true;
+        if ($systemHotelId === null || !isset($permittedHotelIdSet[(string)$systemHotelId])) {
+            return false;
         }
 
-        return false;
+        return method_exists($user, 'hasHotelPermission')
+            && $user->hasHotelPermission($systemHotelId, 'can_view_online_data');
     }
 
     private function getPermittedHotelIdSetForUser($user): array

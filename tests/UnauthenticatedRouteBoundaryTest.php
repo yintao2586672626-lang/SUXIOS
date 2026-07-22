@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use app\middleware\DatabaseSchemaGuard;
 use PHPUnit\Framework\TestCase;
 use think\App;
 use think\Request;
@@ -41,6 +42,11 @@ final class UnauthenticatedRouteBoundaryTest extends TestCase
             ['POST', '/api/strategy/simulate', '{}'],
             ['POST', '/api/knowledge/distillation/run', '{"mode":"invalid"}'],
             ['GET', '/api/system-config?scope=public', ''],
+            ['POST', '/api/online-data/fetch-ctrip', '{}'],
+            ['POST', '/api/online-data/fetch-meituan', '{}'],
+            ['GET', '/api/online-data/cookies-list', ''],
+            ['GET', '/api/online-data/platform-profile-status', ''],
+            ['GET', '/api/online-data/collection-status', ''],
         ];
 
         foreach ($cases as [$method, $path, $body]) {
@@ -81,8 +87,14 @@ final class UnauthenticatedRouteBoundaryTest extends TestCase
             $request->withInput($body);
         }
 
+        $app = new App(dirname(__DIR__));
+        $app->instance(
+            DatabaseSchemaGuard::class,
+            new DatabaseSchemaGuard(static fn(): array => ['ready' => true])
+        );
+
         try {
-            return (new App(dirname(__DIR__)))->http->run($request);
+            return $app->http->run($request);
         } finally {
             restore_error_handler();
             restore_exception_handler();

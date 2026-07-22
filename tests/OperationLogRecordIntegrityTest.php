@@ -69,7 +69,7 @@ final class OperationLogRecordIntegrityTest extends TestCase
         Db::name('users')->insert(['id' => 7, 'tenant_id' => 42, 'hotel_id' => 118]);
     }
 
-    public function testPersistenceBoundaryRedactsSecretsAndUsesTrustedHotelTenant(): void
+    public function testPersistenceBoundaryRedactsSecretsAndMakesConflictingTenantGlobal(): void
     {
         $log = OperationLog::record(
             'online_data',
@@ -88,7 +88,7 @@ final class OperationLogRecordIntegrityTest extends TestCase
 
         $row = Db::name('operation_logs')->where('id', (int)$log->id)->find();
         self::assertIsArray($row);
-        self::assertSame(42, (int)$row['tenant_id']);
+        self::assertSame(0, (int)$row['tenant_id']);
         self::assertSame(118, (int)$row['hotel_id']);
         self::assertSame(7, (int)$row['user_id']);
 
@@ -108,7 +108,25 @@ final class OperationLogRecordIntegrityTest extends TestCase
         self::assertSame(1, $extra['audit_schema_version'] ?? null);
         self::assertSame('failed', $extra['outcome'] ?? null);
         self::assertSame(7, $extra['actor_user_id'] ?? null);
-        self::assertSame(42, $extra['tenant_id'] ?? null);
+        self::assertNull($extra['tenant_id'] ?? null);
         self::assertSame(118, $extra['hotel_id'] ?? null);
+    }
+
+    public function testOrdinarySameTenantAuditRemainsTenantBound(): void
+    {
+        $log = OperationLog::record(
+            'online_data',
+            'read',
+            'same tenant audit',
+            7,
+            118,
+            null,
+            ['tenant_id' => 42]
+        );
+
+        $row = Db::name('operation_logs')->where('id', (int)$log->id)->find();
+        self::assertIsArray($row);
+        self::assertSame(42, (int)$row['tenant_id']);
+        self::assertSame(118, (int)$row['hotel_id']);
     }
 }

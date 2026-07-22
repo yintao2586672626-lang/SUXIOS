@@ -4112,16 +4112,40 @@ trait AutoFetchConcern
         $hasIncompleteDueRun = false;
 
         // 获取所有酒店
-        $hotels = Db::name('hotels')->where('status', 1)->select()->toArray();
+        $hotels = Db::name('hotels')
+            ->field('id,tenant_id,name,status')
+            ->where('status', 1)
+            ->select()
+            ->toArray();
 
         foreach ($hotels as $hotel) {
-            $hotelId = $hotel['id'];
+            $hotelId = (int)($hotel['id'] ?? 0);
+            $tenantId = (int)($hotel['tenant_id'] ?? 0);
+            if ($hotelId <= 0 || $tenantId <= 0) {
+                $hasIncompleteDueRun = true;
+                $results[] = [
+                    'hotel_id' => $hotelId,
+                    'hotel_name' => (string)($hotel['name'] ?? ''),
+                    'status' => 'tenant_scope_invalid',
+                    'message' => 'scheduled_collection_tenant_scope_invalid',
+                ];
+                continue;
+            }
+
+            \app\model\Hotel::runInTenantScope($tenantId, function () use (
+                $hotel,
+                $hotelId,
+                $now,
+                $schedulePolicy,
+                &$results,
+                &$hasIncompleteDueRun
+            ): void {
             $statusKey = "online_data_auto_fetch_status_{$hotelId}";
             $status = cache($statusKey) ?: [];
 
             // 检查是否开启
             if (empty($status['enabled'])) {
-                continue;
+                return;
             }
 
             $status = $this->normalizeAutoFetchScheduleStatus($status);
@@ -4140,7 +4164,7 @@ trait AutoFetchConcern
             $retryDelayMinutes = $schedulePolicy->normalizeDelayMinutes($status['retry_delay_minutes'] ?? 5);
             $dueRuns = $schedulePolicy->dueRuns((int)$hotelId, $status, $now);
             if (empty($dueRuns)) {
-                continue;
+                return;
             }
 
             $lockKey = "online_data_profile_lock_{$hotelId}";
@@ -4250,6 +4274,7 @@ trait AutoFetchConcern
                     \think\facade\Cache::delete($lockKey);
                 }
             }
+            });
         }
 
         $responseCode = $hasIncompleteDueRun ? 503 : 200;

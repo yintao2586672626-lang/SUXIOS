@@ -3455,6 +3455,12 @@
                                     <button @click="loadAiDailyReport" :disabled="operationLoading.aiDailyReport || aiDailyReportGenerationTaskPolling" class="px-3 py-2 rounded-lg border border-white/15 bg-white/10 text-sm text-white hover:bg-white/15 disabled:opacity-60">
                                         <i class="fas fa-sync-alt mr-2" :class="{ 'fa-spin': operationLoading.aiDailyReport &amp;&amp; !aiDailyReportGenerationTaskPolling }"></i>刷新
                                     </button>
+                                    <button v-if="user?.is_super_admin" @click="currentPage = 'data-config'" class="px-3 py-2 rounded-lg border border-white/15 bg-white/10 text-sm text-white hover:bg-white/15">
+                                        <i class="fas fa-cog mr-2"></i>企业微信配置
+                                    </button>
+                                    <button v-if="user?.is_super_admin &amp;&amp; aiDailyReport" @click="sendAiDailyReportToWecom" :disabled="aiDailyReportWecomSending" data-testid="ai-daily-report-send-wecom" class="px-3 py-2 rounded-lg border border-emerald-300/40 bg-emerald-500/20 text-sm text-emerald-50 hover:bg-emerald-500/30 disabled:opacity-60">
+                                        <i :class="aiDailyReportWecomSending ? 'fas fa-spinner fa-spin' : 'fas fa-paper-plane'" class="mr-2"></i>{{ aiDailyReportWecomSending ? '发送中' : '发送到企业微信' }}
+                                    </button>
                                     <button @click="currentPage = 'ops-track'; loadOperationActions()" class="px-3 py-2 rounded-lg bg-white text-sm text-slate-900 hover:bg-slate-100">
                                         <i class="fas fa-play-circle mr-2"></i>查看跟进
                                     </button>
@@ -14705,6 +14711,105 @@
                         </div>
 
                         <competitor-device-management v-if="user && user.is_super_admin" :ctx="$root"></competitor-device-management>
+
+                        <section v-if="user &amp;&amp; user.is_super_admin" data-testid="wecom-robot-management" class="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                            <div class="flex flex-col gap-4 border-b border-slate-200 p-5 lg:flex-row lg:items-center lg:justify-between">
+                                <div>
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <h3 class="font-semibold text-slate-900">企业微信通知</h3>
+                                        <span class="rounded-full bg-emerald-50 px-2 py-1 text-xs text-emerald-700">当前列表 {{ competitorRobots.length }} 个机器人</span>
+                                    </div>
+                                    <p class="mt-1 text-sm leading-6 text-slate-500">按门店安全保存群机器人 Webhook；支持测试消息和 AI经营日报手动发送。第一版不自动定时推送。</p>
+                                </div>
+                                <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                    <select v-model="competitorRobotFilter.store_id" @change="loadCompetitorRobots" class="min-w-[180px] rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                                        <option value="">全部门店</option>
+                                        <option v-for="store in competitorStores" :key="store.id" :value="store.id">{{ store.name }}</option>
+                                    </select>
+                                    <button type="button" @click="loadCompetitorRobots" :disabled="competitorRobotsLoading" class="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                                        <i :class="competitorRobotsLoading ? 'fas fa-spinner fa-spin' : 'fas fa-sync-alt'" class="mr-2"></i>{{ competitorRobotsLoading ? '刷新中' : '刷新' }}
+                                    </button>
+                                    <button type="button" @click="openCompetitorRobotModal()" class="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800">
+                                        <i class="fas fa-plus mr-2"></i>绑定群机器人
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="p-5">
+                                <div v-if="competitorRobotsError" data-testid="wecom-robot-error" class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                                    <div class="font-medium">{{ competitorRobotsError }}</div>
+                                    <button type="button" @click="loadCompetitorRobots" class="mt-2 underline">重新加载</button>
+                                </div>
+                                <div v-if="competitorRobotsLoading &amp;&amp; !competitorRobots.length" class="py-10 text-center text-sm text-slate-500">正在读取企业微信机器人配置</div>
+                                <div v-else-if="!competitorRobots.length" data-testid="wecom-robot-binding-missing" class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-5 text-sm text-amber-800">
+                                    <div class="font-medium">binding_missing：当前筛选范围没有企业微信机器人</div>
+                                    <p class="mt-1">请在企业微信群添加群机器人并复制 Webhook，再在这里按门店绑定；未完成真实测试发送前不标记为已联通。</p>
+                                </div>
+                                <div v-else class="overflow-x-auto">
+                                    <table class="min-w-full text-sm">
+                                        <thead class="bg-slate-50 text-slate-500">
+                                            <tr>
+                                                <th class="px-3 py-2 text-left font-medium">门店</th>
+                                                <th class="px-3 py-2 text-left font-medium">机器人</th>
+                                                <th class="px-3 py-2 text-left font-medium">Webhook</th>
+                                                <th class="px-3 py-2 text-left font-medium">状态</th>
+                                                <th class="px-3 py-2 text-right font-medium">操作</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-slate-100">
+                                            <tr v-for="item in competitorRobots" :key="item.id">
+                                                <td class="px-3 py-3 text-slate-800">{{ getCompetitorStoreName(item.store_id) }}</td>
+                                                <td class="px-3 py-3 font-medium text-slate-900">{{ item.name }}</td>
+                                                <td class="px-3 py-3 font-mono text-xs text-slate-500">{{ item.webhook_masked || '未配置' }}</td>
+                                                <td class="px-3 py-3">
+                                                    <span :class="Number(item.status) === 1 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'" class="inline-flex rounded-full px-2 py-1 text-xs">{{ Number(item.status) === 1 ? '启用' : '停用' }}</span>
+                                                </td>
+                                                <td class="whitespace-nowrap px-3 py-3 text-right">
+                                                    <button type="button" @click="openCompetitorRobotModal(item)" :disabled="competitorRobotActionId !== 0" class="rounded px-2 py-1 text-xs text-blue-700 hover:bg-blue-50 disabled:opacity-50">编辑</button>
+                                                    <button type="button" @click="testCompetitorRobot(item.store_id)" :disabled="competitorRobotActionId !== 0 || Number(item.status) !== 1" class="ml-1 rounded px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-50 disabled:opacity-50">测试门店群</button>
+                                                    <button type="button" @click="deleteCompetitorRobot(item)" :disabled="competitorRobotActionId !== 0" class="ml-1 rounded px-2 py-1 text-xs text-red-700 hover:bg-red-50 disabled:opacity-50">删除</button>
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </section>
+
+                        <div v-if="showCompetitorRobotModal &amp;&amp; user &amp;&amp; user.is_super_admin" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40 p-4" data-testid="wecom-robot-modal">
+                            <form @submit.prevent="saveCompetitorRobot" class="w-full max-w-2xl overflow-hidden rounded-xl bg-white shadow-2xl">
+                                <div class="flex items-start justify-between border-b border-slate-200 p-5">
+                                    <div>
+                                        <h3 class="font-semibold text-slate-900">{{ competitorRobotForm.id ? '编辑企业微信机器人' : '绑定企业微信机器人' }}</h3>
+                                        <p class="mt-1 text-xs text-slate-500">Webhook 加密保存，保存后页面只回显掩码。</p>
+                                    </div>
+                                    <button type="button" @click="closeCompetitorRobotModal" :disabled="competitorRobotSaving" class="text-sm text-slate-500 disabled:opacity-50">关闭</button>
+                                </div>
+                                <div class="grid grid-cols-1 gap-4 p-5 md:grid-cols-2">
+                                    <label class="text-sm text-slate-700">门店
+                                        <select v-model="competitorRobotForm.store_id" required class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2">
+                                            <option value="" disabled>请选择门店</option>
+                                            <option v-for="store in competitorStores" :key="store.id" :value="store.id">{{ store.name }}</option>
+                                        </select>
+                                    </label>
+                                    <label class="text-sm text-slate-700">机器人名称
+                                        <input v-model.trim="competitorRobotForm.name" required maxlength="120" placeholder="例如：西安天诚经营群" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2">
+                                    </label>
+                                    <label class="text-sm text-slate-700 md:col-span-2">企业微信群机器人 Webhook
+                                        <input v-model.trim="competitorRobotForm.webhook" :required="!competitorRobotForm.id" type="url" autocomplete="off" :placeholder="competitorRobotForm.webhook_placeholder || 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...'" class="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-sm">
+                                        <span class="mt-1 block text-xs text-slate-500">编辑时留空会保留原 Webhook；系统不会把完整 key 回显到页面。</span>
+                                    </label>
+                                    <label class="flex items-center gap-2 text-sm text-slate-700 md:col-span-2">
+                                        <input v-model.number="competitorRobotForm.status" :true-value="1" :false-value="0" type="checkbox" class="rounded border-slate-300 text-emerald-600">
+                                        <span>启用这个机器人</span>
+                                    </label>
+                                </div>
+                                <div class="flex justify-end gap-2 border-t border-slate-200 p-5">
+                                    <button type="button" @click="closeCompetitorRobotModal" :disabled="competitorRobotSaving" class="rounded-lg border border-slate-200 px-4 py-2 text-sm disabled:opacity-50">取消</button>
+                                    <button type="submit" :disabled="competitorRobotSaving" class="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50">{{ competitorRobotSaving ? '正在保存' : '保存绑定' }}</button>
+                                </div>
+                            </form>
+                        </div>
                     </div>
 
                     <!-- 线上数据获取 -->

@@ -65,6 +65,17 @@ final class CompetitorManualObservationServiceTest extends TestCase
         self::assertSame('', $normalized['record']['comparison_key']);
     }
 
+    public function testMissingTenantDoesNotFallbackToStoreId(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('tenant scope is missing');
+
+        CompetitorManualObservationService::normalizePublicObservation(
+            $this->target(['tenant_id' => 0, 'store_id' => 80]),
+            $this->input()
+        );
+    }
+
     public function testBookableObservationRejectsMissingPrice(): void
     {
         $this->expectException(InvalidArgumentException::class);

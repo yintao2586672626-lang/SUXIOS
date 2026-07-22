@@ -79,6 +79,23 @@ final class ExpansionExecutionIntentIdempotencyTest extends TestCase
         self::assertSame('expansion:v1:19', $row['idempotency_key']);
     }
 
+    public function testTrustedPriceSuggestionIntentCreationReplaysTheExistingIntent(): void
+    {
+        $service = new OperationManagementService();
+        $input = $this->priceSuggestionInput(88, 7);
+
+        $first = $service->createExecutionIntent([7], 7, $input, 3, false, null, true);
+        $second = $service->createExecutionIntent([7], 7, $input, 3, false, null, true);
+
+        self::assertSame($first['id'], $second['id']);
+        self::assertTrue($second['idempotent_replay']);
+        self::assertSame(1, (int)Db::name('operation_execution_intents')->count());
+        self::assertSame(
+            'price_suggestion:v1:88',
+            Db::name('operation_execution_intents')->value('idempotency_key')
+        );
+    }
+
     public function testDifferentRecordGetsANewKeyButDifferentHotelCannotRelinkTheRecord(): void
     {
         $service = new OperationManagementService();
@@ -289,6 +306,7 @@ final class ExpansionExecutionIntentIdempotencyTest extends TestCase
     public function testSchemaAndControllerExposeTheConcurrencyContract(): void
     {
         $migration = file_get_contents(__DIR__ . '/../database/migrations/20260716_add_execution_intent_idempotency_key.sql');
+        $priceSuggestionMigration = file_get_contents(__DIR__ . '/../database/migrations/20260722_backfill_price_suggestion_intent_idempotency.sql');
         $baseSchema = file_get_contents(__DIR__ . '/../database/migrations/20260526_create_operation_execution_loop_tables.sql');
         $initSchema = file_get_contents(__DIR__ . '/../database/init_full.sql');
         $controller = file_get_contents(__DIR__ . '/../app/controller/Expansion.php');
@@ -298,6 +316,10 @@ final class ExpansionExecutionIntentIdempotencyTest extends TestCase
         self::assertStringContainsString('ADD COLUMN IF NOT EXISTS `idempotency_key`', $migration);
         self::assertStringContainsString("CONCAT('expansion:v1:', `source_record_id`)", $migration);
         self::assertStringContainsString('ADD UNIQUE INDEX IF NOT EXISTS `uniq_operation_exec_intent_idempotency`', $migration);
+        self::assertIsString($priceSuggestionMigration);
+        self::assertStringContainsString("CONCAT('price_suggestion:v1:', `canonical`.`source_record_id`)", $priceSuggestionMigration);
+        self::assertStringContainsString('MIN(`id`) AS `canonical_id`', $priceSuggestionMigration);
+        self::assertStringContainsString('`existing`.`id` IS NULL', $priceSuggestionMigration);
         self::assertIsString($baseSchema);
         self::assertStringContainsString('`idempotency_key` VARCHAR(191)', $baseSchema);
         self::assertStringContainsString('UNIQUE KEY `uniq_operation_exec_intent_idempotency`', $baseSchema);
@@ -420,6 +442,34 @@ final class ExpansionExecutionIntentIdempotencyTest extends TestCase
             ],
             'expected_metric' => 'expansion_project_closure',
             'expected_delta' => 0,
+            'risk_level' => 'medium',
+            'status' => 'pending_approval',
+        ];
+    }
+
+    private function priceSuggestionInput(int $recordId, int $hotelId): array
+    {
+        return [
+            'source_module' => 'price_suggestion',
+            'source_record_id' => $recordId,
+            'hotel_id' => $hotelId,
+            'platform' => 'ctrip',
+            'object_type' => 'price',
+            'action_type' => 'price_adjust',
+            'date_start' => '2026-07-22',
+            'date_end' => '2026-07-22',
+            'current_value' => ['current_price' => 300],
+            'target_value' => [
+                'target_price' => 320,
+                'room_type_key' => 'deluxe-king',
+                'rate_plan_key' => 'standard',
+            ],
+            'evidence' => [
+                'manual_review' => ['action' => 'approve'],
+                'metric_scope' => 'ota_channel',
+            ],
+            'expected_metric' => 'orders',
+            'expected_delta' => 1,
             'risk_level' => 'medium',
             'status' => 'pending_approval',
         ];

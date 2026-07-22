@@ -186,7 +186,10 @@ function applyMetricResult(result, metricResult) {
 function buildValidationResult(args) {
   const mappingResult = validateSourceMappingCompleteness(SOURCE_FIELD_MAPPINGS);
   const parserResult = validateSourceParserContracts({
-    controllerPath: 'app/controller/OnlineData.php',
+    controllerPaths: [
+      'app/service/Ota/OtaActionHandler.php',
+      'app/controller/concern/BusinessDisplayConcern.php',
+    ],
     commandPath: 'app/command/AutoFetchOnlineData.php',
   });
   const result = {

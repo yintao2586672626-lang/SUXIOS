@@ -1,6 +1,9 @@
 -- SuXi OS full database initialization entry.
 -- Run from the HOTEL project root:
 -- mysql -u root hotelx < database/init_full.sql
+-- FROZEN BASELINE through 20260719: do not append new migrations here.
+-- Use scripts/init_database.php for a fresh database and db:migrate for upgrades;
+-- both discover database/migrations/*.sql automatically.
 
 SET NAMES utf8mb4;
 SET time_zone = '+08:00';

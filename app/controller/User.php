@@ -9,6 +9,7 @@ use app\model\Role;
 use app\model\OperationLog;
 use app\service\PermissionService;
 use app\service\BatchStatusPreviewService;
+use think\db\BaseQuery;
 use think\Response;
 use think\facade\Db;
 
@@ -240,10 +241,9 @@ class User extends Base
             }
 
             $tenantContext = $this->resolveHotelTenantContext($nextHotelIds);
-            if (!empty($tenantContext['invalid_hotel_ids'])) {
-                return $this->error('酒店租户归属无效: ' . implode(',', $tenantContext['invalid_hotel_ids']), 422, [
-                    'user_id' => $userId,
-                ]);
+            $tenantContextError = $this->validateResolvedHotelTenantContext($tenantContext, $userId);
+            if ($tenantContextError !== null) {
+                return $tenantContextError;
             }
             if (
                 empty($nextHotelIds)
@@ -432,9 +432,11 @@ class User extends Base
         }
 
         $tenantContext = $this->resolveHotelTenantContext($hotelIds);
-        if (!empty($tenantContext['invalid_hotel_ids'])) {
-            return $this->error('酒店租户归属无效: ' . implode(',', $tenantContext['invalid_hotel_ids']), 422);
+        $tenantContextError = $this->validateResolvedHotelTenantContext($tenantContext);
+        if ($tenantContextError !== null) {
+            return $tenantContextError;
         }
+        $this->assertTenantAssignmentSchemaReady();
         $hotelTenantIds = $tenantContext['tenant_ids'];
 
         $user = new UserModel();
@@ -452,9 +454,8 @@ class User extends Base
         Db::transaction(function () use ($user, $hotelIds, $targetRole, $hotelTenantIds): void {
             $user->save();
             $this->syncUserHotelPermissions($user, $hotelIds, $targetRole, $hotelTenantIds);
+            OperationLog::record('user', 'create', '创建用户: ' . $user->username, $this->currentUser->id);
         });
-
-        OperationLog::record('user', 'create', '创建用户: ' . $user->username, $this->currentUser->id);
 
         $savedUser = UserModel::with(['role', 'hotel'])->find((int)$user->id);
         return $this->success($this->appendUserHotelScope($savedUser ?: $user), '创建成功');
@@ -568,8 +569,9 @@ class User extends Base
         $hotelTenantIds = [];
         if ($syncHotelIds !== null) {
             $tenantContext = $this->resolveHotelTenantContext($syncHotelIds);
-            if (!empty($tenantContext['invalid_hotel_ids'])) {
-                return $this->error('酒店租户归属无效: ' . implode(',', $tenantContext['invalid_hotel_ids']), 422);
+            $tenantContextError = $this->validateResolvedHotelTenantContext($tenantContext);
+            if ($tenantContextError !== null) {
+                return $tenantContextError;
             }
             $hotelTenantIds = $tenantContext['tenant_ids'];
 
@@ -800,7 +802,7 @@ class User extends Base
             return null;
         }
 
-        $enabledHotelIds = array_values(array_map('intval', HotelModel::where('status', HotelModel::STATUS_ENABLED)
+        $enabledHotelIds = array_values(array_map('intval', $this->hotelQuery()->where('status', HotelModel::STATUS_ENABLED)
             ->whereIn('id', $hotelIds)
             ->column('id')));
         $missingHotelIds = array_values(array_diff($hotelIds, $enabledHotelIds));
@@ -832,7 +834,7 @@ class User extends Base
             return ['tenant_ids' => [], 'invalid_hotel_ids' => $hotelIds];
         }
 
-        $rows = HotelModel::whereIn('id', $hotelIds)
+        $rows = $this->hotelQuery()->whereIn('id', $hotelIds)
             ->field('id,tenant_id')
             ->select()
             ->toArray();
@@ -849,6 +851,40 @@ class User extends Base
             'tenant_ids' => $tenantIds,
             'invalid_hotel_ids' => array_values(array_diff($hotelIds, array_keys($tenantIds))),
         ];
+    }
+
+    /**
+     * @param array{tenant_ids: array<int, int>, invalid_hotel_ids: array<int, int>} $tenantContext
+     */
+    private function validateResolvedHotelTenantContext(array $tenantContext, ?int $userId = null): ?Response
+    {
+        if (!empty($tenantContext['invalid_hotel_ids'])) {
+            $details = ['invalid_hotel_ids' => $tenantContext['invalid_hotel_ids']];
+            if ($userId !== null && $userId > 0) {
+                $details['user_id'] = $userId;
+            }
+
+            return $this->error(
+                '酒店租户归属无效: ' . implode(',', $tenantContext['invalid_hotel_ids']),
+                422,
+                $details
+            );
+        }
+
+        $tenantIds = array_values(array_unique(array_filter(
+            array_map('intval', $tenantContext['tenant_ids']),
+            static fn(int $tenantId): bool => $tenantId > 0
+        )));
+        if (count($tenantIds) > 1) {
+            $details = ['tenant_ids' => $tenantIds];
+            if ($userId !== null && $userId > 0) {
+                $details['user_id'] = $userId;
+            }
+
+            return $this->error('同一用户不能分配不同租户的酒店', 422, $details);
+        }
+
+        return null;
     }
 
     private function validateExternalUserIssueBoundary(Role $role, array $hotelIds): ?Response
@@ -938,7 +974,7 @@ class User extends Base
             return [];
         }
 
-        return array_values(array_map('intval', HotelModel::where('status', HotelModel::STATUS_ENABLED)
+        return array_values(array_map('intval', $this->hotelQuery()->where('status', HotelModel::STATUS_ENABLED)
             ->where($column, $userId)
             ->column('id')));
     }
@@ -963,7 +999,7 @@ class User extends Base
 
     private function hotelIsEnabled(int $hotelId): bool
     {
-        return $hotelId > 0 && (bool)HotelModel::where('id', $hotelId)
+        return $hotelId > 0 && (bool)$this->hotelQuery()->where('id', $hotelId)
             ->where('status', HotelModel::STATUS_ENABLED)
             ->find();
     }
@@ -991,7 +1027,7 @@ class User extends Base
             return [];
         }
 
-        return HotelModel::whereIn('id', $hotelIds)
+        return $this->hotelQuery()->whereIn('id', $hotelIds)
             ->field('id,name,code,status')
             ->select()
             ->toArray();
@@ -1140,9 +1176,18 @@ class User extends Base
             return false;
         }
 
-        return (bool)HotelModel::where('id', $hotelId)
+        return (bool)$this->hotelQuery()->where('id', $hotelId)
             ->where($column, $userId)
             ->find();
+    }
+
+    private function hotelQuery(): BaseQuery
+    {
+        if ($this->currentUser->isSuperAdmin()) {
+            return HotelModel::withoutTenantScope();
+        }
+
+        return HotelModel::where([]);
     }
 
     private function filterExistingColumns(string $table, array $payload): array
@@ -1359,6 +1404,15 @@ class User extends Base
 
         $this->tenantColumnCache[$table] = $exists;
         return $exists;
+    }
+
+    private function assertTenantAssignmentSchemaReady(): void
+    {
+        foreach (['user_hotel_permissions', 'hotels', 'users'] as $table) {
+            if (!$this->strictTenantColumnExists($table)) {
+                throw new \RuntimeException("Required tenant column is missing: {$table}.tenant_id");
+            }
+        }
     }
 
     private function strictTenantColumnNullable(string $table): bool

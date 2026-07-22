@@ -6,6 +6,9 @@
   "scripts": {
     "start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_local_stack.ps1",
     "start:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start_local_stack.ps1",
+    "db:check": "C:\\xampp\\php\\php.exe scripts\\check_database_version.php",
+    "db:migrate": "C:\\xampp\\php\\php.exe think db:migrate",
+    "db:init:fresh": "C:\\xampp\\php\\php.exe scripts\\init_database.php",
     "migrate:ota-credentials:dry-run": "C:\\xampp\\php\\php.exe think migrate:ota-credentials",
     "migrate:ota-credentials:execute": "C:\\xampp\\php\\php.exe think migrate:ota-credentials --execute",
     "init:ota-credential-key:dry-run": "C:\\xampp\\php\\php.exe scripts\\initialize_ota_credential_key.php",

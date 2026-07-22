@@ -3,13 +3,13 @@ declare(strict_types=1);
 
 namespace app\model;
 
-use think\Model;
+use app\model\base\BaseTenantModel;
 
 /**
  * Agent配置模型
  * 用于管理三个Agent的配置信息
  */
-class AgentConfig extends Model
+class AgentConfig extends BaseTenantModel
 {
     protected $name = 'agent_configs';
     
@@ -20,6 +20,7 @@ class AgentConfig extends Model
     
     protected $type = [
         'id' => 'integer',
+        'tenant_id' => 'integer',
         'hotel_id' => 'integer',
         'agent_type' => 'integer',
         'is_enabled' => 'integer',

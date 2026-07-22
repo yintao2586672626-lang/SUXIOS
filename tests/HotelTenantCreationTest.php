@@ -70,57 +70,128 @@ final class HotelTenantCreationTest extends TestCase
             @unlink(self::$sqlitePath);
         }
         Db::connect(null, true);
+        self::$app->request->user = null;
     }
 
-    public function testCreateBackfillsTenantIdInDatabaseAndResponseWhenColumnExists(): void
+    public function testTenantUserCanCreateSecondHotelInSameTenant(): void
     {
         $this->createSchema(true);
+        $this->createPermissionTable();
+        $firstHotelId = Db::name('hotels')->insertGetId([
+            'tenant_id' => 101,
+            'name' => 'Tenant A hotel 1',
+            'status' => 1,
+            'owner_user_id' => 9002,
+            'created_by' => 9002,
+        ]);
+        $user = $this->tenantManager(9002, 101, $firstHotelId);
 
-        $response = $this->createHotel('Tenant-aware hotel');
+        $response = $this->createHotel('Tenant A hotel 2', $user);
         $payload = $this->json($response);
         $hotelId = (int)$payload['data']['id'];
 
+        self::assertSame(200, $payload['code']);
         self::assertGreaterThan(0, $hotelId);
-        self::assertSame($hotelId, (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id'));
-        self::assertSame($hotelId, (int)$payload['data']['tenant_id']);
+        self::assertNotSame($firstHotelId, $hotelId);
+        self::assertSame(2, Db::name('hotels')->where('tenant_id', 101)->count());
+        self::assertSame(101, (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id'));
+        self::assertSame(101, (int)$payload['data']['tenant_id']);
+        $permission = Db::name('user_hotel_permissions')->where('hotel_id', $hotelId)->find();
+        self::assertIsArray($permission);
+        self::assertSame(9002, (int)$permission['user_id']);
+        self::assertSame(101, (int)$permission['tenant_id']);
         $audit = Db::name('operation_logs')->where('action', 'create')->find();
         self::assertIsArray($audit);
         self::assertSame($hotelId, (int)$audit['hotel_id']);
-        self::assertSame($hotelId, (int)$audit['tenant_id']);
+        self::assertSame(101, (int)$audit['tenant_id']);
     }
 
-    public function testCreateRemainsCompatibleWhenTenantIdColumnDoesNotExist(): void
+    public function testCreateFailsClosedWithoutTenantColumnAndRollsBackAllWrites(): void
     {
         $this->createSchema(false);
 
-        $response = $this->createHotel('Legacy-schema hotel');
-        $payload = $this->json($response);
+        $error = null;
+        try {
+            $this->createHotel('Unmigrated-schema hotel');
+        } catch (\Throwable $exception) {
+            $error = $exception;
+        }
 
-        self::assertSame(200, $payload['code']);
-        self::assertGreaterThan(0, (int)$payload['data']['id']);
-        self::assertSame(1, Db::name('hotels')->count());
-        self::assertArrayNotHasKey('tenant_id', $payload['data']);
+        self::assertNotNull($error, 'An unmigrated tenant schema must be rejected before runtime use');
+        self::assertStringContainsString(
+            'A positive tenant id or authoritative hotel mapping is required',
+            $error->getMessage()
+        );
+        self::assertSame(0, Db::name('hotels')->count());
+        self::assertSame(0, Db::name('operation_logs')->count());
     }
 
-    public function testCreatePreservesExistingPositiveTenantId(): void
+    public function testSuperAdminCanCreateHotelOnlyForExplicitExistingTenant(): void
     {
-        $this->createSchema(true, 77);
+        $this->createSchema(true);
+        $this->createPermissionTable();
 
-        $payload = $this->json($this->createHotel('Preassigned-tenant hotel'));
+        $payload = $this->json($this->createHotel('Tenant B hotel 1', null, ['tenant_id' => 202]));
         $hotelId = (int)$payload['data']['id'];
 
-        self::assertSame(77, (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id'));
-        self::assertSame(77, (int)$payload['data']['tenant_id']);
-        self::assertSame(77, (int)Db::name('operation_logs')->where('action', 'create')->value('tenant_id'));
+        self::assertSame(200, $payload['code']);
+        self::assertSame(202, (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id'));
+        self::assertSame(202, (int)$payload['data']['tenant_id']);
+        self::assertSame(202, (int)Db::name('operation_logs')->where('action', 'create')->value('tenant_id'));
+        self::assertSame(0, Db::name('user_hotel_permissions')->count());
+    }
+
+    public function testTenantUserCannotCreateHotelForAnotherTenantWithoutPartialWrites(): void
+    {
+        $this->createSchema(true);
+        $this->createPermissionTable();
+        $user = $this->tenantManager(9002, 101);
+
+        $payload = $this->json($this->createHotel('Cross-tenant hotel', $user, ['tenant_id' => 202]));
+
+        self::assertSame(403, $payload['code']);
+        $this->assertNoCreateWrites();
+    }
+
+    public function testTenantUserWithoutExplicitUserTenantIsRejectedWithoutPartialWrites(): void
+    {
+        $this->createSchema(true);
+        $this->createPermissionTable();
+        $user = $this->tenantManager(9002, 0);
+
+        $payload = $this->json($this->createHotel('Missing user tenant hotel', $user, ['tenant_id' => 101]));
+
+        self::assertSame(422, $payload['code']);
+        $this->assertNoCreateWrites();
+    }
+
+    public function testSuperAdminMissingTenantIsRejectedWithoutPartialWrites(): void
+    {
+        $this->createSchema(true);
+        $this->createPermissionTable();
+
+        $payload = $this->json($this->createHotel('Missing tenant hotel'));
+
+        self::assertSame(422, $payload['code']);
+        $this->assertNoCreateWrites();
+    }
+
+    public function testSuperAdminUnknownTenantIsRejectedWithoutPartialWrites(): void
+    {
+        $this->createSchema(true);
+        $this->createPermissionTable();
+
+        $payload = $this->json($this->createHotel('Unknown tenant hotel', null, ['tenant_id' => 999]));
+
+        self::assertSame(422, $payload['code']);
+        $this->assertNoCreateWrites();
     }
 
     public function testCreateRollsBackHotelPermissionAndLogWhenPermissionGrantFails(): void
     {
         $this->createSchema(true);
         $this->createRejectingPermissionTable();
-        $user = new HotelCreationManagerUser();
-        $user->id = 9002;
-        $user->hotel_id = 0;
+        $user = $this->tenantManager(9002, 101);
 
         try {
             $this->createHotel('Atomic-create hotel', $user);
@@ -139,10 +210,12 @@ final class HotelTenantCreationTest extends TestCase
         $user = new User();
         $user->id = 9001;
         $user->role_id = Role::SUPER_ADMIN;
+        $user->tenant_id = 101;
         $controller = new HotelTenantCreationHarness(self::$app, [
             'name' => 'Editable OTA hotel',
             'code' => 'OTA-EDIT',
             'status' => 1,
+            'tenant_id' => 101,
             'ota_channel_strategy' => 'ctrip_only',
         ]);
         $controller->useUser($user);
@@ -191,9 +264,25 @@ final class HotelTenantCreationTest extends TestCase
         self::assertSame(0, Db::name('hotels')->count());
     }
 
-    private function createSchema(bool $withTenantId, int $tenantIdDefault = 0): void
+    private function createSchema(bool $withTenantId): void
     {
-        $tenantColumn = $withTenantId ? "tenant_id INTEGER NOT NULL DEFAULT {$tenantIdDefault}," : '';
+        if ($withTenantId) {
+            Db::execute('PRAGMA foreign_keys = ON');
+            Db::execute('CREATE TABLE tenants (
+                id INTEGER PRIMARY KEY,
+                name VARCHAR(100) NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT \'active\',
+                plan_id INTEGER,
+                created_at DATETIME,
+                updated_at DATETIME
+            )');
+            Db::name('tenants')->insertAll([
+                ['id' => 101, 'name' => 'Tenant A', 'status' => 'active'],
+                ['id' => 202, 'name' => 'Tenant B', 'status' => 'active'],
+            ]);
+        }
+
+        $tenantColumn = $withTenantId ? 'tenant_id INTEGER NOT NULL REFERENCES tenants(id),' : '';
         Db::execute("CREATE TABLE hotels (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             {$tenantColumn}
@@ -228,10 +317,16 @@ final class HotelTenantCreationTest extends TestCase
 
     private function createRejectingPermissionTable(): void
     {
+        $this->createPermissionTable(true);
+    }
+
+    private function createPermissionTable(bool $rejectWrites = false): void
+    {
+        $userConstraint = $rejectWrites ? 'CHECK (user_id < 0)' : '';
         Db::execute('CREATE TABLE user_hotel_permissions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             tenant_id INTEGER,
-            user_id INTEGER NOT NULL CHECK (user_id < 0),
+            user_id INTEGER NOT NULL ' . $userConstraint . ',
             hotel_id INTEGER NOT NULL,
             scope_type VARCHAR(20),
             can_view INTEGER,
@@ -258,6 +353,23 @@ final class HotelTenantCreationTest extends TestCase
             create_time DATETIME,
             update_time DATETIME
         )');
+    }
+
+    private function tenantManager(int $userId, int $tenantId, int $hotelId = 0): HotelCreationManagerUser
+    {
+        $user = new HotelCreationManagerUser();
+        $user->id = $userId;
+        $user->tenant_id = $tenantId;
+        $user->hotel_id = $hotelId;
+
+        return $user;
+    }
+
+    private function assertNoCreateWrites(): void
+    {
+        self::assertSame(0, Db::name('hotels')->count());
+        self::assertSame(0, Db::name('user_hotel_permissions')->count());
+        self::assertSame(0, Db::name('operation_logs')->count());
     }
 
     /** @param array<string, mixed> $payload */
@@ -310,6 +422,7 @@ final class HotelTenantCreationHarness extends HotelController
     public function useUser(User $user): void
     {
         $this->currentUser = $user;
+        $this->request->user = $user;
     }
 
     /** @param array<string, mixed> $payload */

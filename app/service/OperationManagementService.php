@@ -1351,6 +1351,18 @@ class OperationManagementService
             if ($existingIntent !== null) {
                 return $existingIntent;
             }
+        } elseif ($trustedReservedSource && $payload['source_module'] === 'price_suggestion') {
+            if ($trustedIdempotencyKey !== null) {
+                throw new \InvalidArgumentException('price suggestion execution intent cannot override its idempotency key');
+            }
+            if ((int)$payload['source_record_id'] <= 0) {
+                throw new \InvalidArgumentException('source_record_id is required for price suggestion execution intent');
+            }
+            $idempotencyKey = $this->priceSuggestionExecutionIntentIdempotencyKey($payload);
+            $existingIntent = $this->replayTrustedExecutionIntent($idempotencyKey, $payload, $hotelIds);
+            if ($existingIntent !== null) {
+                return $existingIntent;
+            }
         } elseif ($trustedIdempotencyKey !== null) {
             $idempotencyKey = $trustedIdempotencyKey;
             $existingIntent = $this->replayTrustedExecutionIntent($idempotencyKey, $payload, $hotelIds);
@@ -4475,6 +4487,12 @@ class OperationManagementService
     private function expansionExecutionIntentIdempotencyKey(array $payload): string
     {
         return 'expansion:v1:' . (int)$payload['source_record_id'];
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function priceSuggestionExecutionIntentIdempotencyKey(array $payload): string
+    {
+        return 'price_suggestion:v1:' . (int)$payload['source_record_id'];
     }
 
     private function normalizeTrustedExecutionIntentIdempotencyKey(?string $value): ?string

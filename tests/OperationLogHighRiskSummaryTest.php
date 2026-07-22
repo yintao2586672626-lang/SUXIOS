@@ -5,6 +5,8 @@ namespace Tests;
 
 use app\controller\Base;
 use app\controller\OperationLogController;
+use app\model\Role;
+use app\model\User;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use ReflectionProperty;
@@ -160,14 +162,15 @@ final class OperationLogHighRiskSummaryTest extends TestCase
     private function summary(int $limit): array
     {
         $controller = (new ReflectionClass(OperationLogController::class))->newInstanceWithoutConstructor();
+        $admin = new User();
+        $admin->id = 1;
+        $admin->tenant_id = 0;
+        $admin->role_id = Role::SUPER_ADMIN;
+        request()->user = $admin;
+
         $currentUser = new ReflectionProperty(Base::class, 'currentUser');
         $currentUser->setAccessible(true);
-        $currentUser->setValue($controller, new class {
-            public function isSuperAdmin(): bool
-            {
-                return true;
-            }
-        });
+        $currentUser->setValue($controller, $admin);
 
         $request = (new Request())->withGet([
             'days' => 7,

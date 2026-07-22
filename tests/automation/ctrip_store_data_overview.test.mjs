@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const readBackendSource = () => {
-  const paths = ['app/controller/OnlineData.php'];
+  const paths = ['app/controller/OnlineData.php', 'app/service/Ota/OtaActionHandler.php'];
   const concernDir = 'app/controller/concern';
   if (existsSync(concernDir)) {
     for (const name of readdirSync(concernDir)) {

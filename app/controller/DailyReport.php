@@ -599,8 +599,15 @@ class DailyReport extends Base
             return [];
         }
 
+        $tenantId = $this->tenantIdForHotel($hotelId);
+        if ($tenantId <= 0) {
+            $readStatus = 'scope_missing';
+            return [];
+        }
+
         try {
             $rows = Db::name('online_daily_data')
+                ->where('tenant_id', $tenantId)
                 ->where('system_hotel_id', $hotelId)
                 ->where('data_date', $reportDate)
                 ->select()
@@ -826,7 +833,6 @@ class DailyReport extends Base
     public function create(): Response
     {
         $this->checkPermission();
-        $this->checkActionPermission('can_fill_daily_report');
 
         $data = $this->requestData();
 
@@ -841,10 +847,11 @@ class DailyReport extends Base
         $hotelId = (int)$data['hotel_id'];
         $reportDate = $data['report_date'];
 
-        // 权限检查：用户是否有该酒店的填写权限
-        if (!$this->currentUser->isSuperAdmin() && !$this->currentUser->hasHotelPermission($hotelId, 'can_fill_daily_report')) {
-            return $this->error('您没有该酒店的日报填写权限');
-        }
+        $this->currentUser->hasHotelPermissionOrFail(
+            $hotelId,
+            'can_fill_daily_report',
+            '您没有该酒店的日报填写权限'
+        );
 
         // 验证日期：只能填写昨天及之前的日期
         $yesterday = date('Y-m-d', strtotime('-1 day'));
@@ -856,20 +863,30 @@ class DailyReport extends Base
         $dateParts = explode('-', $reportDate);
         $year = (int)$dateParts[0];
         $month = (int)$dateParts[1];
+        $tenantId = $this->tenantIdForHotel($hotelId);
+        if ($tenantId <= 0) {
+            return $this->error('选择的门店缺少有效租户归属');
+        }
 
-        $monthlyTask = MonthlyTask::where('hotel_id', $hotelId)
-            ->where('year', $year)
-            ->where('month', $month)
-            ->find();
+        $monthlyTask = MonthlyTask::runInTenantScope(
+            $tenantId,
+            static fn() => MonthlyTask::where('hotel_id', $hotelId)
+                ->where('year', $year)
+                ->where('month', $month)
+                ->find()
+        );
         
         if (!$monthlyTask) {
             return $this->error("请先添加 {$year}年{$month}月 的月任务，再填写日报");
         }
 
         // 检查是否已存在
-        $exists = DailyReportModel::where('hotel_id', $hotelId)
-            ->where('report_date', $reportDate)
-            ->find();
+        $exists = DailyReportModel::runInTenantScope(
+            $tenantId,
+            static fn() => DailyReportModel::where('hotel_id', $hotelId)
+                ->where('report_date', $reportDate)
+                ->find()
+        );
         if ($exists) {
             return $this->error('该日期的报表已存在，请直接编辑');
         }
@@ -880,7 +897,7 @@ class DailyReport extends Base
         $report = new DailyReportModel();
         $report->hotel_id = $hotelId;
         if ($this->dailyReportsHasColumn('tenant_id')) {
-            $report->tenant_id = $this->tenantIdForHotel($hotelId);
+            $report->tenant_id = $tenantId;
         }
         $report->report_date = $reportDate;
         $report->report_data = $reportData;
@@ -899,17 +916,13 @@ class DailyReport extends Base
     public function update(int $id): Response
     {
         $this->checkPermission();
-        $this->checkActionPermission('can_edit_report');
 
         $report = DailyReportModel::find($id);
         if (!$report) {
             return $this->error('报表不存在');
         }
 
-        // 权限检查
-        if (!$this->currentUser->isSuperAdmin() && !$this->currentUser->hasHotelPermission($report->hotel_id, 'can_edit_report')) {
-            return $this->error('无权编辑此报表');
-        }
+        $this->currentUser->hasHotelPermissionOrFail((int)$report->hotel_id, 'can_edit_report', '无权编辑此报表');
 
         $data = $this->requestData();
 
@@ -934,17 +947,13 @@ class DailyReport extends Base
     public function delete(int $id): Response
     {
         $this->checkPermission();
-        $this->checkActionPermission('can_delete_report');
 
         $report = DailyReportModel::find($id);
         if (!$report) {
             return $this->error('报表不存在');
         }
 
-        // 权限检查
-        if (!$this->currentUser->isSuperAdmin() && !$this->currentUser->hasHotelPermission($report->hotel_id, 'can_delete_report')) {
-            return $this->error('无权删除此报表');
-        }
+        $this->currentUser->hasHotelPermissionOrFail((int)$report->hotel_id, 'can_delete_report', '无权删除此报表');
 
         $reportDate = $report->report_date;
         $hotelId = $report->hotel_id;
@@ -1370,7 +1379,6 @@ class DailyReport extends Base
     public function export(): Response
     {
         $this->checkPermission();
-        $this->checkActionPermission('can_view_report');
 
         $startDate = $this->request->get('start_date');
         $endDate = $this->request->get('end_date');
@@ -1382,11 +1390,11 @@ class DailyReport extends Base
             return $this->exportSingle((int)$reportId);
         }
 
-        // 批量导出：验证用户对指定酒店的权限
-        if ($hotelId && !$this->currentUser->isSuperAdmin()) {
-            if (!$this->currentUser->hasHotelPermission((int)$hotelId, 'can_view_report')) {
-                return $this->error('无权导出该酒店的报表');
+        if ($hotelId !== null && $hotelId !== '') {
+            if (!is_numeric($hotelId) || (int)$hotelId <= 0) {
+                throw new \think\exception\HttpException(403, '无权导出该酒店的报表');
             }
+            $this->currentUser->hasHotelPermissionOrFail((int)$hotelId, 'can_view_report', '无权导出该酒店的报表');
         }
 
         // 批量导出
@@ -1403,10 +1411,7 @@ class DailyReport extends Base
             return $this->error('报表不存在');
         }
         
-        // 权限检查：用户是否有权限查看该酒店的报表
-        if (!$this->currentUser->isSuperAdmin() && !$this->currentUser->hasHotelPermission($report->hotel_id, 'can_view_report')) {
-            return $this->error('无权导出该报表');
-        }
+        $this->currentUser->hasHotelPermissionOrFail((int)$report->hotel_id, 'can_view_report', '无权导出该报表');
         
         $hotel = $report->hotel;
         $reportData = $this->normalizeReportData($report->report_data ?? []);
@@ -1459,7 +1464,16 @@ class DailyReport extends Base
 
         // 权限过滤
         if (!$this->currentUser->isSuperAdmin()) {
-            $hotelIds = $this->currentUser->getPermittedHotelIds();
+            $hotelIds = array_values(array_filter(
+                array_map('intval', $this->currentUser->getPermittedHotelIds()),
+                fn(int $candidateHotelId): bool => $this->currentUser->hasHotelPermission(
+                    $candidateHotelId,
+                    'can_view_report'
+                )
+            ));
+            if ($hotelIds === []) {
+                throw new \think\exception\HttpException(403, '无权导出酒店报表');
+            }
             $query->whereIn('hotel_id', $hotelIds);
         }
 
@@ -1500,11 +1514,23 @@ class DailyReport extends Base
         }
 
         $monthTaskData = [];
+        $reportHotelIds = [];
+        foreach ($reports as $report) {
+            $reportHotelId = (int)($report->hotel_id ?? 0);
+            if ($reportHotelId > 0) {
+                $reportHotelIds[] = $reportHotelId;
+            }
+        }
+        $reportHotelIds = array_values(array_unique($reportHotelIds));
+        if ($reportHotelIds === [] && is_numeric($hotelId) && (int)$hotelId > 0) {
+            $reportHotelIds[] = (int)$hotelId;
+        }
+        $watermarkHotelId = count($reportHotelIds) === 1 ? $reportHotelIds[0] : null;
 
         $exportData = [
             'reports' => [],
             'month_task' => $monthTaskData,
-            'watermark' => $this->buildExportWatermark($hotelId ? (int)$hotelId : null, $reportCount),
+            'watermark' => $this->buildExportWatermark($watermarkHotelId, $reportCount, $reportHotelIds),
         ];
         
         // 获取酒店名称用于文件名
@@ -1552,22 +1578,50 @@ class DailyReport extends Base
         return $reportCount <= self::EXPORT_BATCH_LIMIT;
     }
 
-    private function buildExportWatermark(?int $hotelId, int $reportCount): array
+    private function buildExportWatermark(?int $hotelId, int $reportCount, array $reportHotelIds = []): array
     {
         $userId = (int)($this->currentUser->id ?? 0);
         $username = trim((string)($this->currentUser->realname ?? $this->currentUser->username ?? 'unknown'));
         $exportedAt = date('Y-m-d H:i:s');
-        $tenantId = (int)($this->currentUser->tenant_id ?? 0);
-        if ($tenantId <= 0) {
-            $tenantId = $hotelId ?? (int)($this->currentUser->hotel_id ?? 0);
+        $hotelIds = array_values(array_unique(array_filter(
+            array_map('intval', $reportHotelIds),
+            static fn(int $id): bool => $id > 0
+        )));
+        if ($hotelIds === [] && $hotelId !== null && $hotelId > 0) {
+            $hotelIds[] = $hotelId;
         }
+        $tenantRows = $hotelIds === []
+            ? []
+            : Db::name('hotels')->whereIn('id', $hotelIds)->column('tenant_id', 'id');
+        $tenantIds = [];
+        $unresolvedHotelIds = [];
+        foreach ($hotelIds as $targetHotelId) {
+            $targetTenantId = (int)($tenantRows[$targetHotelId] ?? 0);
+            if ($targetTenantId <= 0) {
+                $unresolvedHotelIds[] = $targetHotelId;
+                continue;
+            }
+            $tenantIds[] = $targetTenantId;
+        }
+        $tenantIds = array_values(array_unique($tenantIds));
+        sort($tenantIds);
+        $tenantId = $unresolvedHotelIds === [] && count($tenantIds) === 1 ? $tenantIds[0] : null;
+        $tenantScope = $hotelIds === []
+            ? 'none'
+            : ($unresolvedHotelIds !== [] ? 'unresolved' : (count($tenantIds) === 1 ? 'single' : 'mixed'));
+        $tenantLabel = $tenantId !== null
+            ? (string)$tenantId
+            : ($tenantIds !== [] ? 'mixed[' . implode(',', $tenantIds) . ']' : 'unknown');
         $requestId = trim((string)($this->request->request_id ?? $this->request->header('X-Request-ID', '')));
         if ($requestId === '') {
             $requestId = 'missing_request_id';
         }
 
         return [
-            'tenant_id' => $tenantId > 0 ? $tenantId : null,
+            'tenant_id' => $tenantId,
+            'tenant_ids' => $tenantIds,
+            'tenant_scope' => $tenantScope,
+            'unresolved_hotel_ids' => $unresolvedHotelIds,
             'user_id' => $userId,
             'username' => $username,
             'hotel_id' => $hotelId,
@@ -1575,7 +1629,7 @@ class DailyReport extends Base
             'exported_at' => $exportedAt,
             'generated_at' => $exportedAt,
             'request_id' => $requestId,
-            'text' => sprintf('SUXIOS Export Watermark | tenant=%s | user=%s#%d | hotel=%s | request=%s | count=%d | generated=%s', $tenantId > 0 ? (string)$tenantId : 'unknown', $username, $userId, $hotelId ?? 'mixed', $requestId, $reportCount, $exportedAt),
+            'text' => sprintf('SUXIOS Export Watermark | tenant=%s | user=%s#%d | hotel=%s | request=%s | count=%d | generated=%s', $tenantLabel, $username, $userId, $hotelId ?? 'mixed', $requestId, $reportCount, $exportedAt),
         ];
     }
 
@@ -2411,7 +2465,15 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
 
     private function tenantIdForHotel(int $hotelId): int
     {
-        return max(0, $hotelId);
+        if ($hotelId <= 0) {
+            return 0;
+        }
+
+        $query = $this->currentUser && $this->currentUser->isSuperAdmin()
+            ? Hotel::withoutTenantScope()
+            : Hotel::where([]);
+
+        return max(0, (int)$query->where('id', $hotelId)->value('tenant_id'));
     }
 
     /**
@@ -2424,20 +2486,6 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
         }
         // 非超级管理员必须有酒店关联
         $this->requireHotel();
-    }
-
-    /**
-     * 检查操作权限
-     */
-    private function checkActionPermission(string $permission): void
-    {
-        if ($this->currentUser->isSuperAdmin()) {
-            return;
-        }
-        
-        if (!$this->currentUser->hasPermission($permission)) {
-            abort(403, '无权限操作');
-        }
     }
 
     /**
@@ -2516,16 +2564,20 @@ td, th { border: .5pt solid black; padding: 2px 3px; font-family: Arial; font-si
     public function parseImport(): Response
     {
         $this->checkPermission();
-        $this->checkActionPermission('can_fill_daily_report');
 
         $file = $this->request->file('file');
         $hotelId = $this->request->post('hotel_id');
         if (!$hotelId && !$this->currentUser->isSuperAdmin()) {
             $hotelId = $this->currentUser->hotel_id;
         }
-        if ($hotelId && !$this->currentUser->hasHotelPermission((int)$hotelId, 'can_fill_daily_report')) {
-            return $this->error('无权导入该酒店日报');
+        if (!is_numeric($hotelId) || (int)$hotelId <= 0) {
+            throw new \think\exception\HttpException(403, '请选择有权限的门店');
         }
+        $this->currentUser->hasHotelPermissionOrFail(
+            (int)$hotelId,
+            'can_fill_daily_report',
+            '无权导入该酒店日报'
+        );
         
         if (!$file) {
             return $this->error('请上传文件');

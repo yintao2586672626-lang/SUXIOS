@@ -8,6 +8,7 @@ use app\model\User;
 use app\model\Hotel;
 use app\service\SecurityMonitoringService;
 use app\service\OperationAuditSanitizerService;
+use think\db\BaseQuery;
 use think\Request;
 use think\exception\ValidateException;
 
@@ -166,7 +167,7 @@ class OperationLogController extends Base
         $startDate = $request->param('start_date', '');
         $endDate = $request->param('end_date', '');
 
-        $query = OperationLog::with(['user', 'hotel']);
+        $query = $this->operationLogQuery()->with(['user', 'hotel']);
 
         if ($module) {
             $query->where('module', $module);
@@ -204,16 +205,16 @@ class OperationLogController extends Base
         $summary = $this->buildSummary($summaryQuery);
 
         // 获取模块列表(去重)
-        $modules = OperationLog::field('module')->group('module')->order('module', 'asc')->column('module');
+        $modules = $this->operationLogQuery()->field('module')->group('module')->order('module', 'asc')->column('module');
 
         // 获取操作列表(去重)
-        $actions = OperationLog::field('action')->group('action')->order('action', 'asc')->column('action');
+        $actions = $this->operationLogQuery()->field('action')->group('action')->order('action', 'asc')->column('action');
 
         // 获取用户列表
         $users = User::field('id, username, realname')->select()->toArray();
 
         // 获取酒店列表
-        $hotels = Hotel::field('id, name')->select()->toArray();
+        $hotels = $this->hotelQuery()->field('id, name')->select()->toArray();
 
         return $this->success([
             'list' => $list,
@@ -235,7 +236,7 @@ class OperationLogController extends Base
         $endDate = date('Y-m-d');
         $startDate = date('Y-m-d', strtotime('-' . ($days - 1) . ' days'));
 
-        $query = OperationLog::with(['user', 'hotel'])
+        $query = $this->operationLogQuery()->with(['user', 'hotel'])
             ->whereBetween('create_time', [$startDate . ' 00:00:00', $endDate . ' 23:59:59']);
         $this->applyHighRiskCandidateFilter($query);
 
@@ -309,7 +310,7 @@ class OperationLogController extends Base
             throw new ValidateException('参数错误');
         }
 
-        $log = OperationLog::with(['user', 'hotel'])->find($id);
+        $log = $this->operationLogQuery()->with(['user', 'hotel'])->find($id);
         if (!$log) {
             throw new ValidateException('日志不存在');
         }
@@ -429,21 +430,21 @@ class OperationLogController extends Base
         $endDate = $request->param('end_date', date('Y-m-d'));
 
         // 按模块统计
-        $moduleStats = OperationLog::whereBetween('create_time', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
+        $moduleStats = $this->operationLogQuery()->whereBetween('create_time', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
             ->field('module, count(*) as count')
             ->group('module')
             ->select()
             ->toArray();
 
         // 按操作统计
-        $actionStats = OperationLog::whereBetween('create_time', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
+        $actionStats = $this->operationLogQuery()->whereBetween('create_time', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
             ->field('action, count(*) as count')
             ->group('action')
             ->select()
             ->toArray();
 
         // 按日期统计
-        $dateStats = OperationLog::whereBetween('create_time', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
+        $dateStats = $this->operationLogQuery()->whereBetween('create_time', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
             ->field('DATE(create_time) as date, count(*) as count')
             ->group('DATE(create_time)')
             ->order('date', 'asc')
@@ -451,7 +452,7 @@ class OperationLogController extends Base
             ->toArray();
 
         // 按用户统计(前10)
-        $userStats = OperationLog::alias('log')
+        $userStats = $this->operationLogQuery()->alias('log')
             ->leftJoin('users user', 'user.id = log.user_id')
             ->whereBetween('log.create_time', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
             ->field('log.user_id, user.username, user.realname, count(*) as count')
@@ -471,7 +472,7 @@ class OperationLogController extends Base
 
     private function buildSummaryQuery(Request $request)
     {
-        $query = OperationLog::where([]);
+        $query = $this->operationLogQuery();
         $module = $request->param('module', '');
         $action = $request->param('action', '');
         $userId = $request->param('user_id', '');
@@ -501,6 +502,16 @@ class OperationLogController extends Base
         }
 
         return $query;
+    }
+
+    private function operationLogQuery(): BaseQuery
+    {
+        return OperationLog::withoutTenantScope();
+    }
+
+    private function hotelQuery(): BaseQuery
+    {
+        return Hotel::withoutTenantScope();
     }
 
     private function buildSummary($query): array

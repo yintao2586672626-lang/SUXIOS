@@ -223,7 +223,7 @@ HOTEL/                          # ⭐ 项目根目录（ThinkPHP 项目）
 ├── composer.lock             # PHP 依赖锁定版本
 └── database/
     ├── hotel_admin_mysql.sql # 基础数据库备份
-    └── init_full.sql         # 完整数据库初始化入口
+    └── init_full.sql         # 冻结数据库基线；新 migration 由版本 runner 自动发现
 ```
 
 ---
@@ -259,11 +259,8 @@ npm.cmd run start -- --NoBrowser
 
 ```bash
 # 1. 启动 MySQL（XAMPP）
-# 2. 创建数据库
-mysql -u root -e "CREATE DATABASE IF NOT EXISTS hotelx CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-
-# 3. 导入数据
-mysql -u root hotelx < database/init_full.sql
+# 2. 新环境完整初始化（自动建库、执行并登记全部 migration）
+php scripts/init_database.php
 ```
 
 ### 4.4 访问应用
@@ -392,7 +389,7 @@ C:\xampp\php\php.exe scripts\verify_route_coverage.php
 | `route/app.php` | 所有 API 路由集中在此 | 新增路由时严格按规范注册 |
 | `app/middleware/Auth.php` | 认证核心，改动影响全局安全 | 必须经过完整测试 |
 | `.env` | 数据库连接等运行时配置 | 改后通知团队成员 |
-| `database/init_full.sql` | 完整初始化入口 | 修改表结构后同步迁移和初始化入口 |
+| `database/init_full.sql` | 冻结数据库基线 | 禁止追加新 migration；结构变更只新增 `database/migrations/*.sql` 并由版本 runner 登记 |
 
 ---
 

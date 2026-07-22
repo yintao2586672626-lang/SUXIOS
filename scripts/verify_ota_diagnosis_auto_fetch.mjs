@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 
 const readBackendSource = () => {
-  const paths = ['app/controller/OnlineData.php'];
+  const paths = ['app/controller/OnlineData.php', 'app/service/Ota/OtaActionHandler.php'];
   const concernDir = 'app/controller/concern';
   if (existsSync(concernDir)) {
     for (const name of readdirSync(concernDir)) {
@@ -256,7 +256,7 @@ const checks = [
   },
   {
     name: 'Ctrip diagnosis snapshot is available in app without rerunning browser',
-    pass: routeSource.includes("Route::get('/ctrip-diagnosis-snapshot', 'OnlineData/ctripDiagnosisSnapshot')")
+    pass: routeSource.includes("Route::get('/ctrip-diagnosis-snapshot', 'ota.CtripController/ctripDiagnosisSnapshot')")
       && controllerSource.includes('public function ctripDiagnosisSnapshot')
       && controllerSource.includes('buildLatestCtripDiagnosisSnapshot')
       && controllerSource.includes('aggregateCtripDiagnosisSnapshot')
@@ -274,7 +274,7 @@ const checks = [
   },
   {
     name: 'Ctrip Cookie API capture uses the vault locator and redacted catalog pipeline',
-    pass: routeSource.includes("Route::post('/fetch-ctrip-cookie-api', 'OnlineData/fetchCtripCookieApiData')")
+    pass: routeSource.includes("Route::post('/fetch-ctrip-cookie-api', 'ota.CtripController/fetchCtripCookieApiData')")
       && cookieApiEndpointBody.includes('sanitizeCtripCookieApiExecutionRequestData($rawRequestData)')
       && cookieApiEndpointBody.includes('$this->withOtaCredentialForExecution(')
       && requestConcernSource.includes('ctrip_cookie_api_capture.mjs')

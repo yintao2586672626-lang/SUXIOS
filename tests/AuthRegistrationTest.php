@@ -166,7 +166,7 @@ final class AuthRegistrationTest extends TestCase
             Role::NORMAL_USER,
             'normal_user'
         );
-        $user = $this->userWithRoleAndLegacyPermissions($role, Role::NORMAL_USER, [
+        $user = $this->userWithRoleAndHotelPermissions($role, Role::NORMAL_USER, [
             'can_manage_own_hotels',
             'can_edit_report',
             'can_fetch_online_data',
@@ -174,7 +174,7 @@ final class AuthRegistrationTest extends TestCase
             'can_export_data',
         ], true, true);
 
-        $permissions = $method->invoke($controller, $user);
+        $permissions = $method->invoke($controller, $user, 7);
 
         self::assertFalse($permissions['can_manage_own_hotels']);
         self::assertFalse($permissions['can_manage_users']);
@@ -197,14 +197,14 @@ final class AuthRegistrationTest extends TestCase
             'external_reader',
             3
         );
-        $user = $this->userWithRoleAndLegacyPermissions($role, 9, [
+        $user = $this->userWithRoleAndHotelPermissions($role, 9, [
             'can_manage_own_hotels',
             'can_fetch_online_data',
             'can_delete_online_data',
             'can_export_data',
         ], true, true);
 
-        $permissions = $method->invoke($controller, $user);
+        $permissions = $method->invoke($controller, $user, 7);
 
         self::assertFalse($permissions['can_manage_own_hotels']);
         self::assertFalse($permissions['can_manage_users']);
@@ -493,23 +493,24 @@ final class AuthRegistrationTest extends TestCase
     }
 
     /**
-     * @param array<int, string> $legacyPermissions
+     * @param array<int, string> $hotelPermissions
      */
-    private function userWithRoleAndLegacyPermissions(
+    private function userWithRoleAndHotelPermissions(
         Role $role,
         int $roleId,
-        array $legacyPermissions,
+        array $hotelPermissions,
         bool $canManageOwnHotels = false,
         bool $canManageUsers = false
     ): UserModel
     {
         $user = $this->getMockBuilder(UserModel::class)
             ->disableOriginalConstructor()
-            ->onlyMethods(['hasPermission', 'canManageOwnHotels', 'canManageUser', 'isSuperAdmin', '__get', '__isset'])
+            ->onlyMethods(['hasHotelPermission', 'canManageOwnHotels', 'canManageUser', 'isSuperAdmin', '__get', '__isset'])
             ->getMock();
 
-        $user->method('hasPermission')->willReturnCallback(
-            static fn(string $permission): bool => in_array($permission, $legacyPermissions, true)
+        $user->method('hasHotelPermission')->willReturnCallback(
+            static fn(int $hotelId, string $permission): bool => $hotelId === 7
+                && in_array($permission, $hotelPermissions, true)
         );
         $user->method('canManageOwnHotels')->willReturn($canManageOwnHotels);
         $user->method('canManageUser')->willReturn($canManageUsers);

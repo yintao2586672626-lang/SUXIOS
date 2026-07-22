@@ -3125,6 +3125,7 @@ if (!runtimeAssetPaths.includes('system-static.js')
     }
   }
   const controllerPath = path.join(repoRoot, 'app/controller/OnlineData.php');
+  const controllerHandlerPath = path.join(repoRoot, 'app/service/Ota/OtaActionHandler.php');
   const controllerConcernDir = path.join(repoRoot, 'app/controller/concern');
   const controllerConcernContents = fs.existsSync(controllerConcernDir)
     ? fs.readdirSync(controllerConcernDir)
@@ -3135,6 +3136,7 @@ if (!runtimeAssetPaths.includes('system-static.js')
     : '';
   const controllerContent = [
     fs.existsSync(controllerPath) ? fs.readFileSync(controllerPath, 'utf8') : '',
+    fs.existsSync(controllerHandlerPath) ? fs.readFileSync(controllerHandlerPath, 'utf8') : '',
     controllerConcernContents,
   ].join('\n');
   const manualTaskServicePath = path.join(repoRoot, 'app/service/ManualOnlineFetchTaskService.php');

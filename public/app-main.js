@@ -7972,6 +7972,10 @@
                 status: 1,
             });
             const competitorRobots = ref([]);
+            const competitorRobotsLoading = ref(false);
+            const competitorRobotsError = ref('');
+            const competitorRobotSaving = ref(false);
+            const competitorRobotActionId = ref(0);
             const showCompetitorRobotModal = ref(false);
             const competitorRobotForm = ref({
                 id: null,
@@ -12939,6 +12943,7 @@
                     runPageLoadOnce(newPage, 'competitor-device-workbench', () => Promise.all([
                         ensureCompetitorDeviceManagementReady(),
                         loadCompetitorDeviceWorkbench(),
+                        loadCompetitorRobots(),
                     ]).catch((error) => {
                         competitorDeviceManagementError.value = error?.message || '竞对采集设备管理组件加载失败';
                         return null;
@@ -18366,6 +18371,7 @@
             });
             const aiDailyReportJudgmentSaving = ref(false);
             const aiDailyReportAudience = ref('owner');
+            const aiDailyReportWecomSending = ref(false);
             const aiDailyReportGenerationTask = ref(null);
             const aiDailyReportGenerationTaskPolling = ref(false);
             let aiDailyReportGenerationRequestSeq = 0;
@@ -19231,6 +19237,32 @@
                 document.body.removeChild(link);
                 URL.revokeObjectURL(url);
                 showToast('结果交付件已生成', 'success');
+            };
+            const sendAiDailyReportToWecom = async () => {
+                const reportId = Number(aiDailyReport.value?.id || 0);
+                if (!reportId || aiDailyReportWecomSending.value) return;
+                if (user.value?.is_super_admin !== true) {
+                    showToast('只有超级管理员可以向企业微信群发送日报', 'warning');
+                    return;
+                }
+                if (!confirm('确认把当前已保存的 AI经营日报发送到该门店绑定的企业微信群？')) return;
+                aiDailyReportWecomSending.value = true;
+                try {
+                    const res = await apiRequest(`/ai-daily-reports/${reportId}/send-wecom`, { method: 'POST' });
+                    if (res.code === 200) {
+                        showToast(res.message || 'AI经营日报已发送到企业微信群', 'success');
+                    } else if (res.code === 207) {
+                        showToast(res.message || '部分企业微信机器人发送成功', 'warning');
+                    } else {
+                        showToast(res.message || '企业微信发送失败', 'error');
+                    }
+                } catch (error) {
+                    const code = Number(error?.data?.code || 0);
+                    const message = error?.data?.message || operationErrorMessage(error, '企业微信发送失败');
+                    showToast(message, code === 404 ? 'warning' : 'error');
+                } finally {
+                    aiDailyReportWecomSending.value = false;
+                }
             };
             const submitAiDailyReportJudgment = async () => {
                 const reportId = Number(aiDailyReport.value?.id || 0);
@@ -25765,15 +25797,24 @@
             };
 
             const loadCompetitorRobots = async () => {
+                competitorRobotsLoading.value = true;
+                competitorRobotsError.value = '';
                 try {
                     const params = new URLSearchParams();
                     if (competitorRobotFilter.value.store_id) params.append('store_id', competitorRobotFilter.value.store_id);
+                    params.append('page_size', '100');
                     const res = await request(`/admin/competitor-wechat-robot?${params}`);
                     if (res.code === 200) {
                         competitorRobots.value = res.data.list || [];
+                        return competitorRobots.value;
                     }
+                    throw new Error(res.message || '企业微信机器人列表加载失败');
                 } catch (e) {
                     console.error('加载机器人失败:', e);
+                    competitorRobotsError.value = e?.message || '企业微信机器人列表加载失败';
+                    return null;
+                } finally {
+                    competitorRobotsLoading.value = false;
                 }
             };
 
@@ -25796,50 +25837,80 @@
                 showCompetitorRobotModal.value = true;
             };
 
+            const closeCompetitorRobotModal = () => {
+                if (competitorRobotSaving.value) return;
+                showCompetitorRobotModal.value = false;
+                competitorRobotForm.value = { id: null, store_id: '', name: '', webhook: '', status: 1 };
+            };
+
             const saveCompetitorRobot = async () => {
+                const payload = {
+                    ...competitorRobotForm.value,
+                    store_id: Number(competitorRobotForm.value.store_id || 0),
+                    name: String(competitorRobotForm.value.name || '').trim(),
+                    webhook: String(competitorRobotForm.value.webhook || '').trim(),
+                    status: Number(competitorRobotForm.value.status) === 1 ? 1 : 0,
+                };
+                const isEdit = Number(payload.id || 0) > 0;
+                if (payload.store_id <= 0 || !payload.name) {
+                    showToast('请选择门店并填写机器人名称', 'warning');
+                    return;
+                }
+                if (!isEdit && !payload.webhook) {
+                    showToast('首次绑定必须填写企业微信机器人 Webhook', 'warning');
+                    return;
+                }
+                competitorRobotSaving.value = true;
                 try {
-                    const payload = { ...competitorRobotForm.value };
-                    const isEdit = !!payload.id;
                     const url = isEdit ? `/admin/competitor-wechat-robot/update/${payload.id}` : '/admin/competitor-wechat-robot/save';
                     const res = await request(url, { method: 'POST', body: JSON.stringify(payload) });
                     if (res.code === 200 || res.code === undefined) {
                         showToast('保存成功');
                         showCompetitorRobotModal.value = false;
-                        loadCompetitorRobots();
+                        await loadCompetitorRobots();
                     } else {
                         showToast(res.message || '保存失败', 'error');
                     }
                 } catch (e) {
-                    showToast('保存失败: ' + e.message, 'error');
+                    showToast(e?.data?.message || ('保存失败: ' + e.message), 'error');
+                } finally {
+                    competitorRobotSaving.value = false;
                 }
             };
 
             const deleteCompetitorRobot = async (item) => {
                 if (!confirm('确认删除该机器人？')) return;
+                competitorRobotActionId.value = Number(item.id || 0);
                 try {
                     const res = await request(`/admin/competitor-wechat-robot/delete/${item.id}`, { method: 'POST' });
                     if (res.code === 200 || res.code === undefined) {
                         showToast('删除成功');
-                        loadCompetitorRobots();
+                        await loadCompetitorRobots();
                     } else {
                         showToast(res.message || '删除失败', 'error');
                     }
                 } catch (e) {
                     showToast('删除失败: ' + e.message, 'error');
+                } finally {
+                    competitorRobotActionId.value = 0;
                 }
             };
 
             const testCompetitorRobot = async (storeId) => {
                 if (!confirm('确认发送测试消息到该门店所有群？')) return;
+                competitorRobotActionId.value = Number(storeId || 0) * -1;
                 try {
                     const res = await request(`/admin/competitor-wechat-robot/test-store/${storeId}`, { method: 'POST' });
                     if (res.code === 200) {
                         showToast('发送成功');
                     } else {
-                        showToast(res.message || '发送失败', 'error');
+                        const status = String(res.data?.delivery_status || 'failed');
+                        showToast(res.message || '发送失败', status === 'partial' ? 'warning' : 'error');
                     }
                 } catch (e) {
-                    showToast('发送失败: ' + e.message, 'error');
+                    showToast(e?.data?.message || ('发送失败: ' + e.message), 'error');
+                } finally {
+                    competitorRobotActionId.value = 0;
                 }
             };
 
@@ -36841,7 +36912,7 @@
                 aiDailyReportGenerationTask, aiDailyReportGenerationTaskPolling, aiDailyReportGenerationOutcome, aiDailyReportGenerationProgress, aiDailyReportGenerationRunning, aiDailyReportGenerationStageText, aiDailyReportGenerationStatusClass, aiDailyReportGenerationDetailText,
                 aiDailyReportModelText, aiDailyReportModelClass, aiDailyReportMetricValue, aiDailyReportActionSources, aiDailyReportActionIsInvestigationOnly, aiDailyReportActionStatusText, aiDailyReportActionStatusClass, aiDailyReportActionBlockedText, aiDailyReportActionButtonText,
                 aiDailyReportReadinessClass, aiDailyReportReferenceText, aiDailyReportJudgmentTargetText, aiDailyReportJudgmentDecisionText, aiDailyReportGapActionText, goAiDailyReportDataGap, openAiDailyReportEvidenceTarget,
-                aiDailyReportJudgmentForm, aiDailyReportJudgmentSaving, aiDailyReportAudience, submitAiDailyReportJudgment, downloadAiDailyReportPackage,
+                aiDailyReportJudgmentForm, aiDailyReportJudgmentSaving, aiDailyReportAudience, aiDailyReportWecomSending, submitAiDailyReportJudgment, downloadAiDailyReportPackage, sendAiDailyReportToWecom,
                 loadAiDailyReport, generateAiDailyReport, createAiDailyExecutionIntent, handleAiDailyReportActionPrimary,
                 operationValue, operationMoney, operationPercent, operationDataStatusText, operationProblemLevelLabel, operationAlertLevelLabel,
                 operationAlertStatusLabel, operationAlertLevelClass, operationAlertSuggestion, operationRiskLevelLabel, operationStrategyTypeLabel,
@@ -37065,6 +37136,7 @@
                 loadCompassData, loadHolidayRevenueCountdown, loadHomeTemporalInsights, generateHomeTemporalForecast, moveCompassBlock, toggleCompassBlock, saveCompassLayout, compassBlockLabel, getHotelName,
                 // 竞对价格监控
                 competitorTab, competitorHotels, competitorLogs, competitorDevices, competitorRobots,
+                competitorRobotsLoading, competitorRobotsError, competitorRobotSaving, competitorRobotActionId,
                 competitorDevicesLoading, competitorDevicesError, competitorDevicesStale, competitorDevicePagination,
                 competitorDevicePlatforms, competitorDeviceSaving, competitorDeviceActionId, competitorDeviceEditingId, competitorDeviceTokenCopied,
                 showCompetitorDeviceModal, competitorDeviceForm, competitorDeviceCredential,
@@ -37078,7 +37150,7 @@
                 rotateCompetitorDeviceToken, updateCompetitorDeviceStatus, clearCompetitorDeviceCredential,
                 copyCompetitorDeviceToken, competitorDevicePlatformLabel, competitorDeviceUserLabel,
                 competitorDeviceEligibleUsers, setCompetitorDeviceStoreId, competitorDeviceLastSeenText,
-                loadCompetitorRobots, openCompetitorRobotModal, saveCompetitorRobot, deleteCompetitorRobot, testCompetitorRobot, getCompetitorStoreName,
+                loadCompetitorRobots, openCompetitorRobotModal, closeCompetitorRobotModal, saveCompetitorRobot, deleteCompetitorRobot, testCompetitorRobot, getCompetitorStoreName,
                 // Agent中心 - 基础
                 agentTab, agentTabs, agentOverview, hotelAiToolboxLinks, agentConfigs,
                 otaDiagnosisForm, otaDiagnosisLoading, otaDiagnosisResult, otaDiagnosisError, otaDiagnosisEmpty, otaDiagnosisExecutionLoading,

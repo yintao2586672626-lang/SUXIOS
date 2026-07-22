@@ -9,15 +9,24 @@ use PHPUnit\Framework\TestCase;
 use think\App;
 use think\facade\Config;
 use think\facade\Db;
+use think\Request;
 
 final class CompetitorDeviceAuthServiceTest extends TestCase
 {
     private static array $originalDatabaseConfig = [];
     private static string $databasePath = '';
+    private static App $app;
 
     public static function setUpBeforeClass(): void
     {
-        (new App(dirname(__DIR__)))->initialize();
+        self::$app = new App(dirname(__DIR__));
+        self::$app->initialize();
+        self::$app->instance('request', new class extends Request {
+            public function isCli(): bool
+            {
+                return false;
+            }
+        });
         self::$originalDatabaseConfig = Config::get('database');
         self::$databasePath = sys_get_temp_dir() . DIRECTORY_SEPARATOR
             . 'competitor_device_auth_' . getmypid() . '.sqlite';
@@ -172,6 +181,68 @@ final class CompetitorDeviceAuthServiceTest extends TestCase
 
         Db::name('competitor_device')->where('id', $bindingId)->update(['token_version' => 2]);
         self::assertFalse($service->bindingSessionIsCurrent($authenticatedBinding));
+    }
+
+    public function testAnonymousHttpDeviceCredentialUsesOnlyItsVerifiedTenantAndStoreScope(): void
+    {
+        Db::name('user_hotel_permissions')->where('user_id', 7)->update([
+            'can_fetch_ota' => 1,
+            'can_fetch_online_data' => 1,
+        ]);
+        Db::name('hotels')->insert([
+            'id' => 81,
+            'tenant_id' => 13,
+            'name' => 'Other Tenant Hotel',
+            'status' => 1,
+        ]);
+
+        $service = new CompetitorDeviceAuthService();
+        $credential = $service->issueCredential();
+        Db::name('competitor_device')->insert([
+            'tenant_id' => 12,
+            'user_id' => 7,
+            'store_id' => 80,
+            'device_id' => 'verified-http-device',
+            'name' => 'Verified HTTP Device',
+            'platform' => 'xc',
+            'token_hash' => $credential['hash'],
+            'token_hint' => $credential['hint'],
+            'token_version' => 1,
+            'status' => 1,
+            'revoked_at' => null,
+        ]);
+        Db::name('competitor_device')->insert([
+            'tenant_id' => 13,
+            'user_id' => 7,
+            'store_id' => 81,
+            'device_id' => 'cross-tenant-http-device',
+            'name' => 'Cross Tenant HTTP Device',
+            'platform' => 'xc',
+            'token_hash' => $credential['hash'],
+            'token_hint' => $credential['hint'],
+            'token_version' => 1,
+            'status' => 1,
+            'revoked_at' => null,
+        ]);
+
+        self::assertInstanceOf(CompetitorDevice::class, $service->findAuthorizedBinding(
+            'verified-http-device',
+            'xc',
+            80,
+            $credential['token']
+        ));
+        self::assertNull($service->findAuthorizedBinding(
+            'verified-http-device',
+            'xc',
+            81,
+            $credential['token']
+        ));
+        self::assertNull($service->findAuthorizedBinding(
+            'cross-tenant-http-device',
+            'xc',
+            81,
+            $credential['token']
+        ));
     }
 
     public function testSensitiveHashIsHiddenFromModelSerialization(): void

@@ -5,10 +5,13 @@ namespace app\service;
 
 use app\model\Hotel;
 use app\model\User;
+use RuntimeException;
 use think\facade\Db;
 
 class HotelScopeService
 {
+    private TenantContext $tenantContext;
+
     /** @var array<string, bool> */
     private array $tableColumnCache = [];
 
@@ -27,6 +30,11 @@ class HotelScopeService
 
     /** @var array<string, bool> */
     private array $hotelEnabledCache = [];
+
+    public function __construct(?TenantContext $tenantContext = null)
+    {
+        $this->tenantContext = $tenantContext ?? new TenantContext();
+    }
 
     /**
      * @return array<int, int>
@@ -55,7 +63,7 @@ class HotelScopeService
         }
 
         if ($user->isSuperAdmin()) {
-            return $this->isHotelEnabled($hotelId);
+            return $this->isHotelEnabledAcrossTenants($hotelId);
         }
 
         return in_array($hotelId, $this->accessibleHotelIds($user, $capability), true);
@@ -87,7 +95,7 @@ class HotelScopeService
         }
 
         if ($user->isSuperAdmin()) {
-            return $this->isHotelEnabled($hotelId);
+            return $this->isHotelEnabledAcrossTenants($hotelId);
         }
 
         if (!$this->canAccessHotel($user, $hotelId, $capability)) {
@@ -141,7 +149,10 @@ class HotelScopeService
      */
     private function enabledHotelIds(): array
     {
-        return array_values(array_map('intval', Hotel::where('status', Hotel::STATUS_ENABLED)->column('id')));
+        return array_values(array_map(
+            'intval',
+            Hotel::withoutTenantScope()->where('status', Hotel::STATUS_ENABLED)->column('id')
+        ));
     }
 
     /**
@@ -169,11 +180,39 @@ class HotelScopeService
      */
     private function ownedOrGrantedHotelIds(User $user, ?string $capability = null): array
     {
-        return array_values(array_unique(array_filter(array_merge(
+        $hotelIds = array_values(array_unique(array_filter(array_merge(
             $this->primaryHotelIds($user),
             $this->ownedHotelIds($user),
             $this->grantedHotelIds($user, $capability)
         ), static fn(int $hotelId): bool => $hotelId > 0)));
+
+        return $this->filterHotelIdsByTenant($user, $hotelIds);
+    }
+
+    /**
+     * @param array<int, int> $hotelIds
+     * @return array<int, int>
+     */
+    private function filterHotelIdsByTenant(User $user, array $hotelIds): array
+    {
+        if ($hotelIds === [] || !$this->tableColumnExists('hotels', 'tenant_id')) {
+            return $hotelIds;
+        }
+
+        $tenantId = $this->tenantContext->currentUserTenantId($user);
+        if ($tenantId <= 0) {
+            return [];
+        }
+
+        $tenantHotelIds = array_map('intval', Hotel::whereIn('id', $hotelIds)
+            ->where('tenant_id', $tenantId)
+            ->where('status', Hotel::STATUS_ENABLED)
+            ->column('id'));
+
+        return array_values(array_filter(
+            $hotelIds,
+            static fn(int $hotelId): bool => in_array($hotelId, $tenantHotelIds, true)
+        ));
     }
 
     /**
@@ -209,7 +248,13 @@ class HotelScopeService
             $this->tableColumnExists('user_hotel_permissions', 'tenant_id')
             && $this->tableColumnExists('hotels', 'tenant_id')
         ) {
-            $query->whereColumn('uhp.tenant_id', 'h.tenant_id');
+            $tenantId = $this->tenantContext->currentUserTenantId($user);
+            if ($tenantId <= 0) {
+                return [];
+            }
+            $query->where('uhp.tenant_id', $tenantId)
+                ->where('h.tenant_id', $tenantId)
+                ->whereColumn('uhp.tenant_id', 'h.tenant_id');
         }
 
         if ($this->tableColumnExists('user_hotel_permissions', 'status')) {
@@ -234,12 +279,25 @@ class HotelScopeService
 
     private function isHotelEnabled(int $hotelId): bool
     {
-        $cacheKey = (string)$hotelId;
+        $cacheKey = 'tenant:' . $hotelId;
         if (array_key_exists($cacheKey, $this->hotelEnabledCache)) {
             return $this->hotelEnabledCache[$cacheKey];
         }
 
         return $this->hotelEnabledCache[$cacheKey] = (bool)Hotel::where('id', $hotelId)
+            ->where('status', Hotel::STATUS_ENABLED)
+            ->find();
+    }
+
+    private function isHotelEnabledAcrossTenants(int $hotelId): bool
+    {
+        $cacheKey = 'all:' . $hotelId;
+        if (array_key_exists($cacheKey, $this->hotelEnabledCache)) {
+            return $this->hotelEnabledCache[$cacheKey];
+        }
+
+        return $this->hotelEnabledCache[$cacheKey] = (bool)Hotel::withoutTenantScope()
+            ->where('id', $hotelId)
             ->where('status', Hotel::STATUS_ENABLED)
             ->find();
     }
@@ -314,7 +372,15 @@ class HotelScopeService
             $this->tableColumnExists('user_hotel_permissions', 'tenant_id')
             && $this->tableColumnExists('hotels', 'tenant_id')
         ) {
-            $query->whereColumn('uhp.tenant_id', 'h.tenant_id');
+            $tenantId = $this->tenantContext->currentUserTenantId($user);
+            if ($tenantId <= 0) {
+                $cache['permissions'][$cacheKey] = null;
+                $this->storeUserCacheBucket($user, $cache);
+                return null;
+            }
+            $query->where('uhp.tenant_id', $tenantId)
+                ->where('h.tenant_id', $tenantId)
+                ->whereColumn('uhp.tenant_id', 'h.tenant_id');
         }
 
         if ($this->tableColumnExists('user_hotel_permissions', 'status')) {
@@ -409,22 +475,55 @@ class HotelScopeService
         }
 
         try {
-            return $this->tableColumnCache[$cacheKey] = !empty(Db::query("SHOW COLUMNS FROM `{$table}` LIKE '{$column}'"));
+            $exists = $this->probeTableColumn($table, $column);
         } catch (\Throwable $e) {
-            try {
-                $rows = Db::query("PRAGMA table_info(`{$table}`)");
-            } catch (\Throwable $ignored) {
-                return $this->tableColumnCache[$cacheKey] = false;
-            }
-
-            foreach ($rows as $row) {
-                if (($row['name'] ?? '') === $column) {
-                    return $this->tableColumnCache[$cacheKey] = true;
-                }
+            if ($this->isRequiredTenantColumn($table, $column)) {
+                throw new RuntimeException(
+                    "Required tenant column metadata unavailable: {$table}.{$column}",
+                    0,
+                    $e
+                );
             }
 
             return $this->tableColumnCache[$cacheKey] = false;
         }
+
+        if (!$exists && $this->isRequiredTenantColumn($table, $column)) {
+            throw new RuntimeException("Required tenant column is missing: {$table}.{$column}");
+        }
+
+        return $this->tableColumnCache[$cacheKey] = $exists;
+    }
+
+    protected function probeTableColumn(string $table, string $column): bool
+    {
+        try {
+            return !empty(Db::query("SHOW COLUMNS FROM `{$table}` LIKE '{$column}'"));
+        } catch (\Throwable $showError) {
+            try {
+                $rows = Db::query("PRAGMA table_info(`{$table}`)");
+            } catch (\Throwable $pragmaError) {
+                throw new RuntimeException(
+                    "Unable to inspect {$table}.{$column}",
+                    0,
+                    $pragmaError
+                );
+            }
+
+            foreach ($rows as $row) {
+                if (($row['name'] ?? '') === $column) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+    }
+
+    private function isRequiredTenantColumn(string $table, string $column): bool
+    {
+        return $column === 'tenant_id'
+            && in_array($table, ['hotels', 'user_hotel_permissions'], true);
     }
 
     private function userScopeCacheKey(User $user, ?string $capability): string

@@ -191,19 +191,19 @@ for (const [file, functionName] of [
 }
 
 for (const [route, label] of [
-  ["Route::post('/profile-login-trigger/:platform', 'OnlineData/triggerPlatformProfileLogin');", 'Profile login trigger route exists'],
-  ["Route::get('/profile-login-status/:platform', 'OnlineData/platformProfileLoginStatus');", 'Profile login status route exists'],
-  ["Route::get('/collection-status', 'OnlineData/collectionStatus');", 'collection status route exists'],
-  ["Route::post('/fetch-ctrip-comments', 'OnlineData/fetchCtripComments');", 'Ctrip comment fetch route exists'],
-  ["Route::post('/capture-ctrip-comments-browser', 'OnlineData/captureCtripCommentsBrowserData');", 'Ctrip browser comment route exists'],
-  ["Route::post('/capture-ctrip-browser', 'OnlineData/captureCtripBrowserData');", 'Ctrip full browser capture route exists'],
-  ["Route::post('/fetch-ctrip-cookie-api', 'OnlineData/fetchCtripCookieApiData');", 'Ctrip Cookie API route exists'],
-  ["Route::post('/fetch-ctrip-ads', 'OnlineData/fetchCtripAds');", 'Ctrip ads route exists'],
-  ["Route::post('/fetch-meituan-traffic', 'OnlineData/fetchMeituanTraffic');", 'Meituan traffic route exists'],
-  ["Route::post('/fetch-meituan-orders', 'OnlineData/fetchMeituanOrders');", 'Meituan orders route exists'],
-  ["Route::post('/fetch-meituan-ads', 'OnlineData/fetchMeituanAds');", 'Meituan ads route exists'],
-  ["Route::post('/fetch-meituan-comments', 'OnlineData/fetchMeituanComments');", 'Meituan comments route exists'],
-  ["Route::post('/capture-meituan-browser', 'OnlineData/captureMeituanBrowserData');", 'Meituan browser capture route exists'],
+  ["Route::post('/profile-login-trigger/:platform', 'ota.ProfileController/triggerPlatformProfileLogin');", 'Profile login trigger route exists'],
+  ["Route::get('/profile-login-status/:platform', 'ota.ProfileController/platformProfileLoginStatus');", 'Profile login status route exists'],
+  ["Route::get('/collection-status', 'ota.SyncController/collectionStatus');", 'collection status route exists'],
+  ["Route::post('/fetch-ctrip-comments', 'ota.CtripController/fetchCtripComments');", 'Ctrip comment fetch route exists'],
+  ["Route::post('/capture-ctrip-comments-browser', 'ota.CtripController/captureCtripCommentsBrowserData');", 'Ctrip browser comment route exists'],
+  ["Route::post('/capture-ctrip-browser', 'ota.CtripController/captureCtripBrowserData');", 'Ctrip full browser capture route exists'],
+  ["Route::post('/fetch-ctrip-cookie-api', 'ota.CtripController/fetchCtripCookieApiData');", 'Ctrip Cookie API route exists'],
+  ["Route::post('/fetch-ctrip-ads', 'ota.CtripController/fetchCtripAds');", 'Ctrip ads route exists'],
+  ["Route::post('/fetch-meituan-traffic', 'ota.MeituanController/fetchMeituanTraffic');", 'Meituan traffic route exists'],
+  ["Route::post('/fetch-meituan-orders', 'ota.MeituanController/fetchMeituanOrders');", 'Meituan orders route exists'],
+  ["Route::post('/fetch-meituan-ads', 'ota.MeituanController/fetchMeituanAds');", 'Meituan ads route exists'],
+  ["Route::post('/fetch-meituan-comments', 'ota.MeituanController/fetchMeituanComments');", 'Meituan comments route exists'],
+  ["Route::post('/capture-meituan-browser', 'ota.MeituanController/captureMeituanBrowserData');", 'Meituan browser capture route exists'],
 ]) {
   requireText('route/app.php', route, label);
 }

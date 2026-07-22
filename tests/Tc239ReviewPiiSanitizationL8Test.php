@@ -6,6 +6,9 @@ namespace Tests;
 use app\service\PlatformDataSyncService;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use think\App;
+use think\facade\Config;
+use think\facade\Db;
 
 final class Tc239ReviewPiiSanitizationL8Test extends TestCase
 {
@@ -15,6 +18,43 @@ final class Tc239ReviewPiiSanitizationL8Test extends TestCase
     private const FORMATTED_PHONE = '+86 138-0013-8000';
     private const EMAIL = 'guest239@example.com';
     private const ID_CARD = '110101199001012391';
+
+    private static array $originalDatabaseConfig = [];
+    private static string $databaseConnection = '';
+    private static string $databasePath = '';
+
+    public static function setUpBeforeClass(): void
+    {
+        (new App())->initialize();
+        self::$originalDatabaseConfig = Config::get('database');
+        self::$databaseConnection = 'tc239_review_tenant_' . getmypid();
+        self::$databasePath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . self::$databaseConnection . '.sqlite';
+        @unlink(self::$databasePath);
+
+        $database = self::$originalDatabaseConfig;
+        $database['default'] = self::$databaseConnection;
+        $database['connections'][self::$databaseConnection] = [
+            'type' => 'sqlite',
+            'database' => self::$databasePath,
+            'prefix' => '',
+            'fields_strict' => false,
+        ];
+        Config::set($database, 'database');
+        Db::connect(null, true);
+        Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL)');
+        Db::name('hotels')->insert(['id' => 7, 'tenant_id' => 1]);
+    }
+
+    public static function tearDownAfterClass(): void
+    {
+        try {
+            Db::connect(self::$databaseConnection)->close();
+        } catch (\Throwable) {
+        }
+        Config::set(self::$originalDatabaseConfig, 'database');
+        Db::connect(null, true);
+        @unlink(self::$databasePath);
+    }
 
     /**
      * TC-239 binds directly to the production normalization and review-storage

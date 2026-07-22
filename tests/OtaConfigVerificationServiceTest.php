@@ -132,7 +132,7 @@ final class OtaConfigVerificationServiceTest extends TestCase
         foreach ([
             'CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name TEXT NOT NULL)',
             'CREATE TABLE ota_profile_bindings (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, platform TEXT NOT NULL, profile_key_hash TEXT NOT NULL, binding_status TEXT NOT NULL, bound_by INTEGER NULL, revoked_by INTEGER NULL, create_time TEXT NULL, update_time TEXT NULL)',
-            'CREATE TABLE platform_data_sources (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, platform TEXT NOT NULL, ingestion_method TEXT NOT NULL, enabled INTEGER NOT NULL, status TEXT NOT NULL, config_json TEXT NULL, update_time TEXT NULL)',
+            'CREATE TABLE platform_data_sources (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, platform TEXT NOT NULL, ingestion_method TEXT NOT NULL, enabled INTEGER NOT NULL, status TEXT NOT NULL, config_json TEXT NULL, last_sync_status TEXT NULL, last_error TEXT NULL, update_time TEXT NULL)',
         ] as $sql) {
             Db::execute($sql);
         }

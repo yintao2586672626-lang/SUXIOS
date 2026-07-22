@@ -137,7 +137,8 @@ final class OtaProfileSessionProofServiceTest extends TestCase
         self::assertFalse($this->service('2026-07-12 00:00:01')->isCurrentVerified($source));
 
         $responseService = new PlatformDataSyncService(null, null, $service);
-        $responseRows = $responseService->listDataSources(null, ['system_hotel_id' => 10]);
+        $superAdmin = $this->superAdmin();
+        $responseRows = $responseService->listDataSources($superAdmin, ['system_hotel_id' => 10]);
         self::assertCount(1, $responseRows);
         self::assertTrue(
             $responseRows[0]['current_session_verified'] ?? false,
@@ -154,7 +155,7 @@ final class OtaProfileSessionProofServiceTest extends TestCase
             null,
             $this->service('2026-07-12 00:00:01')
         );
-        $nextDayRows = $nextDayResponseService->listDataSources(null, ['system_hotel_id' => 10]);
+        $nextDayRows = $nextDayResponseService->listDataSources($superAdmin, ['system_hotel_id' => 10]);
         self::assertFalse($nextDayRows[0]['current_session_verified'] ?? true);
         self::assertTrue($nextDayRows[0]['profile_reusable'] ?? false);
         self::assertSame('reusable', $nextDayRows[0]['profile_reuse_status'] ?? null);
@@ -165,7 +166,7 @@ final class OtaProfileSessionProofServiceTest extends TestCase
         Db::name('platform_data_sources')->where('id', $sourceId)->update([
             'config_json' => json_encode($config, JSON_THROW_ON_ERROR),
         ]);
-        $tamperedRows = $responseService->listDataSources(null, ['system_hotel_id' => 10]);
+        $tamperedRows = $responseService->listDataSources($superAdmin, ['system_hotel_id' => 10]);
         self::assertFalse(
             $tamperedRows[0]['current_session_verified'] ?? true,
             'A forged config flag must not be exposed as a verified current session.'
@@ -883,7 +884,7 @@ final class OtaProfileSessionProofServiceTest extends TestCase
             $service->recordCollectionPreflightVerified($sourceId, 10, 'ctrip', 'profile-10', true, ['ok' => true, 'status' => 'authorized'], ['status' => 'matched', 'validated_identifier' => 'profile-10']);
             self::fail('Cross-tenant source scope must not produce a proof.');
         } catch (RuntimeException $e) {
-            self::assertStringContainsString('tenant scope mismatch', $e->getMessage());
+            self::assertStringContainsString('not found', strtolower($e->getMessage()));
         }
         $tenantMismatchConfig = json_decode((string)Db::name('platform_data_sources')->where('id', $sourceId)->value('config_json'), true, 512, JSON_THROW_ON_ERROR);
         self::assertArrayNotHasKey('current_session_verified', $tenantMismatchConfig);
@@ -940,6 +941,16 @@ final class OtaProfileSessionProofServiceTest extends TestCase
     {
         $clock = static fn(): DateTimeImmutable => new DateTimeImmutable($now, new DateTimeZone('Asia/Shanghai'));
         return new OtaProfileSessionProofService(new OtaProfileBindingService(self::$projectRoot), $clock);
+    }
+
+    private function superAdmin(): object
+    {
+        return new class {
+            public function isSuperAdmin(): bool
+            {
+                return true;
+            }
+        };
     }
 
     private function insertBoundSource(int $hotelId, int $tenantId, string $platform, string $profileKey): int

@@ -3,4 +3,5 @@
 return [
     // CORS 跨域中间件
     \app\middleware\Cors::class,
+    \app\middleware\DatabaseSchemaGuard::class,
 ];

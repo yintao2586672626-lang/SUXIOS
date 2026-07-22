@@ -365,6 +365,7 @@ final class Tc200ImportAtomicityL8Test extends TestCase
     {
         return new class {
             public int $id = 2001;
+            public int $tenant_id = 20;
 
             public function isSuperAdmin(): bool
             {
@@ -387,6 +388,7 @@ final class Tc200ImportAtomicityL8Test extends TestCase
     {
         return new class {
             public int $id = 2002;
+            public int $tenant_id = 20;
 
             public function isSuperAdmin(): bool
             {

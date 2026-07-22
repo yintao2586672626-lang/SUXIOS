@@ -5,6 +5,7 @@ namespace app\controller\concern;
 
 use app\model\OperationLog;
 use app\model\CompetitorDevice;
+use think\db\BaseQuery;
 use think\Response;
 
 trait CookieEndpointConcern
@@ -184,7 +185,7 @@ trait CookieEndpointConcern
             $statusCounts[$status] = ($statusCounts[$status] ?? 0) + 1;
         }
 
-        return [
+        $row = [
             'endpoint' => $endpoint,
             'method' => $meta['method'],
             'path' => $meta['path'],
@@ -199,6 +200,12 @@ trait CookieEndpointConcern
             'status_counts' => $statusCounts,
             'security_note' => 'Audited failures store endpoint, reason, status, method, origin and hashed IP only; secrets are masked.',
         ];
+
+        if (array_key_exists('active_binding_count', $meta)) {
+            $row['active_binding_count'] = (int)$meta['active_binding_count'];
+        }
+
+        return $row;
     }
 
     private function serializePublicEndpointFailureLog(array $log, string $endpoint = ''): array
@@ -339,14 +346,14 @@ trait CookieEndpointConcern
             'external_rate_limited',
         ];
 
-        $logs = OperationLog::where('module', 'online_data')
+        $logs = $this->publicEndpointOperationLogQuery()->where('module', 'online_data')
             ->whereIn('action', $actions)
             ->whereBetween('create_time', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
             ->order('create_time', 'desc')
             ->limit(100)
             ->select()
             ->toArray();
-        $competitorLogs = OperationLog::where('module', 'competitor')
+        $competitorLogs = $this->publicEndpointOperationLogQuery()->where('module', 'competitor')
             ->whereIn('action', $competitorActions)
             ->whereBetween('create_time', [$startDate . ' 00:00:00', $endDate . ' 23:59:59'])
             ->order('create_time', 'desc')
@@ -357,10 +364,17 @@ trait CookieEndpointConcern
         usort($logs, static fn(array $a, array $b): int => strcmp((string)($b['create_time'] ?? ''), (string)($a['create_time'] ?? '')));
         $logs = array_slice($logs, 0, 100);
 
-        $activeCompetitorBindingCount = (int)CompetitorDevice::where('status', 1)
+        $competitorDeviceQuery = CompetitorDevice::where('status', 1)
             ->whereNull('revoked_at')
-            ->where('token_hash', '<>', '')
-            ->count();
+            ->where('token_hash', '<>', '');
+        if (!$this->currentUser->isSuperAdmin()) {
+            $tenantId = (int)($this->currentUser->tenant_id ?? 0);
+            if ($tenantId <= 0) {
+                abort(403, 'Authenticated tenant context is required');
+            }
+            $competitorDeviceQuery->where('tenant_id', $tenantId);
+        }
+        $activeCompetitorBindingCount = (int)$competitorDeviceQuery->count();
 
         return $this->success([
             'period' => [
@@ -438,6 +452,15 @@ trait CookieEndpointConcern
                 '新增或更换凭据请使用平台采集源；日常采集请使用门店浏览器 Profile。',
             ],
         ]);
+    }
+
+    private function publicEndpointOperationLogQuery(): BaseQuery
+    {
+        if ($this->currentUser && $this->currentUser->isSuperAdmin()) {
+            return OperationLog::withoutTenantScope();
+        }
+
+        return OperationLog::where([]);
     }
 
     private function buildDisabledCookieBookmarkletScript(string $platform): string

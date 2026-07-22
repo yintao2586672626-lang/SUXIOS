@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace app\service;
 
-use app\model\Hotel;
 use app\model\SystemConfig;
 use app\model\User;
 
@@ -19,20 +18,15 @@ class ProtectedCapabilityService
     /** @var array<string, mixed> */
     private array $policy;
 
-    /** @var callable(int): int|null */
-    private $hotelTenantResolver;
-
-    /** @var array<int, int> */
-    private array $hotelTenantCache = [];
+    private TenantContext $tenantContext;
 
     /**
      * @param array<string, mixed>|null $policy
-     * @param callable(int): int|null $hotelTenantResolver
      */
-    public function __construct(?array $policy = null, ?callable $hotelTenantResolver = null)
+    public function __construct(?array $policy = null, ?TenantContext $tenantContext = null)
     {
         $this->policy = $this->normalizePolicy($policy ?? $this->loadPolicy());
-        $this->hotelTenantResolver = $hotelTenantResolver;
+        $this->tenantContext = $tenantContext ?? new TenantContext();
     }
 
     /**
@@ -292,9 +286,21 @@ class ProtectedCapabilityService
         $permission = trim((string)($capability['permission'] ?? ''));
         $module = trim((string)($capability['module'] ?? ''));
         $hotelId = $this->resolveHotelId($params, $user);
-        $tenantId = $this->resolveTenantId($params, $user);
+        $tenantId = $this->resolveTenantId($user);
 
-        $claimedTenantId = $this->positiveInt($params['tenant_id'] ?? null);
+        if ($tenantId <= 0) {
+            return [
+                'allowed' => false,
+                'reason' => 'tenant_context_missing',
+                'status' => 403,
+                'tenant_id' => 0,
+                'hotel_id' => $hotelId,
+                'required_permission' => $permission,
+                'required_module' => $module,
+            ];
+        }
+
+        $claimedTenantId = $this->tenantContext->currentRequestTenantId($params);
         if ($claimedTenantId > 0 && $tenantId > 0 && $claimedTenantId !== $tenantId) {
             return [
                 'allowed' => false,
@@ -404,17 +410,9 @@ class ProtectedCapabilityService
         return (string)($capability['response_mode'] ?? 'summary_only') === 'summary_only';
     }
 
-    /**
-     * @param array<string, mixed> $params
-     */
-    public function resolveTenantId(array $params, User $user): int
+    public function resolveTenantId(User $user): int
     {
-        $hotelId = $this->resolveHotelId($params, $user);
-        if ($hotelId > 0) {
-            return $this->tenantIdForHotel($hotelId);
-        }
-
-        return $this->positiveInt($user->tenant_id ?? null);
+        return $this->tenantContext->currentUserTenantId($user);
     }
 
     /**
@@ -565,32 +563,6 @@ class ProtectedCapabilityService
         }
     }
 
-    private function tenantIdForHotel(int $hotelId): int
-    {
-        if ($hotelId <= 0) {
-            return 0;
-        }
-        if (array_key_exists($hotelId, $this->hotelTenantCache)) {
-            return $this->hotelTenantCache[$hotelId];
-        }
-
-        $tenantId = 0;
-        try {
-            if ($this->hotelTenantResolver !== null) {
-                $tenantId = $this->positiveInt(($this->hotelTenantResolver)($hotelId));
-            } else {
-                $tenantId = $this->positiveInt(Hotel::where('id', $hotelId)->value('tenant_id'));
-            }
-        } catch (\Throwable $e) {
-            $tenantId = 0;
-        }
-
-        // Legacy installations used hotel_id as the tenant key. The fallback
-        // remains server-derived and never trusts a request tenant_id.
-        $this->hotelTenantCache[$hotelId] = $tenantId > 0 ? $tenantId : $hotelId;
-        return $this->hotelTenantCache[$hotelId];
-    }
-
     private function positiveInt($value): int
     {
         return is_numeric($value) && (int)$value > 0 ? (int)$value : 0;
@@ -598,12 +570,7 @@ class ProtectedCapabilityService
 
     private function roleAllows(User $user, string $permission): bool
     {
-        $role = $user->role ?? null;
-        if (is_object($role) && method_exists($role, 'hasPermission')) {
-            return $role->hasPermission($permission);
-        }
-
-        return false;
+        return (new PermissionService())->roleAllows($user, $permission);
     }
 
     private function moduleEntitled(int $tenantId, string $module): bool

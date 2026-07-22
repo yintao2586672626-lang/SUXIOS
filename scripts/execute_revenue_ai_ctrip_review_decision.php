@@ -496,7 +496,8 @@ function ctrip_review_decision_pending_template_context(int $suggestionId, strin
         return [];
     }
 
-    $suggestion = PriceSuggestion::find($suggestionId);
+    $suggestionScope = ctrip_review_decision_scoped_suggestion($suggestionId);
+    $suggestion = $suggestionScope['model'];
     if (!$suggestion) {
         throw new InvalidArgumentException('Pending price suggestion not found for template: ' . $suggestionId);
     }
@@ -549,6 +550,50 @@ function ctrip_review_decision_pending_template_context(int $suggestionId, strin
         'review_endpoint' => '/api/revenue-ai/price-suggestions/' . $suggestionId . '/review',
         'execution_intent_endpoint_after_approval' => '/api/revenue-ai/price-suggestions/' . $suggestionId . '/execution-intent',
         'auto_write_ota' => false,
+    ];
+}
+
+/**
+ * Resolve the narrow CLI PriceSuggestion identity through the hotel's
+ * authoritative tenant before opening the ORM model.
+ *
+ * @return array{model:?PriceSuggestion,tenant_id:int,hotel_id:int}
+ */
+function ctrip_review_decision_scoped_suggestion(int $suggestionId): array
+{
+    if ($suggestionId <= 0) {
+        return ['model' => null, 'tenant_id' => 0, 'hotel_id' => 0];
+    }
+
+    $identity = Db::name('price_suggestions')
+        ->field('id,tenant_id,hotel_id')
+        ->where('id', $suggestionId)
+        ->find();
+    if (!is_array($identity)) {
+        return ['model' => null, 'tenant_id' => 0, 'hotel_id' => 0];
+    }
+
+    $hotelId = (int)($identity['hotel_id'] ?? 0);
+    $storedTenantId = (int)($identity['tenant_id'] ?? 0);
+    $tenantId = $hotelId > 0
+        ? (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id')
+        : 0;
+    if ($hotelId <= 0 || $tenantId <= 0 || $storedTenantId !== $tenantId) {
+        throw new RuntimeException('Price suggestion tenant scope does not match its hotel.', 409);
+    }
+
+    $model = PriceSuggestion::runInTenantScope(
+        $tenantId,
+        static fn() => PriceSuggestion::where('id', $suggestionId)
+            ->where('tenant_id', $tenantId)
+            ->where('hotel_id', $hotelId)
+            ->find()
+    );
+
+    return [
+        'model' => $model instanceof PriceSuggestion ? $model : null,
+        'tenant_id' => $tenantId,
+        'hotel_id' => $hotelId,
     ];
 }
 
@@ -1043,7 +1088,9 @@ function ctrip_review_decision_run(array $options): array
         ];
     }
 
-    $suggestion = PriceSuggestion::find($suggestionId);
+    $suggestionScope = ctrip_review_decision_scoped_suggestion($suggestionId);
+    $suggestion = $suggestionScope['model'];
+    $suggestionTenantId = (int)$suggestionScope['tenant_id'];
     $suggestionArray = $suggestion ? $suggestion->toArray() : [];
     $suggestionHotelId = (int)($suggestionArray['hotel_id'] ?? 0);
     $suggestionDate = ctrip_review_decision_text($suggestionArray['suggestion_date'] ?? '', 20);
@@ -1161,18 +1208,38 @@ function ctrip_review_decision_run(array $options): array
             $operatorReviewEvidence,
             $fileHash
         );
-        $suggestion->status = ctrip_review_decision_status_after($action);
-        $suggestion->applied_by = $userId;
-        $suggestion->remark = $remark;
-        $suggestion->factors = $state['factors'];
-        $suggestion->save();
+        PriceSuggestion::runInTenantScope($suggestionTenantId, static function () use (
+            $suggestion,
+            $action,
+            $userId,
+            $remark,
+            $state
+        ): void {
+            $suggestion->status = ctrip_review_decision_status_after($action);
+            $suggestion->applied_by = $userId;
+            $suggestion->remark = $remark;
+            $suggestion->factors = $state['factors'];
+            $suggestion->save();
+        });
 
-        $fresh = PriceSuggestion::find($suggestionId);
+        $fresh = PriceSuggestion::runInTenantScope(
+            $suggestionTenantId,
+            static fn() => PriceSuggestion::where('id', $suggestionId)
+                ->where('tenant_id', $suggestionTenantId)
+                ->where('hotel_id', $suggestionHotelId)
+                ->find()
+        );
+        if (!$fresh) {
+            throw new RuntimeException('Price suggestion readback escaped its tenant scope.', 409);
+        }
         $freshArray = $fresh ? $fresh->toArray() : $suggestion->toArray();
         $freshFactors = ctrip_review_decision_decode_map($freshArray['factors'] ?? []);
         $review = $state['review'];
         if ($createIntent && in_array($action, ['approve', 'approve_with_changes'], true)) {
-            $intent = ctrip_review_decision_create_intent($freshArray, $decision, $userId);
+            $intent = PriceSuggestion::runInTenantScope(
+                $suggestionTenantId,
+                static fn() => ctrip_review_decision_create_intent($freshArray, $decision, $userId)
+            );
         }
 
         ctrip_review_decision_check(
@@ -1255,6 +1322,7 @@ function ctrip_review_decision_run(array $options): array
                 'platform' => 'ctrip',
                 'enabled_channels' => ['ctrip'],
                 'hotel_id' => $suggestionHotelId,
+                'tenant_id' => $suggestionTenantId,
                 'source_scope' => 'ctrip_ota_channel',
                 'source_policy' => $execute
                     ? 'operator_review_decision_explicit_execute'

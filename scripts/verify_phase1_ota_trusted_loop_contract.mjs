@@ -678,7 +678,7 @@ requireIncludes('docs/phase1_ota_live_closure_evidence.md', 'phase-one live clos
 ]);
 
 requireIncludes('route/app.php', 'OTA acquisition, diagnosis, revenue, AI, and execution routes exist', [
-  "Route::get('/collection-resources', 'OnlineData/collectionResourceCatalog');",
+  "Route::get('/collection-resources', 'ota.SyncController/collectionResourceCatalog');",
   "Route::get('/collection-reliability', 'OnlineData/collectionReliability');",
   "Route::get('/data-analysis', 'OnlineData/dataAnalysis');",
   "Route::post('/ai-analysis', 'OnlineData/aiAnalysis');",

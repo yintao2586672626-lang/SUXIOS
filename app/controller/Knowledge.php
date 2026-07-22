@@ -627,7 +627,10 @@ class Knowledge extends Base
             return '';
         }
 
-        $hotel = Hotel::where('id', $hotelId)->where('status', Hotel::STATUS_ENABLED)->find();
+        $query = $this->currentUser && $this->currentUser->isSuperAdmin()
+            ? Hotel::withoutTenantScope()
+            : Hotel::where([]);
+        $hotel = $query->where('id', $hotelId)->where('status', Hotel::STATUS_ENABLED)->find();
         if (!$hotel) {
             throw new ValidateException('选择的门店不存在或未启用');
         }

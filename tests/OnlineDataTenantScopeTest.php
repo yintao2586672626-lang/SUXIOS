@@ -177,9 +177,10 @@ final class OnlineDataTenantScopeTest extends TestCase
                 return $this->hotelIds;
             }
 
-            public function hasPermission(string $permission): bool
+            public function hasHotelPermission(int $hotelId, string $permission): bool
             {
-                return in_array($permission, $this->permissions, true);
+                return in_array($hotelId, $this->hotelIds, true)
+                    && in_array($permission, $this->permissions, true);
             }
         };
     }

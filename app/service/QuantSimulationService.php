@@ -10,6 +10,7 @@ class QuantSimulationService
 {
     private LlmClient $client;
     private AiDecisionQualityService $decisionQualityService;
+    private bool $tableEnsured = false;
 
     public function __construct(?LlmClient $client = null, ?AiDecisionQualityService $decisionQualityService = null)
     {
@@ -116,35 +117,16 @@ class QuantSimulationService
 
     public function ensureTable(): void
     {
-        Db::execute("
-            CREATE TABLE IF NOT EXISTS quant_simulation_records (
-                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-                tenant_id BIGINT UNSIGNED DEFAULT NULL,
-                project_name VARCHAR(120) NOT NULL DEFAULT '',
-                input_json JSON DEFAULT NULL,
-                result_json JSON DEFAULT NULL,
-                scenarios_json JSON DEFAULT NULL,
-                risk_hints_json JSON DEFAULT NULL,
-                monthly_net_cashflow DECIMAL(14,2) NOT NULL DEFAULT 0,
-                payback_months DECIMAL(10,2) DEFAULT NULL,
-                risk_level VARCHAR(30) NOT NULL DEFAULT '',
-                created_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
-                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                deleted_at DATETIME DEFAULT NULL,
-                PRIMARY KEY (id),
-                INDEX idx_quant_sim_tenant_user (tenant_id, created_by, id),
-                INDEX idx_quant_sim_created_by (created_by, id),
-                INDEX idx_quant_sim_risk_level (risk_level)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        ");
-        $this->ensureTenantColumns();
-    }
+        if ($this->tableEnsured) {
+            return;
+        }
 
-    private function ensureTenantColumns(): void
-    {
-        Db::execute("ALTER TABLE quant_simulation_records ADD COLUMN IF NOT EXISTS tenant_id BIGINT UNSIGNED DEFAULT NULL COMMENT '租户ID，默认跟随创建用户' AFTER id");
-        Db::execute("ALTER TABLE quant_simulation_records ADD INDEX IF NOT EXISTS idx_quant_sim_tenant_user (tenant_id, created_by, id)");
+        DatabaseSchemaRequirement::assertTableColumns('quant_simulation_records', [
+            'id', 'tenant_id', 'project_name', 'input_json', 'result_json', 'scenarios_json',
+            'risk_hints_json', 'monthly_net_cashflow', 'payback_months', 'risk_level',
+            'created_by', 'created_at', 'updated_at', 'deleted_at',
+        ]);
+        $this->tableEnsured = true;
     }
 
     private function applyTenantScope($query, int $userId, bool $isSuperAdmin): void
@@ -180,7 +162,12 @@ class QuantSimulationService
             }
 
             $hotelId = (int)($row['hotel_id'] ?? 0);
-            return $hotelId > 0 ? $hotelId : null;
+            if ($hotelId <= 0) {
+                return null;
+            }
+
+            $hotelTenantId = (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id');
+            return $hotelTenantId > 0 ? $hotelTenantId : null;
         } catch (Throwable $e) {
             return null;
         }

@@ -78,6 +78,7 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
             'platform_data_sync_tasks',
             'platform_data_sources',
             'ota_credentials',
+            'ota_credential_audit_logs',
             'ota_profile_bindings',
         ] as $table) {
             Db::name($table)->delete(true);
@@ -338,6 +339,7 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
     {
         Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name VARCHAR(100))');
         Db::execute('CREATE TABLE ota_credentials (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, platform VARCHAR(20) NOT NULL, config_id VARCHAR(100) NOT NULL, encrypted_payload TEXT NOT NULL, payload_version INTEGER NOT NULL, key_id VARCHAR(100) NOT NULL, secret_mask VARCHAR(255) NOT NULL, credential_status VARCHAR(20) NOT NULL, created_by INTEGER NOT NULL, rotated_at DATETIME, last_used_at DATETIME, revoked_at DATETIME, create_time DATETIME, update_time DATETIME, UNIQUE(tenant_id,system_hotel_id,platform,config_id))');
+        Db::execute('CREATE TABLE ota_credential_audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, credential_id INTEGER NOT NULL DEFAULT 0, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, platform VARCHAR(20) NOT NULL, config_id_hash VARCHAR(64) NOT NULL, event_sequence INTEGER NOT NULL, credential_version INTEGER NOT NULL DEFAULT 0, event_type VARCHAR(40) NOT NULL, outcome VARCHAR(20) NOT NULL, failure_code VARCHAR(80) NOT NULL DEFAULT \'\', actor_id INTEGER NOT NULL DEFAULT 0, payload_digest VARCHAR(64) NOT NULL DEFAULT \'\', previous_entry_hash VARCHAR(64) NOT NULL DEFAULT \'\', entry_hash VARCHAR(64) NOT NULL, occurred_at DATETIME NOT NULL, UNIQUE(tenant_id,system_hotel_id,platform,config_id_hash,event_sequence), UNIQUE(entry_hash))');
         Db::execute('CREATE TABLE ota_profile_bindings (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, platform VARCHAR(20) NOT NULL, profile_key_hash VARCHAR(64) NOT NULL, binding_status VARCHAR(20) NOT NULL, bound_by INTEGER, revoked_by INTEGER, create_time DATETIME, update_time DATETIME, UNIQUE(platform,profile_key_hash))');
         Db::execute('CREATE TABLE platform_data_sources (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, system_hotel_id INTEGER, user_id INTEGER, name VARCHAR(120) NOT NULL, platform VARCHAR(50) NOT NULL, data_type VARCHAR(50) NOT NULL, ingestion_method VARCHAR(30) NOT NULL, status VARCHAR(30) NOT NULL, enabled INTEGER NOT NULL, config_json TEXT, secret_json TEXT, last_sync_time DATETIME, last_sync_status VARCHAR(30), last_error TEXT, created_by INTEGER, updated_by INTEGER, create_time DATETIME, update_time DATETIME)');
         Db::execute('CREATE TABLE platform_data_sync_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, data_source_id INTEGER, system_hotel_id INTEGER, platform VARCHAR(50) NOT NULL, data_type VARCHAR(50) NOT NULL, ingestion_method VARCHAR(30) NOT NULL, trigger_type VARCHAR(30) NOT NULL, status VARCHAR(30) NOT NULL, attempt_count INTEGER NOT NULL, max_attempts INTEGER NOT NULL, started_at DATETIME, finished_at DATETIME, next_retry_at DATETIME, requested_by INTEGER, message TEXT, stats_json TEXT, create_time DATETIME, update_time DATETIME)');
@@ -536,6 +538,7 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
     {
         return new class {
             public int $id = 9;
+            public int $tenant_id = 7;
 
             public function isSuperAdmin(): bool
             {
@@ -558,6 +561,7 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
     {
         return new class {
             public int $id = 10;
+            public int $tenant_id = 7;
 
             public function isSuperAdmin(): bool
             {

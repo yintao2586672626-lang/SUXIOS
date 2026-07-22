@@ -8,9 +8,39 @@ use app\model\User;
 use app\service\HotelScopeService;
 use app\service\PermissionService;
 use PHPUnit\Framework\TestCase;
+use think\exception\HttpException;
 
 final class PermissionServiceTest extends TestCase
 {
+    public function testHotelPermissionOrFailRejectsHotelBForReadCreateUpdateDelete(): void
+    {
+        $permissions = [
+            'can_view_online_data',
+            'can_fetch_online_data',
+            'can_edit_report',
+            'can_delete_online_data',
+        ];
+        $user = $this->getMockBuilder(User::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['hasHotelPermission'])
+            ->getMock();
+        $user->method('hasHotelPermission')->willReturnCallback(
+            static fn(int $hotelId, string $permission): bool => $hotelId === 7
+                && in_array($permission, $permissions, true)
+        );
+
+        foreach ($permissions as $permission) {
+            $user->hasHotelPermissionOrFail(7, $permission);
+
+            try {
+                $user->hasHotelPermissionOrFail(8, $permission);
+                self::fail('酒店B必须拒绝权限: ' . $permission);
+            } catch (HttpException $e) {
+                self::assertSame(403, $e->getStatusCode(), $permission);
+            }
+        }
+    }
+
     public function testUserAuthorizationHelpersStayInstanceScopedAndShareOneHotelScope(): void
     {
         $firstUser = $this->userWithRole([]);

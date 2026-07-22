@@ -1,0 +1,11 @@
+[Unit]
+Description=Run SUXIOS yesterday operating loop every morning
+
+[Timer]
+OnCalendar=*-*-* 08:10:00 Asia/Shanghai
+RandomizedDelaySec=3min
+Persistent=true
+Unit=suxios-cloud-automation@daily.service
+
+[Install]
+WantedBy=timers.target

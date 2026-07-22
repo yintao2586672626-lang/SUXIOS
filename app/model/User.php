@@ -18,6 +18,7 @@ class User extends Model
     
     protected $type = [
         'id' => 'integer',
+        'tenant_id' => 'integer',
         'status' => 'integer',
         'hotel_id' => 'integer',
         'role_id' => 'integer',
@@ -189,6 +190,16 @@ class User extends Model
         return (bool)$authorization['allowed'];
     }
 
+    public function hasHotelPermissionOrFail(
+        int $hotelId,
+        string $permission,
+        string $message = '无权限操作该门店'
+    ): void {
+        if (!$this->hasHotelPermission($hotelId, $permission)) {
+            throw new \think\exception\HttpException(403, $message);
+        }
+    }
+
     private function legacyHasHotelPermission(int $hotelId, string $permission): bool
     {
         if ($hotelId <= 0) {
@@ -218,32 +229,6 @@ class User extends Model
         }
 
         return !empty($this->hotel_id) && (int)$this->hotel_id === $hotelId;
-    }
-    
-    /**
-     * 检查是否有某个权限（从角色继承）
-     * 注意：非超级管理员必须关联启用的酒店
-     */
-    public function hasPermission(string $permission): bool
-    {
-        if ($this->isSuperAdmin()) {
-            return true;
-        }
-        
-        // 非超级管理员必须关联酒店
-        // 检查关联的酒店是否启用
-        $role = $this->role;
-        if (!$role || (int)$role->status !== Role::STATUS_ENABLED || !$role->hasPermission($permission)) {
-            return false;
-        }
-
-        foreach ($this->getPermittedHotelIds() as $hotelId) {
-            if ($this->hasHotelPermission((int)$hotelId, $permission)) {
-                return true;
-            }
-        }
-
-        return false;
     }
     
     /**

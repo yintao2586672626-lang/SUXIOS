@@ -150,17 +150,12 @@ class Auth
 
         try {
             $revokedAt = $this->normalizeTimestamp(cache('auth_revoked_after_' . $userId));
-            // Legacy administrator resets stored the target account in user_id;
-            // current resets keep the administrator as actor and target_user_id in extra_data.
-            // Read both shapes so pre-upgrade sessions remain revoked across the schema change.
-            $lastPasswordChange = OperationLog::where('user_id', $userId)
-                ->whereIn('action', ['change_password', 'reset_password'])
-                ->order('id', 'desc')
-                ->value('create_time');
             $revokedAt = max(
                 $revokedAt,
-                $this->normalizeTimestamp($lastPasswordChange),
-                $this->latestResetPasswordTimestamp($userId)
+                OperationLog::latestCredentialRevocationTimestamp(
+                    $userId,
+                    time() - self::TOKEN_MAX_AGE_SECONDS
+                )
             );
             if ($revokedAt > 0 && $createdAt <= $revokedAt) {
                 return false;
@@ -187,25 +182,6 @@ class Auth
 
         $timestamp = strtotime(trim((string)$value));
         return $timestamp === false ? 0 : $timestamp;
-    }
-
-    private function latestResetPasswordTimestamp(int $targetUserId): int
-    {
-        $since = date('Y-m-d H:i:s', time() - self::TOKEN_MAX_AGE_SECONDS);
-        $rows = OperationLog::where('action', 'reset_password')
-            ->where('create_time', '>=', $since)
-            ->field('create_time,extra_data')
-            ->order('id', 'desc')
-            ->select()
-            ->toArray();
-        foreach ($rows as $row) {
-            $extra = json_decode((string)($row['extra_data'] ?? ''), true);
-            if (is_array($extra) && (int)($extra['target_user_id'] ?? 0) === $targetUserId) {
-                return $this->normalizeTimestamp($row['create_time'] ?? null);
-            }
-        }
-
-        return 0;
     }
 
     private function protectedCapabilityService(): ProtectedCapabilityService
@@ -555,13 +531,9 @@ class Auth
 
     private function resolveTenantIdForRateLimit(array $_params, User $user): int
     {
-        foreach (['tenant_id', 'hotel_id'] as $key) {
-            if (isset($user->{$key}) && is_numeric($user->{$key}) && (int)$user->{$key} > 0) {
-                return (int)$user->{$key};
-            }
-        }
-
-        return 0;
+        return isset($user->tenant_id) && is_numeric($user->tenant_id)
+            ? max(0, (int)$user->tenant_id)
+            : 0;
     }
 
     /**
@@ -690,7 +662,7 @@ class Auth
             $payload['request_id'] = $requestId;
         }
         $payload['protected_trace'] = [
-            'tenant_id' => $service->resolveTenantId($request->param(), $user) ?: null,
+            'tenant_id' => $service->resolveTenantId($user) ?: null,
             'user_id' => (int)$user->id,
             'hotel_id' => $service->resolveHotelId($request->param(), $user) ?: null,
             'request_id' => $requestId,

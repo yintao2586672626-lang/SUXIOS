@@ -133,9 +133,9 @@ final class OnlineDataTest extends TestCase
                 return false;
             }
 
-            public function hasPermission(string $permission): bool
+            public function hasHotelPermission(int $hotelId, string $permission): bool
             {
-                return false;
+                return $hotelId === 58 && $permission === 'can_fetch_online_data';
             }
 
             public function canManageOwnHotels(): bool
@@ -164,7 +164,7 @@ final class OnlineDataTest extends TestCase
                 return false;
             }
 
-            public function hasPermission(string $permission): bool
+            public function hasHotelPermission(int $hotelId, string $permission): bool
             {
                 return false;
             }
@@ -194,9 +194,9 @@ final class OnlineDataTest extends TestCase
                 return false;
             }
 
-            public function hasPermission(string $permission): bool
+            public function hasHotelPermission(int $hotelId, string $permission): bool
             {
-                return $permission === 'can_fetch_online_data';
+                return $hotelId === 58 && $permission === 'can_fetch_online_data';
             }
 
             public function canManageOwnHotels(): bool
@@ -225,7 +225,7 @@ final class OnlineDataTest extends TestCase
                 return false;
             }
 
-            public function hasPermission(string $permission): bool
+            public function hasHotelPermission(int $hotelId, string $permission): bool
             {
                 return false;
             }
@@ -258,7 +258,7 @@ final class OnlineDataTest extends TestCase
                 return false;
             }
 
-            public function hasPermission(string $permission): bool
+            public function hasHotelPermission(int $hotelId, string $permission): bool
             {
                 return false;
             }
@@ -290,9 +290,9 @@ final class OnlineDataTest extends TestCase
                 return false;
             }
 
-            public function hasPermission(string $permission): bool
+            public function hasHotelPermission(int $hotelId, string $permission): bool
             {
-                return $permission === 'can_fetch_online_data';
+                return $hotelId === 118 && $permission === 'can_fetch_online_data';
             }
 
             public function canManageOwnHotels(): bool
@@ -6179,6 +6179,11 @@ final class OnlineDataTest extends TestCase
             public function getPermittedHotelIds(): array
             {
                 return [7];
+            }
+
+            public function hasHotelPermission(int $hotelId, string $permission): bool
+            {
+                return $hotelId === 7 && $permission === 'can_view_online_data';
             }
         };
 

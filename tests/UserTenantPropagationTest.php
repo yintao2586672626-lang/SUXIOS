@@ -60,6 +60,8 @@ final class UserTenantPropagationTest extends TestCase
 
     protected function setUp(): void
     {
+        self::$app->request->user = null;
+
         try {
             Db::connect('sqlite')->close();
         } catch (\Throwable $e) {
@@ -71,7 +73,31 @@ final class UserTenantPropagationTest extends TestCase
         Db::connect(null, true);
     }
 
-    public function testUserCreateUsesPrimaryHotelTenantAndPerHotelPermissionTenants(): void
+    public function testSuperAdminUserListIncludesCrossTenantHotelSummaries(): void
+    {
+        $this->createSchema(true);
+        $this->seedRoleAndHotels();
+        $this->seedUser(10, 101, 4, 'tenant_a_user');
+        $this->seedUser(30, 202, 4, 'tenant_b_user');
+
+        $payload = $this->json($this->userController([])->index());
+        self::assertSame(200, $payload['code']);
+
+        $rows = $payload['data']['list'];
+        self::assertCount(2, $rows);
+        $hotelsByUsername = [];
+        foreach ($rows as $row) {
+            $hotelsByUsername[(string)$row['username']] = array_map(
+                static fn(array $hotel): int => (int)$hotel['id'],
+                (array)($row['assigned_hotels'] ?? [])
+            );
+        }
+
+        self::assertSame([10], $hotelsByUsername['tenant_a_user']);
+        self::assertSame([30], $hotelsByUsername['tenant_b_user']);
+    }
+
+    public function testUserCreateUsesOneTenantForMultipleHotels(): void
     {
         $this->createSchema(true);
         $this->seedRoleAndHotels();
@@ -93,7 +119,24 @@ final class UserTenantPropagationTest extends TestCase
             ->where('user_id', (int)$user['id'])
             ->order('hotel_id', 'asc')
             ->column('tenant_id', 'hotel_id');
-        self::assertSame([10 => 101, 20 => 202], array_map('intval', $permissions));
+        self::assertSame([10 => 101, 20 => 101], array_map('intval', $permissions));
+    }
+
+    public function testUserCreateRejectsHotelsFromDifferentTenantsWithoutPartialWrites(): void
+    {
+        $this->createSchema(true);
+        $this->seedRoleAndHotels();
+
+        $response = $this->userController([
+            'username' => 'cross_tenant_user',
+            'password' => 'Strong123!',
+            'role_id' => 3,
+            'hotel_ids' => [10, 30],
+        ])->create();
+
+        self::assertSame(422, $this->json($response)['code']);
+        self::assertSame(0, Db::name('users')->count());
+        self::assertSame(0, Db::name('user_hotel_permissions')->count());
     }
 
     public function testUserCreateRejectsZeroHotelTenantWithoutPartialWrites(): void
@@ -105,7 +148,7 @@ final class UserTenantPropagationTest extends TestCase
             'username' => 'invalid_user_tenant',
             'password' => 'Strong123!',
             'role_id' => 3,
-            'hotel_ids' => [10, 30],
+            'hotel_ids' => [10, 40],
         ])->create();
 
         self::assertSame(422, $this->json($response)['code']);
@@ -140,7 +183,7 @@ final class UserTenantPropagationTest extends TestCase
         self::assertSame(0, Db::name('user_hotel_permissions')->count());
     }
 
-    public function testUserUpdateChangesPrimaryTenantAndRebuildsPerHotelTenants(): void
+    public function testUserUpdateKeepsOneTenantAcrossMultipleHotels(): void
     {
         $this->createSchema(true);
         $this->seedRoleAndHotels();
@@ -154,13 +197,13 @@ final class UserTenantPropagationTest extends TestCase
         self::assertSame(200, $this->json($response)['code']);
         $user = Db::name('users')->where('id', $userId)->find();
         self::assertSame(20, (int)$user['hotel_id']);
-        self::assertSame(202, (int)$user['tenant_id']);
+        self::assertSame(101, (int)$user['tenant_id']);
 
         $permissions = Db::name('user_hotel_permissions')
             ->where('user_id', $userId)
             ->order('hotel_id', 'asc')
             ->column('tenant_id', 'hotel_id');
-        self::assertSame([10 => 101, 20 => 202], array_map('intval', $permissions));
+        self::assertSame([10 => 101, 20 => 101], array_map('intval', $permissions));
     }
 
     public function testUserUpdateClearsTenantWhenPrimaryHotelIsRemoved(): void
@@ -197,15 +240,15 @@ final class UserTenantPropagationTest extends TestCase
         self::assertSame(10, (int)Db::name('users')->where('id', $firstUserId)->value('hotel_id'));
         self::assertSame(20, (int)Db::name('users')->where('id', $secondUserId)->value('hotel_id'));
         self::assertSame(101, (int)Db::name('users')->where('id', $firstUserId)->value('tenant_id'));
-        self::assertSame(202, (int)Db::name('users')->where('id', $secondUserId)->value('tenant_id'));
+        self::assertSame(101, (int)Db::name('users')->where('id', $secondUserId)->value('tenant_id'));
 
         $firstTenants = Db::name('user_hotel_permissions')
             ->where('user_id', $firstUserId)
             ->order('hotel_id', 'asc')
             ->column('tenant_id', 'hotel_id');
-        self::assertSame([10 => 101, 20 => 202], array_map('intval', $firstTenants));
+        self::assertSame([10 => 101, 20 => 101], array_map('intval', $firstTenants));
         self::assertSame(
-            202,
+            101,
             (int)Db::name('user_hotel_permissions')->where('user_id', $secondUserId)->where('hotel_id', 20)->value('tenant_id')
         );
     }
@@ -258,22 +301,32 @@ final class UserTenantPropagationTest extends TestCase
         self::assertSame(0, Db::name('operation_logs')->count());
     }
 
-    public function testLegacySchemaWithoutTenantColumnsKeepsUserCreateCompatible(): void
+    public function testUserCreateFailsClosedWithoutCoreTenantColumnsAndRollsBackAllWrites(): void
     {
         $this->createSchema(false);
         $this->seedRoleAndHotels(false);
 
-        $response = $this->userController([
-            'username' => 'legacy_schema_user',
-            'password' => 'Strong123!',
-            'role_id' => 3,
-            'hotel_ids' => [10, 20],
-            'tenant_id' => 999,
-        ])->create();
+        $error = null;
+        try {
+            $this->userController([
+                'username' => 'unmigrated_schema_user',
+                'password' => 'Strong123!',
+                'role_id' => 3,
+                'hotel_ids' => [10, 20],
+                'tenant_id' => 999,
+            ])->create();
+        } catch (\Throwable $exception) {
+            $error = $exception;
+        }
 
-        self::assertSame(200, $this->json($response)['code']);
-        self::assertSame(1, Db::name('users')->where('username', 'legacy_schema_user')->count());
-        self::assertSame(2, Db::name('user_hotel_permissions')->count());
+        self::assertNotNull($error, 'Tenant core columns must be migrated before the application runs');
+        self::assertSame(
+            'Required tenant column is missing: user_hotel_permissions.tenant_id',
+            $error->getMessage()
+        );
+        self::assertSame(0, Db::name('users')->where('username', 'unmigrated_schema_user')->count());
+        self::assertSame(0, Db::name('user_hotel_permissions')->count());
+        self::assertSame(0, Db::name('operation_logs')->count());
     }
 
     private function createSchema(bool $withTenantColumns): void
@@ -397,13 +450,15 @@ final class UserTenantPropagationTest extends TestCase
 
         $hotels = [
             ['id' => 10, 'name' => 'Hotel A', 'status' => 1],
-            ['id' => 20, 'name' => 'Hotel B', 'status' => 1],
-            ['id' => 30, 'name' => 'Hotel invalid tenant', 'status' => 1],
+            ['id' => 20, 'name' => 'Hotel A2', 'status' => 1],
+            ['id' => 30, 'name' => 'Hotel B1', 'status' => 1],
+            ['id' => 40, 'name' => 'Hotel invalid tenant', 'status' => 1],
         ];
         if ($withTenantColumns) {
             $hotels[0]['tenant_id'] = 101;
-            $hotels[1]['tenant_id'] = 202;
-            $hotels[2]['tenant_id'] = 0;
+            $hotels[1]['tenant_id'] = 101;
+            $hotels[2]['tenant_id'] = 202;
+            $hotels[3]['tenant_id'] = 0;
         }
         Db::name('hotels')->insertAll($hotels);
     }
@@ -426,8 +481,10 @@ final class UserTenantPropagationTest extends TestCase
         $controller = new UserTenantHarness(self::$app, $payload, $failSchemaIntrospection);
         $admin = new TenantTestAdminUser();
         $admin->id = 9001;
+        $admin->tenant_id = 0;
         $admin->role_id = 1;
         $controller->useUser($admin);
+        self::$app->request->user = $admin;
 
         return $controller;
     }

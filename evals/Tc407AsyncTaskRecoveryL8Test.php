@@ -563,6 +563,7 @@ final class Tc407AsyncTaskRecoveryL8Test extends TestCase
     {
         return new class {
             public int $id = 40701;
+            public int $tenant_id = 40;
 
             public function isSuperAdmin(): bool
             {
@@ -585,6 +586,7 @@ final class Tc407AsyncTaskRecoveryL8Test extends TestCase
     {
         return new class {
             public int $id = 40702;
+            public int $tenant_id = 40;
 
             public function isSuperAdmin(): bool
             {

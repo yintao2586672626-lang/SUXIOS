@@ -73,9 +73,10 @@ final class OtaCredentialReadPathTest extends TestCase
                 return true;
             }
 
-            public function hasPermission(string $permission): bool
+            public function hasHotelPermission(int $hotelId, string $permission): bool
             {
-                return $permission === 'can_fetch_online_data';
+                return in_array($hotelId, $this->hotelIds, true)
+                    && $permission === 'can_fetch_online_data';
             }
 
             public function getPermittedHotelIds(): array

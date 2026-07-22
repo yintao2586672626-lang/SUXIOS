@@ -249,8 +249,8 @@ final class OtaFailureNotificationServiceTest extends TestCase
     public function testNoRecipientCreatesExplicitAuditInsteadOfBroadcastNotification(): void
     {
         Db::name('hotels')->insert([
-            'id' => 9,
-            'tenant_id' => 1,
+            'id' => 20,
+            'tenant_id' => 10,
             'name' => '无提交人门店',
             'status' => 1,
             'created_by' => 998,
@@ -258,7 +258,7 @@ final class OtaFailureNotificationServiceTest extends TestCase
         ]);
 
         $result = (new OtaFailureNotificationService())->recordCollectionOutcome([
-            'hotel_id' => 9,
+            'hotel_id' => 20,
             'platform' => 'ctrip',
             'reason_code' => 'target_date_rows_missing',
             'data_date' => '2026-07-13',
@@ -267,13 +267,31 @@ final class OtaFailureNotificationServiceTest extends TestCase
         ]);
 
         self::assertSame('recipient_missing', $result['status']);
-        self::assertSame(0, SystemNotification::where('hotel_id', 9)->count());
-        $audit = Db::name('operation_logs')->where('hotel_id', 9)->find();
+        self::assertSame(0, SystemNotification::where('hotel_id', 20)->count());
+        $audit = Db::name('operation_logs')->where('hotel_id', 20)->find();
         self::assertIsArray($audit);
         self::assertSame('ota_failure_notification_recipient_missing', $audit['action']);
-        self::assertSame(1, (int)$audit['tenant_id']);
+        self::assertSame(10, (int)$audit['tenant_id']);
         self::assertSame('delivery_status:recipient_missing', $audit['error_info']);
         self::assertStringContainsString('recipient_missing', (string)$audit['extra_data']);
+    }
+
+    public function testUnmappedHotelDeliveryGapCreatesGlobalAuditWithoutHotelIdFallback(): void
+    {
+        $result = (new OtaFailureNotificationService())->recordCollectionOutcome([
+            'hotel_id' => 20,
+            'platform' => 'ctrip',
+            'reason_code' => 'target_date_rows_missing',
+            'data_date' => '2026-07-13',
+            'success' => false,
+            'saved_count' => 0,
+        ]);
+
+        self::assertSame('recipient_missing', $result['status']);
+        $audit = Db::name('operation_logs')->where('hotel_id', 20)->find();
+        self::assertIsArray($audit);
+        self::assertNull($audit['tenant_id']);
+        self::assertSame('ota_failure_notification_recipient_missing', $audit['action']);
     }
 
     public function testSuccessfulRowsAndFieldEvidencePartialDoNotProduceFailureNotification(): void
@@ -527,6 +545,7 @@ final class OtaFailureNotificationServiceTest extends TestCase
     private function grantHotel(int $userId, int $hotelId): void
     {
         Db::name('user_hotel_permissions')->insert([
+            'tenant_id' => (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id'),
             'user_id' => $userId,
             'hotel_id' => $hotelId,
             'can_view_online_data' => 1,
@@ -562,7 +581,7 @@ final class OtaFailureNotificationServiceTest extends TestCase
         Db::execute('CREATE TABLE roles (id INTEGER PRIMARY KEY, name TEXT, display_name TEXT, level INTEGER, permissions TEXT, status INTEGER)');
         Db::execute('CREATE TABLE users (id INTEGER PRIMARY KEY, tenant_id INTEGER, username TEXT, status INTEGER, hotel_id INTEGER, role_id INTEGER)');
         Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER, name TEXT, status INTEGER, created_by INTEGER, owner_user_id INTEGER)');
-        Db::execute('CREATE TABLE user_hotel_permissions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, hotel_id INTEGER, can_view_online_data INTEGER DEFAULT 0)');
+        Db::execute('CREATE TABLE user_hotel_permissions (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, user_id INTEGER, hotel_id INTEGER, can_view_online_data INTEGER DEFAULT 0)');
         Db::execute('CREATE TABLE system_configs (id INTEGER PRIMARY KEY AUTOINCREMENT, config_key TEXT UNIQUE, config_value TEXT)');
         Db::execute("CREATE TABLE platform_data_sources (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -3,12 +3,15 @@ declare(strict_types=1);
 
 namespace app\model;
 
+use app\model\base\BaseTenantModel;
 use app\service\OperationAuditSanitizerService;
 use think\facade\Db;
 use think\Model;
 
-class OperationLog extends Model
+class OperationLog extends BaseTenantModel
 {
+    private static int $auditWriteDepth = 0;
+
     protected $name = 'operation_logs';
     
     protected $autoWriteTimestamp = true;
@@ -59,7 +62,7 @@ class OperationLog extends Model
     ): self
     {
         $sanitizer = new OperationAuditSanitizerService();
-        $tenantId = self::resolveTenantId($hotelId, $userId, $extraData);
+        $tenantId = self::resolveTenantId($module, $action, $hotelId, $userId, $extraData);
         $requestContext = self::requestAuditContext($sanitizer);
         $outcome = strtolower(trim((string)($extraData['outcome'] ?? '')));
         if (!in_array($outcome, ['success', 'failed', 'denied', 'partial'], true)) {
@@ -95,9 +98,126 @@ class OperationLog extends Model
         );
         $log->ip = (string)($requestContext['source_ip'] ?? '');
         $log->user_agent = (string)($requestContext['user_agent'] ?? '');
-        $log->save();
+        self::saveAuditRecord($log);
         
         return $log;
+    }
+
+    protected static function onBeforeWrite(Model $model): void
+    {
+        if ($model instanceof self && self::$auditWriteDepth > 0) {
+            return;
+        }
+
+        parent::onBeforeWrite($model);
+    }
+
+    private static function saveAuditRecord(self $log): void
+    {
+        $tenantId = (int)($log->getData()['tenant_id'] ?? 0);
+        if ($tenantId > 0) {
+            self::runInTenantScope($tenantId, static function () use ($log): void {
+                self::$auditWriteDepth++;
+                try {
+                    $log->save();
+                } finally {
+                    self::$auditWriteDepth--;
+                }
+            });
+            return;
+        }
+
+        // Global/system audits have no tenant predicate by definition. Keep
+        // this narrow raw insert private to OperationLog::record() so an
+        // anonymous HTTP request can never obtain a generic unscoped model.
+        $payload = $log->getData();
+        try {
+            $payload = array_intersect_key($payload, Db::getFields('operation_logs'));
+        } catch (\Throwable) {
+            // Let the insert surface the underlying schema error when fields
+            // cannot be inspected.
+        }
+        if (self::hasColumn('create_time') && empty($payload['create_time'])) {
+            $payload['create_time'] = date('Y-m-d H:i:s');
+            $log->setAttr('create_time', $payload['create_time']);
+        }
+        $id = (int)Db::name('operation_logs')->insertGetId($payload);
+        if ($id > 0) {
+            $log->setAttr('id', $id);
+        }
+        $log->exists(true);
+    }
+
+    /**
+     * Narrow pre-authentication audit read used only to decide whether a
+     * legacy token predates a password change/reset. It deliberately returns
+     * a scalar timestamp instead of exposing an unscoped query builder.
+     *
+     * @internal
+     */
+    public static function latestCredentialRevocationTimestamp(
+        int $targetUserId,
+        int $notBeforeTimestamp
+    ): int {
+        if ($targetUserId <= 0) {
+            return 0;
+        }
+
+        $since = date('Y-m-d H:i:s', max(0, $notBeforeTimestamp));
+        $directRows = Db::name('operation_logs')
+            ->where('user_id', $targetUserId)
+            ->whereIn('action', ['change_password', 'reset_password'])
+            ->where('create_time', '>=', $since)
+            ->field('create_time')
+            ->order('id', 'desc')
+            ->select()
+            ->toArray();
+        $latest = self::latestTimestampFromRows($directRows);
+
+        // Current reset audits retain the administrator as user_id and put
+        // the affected account in extra_data.target_user_id. Scan only reset
+        // actions inside the token lifetime so cross-tenant administrator
+        // resets still revoke the target without opening a general bypass.
+        $resetRows = Db::name('operation_logs')
+            ->where('action', 'reset_password')
+            ->where('create_time', '>=', $since)
+            ->field('create_time,extra_data')
+            ->order('id', 'desc')
+            ->select()
+            ->toArray();
+        foreach ($resetRows as $row) {
+            $extraData = json_decode((string)($row['extra_data'] ?? ''), true);
+            if (!is_array($extraData) || (int)($extraData['target_user_id'] ?? 0) !== $targetUserId) {
+                continue;
+            }
+            $latest = max($latest, self::timestampValue($row['create_time'] ?? null));
+        }
+
+        return $latest;
+    }
+
+    /** @param array<int, array<string, mixed>> $rows */
+    private static function latestTimestampFromRows(array $rows): int
+    {
+        $latest = 0;
+        foreach ($rows as $row) {
+            $latest = max($latest, self::timestampValue($row['create_time'] ?? null));
+        }
+
+        return $latest;
+    }
+
+    private static function timestampValue(mixed $value): int
+    {
+        if ($value instanceof \DateTimeInterface) {
+            return $value->getTimestamp();
+        }
+        if (is_numeric($value)) {
+            return max(0, (int)$value);
+        }
+
+        $timestamp = strtotime(trim((string)$value));
+        return $timestamp === false ? 0 : $timestamp;
     }
 
     private static function hasColumn(string $column): bool
@@ -122,26 +242,37 @@ class OperationLog extends Model
     }
 
     /** @param array<string, mixed> $extraData */
-    private static function resolveTenantId(?int $hotelId, ?int $userId, array $extraData): ?int
+    private static function resolveTenantId(
+        string $module,
+        string $action,
+        ?int $hotelId,
+        ?int $userId,
+        array $extraData
+    ): ?int
     {
         $explicitTenantId = (int)($extraData['tenant_id'] ?? 0);
+        if (self::isPrevalidatedSuperAdminHotelDeletion(
+            $module,
+            $action,
+            $hotelId,
+            $userId,
+            $explicitTenantId,
+            $extraData
+        )) {
+            return $explicitTenantId;
+        }
+
+        $tenantCandidates = [];
+
         if ($hotelId !== null && $hotelId > 0) {
             try {
                 $tenantId = (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id');
                 if ($tenantId > 0) {
-                    return $tenantId;
+                    $tenantCandidates[] = $tenantId;
                 }
             } catch (\Throwable) {
                 // Legacy schemas may not have hotels.tenant_id yet.
             }
-            if ($explicitTenantId > 0) {
-                return $explicitTenantId;
-            }
-            return $hotelId;
-        }
-
-        if ($explicitTenantId > 0) {
-            return $explicitTenantId;
         }
 
         if ($userId !== null && $userId > 0) {
@@ -149,16 +280,64 @@ class OperationLog extends Model
                 $user = Db::name('users')->where('id', $userId)->find();
                 $tenantId = (int)($user['tenant_id'] ?? 0);
                 if ($tenantId > 0) {
-                    return $tenantId;
+                    $tenantCandidates[] = $tenantId;
                 }
-                $fallbackHotelId = (int)($user['hotel_id'] ?? 0);
-                return $fallbackHotelId > 0 ? $fallbackHotelId : null;
             } catch (\Throwable) {
-                return null;
+                // Missing user/tenant schema leaves the audit global.
             }
         }
 
-        return null;
+        $tenantCandidates = array_values(array_unique(array_filter(
+            array_map('intval', $tenantCandidates),
+            static fn(int $tenantId): bool => $tenantId > 0
+        )));
+
+        // Live hotel/user mappings are authoritative. Explicit metadata is a
+        // consistency constraint for ordinary writes and may bind a deleted
+        // resource only when no live fact remains.
+        if (count($tenantCandidates) === 1) {
+            $resolvedTenantId = $tenantCandidates[0];
+            return $explicitTenantId > 0 && $explicitTenantId !== $resolvedTenantId
+                ? null
+                : $resolvedTenantId;
+        }
+        if (count($tenantCandidates) > 1) {
+            return null;
+        }
+
+        return $explicitTenantId > 0 ? $explicitTenantId : null;
+    }
+
+    /** @param array<string, mixed> $extraData */
+    private static function isPrevalidatedSuperAdminHotelDeletion(
+        string $module,
+        string $action,
+        ?int $hotelId,
+        ?int $userId,
+        int $explicitTenantId,
+        array $extraData
+    ): bool {
+        if (
+            strtolower(trim($module)) !== 'hotel'
+            || strtolower(trim($action)) !== 'delete'
+            || $hotelId === null
+            || $hotelId <= 0
+            || $userId === null
+            || $userId <= 0
+            || $explicitTenantId <= 0
+            || (int)($extraData['deleted_hotel_id'] ?? 0) !== $hotelId
+        ) {
+            return false;
+        }
+
+        try {
+            $actor = request()->user ?? null;
+            return $actor instanceof User
+                && (int)$actor->id === $userId
+                && $actor->isSuperAdmin();
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /** @return array<string, mixed> */

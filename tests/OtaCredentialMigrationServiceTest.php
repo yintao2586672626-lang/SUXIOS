@@ -49,7 +49,7 @@ final class OtaCredentialMigrationServiceTest extends TestCase
     {
         parent::setUp();
         $this->createSchema();
-        foreach (['ota_credentials', 'platform_data_sources', 'system_configs', 'system_config', 'hotels'] as $table) {
+        foreach (['ota_credential_audit_logs', 'ota_credentials', 'platform_data_sources', 'system_configs', 'system_config', 'hotels'] as $table) {
             Db::name($table)->delete(true);
         }
         Db::name('hotels')->insertAll([
@@ -78,12 +78,14 @@ final class OtaCredentialMigrationServiceTest extends TestCase
             'duplicate_config_id',
             'tenant_mismatch',
             'already_migrated',
+            'metadata_unverified',
         ];
         $classifications = array_column($summary['items'], 'classification');
         self::assertSame([], array_values(array_diff(array_unique($classifications), $allowed)));
-        foreach ($allowed as $classification) {
+        foreach (array_values(array_diff($allowed, ['already_migrated'])) as $classification) {
             self::assertContains($classification, $classifications);
         }
+        self::assertNotContains('already_migrated', $classifications);
         self::assertSame([
             'system_config',
             'system_configs',
@@ -131,11 +133,13 @@ final class OtaCredentialMigrationServiceTest extends TestCase
         self::assertSame('cookie-hotel-secret', $vault->withPayloadForExecution(1, 10, 'ctrip', 'cookie-hotel-ok', static fn(array $payload): string => (string)$payload['cookies']));
         self::assertSame('cookie-short-secret', $vault->withPayloadForExecution(2, 20, 'ctrip', 'cookie-short-ok', static fn(array $payload): string => (string)$payload['cookies']));
 
-        $afterFirstRun = $this->databaseSnapshot();
+        $afterFirstRun = $this->databaseSnapshot(false);
+        $auditCountBeforeReplay = (int)Db::name('ota_credential_audit_logs')->count();
         $second = $service->run(true);
         self::assertSame('completed', $second['status']);
         self::assertSame(0, $second['migrated_count']);
-        self::assertSame($afterFirstRun, $this->databaseSnapshot());
+        self::assertSame($afterFirstRun, $this->databaseSnapshot(false));
+        self::assertGreaterThan($auditCountBeforeReplay, (int)Db::name('ota_credential_audit_logs')->count());
         self::assertSame(5, (int)Db::name('ota_credentials')->count());
         self::assertNotContains('bound_verified', array_column($second['items'], 'classification'));
         $platformConfig = json_decode(
@@ -289,9 +293,10 @@ final class OtaCredentialMigrationServiceTest extends TestCase
         self::assertSame('preserved_enabled_non_profile_reference', $summary['sanitized'][0]['vault_action']);
         self::assertSame('ready', $vault->metadata(1, 10, 'ctrip', 'shared-vault')['credential_status']);
         $nextDryRun = (new OtaCredentialMigrationService($vault))->run(false);
-        self::assertSame('ready', $nextDryRun['status']);
+        self::assertSame('unverified', $nextDryRun['status']);
         self::assertSame(1, $nextDryRun['inventory_count']);
-        self::assertSame('already_migrated', $nextDryRun['items'][0]['classification']);
+        self::assertSame('metadata_unverified', $nextDryRun['items'][0]['classification']);
+        self::assertSame('credential_payload_unverified', $nextDryRun['items'][0]['reason_code']);
     }
 
     public function testExecuteMigratesVerifiedItemsAndReportsRemainingUnboundWork(): void
@@ -1076,11 +1081,13 @@ final class OtaCredentialMigrationServiceTest extends TestCase
             )
         );
 
-        $afterFirstExecution = $this->databaseSnapshot();
+        $afterFirstExecution = $this->databaseSnapshot(false);
+        $auditCountBeforeReplay = (int)Db::name('ota_credential_audit_logs')->count();
         $second = $service->run(true);
         self::assertSame('completed', $second['status']);
         self::assertSame(0, $second['metadata_relocated_count']);
-        self::assertSame($afterFirstExecution, $this->databaseSnapshot());
+        self::assertSame($afterFirstExecution, $this->databaseSnapshot(false));
+        self::assertGreaterThan($auditCountBeforeReplay, (int)Db::name('ota_credential_audit_logs')->count());
     }
 
     public function testMatchingCanonicalMeituanListRetiresLegacyCopyIdempotently(): void
@@ -1131,11 +1138,13 @@ final class OtaCredentialMigrationServiceTest extends TestCase
         self::assertSame($safeJson, Db::name('system_configs')->where('config_key', 'meituan_config_list')->value('config_value'));
         self::assertSame('{}', Db::name('system_config')->where('config_key', 'meituan_config_list')->value('config_value'));
 
-        $afterFirstExecution = $this->databaseSnapshot();
+        $afterFirstExecution = $this->databaseSnapshot(false);
+        $auditCountBeforeReplay = (int)Db::name('ota_credential_audit_logs')->count();
         $second = $service->run(true);
         self::assertSame('completed', $second['status']);
         self::assertSame(0, $second['metadata_relocated_count']);
-        self::assertSame($afterFirstExecution, $this->databaseSnapshot());
+        self::assertSame($afterFirstExecution, $this->databaseSnapshot(false));
+        self::assertGreaterThan($auditCountBeforeReplay, (int)Db::name('ota_credential_audit_logs')->count());
     }
 
     public function testConflictingCanonicalMeituanListBlocksWithoutOverwritingOrRetiringLegacy(): void
@@ -1396,20 +1405,23 @@ final class OtaCredentialMigrationServiceTest extends TestCase
         self::assertSame(0, $summary['classification_counts']['already_migrated']);
     }
 
-    public function testAlreadyMigratedRequiresDecryptableCredentialEnvelope(): void
+    public function testDryRunUsesNoDecryptMetadataInspectionWithoutAuditWrites(): void
     {
         $metadata = $this->seedMetadataOnlyCredential('tampered-envelope');
         $this->seedMetadataOnlyConfig('tampered-envelope', (int)$metadata['credential_ref']);
         Db::name('ota_credentials')->where('id', (int)$metadata['credential_ref'])->update([
             'encrypted_payload' => 'tampered',
         ]);
+        $auditCount = (int)Db::name('ota_credential_audit_logs')->count();
 
         $summary = $this->service()->run(false);
 
-        self::assertSame('migration_required', $summary['status']);
-        self::assertSame('unbound', $summary['items'][0]['classification']);
-        self::assertSame('credential_vault_not_ready', $summary['items'][0]['reason_code']);
+        self::assertSame('unverified', $summary['status']);
+        self::assertSame('metadata_unverified', $summary['items'][0]['classification']);
+        self::assertSame('credential_payload_unverified', $summary['items'][0]['reason_code']);
         self::assertSame(0, $summary['classification_counts']['already_migrated']);
+        self::assertSame(1, $summary['classification_counts']['metadata_unverified']);
+        self::assertSame($auditCount, (int)Db::name('ota_credential_audit_logs')->count());
     }
 
     public function testHistoricalSupersededMetadataRequiresCredentialReentry(): void
@@ -1641,9 +1653,10 @@ final class OtaCredentialMigrationServiceTest extends TestCase
     private function createOtaCredentialTable(): void
     {
         Db::execute('CREATE TABLE IF NOT EXISTS ota_credentials (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, platform VARCHAR(20) NOT NULL, config_id VARCHAR(100) NOT NULL, encrypted_payload TEXT NOT NULL, payload_version INTEGER NOT NULL, key_id VARCHAR(100) NOT NULL, secret_mask VARCHAR(255) NOT NULL, credential_status VARCHAR(20) NOT NULL, created_by INTEGER NOT NULL, rotated_at DATETIME, last_used_at DATETIME, revoked_at DATETIME, create_time DATETIME, update_time DATETIME, UNIQUE(tenant_id,system_hotel_id,platform,config_id))');
+        Db::execute('CREATE TABLE IF NOT EXISTS ota_credential_audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, credential_id INTEGER NOT NULL DEFAULT 0, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, platform VARCHAR(20) NOT NULL, config_id_hash VARCHAR(64) NOT NULL, event_sequence INTEGER NOT NULL, credential_version INTEGER NOT NULL DEFAULT 0, event_type VARCHAR(40) NOT NULL, outcome VARCHAR(20) NOT NULL, failure_code VARCHAR(80) NOT NULL DEFAULT \'\', actor_id INTEGER NOT NULL DEFAULT 0, payload_digest VARCHAR(64) NOT NULL DEFAULT \'\', previous_entry_hash VARCHAR(64) NOT NULL DEFAULT \'\', entry_hash VARCHAR(64) NOT NULL, occurred_at DATETIME NOT NULL, UNIQUE(tenant_id,system_hotel_id,platform,config_id_hash,event_sequence), UNIQUE(entry_hash))');
     }
 
-    private function databaseSnapshot(): array
+    private function databaseSnapshot(bool $includeAudit = true): array
     {
         $snapshot = [];
         foreach (['hotels', 'system_config', 'system_configs', 'platform_data_sources'] as $table) {
@@ -1651,6 +1664,9 @@ final class OtaCredentialMigrationServiceTest extends TestCase
         }
         if ($this->tableExists('ota_credentials')) {
             $snapshot['ota_credentials'] = Db::name('ota_credentials')->order('id')->select()->toArray();
+        }
+        if ($includeAudit && $this->tableExists('ota_credential_audit_logs')) {
+            $snapshot['ota_credential_audit_logs'] = Db::name('ota_credential_audit_logs')->order('id')->select()->toArray();
         }
         return $snapshot;
     }

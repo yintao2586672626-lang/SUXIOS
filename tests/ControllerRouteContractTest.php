@@ -129,42 +129,42 @@ final class ControllerRouteContractTest extends TestCase
         $source = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
 
         self::assertStringContainsString(
-            "Route::post('/ctrip-review-matches/im-sessions', 'OnlineData/saveCtripReviewImSession')",
+            "Route::post('/ctrip-review-matches/im-sessions', 'ota.CtripController/saveCtripReviewImSession')",
             $source,
             'Ctrip review matching must accept authorized IM session cache imports'
         );
         self::assertStringContainsString(
-            "Route::post('/ctrip-review-matches/reviews', 'OnlineData/saveCtripReviewForMatch')",
+            "Route::post('/ctrip-review-matches/reviews', 'ota.CtripController/saveCtripReviewForMatch')",
             $source,
             'Ctrip review matching must accept review records without enabling live comment collection'
         );
         self::assertStringContainsString(
-            "Route::post('/ctrip-review-matches/orders', 'OnlineData/saveCtripOrderForMatch')",
+            "Route::post('/ctrip-review-matches/orders', 'ota.CtripController/saveCtripOrderForMatch')",
             $source,
             'Ctrip review matching must accept OTA order pool records'
         );
         self::assertStringContainsString(
-            "Route::post('/ctrip-review-matches/lookup', 'OnlineData/lookupCtripReviewOrderMatch')",
+            "Route::post('/ctrip-review-matches/lookup', 'ota.CtripController/lookupCtripReviewOrderMatch')",
             $source,
             'Ctrip review matching must expose lookup route'
         );
         self::assertStringContainsString(
-            "Route::post('/ctrip-review-matches/identity-preview', 'OnlineData/previewCtripReviewOrdererIdentity')",
+            "Route::post('/ctrip-review-matches/identity-preview', 'ota.CtripController/previewCtripReviewOrdererIdentity')",
             $source,
             'Ctrip review matching must expose read-only page identity preview route'
         );
         self::assertStringContainsString(
-            "Route::post('/ctrip-review-matches/run', 'OnlineData/runCtripReviewOrderMatchAutomation')",
+            "Route::post('/ctrip-review-matches/run', 'ota.CtripController/runCtripReviewOrderMatchAutomation')",
             $source,
             'Ctrip review matching must expose one-click automation route'
         );
         self::assertStringContainsString(
-            "Route::post('/ctrip-review-matches/closure', 'OnlineData/checkCtripReviewOrderMatchClosure')",
+            "Route::post('/ctrip-review-matches/closure', 'ota.CtripController/checkCtripReviewOrderMatchClosure')",
             $source,
             'Ctrip review matching must expose real-data closure verification route'
         );
         self::assertStringContainsString(
-            "Route::post('/ctrip-review-matches/bind', 'OnlineData/bindCtripReviewOrderMatch')",
+            "Route::post('/ctrip-review-matches/bind', 'ota.CtripController/bindCtripReviewOrderMatch')",
             $source,
             'Ctrip review matching must expose manual bind route'
         );
@@ -175,32 +175,32 @@ final class ControllerRouteContractTest extends TestCase
         $source = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
 
         self::assertStringContainsString(
-            "Route::post('/meituan-review-matches/reviews', 'OnlineData/saveMeituanReviewForMatch')",
+            "Route::post('/meituan-review-matches/reviews', 'ota.MeituanController/saveMeituanReviewForMatch')",
             $source,
             'Meituan review matching must accept review records'
         );
         self::assertStringContainsString(
-            "Route::post('/meituan-review-matches/orders', 'OnlineData/saveMeituanOrderForMatch')",
+            "Route::post('/meituan-review-matches/orders', 'ota.MeituanController/saveMeituanOrderForMatch')",
             $source,
             'Meituan review matching must accept authorized OTA order pool records'
         );
         self::assertStringContainsString(
-            "Route::post('/meituan-review-matches/lookup', 'OnlineData/lookupMeituanReviewOrderMatch')",
+            "Route::post('/meituan-review-matches/lookup', 'ota.MeituanController/lookupMeituanReviewOrderMatch')",
             $source,
             'Meituan review matching must expose lookup route'
         );
         self::assertStringContainsString(
-            "Route::post('/meituan-review-matches/bind', 'OnlineData/bindMeituanReviewOrderMatch')",
+            "Route::post('/meituan-review-matches/bind', 'ota.MeituanController/bindMeituanReviewOrderMatch')",
             $source,
             'Meituan review matching must expose manual bind route'
         );
         self::assertStringContainsString(
-            "Route::post('/meituan-review-matches/unbind', 'OnlineData/unbindMeituanReviewOrderMatch')",
+            "Route::post('/meituan-review-matches/unbind', 'ota.MeituanController/unbindMeituanReviewOrderMatch')",
             $source,
             'Meituan review matching must expose manual unbind route'
         );
         self::assertStringContainsString(
-            "Route::post('/meituan-orders/phone-state', 'OnlineData/meituanOrderPhoneState')",
+            "Route::post('/meituan-orders/phone-state', 'ota.MeituanController/meituanOrderPhoneState')",
             $source,
             'Meituan order phone handling must expose a masked status route'
         );
@@ -258,7 +258,7 @@ final class ControllerRouteContractTest extends TestCase
     public function testReleaseEvidenceStatusRouteStaysAuthenticatedAndNonClosing(): void
     {
         $routes = $this->sourceWithoutPhpComments(__DIR__ . '/../route/app.php');
-        $onlineData = $this->sourceWithoutPhpComments(__DIR__ . '/../app/controller/OnlineData.php');
+        $otaHandler = $this->sourceWithoutPhpComments(__DIR__ . '/../app/service/Ota/OtaActionHandler.php');
         $concern = $this->sourceWithoutPhpComments(__DIR__ . '/../app/controller/concern/ReleaseEvidenceConcern.php');
 
         self::assertStringContainsString(
@@ -276,7 +276,7 @@ final class ControllerRouteContractTest extends TestCase
             $routes,
             'Online-data route group must stay behind Auth middleware'
         );
-        self::assertStringContainsString('use ReleaseEvidenceConcern;', $onlineData);
+        self::assertStringContainsString('use ReleaseEvidenceConcern;', $otaHandler);
         self::assertStringContainsString('$this->checkPermission();', $concern);
         self::assertStringContainsString('if (!$this->currentUser->isSuperAdmin()) {', $concern);
         self::assertStringContainsString('abort(403, \'release evidence status requires super admin\');', $concern);

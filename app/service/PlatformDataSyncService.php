@@ -959,6 +959,16 @@ final class PlatformDataSyncService
             $query->where('system_hotel_id', (int)$filters['system_hotel_id']);
         }
         $rows = $query->select()->toArray();
+        if (!$user->isSuperAdmin()) {
+            $rows = array_values(array_filter($rows, function (array $row) use ($user): bool {
+                try {
+                    $this->assertStoredSourceTenantForActor($row, $user);
+                    return true;
+                } catch (RuntimeException) {
+                    return false;
+                }
+            }));
+        }
         $customIds = [];
         foreach ($rows as $row) {
             if (!$this->isOtaPlatform((string)($row['platform'] ?? '')) && (int)($row['id'] ?? 0) > 0) {
@@ -967,7 +977,9 @@ final class PlatformDataSyncService
         }
         $customSecrets = [];
         if ($customIds !== []) {
-            foreach (Db::name('platform_data_sources')->field('id,secret_json')->whereIn('id', $customIds)->select()->toArray() as $secretRow) {
+            $secretQuery = Db::name('platform_data_sources')->field('id,secret_json')->whereIn('id', $customIds);
+            $this->applySourceScope($secretQuery, $user);
+            foreach ($secretQuery->select()->toArray() as $secretRow) {
                 $customSecrets[(int)($secretRow['id'] ?? 0)] = $secretRow['secret_json'] ?? null;
             }
         }
@@ -986,10 +998,13 @@ final class PlatformDataSyncService
         $id = (int)($payload['id'] ?? 0);
         $existing = null;
         if ($id > 0) {
-            $existing = Db::name('platform_data_sources')->withoutField('secret_json')->where('id', $id)->find();
+            $existingQuery = Db::name('platform_data_sources')->withoutField('secret_json')->where('id', $id);
+            $this->applySourceTenantScope($existingQuery, $user);
+            $existing = $existingQuery->find();
             if (!$existing) {
                 throw new RuntimeException('Data source not found.', 404);
             }
+            $this->assertStoredSourceTenantForActor($existing, $user);
             $this->assertCanUseHotel($user, (int)($existing['system_hotel_id'] ?? 0), 'can_fetch_online_data');
         }
 
@@ -1016,22 +1031,27 @@ final class PlatformDataSyncService
             'updated_by' => (int)($user->id ?? 0) ?: null,
             'update_time' => $now,
         ];
-        if (isset($this->tableColumns('platform_data_sources')['tenant_id'])) {
-            $data['tenant_id'] = $this->resolveHotelTenantId((int)$source['system_hotel_id']);
-        }
+        $targetTenantId = $this->resolveHotelTenantId((int)$source['system_hotel_id']);
+        $data['tenant_id'] = $targetTenantId;
 
         if ($id > 0) {
             if (!$hasSecretInput) {
                 unset($data['secret_json']);
             }
-            Db::name('platform_data_sources')->where('id', $id)->update($data);
+            $updateQuery = Db::name('platform_data_sources');
+            $this->applyStoredSourceIdentity($updateQuery, $existing);
+            $updateQuery->update($data);
         } else {
             $data['created_by'] = (int)($user->id ?? 0) ?: null;
             $data['create_time'] = $now;
             $id = (int)Db::name('platform_data_sources')->insertGetId($data);
         }
 
-        $row = Db::name('platform_data_sources')->where('id', $id)->find();
+        $row = Db::name('platform_data_sources')
+            ->where('id', $id)
+            ->where('tenant_id', $targetTenantId)
+            ->where('system_hotel_id', (int)$source['system_hotel_id'])
+            ->find();
         return $this->sanitizeSourceRow($row ?: []);
     }
 
@@ -1124,6 +1144,7 @@ final class PlatformDataSyncService
                     $profileKey
                 );
                 if (is_array($reusableSource)) {
+                    $this->assertStoredSourceTenant($reusableSource);
                     $id = (int)($reusableSource['id'] ?? 0);
                     $existing = $reusableSource;
                     $existingConfig = $this->decodeConfig($reusableSource['config_json'] ?? []);
@@ -1137,7 +1158,9 @@ final class PlatformDataSyncService
             }
 
             if ($id > 0) {
-                $lockedExisting = Db::name('platform_data_sources')->withoutField('secret_json')->where('id', $id)->lock(true)->find();
+                $lockedQuery = Db::name('platform_data_sources')->withoutField('secret_json');
+                $this->applyStoredSourceIdentity($lockedQuery, $existing);
+                $lockedExisting = $lockedQuery->lock(true)->find();
                 if (!$lockedExisting) {
                     throw new RuntimeException('Data source not found.', 404);
                 }
@@ -1200,19 +1223,24 @@ final class PlatformDataSyncService
                 'updated_by' => $actorId ?: null,
                 'update_time' => $now,
             ];
-            if (isset($this->tableColumns('platform_data_sources')['tenant_id'])) {
-                $data['tenant_id'] = $tenantId;
-            }
+            $data['tenant_id'] = $tenantId;
 
             if ($id > 0) {
-                Db::name('platform_data_sources')->where('id', $id)->update($data);
+                $updateQuery = Db::name('platform_data_sources');
+                $this->applyStoredSourceIdentity($updateQuery, $existing);
+                $updateQuery->update($data);
             } else {
                 $data['created_by'] = $actorId ?: null;
                 $data['create_time'] = $now;
                 $id = (int)Db::name('platform_data_sources')->insertGetId($data);
             }
 
-            $row = Db::name('platform_data_sources')->withoutField('secret_json')->where('id', $id)->find();
+            $row = Db::name('platform_data_sources')
+                ->withoutField('secret_json')
+                ->where('id', $id)
+                ->where('tenant_id', $tenantId)
+                ->where('system_hotel_id', $hotelId)
+                ->find();
             return $this->sanitizeSourceRow($row ?: []);
         });
     }
@@ -1232,12 +1260,13 @@ final class PlatformDataSyncService
     /** @param array<string, mixed> $source */
     private function resolveSourceTenantId(array $source): int
     {
-        $tenantId = (int)($source['tenant_id'] ?? 0);
-        if ($tenantId > 0) {
-            return $tenantId;
+        $authoritativeTenantId = $this->resolveHotelTenantId((int)($source['system_hotel_id'] ?? 0));
+        $storedTenantId = (int)($source['tenant_id'] ?? 0);
+        if ($storedTenantId > 0 && $storedTenantId !== $authoritativeTenantId) {
+            throw new RuntimeException('Data source tenant scope does not match its hotel.', 409);
         }
 
-        return $this->resolveHotelTenantId((int)($source['system_hotel_id'] ?? 0));
+        return $authoritativeTenantId;
     }
 
     /**
@@ -1475,13 +1504,18 @@ final class PlatformDataSyncService
 
     public function deleteDataSource($user, int $id): bool
     {
-        $row = Db::name('platform_data_sources')->withoutField('secret_json')->where('id', $id)->find();
+        $rowQuery = Db::name('platform_data_sources')->withoutField('secret_json')->where('id', $id);
+        $this->applySourceTenantScope($rowQuery, $user);
+        $row = $rowQuery->find();
         if (!$row) {
             throw new RuntimeException('Data source not found.', 404);
         }
+        [$tenantId, $hotelId] = $this->assertStoredSourceTenantForActor($row, $user);
         $this->assertCanUseHotel($user, (int)($row['system_hotel_id'] ?? 0), 'can_delete_online_data');
-        return Db::transaction(function () use ($user, $id): bool {
-            $locked = Db::name('platform_data_sources')->withoutField('secret_json')->where('id', $id)->lock(true)->find();
+        return Db::transaction(function () use ($user, $id, $row, $tenantId, $hotelId): bool {
+            $lockedQuery = Db::name('platform_data_sources')->withoutField('secret_json');
+            $this->applyStoredSourceIdentity($lockedQuery, $row);
+            $locked = $lockedQuery->lock(true)->find();
             if (!$locked) {
                 throw new RuntimeException('Data source not found.', 404);
             }
@@ -1499,10 +1533,9 @@ final class PlatformDataSyncService
                 $configId = trim((string)($config['config_id'] ?? ''));
                 $credentialRef = (int)($config['credential_ref'] ?? 0);
                 if ($credentialRef > 0 && preg_match('/^[A-Za-z0-9._-]{1,100}$/D', $configId) === 1
-                    && !$this->otherEnabledOtaSourceUsesCredential($id, (int)$locked['system_hotel_id'], $platform, $configId)
+                    && !$this->otherEnabledOtaSourceUsesCredential($id, $tenantId, $hotelId, $platform, $configId)
                 ) {
-                    $tenantId = $this->resolveHotelTenantId((int)$locked['system_hotel_id']);
-                    $credential = $this->otaCredentialVault()->revoke($tenantId, (int)$locked['system_hotel_id'], $platform, $configId);
+                    $credential = $this->otaCredentialVault()->revoke($tenantId, $hotelId, $platform, $configId);
                     if ((int)($credential['credential_ref'] ?? 0) !== $credentialRef) {
                         throw new RuntimeException('OTA data source credential reference does not match its locator.', 409);
                     }
@@ -1512,14 +1545,17 @@ final class PlatformDataSyncService
                 }
             }
 
-            return Db::name('platform_data_sources')->where('id', $id)->update($update) >= 0;
+            $updateQuery = Db::name('platform_data_sources');
+            $this->applyStoredSourceIdentity($updateQuery, $locked);
+            return $updateQuery->update($update) >= 0;
         });
     }
 
-    private function otherEnabledOtaSourceUsesCredential(int $excludedId, int $hotelId, string $platform, string $configId): bool
+    private function otherEnabledOtaSourceUsesCredential(int $excludedId, int $tenantId, int $hotelId, string $platform, string $configId): bool
     {
         $rows = Db::name('platform_data_sources')
             ->withoutField('secret_json')
+            ->where('tenant_id', $tenantId)
             ->where('system_hotel_id', $hotelId)
             ->where('platform', $platform)
             ->where('enabled', 1)
@@ -1541,8 +1577,7 @@ final class PlatformDataSyncService
     {
         $syncStartedAt = microtime(true);
         $timing = $this->emptySyncTiming();
-        $source = $this->loadSource($id);
-        $this->assertCanUseHotel($user, (int)($source['system_hotel_id'] ?? 0), 'can_fetch_online_data');
+        $source = $this->loadSource($id, $user);
         $isOtaSource = $this->isOtaPlatform((string)($source['platform'] ?? ''));
 
         if ((int)($source['enabled'] ?? 0) !== 1) {
@@ -1564,7 +1599,7 @@ final class PlatformDataSyncService
             if ($this->isOtaBrowserProfileSource($source)
                 && $this->recordBrowserProfileCollectionPreflight($source, $result)
             ) {
-                $source = $this->loadSource($id);
+                $source = $this->loadSource($id, $user);
             }
             $timing['capture_elapsed_ms'] = $this->elapsedMilliseconds($phaseStartedAt);
             $this->refreshDatabaseConnectionAfterExternalFetch();
@@ -2794,15 +2829,21 @@ final class PlatformDataSyncService
         return false;
     }
 
-    private function loadSource(int $id): array
+    private function loadSource(int $id, $user): array
     {
-        $row = Db::name('platform_data_sources')->withoutField('secret_json')->where('id', $id)->find();
+        $query = Db::name('platform_data_sources')->withoutField('secret_json')->where('id', $id);
+        $this->applySourceTenantScope($query, $user);
+        $row = $query->find();
         if (!$row) {
             throw new RuntimeException('Data source not found.', 404);
         }
+        $this->assertStoredSourceTenantForActor($row, $user);
+        $this->assertCanUseHotel($user, (int)($row['system_hotel_id'] ?? 0), 'can_fetch_online_data');
         $row['config'] = $this->decodeConfig($row['config_json'] ?? []);
         if (!$this->isOtaPlatform((string)($row['platform'] ?? ''))) {
-            $row['secret'] = $this->decodeConfig(Db::name('platform_data_sources')->where('id', $id)->value('secret_json'));
+            $secretQuery = Db::name('platform_data_sources');
+            $this->applyStoredSourceIdentity($secretQuery, $row);
+            $row['secret'] = $this->decodeConfig($secretQuery->value('secret_json'));
         }
         return $row;
     }
@@ -2957,10 +2998,10 @@ final class PlatformDataSyncService
             return true;
         }
         if (in_array($identityStatus, ['unverified', 'not_configured'], true)) {
+            $currentSourceQuery = Db::name('platform_data_sources');
+            $this->applyStoredSourceIdentity($currentSourceQuery, $source);
             $currentConfig = $this->decodeConfig(
-                Db::name('platform_data_sources')
-                    ->where('id', (int)($source['id'] ?? 0))
-                    ->value('config_json')
+                $currentSourceQuery->value('config_json')
             );
             $priorIdentityStatus = strtolower(trim((string)($currentConfig['current_session_probe_identity_status'] ?? '')));
             if ($authVerified
@@ -3402,12 +3443,20 @@ final class PlatformDataSyncService
     {
         return Db::transaction(function () use ($source, $user, $triggerType): int {
             $now = date('Y-m-d H:i:s');
-            $predecessor = Db::name('platform_data_sync_tasks')
-                ->where('data_source_id', (int)$source['id'])
+            $lockedSourceQuery = Db::name('platform_data_sources')
+                ->field('id,tenant_id,system_hotel_id');
+            $this->applyStoredSourceIdentity($lockedSourceQuery, $source);
+            $lockedSource = $lockedSourceQuery->lock(true)->find();
+            if (!is_array($lockedSource)) {
+                throw new RuntimeException('Data source not found.', 404);
+            }
+            [$tenantId, $hotelId] = $this->assertStoredSourceTenant($lockedSource);
+            $predecessorQuery = Db::name('platform_data_sync_tasks')
                 ->whereIn('status', self::ACTIVE_SYNC_TASK_STATUSES)
                 ->order('id', 'desc')
-                ->lock(true)
-                ->find();
+                ->lock(true);
+            $this->applyTaskSourceIdentity($predecessorQuery, $source, $tenantId, $hotelId);
+            $predecessor = $predecessorQuery->find();
             $predecessorId = 0;
             $attemptCount = 1;
             $recoveryContextStatus = '';
@@ -3429,10 +3478,11 @@ final class PlatformDataSyncService
                     : 'missing recovery_context/checkpoint';
                 $predecessorStats['recovery_context_status'] = $recoveryContextStatus;
                 $predecessorStats['interrupted_at'] = $now;
-                $affected = (int)Db::name('platform_data_sync_tasks')
+                $predecessorUpdate = Db::name('platform_data_sync_tasks')
                     ->where('id', $predecessorId)
-                    ->whereIn('status', self::ACTIVE_SYNC_TASK_STATUSES)
-                    ->update([
+                    ->whereIn('status', self::ACTIVE_SYNC_TASK_STATUSES);
+                $this->applyTaskSourceIdentity($predecessorUpdate, $source, $tenantId, $hotelId);
+                $affected = (int)$predecessorUpdate->update([
                         'status' => 'failed',
                         'finished_at' => $now,
                         'message' => 'stale active sync interrupted before recovered retry',
@@ -3454,7 +3504,7 @@ final class PlatformDataSyncService
             }
             $data = [
                 'data_source_id' => (int)$source['id'],
-                'system_hotel_id' => (int)($source['system_hotel_id'] ?? 0) ?: null,
+                'system_hotel_id' => $hotelId,
                 'platform' => (string)$source['platform'],
                 'data_type' => (string)$source['data_type'],
                 'ingestion_method' => (string)$source['ingestion_method'],
@@ -3471,7 +3521,7 @@ final class PlatformDataSyncService
                 'update_time' => $now,
             ];
             if (isset($this->tableColumns('platform_data_sync_tasks')['tenant_id'])) {
-                $data['tenant_id'] = (int)($source['tenant_id'] ?? 0) ?: null;
+                $data['tenant_id'] = $tenantId;
             }
 
             return (int)Db::name('platform_data_sync_tasks')->insertGetId($data);
@@ -3500,7 +3550,10 @@ final class PlatformDataSyncService
             is_array($payload['sync_diagnostics'] ?? null) ? $payload['sync_diagnostics'] : [],
             $status
         );
-        $existingTask = Db::name('platform_data_sync_tasks')->where('id', $taskId)->find();
+        [$tenantId, $hotelId] = $this->assertStoredSourceTenant($source);
+        $existingTaskQuery = Db::name('platform_data_sync_tasks')->where('id', $taskId);
+        $this->applyTaskSourceIdentity($existingTaskQuery, $source, $tenantId, $hotelId);
+        $existingTask = $existingTaskQuery->find();
         $existingTaskStats = is_array($existingTask)
             ? $this->decodeConfig($existingTask['stats_json'] ?? [])
             : [];
@@ -3546,11 +3599,11 @@ final class PlatformDataSyncService
         $stats = $this->sanitizeSyncTaskStats($stats, $status);
         $nextRetryAt = in_array($status, ['failed', 'partial_success'], true) ? date('Y-m-d H:i:s', time() + 900) : null;
 
-        $finalized = (int)Db::name('platform_data_sync_tasks')
+        $finalizeQuery = Db::name('platform_data_sync_tasks')
             ->where('id', $taskId)
-            ->where('data_source_id', (int)$source['id'])
-            ->where('status', 'running')
-            ->update([
+            ->where('status', 'running');
+        $this->applyTaskSourceIdentity($finalizeQuery, $source, $tenantId, $hotelId);
+        $finalized = (int)$finalizeQuery->update([
             'status' => $status,
             'finished_at' => $now,
             'next_retry_at' => $nextRetryAt,
@@ -3559,16 +3612,17 @@ final class PlatformDataSyncService
             'update_time' => $now,
         ]);
         if ($finalized !== 1) {
-            $persistedTask = Db::name('platform_data_sync_tasks')
-                ->where('id', $taskId)
-                ->where('data_source_id', (int)$source['id'])
-                ->find();
+            $persistedTaskQuery = Db::name('platform_data_sync_tasks')->where('id', $taskId);
+            $this->applyTaskSourceIdentity($persistedTaskQuery, $source, $tenantId, $hotelId);
+            $persistedTask = $persistedTaskQuery->find();
             return $this->persistedSyncTaskResult($taskId, $source, is_array($persistedTask) ? $persistedTask : []);
         }
         if ($this->shouldPreserveSourceStateForModuleResult($status, $payload)) {
-            $this->persistOptionalModuleState((int)$source['id'], $payload, $now);
+            $this->persistOptionalModuleState($source, $payload, $now);
         } else {
-            Db::name('platform_data_sources')->where('id', (int)$source['id'])->update([
+            $sourceUpdateQuery = Db::name('platform_data_sources');
+            $this->applyStoredSourceIdentity($sourceUpdateQuery, $source);
+            $sourceUpdateQuery->update([
                 'last_sync_time' => $now,
                 'last_sync_status' => $status,
                 'last_error' => in_array($status, ['success'], true) ? null : $safeMessage,
@@ -3581,11 +3635,11 @@ final class PlatformDataSyncService
             $timing['total_elapsed_ms'] = $this->elapsedMilliseconds($syncStartedAt);
         }
         $stats = $this->sanitizeSyncTaskStats(array_merge($stats, $timing, ['timing' => $timing]), $status);
-        Db::name('platform_data_sync_tasks')
+        $statsUpdateQuery = Db::name('platform_data_sync_tasks')
             ->where('id', $taskId)
-            ->where('data_source_id', (int)$source['id'])
-            ->where('status', $status)
-            ->update([
+            ->where('status', $status);
+        $this->applyTaskSourceIdentity($statsUpdateQuery, $source, $tenantId, $hotelId);
+        $statsUpdateQuery->update([
                 'stats_json' => json_encode($stats, JSON_UNESCAPED_UNICODE),
                 'update_time' => date('Y-m-d H:i:s'),
             ]);
@@ -3891,20 +3945,19 @@ final class PlatformDataSyncService
             && strtolower(trim($status)) !== 'success';
     }
 
-    private function persistOptionalModuleState(int $sourceId, array $payload, string $checkedAt): void
+    private function persistOptionalModuleState(array $expectedSource, array $payload, string $checkedAt): void
     {
+        $sourceId = (int)($expectedSource['id'] ?? 0);
         $moduleStatus = is_array($payload['module_status'] ?? null) ? $payload['module_status'] : [];
         $module = strtolower(trim((string)($moduleStatus['module'] ?? '')));
         if ($sourceId <= 0 || $module !== 'ads') {
             return;
         }
 
-        Db::transaction(function () use ($sourceId, $moduleStatus, $module, $checkedAt): void {
-            $source = Db::name('platform_data_sources')
-                ->field('id,config_json')
-                ->where('id', $sourceId)
-                ->lock(true)
-                ->find();
+        Db::transaction(function () use ($expectedSource, $moduleStatus, $module, $checkedAt): void {
+            $sourceQuery = Db::name('platform_data_sources')->field('id,tenant_id,system_hotel_id,config_json');
+            $this->applyStoredSourceIdentity($sourceQuery, $expectedSource);
+            $source = $sourceQuery->lock(true)->find();
             if (!is_array($source)) {
                 return;
             }
@@ -3932,7 +3985,9 @@ final class PlatformDataSyncService
                 }
             }
 
-            Db::name('platform_data_sources')->where('id', $sourceId)->update([
+            $updateQuery = Db::name('platform_data_sources');
+            $this->applyStoredSourceIdentity($updateQuery, $source);
+            $updateQuery->update([
                 'config_json' => json_encode($config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
                 'update_time' => $checkedAt,
             ]);
@@ -6041,16 +6096,31 @@ final class PlatformDataSyncService
             throw new RuntimeException('Unauthenticated.', 401);
         }
         if (method_exists($user, 'isSuperAdmin') && $user->isSuperAdmin()) {
+            $this->resolveHotelTenantId($hotelId);
             return;
         }
-        if ($hotelId <= 0 || !method_exists($user, 'hasHotelPermission') || !$user->hasHotelPermission($hotelId, $permission)) {
+        $tenantId = (int)($user->tenant_id ?? 0);
+        if ($tenantId <= 0
+            || $hotelId <= 0
+            || !method_exists($user, 'hasHotelPermission')
+            || !$user->hasHotelPermission($hotelId, $permission)
+        ) {
+            throw new RuntimeException('Forbidden.', 403);
+        }
+        try {
+            $authoritativeTenantId = $this->resolveHotelTenantId($hotelId);
+        } catch (\Throwable $exception) {
+            throw new RuntimeException('Forbidden.', 403, $exception);
+        }
+        if ($authoritativeTenantId !== $tenantId) {
             throw new RuntimeException('Forbidden.', 403);
         }
     }
 
     private function applySourceScope($query, $user): void
     {
-        if (!$user || (method_exists($user, 'isSuperAdmin') && $user->isSuperAdmin())) {
+        $this->applySourceTenantScope($query, $user);
+        if (method_exists($user, 'isSuperAdmin') && $user->isSuperAdmin()) {
             return;
         }
         $hotelIds = method_exists($user, 'getPermittedHotelIds') ? array_values(array_map('intval', $user->getPermittedHotelIds())) : [];
@@ -6061,17 +6131,93 @@ final class PlatformDataSyncService
         $query->whereIn('system_hotel_id', $hotelIds);
     }
 
+    private function applySourceTenantScope($query, $user): void
+    {
+        if (!$user) {
+            throw new RuntimeException('Unauthenticated.', 401);
+        }
+        if (method_exists($user, 'isSuperAdmin') && $user->isSuperAdmin()) {
+            return;
+        }
+        $tenantId = (int)($user->tenant_id ?? 0);
+        if ($tenantId <= 0) {
+            throw new RuntimeException('Authenticated tenant context is required.', 403);
+        }
+        $query->where('tenant_id', $tenantId);
+    }
+
     private function applyTaskScope($query, $user): void
     {
-        if (!$user || (method_exists($user, 'isSuperAdmin') && $user->isSuperAdmin())) {
+        if (!$user) {
+            throw new RuntimeException('Unauthenticated.', 401);
+        }
+        if (method_exists($user, 'isSuperAdmin') && $user->isSuperAdmin()) {
             return;
+        }
+        $tenantId = (int)($user->tenant_id ?? 0);
+        if ($tenantId <= 0) {
+            throw new RuntimeException('Authenticated tenant context is required.', 403);
         }
         $hotelIds = method_exists($user, 'getPermittedHotelIds') ? array_values(array_map('intval', $user->getPermittedHotelIds())) : [];
         if (empty($hotelIds)) {
             $query->whereRaw('1=0');
             return;
         }
+        $query->where('tenant_id', $tenantId);
         $query->whereIn('system_hotel_id', $hotelIds);
+    }
+
+    /** @param array<string, mixed> $source @return array{0:int,1:int} */
+    private function assertStoredSourceTenant(array $source): array
+    {
+        $hotelId = (int)($source['system_hotel_id'] ?? 0);
+        $tenantId = $this->resolveHotelTenantId($hotelId);
+        if ((int)($source['tenant_id'] ?? 0) !== $tenantId) {
+            throw new RuntimeException('Data source tenant scope does not match its hotel.', 409);
+        }
+
+        return [$tenantId, $hotelId];
+    }
+
+    /** @param array<string, mixed> $source @return array{0:int,1:int} */
+    private function assertStoredSourceTenantForActor(array $source, $user): array
+    {
+        try {
+            return $this->assertStoredSourceTenant($source);
+        } catch (\Throwable $exception) {
+            if (!$user || !method_exists($user, 'isSuperAdmin') || !$user->isSuperAdmin()) {
+                throw new RuntimeException('Data source not found.', 404, $exception);
+            }
+            throw $exception;
+        }
+    }
+
+    /** @param array<string, mixed> $source */
+    private function applyStoredSourceIdentity($query, array $source): void
+    {
+        $sourceId = (int)($source['id'] ?? 0);
+        if ($sourceId <= 0) {
+            throw new RuntimeException('Data source identity is missing.', 422);
+        }
+        [$tenantId, $hotelId] = $this->assertStoredSourceTenant($source);
+        $query->where('id', $sourceId)
+            ->where('tenant_id', $tenantId)
+            ->where('system_hotel_id', $hotelId);
+    }
+
+    /** @param array<string, mixed> $source */
+    private function applyTaskSourceIdentity($query, array $source, ?int $tenantId = null, ?int $hotelId = null): void
+    {
+        $sourceId = (int)($source['id'] ?? 0);
+        if ($sourceId <= 0) {
+            throw new RuntimeException('Data source identity is missing.', 422);
+        }
+        if ($tenantId === null || $hotelId === null) {
+            [$tenantId, $hotelId] = $this->assertStoredSourceTenant($source);
+        }
+        $query->where('data_source_id', $sourceId)
+            ->where('tenant_id', $tenantId)
+            ->where('system_hotel_id', $hotelId);
     }
 
     private function logSync(int $taskId, array $source, string $level, string $event, string $message, array $context = []): void

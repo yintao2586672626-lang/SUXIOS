@@ -20,6 +20,7 @@ final class OtaCredentialMigrationService
         'duplicate_config_id',
         'tenant_mismatch',
         'already_migrated',
+        'metadata_unverified',
         'profile_secret_cleanup_required',
     ];
     private const CONFIG_LIST_KEYS = [
@@ -55,7 +56,7 @@ final class OtaCredentialMigrationService
      */
     public function run(bool $execute): array
     {
-        $inventory = $this->inventoryLegacyConfigs();
+        $inventory = $this->inventoryLegacyConfigs($execute);
         if (!$execute) {
             return $this->safeSummary('dry-run', $inventory, [], []);
         }
@@ -90,7 +91,7 @@ final class OtaCredentialMigrationService
                     'migrated' => $migrated,
                     'sanitized' => $sanitized,
                     'relocated' => $relocated,
-                    'post_inventory' => $this->inventoryLegacyConfigs(),
+                    'post_inventory' => $this->inventoryLegacyConfigs(true),
                 ];
             });
         } catch (Throwable) {
@@ -111,7 +112,7 @@ final class OtaCredentialMigrationService
     /**
      * @return array{items: array<int, array<string, mixed>>, blockers: array<int, string>, sources: array<string, array<string, mixed>>}
      */
-    private function inventoryLegacyConfigs(): array
+    private function inventoryLegacyConfigs(bool $verifyPayloadBeforeCleanup = false): array
     {
         $blockers = [];
         $sources = [
@@ -144,7 +145,8 @@ final class OtaCredentialMigrationService
                 $hotelTenants,
                 $items,
                 $blockers,
-                $sources[$table]
+                $sources[$table],
+                $verifyPayloadBeforeCleanup
             );
         }
 
@@ -154,7 +156,8 @@ final class OtaCredentialMigrationService
                 $hotelTenants,
                 $items,
                 $blockers,
-                $sources['platform_data_sources']
+                $sources['platform_data_sources'],
+                $verifyPayloadBeforeCleanup
             );
         }
 
@@ -409,7 +412,8 @@ final class OtaCredentialMigrationService
         array $hotelTenants,
         array &$items,
         array &$blockers,
-        array &$sourceSummary
+        array &$sourceSummary,
+        bool $verifyPayloadBeforeCleanup
     ): void {
         $exactKeys = array_keys(self::CONFIG_LIST_KEYS);
         foreach (array_keys($hotelTenants) as $hotelId) {
@@ -456,7 +460,8 @@ final class OtaCredentialMigrationService
                         explicitSecrets: null,
                         impliedPlatform: self::CONFIG_LIST_KEYS[$configKey],
                         impliedHotelId: null,
-                        hotelTenants: $hotelTenants
+                        hotelTenants: $hotelTenants,
+                        verifyPayloadBeforeCleanup: $verifyPayloadBeforeCleanup
                     );
                     if ($this->shouldInventoryItem($item)) {
                         $items[] = $item;
@@ -484,7 +489,8 @@ final class OtaCredentialMigrationService
                     explicitSecrets: null,
                     impliedPlatform: $platform,
                     impliedHotelId: null,
-                    hotelTenants: $hotelTenants
+                    hotelTenants: $hotelTenants,
+                    verifyPayloadBeforeCleanup: $verifyPayloadBeforeCleanup
                 );
                 if ($this->shouldInventoryItem($item)) {
                     $items[] = $item;
@@ -511,7 +517,8 @@ final class OtaCredentialMigrationService
                     explicitSecrets: null,
                     impliedPlatform: $this->normalizePlatform($entry['platform'] ?? 'ctrip'),
                     impliedHotelId: $cacheHotelId,
-                    hotelTenants: $hotelTenants
+                    hotelTenants: $hotelTenants,
+                    verifyPayloadBeforeCleanup: $verifyPayloadBeforeCleanup
                 );
                 if ($this->shouldInventoryItem($item)) {
                     $items[] = $item;
@@ -535,7 +542,8 @@ final class OtaCredentialMigrationService
         array $hotelTenants,
         array &$items,
         array &$blockers,
-        array &$sourceSummary
+        array &$sourceSummary,
+        bool $verifyPayloadBeforeCleanup
     ): void {
         $requiredColumns = ['id', 'system_hotel_id', 'platform', 'config_json', 'secret_json'];
         $columns = $this->tableColumns('platform_data_sources');
@@ -584,7 +592,8 @@ final class OtaCredentialMigrationService
                 fingerprintPayload: [$config, $secret, (string)($row['ingestion_method'] ?? '')],
                 ingestionMethod: (string)($row['ingestion_method'] ?? ''),
                 sourceEnabled: !array_key_exists('enabled', $row)
-                    || in_array($row['enabled'], [true, 1, '1', 'true', 'yes', 'on'], true)
+                    || in_array($row['enabled'], [true, 1, '1', 'true', 'yes', 'on'], true),
+                verifyPayloadBeforeCleanup: $verifyPayloadBeforeCleanup
             );
 
             if (!$this->shouldInventoryItem($item)) {
@@ -619,7 +628,8 @@ final class OtaCredentialMigrationService
         array $hotelTenants,
         mixed $fingerprintPayload = null,
         string $ingestionMethod = '',
-        bool $sourceEnabled = true
+        bool $sourceEnabled = true,
+        bool $verifyPayloadBeforeCleanup = false
     ): array {
         [$metadata, $secrets] = $this->splitSecrets($payload);
         if ($explicitSecrets !== null) {
@@ -696,19 +706,28 @@ final class OtaCredentialMigrationService
             && $platform !== ''
             && $this->validConfigId($configId)
             && $this->vaultLocatorExists($tenantId, $boundHotelId, $platform, $configId);
-        $verifiedVaultMetadata = $vaultRecordExists
-            ? $this->vaultLocatorVerifiedMetadata($tenantId, $boundHotelId, $platform, $configId)
+        $inspectedVaultMetadata = $vaultRecordExists
+            ? $this->vaultLocatorVerifiedMetadata(
+                $tenantId,
+                $boundHotelId,
+                $platform,
+                $configId,
+                $verifyPayloadBeforeCleanup
+            )
             : null;
-        $existingVault = is_array($verifiedVaultMetadata);
+        $existingVault = $verifyPayloadBeforeCleanup && is_array($inspectedVaultMetadata);
+        $metadataOnlyVault = !$verifyPayloadBeforeCleanup && is_array($inspectedVaultMetadata);
         $credentialRef = $this->strictPositiveInt($metadata['credential_ref'] ?? null);
         $legacySuperseded = $credentialStatus === 'superseded';
-        $vaultCredentialRef = $this->strictPositiveInt($verifiedVaultMetadata['credential_ref'] ?? null);
-        $credentialReferenceMatches = $existingVault
+        $vaultCredentialRef = $this->strictPositiveInt($inspectedVaultMetadata['credential_ref'] ?? null);
+        $inspectedCredentialReferenceMatches = is_array($inspectedVaultMetadata)
             && $credentialRef !== null
             && $vaultCredentialRef !== null
             && $credentialRef === $vaultCredentialRef;
-        $credentialMetadataMatchesVault = $credentialReferenceMatches
+        $inspectedCredentialMetadataMatchesVault = $inspectedCredentialReferenceMatches
             && $credentialStatus === 'ready';
+        $credentialReferenceMatches = $existingVault && $inspectedCredentialReferenceMatches;
+        $credentialMetadataMatchesVault = $existingVault && $inspectedCredentialMetadataMatchesVault;
         $isBrowserProfileSource = $sourceKind === 'platform_source'
             && in_array(strtolower(trim($ingestionMethod)), ['browser_profile', 'profile_browser'], true);
         $profileCredentialMetadataDetached = $isBrowserProfileSource
@@ -744,6 +763,19 @@ final class OtaCredentialMigrationService
         } elseif ($tenantMismatch) {
             $classification = 'tenant_mismatch';
             $reasonCode = $tenantId === null ? 'hotel_not_found' : 'tenant_binding_mismatch';
+        } elseif ($metadataOnlyVault
+            && !$inspectedCredentialMetadataMatchesVault
+            && !$this->hasNonEmptyScalar($secrets)
+        ) {
+            $classification = 'unbound';
+            $reasonCode = $credentialRef === null
+                ? 'credential_reference_missing'
+                : (!$inspectedCredentialReferenceMatches
+                    ? 'credential_reference_mismatch'
+                    : 'credential_metadata_unverified');
+        } elseif ($metadataOnlyVault && !$this->hasNonEmptyScalar($secrets)) {
+            $classification = 'metadata_unverified';
+            $reasonCode = 'credential_payload_unverified';
         } elseif ($legacySuperseded && !$existingVault && !$this->hasNonEmptyScalar($secrets)) {
             $classification = 'unbound';
             $reasonCode = 'superseded_credential_requires_reentry';
@@ -780,7 +812,7 @@ final class OtaCredentialMigrationService
             'classification' => $classification,
             'reason_code' => $reasonCode,
             'has_credential_metadata' => $hasExistingMetadata
-                || ($existingVault && !$profileCredentialMetadataDetached),
+                || (($existingVault || $metadataOnlyVault) && !$profileCredentialMetadataDetached),
             'ingestion_method' => strtolower(trim($ingestionMethod)),
             'source_enabled' => $sourceEnabled,
             'secret_payload' => $secrets,
@@ -867,6 +899,16 @@ final class OtaCredentialMigrationService
         if ($credentialRef === null
             || strtolower(trim((string)($vaultMetadata['credential_status'] ?? ''))) !== 'ready') {
             throw new RuntimeException('OTA credential vault returned invalid migration metadata.');
+        }
+        $verifiedVaultMetadata = $this->credentialVault()->verifiedMetadataForExecution(
+            $tenantId,
+            $hotelId,
+            $platform,
+            $configId
+        );
+        if ((int)($verifiedVaultMetadata['credential_ref'] ?? 0) !== $credentialRef
+            || strtolower(trim((string)($verifiedVaultMetadata['credential_status'] ?? ''))) !== 'ready') {
+            throw new RuntimeException('OTA credential vault verification did not match the stored credential.');
         }
 
         $safeCredentialMetadata = [
@@ -1300,6 +1342,7 @@ final class OtaCredentialMigrationService
             + $counts['field_conflict']
             + $counts['duplicate_config_id']
             + $counts['tenant_mismatch']
+            + $counts['metadata_unverified']
             + $counts['profile_secret_cleanup_required'];
         $postExecutionCounts = $counts;
         if ($postInventory !== null) {
@@ -1315,7 +1358,9 @@ final class OtaCredentialMigrationService
             + $postExecutionCounts['field_conflict']
             + $postExecutionCounts['duplicate_config_id']
             + $postExecutionCounts['tenant_mismatch']
+            + $postExecutionCounts['metadata_unverified']
             + $postExecutionCounts['profile_secret_cleanup_required'];
+        $remainingActionableIssueCount = $remainingIssueCount - $postExecutionCounts['metadata_unverified'];
         $nonSchemaBlockers = array_values(array_filter(
             $blockers,
             static fn(string $blocker): bool => !str_starts_with($blocker, 'schema_missing:')
@@ -1328,8 +1373,10 @@ final class OtaCredentialMigrationService
                     : 'completed');
         } elseif ($nonSchemaBlockers !== []) {
             $status = 'blocked';
-        } elseif ($schemaMissing !== [] || $remainingIssueCount > 0 || $postMetadataRelocations !== []) {
+        } elseif ($schemaMissing !== [] || $remainingActionableIssueCount > 0 || $postMetadataRelocations !== []) {
             $status = 'migration_required';
+        } elseif ($postExecutionCounts['metadata_unverified'] > 0) {
+            $status = 'unverified';
         } else {
             $status = 'ready';
         }
@@ -1521,15 +1568,28 @@ final class OtaCredentialMigrationService
     }
 
     /** @return array<string, mixed>|null */
-    private function vaultLocatorVerifiedMetadata(int $tenantId, int $hotelId, string $platform, string $configId): ?array
+    private function vaultLocatorVerifiedMetadata(
+        int $tenantId,
+        int $hotelId,
+        string $platform,
+        string $configId,
+        bool $decryptPayload
+    ): ?array
     {
         try {
-            return $this->credentialVault()->verifiedMetadataForExecution(
-                $tenantId,
-                $hotelId,
-                $platform,
-                $configId
-            );
+            return $decryptPayload
+                ? $this->credentialVault()->verifiedMetadataForExecution(
+                    $tenantId,
+                    $hotelId,
+                    $platform,
+                    $configId
+                )
+                : $this->credentialVault()->inspectExecutionMetadataWithoutDecryption(
+                    $tenantId,
+                    $hotelId,
+                    $platform,
+                    $configId
+                );
         } catch (Throwable) {
             return null;
         }

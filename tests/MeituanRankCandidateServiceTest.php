@@ -263,7 +263,7 @@ final class MeituanRankCandidateServiceTest extends TestCase
         $concern = (string)file_get_contents(dirname(__DIR__) . '/app/controller/concern/OnlineDataManualFetchConcern.php');
 
         self::assertStringContainsString(
-            "Route::post('/meituan/rank-candidates/commit', 'OnlineData/commitMeituanRankCandidate')",
+            "Route::post('/meituan/rank-candidates/commit', 'ota.MeituanController/commitMeituanRankCandidate')",
             $routes
         );
         self::assertStringContainsString('MeituanRankCandidateService', $concern);

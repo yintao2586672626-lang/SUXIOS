@@ -137,7 +137,10 @@ $hotelUser = new class {
     public int $id = 6;
     public int $hotel_id = 7;
     public function isSuperAdmin(): bool { return false; }
-    public function hasPermission(string $permission): bool { return $permission === 'can_fetch_online_data'; }
+    public function hasHotelPermission(int $hotelId, string $permission): bool
+    {
+        return $hotelId === 7 && $permission === 'can_fetch_online_data';
+    }
     public function getPermittedHotelIds(): array { return [7]; }
 };
 set_private_property($online, 'currentUser', $hotelUser);
@@ -154,7 +157,7 @@ $superUser = new class {
     public int $id = 1;
     public ?int $hotel_id = null;
     public function isSuperAdmin(): bool { return true; }
-    public function hasPermission(string $permission): bool { return true; }
+    public function hasHotelPermission(int $hotelId, string $permission): bool { return $hotelId > 0; }
     public function getPermittedHotelIds(): array { return [7, 99]; }
 };
 set_private_property($superOnline, 'currentUser', $superUser);
@@ -204,6 +207,7 @@ assert_same(0.0, $multiHotelMetrics['ota_channel_room_nights'], 'cross-hotel OTA
 assert_same(1, $multiHotelMetrics['truth_context']['scope_exclusion_counts']['hotel_scope_mismatch'], 'cross-hotel OTA rows must report a hotel scope exclusion');
 
 $onlineSource = file_get_contents(__DIR__ . '/../app/controller/OnlineData.php');
+$onlineSource .= "\n" . file_get_contents(__DIR__ . '/../app/service/Ota/OtaActionHandler.php');
 foreach (glob(__DIR__ . '/../app/controller/concern/*.php') ?: [] as $concernFile) {
     $onlineSource .= "\n" . file_get_contents($concernFile);
 }
@@ -244,6 +248,7 @@ $meituanBrowserAdapterSource = file_get_contents(__DIR__ . '/../app/service/plat
 $platformProfileCaptureSource = file_get_contents(__DIR__ . '/../app/controller/concern/PlatformProfileCaptureConcern.php');
 $chromiumCookieExtractorSource = file_get_contents(__DIR__ . '/extract_chromium_cookie_header.php');
 $loginLogSource = file_get_contents(__DIR__ . '/../app/model/LoginLog.php');
+$operationLogSource = file_get_contents(__DIR__ . '/../app/model/OperationLog.php');
 $tenantMigrationSource = file_get_contents(__DIR__ . '/../database/migrations/20260529_add_tenant_security_fields.sql');
 $initFullSource = file_get_contents(__DIR__ . '/../database/init_full.sql');
 $commandSource = file_get_contents(__DIR__ . '/../app/command/AutoFetchOnlineData.php');
@@ -283,7 +288,7 @@ assert_true(str_contains($authControllerSource, 'new LoginRateLimiter()') && str
 $loginValidationBranch = substr(
     $authControllerSource,
     strpos($authControllerSource, "\$rawUsername = \$this->request->post('username', '')"),
-    strpos($authControllerSource, "\$user = User::with(['role', 'hotel'])") - strpos($authControllerSource, "\$rawUsername = \$this->request->post('username', '')")
+    strpos($authControllerSource, "\$user = User::with(['role'])") - strpos($authControllerSource, "\$rawUsername = \$this->request->post('username', '')")
 );
 assert_true(!str_contains($loginValidationBranch, 'recordLoginFailure') && !str_contains($loginValidationBranch, 'LoginLog::record'), 'malformed and empty login payloads must not append persistent login audit rows');
 $loginDeniedBranch = substr(
@@ -293,7 +298,7 @@ $loginDeniedBranch = substr(
 );
 assert_true(!str_contains($loginDeniedBranch, 'recordLoginFailure') && !str_contains($loginDeniedBranch, 'LoginLog::record'), '429 login responses must not create one persistent audit row per denied request');
 assert_true(str_contains($authControllerSource, 'invalidLoginPayload()') && str_contains($authControllerSource, 'normalizeLoginClientInfo'), 'public login must reject malformed input before authentication and log persistence');
-assert_true(strpos($authControllerSource, 'invalidLoginPayload()') < strpos($authControllerSource, "User::with(['role', 'hotel'])"), 'login input validation must run before the user lookup');
+assert_true(strpos($authControllerSource, 'invalidLoginPayload()') < strpos($authControllerSource, "User::with(['role'])"), 'login input validation must run before the user lookup');
 assert_true(str_contains($loginRateLimiterSource, 'IDENTITY_LIMIT = 10') && str_contains($loginRateLimiterSource, 'USERNAME_LIMIT = 25') && str_contains($loginRateLimiterSource, 'IP_LIMIT = 40'), 'login rate limiting must cover identity, distributed source rotation, and source IP abuse');
 assert_true(substr_count($loginRateLimiterSource, "hash('sha256'") >= 3, 'login limiter cache keys must hash IP and username identity material');
 assert_true(str_contains($loginRateLimiterSource, "private const TABLE = 'login_rate_limit_counters'") && str_contains($loginRateLimiterSource, 'Db::transaction'), 'login limiter must serialize reservations in the shared database across application instances');
@@ -322,7 +327,12 @@ assert_true(str_contains($authSource, 'private const TOKEN_MAX_AGE_SECONDS = 259
 assert_true(str_contains($authSource, 'isTokenExpiredByAge'), 'auth middleware must enforce token created_at age');
 assert_true(str_contains($userUpdateSource, '修改本人密码请使用专用改密接口并验证原密码'), 'generic user update must reject self-service password changes without the old password');
 assert_true(str_contains($userUpdateSource, "'reset_password'") && str_contains($userUpdateSource, "cache('auth_revoked_after_'"), 'administrator password resets must write a durable audit and revoke sessions');
-assert_true(str_contains($authSource, "['change_password', 'reset_password']"), 'legacy token upgrade must honor both self-change and administrator-reset audits');
+assert_true(
+    str_contains($authSource, 'OperationLog::latestCredentialRevocationTimestamp')
+    && str_contains($operationLogSource, "['change_password', 'reset_password']")
+    && str_contains($operationLogSource, "['target_user_id']"),
+    'legacy token upgrade must honor both self-change and administrator-reset audits'
+);
 assert_true(str_contains($protectedCapabilitySource, "'api/lifecycle'") && str_contains($protectedCapabilitySource, "'api/investment-decision'"), 'lifecycle and investment overview must require the investment capability');
 assert_true(str_contains($lifecycleResolveHotelsSource, "hasHotelPermission(\$hotelId, 'can_use_investment')"), 'lifecycle overview must keep only hotels with investment permission');
 assert_true(str_contains($lifecycleSource, 'withCurrentUser') && str_contains($lifecycleSource, "Db::name('feasibility_reports')") && str_contains($lifecycleSource, "Db::name('strategy_simulation_records')"), 'lifecycle investment records must be scoped to the current non-super user');
@@ -334,7 +344,11 @@ assert_true(str_contains($competitorTaskSource, 'findAuthorizedBinding(') && !st
 assert_true(str_contains($competitorTaskSource, "where('tenant_id', \$tenantId)") && str_contains($competitorTaskSource, "where('store_id', \$storeId)"), 'competitor tasks must stay inside the bound tenant and store');
 assert_true(str_contains($competitorDeviceAuthSource, 'password_verify') && str_contains($competitorDeviceAuthSource, 'bindingScopeIsActive'), 'competitor device tokens must be one-way and revalidate current hotel permission');
 assert_true(str_contains($competitorDeviceAuthSource, "authorize(\$user, 'ota.collect', \$storeId)"), 'competitor device activation must pass the full ota.collect authorization gate for the target hotel');
-assert_true(str_contains($competitorDeviceAuthSource, '$userTenantId !== $tenantId'), 'competitor device activation must reject a user whose tenant differs from the hotel tenant');
+assert_true(
+    str_contains($competitorDeviceAuthSource, '$expectedTenantId !== $userTenantId')
+    && str_contains($competitorDeviceAuthSource, '$hotel->tenant_id ?? 0) !== $userTenantId'),
+    'competitor device activation must reject a user whose tenant differs from the hotel tenant'
+);
 assert_true(
     str_contains($competitorDeviceMigrationSource, 'JOIN `hotels` AS `h` ON `h`.`id` = `ch`.`store_id`')
     && str_contains($competitorDeviceMigrationSource, 'SET `ch`.`tenant_id` = `h`.`tenant_id`'),
@@ -427,7 +441,11 @@ assert_true(str_contains($platformSyncSource, "'tenant_id'"), 'platform sync wri
 assert_true(str_contains($loginLogSource, 'tenantIdForUser'), 'login logs must populate tenant_id for authenticated users when available');
 assert_true(str_contains($operationSource, 'withHotelTenantId'), 'hotel-scoped operation writes must resolve tenant_id from the owning hotel');
 assert_true(str_contains($operationSource, 'withExecutionTaskTenantId'), 'execution evidence writes must inherit and verify the task tenant scope');
-assert_true(str_contains($transferSource, "'tenant_id' => \$hotelId"), 'transfer records must populate tenant_id on write');
+assert_true(
+    str_contains($transferSource, "Db::name('hotels')->where('id', \$hotelId)->value('tenant_id')")
+    && str_contains($transferSource, "'tenant_id' => \$tenantId"),
+    'transfer records must populate tenant_id from the authoritative hotel tenant on write'
+);
 assert_true(str_contains($initFullSource, '20260529_add_tenant_security_fields.sql'), 'full database initialization must apply tenant security migration');
 assert_true(str_contains($hotelMergePreviewSource, '$this->checkPermission(true);'), 'hotel data merge preview must require super admin');
 assert_true(str_contains($hotelMergeExecuteSource, '$this->checkPermission(true);'), 'hotel data merge execution must require super admin');

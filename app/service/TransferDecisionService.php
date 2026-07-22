@@ -17,6 +17,7 @@ class TransferDecisionService
 
     private LlmClient $client;
     private AiDecisionQualityService $decisionQualityService;
+    private bool $tableEnsured = false;
 
     public function __construct(?LlmClient $client = null, ?AiDecisionQualityService $decisionQualityService = null)
     {
@@ -627,6 +628,14 @@ class TransferDecisionService
 
     public function saveRecord(string $recordType, array $input, array $result, array $snapshot, int $hotelId, int $userId): int
     {
+        if ($hotelId <= 0) {
+            throw new RuntimeException('Hotel scope is missing');
+        }
+        $tenantId = (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id');
+        if ($tenantId <= 0) {
+            throw new RuntimeException('Hotel tenant scope is missing');
+        }
+
         $this->ensureTable();
 
         $summary = $this->recordSummary($recordType, $input, $result, $snapshot);
@@ -634,7 +643,7 @@ class TransferDecisionService
 
         return (int)Db::name('transfer_records')->insertGetId([
             'record_type' => $recordType,
-            'tenant_id' => $hotelId,
+            'tenant_id' => $tenantId,
             'hotel_id' => $hotelId,
             'hotel_name' => $summary['hotel_name'],
             'source_date' => $summary['source_date'],
@@ -814,29 +823,16 @@ class TransferDecisionService
 
     public function ensureTable(): void
     {
-        Db::execute("
-            CREATE TABLE IF NOT EXISTS transfer_records (
-                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-                record_type VARCHAR(30) NOT NULL DEFAULT '',
-                tenant_id INT UNSIGNED DEFAULT NULL,
-                hotel_id INT UNSIGNED NOT NULL DEFAULT 0,
-                hotel_name VARCHAR(160) NOT NULL DEFAULT '',
-                source_date DATE DEFAULT NULL,
-                input_json JSON DEFAULT NULL,
-                result_json JSON DEFAULT NULL,
-                snapshot_json JSON DEFAULT NULL,
-                decision VARCHAR(120) NOT NULL DEFAULT '',
-                risk_level VARCHAR(30) NOT NULL DEFAULT '',
-                created_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
-                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                deleted_at DATETIME DEFAULT NULL,
-                PRIMARY KEY (id),
-                INDEX idx_transfer_records_tenant (tenant_id, hotel_id),
-                INDEX idx_transfer_records_hotel_type (hotel_id, record_type, id),
-                INDEX idx_transfer_records_created_by (created_by, id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        ");
+        if ($this->tableEnsured) {
+            return;
+        }
+
+        DatabaseSchemaRequirement::assertTableColumns('transfer_records', [
+            'id', 'record_type', 'tenant_id', 'hotel_id', 'hotel_name', 'source_date',
+            'input_json', 'result_json', 'snapshot_json', 'decision', 'risk_level',
+            'created_by', 'created_at', 'updated_at', 'deleted_at',
+        ]);
+        $this->tableEnsured = true;
     }
 
     private function readinessPricingResult(string $recordType, array $input, array $result): array

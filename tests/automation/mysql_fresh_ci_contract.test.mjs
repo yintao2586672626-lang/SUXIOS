@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import test from 'node:test';
 
 const read = path => readFileSync(path, 'utf8');
@@ -32,11 +32,53 @@ test('fresh database verifier is gated, repeats the migration, and launches exac
   const loginWorker = read('scripts/mysql_login_rate_limiter_concurrency_worker.php');
   const databaseConfig = read('config/database.php');
   const initialization = read('database/init_full.sql');
+  const baselineMigrations = new Set(Array.from(
+    initialization.matchAll(/^SOURCE\s+\.\/database\/migrations\/([^;]+);\s*$/gmi),
+    match => match[1],
+  ));
+  const catalogMigrations = readdirSync('database/migrations')
+    .filter(name => name.endsWith('.sql'))
+    .sort();
+  const pendingAfterFrozenBaseline = catalogMigrations.filter(name => !baselineMigrations.has(name));
 
   assert.match(verifier, /SUXI_CI_MYSQL_VERIFY/);
   assert.match(verifier, /dedicated .+_(?:test|testing|e2e)/i);
   assert.match(initialization, /SOURCE \.\/database\/migrations\/20260716_add_execution_intent_idempotency_key\.sql;/);
-  assert.match(verifier, /init_full\.sql migration list does not match tracked database\/migrations/);
+  assert.ok(pendingAfterFrozenBaseline.includes('20260722_add_hotels_city.sql'));
+  assert.ok(pendingAfterFrozenBaseline.includes('20260722_create_schema_versions.sql'));
+  assert.ok(pendingAfterFrozenBaseline.includes('20260722_create_tenants_and_decouple_hotel_scope.sql'));
+  assert.ok(pendingAfterFrozenBaseline.includes('20260722_harden_schema_version_governance.sql'));
+  assert.ok(pendingAfterFrozenBaseline.includes('20260722_track_frozen_baseline_sources.sql'));
+  assert.ok(pendingAfterFrozenBaseline.length >= 5);
+  assert.doesNotMatch(initialization, /20260722_(?:add_hotels_city|create_schema_versions|create_tenants_and_decouple_hotel_scope|harden_schema_version_governance|track_frozen_baseline_sources)\.sql/);
+  assert.doesNotMatch(verifier, /undeclaredTrackedMigrations/);
+  assert.doesNotMatch(verifier, /migration list does not match tracked database\/migrations/);
+  assert.match(verifier, /const migrationPaths = diskMigrationFiles\.map/);
+  assert.match(verifier, /catalogPendingMigrationFiles/);
+  assert.match(verifier, /freshInitializerPath = join\(projectRoot, 'scripts', 'init_database\.php'\)/);
+  assert.match(verifier, /recoveryVerifierPath = join\(projectRoot, 'scripts', 'verify_mysql_fresh_initializer_recovery\.php'\)/);
+  assert.match(verifier, /runFreshInitializer\(\)/);
+  assert.match(verifier, /runFreshInitializerRecoveryVerifier\(\)/);
+  assert.match(verifier, /failed_database_removed/);
+  assert.match(verifier, /temporary_databases_remaining/);
+  assert.match(verifier, /runSchemaVersionService\('SchemaVersionService no-op after fresh initialization'\)/);
+  assert.match(verifier, /runSchemaVersionService\('SchemaVersionService no-op after repeated migrations'\)/);
+  assert.match(verifier, /assertSchemaVersionCatalog\('Fresh initialization'\)/);
+  assert.match(verifier, /assertSchemaVersionCatalog\('Repeated migrations'\)/);
+  assert.match(verifier, /assertBaselineSourceCatalog\('Fresh initialization'\)/);
+  assert.match(verifier, /assertBaselineSourceCatalog\('Repeated migrations'\)/);
+  assert.match(verifier, /execution_kind FROM schema_versions/);
+  assert.match(verifier, /schema_baseline_sources/);
+  assert.match(verifier, /unresolved migration failures/);
+  assert.match(verifier, /assertGovernedCompatibilityColumns\('Fresh initialization'\)/);
+  assert.match(verifier, /assertGovernedCompatibilityColumns\('Repeated migrations'\)/);
+  assert.match(verifier, /SELECT `city` FROM `hotels`/);
+  assert.match(verifier, /SELECT `login_count` FROM `users`/);
+  assert.match(verifier, /governed_column_queries_ok:\s*true/);
+  assert.match(verifier, /schema_versions_registered:\s*schemaVersionsAfterRepeats/);
+  assert.match(verifier, /schema_versions_required:\s*diskMigrationFiles\.length/);
+  assert.match(verifier, /baseline_sources_required:\s*declaredBaselineSources\.length/);
+  assert.match(verifier, /baseline_source_checksums_verified:\s*true/);
   assert.match(verifier, /for \(const \[index, migrationPath\] of migrationPaths\.entries\(\)\)/);
   assert.match(verifier, /migrationRuns\s*=\s*2/);
   assert.match(verifier, /workerCount\s*=\s*8/);
@@ -58,7 +100,7 @@ test('fresh database verifier is gated, repeats the migration, and launches exac
   assert.doesNotMatch(verifier, /MYSQL_DOCKER_CONTAINER_ID/);
   assert.doesNotMatch(verifier, /mysqlSpawnPrefix/);
   assert.match(verifier, /requires the project MariaDB dialect/);
-  assert.match(verifier, /input:\s*readFileSync\(initializationPath\)/);
+  assert.doesNotMatch(verifier, /label:\s*'fresh init_full\.sql import'/);
   assert.match(verifier, /energyBenchmarkSeedCountsAfterInit/);
   assert.match(verifier, /energyBenchmarkSeedCountsAfterRepeats/);
   assert.match(verifier, /expectedEnergyBenchmarkKeys\s*=\s*\['1:1', '2:1', '3:1'\]/);

@@ -18,11 +18,12 @@ const COMPETITION_CIRCLE_DIMENSION = 'competition_circle_hotel';
  * only classifies historical online_daily_data rows and adds migration audit
  * anchors. Use --dry-run for an explicit read-only preview; --execute applies.
  */
-$execute = in_array('--execute', $argv, true);
-$dryRun = in_array('--dry-run', $argv, true) || !$execute;
-$repairClassified = in_array('--repair-classified', $argv, true);
+$arguments = is_array($_SERVER['argv'] ?? null) ? $_SERVER['argv'] : [];
+$execute = in_array('--execute', $arguments, true);
+$dryRun = in_array('--dry-run', $arguments, true) || !$execute;
+$repairClassified = in_array('--repair-classified', $arguments, true);
 $systemHotelFilter = null;
-foreach ($argv as $argument) {
+foreach ($arguments as $argument) {
     if (str_starts_with($argument, '--system-hotel-id=')) {
         $value = trim(substr($argument, strlen('--system-hotel-id=')));
         if (!preg_match('/^[1-9][0-9]*$/', $value)) {
@@ -117,9 +118,38 @@ function configured_ctrip_hotel_ids(): array
 }
 
 /** @return array<string,mixed> */
+function resolve_backfill_tenant_id(int $systemHotelId): int
+{
+    if ($systemHotelId <= 0) {
+        throw new InvalidArgumentException('system_hotel_id must be a positive integer.');
+    }
+
+    try {
+        $tenantId = (int)(Db::name('hotels')
+            ->where('id', $systemHotelId)
+            ->value('tenant_id') ?? 0);
+    } catch (Throwable $exception) {
+        throw new RuntimeException(
+            "Unable to resolve authoritative tenant for system hotel {$systemHotelId}.",
+            0,
+            $exception
+        );
+    }
+    if ($tenantId <= 0) {
+        throw new RuntimeException(
+            "Missing authoritative hotels.tenant_id mapping for system hotel {$systemHotelId}."
+        );
+    }
+
+    return $tenantId;
+}
+
+/** @return array<string,mixed> */
 function ensure_backfill_source(int $systemHotelId): array
 {
+    $tenantId = resolve_backfill_tenant_id($systemHotelId);
     $existing = Db::name('platform_data_sources')
+        ->where('tenant_id', $tenantId)
         ->where('system_hotel_id', $systemHotelId)
         ->where('platform', 'ctrip')
         ->where('data_type', CtripCompetitionCirclePersistenceService::DATA_TYPE)
@@ -132,7 +162,7 @@ function ensure_backfill_source(int $systemHotelId): array
 
     $now = date('Y-m-d H:i:s');
     $id = (int)Db::name('platform_data_sources')->insertGetId([
-        'tenant_id' => $systemHotelId,
+        'tenant_id' => $tenantId,
         'system_hotel_id' => $systemHotelId,
         'name' => '携程竞争圈历史回填',
         'platform' => 'ctrip',
@@ -148,14 +178,31 @@ function ensure_backfill_source(int $systemHotelId): array
         'create_time' => $now,
         'update_time' => $now,
     ]);
-    return Db::name('platform_data_sources')->where('id', $id)->find() ?: ['id' => $id];
+    return Db::name('platform_data_sources')
+        ->where('id', $id)
+        ->where('tenant_id', $tenantId)
+        ->where('system_hotel_id', $systemHotelId)
+        ->find() ?: ['id' => $id, 'tenant_id' => $tenantId, 'system_hotel_id' => $systemHotelId];
 }
 
 function start_backfill_task(int $sourceId, int $systemHotelId): int
 {
+    $tenantId = resolve_backfill_tenant_id($systemHotelId);
+    $sourceExists = Db::name('platform_data_sources')
+        ->where('id', $sourceId)
+        ->where('tenant_id', $tenantId)
+        ->where('system_hotel_id', $systemHotelId)
+        ->where('platform', 'ctrip')
+        ->where('data_type', CtripCompetitionCirclePersistenceService::DATA_TYPE)
+        ->where('ingestion_method', CtripCompetitionCirclePersistenceService::BACKFILL_INGESTION_METHOD)
+        ->find();
+    if (!is_array($sourceExists)) {
+        throw new RuntimeException('Backfill source does not match the authoritative tenant and hotel mapping.');
+    }
+
     $now = date('Y-m-d H:i:s');
     return (int)Db::name('platform_data_sync_tasks')->insertGetId([
-        'tenant_id' => $systemHotelId,
+        'tenant_id' => $tenantId,
         'data_source_id' => $sourceId,
         'system_hotel_id' => $systemHotelId,
         'platform' => 'ctrip',
@@ -210,6 +257,10 @@ function merge_backfill_flags(array $row, array $codes): string
         ];
     }
     return json_encode($flags, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '[]';
+}
+
+if (defined('SUXIOS_BACKFILL_COMPETITION_CIRCLE_FUNCTIONS_ONLY')) {
+    return;
 }
 
 $query = Db::name('online_daily_data')->where('source', 'ctrip');

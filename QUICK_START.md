@@ -27,29 +27,17 @@ C:\php\php.exe
 PATH 中的 php
 ```
 
-## 数据库导入
+## 数据库初始化
 
-仓库已包含完整初始化入口：
-
-```text
-database/init_full.sql
-```
-
-创建数据库：
+新环境统一执行：
 
 ```powershell
-C:\xampp\mysql\bin\mysql.exe -u root -e "CREATE DATABASE IF NOT EXISTS hotelx CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-```
-
-导入数据：
-
-```powershell
-C:\xampp\mysql\bin\mysql.exe -u root hotelx < database/init_full.sql
+C:\xampp\php\php.exe scripts\init_database.php
 ```
 
 如果 XAMPP 安装在 D 盘，请把命令中的 `C:\xampp` 改为 `D:\xampp`。
 
-`database/hotel_admin_mysql.sql` 是可提交的基础 dump；完整初始化必须使用 `database/init_full.sql`，它会补齐当前代码使用的迁移表和字段。
+该命令导入冻结基线、自动执行 `database/migrations/` 下全部待执行文件，并写入带 checksum 与执行方式的 `schema_versions`，同时登记 4 个冻结 SQL 源的 checksum。以后新增 migration 不再追加到 `database/init_full.sql`，业务运行时也不会自动建表或改表。
 
 ## 环境变量
 
@@ -188,11 +176,15 @@ CRON_TOKEN（需要定时抓取入口时）
 
 ### 未检测到 hotelx 数据库
 
-先执行数据库创建和 `database/init_full.sql` 导入。
+先运行 `C:\xampp\php\php.exe scripts\init_database.php`。
 
 ### 核心表缺失
 
-说明数据库可能没有完整导入，重新确认 `database/init_full.sql` 是否导入成功。
+说明数据库未完整初始化；新环境请使用 `scripts/init_database.php` 重新创建空库。
+
+### 数据库版本不足
+
+先运行 `C:\xampp\php\php.exe think db:check` 查看缺失版本，再按提示执行 `db:migrate`；旧环境首次纳管使用 `db:migrate --baseline`。
 
 ### 8080-8099 端口均不可用
 

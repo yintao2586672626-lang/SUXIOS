@@ -562,9 +562,10 @@ function verifyCatalog() {
     assertContract(Math.abs(Number(competitorRow?.flow_rate) - 21.53) < 0.001, `${platform} competitor APP funnel row must store computed exposure conversion rate`);
   }
   const onlineDataSource = readFileSync('app/controller/OnlineData.php', 'utf8');
+  const otaActionHandlerSource = readFileSync('app/service/Ota/OtaActionHandler.php', 'utf8');
   const ctripFieldMetaSource = readFileSync('app/service/CtripProfileFieldMetaService.php', 'utf8');
   const ctripProfileConfigSource = readFileSync('app/controller/concern/CtripProfileConfigConcern.php', 'utf8');
-  const ctripProfileFieldSource = `${onlineDataSource}\n${ctripFieldMetaSource}\n${ctripProfileConfigSource}`;
+  const ctripProfileFieldSource = `${onlineDataSource}\n${otaActionHandlerSource}\n${ctripFieldMetaSource}\n${ctripProfileConfigSource}`;
   for (const fieldKey of [
     'competition_rank_order_count',
     'competition_rank_order_amount',

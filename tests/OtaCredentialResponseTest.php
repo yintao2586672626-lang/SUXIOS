@@ -35,6 +35,7 @@ final class OtaCredentialResponseTest extends TestCase
         Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name VARCHAR(100))');
         Db::execute('CREATE TABLE system_configs (id INTEGER PRIMARY KEY AUTOINCREMENT, config_key VARCHAR(50) NOT NULL UNIQUE, config_value TEXT, description VARCHAR(255), create_time DATETIME, update_time DATETIME)');
         Db::execute('CREATE TABLE ota_credentials (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, platform VARCHAR(20) NOT NULL, config_id VARCHAR(100) NOT NULL, encrypted_payload TEXT NOT NULL, payload_version INTEGER NOT NULL, key_id VARCHAR(100) NOT NULL, secret_mask VARCHAR(255) NOT NULL, credential_status VARCHAR(20) NOT NULL, created_by INTEGER NOT NULL, rotated_at DATETIME, last_used_at DATETIME, revoked_at DATETIME, create_time DATETIME, update_time DATETIME, UNIQUE(tenant_id,system_hotel_id,platform,config_id))');
+        Db::execute('CREATE TABLE ota_credential_audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, credential_id INTEGER NOT NULL DEFAULT 0, tenant_id INTEGER NOT NULL, system_hotel_id INTEGER NOT NULL, platform VARCHAR(20) NOT NULL, config_id_hash VARCHAR(64) NOT NULL, event_sequence INTEGER NOT NULL, credential_version INTEGER NOT NULL DEFAULT 0, event_type VARCHAR(40) NOT NULL, outcome VARCHAR(20) NOT NULL, failure_code VARCHAR(80) NOT NULL DEFAULT \'\', actor_id INTEGER NOT NULL DEFAULT 0, payload_digest VARCHAR(64) NOT NULL DEFAULT \'\', previous_entry_hash VARCHAR(64) NOT NULL DEFAULT \'\', entry_hash VARCHAR(64) NOT NULL, occurred_at DATETIME NOT NULL, UNIQUE(tenant_id,system_hotel_id,platform,config_id_hash,event_sequence), UNIQUE(entry_hash))');
         Db::name('hotels')->insertAll([
             ['id' => 58, 'tenant_id' => 7, 'name' => 'A'],
             ['id' => 59, 'tenant_id' => 0, 'name' => 'Invalid tenant'],
@@ -54,6 +55,7 @@ final class OtaCredentialResponseTest extends TestCase
         parent::setUp();
         Db::name('system_configs')->delete(true);
         Db::name('ota_credentials')->delete(true);
+        Db::name('ota_credential_audit_logs')->delete(true);
     }
 
     private function otaConfigHarness(?object $vault = null): object
@@ -272,7 +274,7 @@ final class OtaCredentialResponseTest extends TestCase
                     public function isSuperAdmin(): bool { return false; }
                     public function getPermittedHotelIds(): array { return [58]; }
                     public function canManageOwnHotels(): bool { return false; }
-                    public function hasPermission(string $permission): bool { return false; }
+                    public function hasHotelPermission(int $hotelId, string $permission): bool { return false; }
                 };
             }
 
@@ -344,7 +346,7 @@ final class OtaCredentialResponseTest extends TestCase
                     public function isSuperAdmin(): bool { return false; }
                     public function getPermittedHotelIds(): array { return [58]; }
                     public function canManageOwnHotels(): bool { return false; }
-                    public function hasPermission(string $permission): bool { return false; }
+                    public function hasHotelPermission(int $hotelId, string $permission): bool { return false; }
                 };
             }
 
@@ -1405,7 +1407,7 @@ final class OtaCredentialResponseTest extends TestCase
         $response = $this->deletePermissionFailureHarness()->deleteCtripConfig();
 
         self::assertSame(403, $response->getCode());
-        self::assertStringContainsString('permission denied', (string)$response->getContent());
+        self::assertStringContainsString('无权删除此配置', (string)$response->getContent());
     }
 
     public function testMeituanPersistenceStoresOnlySafeMetadataAndUsesExactLocator(): void
@@ -2155,7 +2157,7 @@ final class OtaCredentialResponseTest extends TestCase
         }
 
         self::assertSame(403, $response->getCode());
-        self::assertStringContainsString('permission denied', (string)$response->getContent());
+        self::assertStringContainsString('无权删除此配置', (string)$response->getContent());
     }
 
     public function testSplitOtaConfigSecretsRecursivelySeparatesCaseInsensitiveSecrets(): void

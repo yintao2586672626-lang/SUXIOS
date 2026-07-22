@@ -10,8 +10,10 @@ use app\service\HotelDataMergeService;
 use app\service\HotelCascadeDeletionService;
 use app\service\PermissionService;
 use app\service\BatchStatusPreviewService;
+use DomainException;
 use InvalidArgumentException;
 use RuntimeException;
+use think\db\BaseQuery;
 use think\Response;
 use think\facade\Db;
 
@@ -43,7 +45,7 @@ class Hotel extends Base
             $sortOrder = 'desc';
         }
 
-        $query = HotelModel::order($sortBy, $sortOrder);
+        $query = $this->hotelQuery()->order($sortBy, $sortOrder);
         if ($sortBy !== 'id') {
             $query->order('id', 'desc');
         }
@@ -91,7 +93,7 @@ class Hotel extends Base
             return $this->error('门店状态无效', 422);
         }
 
-        $hotels = HotelModel::whereIn('id', $hotelIds)->select();
+        $hotels = $this->hotelQuery()->whereIn('id', $hotelIds)->select();
         $affectedUserIdsByHotel = array_fill_keys($hotelIds, []);
         $affectedUserIdSet = [];
         $primaryUsers = \app\model\User::whereIn('hotel_id', $hotelIds)
@@ -165,7 +167,7 @@ class Hotel extends Base
             return $this->error('批量门店预览已失效，请重新预览后确认', 409);
         }
 
-        HotelModel::whereIn('id', $foundIds)->update(['status' => $status]);
+        $this->hotelQuery()->whereIn('id', $foundIds)->update(['status' => $status]);
         $statusText = $status === HotelModel::STATUS_ENABLED ? '启用' : '停用';
         OperationLog::record('hotel', 'batch_status', "批量{$statusText}门店: " . implode(',', array_column($rows, 'name')), $this->currentUser->id ?? null);
 
@@ -195,7 +197,7 @@ class Hotel extends Base
             $fields .= ', ota_channel_strategy';
         }
 
-        $query = HotelModel::where('status', HotelModel::STATUS_ENABLED)
+        $query = $this->hotelQuery()->where('status', HotelModel::STATUS_ENABLED)
             ->field($fields)
             ->order('id', 'asc');
 
@@ -223,7 +225,7 @@ class Hotel extends Base
     {
         $this->checkPermission();
 
-        $hotel = HotelModel::find($id);
+        $hotel = $this->hotelQuery()->where('id', $id)->find();
         if (!$hotel) {
             return $this->error('酒店不存在');
         }
@@ -283,6 +285,15 @@ class Hotel extends Base
         ]);
 
         $data['name'] = trim((string)$data['name']);
+        try {
+            $tenantId = $this->resolveCreateTenantId($data);
+        } catch (DomainException $e) {
+            return $this->error($e->getMessage(), 403);
+        } catch (InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        } catch (RuntimeException $e) {
+            return $this->error($e->getMessage(), 409);
+        }
         $duplicateHotel = $this->duplicateHotelByName($data['name']);
         if ($duplicateHotel) {
             return $this->duplicateHotelNameResponse($duplicateHotel);
@@ -290,7 +301,7 @@ class Hotel extends Base
 
         // 检查编码唯一性
         if ($code !== null) {
-            $exists = HotelModel::where('code', $code)->find();
+            $exists = $this->hotelQuery()->where('code', $code)->find();
             if ($exists) {
                 return $this->error('酒店编码已存在');
             }
@@ -313,22 +324,16 @@ class Hotel extends Base
         if ($hasCreatorColumn) {
             $hotel->created_by = (int)$this->currentUser->id;
         }
-        Db::transaction(function () use ($hotel): void {
+        if ($tenantId !== null) {
+            $hotel->tenant_id = $tenantId;
+        }
+        Db::transaction(function () use ($hotel, $tenantId): void {
             $hotel->save();
-            if ($this->tableColumnExists('hotels', 'tenant_id')) {
-                $tenantId = (int)Db::name('hotels')->where('id', (int)$hotel->id)->value('tenant_id');
-                if ($tenantId <= 0) {
-                    $tenantId = (int)$hotel->id;
-                    $hotel->tenant_id = $tenantId;
-                    $hotel->save();
-                } else {
-                    $hotel->tenant_id = $tenantId;
-                }
-            }
             if (!$this->currentUser->isSuperAdmin()) {
-                $this->grantCurrentUserHotelPermission($hotel);
+                $this->grantCurrentUserHotelPermission($hotel, $tenantId);
             }
 
+            $auditData = $tenantId !== null ? ['tenant_id' => $tenantId] : [];
             OperationLog::record(
                 'hotel',
                 'create',
@@ -336,7 +341,7 @@ class Hotel extends Base
                 $this->currentUser->id ?? null,
                 (int)$hotel->id,
                 null,
-                ['tenant_id' => (int)($hotel->tenant_id ?? $hotel->id)]
+                $auditData
             );
         });
 
@@ -350,7 +355,7 @@ class Hotel extends Base
     {
         $this->checkPermission();
 
-        $hotel = HotelModel::find($id);
+        $hotel = $this->hotelQuery()->where('id', $id)->find();
         if (!$hotel) {
             return $this->error('酒店不存在');
         }
@@ -394,7 +399,7 @@ class Hotel extends Base
 
         // 检查编码唯一性
         if ($code !== null) {
-            $exists = HotelModel::where('code', $code)->where('id', '<>', $id)->find();
+            $exists = $this->hotelQuery()->where('code', $code)->where('id', '<>', $id)->find();
             if ($exists) {
                 return $this->error('酒店编码已存在');
             }
@@ -412,19 +417,28 @@ class Hotel extends Base
             $affectedUsers = \app\model\User::where('hotel_id', $id)->count();
         }
 
-        $hotel->name = $data['name'];
-        $hotel->code = $code;
-        $hotel->address = $data['address'] ?? '';
-        $hotel->contact_person = $data['contact_person'] ?? '';
-        $hotel->contact_phone = $data['contact_phone'] ?? '';
-        $hotel->description = $data['description'] ?? '';
+        $updatePayload = [
+            'name' => $data['name'],
+            'code' => $code,
+            'address' => $data['address'] ?? '',
+            'contact_person' => $data['contact_person'] ?? '',
+            'contact_phone' => $data['contact_phone'] ?? '',
+            'description' => $data['description'] ?? '',
+        ];
         if ($this->tableColumnExists('hotels', 'ota_channel_strategy')) {
-            $hotel->ota_channel_strategy = $otaChannelStrategy;
+            $updatePayload['ota_channel_strategy'] = $otaChannelStrategy;
         }
         if (isset($data['status'])) {
-            $hotel->status = $data['status'];
+            $updatePayload['status'] = $data['status'];
         }
-        $hotel->save();
+        if ($this->tableColumnExists('hotels', 'update_time')) {
+            $updatePayload['update_time'] = date('Y-m-d H:i:s');
+        }
+        $this->hotelQuery()->where('id', $id)->update($updatePayload);
+        $hotel = $this->hotelQuery()->where('id', $id)->find();
+        if (!$hotel instanceof HotelModel) {
+            return $this->error('酒店更新失败，请刷新后重试', 409);
+        }
 
         // 记录操作日志
         $logDesc = '更新酒店: ' . $hotel->name;
@@ -451,13 +465,22 @@ class Hotel extends Base
         return $code === '' ? null : $code;
     }
 
+    private function hotelQuery(): BaseQuery
+    {
+        if ($this->currentUser instanceof \app\model\User && $this->currentUser->isSuperAdmin()) {
+            return HotelModel::withoutTenantScope();
+        }
+
+        return HotelModel::where([]);
+    }
+
     private function duplicateHotelByName(string $name, ?int $excludeId = null): ?HotelModel
     {
         $normalizedName = trim($name);
         if ($normalizedName === '') {
             return null;
         }
-        $query = HotelModel::where('name', $normalizedName);
+        $query = $this->hotelQuery()->where('name', $normalizedName);
         if ($excludeId !== null && $excludeId > 0) {
             $query->where('id', '<>', $excludeId);
         }
@@ -563,12 +586,20 @@ class Hotel extends Base
         $forceDelete = $this->isForceDeleteRequested($data);
         $canForceDelete = (bool)($this->currentUser?->isSuperAdmin() ?? false);
 
-        $hotel = HotelModel::find($id);
+        $hotel = $this->hotelQuery()->where('id', $id)->find();
         if (!$hotel) {
             return $this->error('酒店不存在');
         }
         $hotelName = (string)$hotel->name;
-        $hotelTenantId = (int)($hotel->tenant_id ?? 0);
+        $hotelTenantId = null;
+        if ($this->tableColumnExists('hotels', 'tenant_id')) {
+            $hotelTenantId = (int)($hotel->tenant_id ?? 0);
+            try {
+                $this->assertTenantExists($hotelTenantId);
+            } catch (InvalidArgumentException|RuntimeException $e) {
+                return $this->error('酒店租户数据无效，已拒绝删除: ' . $e->getMessage(), 409);
+            }
+        }
         $service = new HotelCascadeDeletionService();
         try {
             $preview = $service->preview($id);
@@ -609,6 +640,17 @@ class Hotel extends Base
             return $this->error('酒店及关联数据删除失败，事务已回滚: ' . $e->getMessage(), 500);
         }
 
+        $auditData = [
+            'deleted_hotel_id' => $id,
+            'deleted_hotel_name' => $hotelName,
+            'deleted_rows' => (int)($result['deleted_rows'] ?? 0),
+            'users_detached' => (int)($result['users_detached'] ?? 0),
+            'config_entries_deleted' => (int)($result['config_entries_deleted'] ?? 0),
+            'preserved_audit_rows' => (int)($result['preserved_audit_rows'] ?? 0),
+        ];
+        if ($hotelTenantId !== null) {
+            $auditData['tenant_id'] = $hotelTenantId;
+        }
         OperationLog::record(
             'hotel',
             'delete',
@@ -616,15 +658,7 @@ class Hotel extends Base
             $this->currentUser->id ?? null,
             $id,
             null,
-            [
-                'tenant_id' => $hotelTenantId > 0 ? $hotelTenantId : $id,
-                'deleted_hotel_id' => $id,
-                'deleted_hotel_name' => $hotelName,
-                'deleted_rows' => (int)($result['deleted_rows'] ?? 0),
-                'users_detached' => (int)($result['users_detached'] ?? 0),
-                'config_entries_deleted' => (int)($result['config_entries_deleted'] ?? 0),
-                'preserved_audit_rows' => (int)($result['preserved_audit_rows'] ?? 0),
-            ]
+            $auditData
         );
 
         return $this->success($result, '酒店及关联数据已删除');
@@ -703,7 +737,7 @@ class Hotel extends Base
         return in_array((int)$hotel->id, $permittedHotelIds, true);
     }
 
-    private function grantCurrentUserHotelPermission(HotelModel $hotel): void
+    private function grantCurrentUserHotelPermission(HotelModel $hotel, ?int $validatedTenantId): void
     {
         if (!$this->currentUser || !$hotel->id) {
             return;
@@ -759,7 +793,10 @@ class Hotel extends Base
         }
 
         if ($this->tableColumnExists('user_hotel_permissions', 'tenant_id')) {
-            $payload['tenant_id'] = (int)($hotel->tenant_id ?? $hotelId);
+            if ($validatedTenantId === null || $validatedTenantId <= 0) {
+                throw new RuntimeException('无法在缺少有效租户的情况下授予酒店权限');
+            }
+            $payload['tenant_id'] = $validatedTenantId;
         }
 
         $existing = UserHotelPermission::where('user_id', (int)$this->currentUser->id)
@@ -865,6 +902,67 @@ class Hotel extends Base
         }
 
         return $value;
+    }
+
+    /**
+     * Resolve the SaaS tenant independently from any hotel identifier.
+     *
+     * @param array<string, mixed> $data
+     */
+    private function resolveCreateTenantId(array $data): ?int
+    {
+        if (!$this->tableColumnExists('hotels', 'tenant_id')) {
+            return null;
+        }
+
+        if ($this->currentUser->isSuperAdmin()) {
+            $tenantId = $this->positiveTenantId($data['tenant_id'] ?? null);
+            if ($tenantId <= 0) {
+                throw new InvalidArgumentException('超级管理员创建酒店时必须提供有效 tenant_id');
+            }
+        } else {
+            $tenantId = $this->positiveTenantId($this->currentUser->tenant_id ?? null);
+            if ($tenantId <= 0) {
+                throw new InvalidArgumentException('当前用户未绑定有效租户，无法创建酒店');
+            }
+
+            if (array_key_exists('tenant_id', $data)) {
+                $requestedTenantId = $this->positiveTenantId($data['tenant_id']);
+                if ($requestedTenantId <= 0) {
+                    throw new InvalidArgumentException('请求 tenant_id 无效');
+                }
+                if ($requestedTenantId !== $tenantId) {
+                    throw new DomainException('无权为其他租户创建酒店');
+                }
+            }
+        }
+
+        $this->assertTenantExists($tenantId);
+        return $tenantId;
+    }
+
+    private function assertTenantExists(int $tenantId): void
+    {
+        if ($tenantId <= 0) {
+            throw new InvalidArgumentException('tenant_id 必须为正整数');
+        }
+        if (!$this->tableColumnExists('tenants', 'id')) {
+            throw new RuntimeException('租户基础表不可用，请先完成租户迁移');
+        }
+
+        try {
+            $storedTenantId = (int)Db::name('tenants')->where('id', $tenantId)->value('id');
+        } catch (\Throwable $e) {
+            throw new RuntimeException('租户数据校验失败', 0, $e);
+        }
+        if ($storedTenantId !== $tenantId) {
+            throw new InvalidArgumentException('tenant_id 对应租户不存在');
+        }
+    }
+
+    private function positiveTenantId($value): int
+    {
+        return is_numeric($value) && (int)$value > 0 ? (int)$value : 0;
     }
 
     private function countReferenceRows(string $table, string $column, int $value): int

@@ -43,36 +43,42 @@ final class CompetitorDeviceAuthService
     /**
      * @return array{tenant_id: int, user_id: int, store_id: int}|null
      */
-    public function resolveActiveScope(int $userId, int $storeId): ?array
+    public function resolveActiveScope(int $userId, int $storeId, ?int $expectedTenantId = null): ?array
     {
         if ($userId <= 0 || $storeId <= 0) {
             return null;
         }
 
-        $hotel = Hotel::where('id', $storeId)
-            ->where('status', Hotel::STATUS_ENABLED)
-            ->find();
         $user = User::where('id', $userId)
             ->where('status', User::STATUS_ENABLED)
             ->find();
-        if (!$hotel || !$user) {
+        if (!$user) {
             return null;
         }
-        $tenantId = (int)($hotel->tenant_id ?? 0);
         $userTenantId = (int)($user->tenant_id ?? 0);
-        if ($tenantId <= 0 || $userTenantId <= 0 || $userTenantId !== $tenantId) {
-            return null;
-        }
-        $authorization = $this->permissionService->authorize($user, 'ota.collect', $storeId);
-        if (($authorization['allowed'] ?? false) !== true) {
+        if ($userTenantId <= 0 || ($expectedTenantId !== null && $expectedTenantId !== $userTenantId)) {
             return null;
         }
 
-        return [
-            'tenant_id' => $tenantId,
-            'user_id' => $userId,
-            'store_id' => $storeId,
-        ];
+        return Hotel::runInTenantScope($userTenantId, function () use ($user, $userId, $storeId, $userTenantId): ?array {
+            $hotel = Hotel::where('id', $storeId)
+                ->where('status', Hotel::STATUS_ENABLED)
+                ->find();
+            if (!$hotel || (int)($hotel->tenant_id ?? 0) !== $userTenantId) {
+                return null;
+            }
+
+            $authorization = $this->permissionService->authorize($user, 'ota.collect', $storeId);
+            if (($authorization['allowed'] ?? false) !== true) {
+                return null;
+            }
+
+            return [
+                'tenant_id' => $userTenantId,
+                'user_id' => $userId,
+                'store_id' => $storeId,
+            ];
+        });
     }
 
     public function findAuthorizedBinding(
@@ -121,7 +127,7 @@ final class CompetitorDeviceAuthService
             return false;
         }
 
-        $scope = $this->resolveActiveScope($userId, $storeId);
+        $scope = $this->resolveActiveScope($userId, $storeId, $tenantId);
         return $scope !== null && $scope['tenant_id'] === $tenantId;
     }
 

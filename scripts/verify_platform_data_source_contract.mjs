@@ -113,24 +113,24 @@ check(
   'route/app.php',
   'data-source sync route is ordered before generic create route',
   (source) => {
-    const sync = source.indexOf("Route::post('/data-sources/:id/sync', 'OnlineData/syncDataSource');");
-    const create = source.indexOf("Route::post('/data-sources', 'OnlineData/saveDataSource');");
+    const sync = source.indexOf("Route::post('/data-sources/:id/sync', 'ota.SyncController/syncDataSource');");
+    const create = source.indexOf("Route::post('/data-sources', 'ota.SyncController/saveDataSource');");
     return sync !== -1 && create !== -1 && sync < create;
   },
   '/data-sources/:id/sync before /data-sources'
 );
 
 for (const [route, label] of [
-  ["Route::get('/data-sources', 'OnlineData/dataSourceList');", 'data-source list route exists'],
-  ["Route::delete('/data-sources/:id', 'OnlineData/deleteDataSource');", 'data-source delete route exists'],
-  ["Route::post('/data-import', 'OnlineData/importDataSourceRows');", 'data import route exists'],
-  ["Route::get('/sync-tasks', 'OnlineData/syncTaskList');", 'sync task list route exists'],
-  ["Route::get('/sync-logs', 'OnlineData/syncLogList');", 'sync log list route exists'],
-  ["Route::get('/platform-profile-status', 'OnlineData/platformProfileStatus');", 'platform Profile status route exists'],
-  ["Route::post('/profile-binding-unbind', 'OnlineData/deletePlatformProfileBinding');", 'platform Profile unbind route exists'],
-  ["Route::post('/profile-login-trigger/:platform', 'OnlineData/triggerPlatformProfileLogin');", 'platform Profile login trigger route exists'],
-  ["Route::get('/profile-login-status/:platform', 'OnlineData/platformProfileLoginStatus');", 'platform Profile login status route exists'],
-  ["Route::get('/meituan-profile-status', 'OnlineData/meituanProfileStatus');", 'Meituan Profile status route exists'],
+  ["Route::get('/data-sources', 'ota.SyncController/dataSourceList');", 'data-source list route exists'],
+  ["Route::delete('/data-sources/:id', 'ota.SyncController/deleteDataSource');", 'data-source delete route exists'],
+  ["Route::post('/data-import', 'ota.SyncController/importDataSourceRows');", 'data import route exists'],
+  ["Route::get('/sync-tasks', 'ota.SyncController/syncTaskList');", 'sync task list route exists'],
+  ["Route::get('/sync-logs', 'ota.SyncController/syncLogList');", 'sync log list route exists'],
+  ["Route::get('/platform-profile-status', 'ota.ProfileController/platformProfileStatus');", 'platform Profile status route exists'],
+  ["Route::post('/profile-binding-unbind', 'ota.ProfileController/deletePlatformProfileBinding');", 'platform Profile unbind route exists'],
+  ["Route::post('/profile-login-trigger/:platform', 'ota.ProfileController/triggerPlatformProfileLogin');", 'platform Profile login trigger route exists'],
+  ["Route::get('/profile-login-status/:platform', 'ota.ProfileController/platformProfileLoginStatus');", 'platform Profile login status route exists'],
+  ["Route::get('/meituan-profile-status', 'ota.ProfileController/meituanProfileStatus');", 'Meituan Profile status route exists'],
 ]) {
   check('route/app.php', label, (source) => source.includes(route), route);
 }

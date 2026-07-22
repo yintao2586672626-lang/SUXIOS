@@ -49,7 +49,7 @@ final class CtripTemporaryCookieQueryTest extends TestCase
         $source = (string)file_get_contents($root . '/app/controller/concern/OnlineDataManualFetchConcern.php');
 
         self::assertStringContainsString(
-            "Route::post('/fetch-ctrip-temporary-cookie', 'OnlineData/fetchCtripTemporaryCookie');",
+            "Route::post('/fetch-ctrip-temporary-cookie', 'ota.CtripController/fetchCtripTemporaryCookie');",
             $route
         );
         self::assertStringContainsString('public function fetchCtripTemporaryCookie(): Response', $source);

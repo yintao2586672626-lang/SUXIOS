@@ -234,7 +234,7 @@ class SystemConfigController extends Base
         if ($requestId === '') {
             $requestId = 'missing_request_id';
         }
-        $tenantId = (int)($this->currentUser->tenant_id ?? $this->currentUser->hotel_id ?? 0);
+        $tenantId = (int)($this->currentUser->tenant_id ?? 0);
         $exportData = [
             'export_time' => $generatedAt,
             'version' => 'v2.0.0',

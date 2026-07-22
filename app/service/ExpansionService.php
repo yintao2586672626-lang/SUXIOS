@@ -909,35 +909,12 @@ class ExpansionService
             return;
         }
 
-        Db::execute("
-            CREATE TABLE IF NOT EXISTS expansion_records (
-                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-                tenant_id BIGINT UNSIGNED DEFAULT NULL,
-                record_type VARCHAR(30) NOT NULL DEFAULT '',
-                project_name VARCHAR(160) NOT NULL DEFAULT '',
-                city_area VARCHAR(160) NOT NULL DEFAULT '',
-                input_json JSON DEFAULT NULL,
-                result_json JSON DEFAULT NULL,
-                decision VARCHAR(120) NOT NULL DEFAULT '',
-                risk_level VARCHAR(30) NOT NULL DEFAULT '',
-                created_by BIGINT UNSIGNED NOT NULL DEFAULT 0,
-                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                deleted_at DATETIME DEFAULT NULL,
-                PRIMARY KEY (id),
-                INDEX idx_expansion_records_tenant_user (tenant_id, created_by, id),
-                INDEX idx_expansion_records_type_user (record_type, created_by, id),
-                INDEX idx_expansion_records_city_area (city_area)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-        ");
-        $this->ensureTenantColumns();
+        DatabaseSchemaRequirement::assertTableColumns('expansion_records', [
+            'id', 'tenant_id', 'record_type', 'project_name', 'city_area', 'input_json',
+            'result_json', 'decision', 'risk_level', 'created_by', 'created_at',
+            'updated_at', 'deleted_at',
+        ]);
         $this->tableEnsured = true;
-    }
-
-    private function ensureTenantColumns(): void
-    {
-        Db::execute("ALTER TABLE expansion_records ADD COLUMN IF NOT EXISTS tenant_id BIGINT UNSIGNED DEFAULT NULL COMMENT '租户ID，默认跟随创建用户' AFTER id");
-        Db::execute("ALTER TABLE expansion_records ADD INDEX IF NOT EXISTS idx_expansion_records_tenant_user (tenant_id, created_by, id)");
     }
 
     private function applyTenantScope($query, int $userId, bool $isSuperAdmin): void
@@ -973,7 +950,12 @@ class ExpansionService
             }
 
             $hotelId = (int)($row['hotel_id'] ?? 0);
-            return $hotelId > 0 ? $hotelId : null;
+            if ($hotelId <= 0) {
+                return null;
+            }
+
+            $hotelTenantId = (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id');
+            return $hotelTenantId > 0 ? $hotelTenantId : null;
         } catch (\Throwable $e) {
             return null;
         }

@@ -1207,7 +1207,12 @@ class StrategySimulation extends Base
             }
 
             $hotelId = (int)($row['hotel_id'] ?? 0);
-            return $hotelId > 0 ? $hotelId : null;
+            if ($hotelId <= 0) {
+                return null;
+            }
+
+            $hotelTenantId = (int)Db::name('hotels')->where('id', $hotelId)->value('tenant_id');
+            return $hotelTenantId > 0 ? $hotelTenantId : null;
         } catch (Throwable $e) {
             return null;
         }

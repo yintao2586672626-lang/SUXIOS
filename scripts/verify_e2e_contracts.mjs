@@ -27,7 +27,11 @@ const onlineDataConcernFiles = fs.existsSync(onlineDataConcernDir)
     .sort()
     .map(file => `app/controller/concern/${file}`)
   : [];
-const onlineDataControllerFiles = ['app/controller/OnlineData.php', ...onlineDataConcernFiles];
+const onlineDataControllerFiles = [
+  'app/controller/OnlineData.php',
+  'app/service/Ota/OtaActionHandler.php',
+  ...onlineDataConcernFiles,
+];
 const readOnlineDataControllerSource = () => onlineDataControllerFiles.map(read).join('\n');
 
 function requireText(file, needle, label) {

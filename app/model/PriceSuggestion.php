@@ -3,13 +3,13 @@ declare(strict_types=1);
 
 namespace app\model;
 
-use think\Model;
+use app\model\base\BaseTenantModel;
 
 /**
  * 定价建议模型
  * 用于收益管理Agent生成定价建议
  */
-class PriceSuggestion extends Model
+class PriceSuggestion extends BaseTenantModel
 {
     protected $name = 'price_suggestions';
     
@@ -20,6 +20,7 @@ class PriceSuggestion extends Model
     
     protected $type = [
         'id' => 'integer',
+        'tenant_id' => 'integer',
         'hotel_id' => 'integer',
         'room_type_id' => 'integer',
         'demand_forecast_id' => 'integer',

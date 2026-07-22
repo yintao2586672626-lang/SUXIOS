@@ -82,7 +82,10 @@ final class OtaProfileSessionProofService
         ): array {
             $binding = $this->bindingService->assertBound($systemHotelId, $platform, $profileKey);
             $source = Db::name('platform_data_sources')
+                ->field('id,tenant_id,system_hotel_id,platform,ingestion_method,enabled,status,config_json,last_sync_status,last_error')
                 ->where('id', $dataSourceId)
+                ->where('tenant_id', (int)$binding['tenant_id'])
+                ->where('system_hotel_id', $systemHotelId)
                 ->lock(true)
                 ->find();
             if (!is_array($source)) {
@@ -133,7 +136,11 @@ final class OtaProfileSessionProofService
                 $sourceUpdate['last_sync_status'] = null;
                 $sourceUpdate['last_error'] = null;
             }
-            Db::name('platform_data_sources')->where('id', $dataSourceId)->update($sourceUpdate);
+            Db::name('platform_data_sources')
+                ->where('id', $dataSourceId)
+                ->where('tenant_id', (int)$binding['tenant_id'])
+                ->where('system_hotel_id', $systemHotelId)
+                ->update($sourceUpdate);
 
             return $proof;
         });
@@ -358,6 +365,8 @@ final class OtaProfileSessionProofService
             $source = Db::name('platform_data_sources')
                 ->field('id,tenant_id,system_hotel_id,platform,ingestion_method,enabled,status,config_json')
                 ->where('id', $dataSourceId)
+                ->where('tenant_id', (int)$binding['tenant_id'])
+                ->where('system_hotel_id', $systemHotelId)
                 ->lock(true)
                 ->find();
             if (!is_array($source)) {
@@ -381,7 +390,11 @@ final class OtaProfileSessionProofService
                 'status' => $authStatusCode,
             ];
 
-            Db::name('platform_data_sources')->where('id', $dataSourceId)->update([
+            Db::name('platform_data_sources')
+                ->where('id', $dataSourceId)
+                ->where('tenant_id', (int)$binding['tenant_id'])
+                ->where('system_hotel_id', $systemHotelId)
+                ->update([
                 'config_json' => json_encode($config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
                 'update_time' => $now->format('Y-m-d H:i:s'),
             ]);
@@ -433,6 +446,8 @@ final class OtaProfileSessionProofService
             $source = Db::name('platform_data_sources')
                 ->field('id,tenant_id,system_hotel_id,platform,ingestion_method,enabled,status,config_json')
                 ->where('id', $dataSourceId)
+                ->where('tenant_id', (int)$binding['tenant_id'])
+                ->where('system_hotel_id', $systemHotelId)
                 ->lock(true)
                 ->find();
             if (!is_array($source)) {
@@ -462,7 +477,11 @@ final class OtaProfileSessionProofService
                 'hotel_scope_status' => $status,
             ];
 
-            Db::name('platform_data_sources')->where('id', $dataSourceId)->update([
+            Db::name('platform_data_sources')
+                ->where('id', $dataSourceId)
+                ->where('tenant_id', (int)$binding['tenant_id'])
+                ->where('system_hotel_id', $systemHotelId)
+                ->update([
                 'config_json' => json_encode($config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
                 'update_time' => $now->format('Y-m-d H:i:s'),
             ]);

@@ -5,6 +5,7 @@ namespace app\controller\admin;
 
 use app\controller\Base;
 use app\model\OperationLog;
+use app\service\AiDailyReportService;
 use app\service\WechatRobotWebhookSecret;
 use think\Response;
 use think\facade\Db;
@@ -152,7 +153,7 @@ class CompetitorWechatRobotController extends Base
         $payload = [
             'msgtype' => 'markdown',
             'markdown' => [
-                'content' => '【测试】竞对价格监控发送正常',
+                'content' => '# 宿析OS 企业微信联通测试' . "\n" . '> 机器人配置可用，消息发送链路正常。',
             ],
         ];
         $result = $this->postJson($webhook, $payload);
@@ -168,47 +169,36 @@ class CompetitorWechatRobotController extends Base
     public function testSendStore(int $storeId): Response
     {
         $this->checkSuperAdmin();
-        $robots = Db::name('competitor_wechat_robot')
-            ->where('store_id', $storeId)
-            ->where('status', 1)
-            ->select()
-            ->toArray();
-        if (empty($robots)) {
-            return json(['code' => 404, 'message' => '该门店未绑定机器人']);
-        }
-
         $payload = [
             'msgtype' => 'markdown',
             'markdown' => [
-                'content' => '【测试】竞对价格监控发送正常',
+                'content' => '# 宿析OS 企业微信联通测试' . "\n" . '> 机器人配置可用，消息发送链路正常。',
             ],
         ];
+        $delivery = $this->sendPayloadToStore($storeId, $payload);
+        $status = (string)($delivery['delivery_status'] ?? 'failed');
+        OperationLog::record(
+            'competitor',
+            'test_wecom_robot',
+            '测试企业微信机器人',
+            (int)$this->currentUser->id,
+            $storeId,
+            $status === 'sent' ? null : '企业微信测试发送未全部成功',
+            $this->deliveryAuditData($delivery)
+        );
 
-        $failed = [];
-        foreach ($robots as $robot) {
-            try {
-                $webhook = $this->revealRobotWebhook(
-                    (string)($robot['webhook'] ?? ''),
-                    (int)($robot['id'] ?? 0)
-                );
-            } catch (\RuntimeException $e) {
-                $failed[] = $robot['name'] ?: ('ID:' . $robot['id']);
-                continue;
-            }
-            if ($webhook === '') {
-                $failed[] = $robot['name'] ?: ('ID:' . $robot['id']);
-                continue;
-            }
-            $result = $this->postJson($webhook, $payload);
-            if (!$result['success']) {
-                $failed[] = $robot['name'] ?: ('ID:' . $robot['id']);
-            }
+        if ($status === 'binding_missing') {
+            return json(['code' => 404, 'message' => '该门店未绑定机器人', 'data' => $delivery]);
+        }
+        if ($status === 'sent') {
+            return json(['code' => 200, 'message' => '全部发送成功', 'data' => $delivery]);
         }
 
-        if (empty($failed)) {
-            return json(['code' => 200, 'message' => '全部发送成功']);
-        }
-        return json(['code' => 500, 'message' => '部分失败: ' . implode('、', $failed)]);
+        return json([
+            'code' => 500,
+            'message' => $status === 'partial' ? '部分机器人发送失败' : '发送失败',
+            'data' => $delivery,
+        ]);
     }
 
     /**
@@ -316,6 +306,230 @@ class CompetitorWechatRobotController extends Base
     public function apiTestStore(int $storeId): Response
     {
         return $this->testSendStore($storeId);
+    }
+
+    /**
+     * API: 将一份已保存、已按酒店范围回读的 AI 经营日报发送到企业微信群。
+     */
+    public function apiSendAiDailyReport(int $id): Response
+    {
+        $this->checkSuperAdmin();
+        $reportId = $id;
+        $hotelIds = array_values(array_unique(array_filter(
+            array_map('intval', $this->currentUser->getPermittedHotelIds()),
+            static fn(int $hotelId): bool => $hotelId > 0
+        )));
+        if (empty($hotelIds)) {
+            return $this->error('当前账号没有可发送日报的门店范围', 403);
+        }
+
+        $report = (new AiDailyReportService())->read($reportId, $hotelIds);
+        if (!is_array($report)) {
+            return $this->error('AI经营日报不存在或不在当前门店权限范围内', 404);
+        }
+
+        $hotelId = (int)($report['hotel_id'] ?? 0);
+        if ($hotelId <= 0 || !in_array($hotelId, $hotelIds, true)) {
+            return $this->error('AI经营日报缺少有效门店范围', 422);
+        }
+
+        $hotelName = trim((string)Db::name('hotels')->where('id', $hotelId)->value('name'));
+        if ($hotelName === '') {
+            $hotelName = '酒店 #' . $hotelId;
+        }
+        $payload = $this->buildAiDailyReportPayload($report, $hotelName);
+        $delivery = $this->sendPayloadToStore($hotelId, $payload);
+        $status = (string)($delivery['delivery_status'] ?? 'failed');
+        $auditData = array_merge($this->deliveryAuditData($delivery), [
+            'report_id' => $reportId,
+            'report_date' => (string)($report['report_date'] ?? ''),
+            'result_status' => (string)($report['result_readiness']['status'] ?? 'unverified'),
+        ]);
+        OperationLog::record(
+            'ai_daily_report',
+            'send_wecom',
+            '发送AI经营日报到企业微信',
+            (int)$this->currentUser->id,
+            $hotelId,
+            $status === 'sent' ? null : '企业微信日报发送未全部成功',
+            $auditData
+        );
+
+        if ($status === 'binding_missing') {
+            return $this->error('该门店尚未绑定启用中的企业微信机器人', 404, $delivery);
+        }
+        if ($status === 'sent') {
+            return $this->success($delivery, 'AI经营日报已发送到企业微信群');
+        }
+        if ($status === 'partial') {
+            return $this->success($delivery, '部分企业微信机器人发送成功', 207);
+        }
+
+        return $this->error('企业微信发送失败，请查看机器人配置和发送状态', 502, $delivery);
+    }
+
+    /**
+     * @param array<string, mixed> $report
+     * @return array{msgtype: string, markdown: array{content: string}}
+     */
+    private function buildAiDailyReportPayload(array $report, string $hotelName): array
+    {
+        $readiness = is_array($report['result_readiness'] ?? null) ? $report['result_readiness'] : [];
+        $lines = [
+            '# 宿析OS AI经营日报',
+            '> 门店：' . $this->safeRobotText($hotelName, 80),
+            '> 日期：' . $this->safeRobotText((string)($report['report_date'] ?? '未返回'), 24),
+            '> 数据状态：' . $this->safeRobotText((string)($readiness['status_label'] ?? '未核验'), 40),
+            '',
+            '**摘要**',
+            $this->safeRobotText((string)($report['summary'] ?? '当前日报未返回摘要。'), 500),
+        ];
+
+        $metrics = array_values(array_filter(
+            (array)($report['yesterday_result']['metrics'] ?? []),
+            'is_array'
+        ));
+        $metricLines = [];
+        foreach (array_slice($metrics, 0, 6) as $metric) {
+            $value = $metric['value'] ?? null;
+            if ($value === null || $value === '' || is_array($value) || is_object($value)) {
+                continue;
+            }
+            $label = $this->safeRobotText((string)($metric['label'] ?? $metric['key'] ?? '指标'), 40);
+            $unit = $this->safeRobotText((string)($metric['unit'] ?? ''), 12);
+            $metricLines[] = '- ' . $label . '：' . $this->safeRobotText((string)$value, 40) . $unit;
+        }
+        if (!empty($metricLines)) {
+            $lines[] = '';
+            $lines[] = '**已返回指标**';
+            array_push($lines, ...$metricLines);
+        }
+
+        $dataGaps = array_values(array_filter((array)($report['data_gaps'] ?? []), 'is_array'));
+        if (!empty($dataGaps)) {
+            $lines[] = '';
+            $lines[] = '**数据缺口（不以 0 代替）**';
+            foreach (array_slice($dataGaps, 0, 3) as $gap) {
+                $gapText = (string)($gap['message'] ?? $gap['label'] ?? $gap['code'] ?? '未说明缺口');
+                $lines[] = '- ' . $this->safeRobotText($gapText, 180);
+            }
+        }
+
+        $actions = array_values(array_filter((array)($report['recommended_actions'] ?? []), 'is_array'));
+        if (!empty($actions)) {
+            $lines[] = '';
+            $lines[] = '**建议动作（需人工确认）**';
+            foreach (array_slice($actions, 0, 3) as $index => $action) {
+                $actionText = (string)($action['action'] ?? $action['title'] ?? $action['reason'] ?? '未说明动作');
+                $blocked = trim((string)($action['blocked_reason'] ?? ''));
+                $lines[] = ($index + 1) . '. ' . $this->safeRobotText($actionText, 180)
+                    . ($blocked !== '' ? '（当前阻塞：' . $this->safeRobotText($blocked, 120) . '）' : '');
+            }
+        }
+
+        $scopeNote = (string)(
+            $readiness['scope_note']
+            ?? $report['report_scope']['scope_note']
+            ?? '仅按本日报已保存证据展示，不自动代表全酒店完整经营事实。'
+        );
+        $lines[] = '';
+        $lines[] = '> 范围说明：' . $this->safeRobotText($scopeNote, 260);
+        $lines[] = '> 本次发送只读取已保存日报，不触发 OTA 采集，也不改动平台数据。';
+
+        return [
+            'msgtype' => 'markdown',
+            'markdown' => [
+                'content' => mb_strcut(implode("\n", $lines), 0, 3800, 'UTF-8'),
+            ],
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function sendPayloadToStore(int $storeId, array $payload): array
+    {
+        $robots = Db::name('competitor_wechat_robot')
+            ->where('store_id', $storeId)
+            ->where('status', 1)
+            ->order('id', 'asc')
+            ->select()
+            ->toArray();
+        if (empty($robots)) {
+            return [
+                'delivery_status' => 'binding_missing',
+                'hotel_id' => $storeId,
+                'robot_count' => 0,
+                'sent_count' => 0,
+                'failed_count' => 0,
+                'failures' => [],
+            ];
+        }
+
+        $sentCount = 0;
+        $failures = [];
+        foreach ($robots as $robot) {
+            $robotId = (int)($robot['id'] ?? 0);
+            $robotName = $this->safeRobotText((string)($robot['name'] ?? ('机器人 #' . $robotId)), 80);
+            try {
+                $webhook = $this->revealRobotWebhook((string)($robot['webhook'] ?? ''), $robotId);
+            } catch (\RuntimeException $e) {
+                $failures[] = ['robot_id' => $robotId, 'name' => $robotName, 'reason' => $this->robotWebhookDecryptFailureMessage()];
+                continue;
+            }
+            if ($webhook === '') {
+                $failures[] = ['robot_id' => $robotId, 'name' => $robotName, 'reason' => 'Webhook为空'];
+                continue;
+            }
+            $result = $this->postJson($webhook, $payload);
+            if (($result['success'] ?? false) === true) {
+                $sentCount++;
+                continue;
+            }
+            $failures[] = [
+                'robot_id' => $robotId,
+                'name' => $robotName,
+                'reason' => $this->safeRobotText((string)($result['error'] ?? '发送失败'), 180),
+            ];
+        }
+
+        $failedCount = count($failures);
+        $status = $sentCount === count($robots)
+            ? 'sent'
+            : ($sentCount > 0 ? 'partial' : 'failed');
+        return [
+            'delivery_status' => $status,
+            'hotel_id' => $storeId,
+            'robot_count' => count($robots),
+            'sent_count' => $sentCount,
+            'failed_count' => $failedCount,
+            'failures' => $failures,
+        ];
+    }
+
+    /** @param array<string, mixed> $delivery */
+    private function deliveryAuditData(array $delivery): array
+    {
+        return [
+            'outcome' => match ((string)($delivery['delivery_status'] ?? 'failed')) {
+                'sent' => 'success',
+                'partial' => 'partial',
+                default => 'failed',
+            },
+            'delivery_status' => (string)($delivery['delivery_status'] ?? 'failed'),
+            'robot_count' => (int)($delivery['robot_count'] ?? 0),
+            'sent_count' => (int)($delivery['sent_count'] ?? 0),
+            'failed_count' => (int)($delivery['failed_count'] ?? 0),
+        ];
+    }
+
+    private function safeRobotText(string $value, int $maxLength): string
+    {
+        $value = preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $value) ?? '';
+        $value = preg_replace('/\s+/u', ' ', trim($value)) ?? '';
+        $value = str_replace(['<', '>'], ['＜', '＞'], $value);
+        return mb_substr($value, 0, max(1, $maxLength), 'UTF-8');
     }
 
     private function formatRobotListRow(array $robot): array

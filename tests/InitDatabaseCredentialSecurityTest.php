@@ -7,17 +7,17 @@ use PHPUnit\Framework\TestCase;
 
 final class InitDatabaseCredentialSecurityTest extends TestCase
 {
-    public function testDatabaseBootstrapHasNoSharedDefaultPasswords(): void
+    public function testLegacyDatabaseCommandDelegatesToGovernedInitializerWithoutSeedingCredentials(): void
     {
         $source = (string)file_get_contents(dirname(__DIR__) . '/app/command/InitDatabase.php');
 
         foreach (['admin123', 'manager123', 'staff123'] as $sharedPassword) {
             self::assertStringNotContainsString($sharedPassword, $source);
         }
-        self::assertStringContainsString('random_bytes(12)', $source);
-        self::assertStringContainsString("bootstrapPassword('SUXI_BOOTSTRAP_ADMIN_PASSWORD')", $source);
-        self::assertStringContainsString("bootstrapPassword('SUXI_BOOTSTRAP_MANAGER_PASSWORD')", $source);
-        self::assertStringContainsString("bootstrapPassword('SUXI_BOOTSTRAP_STAFF_PASSWORD')", $source);
+        self::assertStringContainsString('FreshDatabaseInitializerService', $source);
+        self::assertStringContainsString('SchemaVersionService', $source);
+        self::assertDoesNotMatchRegularExpression('/\b(?:CREATE|ALTER|DROP|RENAME)\s+TABLE\b/i', $source);
+        self::assertStringNotContainsString('password_hash', $source);
     }
 
     public function testEnvironmentTemplateDefaultsToSafeDebugMode(): void

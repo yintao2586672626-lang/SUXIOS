@@ -688,47 +688,76 @@ trait OperationWorkbenchConcern
                 $this->request->get('target_date', $this->request->get('end_date', date('Y-m-d')))
             );
             $limit = $this->resolveDailyWorkbenchPatrolLimit($this->request->get('limit', 30));
-            $payload = $this->buildDailyWorkbenchPayload(null, $targetDate, $limit);
+            $hotelScopes = Db::name('hotels')
+                ->field('id,tenant_id')
+                ->where('status', \app\model\Hotel::STATUS_ENABLED)
+                ->order('id', 'asc')
+                ->limit($limit)
+                ->select()
+                ->toArray();
             $patrolService = new DailyWorkbenchPatrolService();
             $snapshots = [];
             $healthByHotel = [];
-            foreach ($this->splitDailyWorkbenchPatrolPayloadsByHotel($payload) as $hotelPayload) {
-                $hotelId = (int)($hotelPayload['scope']['hotel_id'] ?? 0);
-                $snapshot = $patrolService->write($hotelPayload, [
-                    'trigger_type' => 'cron',
-                    'target_date' => $targetDate,
-                    'hotel_id' => $hotelId,
-                ]);
-                $snapshots[] = [
-                    'run_id' => (string)$snapshot['run_id'],
-                    'created_at' => (string)$snapshot['created_at'],
-                    'target_date' => $targetDate,
-                    'hotel_id' => $hotelId,
-                    'summary' => $snapshot['summary'] ?? [],
-                    'evidence_policy' => $snapshot['evidence_policy'] ?? [],
-                ];
-                $healthByHotel[] = [
-                    'hotel_id' => $hotelId,
-                    'health' => $patrolService->healthForHotel($hotelId, $targetDate),
-                ];
+            foreach ($hotelScopes as $hotelScope) {
+                $hotelId = (int)($hotelScope['id'] ?? 0);
+                $tenantId = (int)($hotelScope['tenant_id'] ?? 0);
+                if ($hotelId <= 0 || $tenantId <= 0) {
+                    throw new \RuntimeException('Daily workbench patrol hotel tenant scope is invalid.');
+                }
 
-                OperationLog::record(
-                    'online_data',
-                    'daily_workbench_patrol_cron',
-                    'Cron generated hotel-scoped daily workbench patrol snapshot: ' . (string)$snapshot['run_id'],
-                    null,
+                \app\model\Hotel::runInTenantScope($tenantId, function () use (
                     $hotelId,
-                    null,
-                    [
-                        'audit_type' => 'phase2_daily_workbench_patrol',
-                        'run_id' => (string)$snapshot['run_id'],
+                    $tenantId,
+                    $targetDate,
+                    $patrolService,
+                    &$snapshots,
+                    &$healthByHotel
+                ): void {
+                    $payload = $this->buildDailyWorkbenchPayload($hotelId, $targetDate, 1);
+                    $hotelPayloads = $this->splitDailyWorkbenchPatrolPayloadsByHotel($payload);
+                    if (count($hotelPayloads) !== 1) {
+                        throw new \RuntimeException('Daily workbench patrol hotel scope produced no snapshot.');
+                    }
+                    $hotelPayload = $hotelPayloads[0];
+                    $snapshot = $patrolService->write($hotelPayload, [
+                        'trigger_type' => 'cron',
                         'target_date' => $targetDate,
                         'hotel_id' => $hotelId,
-                        'metric_scope' => 'ota_channel',
-                        'collection_logic_changed' => false,
-                        'raw_data_exposed' => false,
-                    ]
-                );
+                    ]);
+                    $snapshots[] = [
+                        'run_id' => (string)$snapshot['run_id'],
+                        'created_at' => (string)$snapshot['created_at'],
+                        'target_date' => $targetDate,
+                        'tenant_id' => $tenantId,
+                        'hotel_id' => $hotelId,
+                        'summary' => $snapshot['summary'] ?? [],
+                        'evidence_policy' => $snapshot['evidence_policy'] ?? [],
+                    ];
+                    $healthByHotel[] = [
+                        'tenant_id' => $tenantId,
+                        'hotel_id' => $hotelId,
+                        'health' => $patrolService->healthForHotel($hotelId, $targetDate),
+                    ];
+
+                    OperationLog::record(
+                        'online_data',
+                        'daily_workbench_patrol_cron',
+                        'Cron generated hotel-scoped daily workbench patrol snapshot: ' . (string)$snapshot['run_id'],
+                        null,
+                        $hotelId,
+                        null,
+                        [
+                            'tenant_id' => $tenantId,
+                            'audit_type' => 'phase2_daily_workbench_patrol',
+                            'run_id' => (string)$snapshot['run_id'],
+                            'target_date' => $targetDate,
+                            'hotel_id' => $hotelId,
+                            'metric_scope' => 'ota_channel',
+                            'collection_logic_changed' => false,
+                            'raw_data_exposed' => false,
+                        ]
+                    );
+                });
             }
 
             $firstSnapshot = $snapshots[0] ?? null;

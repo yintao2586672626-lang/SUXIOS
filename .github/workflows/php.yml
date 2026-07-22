@@ -82,6 +82,16 @@ jobs:
           PHP_BINARY: php
         run: npm run verify:mysql-fresh-concurrency
 
+      - name: Verify historical tenant remap on MariaDB 10.11
+        timeout-minutes: 5
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_USER: root
+          DB_PASS: suxi-ci-root
+          MYSQL_BINARY: mariadb
+        run: node scripts/verify_tenant_history_migration_mariadb.mjs
+
       - name: Run backend tests
         run: composer test
 
