@@ -26,6 +26,24 @@ function suxi_static_response_variant(string $staticFile, string $extension): st
     return 'raw';
 }
 
+function suxi_static_request_has_content_hash(string $requestUri, string $staticFile): bool
+{
+    $basename = basename($staticFile);
+    if (preg_match('/(?:^|[._-])h[0-9a-f]{10}(?:[._-]|$)/iD', $basename) === 1) {
+        return true;
+    }
+
+    $query = parse_url($requestUri, PHP_URL_QUERY);
+    if (!is_string($query) || $query === '') {
+        return false;
+    }
+    parse_str($query, $params);
+    $version = is_scalar($params['v'] ?? null) ? trim((string)$params['v']) : '';
+
+    return $version !== ''
+        && preg_match('/(?:^|[-_])h[0-9a-f]{10}(?:[-_]|$)/iD', $version) === 1;
+}
+
 function suxi_trim_index_html_indent(string $source): string
 {
     $segments = preg_split('/(\r\n|\n|\r)/', $source, -1, PREG_SPLIT_DELIM_CAPTURE);
@@ -169,6 +187,10 @@ if ($publicRoot !== false
     $mtime = (int)filemtime($staticFile);
     $size = (int)filesize($staticFile);
     $responseVariant = suxi_static_response_variant($staticFile, $extension);
+    $contentHashedRequest = suxi_static_request_has_content_hash(
+        (string)($_SERVER['REQUEST_URI'] ?? ''),
+        $staticFile
+    );
     $etag = '"' . md5($staticFile . '|' . $mtime . '|' . $size . '|' . $responseVariant) . '"';
     $lastModified = gmdate('D, d M Y H:i:s', $mtime) . ' GMT';
     $ifNoneMatch = trim((string)($_SERVER['HTTP_IF_NONE_MATCH'] ?? ''));
@@ -179,7 +201,9 @@ if ($publicRoot !== false
     header('Last-Modified: ' . $lastModified);
     header('Vary: Accept-Encoding');
     if (in_array($extension, $cacheableExtensions, true)) {
-        header('Cache-Control: public, max-age=2592000, immutable');
+        header($contentHashedRequest
+            ? 'Cache-Control: public, max-age=2592000, immutable'
+            : 'Cache-Control: public, max-age=300, must-revalidate');
     } else {
         header('Cache-Control: no-cache');
         if ($extension === 'html' && basename($staticFile) === 'index.html') {

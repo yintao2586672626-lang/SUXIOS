@@ -15,9 +15,16 @@ final class CloudOtaBundleExportService
     /**
      * @param array<string, mixed> $binding
      * @param array<int, string> $requiredPlatforms
+     * @param array<int, int> $syncTaskIdsBySource
      * @return array<string, mixed>
      */
-    public function export(array $binding, string $targetDate, array $requiredPlatforms, string $outputPath): array
+    public function export(
+        array $binding,
+        string $targetDate,
+        array $requiredPlatforms,
+        string $outputPath,
+        array $syncTaskIdsBySource
+    ): array
     {
         $binding = CloudOtaBundleCodec::verifyBinding($binding);
         $sourceHotelId = (int)$binding['source_system_hotel_id'];
@@ -50,13 +57,27 @@ final class CloudOtaBundleExportService
                 (int)$sourceHotel['tenant_id'],
                 (string)$item['platform']
             );
+            $sourceId = (int)$item['source_data_source_id'];
+            $syncTaskId = (int)($syncTaskIdsBySource[$sourceId] ?? 0);
+            if ($syncTaskId <= 0) {
+                throw new RuntimeException('cloud_bundle_sync_task_binding_missing:' . (string)$item['platform']);
+            }
+            $syncTask = $this->loadVerifiedSyncTask(
+                $syncTaskId,
+                $source,
+                $sourceHotelId,
+                (int)$sourceHotel['tenant_id'],
+                (string)$item['platform'],
+                $targetDate
+            );
             [$rows, $targetRowCount] = $this->trustedTargetRows(
                 $source,
+                $syncTask,
                 $sourceHotelId,
                 (int)$sourceHotel['tenant_id'],
                 $targetDate
             );
-            $collection = $this->collectionState($source, $rows, $targetRowCount);
+            $collection = $this->collectionState($syncTask, $rows, $targetRowCount);
             if ($rows === []) {
                 $missingPlatforms[] = (string)$item['platform'];
             }
@@ -67,10 +88,11 @@ final class CloudOtaBundleExportService
             $packages[] = [
                 'platform' => (string)$item['platform'],
                 'source_data_source_id' => (int)$item['source_data_source_id'],
+                'source_sync_task_id' => $syncTaskId,
                 'destination_data_source_id' => (int)$item['destination_data_source_id'],
                 'collection' => $collection,
-                'snapshot_complete' => true,
-                'source_row_count' => count($rows),
+                'snapshot_complete' => count($rows) === $targetRowCount,
+                'source_row_count' => $targetRowCount,
                 'rows' => $rows,
             ];
         }
@@ -130,7 +152,7 @@ final class CloudOtaBundleExportService
         $columns = $this->tableColumns('online_daily_data');
         foreach ([
             'tenant_id', 'system_hotel_id', 'data_source_id', 'data_date', 'source_trace_id',
-            'validation_status', 'readback_verified', 'readback_verified_at',
+            'sync_task_id', 'validation_status', 'readback_verified', 'readback_verified_at',
         ] as $column) {
             if (!isset($columns[$column])) {
                 throw new RuntimeException('cloud_bundle_export_schema_missing:' . $column);
@@ -157,11 +179,62 @@ final class CloudOtaBundleExportService
         return $source;
     }
 
+    /** @param array<string, mixed> $source @return array<string, mixed> */
+    private function loadVerifiedSyncTask(
+        int $taskId,
+        array $source,
+        int $hotelId,
+        int $tenantId,
+        string $platform,
+        string $targetDate
+    ): array {
+        $taskColumns = $this->tableColumns('platform_data_sync_tasks');
+        $query = Db::name('platform_data_sync_tasks')
+            ->where('id', $taskId)
+            ->where('data_source_id', (int)$source['id'])
+            ->where('system_hotel_id', $hotelId)
+            ->where('platform', $platform);
+        if (isset($taskColumns['tenant_id'])) {
+            $query->where('tenant_id', $tenantId);
+        }
+        $task = $query->find();
+        if (!is_array($task)
+            || !in_array(strtolower(trim((string)($task['status'] ?? ''))), ['success', 'partial_success'], true)
+        ) {
+            throw new RuntimeException('cloud_bundle_sync_task_missing_or_incomplete:' . $platform);
+        }
+        try {
+            $stats = json_decode((string)($task['stats_json'] ?? ''), true, 64, JSON_THROW_ON_ERROR);
+        } catch (\Throwable $exception) {
+            throw new RuntimeException('cloud_bundle_sync_task_receipt_invalid:' . $platform, 0, $exception);
+        }
+        $receipt = is_array($stats['run_readback'] ?? null) ? $stats['run_readback'] : [];
+        $rowIds = array_values(array_unique(array_filter(array_map(
+            'intval',
+            is_array($receipt['row_ids'] ?? null) ? $receipt['row_ids'] : []
+        ), static fn(int $id): bool => $id > 0)));
+        sort($rowIds, SORT_NUMERIC);
+        if (($receipt['readback_verified'] ?? false) !== true
+            || (int)($receipt['sync_task_id'] ?? 0) !== $taskId
+            || (int)($receipt['data_source_id'] ?? 0) !== (int)$source['id']
+            || (int)($receipt['system_hotel_id'] ?? 0) !== $hotelId
+            || strtolower(trim((string)($receipt['platform'] ?? ''))) !== $platform
+            || substr(trim((string)($receipt['target_date'] ?? '')), 0, 10) !== $targetDate
+            || (int)($receipt['readback_count'] ?? 0) !== count($rowIds)
+            || $rowIds === []
+        ) {
+            throw new RuntimeException('cloud_bundle_sync_task_receipt_invalid:' . $platform);
+        }
+        $receipt['row_ids'] = $rowIds;
+        $task['run_readback'] = $receipt;
+        return $task;
+    }
+
     /**
      * @param array<string, mixed> $source
      * @return array{0:array<int, array<string, mixed>>,1:int}
      */
-    private function trustedTargetRows(array $source, int $hotelId, int $tenantId, string $targetDate): array
+    private function trustedTargetRows(array $source, array $syncTask, int $hotelId, int $tenantId, string $targetDate): array
     {
         $columns = $this->tableColumns('online_daily_data');
         $fields = array_values(array_intersect(CloudOtaBundleCodec::rowFields(), array_keys($columns)));
@@ -169,6 +242,7 @@ final class CloudOtaBundleExportService
             ->where('tenant_id', $tenantId)
             ->where('system_hotel_id', $hotelId)
             ->where('data_source_id', (int)$source['id'])
+            ->where('sync_task_id', (int)$syncTask['id'])
             ->where('data_date', $targetDate);
         $targetRowCount = (int)(clone $base)->count();
         $rows = $base
@@ -176,7 +250,7 @@ final class CloudOtaBundleExportService
             ->whereIn('validation_status', self::TRUSTED_VALIDATION_STATUSES)
             ->order('id', 'asc')
             ->limit(CloudOtaBundleCodec::MAX_ROWS + 1)
-            ->field(implode(',', $fields))
+            ->field('id,' . implode(',', $fields))
             ->select()
             ->toArray();
         if (count($rows) > CloudOtaBundleCodec::MAX_ROWS) {
@@ -186,40 +260,45 @@ final class CloudOtaBundleExportService
         }
 
         $normalized = [];
+        $trustedRowIds = [];
         foreach ($rows as $row) {
+            $trustedRowIds[] = (int)($row['id'] ?? 0);
             $normalized[] = CloudOtaBundleCodec::allowlistedRow($row);
+        }
+        $expectedRowIds = array_values(array_map(
+            'intval',
+            (array)($syncTask['run_readback']['row_ids'] ?? [])
+        ));
+        sort($trustedRowIds, SORT_NUMERIC);
+        sort($expectedRowIds, SORT_NUMERIC);
+        if ($targetRowCount !== count($expectedRowIds) || $trustedRowIds !== $expectedRowIds) {
+            throw new RuntimeException(
+                'cloud_bundle_sync_task_row_identity_mismatch:' . strtolower((string)($source['platform'] ?? 'unknown'))
+            );
         }
         return [$normalized, $targetRowCount];
     }
 
-    /** @param array<string, mixed> $source @param array<int, array<string, mixed>> $rows @return array<string, string> */
-    private function collectionState(array $source, array $rows, int $targetRowCount): array
+    /** @param array<string, mixed> $syncTask @param array<int, array<string, mixed>> $rows @return array<string, string> */
+    private function collectionState(array $syncTask, array $rows, int $targetRowCount): array
     {
-        $lastError = trim((string)($source['last_error'] ?? ''));
-        $lastStatus = strtolower(trim((string)($source['last_sync_status'] ?? $source['status'] ?? '')));
-        $loginExpired = preg_match(
-            '/login[_\s-]?(expired|required)|session[_\s-]?expired|unauthorized|forbidden|重新登录|登录(失效|过期)|未登录|401|403/i',
-            $lastStatus . ' ' . $lastError
-        ) === 1;
+        $taskStatus = strtolower(trim((string)($syncTask['status'] ?? '')));
 
         if ($rows !== []) {
-            $status = in_array($lastStatus, ['failed', 'error', 'partial_success'], true) ? 'partial' : 'success';
+            $status = $taskStatus === 'success' ? 'success' : 'partial';
             $message = $status === 'success' ? 'target_date_rows_readback_verified' : 'target_date_rows_verified_with_source_warning';
-        } elseif ($loginExpired) {
-            $status = 'login_expired';
-            $message = 'local_profile_login_expired';
         } elseif ($targetRowCount > 0) {
             $status = 'failed';
-            $message = 'target_date_rows_exist_but_are_untrusted';
+            $message = 'sync_task_rows_exist_but_are_untrusted';
         } else {
             $status = 'target_date_missing';
-            $message = 'target_date_rows_missing';
+            $message = 'sync_task_target_date_rows_missing';
         }
 
         return [
             'status' => $status,
             'message' => $message,
-            'last_sync_time' => trim((string)($source['last_sync_time'] ?? '')),
+            'last_sync_time' => trim((string)($syncTask['finished_at'] ?? '')),
         ];
     }
 

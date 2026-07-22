@@ -25,6 +25,21 @@ test('static router completes conditional cache hits before payload or gzip work
   assert.ok(conditionalOffset >= 0 && payloadOffset > conditionalOffset);
 });
 
+test('immutable caching is limited to content-hashed asset versions', () => {
+  const router = fs.readFileSync('public/router.php', 'utf8');
+  const htaccess = fs.readFileSync('public/.htaccess', 'utf8');
+
+  assert.match(router, /function suxi_static_request_has_content_hash/);
+  assert.match(router, /Cache-Control: public, max-age=2592000, immutable/);
+  assert.match(router, /Cache-Control: public, max-age=300, must-revalidate/);
+  assert.match(router, /\$contentHashedRequest\s*\?/);
+
+  assert.match(htaccess, /SetEnvIfExpr[^\n]+SUXI_CONTENT_HASHED=1/);
+  assert.match(htaccess, /immutable" env=SUXI_CONTENT_HASHED/);
+  assert.match(htaccess, /must-revalidate" env=!SUXI_CONTENT_HASHED/);
+  assert.doesNotMatch(htaccess, /Header set Cache-Control "public, max-age=2592000, immutable"\s*$/m);
+});
+
 test('level-6 gzip materially reduces current entry bytes without changing payloads', () => {
   const assets = [
     'public/index.html',

@@ -318,6 +318,50 @@ final class PlatformDataSyncPreflightL8Test extends TestCase
         self::assertSame('run_readback_receipt_mismatch', $missingTargetReceipt['failure_reason']);
     }
 
+    public function testRunReadbackRetainsEveryIdentityBeyondLegacyFiftyRowLimit(): void
+    {
+        $sourceId = $this->createBrowserProfileSource('DX-1162');
+        $adapter = $this->adapterFor(
+            'DX-1162',
+            self::factors('authorized', 'complete', 'fresh', 'success')
+        );
+        $baseRow = $adapter->response['payload']['rows'][0];
+        $adapter->response['payload']['rows'] = [];
+        for ($index = 1; $index <= 64; $index++) {
+            $adapter->response['payload']['rows'][] = array_merge($baseRow, [
+                'dimension' => sprintf('room-type-%03d', $index),
+                'source_trace_id' => sprintf('dx-1162-traffic-row-%03d', $index),
+            ]);
+        }
+
+        $result = $this->service($adapter)->syncDataSource($this->authorizedUser(), $sourceId, [
+            'interactive_browser' => true,
+            'target_date' => self::TARGET_DATE,
+            'data_period' => 'historical_daily',
+            'capture_sections' => 'traffic',
+            'trigger_type' => 'manual',
+        ]);
+
+        self::assertSame('success', $result['status']);
+        self::assertSame(64, (int)$result['saved_count']);
+        self::assertTrue($result['run_readback']['readback_verified'] ?? false);
+        self::assertSame(64, (int)($result['run_readback']['readback_count'] ?? 0));
+        self::assertCount(64, $result['run_readback']['row_ids'] ?? []);
+
+        $stats = json_decode(
+            (string)Db::name('platform_data_sync_tasks')->where('id', (int)$result['task_id'])->value('stats_json'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        self::assertTrue($stats['run_readback']['readback_verified'] ?? false);
+        self::assertCount(64, $stats['run_readback']['row_ids'] ?? []);
+        self::assertSame(
+            Db::name('online_daily_data')->where('sync_task_id', (int)$result['task_id'])->order('id', 'asc')->column('id'),
+            $stats['run_readback']['row_ids']
+        );
+    }
+
     /**
      * @return array<string, array{0: string, 1: array{actor_scope: string, data_completeness: string, freshness: string, upstream_state: string}}>
      */

@@ -26,6 +26,7 @@ function parseArgs(argv) {
     json: false,
     strict: false,
     selfTest: false,
+    reportDir: 'reports',
   };
 
   for (const item of argv) {
@@ -35,6 +36,7 @@ function parseArgs(argv) {
     else if (item.startsWith('--input=')) args.input = item.slice('--input='.length);
     else if (item.startsWith('--source-payload=')) args.sourcePayload = item.slice('--source-payload='.length);
     else if (item.startsWith('--source=')) args.source = item.slice('--source='.length);
+    else if (item.startsWith('--report-dir=')) args.reportDir = item.slice('--report-dir='.length) || 'reports';
   }
 
   return args;
@@ -241,27 +243,37 @@ function buildValidationResult(args) {
   return result;
 }
 
-function saveReports(result, markdown) {
-  const reportDir = 'reports';
+function saveReports(result, markdown, reportDir, reportBaseName) {
   mkdirSync(reportDir, { recursive: true });
-  writeFileSync(join(reportDir, 'ota_data_validation.md'), `${markdown}\n`, 'utf8');
-  writeFileSync(join(reportDir, 'ota_data_validation.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8');
+  writeFileSync(join(reportDir, `${reportBaseName}.md`), `${markdown}\n`, 'utf8');
+  writeFileSync(join(reportDir, `${reportBaseName}.json`), `${JSON.stringify(result, null, 2)}\n`, 'utf8');
 }
 
 function main() {
   const args = parseArgs(process.argv.slice(2));
+  const isSelfTest = args.selfTest || (!args.input && !args.sourcePayload);
 
-  if (args.selfTest || (!args.input && !args.sourcePayload)) {
+  if (isSelfTest) {
     runSelfTest();
   }
 
   const result = buildValidationResult(args);
+  result.evidence = {
+    kind: isSelfTest ? 'synthetic_self_test' : 'validation_input',
+    business_claim_allowed: false,
+    canonical_report: !isSelfTest,
+  };
   const failed = result.errors.length > 0 || (args.strict && result.warnings.length > 0);
   const markdown = formatValidationReport(result, {
-    title: `OTA 数据与指标校验 (${basename(process.cwd())})`,
+    title: `${isSelfTest ? '[自测/模拟] ' : ''}OTA 数据与指标校验 (${basename(process.cwd())})`,
   });
 
-  saveReports(result, markdown);
+  saveReports(
+    result,
+    markdown,
+    args.reportDir,
+    isSelfTest ? 'ota_data_validation.self-test' : 'ota_data_validation',
+  );
 
   if (args.json) {
     console.log(JSON.stringify(result, null, 2));

@@ -186,7 +186,7 @@ final class CloudDataHealthServiceTest extends TestCase
         self::assertSame(0, $result['readback']['retired_target_row_count']);
     }
 
-    public function testAuxiliaryOnlyPlatformIsPartialButDoesNotHideVerifiedPlatformReport(): void
+    public function testAuxiliaryOnlyPlatformBlocksReportUntilCoreMetricsExist(): void
     {
         $meituanTraffic = array_replace($this->row(2, 'meituan', 12), [
             'data_type' => 'traffic_forecast',
@@ -208,12 +208,12 @@ final class CloudDataHealthServiceTest extends TestCase
             true
         );
 
-        self::assertSame('partial', $result['status']);
-        self::assertTrue($result['can_generate_report']);
+        self::assertSame('blocked', $result['status']);
+        self::assertFalse($result['can_generate_report']);
         self::assertContains('core_business_metrics_missing', array_column($result['issues'], 'code'));
         self::assertSame(1, $result['platforms'][0]['core_business_row_count']);
         self::assertSame(0, $result['platforms'][1]['core_business_row_count']);
-        self::assertSame(0, $result['blocking_issue_count']);
+        self::assertSame(1, $result['blocking_issue_count']);
     }
 
     public function testLatestPartialCollectionBlocksReportGeneration(): void

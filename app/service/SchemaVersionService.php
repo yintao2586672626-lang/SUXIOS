@@ -870,13 +870,10 @@ final class SchemaVersionService
     /** @return list<string> */
     public static function splitSqlStatements(string $sql): array
     {
-        if (preg_match('/^\s*DELIMITER\b/im', $sql) === 1) {
-            throw new RuntimeException('DELIMITER-based migrations are not supported; keep each migration statement executable through PDO.');
-        }
-
         $statements = [];
         $buffer = '';
         $length = strlen($sql);
+        $delimiter = ';';
         $quote = null;
         $lineComment = false;
         $blockComment = false;
@@ -885,6 +882,19 @@ final class SchemaVersionService
             $char = $sql[$index];
             $next = $index + 1 < $length ? $sql[$index + 1] : '';
             $third = $index + 2 < $length ? $sql[$index + 2] : '';
+
+            if ($quote === null && !$lineComment && !$blockComment && trim($buffer) === '') {
+                $remaining = substr($sql, $index);
+                if (preg_match('/\A[ \t]*DELIMITER[ \t]+([^\s]+)[ \t]*(?:\r\n|\r|\n|$)/i', $remaining, $matches) === 1) {
+                    $delimiter = $matches[1];
+                    if ($delimiter === '') {
+                        throw new RuntimeException('SQL DELIMITER directive cannot be empty.');
+                    }
+                    $buffer = '';
+                    $index += strlen($matches[0]) - 1;
+                    continue;
+                }
+            }
 
             if ($lineComment) {
                 if ($char === "\n") {
@@ -938,12 +948,13 @@ final class SchemaVersionService
                 $buffer .= $char;
                 continue;
             }
-            if ($char === ';') {
+            if (substr($sql, $index, strlen($delimiter)) === $delimiter) {
                 $statement = trim($buffer);
                 if ($statement !== '') {
                     $statements[] = $statement;
                 }
                 $buffer = '';
+                $index += strlen($delimiter) - 1;
                 continue;
             }
 

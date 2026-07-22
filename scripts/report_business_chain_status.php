@@ -95,6 +95,33 @@ function business_chain_parse_platforms(string $value): array
 }
 
 /**
+ * @return array<string, mixed>
+ */
+function business_chain_failure_payload(Throwable $error): array
+{
+    $message = $error->getMessage();
+    $databaseUnavailable = (string)$error->getCode() === '2002'
+        || str_contains($message, 'SQLSTATE[HY000] [2002]')
+        || str_contains(strtolower($message), 'connection refused')
+        || str_contains($message, '积极拒绝');
+
+    return [
+        'status' => $databaseUnavailable ? 'blocked' : 'failed',
+        'error_code' => $databaseUnavailable ? 'database_unavailable' : 'report_generation_failed',
+        'message' => $databaseUnavailable
+            ? 'Business-chain report requires an available project database.'
+            : $message,
+        'claim_allowed' => false,
+        'runtime_data_ready' => false,
+        'business_loop_ready' => false,
+        'database_ready' => $databaseUnavailable ? false : null,
+        'error_file' => str_replace('\\', '/', $error->getFile()),
+        'error_line' => $error->getLine(),
+        'source_policy' => 'read_only_report_no_ota_collection',
+    ];
+}
+
+/**
  * @param array<int, string> $platforms
  */
 function business_chain_platform_scope_arg(array $platforms): string
@@ -2356,13 +2383,7 @@ try {
     $focusedChainReady = (string)($report['focused_chain']['status'] ?? '') === 'scoped_ai_review_ready';
     exit(($report['status'] ?? '') === 'incomplete' && !$options['skip_p0'] && !$focusedChainReady ? 2 : 0);
 } catch (Throwable $e) {
-    $payload = [
-        'status' => 'failed',
-        'message' => $e->getMessage(),
-        'error_file' => str_replace('\\', '/', $e->getFile()),
-        'error_line' => $e->getLine(),
-        'source_policy' => 'read_only_report_no_ota_collection',
-    ];
+    $payload = business_chain_failure_payload($e);
     fwrite(STDERR, json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL);
     exit(1);
 }

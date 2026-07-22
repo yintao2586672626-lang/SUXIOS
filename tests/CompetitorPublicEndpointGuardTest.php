@@ -155,4 +155,24 @@ final class CompetitorPublicEndpointGuardTest extends TestCase
         self::assertStringContainsString("header('X-Cron-Token', '')", $patrolCron);
         self::assertStringContainsString("'cron_token_not_configured'", $patrolCron);
     }
+
+    public function testReceiveCookiesRateLimitsPostBeforeRejectedOriginAuditAndKeepsOptionsBranch(): void
+    {
+        $cookie = (string)file_get_contents(
+            dirname(__DIR__) . '/app/controller/concern/CookieEndpointConcern.php'
+        );
+        $methodStart = strpos($cookie, 'public function receiveCookies(): Response');
+        $methodEnd = strpos($cookie, 'private function recordPublicEndpointFailure', $methodStart ?: 0);
+        self::assertNotFalse($methodStart);
+        self::assertNotFalse($methodEnd);
+
+        $method = substr($cookie, (int)$methodStart, (int)$methodEnd - (int)$methodStart);
+        $rateLimit = strpos($method, "checkPublicEndpointRateLimit('receive_cookies'");
+        $originAudit = strpos($method, "recordPublicEndpointFailure('receive_cookies', 'origin_not_allowed'");
+        self::assertNotFalse($rateLimit);
+        self::assertNotFalse($originAudit);
+        self::assertTrue($rateLimit < $originAudit);
+        self::assertStringContainsString("\$isOptions = \$this->request->method() === 'OPTIONS'", $method);
+        self::assertStringContainsString('if (!$isOptions)', $method);
+    }
 }

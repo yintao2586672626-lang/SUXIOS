@@ -106,6 +106,18 @@ final class CloudOtaBundleCodecTest extends TestCase
         self::assertArrayNotHasKey('source_row_count', $verified['packages'][0]);
     }
 
+    public function testSourceSyncTaskIdentitySurvivesBundleNormalization(): void
+    {
+        $ctrip = $this->package('ctrip', 11, 21, [$this->row('ctrip', 11)]);
+        $ctrip['source_sync_task_id'] = 901;
+        $bundle = CloudOtaBundleCodec::build($this->context(), [
+            $ctrip,
+            $this->package('meituan', 12, 22, [], 'target_date_missing'),
+        ]);
+
+        self::assertSame(901, $bundle['packages'][0]['source_sync_task_id']);
+    }
+
     public function testBindingContractHasNoHotelNameFallback(): void
     {
         $binding = CloudOtaBundleCodec::verifyBinding([

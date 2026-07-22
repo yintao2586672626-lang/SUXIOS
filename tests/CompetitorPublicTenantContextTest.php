@@ -92,7 +92,10 @@ final class CompetitorPublicTenantContextTest extends TestCase
     public function testAnonymousTaskRateLimitKeeps429AndWritesGlobalAudit(): void
     {
         $ipHash = substr(sha1('127.0.0.1'), 0, 16);
-        cache('competitor_api_rate_task_' . $ipHash, 30, 65);
+        $bucket = (int)floor(time() / 60);
+        foreach ([$bucket, $bucket + 1] as $candidateBucket) {
+            cache('competitor_api_rate_task_' . $ipHash . '_' . $candidateBucket, 30, 65);
+        }
 
         $response = $this->invokeTask([
             'device_id' => 'rate-limited-device',
@@ -230,7 +233,10 @@ final class CompetitorPublicTenantContextTest extends TestCase
     private function clearRateLimitCache(): void
     {
         $ipHash = substr(sha1('127.0.0.1'), 0, 16);
-        cache('competitor_api_rate_task_' . $ipHash, null);
-        cache('competitor_api_rate_report_' . $ipHash, null);
+        $bucket = (int)floor(time() / 60);
+        foreach ([$bucket - 1, $bucket, $bucket + 1] as $candidateBucket) {
+            cache('competitor_api_rate_task_' . $ipHash . '_' . $candidateBucket, null);
+            cache('competitor_api_rate_report_' . $ipHash . '_' . $candidateBucket, null);
+        }
     }
 }

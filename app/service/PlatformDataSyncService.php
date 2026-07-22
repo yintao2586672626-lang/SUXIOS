@@ -17,6 +17,12 @@ final class PlatformDataSyncService
     private const RAW_RECORD_PAYLOAD_LIMIT_BYTES = 262144;
     private const COLLECTION_RESOURCE_FRESH_HOURS = 24;
     private const STALE_RUNNING_TASK_SECONDS = 3600;
+    private const IMPORT_XLSX_MAX_ARCHIVE_ENTRIES = 256;
+    private const IMPORT_XLSX_MAX_ENTRY_BYTES = 8388608;
+    private const IMPORT_XLSX_MAX_UNCOMPRESSED_BYTES = 20971520;
+    private const IMPORT_XLSX_MAX_ROWS = 10000;
+    private const IMPORT_XLSX_MAX_COLUMNS = 256;
+    private const IMPORT_XLSX_MAX_SHARED_STRINGS = 20000;
     private const ACTIVE_SYNC_TASK_STATUSES = ['pending', 'queued', 'running', 'browser_opened', 'syncing', 'syncing_after_login'];
     private const COLLECTION_RESOURCE_DEFINITIONS = [
         [
@@ -553,7 +559,7 @@ final class PlatformDataSyncService
             $sourceDataType = (string)($source['data_type'] ?? '');
             $rowDataType = (string)($row['data_type'] ?? '');
             $sourceIngestionMethod = (string)($source['ingestion_method'] ?? '');
-            $preserveMissingMetrics = $this->isOtaBrowserProfileSource($source);
+            $preserveMissingMetrics = true;
             $dataType = $this->normalizeDataType(
                 in_array($sourceIngestionMethod, ['browser_profile', 'profile_browser'], true) && $rowDataType !== ''
                     ? $rowDataType
@@ -563,10 +569,10 @@ final class PlatformDataSyncService
             if ($this->isCommentDataType($dataType) && !$this->isReviewCollectionAllowed($source, $payload, $dataType)) {
                 continue;
             }
-            $reviewValidationFlags = $dataType === 'review'
+            $validationFlags = $dataType === 'review'
                 ? $this->reviewValidationFlags($row, $payload, $date, $collectionStatus)
                 : [];
-            $reviewValidationStatus = $this->reviewValidationStatus($reviewValidationFlags);
+            $reviewValidationStatus = $this->reviewValidationStatus($validationFlags);
             $periodMeta = $this->resolveDataPeriodMetadata($row, $payload, $source, $date);
             $traceId = trim((string)($row['source_trace_id'] ?? ''));
             if ($traceId === '' || ($periodMeta['data_period'] === 'realtime_snapshot' && $periodMeta['snapshot_bucket'] !== '')) {
@@ -618,6 +624,13 @@ final class PlatformDataSyncService
                 $raw['platform_hotel_identifier_source'] = (string)$platformIdentifierEvidence['source'];
                 $raw['platform_hotel_identifier_proof'] = (string)$platformIdentifierEvidence['proof'];
             }
+            $bindingEvidence = is_array($payload['_ota_binding_evidence'] ?? null)
+                ? $payload['_ota_binding_evidence']
+                : [];
+            if ($bindingEvidence !== []) {
+                $raw['platform_hotel_binding_status'] = (string)($bindingEvidence['status'] ?? 'unverified');
+                $raw['platform_hotel_binding_proof'] = (string)($bindingEvidence['proof'] ?? 'missing');
+            }
             $rowDateSource = $this->stringValue($row, ['date_source', 'dateSource', 'data_date_source', 'dataDateSource', '_date_source', '_data_date_source']);
             if ($rowDateSource !== '') {
                 $raw['date_source'] = $rowDateSource;
@@ -637,8 +650,7 @@ final class PlatformDataSyncService
                 'quantity' => $this->quantityValue($row, $dataType, $preserveMissingMetrics),
                 'book_order_num' => $this->orderCountValue($row, $dataType, $preserveMissingMetrics),
                 'comment_score' => $this->commentScoreValue($row, $dataType, $preserveMissingMetrics),
-                'qunar_comment_score' => $this->nullableNumericValue($row, ['qunar_comment_score', 'qunar_score'])
-                    ?? ($preserveMissingMetrics ? null : 0.0),
+                'qunar_comment_score' => $this->nullableNumericValue($row, ['qunar_comment_score', 'qunar_score']),
                 'system_hotel_id' => (int)($source['system_hotel_id'] ?? $row['system_hotel_id'] ?? 0) ?: null,
                 'tenant_id' => $tenantId,
                 'data_value' => $this->dataValue($row, $dataType, $preserveMissingMetrics),
@@ -653,7 +665,7 @@ final class PlatformDataSyncService
                 'order_filling_num' => $this->integerMetricValue($row, ['order_filling_num', 'orderFillingNum', 'orderVisitors', 'clickCount', 'clicks'], $preserveMissingMetrics),
                 'order_submit_num' => $this->integerMetricValue($row, ['mt_pay_orders', 'pay_orders', 'payOrders', 'payOrderCnt', 'pay_order_cnt', 'payOrderCount', 'pay_order_count', 'order_submit_num', 'orderSubmitNum', 'bookings', 'bookingCount', 'orderCount', 'orderQuantity', 'orderNum', 'orders'], $preserveMissingMetrics),
                 'validation_status' => $reviewValidationStatus,
-                'validation_flags' => json_encode($reviewValidationFlags, JSON_UNESCAPED_UNICODE),
+                'validation_flags' => '[]',
                 'data_source_id' => isset($source['id']) ? (int)$source['id'] : null,
                 'sync_task_id' => $syncTaskId,
                 'ingestion_method' => (string)($source['ingestion_method'] ?? 'manual'),
@@ -668,8 +680,37 @@ final class PlatformDataSyncService
             if ($fieldFacts !== []) {
                 $raw['field_facts'] = $fieldFacts;
                 $raw['field_fact_summary'] = $this->summarizeNormalizedFieldFacts($fieldFacts);
+                foreach ($fieldFacts as $fieldFact) {
+                    if (!is_array($fieldFact)
+                        || (string)($fieldFact['missing_state'] ?? '') !== 'field_missing'
+                        || (($fieldFact['status'] ?? '') === 'captured' && ($fieldFact['stored_value_present'] ?? false) === true)
+                    ) {
+                        continue;
+                    }
+                    $metricKey = trim((string)($fieldFact['metric_key'] ?? ''));
+                    if ($metricKey !== '') {
+                        $validationFlags[] = 'field_missing:' . $metricKey;
+                    }
+                }
             }
+            $isGenericOtaSource = $this->isOtaPlatform($platform) && !$this->isOtaBrowserProfileSource($source);
+            if ($isGenericOtaSource) {
+                $validationFlags[] = 'source_ingestion_method_unverified';
+                if (($bindingEvidence['status'] ?? '') !== 'matched') {
+                    $validationFlags[] = 'hotel_binding_unverified';
+                }
+            }
+            $validationFlags = array_values(array_unique($validationFlags));
+            $normalizedRow['validation_status'] = in_array($reviewValidationStatus, ['abnormal', 'quarantined', 'stale'], true)
+                ? $reviewValidationStatus
+                : ($isGenericOtaSource
+                    ? 'unverified'
+                    : (array_filter($validationFlags, static fn(string $flag): bool => str_starts_with($flag, 'field_missing:')) !== []
+                        ? 'partial'
+                        : $reviewValidationStatus));
+            $normalizedRow['validation_flags'] = json_encode($validationFlags, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
             $normalizedRow['raw_data'] = json_encode($raw, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $normalizedRow['persistence_identity_hash'] = $this->persistenceIdentityHash($normalizedRow);
             $normalized[] = $normalizedRow;
         }
 
@@ -834,6 +875,105 @@ final class PlatformDataSyncService
             'source' => $sourceFamily,
             'proof' => 'missing',
         ];
+    }
+
+    /**
+     * Generic API/manual OTA sources do not have the Profile adapters' own
+     * merchant-identity gate. Require explicit response evidence before any
+     * raw or normalized row is persisted under a system hotel.
+     *
+     * @param array<string, mixed> $source
+     * @param array<string, mixed> $payload
+     * @return array<string, string>
+     */
+    private function assertGenericOtaPayloadBinding(array $source, array $payload): array
+    {
+        $platform = strtolower(trim((string)($source['platform'] ?? '')));
+        if (!$this->isOtaPlatform($platform) || $this->isOtaBrowserProfileSource($source)) {
+            return [];
+        }
+
+        $keys = $this->otaHotelIdentifierKeys($platform);
+        $config = is_array($source['config'] ?? null)
+            ? (array)$source['config']
+            : $this->decodeConfig($source['config_json'] ?? []);
+        $expected = $this->stringValue($source, $keys);
+        if ($expected === '') {
+            $expected = $this->stringValue($config, $keys);
+        }
+        if ($expected === '') {
+            throw new RuntimeException('binding_missing', 422);
+        }
+
+        $identityValidation = is_array($payload['platform_identity_validation'] ?? null)
+            ? $payload['platform_identity_validation']
+            : [];
+        $identityStatus = strtolower(trim((string)($identityValidation['status'] ?? '')));
+        $validatedIdentifier = trim((string)($identityValidation['validated_identifier'] ?? ''));
+        if ($identityStatus === 'mismatch') {
+            throw new RuntimeException('binding_mismatch', 409);
+        }
+        if ($identityStatus === 'matched') {
+            if (($identityValidation['source_validation'] ?? false) !== true || $validatedIdentifier === '') {
+                throw new RuntimeException('binding_unverified', 422);
+            }
+            if (!$this->otaHotelIdentifiersMatch($expected, $validatedIdentifier)) {
+                throw new RuntimeException('binding_mismatch', 409);
+            }
+            return ['status' => 'matched', 'proof' => 'platform_identity_validation'];
+        }
+
+        $observed = [];
+        foreach ($this->extractBusinessRows($payload) as $row) {
+            if (!is_array($row) || $this->isCompetitorOtaIdentityRow($row, $keys)) {
+                continue;
+            }
+            $identifier = $this->stringValue($row, $keys);
+            if ($identifier !== '') {
+                $observed[strtolower($identifier)] = $identifier;
+            }
+        }
+        $observed = array_values($observed);
+        if ($observed === []) {
+            throw new RuntimeException('binding_unverified', 422);
+        }
+        if (count($observed) !== 1 || !$this->otaHotelIdentifiersMatch($expected, $observed[0])) {
+            throw new RuntimeException('binding_mismatch', 409);
+        }
+
+        return ['status' => 'matched', 'proof' => 'single_self_row_identifier'];
+    }
+
+    /** @return array<int, string> */
+    private function otaHotelIdentifierKeys(string $platform): array
+    {
+        return strtolower(trim($platform)) === 'meituan'
+            ? ['external_hotel_id', 'poi_id', 'poiId', 'store_id', 'storeId']
+            : ['external_hotel_id', 'ota_hotel_id', 'otaHotelId', 'ctrip_hotel_id', 'ctripHotelId', 'hotel_id', 'hotelId', 'node_id', 'nodeId'];
+    }
+
+    /** @param array<string, mixed> $row @param array<int, string> $identifierKeys */
+    private function isCompetitorOtaIdentityRow(array $row, array $identifierKeys): bool
+    {
+        $compareType = strtolower($this->stringValue($row, ['compare_type', 'compareType', 'rank_type', 'rankType']));
+        if (in_array($compareType, ['competitor', 'competitor_avg', 'peer', 'peer_avg', 'competition_circle'], true)) {
+            return true;
+        }
+        $identifier = $this->stringValue($row, $identifierKeys);
+        if ($identifier === '-1') {
+            return true;
+        }
+        foreach (['is_self', 'isSelf'] as $key) {
+            if (array_key_exists($key, $row) && !$this->truthy($row[$key])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function otaHotelIdentifiersMatch(string $expected, string $observed): bool
+    {
+        return strtolower(trim($expected)) === strtolower(trim($observed));
     }
 
     /**
@@ -1682,6 +1822,11 @@ final class PlatformDataSyncService
                 return $this->finishTask($taskId, $source, (string)$result['status'], (string)$result['message'], 0, 0, $payload, $timing, $syncStartedAt);
             }
 
+            $bindingEvidence = $this->assertGenericOtaPayloadBinding($source, is_array($payload) ? $payload : []);
+            if ($bindingEvidence !== []) {
+                $payload['_ota_binding_evidence'] = $bindingEvidence;
+            }
+
             $phaseStartedAt = microtime(true);
             $this->storeRawRecord($source, $taskId, $payload, $result['http_status'] ?? null);
             $timing['raw_store_elapsed_ms'] = $this->elapsedMilliseconds($phaseStartedAt);
@@ -1749,13 +1894,19 @@ final class PlatformDataSyncService
     {
         $sourceId = (int)($payload['data_source_id'] ?? $payload['source_id'] ?? 0);
         if ($sourceId <= 0) {
-            $source = $this->saveDataSource($user, [
+            $sourcePayload = [
                 'name' => $payload['name'] ?? 'Manual import',
                 'platform' => $payload['platform'] ?? 'custom',
                 'data_type' => $payload['data_type'] ?? 'business',
                 'system_hotel_id' => $payload['system_hotel_id'] ?? 0,
                 'ingestion_method' => 'manual',
-            ]);
+            ];
+            foreach (['external_hotel_id', 'hotel_id', 'hotelId', 'ota_hotel_id', 'otaHotelId', 'ctrip_hotel_id', 'ctripHotelId', 'poi_id', 'poiId', 'store_id', 'storeId'] as $bindingKey) {
+                if (array_key_exists($bindingKey, $payload) && trim((string)$payload[$bindingKey]) !== '') {
+                    $sourcePayload[$bindingKey] = $payload[$bindingKey];
+                }
+            }
+            $source = $this->saveDataSource($user, $sourcePayload);
             $sourceId = (int)$source['id'];
         }
 
@@ -1953,8 +2104,18 @@ final class PlatformDataSyncService
         $dataPeriod = $this->normalizeDataPeriod($receipt['data_period'] ?? '');
         $startedAt = $this->normalizeDateTime($receipt['started_at'] ?? '') ?? '';
 
+        $readbackCount = max(0, (int)($receipt['readback_count'] ?? 0));
+        $rowIdLimitExceeded = count($rowIds) > CloudOtaBundleCodec::MAX_ROWS;
+        $rowIds = array_slice($rowIds, 0, CloudOtaBundleCodec::MAX_ROWS);
+        $failureReason = mb_substr(trim((string)($receipt['failure_reason'] ?? '')), 0, 120);
+        if ($rowIdLimitExceeded) {
+            $failureReason = 'run_readback_row_limit_exceeded';
+        }
+
         return [
-            'readback_verified' => ($receipt['readback_verified'] ?? false) === true,
+            'readback_verified' => ($receipt['readback_verified'] ?? false) === true
+                && !$rowIdLimitExceeded
+                && $readbackCount === count($rowIds),
             'sync_task_id' => max(0, (int)($receipt['sync_task_id'] ?? 0)),
             'data_source_id' => max(0, (int)($receipt['data_source_id'] ?? 0)),
             'system_hotel_id' => max(0, (int)($receipt['system_hotel_id'] ?? 0)),
@@ -1962,11 +2123,11 @@ final class PlatformDataSyncService
             'target_date' => $targetDate,
             'data_period' => $dataPeriod,
             'started_at' => $startedAt,
-            'row_ids' => array_slice($rowIds, 0, 50),
+            'row_ids' => $rowIds,
             'source_trace_ids' => array_slice(array_values(array_unique($traceIds)), 0, 50),
             'verified_metric_keys' => $metricKeys,
-            'readback_count' => max(0, (int)($receipt['readback_count'] ?? 0)),
-            'failure_reason' => mb_substr(trim((string)($receipt['failure_reason'] ?? '')), 0, 120),
+            'readback_count' => $readbackCount,
+            'failure_reason' => $failureReason,
         ];
     }
 
@@ -2135,6 +2296,9 @@ final class PlatformDataSyncService
     {
         $message = strtolower($error->getMessage());
         return match (true) {
+            str_contains($message, 'binding_mismatch') => 'binding_mismatch',
+            str_contains($message, 'binding_missing') => 'binding_missing',
+            str_contains($message, 'binding_unverified') => 'binding_unverified',
             str_contains($message, 'profile_session_expired') => 'profile_session_expired',
             str_contains($message, 'profile_session_unverified') => 'profile_session_unverified',
             str_contains($message, 'current_session_verified'),
@@ -3865,7 +4029,7 @@ final class PlatformDataSyncService
                 ->where('system_hotel_id', $hotelId)
                 ->where('data_date', $targetDate)
                 ->where('data_period', $dataPeriod)
-                ->whereIn('id', $expectedRowIds);
+                ->limit(CloudOtaBundleCodec::MAX_ROWS + 1);
             if (isset($columns['platform'])) {
                 $query->where('platform', $platform);
             }
@@ -3879,6 +4043,11 @@ final class PlatformDataSyncService
         }
 
         $rows = array_values(array_filter($rows, 'is_array'));
+        if (count($rows) > CloudOtaBundleCodec::MAX_ROWS) {
+            $receipt['readback_count'] = count($rows);
+            $receipt['failure_reason'] = 'run_readback_row_limit_exceeded';
+            return $receipt;
+        }
         $rowIds = array_values(array_unique(array_filter(array_map(
             static fn(array $row): int => max(0, (int)($row['id'] ?? 0)),
             $rows
@@ -3898,7 +4067,7 @@ final class PlatformDataSyncService
             $traceIds[] = $traceId;
         }
         $traceIds = array_values(array_unique($traceIds));
-        $receipt['row_ids'] = array_slice($rowIds, 0, 50);
+        $receipt['row_ids'] = $rowIds;
         $receipt['source_trace_ids'] = array_slice($traceIds, 0, 50);
         $receipt['verified_metric_keys'] = $this->verifiedCoreMetricKeysFromRunRows($rows, $source);
         $receipt['readback_count'] = count($rows);
@@ -4741,6 +4910,11 @@ final class PlatformDataSyncService
                     }
                     $data = OnlineDailyDataPersistenceService::applyTenantScope($data, $columns);
                     $data = OnlineDailyDataPersistenceService::resetReadbackVerification($data, $columns);
+                    if (isset($columns['persistence_identity_hash'])
+                        && trim((string)($data['persistence_identity_hash'] ?? '')) === ''
+                    ) {
+                        $data['persistence_identity_hash'] = $this->persistenceIdentityHash($data);
+                    }
                     $preparedRows[$this->normalizedRowIdentityKey($data, $columns)] = $data;
                 }
                 $deduplicatedCount = max(0, $attempted - count($preparedRows));
@@ -4761,9 +4935,29 @@ final class PlatformDataSyncService
                         if (isset($columns['update_time'])) {
                             $data['update_time'] = date('Y-m-d H:i:s');
                         }
-                        $rowId = (int)Db::name('online_daily_data')->insertGetId($data);
-                        if ($rowId > 0) {
-                            $inserted++;
+                        try {
+                            $rowId = (int)Db::name('online_daily_data')->insertGetId($data);
+                            if ($rowId > 0) {
+                                $inserted++;
+                            }
+                        } catch (\Throwable $insertError) {
+                            $persistenceHash = trim((string)($data['persistence_identity_hash'] ?? ''));
+                            $concurrent = $persistenceHash !== '' && isset($columns['persistence_identity_hash'])
+                                ? Db::name('online_daily_data')
+                                    ->where('persistence_identity_hash', $persistenceHash)
+                                    ->lock(true)
+                                    ->find()
+                                : null;
+                            if (!is_array($concurrent) || (int)($concurrent['id'] ?? 0) <= 0) {
+                                throw $insertError;
+                            }
+                            $rowId = (int)$concurrent['id'];
+                            unset($data['create_time']);
+                            if (isset($columns['update_time'])) {
+                                $data['update_time'] = date('Y-m-d H:i:s');
+                            }
+                            Db::name('online_daily_data')->where('id', $rowId)->update($data);
+                            $updated++;
                         }
                     }
 
@@ -4803,7 +4997,10 @@ final class PlatformDataSyncService
                     'readback_verified' => count($preparedRows) === $readback,
                     'rolled_back' => false,
                     'failure_reason' => '',
-                    'row_ids' => array_slice($rowIds, 0, 50),
+                    // This receipt is consumed immediately to select the exact
+                    // target-date subset. The persisted receipt is bounded by
+                    // CloudOtaBundleCodec::MAX_ROWS after that filtering step.
+                    'row_ids' => $rowIds,
                 ];
             });
         } catch (RuntimeException $e) {
@@ -4839,6 +5036,17 @@ final class PlatformDataSyncService
             }
         };
 
+        $persistenceHash = trim((string)($row['persistence_identity_hash'] ?? ''));
+        if ($persistenceHash !== '' && isset($columns['persistence_identity_hash'])) {
+            $existing = Db::name('online_daily_data')
+                ->where('persistence_identity_hash', $persistenceHash)
+                ->lock(true)
+                ->find();
+            if (is_array($existing)) {
+                return $existing;
+            }
+        }
+
         $traceId = trim((string)($row['source_trace_id'] ?? ''));
         if ($traceId !== '' && isset($columns['source_trace_id'])) {
             $traceQuery = Db::name('online_daily_data')->where('source_trace_id', $traceId);
@@ -4847,6 +5055,10 @@ final class PlatformDataSyncService
             if (is_array($existing)) {
                 return $existing;
             }
+        }
+
+        if ($persistenceHash !== '' && $this->normalizedRowHasStableEventIdentity($row)) {
+            return null;
         }
 
         $query = Db::name('online_daily_data');
@@ -4858,6 +5070,11 @@ final class PlatformDataSyncService
     /** @param array<string, mixed> $row @param array<string, bool> $columns */
     private function normalizedRowIdentityKey(array $row, array $columns): string
     {
+        $persistenceHash = trim((string)($row['persistence_identity_hash'] ?? ''));
+        if ($persistenceHash !== '' && isset($columns['persistence_identity_hash'])) {
+            return 'persistence:' . $persistenceHash;
+        }
+
         $identity = [];
         foreach ([
             'tenant_id', 'system_hotel_id', 'data_source_id', 'source', 'platform',
@@ -4873,6 +5090,64 @@ final class PlatformDataSyncService
             throw new RuntimeException('normalized_row_identity_missing');
         }
         return json_encode($identity, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+    }
+
+    /** @param array<string, mixed> $row */
+    private function persistenceIdentityHash(array $row): string
+    {
+        $eventIdentity = $this->normalizedRowEventIdentityHash($row);
+        $identity = [];
+        foreach ([
+            'tenant_id', 'system_hotel_id', 'data_source_id', 'source', 'platform',
+            'hotel_id', 'data_type', 'data_date', 'data_period', 'snapshot_bucket',
+            'dimension', 'compare_type',
+        ] as $field) {
+            $identity[$field] = array_key_exists($field, $row) && $row[$field] !== null
+                ? (string)$row[$field]
+                : '';
+        }
+        $identity['identity_kind'] = $eventIdentity !== '' ? 'event' : 'summary';
+        $identity['event_identity_hash'] = $eventIdentity;
+        return hash('sha256', json_encode($identity, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+    }
+
+    /** @param array<string, mixed> $row */
+    private function normalizedRowHasStableEventIdentity(array $row): bool
+    {
+        return $this->normalizedRowEventIdentityHash($row) !== '';
+    }
+
+    /** @param array<string, mixed> $row */
+    private function normalizedRowEventIdentityHash(array $row): string
+    {
+        if ($this->normalizeDataType((string)($row['data_type'] ?? '')) !== 'order') {
+            return '';
+        }
+        $raw = $this->decodeConfig($row['raw_data'] ?? []);
+        $candidate = is_array($raw['row'] ?? null) ? $raw['row'] : $raw;
+        return $this->firstNestedTextByKey($candidate, ['order_id_hash', 'booking_id_hash']);
+    }
+
+    /** @param array<mixed> $value @param array<int, string> $keys */
+    private function firstNestedTextByKey(array $value, array $keys, int $depth = 0): string
+    {
+        if ($depth > 6) {
+            return '';
+        }
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $value) && is_scalar($value[$key]) && trim((string)$value[$key]) !== '') {
+                return trim((string)$value[$key]);
+            }
+        }
+        foreach ($value as $item) {
+            if (is_array($item)) {
+                $found = $this->firstNestedTextByKey($item, $keys, $depth + 1);
+                if ($found !== '') {
+                    return $found;
+                }
+            }
+        }
+        return '';
     }
 
     /** @return array<string, mixed> */
@@ -5753,11 +6028,12 @@ final class PlatformDataSyncService
         }
 
         $zip = new \ZipArchive();
-        if ($zip->open($path) !== true) {
+        if ($zip->open($path, \ZipArchive::CHECKCONS) !== true) {
             throw new RuntimeException('XLSX import file cannot be opened.', 422);
         }
 
         try {
+            $this->validateXlsxArchive($zip);
             $sharedStrings = $this->readXlsxSharedStrings($zip);
             $sheetXml = $zip->getFromName('xl/worksheets/sheet1.xml');
             if ($sheetXml === false) {
@@ -5769,7 +6045,15 @@ final class PlatformDataSyncService
             }
 
             $matrix = [];
+            $rowCount = 0;
             foreach ($sheet->sheetData->row as $rowNode) {
+                $rowCount++;
+                if ($rowCount > self::IMPORT_XLSX_MAX_ROWS) {
+                    throw new RuntimeException('XLSX import exceeds the maximum row count.', 422);
+                }
+                if (count($rowNode->c) > self::IMPORT_XLSX_MAX_COLUMNS) {
+                    throw new RuntimeException('XLSX import exceeds the maximum column count.', 422);
+                }
                 $row = [];
                 foreach ($rowNode->c as $cellNode) {
                     $ref = (string)($cellNode['r'] ?? '');
@@ -5818,6 +6102,48 @@ final class PlatformDataSyncService
         return $rows;
     }
 
+    private function validateXlsxArchive(\ZipArchive $zip): void
+    {
+        if ($zip->numFiles <= 0) {
+            throw new RuntimeException('XLSX import archive is empty.', 422);
+        }
+        if ($zip->numFiles > self::IMPORT_XLSX_MAX_ARCHIVE_ENTRIES) {
+            throw new RuntimeException('XLSX import archive contains too many entries.', 422);
+        }
+
+        $totalUncompressedBytes = 0;
+        for ($index = 0; $index < $zip->numFiles; $index++) {
+            $stat = $zip->statIndex($index);
+            if (!is_array($stat)) {
+                throw new RuntimeException('XLSX import archive entry is invalid.', 422);
+            }
+
+            $entryName = str_replace('\\', '/', trim((string)($stat['name'] ?? '')));
+            if ($entryName === ''
+                || str_starts_with($entryName, '/')
+                || preg_match('/^[A-Za-z]:\//', $entryName) === 1
+                || in_array('..', explode('/', $entryName), true)
+            ) {
+                throw new RuntimeException('XLSX import archive contains an unsafe path.', 422);
+            }
+
+            if (isset($stat['encryption_method'])
+                && (int)$stat['encryption_method'] !== \ZipArchive::EM_NONE
+            ) {
+                throw new RuntimeException('Encrypted XLSX import entries are not supported.', 422);
+            }
+
+            $entryBytes = max(0, (int)($stat['size'] ?? 0));
+            if ($entryBytes > self::IMPORT_XLSX_MAX_ENTRY_BYTES) {
+                throw new RuntimeException('XLSX import archive entry is too large.', 422);
+            }
+            $totalUncompressedBytes += $entryBytes;
+            if ($totalUncompressedBytes > self::IMPORT_XLSX_MAX_UNCOMPRESSED_BYTES) {
+                throw new RuntimeException('XLSX import archive expands beyond the allowed size.', 422);
+            }
+        }
+    }
+
     /**
      * @return array<int, string>
      */
@@ -5834,6 +6160,9 @@ final class PlatformDataSyncService
 
         $strings = [];
         foreach ($shared->si as $item) {
+            if (count($strings) >= self::IMPORT_XLSX_MAX_SHARED_STRINGS) {
+                throw new RuntimeException('XLSX import contains too many shared strings.', 422);
+            }
             if (isset($item->t)) {
                 $strings[] = (string)$item->t;
                 continue;
@@ -5856,6 +6185,9 @@ final class PlatformDataSyncService
         $index = 0;
         for ($i = 0, $length = strlen($letters); $i < $length; $i++) {
             $index = $index * 26 + (ord($letters[$i]) - 64);
+            if ($index > self::IMPORT_XLSX_MAX_COLUMNS) {
+                return -1;
+            }
         }
         return $index - 1;
     }
@@ -6026,6 +6358,7 @@ final class PlatformDataSyncService
 
     private function buildTraceId(array $source, array $row, string $date, ?int $syncTaskId, string $snapshotBucket = ''): string
     {
+        $orderIdentifier = $this->firstOrderIdentifier($row);
         $parts = [
             $source['id'] ?? '',
             $source['platform'] ?? '',
@@ -6034,6 +6367,7 @@ final class PlatformDataSyncService
             $row['hotel_id'] ?? $row['hotelId'] ?? $row['poi_id'] ?? $row['poiId'] ?? '',
             $row['dimension'] ?? $row['_dimName'] ?? '',
             $snapshotBucket,
+            $orderIdentifier !== '' ? hash('sha256', 'ota_order|' . $orderIdentifier) : '',
             $syncTaskId ?? '',
         ];
         return substr(hash('sha256', implode('|', array_map('strval', $parts))), 0, 64);

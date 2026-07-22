@@ -61,6 +61,22 @@ window.SUXI_DUAL_OTA_HOME = (() => {
         && normalizeDualOtaContextValue(requestContext.range) === normalizeDualOtaContextValue(currentContext.range)
     );
 
+    const hasDualOtaScopeCurrentData = ({
+        hasSelectedHotel = false,
+        scope = 'combined',
+        ctripSelectedReady = false,
+        meituanSelectedReady = false,
+        ctripAggregateReady = false,
+        meituanAggregateReady = false,
+    } = {}) => {
+        const normalizedScope = normalizeDualOtaContextValue(scope) || 'combined';
+        const ctripReady = hasSelectedHotel ? ctripSelectedReady : ctripAggregateReady;
+        const meituanReady = hasSelectedHotel ? meituanSelectedReady : meituanAggregateReady;
+        if (normalizedScope === 'ctrip') return ctripReady === true;
+        if (normalizedScope === 'meituan') return meituanReady === true;
+        return ctripReady === true || meituanReady === true;
+    };
+
     const buildPendingMarketMetrics = (platformLabel, rankLabel) => ([
         { label: '营收', value: '待接入', note: `${platformLabel}${rankLabel}待接入` },
         { label: '订单', value: '待接入', note: `${platformLabel}${rankLabel}待接入` },
@@ -508,6 +524,7 @@ window.SUXI_DUAL_OTA_HOME = (() => {
         hasAllDualOtaConnections,
         resolveDualOtaBoundHotelRow,
         isDualOtaWorkbenchRequestCurrent,
+        hasDualOtaScopeCurrentData,
         parseDualOtaNumber,
         hasObservedDualOtaNumber,
         firstObservedDualOtaValue,

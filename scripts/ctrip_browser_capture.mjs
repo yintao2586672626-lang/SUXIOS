@@ -947,7 +947,7 @@ function platformFromTrafficInteractionText(text) {
   if (value.includes('qunar') || value.includes('\u53bb\u54ea')) {
     return 'Qunar';
   }
-  if (value.includes('ctrip') || value.includes('\u643a\u7a0b')) {
+  if (value.includes('ctrip') || value.includes('trip.com') || value.includes('\u643a\u7a0b')) {
     return 'Ctrip';
   }
   return '';

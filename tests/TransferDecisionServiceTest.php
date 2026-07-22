@@ -54,6 +54,18 @@ final class TransferDecisionServiceTest extends TestCase
         self::assertStringNotContainsString("'tenant_id' => \$hotelId", $source);
     }
 
+    public function testSourceReadsFailClosedInsteadOfMasqueradingAsEmptyBusinessData(): void
+    {
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/service/TransferDecisionService.php');
+
+        self::assertStringContainsString("transfer_source_schema_check_failed:' . \$table", $source);
+        self::assertStringContainsString('transfer_source_read_failed:daily_reports', $source);
+        self::assertStringContainsString('transfer_source_read_failed:online_daily_data', $source);
+        self::assertStringContainsString('transfer_source_read_failed:hotels', $source);
+        self::assertStringContainsString("'source_read_status' => \$this->sourceReadStatus", $source);
+        self::assertStringContainsString("'source_table_missing:' . \$table", $source);
+    }
+
     public function testCalculateAssetPricingAddsFallbackAiEvaluation(): void
     {
         $service = new TransferDecisionService(new class extends LlmClient {

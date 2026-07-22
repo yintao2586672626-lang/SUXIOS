@@ -695,6 +695,160 @@ final class PlatformDataSyncServiceTest extends TestCase
         ], 34));
     }
 
+    public function testGenericOtaBindingMismatchFailsClosed(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'assertGenericOtaPayloadBinding');
+        $method->setAccessible(true);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('binding_mismatch');
+        $method->invoke($service, [
+            'platform' => 'ctrip',
+            'ingestion_method' => 'api',
+            'config' => ['external_hotel_id' => 'ctrip-1001'],
+        ], [
+            'rows' => [[
+                'hotel_id' => 'ctrip-2002',
+                'data_date' => '2026-07-22',
+                'data_type' => 'business',
+            ]],
+        ]);
+    }
+
+    public function testGenericOtaBindingMissingFailsClosed(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'assertGenericOtaPayloadBinding');
+        $method->setAccessible(true);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('binding_missing');
+        $method->invoke($service, [
+            'platform' => 'meituan',
+            'ingestion_method' => 'manual',
+            'config' => [],
+        ], [
+            'rows' => [[
+                'poi_id' => 'mt-1001',
+                'data_date' => '2026-07-22',
+            ]],
+        ]);
+    }
+
+    public function testResponseLevelMatchedBindingAllowsCompetitorRows(): void
+    {
+        $service = new PlatformDataSyncService();
+        $method = new \ReflectionMethod($service, 'assertGenericOtaPayloadBinding');
+        $method->setAccessible(true);
+
+        $evidence = $method->invoke($service, [
+            'platform' => 'ctrip',
+            'ingestion_method' => 'api',
+            'config' => ['external_hotel_id' => 'ctrip-1001'],
+        ], [
+            'platform_identity_validation' => [
+                'status' => 'matched',
+                'source_validation' => true,
+                'validated_identifier' => 'ctrip-1001',
+            ],
+            'rows' => [[
+                'hotel_id' => 'ctrip-competitor-9',
+                'compare_type' => 'competitor',
+                'data_date' => '2026-07-22',
+            ]],
+        ]);
+
+        self::assertSame(['status' => 'matched', 'proof' => 'platform_identity_validation'], $evidence);
+    }
+
+    public function testGenericOtaMissingMetricsStayNullAndExplicitZeroRemainsObserved(): void
+    {
+        $service = new PlatformDataSyncService();
+        $source = [
+            'id' => 12,
+            'name' => 'Meituan manual fixture',
+            'platform' => 'meituan',
+            'data_type' => 'traffic',
+            'system_hotel_id' => 7,
+            'tenant_id' => 1,
+            'ingestion_method' => 'manual',
+            'config' => ['poi_id' => 'mt-1001'],
+        ];
+        $rows = $service->normalizeRowsFromPayload([
+            '_ota_binding_evidence' => ['status' => 'matched', 'proof' => 'test_fixture'],
+            'rows' => [
+                ['poi_id' => 'mt-1001', 'data_date' => '2026-07-22', 'dimension' => 'missing'],
+                [
+                    'poi_id' => 'mt-1001',
+                    'data_date' => '2026-07-22',
+                    'dimension' => 'observed-zero',
+                    'list_exposure' => 0,
+                    'detail_exposure' => 0,
+                    'flow_rate' => 0,
+                ],
+            ],
+        ], $source, 34);
+
+        self::assertCount(2, $rows);
+        self::assertNull($rows[0]['list_exposure']);
+        self::assertNull($rows[0]['detail_exposure']);
+        self::assertNull($rows[0]['flow_rate']);
+        self::assertSame('unverified', $rows[0]['validation_status']);
+        self::assertContains('field_missing:list_exposure', json_decode($rows[0]['validation_flags'], true));
+        self::assertSame(0, $rows[1]['list_exposure']);
+        self::assertSame(0, $rows[1]['detail_exposure']);
+        self::assertSame(0.0, $rows[1]['flow_rate']);
+        $facts = array_column(json_decode($rows[1]['raw_data'], true)['field_facts'] ?? [], null, 'metric_key');
+        self::assertSame('captured', $facts['list_exposure']['status'] ?? '');
+        self::assertTrue($facts['list_exposure']['stored_value_present'] ?? false);
+    }
+
+    public function testOrderPersistenceIdentityIsDistinctPerOrderAndStableAcrossRetries(): void
+    {
+        $service = new PlatformDataSyncService();
+        $source = $this->meituanBrowserProfileSource();
+        $payload = ['rows' => [
+            [
+                'poi_id' => '68471',
+                'data_date' => '2026-07-22',
+                'data_type' => 'order',
+                'orderId' => 'ORDER-SECRET-A',
+                'amount' => 100,
+            ],
+            [
+                'poi_id' => '68471',
+                'data_date' => '2026-07-22',
+                'data_type' => 'order',
+                'orderId' => 'ORDER-SECRET-B',
+                'amount' => 200,
+            ],
+        ]];
+
+        $first = $service->normalizeRowsFromPayload($payload, $source, 1001);
+        $retry = $service->normalizeRowsFromPayload($payload, $source, 1002);
+
+        self::assertCount(2, $first);
+        self::assertNotSame($first[0]['persistence_identity_hash'], $first[1]['persistence_identity_hash']);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $first[0]['persistence_identity_hash']);
+        self::assertSame(
+            array_column($first, 'persistence_identity_hash'),
+            array_column($retry, 'persistence_identity_hash')
+        );
+        self::assertNotSame($first[0]['source_trace_id'], $retry[0]['source_trace_id']);
+        self::assertStringNotContainsString('ORDER-SECRET-A', $first[0]['raw_data']);
+        self::assertStringNotContainsString('ORDER-SECRET-A', $first[0]['persistence_identity_hash']);
+    }
+
+    public function testPersistenceIdentityMigrationIsAdditiveAndDoesNotTouchUsersOrHotels(): void
+    {
+        $migration = (string)file_get_contents(dirname(__DIR__) . '/database/migrations/20260723_add_online_daily_data_persistence_identity.sql');
+        self::assertStringContainsString('persistence_identity_hash', $migration);
+        self::assertStringContainsString('UNIQUE INDEX', strtoupper($migration));
+        self::assertDoesNotMatchRegularExpression('/\b(?:DELETE|TRUNCATE|DROP\s+TABLE)\b/i', $migration);
+        self::assertDoesNotMatchRegularExpression('/`(?:users|hotels|platform_data_sources|ota_profile_bindings)`/i', $migration);
+    }
+
     public function testCtripCatalogFieldFactsDoNotPromoteMissingZeroPlaceholders(): void
     {
         $service = new PlatformDataSyncService();
@@ -3860,6 +4014,64 @@ final class PlatformDataSyncServiceTest extends TestCase
             'list_exposure' => 20,
         ], $columns);
         self::assertSame($firstIdentity, $duplicateIdentity);
+    }
+
+    public function testXlsxImportRejectsArchiveWithTooManyEntriesBeforeXmlParsing(): void
+    {
+        if (!class_exists(\ZipArchive::class)) {
+            self::markTestSkipped('ZipArchive is not installed.');
+        }
+
+        $path = tempnam(sys_get_temp_dir(), 'platform_xlsx_many_');
+        self::assertIsString($path);
+        $zip = new \ZipArchive();
+        self::assertTrue($zip->open($path, \ZipArchive::CREATE | \ZipArchive::OVERWRITE));
+        for ($index = 0; $index < 257; $index++) {
+            self::assertTrue($zip->addFromString('xl/custom/entry-' . $index . '.xml', ''));
+        }
+        self::assertTrue($zip->close());
+
+        try {
+            $method = new \ReflectionMethod(new PlatformDataSyncService(), 'parseXlsxImportFile');
+            $method->setAccessible(true);
+            $method->invoke(new PlatformDataSyncService(), $path);
+            self::fail('Oversized XLSX archive entry count must be rejected.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame(422, $exception->getCode());
+            self::assertSame('XLSX import archive contains too many entries.', $exception->getMessage());
+        } finally {
+            @unlink($path);
+        }
+    }
+
+    public function testXlsxImportStillParsesAValidBoundedWorksheet(): void
+    {
+        if (!class_exists(\ZipArchive::class)) {
+            self::markTestSkipped('ZipArchive is not installed.');
+        }
+
+        $path = tempnam(sys_get_temp_dir(), 'platform_xlsx_valid_');
+        self::assertIsString($path);
+        $zip = new \ZipArchive();
+        self::assertTrue($zip->open($path, \ZipArchive::CREATE | \ZipArchive::OVERWRITE));
+        self::assertTrue($zip->addFromString(
+            'xl/worksheets/sheet1.xml',
+            '<worksheet><sheetData>'
+            . '<row r="1"><c r="A1" t="inlineStr"><is><t>hotel_name</t></is></c></row>'
+            . '<row r="2"><c r="A2" t="inlineStr"><is><t>Bounded Hotel</t></is></c></row>'
+            . '</sheetData></worksheet>'
+        ));
+        self::assertTrue($zip->close());
+
+        try {
+            $service = new PlatformDataSyncService();
+            $method = new \ReflectionMethod($service, 'parseXlsxImportFile');
+            $method->setAccessible(true);
+            $rows = $method->invoke($service, $path);
+            self::assertSame([['hotel_name' => 'Bounded Hotel']], $rows);
+        } finally {
+            @unlink($path);
+        }
     }
 
     private function ctripBrowserProfileSource(): array

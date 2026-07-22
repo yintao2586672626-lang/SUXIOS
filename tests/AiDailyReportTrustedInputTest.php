@@ -27,7 +27,7 @@ final class AiDailyReportTrustedInputTest extends TestCase
             'data_date' => '2026-07-15',
             'source' => 'ctrip',
             'platform' => 'Ctrip',
-            'data_type' => 'traffic',
+            'data_type' => 'business_overview',
             'validation_status' => 'available',
             'readback_verified' => 1,
             'readback_verified_at' => '2026-07-16 09:00:00',
@@ -47,6 +47,32 @@ final class AiDailyReportTrustedInputTest extends TestCase
         $crossHotel = $service->evaluateTrustedOtaRows($refs, [$row], 8, '2026-07-15');
         self::assertFalse($crossHotel['verified']);
         self::assertContains('ota_evidence_hotel_scope_mismatch', array_column($crossHotel['gaps'], 'code'));
+    }
+
+    public function testTrustedAuxiliaryOnlyEvidenceDoesNotUnlockReportGeneration(): void
+    {
+        $service = new AiDailyReportService();
+        $trusted = $service->evaluateTrustedOtaRows([[
+            'key' => 'online_daily_data#42',
+            'source' => 'ctrip',
+            'platform' => 'Ctrip',
+            'data_source_id' => 11,
+            'data_date' => '2026-07-15',
+        ]], [[
+            'id' => 42,
+            'system_hotel_id' => 7,
+            'data_source_id' => 11,
+            'data_date' => '2026-07-15',
+            'source' => 'ctrip',
+            'platform' => 'Ctrip',
+            'data_type' => 'traffic',
+            'validation_status' => 'available',
+            'readback_verified' => 1,
+            'readback_verified_at' => '2026-07-16 09:00:00',
+        ]], 7, '2026-07-15');
+
+        self::assertFalse($trusted['verified']);
+        self::assertContains('ota_core_business_metrics_missing', array_column($trusted['gaps'], 'code'));
     }
 
     public function testTrustedEvaluatorRejectsRowsWithoutDataSourceBinding(): void

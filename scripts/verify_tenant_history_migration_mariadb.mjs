@@ -8,6 +8,10 @@ const tenantFoundationMigrationPath = resolve(
   projectRoot,
   'database/migrations/20260722_create_tenants_and_decouple_hotel_scope.sql',
 );
+const batchedTenantHistoryRepairMigrationPath = resolve(
+  projectRoot,
+  'database/migrations/20260722_pre_repair_batched_tenant_history_scope.sql',
+);
 const tenantHistoryRepairMigrationPath = resolve(
   projectRoot,
   'database/migrations/20260722_repair_remaining_tenant_history_scope.sql',
@@ -20,7 +24,11 @@ const databasePassword = process.env.DB_PASS || '';
 const compatibilitySmokeVersion = process.env.SUXIOS_TENANT_MARIADB_COMPAT_SMOKE || '';
 const databaseName = `suxios_tenant_upgrade_test_${process.pid}_${randomBytes(4).toString('hex')}`;
 
-for (const migrationPath of [tenantFoundationMigrationPath, tenantHistoryRepairMigrationPath]) {
+for (const migrationPath of [
+  tenantFoundationMigrationPath,
+  batchedTenantHistoryRepairMigrationPath,
+  tenantHistoryRepairMigrationPath,
+]) {
   if (!existsSync(migrationPath)) {
     throw new Error(`Tenant migration is missing: ${migrationPath}`);
   }
@@ -117,6 +125,9 @@ const userScopeColumns = {
   feasibility_reports: 'created_by',
 };
 
+const largeRepairFixtureTable = 'agent_tasks';
+const largeRepairFixtureRows = 1005;
+
 const coreTableSql = Object.entries(scopeColumns).map(([table, scopeColumn]) => `
 CREATE TABLE \`${table}\` (
   \`id\` int unsigned NOT NULL,
@@ -129,6 +140,11 @@ INSERT INTO \`${table}\` (\`id\`, \`tenant_id\`, \`${scopeColumn}\`) VALUES
   (2, 22, 22),
   (3, 999, 999);
 `).join('\n');
+
+const largeRepairFixtureSql = `
+INSERT INTO \`${largeRepairFixtureTable}\` (\`id\`, \`tenant_id\`, \`hotel_id\`) VALUES
+${Array.from({ length: largeRepairFixtureRows }, (_, index) => `  (${1000 + index}, 11, 11)`).join(',\n')};
+`;
 
 const userScopedTableSql = Object.entries(userScopeColumns).map(([table, scopeColumn]) => `
 CREATE TABLE \`${table}\` (
@@ -193,6 +209,7 @@ INSERT INTO \`user_hotel_permissions\` (\`id\`, \`tenant_id\`, \`user_id\`, \`ho
   (202, 22, 102, 22);
 
 ${coreTableSql}
+${largeRepairFixtureSql}
 ${userScopedTableSql}
 ${parentScopedTableSql}
 `;
@@ -225,7 +242,11 @@ try {
   databaseCreated = true;
   runMysql({ database: databaseName, input: historicalSchema, label: 'seed historical tenant schema' });
 
-  const migrationSql = [tenantFoundationMigrationPath, tenantHistoryRepairMigrationPath]
+  const migrationSql = [
+    tenantFoundationMigrationPath,
+    batchedTenantHistoryRepairMigrationPath,
+    tenantHistoryRepairMigrationPath,
+  ]
     .map((migrationPath) => readFileSync(migrationPath, 'utf8'))
     .join('\n');
   runMysql({ database: databaseName, input: migrationSql, label: 'run tenant decoupling migration' });
@@ -233,6 +254,9 @@ try {
 
   const tableEvidence = {};
   for (const [table, scopeColumn] of Object.entries(scopeColumns)) {
+    const extraFixtureRows = table === largeRepairFixtureTable ? largeRepairFixtureRows : 0;
+    const expectedTotalRows = 3 + extraFixtureRows;
+    const expectedRemappedRows = 2 + extraFixtureRows;
     const totalRows = queryScalar(`SELECT COUNT(*) FROM \`${table}\`;`, `${table} total rows`, databaseName);
     const remappedRows = queryScalar(
       `SELECT COUNT(*) FROM \`${table}\` WHERE \`${scopeColumn}\` IN (11, 22) AND \`tenant_id\` = 501;`,
@@ -249,7 +273,10 @@ try {
       `${table} primary key preservation`,
       databaseName,
     );
-    if (totalRows !== 3 || remappedRows !== 2 || unmatchedRows !== 1 || preservedPrimaryKeys !== 3) {
+    if (totalRows !== expectedTotalRows
+      || remappedRows !== expectedRemappedRows
+      || unmatchedRows !== 1
+      || preservedPrimaryKeys !== 3) {
       throw new Error(
         `${table} remap mismatch: total=${totalRows}, remapped=${remappedRows}, unmatched=${unmatchedRows}, primary_keys=${preservedPrimaryKeys}`,
       );
@@ -349,6 +376,7 @@ try {
     core_tables: tableEvidence,
     unmatched_rows_preserved: true,
     primary_keys_preserved: true,
+    large_repair_fixture_rows: largeRepairFixtureRows,
     migration_runs: 2,
   })}\n`);
 } finally {

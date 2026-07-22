@@ -1771,6 +1771,17 @@ class AiDailyReportService
             );
         }
 
+        if ($trustedRows !== [] && !array_filter(
+            $trustedRows,
+            static fn(array $row): bool => OtaOperatingScope::isCoreBusinessDataType((string)($row['data_type'] ?? ''))
+        )) {
+            $gaps[] = $this->trustedInputGap(
+                'ota_core_business_metrics_missing',
+                'Trusted OTA evidence contains auxiliary data only and cannot support a daily operating report.',
+                'online_daily_data'
+            );
+        }
+
         ksort($trustedRows, SORT_NUMERIC);
         $gaps = $this->uniqueByCodeAndMessage($gaps);
         return [

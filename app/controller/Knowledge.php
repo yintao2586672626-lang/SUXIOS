@@ -319,6 +319,9 @@ class Knowledge extends Base
 
             $input = $this->requestData();
             $hotelId = $this->resolveKnowledgeImportHotelId((int)($input['hotel_id'] ?? 0));
+            if (!$this->canCreateKnowledgeExecutionIntent($hotelId)) {
+                return $this->fail('operation.execute permission is required for this hotel', 403);
+            }
             $userId = $this->currentUserId();
             $permittedHotelIds = $this->currentUser && method_exists($this->currentUser, 'getPermittedHotelIds')
                 ? array_values(array_unique(array_filter(array_map('intval', (array)$this->currentUser->getPermittedHotelIds()))))
@@ -743,6 +746,21 @@ class Knowledge extends Base
 
         $hotelId = (int)($row['hotel_id'] ?? 0);
         return $hotelId > 0 && in_array($hotelId, $this->permittedKnowledgeHotelIds(), true);
+    }
+
+    private function canCreateKnowledgeExecutionIntent(int $hotelId): bool
+    {
+        if ($hotelId <= 0 || !$this->currentUser) {
+            return false;
+        }
+        if ($this->isSuperAdmin()) {
+            return true;
+        }
+        if (!method_exists($this->currentUser, 'hasHotelPermission')) {
+            return false;
+        }
+
+        return $this->currentUser->hasHotelPermission($hotelId, 'operation.execute') === true;
     }
 
     /** @return array<int, int> */

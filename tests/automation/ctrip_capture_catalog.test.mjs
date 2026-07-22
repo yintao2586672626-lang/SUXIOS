@@ -187,6 +187,10 @@ test('defines Ctrip section interaction plans for tabbed capture pages', () => {
     assert.equal(traffic.includes(label), true, label);
   }
 
+  for (const label of ['Trip.com', 'Qunar', 'Yesterday', 'Past 7 days', 'Past 30 days']) {
+    assert.equal(traffic.includes(label), true, label);
+  }
+
   const weekly = getCtripSectionInteractionPlan('business_weekly_overview').map(step => step.text);
   assert.deepEqual(weekly, ['\u6309\u5468']);
 

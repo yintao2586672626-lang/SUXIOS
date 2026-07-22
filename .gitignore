@@ -28,6 +28,10 @@ tests/report/
 test-results/
 output/
 reports/ctrip_capture_assets/
+reports/ota_data_validation.json
+reports/ota_data_validation.md
+reports/ota_data_validation.self-test.json
+reports/ota_data_validation.self-test.md
 reports/meituan_capture_assets/
 reports/ctrip_browser_capture_*.json
 reports/meituan_browser_capture_*.json

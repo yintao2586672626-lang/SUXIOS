@@ -317,6 +317,30 @@ final class SchemaVersionServiceTest extends TestCase
         self::assertSame(['20990101_unknown.sql'], $status['unknown_registrations']);
     }
 
+    public function testSqlSplitterSupportsStoredProcedureDelimitersWithoutSplittingItsBody(): void
+    {
+        $sql = <<<'SQL'
+DELIMITER $$
+CREATE PROCEDURE repair_fixture()
+BEGIN
+    SET @message = 'keep;inside';
+    SELECT 1;
+END$$
+CALL repair_fixture()$$
+DROP PROCEDURE repair_fixture$$
+DELIMITER ;
+SQL;
+
+        $statements = SchemaVersionService::splitSqlStatements($sql);
+
+        self::assertCount(3, $statements);
+        self::assertStringStartsWith('CREATE PROCEDURE repair_fixture()', $statements[0]);
+        self::assertStringContainsString("SET @message = 'keep;inside';", $statements[0]);
+        self::assertStringContainsString('SELECT 1;', $statements[0]);
+        self::assertSame('CALL repair_fixture()', $statements[1]);
+        self::assertSame('DROP PROCEDURE repair_fixture', $statements[2]);
+    }
+
     public function testProjectCatalogIncludesTenantAndVersionGovernanceMigrations(): void
     {
         $projectRoot = realpath(__DIR__ . '/..');
@@ -327,8 +351,14 @@ final class SchemaVersionServiceTest extends TestCase
         self::assertContains('20260722_add_hotels_city.sql', $names);
         self::assertContains('20260722_create_schema_versions.sql', $names);
         self::assertContains('20260722_create_tenants_and_decouple_hotel_scope.sql', $names);
+        self::assertContains('20260722_pre_repair_batched_tenant_history_scope.sql', $names);
+        self::assertContains('20260722_repair_remaining_tenant_history_scope.sql', $names);
         self::assertContains('20260722_harden_schema_version_governance.sql', $names);
         self::assertContains('20260722_track_frozen_baseline_sources.sql', $names);
+        self::assertLessThan(
+            array_search('20260722_repair_remaining_tenant_history_scope.sql', $names, true),
+            array_search('20260722_pre_repair_batched_tenant_history_scope.sql', $names, true)
+        );
         self::assertSame($names, array_values(array_unique($names)));
     }
 

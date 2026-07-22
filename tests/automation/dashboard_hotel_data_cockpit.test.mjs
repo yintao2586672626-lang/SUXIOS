@@ -77,6 +77,8 @@ test('AI workbench nests the yesterday loop and does not render missing current-
     'yesterday operations loop must be nested under the business-loop group',
   );
   assert.match(appMain, /const dualOtaSelectedHotelHasCurrentData = computed/);
+  assert.match(appMain, /hasDualOtaScopeCurrentData\(\{/);
+  assert.doesNotMatch(appMain, /const dualOtaSelectedHotelHasCurrentData = computed\(\(\) => \{\s*if \(!dualOtaSelectedHotel\.value\) return false;/);
   assert.match(appMain, /const dualOtaWorkbenchReadInProgress = computed/);
   assert.match(appMain, /dualOtaDataDateMatchesSelectedRange\(ctripLatestMeta\.value\?\.data_date\)/);
   assert.match(appMain, /dualOtaDataDateMatchesSelectedRange\(competitorSummary\.value\?\.latest_data_date\)/);

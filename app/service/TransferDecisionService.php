@@ -18,6 +18,8 @@ class TransferDecisionService
     private LlmClient $client;
     private AiDecisionQualityService $decisionQualityService;
     private bool $tableEnsured = false;
+    /** @var array<string,array<string,int|string>> */
+    private array $sourceReadStatus = [];
 
     public function __construct(?LlmClient $client = null, ?AiDecisionQualityService $decisionQualityService = null)
     {
@@ -502,6 +504,7 @@ class TransferDecisionService
     public function buildSourcePayload(array $hotelIds, ?int $hotelId, string $date): array
     {
         $this->ensureTable();
+        $this->sourceReadStatus = [];
 
         $targetHotelId = $hotelId ?: ($hotelIds[0] ?? 0);
         $scopeHotelIds = $targetHotelId > 0 ? [$targetHotelId] : $hotelIds;
@@ -543,6 +546,11 @@ class TransferDecisionService
         if ((int)($current['truth_context']['excluded_untrusted_count'] ?? 0) > 0) {
             $dataGaps[] = 'ota_channel_untrusted_rows_excluded';
         }
+        foreach ($this->sourceReadStatus as $table => $status) {
+            if (($status['table_status'] ?? '') === 'missing') {
+                $dataGaps[] = 'source_table_missing:' . $table;
+            }
+        }
         $dataStatus = $hasDailyReports
             ? '已读取本地经营日报；来源、口径与真实性仍需核验。'
             : ($hasOnlineRows
@@ -572,6 +580,7 @@ class TransferDecisionService
             'source_scope' => $sourceScope,
             'ota_scope' => 'ota_channel',
             'source_verified' => false,
+            'source_read_status' => $this->sourceReadStatus,
             'truth_context' => $current['truth_context'],
             'annual_truth_context' => $annual['truth_context'],
             'data_gaps' => $dataGaps,
@@ -1666,13 +1675,15 @@ class TransferDecisionService
         }
 
         try {
-            return Db::name('daily_reports')
+            $rows = Db::name('daily_reports')
                 ->whereIn('hotel_id', $hotelIds)
                 ->whereBetween('report_date', [$startDate, $endDate])
                 ->select()
                 ->toArray();
+            $this->markSourceReadSuccess('daily_reports', count($rows));
+            return $rows;
         } catch (Throwable $e) {
-            return [];
+            throw new RuntimeException('transfer_source_read_failed:daily_reports', 503, $e);
         }
     }
 
@@ -1683,13 +1694,15 @@ class TransferDecisionService
         }
 
         try {
-            return Db::name('online_daily_data')
+            $rows = Db::name('online_daily_data')
                 ->whereBetween('data_date', [$startDate, $endDate])
                 ->whereIn('system_hotel_id', array_map('intval', $hotelIds))
                 ->select()
                 ->toArray();
+            $this->markSourceReadSuccess('online_daily_data', count($rows));
+            return $rows;
         } catch (Throwable $e) {
-            return [];
+            throw new RuntimeException('transfer_source_read_failed:online_daily_data', 503, $e);
         }
     }
 
@@ -1701,9 +1714,10 @@ class TransferDecisionService
 
         try {
             $row = Db::name('hotels')->where('id', $hotelId)->find();
+            $this->markSourceReadSuccess('hotels', is_array($row) ? 1 : 0);
             return is_array($row) ? $row : [];
         } catch (Throwable $e) {
-            return [];
+            throw new RuntimeException('transfer_source_read_failed:hotels', 503, $e);
         }
     }
 
@@ -2067,10 +2081,36 @@ class TransferDecisionService
     private function tableExists(string $table): bool
     {
         try {
-            return !empty(Db::query("SHOW TABLES LIKE '{$table}'"));
+            $exists = !empty(Db::query("SHOW TABLES LIKE '{$table}'"));
+            $status = $this->sourceReadStatus[$table] ?? [
+                'query_count' => 0,
+                'row_count' => 0,
+            ];
+            $status['table_status'] = $exists ? 'available' : 'missing';
+            if (!$exists) {
+                $status['read_status'] = 'not_attempted';
+            } elseif ((int)($status['query_count'] ?? 0) === 0) {
+                $status['read_status'] = 'pending';
+            }
+            $this->sourceReadStatus[$table] = $status;
+            return $exists;
         } catch (Throwable $e) {
-            return false;
+            throw new RuntimeException('transfer_source_schema_check_failed:' . $table, 503, $e);
         }
+    }
+
+    private function markSourceReadSuccess(string $table, int $rowCount): void
+    {
+        $status = $this->sourceReadStatus[$table] ?? [
+            'table_status' => 'available',
+            'read_status' => 'pending',
+            'query_count' => 0,
+            'row_count' => 0,
+        ];
+        $status['read_status'] = 'ok';
+        $status['query_count'] = (int)($status['query_count'] ?? 0) + 1;
+        $status['row_count'] = (int)($status['row_count'] ?? 0) + max(0, $rowCount);
+        $this->sourceReadStatus[$table] = $status;
     }
 
     private function avg(array $values): float

@@ -5,6 +5,15 @@ namespace app\service;
 
 final class OtaOperatingScope
 {
+    public static function isCoreBusinessDataType(string $dataType): bool
+    {
+        return in_array(
+            strtolower(trim($dataType)),
+            ['business', 'business_overview', 'revenue', 'order', 'orders'],
+            true
+        );
+    }
+
     public static function isOwnOperatingRow(
         array $row,
         ?array $raw = null,

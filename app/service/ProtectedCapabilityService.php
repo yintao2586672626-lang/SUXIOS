@@ -42,6 +42,18 @@ class ProtectedCapabilityService
             'tenant_modules' => [],
             'redaction_reason' => self::DEFAULT_REDACTION_REASON,
             'capabilities' => [
+                'knowledge_read' => [
+                    'label' => 'Knowledge library read access',
+                    'permission' => 'ai.view',
+                    'module' => '',
+                    'paths' => [
+                        ['path' => 'api/knowledge/distillation/options', 'methods' => ['GET']],
+                        ['path' => 'api/knowledge/list', 'methods' => ['GET']],
+                        ['path' => 'api/knowledge/*', 'methods' => ['GET']],
+                    ],
+                    'response_mode' => 'summary_only',
+                    'rate_limit' => ['scope' => 'protected_knowledge_read', 'limit' => 120, 'window' => 3600],
+                ],
                 'ai_governance' => [
                     'label' => 'AI governance and model config',
                     'permission' => 'can_manage_ai_governance',
@@ -52,7 +64,14 @@ class ProtectedCapabilityService
                         'api/agent/config',
                         'api/agent/knowledge',
                         'api/agent/knowledge-categories',
-                        'api/knowledge',
+                        ['path' => 'api/knowledge/distillation/run', 'methods' => ['POST']],
+                        ['path' => 'api/knowledge/add', 'methods' => ['POST']],
+                        ['path' => 'api/knowledge/import', 'methods' => ['POST']],
+                        ['path' => 'api/knowledge/document-text', 'methods' => ['POST']],
+                        ['path' => 'api/knowledge/*/add-chunk', 'methods' => ['POST']],
+                        ['path' => 'api/knowledge/*/update', 'methods' => ['POST']],
+                        ['path' => 'api/knowledge/*/status', 'methods' => ['POST']],
+                        ['path' => 'api/knowledge/*', 'methods' => ['DELETE']],
                         'api/agent/logs',
                     ],
                     'response_mode' => 'summary_only',
@@ -141,6 +160,10 @@ class ProtectedCapabilityService
                     'paths' => [
                         [
                             'path' => 'api/revenue-ai/price-suggestions/*/execution-intent',
+                            'methods' => ['POST'],
+                        ],
+                        [
+                            'path' => 'api/knowledge/*/chunks/*/execution-intent',
                             'methods' => ['POST'],
                         ],
                     ],

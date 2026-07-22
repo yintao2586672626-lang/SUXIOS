@@ -7964,10 +7964,10 @@ try {
   });
 }
 
-const failures = checks.filter((check) => !check.ok);
 requireText('tests/automation/async-page-guard.spec.js', 'installHistoryFixtures', 'async guard uses deterministic history fixtures');
 requireText('tests/automation/async-page-guard.spec.js', 'waitForResponse', 'async guard waits for delayed detail response');
 requireNoText('tests/automation/async-page-guard.spec.js', 'waitForTimeout', 'async guard avoids fixed sleeps');
+const failures = checks.filter((check) => !check.ok);
 
 if (failures.length) {
   console.error('E2E contract verification failed:');

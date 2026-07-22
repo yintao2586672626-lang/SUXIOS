@@ -1,9 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
-const php = 'C:\\xampp\\php\\php.exe';
+const php = String(process.env.PHP_BINARY || 'php').trim() || 'php';
+
+function isRuntimeRequired(env = process.env) {
+  const enabled = (value) => ['1', 'true'].includes(String(value || '').trim().toLowerCase());
+  return enabled(env.CI) || enabled(env.SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME);
+}
+
+const runtimeRequired = isRuntimeRequired();
 
 function extractJson(text) {
   const source = String(text || '');
@@ -13,11 +20,92 @@ function extractJson(text) {
   return JSON.parse(source.slice(start, end + 1));
 }
 
-test('Business-chain source rows never label accepted non-traffic evidence as ready', (t) => {
-  if (!existsSync(php)) {
-    t.skip(`${php} is not available`);
-    return;
+function tryExtractJson(text) {
+  try {
+    return extractJson(text);
+  } catch {
+    return null;
   }
+}
+
+function failOrSkipRuntime(t, reason, required = runtimeRequired) {
+  if (required) {
+    assert.fail(`${reason}; business-chain runtime assertions are required when CI=true or SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME=1`);
+  }
+  t.skip(reason);
+  return true;
+}
+
+function skipWhenRuntimeUnavailable(t, result, output, required = runtimeRequired) {
+  const spawnErrorCode = result.error?.code;
+  if (spawnErrorCode === 'ENOENT') {
+    return failOrSkipRuntime(t, `PHP executable is unavailable: ${php}`, required);
+  }
+  if (spawnErrorCode === 'EPERM') {
+    return failOrSkipRuntime(
+      t,
+      'process spawning is unavailable in this sandbox; runtime business-chain assertions were not evaluated',
+      required,
+    );
+  }
+  if (result.error) {
+    assert.fail(`business-chain runtime process failed to start: ${result.error.message || spawnErrorCode || 'unknown error'}`);
+  }
+  const payload = tryExtractJson(output);
+  if (result.status !== 1 || payload?.error_code !== 'database_unavailable') {
+    return false;
+  }
+  assert.equal(payload.status, 'blocked');
+  assert.equal(payload.claim_allowed, false);
+  assert.equal(payload.database_ready, false);
+  assert.equal(payload.runtime_data_ready, false);
+  assert.equal(payload.business_loop_ready, false);
+  return failOrSkipRuntime(
+    t,
+    'project database is unavailable; runtime business-chain assertions were not evaluated',
+    required,
+  );
+}
+
+test('Business-chain runtime requirement recognizes CI and explicit enforcement', () => {
+  assert.equal(isRuntimeRequired({}), false);
+  assert.equal(isRuntimeRequired({ CI: 'true' }), true);
+  assert.equal(isRuntimeRequired({ CI: '1' }), true);
+  assert.equal(isRuntimeRequired({ SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME: '1' }), true);
+});
+
+test('Business-chain runtime unavailability skips locally but fails closed when required', () => {
+  const localSkipReasons = [];
+  const localContext = { skip: (reason) => localSkipReasons.push(reason) };
+  const databaseUnavailable = JSON.stringify({
+    status: 'blocked',
+    error_code: 'database_unavailable',
+    claim_allowed: false,
+    database_ready: false,
+    runtime_data_ready: false,
+    business_loop_ready: false,
+  });
+
+  assert.equal(skipWhenRuntimeUnavailable(localContext, { error: { code: 'ENOENT' } }, '', false), true);
+  assert.equal(skipWhenRuntimeUnavailable(localContext, { error: { code: 'EPERM' } }, '', false), true);
+  assert.equal(skipWhenRuntimeUnavailable(localContext, { status: 1 }, databaseUnavailable, false), true);
+  assert.equal(localSkipReasons.length, 3);
+
+  assert.throws(
+    () => skipWhenRuntimeUnavailable({ skip() {} }, { error: { code: 'ENOENT' } }, '', true),
+    /business-chain runtime assertions are required/,
+  );
+  assert.throws(
+    () => skipWhenRuntimeUnavailable({ skip() {} }, { error: { code: 'EPERM' } }, '', true),
+    /business-chain runtime assertions are required/,
+  );
+  assert.throws(
+    () => skipWhenRuntimeUnavailable({ skip() {} }, { status: 1 }, databaseUnavailable, true),
+    /business-chain runtime assertions are required/,
+  );
+});
+
+test('Business-chain source rows never label accepted non-traffic evidence as ready', (t) => {
   const source = readFileSync('scripts/report_business_chain_status.php', 'utf8');
   assert.match(source, /function business_chain_source_evidence_status/);
   assert.match(source, /reference_only_non_traffic/);
@@ -27,7 +115,10 @@ test('Business-chain source rows never label accepted non-traffic evidence as re
     encoding: 'utf8',
     windowsHide: true,
   });
-  const payload = extractJson(result.stdout || result.stderr);
+  const output = String(result.stdout || result.stderr || '');
+  if (skipWhenRuntimeUnavailable(t, result, output)) return;
+  assert.ok([0, 2].includes(result.status), `unexpected report exit ${result.status}: ${output.slice(0, 1000)}`);
+  const payload = extractJson(output);
   for (const row of payload.source_rows) {
     const accepted = Number(row.target_counts?.accepted || 0);
     const traffic = Number(row.target_counts?.traffic || 0);
@@ -37,11 +128,6 @@ test('Business-chain source rows never label accepted non-traffic evidence as re
 });
 
 test('Business-chain report keeps operator-skipped Meituan read-only and action-free', (t) => {
-  if (!existsSync(php)) {
-    t.skip(`${php} is not available`);
-    return;
-  }
-
   const result = spawnSync(php, [
     'scripts/report_business_chain_status.php',
     '--date=2026-06-28',
@@ -51,7 +137,9 @@ test('Business-chain report keeps operator-skipped Meituan read-only and action-
     encoding: 'utf8',
     windowsHide: true,
   });
-  const output = result.stdout || result.stderr;
+  const output = String(result.stdout || result.stderr || '');
+  if (skipWhenRuntimeUnavailable(t, result, output)) return;
+  assert.ok([0, 2].includes(result.status), `unexpected report exit ${result.status}: ${output.slice(0, 1000)}`);
   const payload = extractJson(output);
   const sequence = payload.p0_execution_plan.operator_sequence.map((item) => `${item.platform}:${item.type}`);
 
@@ -128,11 +216,6 @@ test('Operation execution statistics apply date/platform scope before limit and 
 });
 
 test('Business-chain report keeps the Ctrip path truthful at either ready or blocked P0 state', (t) => {
-  if (!existsSync(php)) {
-    t.skip(`${php} is not available`);
-    return;
-  }
-
   const result = spawnSync(php, [
     'scripts/report_business_chain_status.php',
     '--date=2026-06-28',
@@ -142,7 +225,8 @@ test('Business-chain report keeps the Ctrip path truthful at either ready or blo
     encoding: 'utf8',
     windowsHide: true,
   });
-  const output = result.stdout || result.stderr;
+  const output = String(result.stdout || result.stderr || '');
+  if (skipWhenRuntimeUnavailable(t, result, output)) return;
   const payload = extractJson(output);
   const handoff = payload.downstream_reference_workflow.revenue_to_ai_handoff;
   const packet = handoff.manual_review_packet;
@@ -320,11 +404,6 @@ test('Business-chain report keeps the Ctrip path truthful at either ready or blo
 });
 
 test('Business-chain markdown exposes Ctrip manual review packet without hiding a blocked P0 gate', (t) => {
-  if (!existsSync(php)) {
-    t.skip(`${php} is not available`);
-    return;
-  }
-
   const result = spawnSync(php, [
     'scripts/report_business_chain_status.php',
     '--date=2026-06-28',
@@ -335,7 +414,9 @@ test('Business-chain markdown exposes Ctrip manual review packet without hiding 
     encoding: 'utf8',
     windowsHide: true,
   });
-  const output = result.stdout || result.stderr;
+  const output = String(result.stdout || result.stderr || '');
+
+  if (skipWhenRuntimeUnavailable(t, result, output)) return;
 
   assert.ok([0, 2].includes(result.status), `unexpected report exit ${result.status}: ${output.slice(0, 1000)}`);
   if (result.status === 2) {

@@ -43,7 +43,7 @@
     ]
   },
   "interaction_plan_section_count": 16,
-  "interaction_plan_step_count": 82,
+  "interaction_plan_step_count": 87,
   "sections": {
     "homepage": {
       "label": "首页实时概览",

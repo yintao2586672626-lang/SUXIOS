@@ -113,14 +113,38 @@ final class ProtectedCapabilityServiceTest extends TestCase
         self::assertFalse($service->shouldRedactForUser($user, $capability));
     }
 
-    public function testKnowledgeManagementUsesAiGovernanceCapability(): void
+    public function testKnowledgeReadManagementAndExecutionUseDistinctCapabilities(): void
     {
-        $service = new ProtectedCapabilityService();
-        $capability = $service->classifyPath('POST', '/api/knowledge/add');
+        $service = new ProtectedCapabilityService([
+            'default_enabled_modules' => ['ai_governance', 'operation_decision'],
+        ]);
+        $list = $service->classifyPath('GET', '/api/knowledge/list?hotel_id=7');
+        $detail = $service->classifyPath('GET', '/api/knowledge/9?hotel_id=7');
+        $management = $service->classifyPath('POST', '/api/knowledge/add');
+        $execution = $service->classifyPath('POST', '/api/knowledge/9/chunks/3/execution-intent');
 
-        self::assertIsArray($capability);
-        self::assertSame('ai_governance', $capability['key']);
-        self::assertSame('can_manage_ai_governance', $capability['permission']);
+        self::assertSame('knowledge_read', $list['key'] ?? null);
+        self::assertSame('ai.view', $list['permission'] ?? null);
+        self::assertSame('', $list['module'] ?? null);
+        self::assertSame('knowledge_read', $detail['key'] ?? null);
+        self::assertSame('ai_governance', $management['key'] ?? null);
+        self::assertSame('can_manage_ai_governance', $management['permission'] ?? null);
+        self::assertSame('operation_execution', $execution['key'] ?? null);
+        self::assertSame('operation.execute', $execution['permission'] ?? null);
+
+        $reader = $this->userWithPermissions(['ai.view']);
+        self::assertTrue($service->authorizeContext($reader, $list, ['hotel_id' => 7])['allowed']);
+        self::assertFalse($service->authorizeContext($reader, $management, ['hotel_id' => 7])['allowed']);
+        self::assertFalse($service->authorizeContext($reader, $execution, ['hotel_id' => 7])['allowed']);
+
+        $governanceManager = $this->userWithPermissions(['can_manage_ai_governance']);
+        self::assertTrue($service->authorizeContext($governanceManager, $management, ['hotel_id' => 7])['allowed']);
+        self::assertFalse($service->authorizeContext($governanceManager, $execution, ['hotel_id' => 7])['allowed']);
+        self::assertTrue($service->authorizeContext(
+            $this->userWithPermissions(['operation.execute']),
+            $execution,
+            ['hotel_id' => 7]
+        )['allowed']);
     }
 
     public function testRevenueAiReviewAndExecutionUseDistinctProtectedCapabilities(): void

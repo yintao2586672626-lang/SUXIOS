@@ -16,19 +16,37 @@ test('pilot runner defaults to a non-mutating plan and fixes hotel/date scope', 
   assert.match(runner, /--hotel-id=\$HotelId/);
   assert.match(runner, /--target-date=\$TargetDate/);
   assert.match(runner, /if \(-not \$Run\)[\s\S]*?return/);
+  assert.match(runner, /name = 'application_health'; passed = \$healthPassed/);
+  assert.match(runner, /name = 'source_binding_match'; passed = \$sourceIdsMatchBinding/);
+  assert.match(runner, /run_ready = \$preflightFailures\.Count -eq 0/);
   assert.match(
     runner,
-    /\$collectorOutput = & \$resolvedPhpPath \$thinkPath 'online-data:auto-fetch' \"--hotel-id=\$HotelId\" \"--target-date=\$TargetDate\" \"--source-ids=\$SourceIds\"/,
+    /\$collectorOutput = & \$resolvedPhpPath \$thinkPath 'online-data:auto-fetch' \"--hotel-id=\$HotelId\" \"--target-date=\$TargetDate\" \"--source-ids=\$normalizedSourceIds\"/,
   );
 });
 
 test('pilot runner exports only verified bundles and blocks credential-shaped fields', () => {
+  const collectorIndex = runner.indexOf("'online-data:auto-fetch'");
+  const collectionFailureIndex = runner.indexOf("status = 'collection_failed'");
+  const exportIndex = runner.indexOf("'cloud-data-bridge:run'", collectorIndex);
+  const uploadIndex = runner.indexOf('upload_cloud_ota_bundle.ps1');
+  assert.ok(collectorIndex >= 0 && collectionFailureIndex > collectorIndex && exportIndex > collectionFailureIndex);
+  assert.ok(uploadIndex >= 0);
   assert.match(runner, /cloud-data-bridge:run/);
+  assert.match(runner, /SUXIOS_AUTO_FETCH_RECEIPT=/);
+  assert.match(runner, /--sync-task-ids=\$syncTaskIds/);
   assert.match(runner, /cloud-data-bridge-binding\.pilot-h80\.json/);
   assert.match(runner, /suxios\.cloud_ota_bundle\.v1/);
   assert.match(runner, /cookie\|cookies\|authorization\|token\|password\|webhook\|secret/);
   assert.match(runner, /upload_cloud_ota_bundle\.ps1/);
   assert.match(runner, /already_uploaded/);
+  assert.match(runner, /status = 'collection_failed'/);
+  assert.doesNotMatch(runner, /uploaded_with_collection_failure/);
+  assert.match(runner, /Cloud bundle package receipt validation failed/);
+  assert.match(runner, /source_sync_task_id/);
+  assert.match(runner, /snapshot_complete/);
+  assert.match(runner, /upload_complete = \$true/);
+  assert.match(runner, /upload_complete = \$false/);
   assert.match(runner, /collector_exit_code/);
 });
 
@@ -45,6 +63,8 @@ test('pilot task requires explicit enable and registers three bounded triggers w
 
 test('pilot task arguments contain fixed hotel scope but no credential locator', () => {
   assert.match(registration, /-Run -HotelId \{1\}/);
+  assert.match(registration, /-SourceIds \"\{2\}\"/);
+  assert.match(registration, /\$bindingSourceIds -join ','/);
   assert.match(registration, /credentials_in_arguments = \$false/);
   assert.doesNotMatch(registration, /-IdentityFile/);
   assert.doesNotMatch(registration, /\.pem/);

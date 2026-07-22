@@ -19,6 +19,7 @@ final class RunCloudDataBridge extends Command
             ->addOption('mode', null, Option::VALUE_REQUIRED, 'export|import|validate|status', 'status')
             ->addOption('target-date', null, Option::VALUE_REQUIRED, 'Business date YYYY-MM-DD; defaults to yesterday')
             ->addOption('platforms', null, Option::VALUE_REQUIRED, 'Required OTA platforms', 'ctrip,meituan')
+            ->addOption('sync-task-ids', null, Option::VALUE_REQUIRED, 'Required source_id:sync_task_id pairs for export')
             ->addOption('binding-file', null, Option::VALUE_REQUIRED, 'Explicit local-to-cloud hotel/data-source binding JSON')
             ->addOption('output-file', null, Option::VALUE_REQUIRED, 'Export destination JSON path')
             ->addOption('bundle-file', null, Option::VALUE_REQUIRED, 'One bundle JSON to validate')
@@ -82,6 +83,7 @@ final class RunCloudDataBridge extends Command
                 static fn(string $platform): string => strtolower(trim($platform)),
                 explode(',', (string)$input->getOption('platforms'))
             ), static fn(string $platform): bool => $platform !== ''));
+            $syncTaskIdsBySource = $this->parseSyncTaskIds((string)$input->getOption('sync-task-ids'));
             $outputFile = trim((string)$input->getOption('output-file'));
             if ($outputFile === '') {
                 $outputFile = rtrim((string)runtime_path(), "\\/")
@@ -94,7 +96,8 @@ final class RunCloudDataBridge extends Command
                 $exporter->readBindingFile($bindingFile),
                 $targetDate,
                 $platforms,
-                $outputFile
+                $outputFile,
+                $syncTaskIdsBySource
             );
             $this->writeJson($output, $result);
             return 0;
@@ -141,6 +144,31 @@ final class RunCloudDataBridge extends Command
             return max(0, (int)$configured);
         }
         return max(0, (int)Env::get('CLOUD_DATA_BRIDGE_ACTOR_USER_ID', 0));
+    }
+
+    /** @return array<int, int> */
+    private function parseSyncTaskIds(string $option): array
+    {
+        $option = trim($option);
+        if ($option === '') {
+            throw new \RuntimeException('sync-task-ids is required for export mode');
+        }
+        $mapping = [];
+        foreach (explode(',', $option) as $pair) {
+            $parts = array_map('trim', explode(':', trim($pair), 2));
+            if (count($parts) !== 2
+                || !ctype_digit($parts[0])
+                || !ctype_digit($parts[1])
+                || (int)$parts[0] <= 0
+                || (int)$parts[1] <= 0
+                || isset($mapping[(int)$parts[0]])
+            ) {
+                throw new \RuntimeException('sync-task-ids must contain unique positive source_id:sync_task_id pairs');
+            }
+            $mapping[(int)$parts[0]] = (int)$parts[1];
+        }
+        ksort($mapping, SORT_NUMERIC);
+        return $mapping;
     }
 
     /** @param array<string, mixed> $result */

@@ -10,8 +10,36 @@ class TrustedOtaFactRepository
 {
     private const TABLE = 'online_daily_data';
     private const MAX_ROWS = 10000;
-    private const REQUIRED_COLUMNS = ['system_hotel_id', 'data_date', 'readback_verified'];
+    private const REQUIRED_COLUMNS = [
+        'system_hotel_id',
+        'data_date',
+        'readback_verified',
+        'validation_status',
+        'validation_flags',
+        'ingestion_method',
+        'source_trace_id',
+        'raw_data',
+    ];
     private const METRIC_COLUMNS = ['amount', 'quantity', 'book_order_num'];
+    private const TRUSTED_INGESTION_METHODS = ['browser_profile', 'profile_browser'];
+    private const TRUSTED_VALIDATION_STATUSES = [
+        'normal',
+        'available',
+        'verified',
+        'valid',
+        'confirmed',
+        'approved',
+        'passed',
+        'ok',
+        'success',
+        'complete',
+        'completed',
+    ];
+    private const METRIC_FIELD_FACTS = [
+        'amount' => 'order_amount',
+        'quantity' => 'room_nights',
+        'book_order_num' => 'order_count',
+    ];
     private const ACCEPTED_DATA_TYPES = [
         'business',
         'revenue',
@@ -35,7 +63,7 @@ class TrustedOtaFactRepository
         'room_sales' => 2,
         'sales' => 3,
     ];
-    private const BAD_VALIDATION_STATUSES = [
+    private const BAD_AUXILIARY_STATUSES = [
         'abnormal',
         'invalid',
         'failed',
@@ -48,6 +76,8 @@ class TrustedOtaFactRepository
         'permission_denied',
         'binding_missing',
         'stale',
+        'partial',
+        'quarantined',
     ];
     private const BLOCKING_FLAG_FRAGMENTS = [
         'mismatch',
@@ -97,6 +127,9 @@ class TrustedOtaFactRepository
                 },
                 $missingRequired
             );
+            if (!isset($columns['data_type']) && !isset($columns['raw_data'])) {
+                $gaps[] = 'pricing_history_data_type_evidence_missing';
+            }
             return $this->blockedResult($gaps, $columns);
         }
         if (!isset($columns['data_type']) && !isset($columns['raw_data'])) {
@@ -293,9 +326,6 @@ class TrustedOtaFactRepository
         if (!isset($columns['source']) && !isset($columns['platform'])) {
             $gaps[] = 'pricing_history_source_column_missing';
         }
-        if (!isset($columns['validation_status'])) {
-            $gaps[] = 'pricing_history_validation_status_column_missing';
-        }
         if (!isset($columns['validation_flags'])) {
             $gaps[] = 'pricing_history_validation_flags_column_missing';
         }
@@ -316,11 +346,37 @@ class TrustedOtaFactRepository
     private function rejectionReason(array $row): string
     {
         $raw = $this->decodeRaw($row['raw_data'] ?? null);
-        foreach (['validation_status', 'status', 'save_status'] as $field) {
+        $ingestionMethod = strtolower($this->scalarText($row['ingestion_method'] ?? null));
+        if (!in_array($ingestionMethod, self::TRUSTED_INGESTION_METHODS, true)) {
+            return 'ingestion_method_untrusted';
+        }
+
+        $validationStatus = strtolower($this->scalarText($row['validation_status'] ?? null));
+        if (!in_array($validationStatus, self::TRUSTED_VALIDATION_STATUSES, true)) {
+            return 'validation_status_untrusted';
+        }
+        foreach (['status', 'save_status'] as $field) {
             $status = strtolower(trim((string)($row[$field] ?? '')));
-            if (in_array($status, self::BAD_VALIDATION_STATUSES, true)) {
+            if (in_array($status, self::BAD_AUXILIARY_STATUSES, true)) {
                 return $field . '_' . $status;
             }
+        }
+
+        $sourceTraceId = $this->scalarText($row['source_trace_id'] ?? null);
+        if ($sourceTraceId === '') {
+            return 'source_trace_id_missing';
+        }
+        $rawSourceTraceId = $this->scalarText($raw['source_trace_id'] ?? null);
+        if ($rawSourceTraceId === '' || !hash_equals($sourceTraceId, $rawSourceTraceId)) {
+            return 'raw_source_trace_id_mismatch';
+        }
+        if (!$this->hasRawHotelBindingEvidence($raw)) {
+            return 'raw_hotel_binding_evidence_missing';
+        }
+
+        $fieldFactReason = $this->metricFieldFactRejectionReason($row, $raw, $sourceTraceId);
+        if ($fieldFactReason !== '') {
+            return $fieldFactReason;
         }
 
         $flags = strtolower($this->flattenFlags($row['validation_flags'] ?? ''));
@@ -366,6 +422,104 @@ class TrustedOtaFactRepository
         }
 
         return '';
+    }
+
+    /** @param array<string, mixed> $raw */
+    private function hasRawHotelBindingEvidence(array $raw): bool
+    {
+        $bindingStatus = strtolower($this->scalarText($raw['platform_hotel_binding_status'] ?? null));
+        $bindingProof = strtolower($this->scalarText($raw['platform_hotel_binding_proof'] ?? null));
+        if ($bindingStatus !== '') {
+            return $bindingStatus === 'matched'
+                && $bindingProof !== ''
+                && !in_array($bindingProof, ['missing', 'unverified'], true);
+        }
+
+        $identifierPresent = in_array(
+            $raw['platform_hotel_identifier_present'] ?? null,
+            [true, 1, '1', 'true'],
+            true
+        );
+        $identifierSource = $this->scalarText($raw['platform_hotel_identifier_source'] ?? null);
+        $identifierProof = strtolower($this->scalarText($raw['platform_hotel_identifier_proof'] ?? null));
+
+        return $identifierPresent
+            && $identifierSource !== ''
+            && $identifierProof !== ''
+            && !in_array($identifierProof, ['missing', 'unverified'], true);
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<string, mixed> $raw
+     */
+    private function metricFieldFactRejectionReason(array $row, array $raw, string $sourceTraceId): string
+    {
+        $facts = is_array($raw['field_facts'] ?? null) ? $raw['field_facts'] : [];
+        foreach (self::METRIC_FIELD_FACTS as $column => $metricKey) {
+            if (!$this->hasNonNullValue($row, $column)) {
+                continue;
+            }
+
+            $matchingFacts = array_values(array_filter(
+                $facts,
+                fn(mixed $fact): bool => is_array($fact)
+                    && $this->normalizedDataType($this->scalarText($fact['metric_key'] ?? null)) === $metricKey
+            ));
+            if ($matchingFacts === []) {
+                return 'field_fact_missing_' . $metricKey;
+            }
+
+            $hasMappedFact = false;
+            $hasCapturedFact = false;
+            foreach ($matchingFacts as $fact) {
+                $normalizedField = $this->normalizedDataType($this->scalarText($fact['normalized_field'] ?? null));
+                $storageField = strtolower($this->scalarText($fact['storage_field'] ?? null));
+                if (str_starts_with($storageField, self::TABLE . '.')) {
+                    $storageField = substr($storageField, strlen(self::TABLE) + 1);
+                }
+                if ($normalizedField !== $column || $storageField !== $column) {
+                    continue;
+                }
+                $hasMappedFact = true;
+
+                $captured = strtolower($this->scalarText($fact['status'] ?? null)) === 'captured'
+                    && ($fact['stored_value_present'] ?? null) === true;
+                if (!$captured) {
+                    continue;
+                }
+                $hasCapturedFact = true;
+
+                $captureEvidence = is_array($fact['capture_evidence'] ?? null)
+                    ? $fact['capture_evidence']
+                    : [];
+                $factTraceId = $this->scalarText(
+                    $captureEvidence['source_trace_id'] ?? $captureEvidence['_source_trace_id'] ?? null
+                );
+                if ($factTraceId !== '' && hash_equals($sourceTraceId, $factTraceId)) {
+                    continue 2;
+                }
+            }
+
+            if (!$hasMappedFact) {
+                return 'field_fact_storage_mismatch_' . $metricKey;
+            }
+            if (!$hasCapturedFact) {
+                return 'field_fact_not_captured_' . $metricKey;
+            }
+            return 'field_fact_trace_mismatch_' . $metricKey;
+        }
+
+        return '';
+    }
+
+    /** @param array<string, mixed> $row */
+    private function hasNonNullValue(array $row, string $field): bool
+    {
+        if (!array_key_exists($field, $row) || $row[$field] === null) {
+            return false;
+        }
+        return !is_string($row[$field]) || trim($row[$field]) !== '';
     }
 
     /**
@@ -555,6 +709,11 @@ class TrustedOtaFactRepository
         return trim((string)$flags);
     }
 
+    private function scalarText(mixed $value): string
+    {
+        return is_scalar($value) ? trim((string)$value) : '';
+    }
+
     private function normalizedDataType(string $value): string
     {
         return strtolower(trim(str_replace(['-', ' '], '_', $value)));
@@ -653,8 +812,12 @@ class TrustedOtaFactRepository
             'table' => self::TABLE,
             'hotel_scope' => 'system_hotel_id_strict_exact_only',
             'readback_policy' => 'readback_verified_required_equals_1',
+            'ingestion_policy' => 'browser_profile_or_profile_browser_only',
             'semantic_policy' => 'self_revenue_and_order_types_only',
-            'validation_policy' => 'exclude_known_bad_statuses_and_blocking_flags',
+            'validation_policy' => 'explicit_trusted_status_allowlist_and_no_blocking_flags',
+            'trace_policy' => 'row_raw_and_captured_field_fact_trace_must_match',
+            'binding_policy' => 'raw_hotel_binding_evidence_required',
+            'metric_fact_policy' => 'each_non_null_pricing_metric_requires_captured_field_fact',
             'period_policy' => 'historical_final_else_latest_realtime_per_business_grain',
             'metric_scope' => 'ota_channel',
             'missing_metric_policy' => 'preserve_null_never_default_zero',
@@ -666,6 +829,9 @@ class TrustedOtaFactRepository
                 'dimension',
                 'validation_status',
                 'validation_flags',
+                'ingestion_method',
+                'source_trace_id',
+                'raw_data',
                 'data_period',
                 'is_final',
             ], array_keys($columns))),

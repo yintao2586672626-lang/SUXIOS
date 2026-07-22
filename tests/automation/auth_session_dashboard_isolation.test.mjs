@@ -61,6 +61,8 @@ test('login, logout, and account switches reset hotel-scoped browser state', () 
     "filterReportHotel.value = '';",
     'ctripConfigList.value = [];',
     'meituanConfigList.value = [];',
+    "resetAgentCenterClientState({ reason: 'auth-session' });",
+    'clearSessionScopedFrontendTimers();',
   ]) {
     assert.ok(resetState.includes(expected), `account reset must include: ${expected}`);
   }
@@ -70,12 +72,135 @@ test('login, logout, and account switches reset hotel-scoped browser state', () 
   assert.match(logoutFlow, /catch \(error\)/);
 });
 
+test('account and hotel changes clear Agent, OTA diagnosis, revenue, and polling state', () => {
+  const agentReset = sliceBetween(
+    'const resetAgentCenterClientState = (options = {}) => {',
+    'const competitorMicroscope = computed',
+  );
+  const profileTimerReset = sliceBetween(
+    'const clearPlatformProfileLoginTimer = (platform) => {',
+    'const firstNonEmptyText = (...values) => {',
+  );
+  const timerReset = sliceBetween(
+    'const clearSessionScopedFrontendTimers = () => {',
+    'let suppressNextOnlineDataTabWatcherLoad = false;',
+  );
+  const hotelSwitch = sliceBetween(
+    'watch(filterReportHotel, (newHotelId, previousHotelId) => {',
+    'watch(weatherLocationName, () => {',
+  );
+  const userSwitch = sliceBetween(
+    'watch(() => user.value?.id, (newUserId, previousUserId) => {',
+    'watch(filterReportHotel, (newHotelId, previousHotelId) => {',
+  );
+
+  for (const expected of [
+    'agentRevenueStateEpoch += 1;',
+    "agentTab.value = 'overview';",
+    'agentOverview.value = createEmptyAgentOverview();',
+    'otaDiagnosisForm.value = createOtaDiagnosisForm();',
+    'otaDiagnosisResult.value = null;',
+    'otaDiagnosisLoading.value = false;',
+    'otaDiagnosisExecutionLoading.value = \"\";',
+    'revenueAnalysisData.value = createEmptyRevenueAnalysisData();',
+    'revenueDashboard.value = createEmptyRevenueDashboard();',
+    'priceSuggestions.value = [];',
+    'demandForecasts.value = [];',
+    'agentLogs.value = [];',
+    'revenueLoadState.value = createRevenueLoadState();',
+    'resetCompetitorAnalysisView();',
+  ]) {
+    assert.ok(agentReset.includes(expected), `Agent reset must include: ${expected}`);
+  }
+
+  assert.match(profileTimerReset, /const clearPlatformProfileLoginTimers = \(\) => \{[\s\S]*clearPlatformProfileLoginTimer\('ctrip'\);[\s\S]*clearPlatformProfileLoginTimer\('meituan'\);[\s\S]*platformProfileLoginTasks\.value = \{\};/);
+  assert.match(timerReset, /clearPostFetchRefreshTimers\(\);/);
+  assert.match(timerReset, /clearHomeQuickLayoutAutoSaveTimer\(\);/);
+  assert.match(timerReset, /clearPlatformProfileLoginTimers\(\);/);
+  assert.match(timerReset, /clearManualOnlineFetchConfigPrewarmTimer\(\);/);
+  assert.match(hotelSwitch, /String\(newHotelId \|\| ''\) !== String\(previousHotelId \|\| ''\)/);
+  assert.match(hotelSwitch, /resetAgentCenterClientState\(\{ reason: 'hotel-switch' \}\);/);
+  assert.match(hotelSwitch, /clearPostFetchRefreshTimers\(\);/);
+  assert.match(hotelSwitch, /clearPlatformProfileLoginTimers\(\);/);
+  assert.match(userSwitch, /resetAgentCenterClientState\(\{ reason: 'user-switch' \}\);/);
+});
+
+test('Agent and OTA diagnosis async results reject stale sessions and hotels', () => {
+  const contextHelpers = sliceBetween(
+    'let agentRevenueStateEpoch = 0;',
+    'const resetAgentCenterClientState = (options = {}) => {',
+  );
+  const diagnosis = sliceBetween(
+    'const generateOtaDiagnosis = async () => {',
+    'const createOtaDiagnosisExecutionIntent = async (row) => {',
+  );
+  const overview = sliceBetween(
+    'const loadAgentOverview = async (options = {}) => {',
+    '// 保存Agent配置',
+  );
+  const profilePoll = sliceBetween(
+    'const pollPlatformProfileLoginStatus = async (platform, taskId) => {',
+    'const resumePlatformProfileLoginTasks = (status) => {',
+  );
+  const revenueActions = sliceBetween(
+    'const saveRoomTypeConfig = async () => {',
+    'const loadAgentLogs = async (options = {}) => {',
+  );
+
+  assert.match(contextHelpers, /session: captureAuthSession\(\)/);
+  assert.match(contextHelpers, /isAuthSessionCurrent\(context\.session\)/);
+  assert.match(contextHelpers, /String\(filterReportHotel\.value \|\| ''\) === context\.hotelId/);
+  assert.match(diagnosis, /const requestContext = captureAgentRevenueRequestContext\(\);/);
+  assert.match(diagnosis, /if \(!isAgentRevenueRequestCurrent\(requestContext\)\) return;/);
+  assert.match(overview, /const requestContext = captureAgentRevenueRequestContext\(\);/);
+  assert.match(overview, /if \(!isAgentRevenueRequestCurrent\(requestContext\)\) return/);
+  assert.match(profilePoll, /const requestSession = captureAuthSession\(\);/);
+  assert.match(profilePoll, /const requestHotelId = String\(getAutoFetchHotelId\(\) \|\| ''\)\.trim\(\);/);
+  assert.match(profilePoll, /if \(!isPlatformProfilePollCurrent\(requestSession, requestHotelId\)\) return;/);
+  assert.match(revenueActions, /const generatePriceSuggestions = async \(\) => \{[\s\S]*const requestContext = captureAgentRevenueRequestContext/);
+  assert.match(revenueActions, /const createPriceSuggestionExecutionIntent = async \(id\) => \{[\s\S]*if \(!isAgentRevenueRequestCurrent\(requestContext\)\) return;/);
+  assert.match(revenueActions, /const reviewPriceSuggestion = async \(id\) => \{[\s\S]*if \(!isAgentRevenueRequestCurrent\(requestContext\)\) return;/);
+});
+
+test('revenue loader failures clear old values and expose a persistent failure or empty state', () => {
+  const revenueState = sliceBetween(
+    'const createRevenueLoadState = () => ({',
+    'const competitorMicroscope = computed',
+  );
+  const roomTypes = sliceBetween(
+    'const loadRoomTypes = async (options = {}) => {',
+    'const saveRoomTypeConfig = async () => {',
+  );
+  const loaders = sliceBetween(
+    'const loadAgentLogs = async (options = {}) => {',
+    'const switchAgentTab = async (tabKey) => {',
+  );
+  const notice = sliceBetween(
+    'const revenueAnalysisDataNotice = computed(() => {',
+    'const SAVED_OTA_DATA_CONFIG_CACHE_TTL_MS',
+  );
+
+  assert.match(revenueState, /analysis: \{ status: 'not_loaded', error: '' \}/);
+  assert.match(roomTypes, /roomTypeConfigList\.value = \[\];/);
+  assert.match(roomTypes, /setRevenueLoadState\('roomTypes', 'failed'/);
+  assert.match(loaders, /revenueAnalysisData\.value = createEmptyRevenueAnalysisData\(\);/);
+  assert.match(loaders, /revenueDashboard\.value = createEmptyRevenueDashboard\(\);/);
+  assert.match(loaders, /demandForecasts\.value = \[\];/);
+  assert.match(loaders, /priceSuggestions\.value = \[\];/);
+  assert.match(loaders, /setRevenueLoadState\('analysis', 'failed'/);
+  assert.match(loaders, /if \(!isAgentRevenueRequestCurrent\(requestContext\)\) return/);
+  assert.match(notice, /收益数据读取失败/);
+  assert.match(notice, /已清除上一会话或上一酒店数据/);
+  assert.match(notice, /收益数据读取中/);
+  assert.match(notice, /收益数据为空/);
+});
+
 test('hotel and dashboard loaders reject stale responses and reuse in-flight requests', () => {
   const pageLoadGuard = sliceBetween('const runPageLoadOnce = (page, loadingKey, task, options = {}) => {', 'const activateCoreOperationsAfterLogin = () => {');
   const workbench = sliceBetween('let dualOtaWorkbenchRequestSeq = 0;', 'const setDualOtaPlatform = (platform, options = {}) => {');
   const competitor = sliceBetween('const loadCompetitorSummary = async (options = {}) => {', 'const loadRevenueAiOverview = async () => {');
   const latest = sliceBetween('const loadLatestCtripData = async (', 'const hasVisibleCtripSnapshot = () => {');
-  const hotelSwitch = sliceBetween('watch(filterReportHotel, () => {', 'watch(weatherLocationName, () => {');
+  const hotelSwitch = sliceBetween('watch(filterReportHotel, (newHotelId, previousHotelId) => {', 'watch(weatherLocationName, () => {');
   const clearHotel = sliceBetween('const clearActiveHotelDashboardSnapshots = () => {', 'const beginAuthSession = (nextToken) => {');
 
   assert.match(pageLoadGuard, /const key = `\$\{sessionEpoch\}:\$\{page\}:\$\{loadingKey\}`/);

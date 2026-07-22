@@ -29,8 +29,18 @@ class TransferDecision extends Base
             $date = $this->normalizeDate((string)$this->request->param('date', date('Y-m-d')));
 
             return $this->success($this->service->buildSourcePayload($hotelIds, $hotelId, $date));
-        } catch (Throwable $e) {
+        } catch (InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), 422);
+        } catch (RuntimeException $e) {
+            $failureCode = $this->sourceFailureCode($e);
+            if ($failureCode !== null) {
+                return $this->error('转让测算来源数据暂时不可用', 503, [
+                    'status_code' => $failureCode,
+                ]);
+            }
             return $this->error($this->safeErrorMessage($e, '获取转让测算来源数据失败'), 400);
+        } catch (Throwable $e) {
+            return $this->error('获取转让测算来源数据失败', 500);
         }
     }
 
@@ -53,7 +63,12 @@ class TransferDecision extends Base
         } catch (InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 422);
         } catch (Throwable $e) {
-            return $this->error('资产定价计算失败: ' . $e->getMessage(), $this->pricingFailureStatusCode($e));
+            $status = $this->pricingFailureStatusCode($e);
+            return $this->error(
+                $status === 422 ? 'AI评估暂时不可用，未生成模型结论' : '资产定价计算失败',
+                $status,
+                ['status_code' => $status === 422 ? 'transfer_pricing_ai_unavailable' : 'transfer_pricing_failed']
+            );
         }
     }
 
@@ -76,7 +91,9 @@ class TransferDecision extends Base
         } catch (InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 422);
         } catch (Throwable $e) {
-            return $this->error('时机推演计算失败: ' . $e->getMessage(), 500);
+            return $this->error('时机推演计算失败', 500, [
+                'status_code' => 'transfer_timing_failed',
+            ]);
         }
     }
 
@@ -102,7 +119,9 @@ class TransferDecision extends Base
         } catch (InvalidArgumentException $e) {
             return $this->error($e->getMessage(), 422);
         } catch (Throwable $e) {
-            return $this->error('数据看板生成失败: ' . $e->getMessage(), 500);
+            return $this->error('数据看板生成失败', 500, [
+                'status_code' => 'transfer_dashboard_failed',
+            ]);
         }
     }
 
@@ -253,6 +272,16 @@ class TransferDecision extends Base
         }
 
         return $fallback;
+    }
+
+    private function sourceFailureCode(RuntimeException $e): ?string
+    {
+        $message = trim($e->getMessage());
+        if (preg_match('/^(transfer_source_(?:schema_check|read)_failed):(daily_reports|online_daily_data|hotels)$/D', $message) !== 1) {
+            return null;
+        }
+
+        return $message;
     }
 
     private function pricingFailureStatusCode(Throwable $e): int

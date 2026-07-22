@@ -51,10 +51,14 @@ test('package and CI run the complete Node automation suite between backend test
   );
   assert.ok(backendStep >= 0 && backendStep < nodeStep, 'Node tests must run after backend tests');
   assert.ok(nodeStep < guardStep, 'Node tests must run before project guards');
-  assert.match(
-    workflow.slice(nodeStep, guardStep),
-    /timeout-minutes:\s+10\s*\n\s+env:\s*\n\s+PHP_BINARY: php\s*\n\s+run: npm run test:node/,
-  );
+  const nodeStepSource = workflow.slice(nodeStep, guardStep);
+  assert.match(nodeStepSource, /timeout-minutes:\s+10/);
+  assert.match(nodeStepSource, /PHP_BINARY:\s+php/);
+  assert.match(nodeStepSource, /SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME:\s+'1'/);
+  assert.match(nodeStepSource, /SUXI_E2E_DB_OVERRIDE:\s+'1'/);
+  assert.match(nodeStepSource, /SUXI_E2E_DB_NAME:\s+hotelx_ci_test/);
+  assert.match(nodeStepSource, /DB_NAME:\s+hotelx_ci_test/);
+  assert.match(nodeStepSource, /run:\s+npm run test:node/);
 });
 
 test('slow login handoff always closes its HTTP server when Chromium launch fails', () => {

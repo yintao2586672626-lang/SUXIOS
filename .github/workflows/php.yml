@@ -116,6 +116,14 @@ jobs:
         timeout-minutes: 10
         env:
           PHP_BINARY: php
+          SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME: '1'
+          SUXI_E2E_DB_OVERRIDE: '1'
+          SUXI_E2E_DB_NAME: hotelx_ci_test
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_NAME: hotelx_ci_test
+          DB_USER: root
+          DB_PASS: suxi-ci-root
         run: npm run test:node
 
       - name: Run project guards
@@ -125,6 +133,7 @@ jobs:
         run: |
           php scripts/verify_missing_modules.php
           php scripts/verify_route_coverage.php
+          node scripts/verify_business_chain_report_contract.mjs
           node scripts/verify_ai_model_config_i18n.mjs
           npm run verify:ota-data-batch
           npm run verify:opening-batch-actions

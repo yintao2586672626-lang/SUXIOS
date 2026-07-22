@@ -68,6 +68,11 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
         self::assertSame('historical_daily', $run['period']);
         self::assertSame('online_data_historical_executed_80_2026-07-21', $run['executed_key']);
         self::assertSame('online_data_historical_retry_80_2026-07-21', $run['retry_key']);
+
+        $scoped = $method->invoke($command, 80, '2026-07-21', [68, 25, 68]);
+        self::assertSame('online_data_historical_executed_80_2026-07-21_sources_25-68', $scoped['executed_key']);
+        self::assertSame('online_data_historical_retry_80_2026-07-21_sources_25-68', $scoped['retry_key']);
+        self::assertNotSame($run['executed_key'], $scoped['executed_key']);
     }
 
     public function testExplicitSourceScopeRequiresHotelAndRejectsInvalidIdsBeforeDatabaseWork(): void
@@ -95,5 +100,60 @@ final class AutoFetchOnlineDataScopeTest extends TestCase
 
         self::assertStringContainsString("\$sourceQuery->whereIn('id', \$sourceIds)", $source);
         self::assertStringContainsString('scheduled_profile_source_scope_missing:', $source);
+        self::assertStringContainsString('profileSourcesForRun($sources, $sourceIds)', $source);
+        self::assertStringContainsString('SUXIOS_AUTO_FETCH_RECEIPT=', $source);
+    }
+
+    public function testForceRerunIsRestrictedToOneExplicitHotelDateAndSourceScope(): void
+    {
+        $command = new AutoFetchOnlineData();
+        $input = new Input(['--force-rerun']);
+        $input->setInteractive(false);
+        $output = new Output('buffer');
+
+        self::assertSame(1, $command->run($input, $output));
+        self::assertStringContainsString(
+            'force-rerun requires explicit hotel-id, target-date, and source-ids.',
+            $output->fetch()
+        );
+
+        $source = (string)file_get_contents(dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php');
+        self::assertStringContainsString("->addOption('force-rerun'", $source);
+        self::assertStringContainsString('if ($executedReceipt && !$forceRerun)', $source);
+        self::assertStringContainsString('$retryState = $forceRerun ? [] : Cache::get', $source);
+        self::assertStringContainsString('if (!$forceRerun && !$this->isScheduleRetryDue', $source);
+    }
+
+    public function testMachineReceiptRequiresEveryExplicitSourceTaskIdentity(): void
+    {
+        $command = new AutoFetchOnlineData();
+        $method = new \ReflectionMethod($command, 'buildMachineReceipt');
+        $sourceResult = static fn(int $sourceId, int $taskId, string $platform): array => [
+            'success' => true,
+            'data_source_id' => $sourceId,
+            'platform' => $platform,
+            'run_readback' => [
+                'readback_verified' => true,
+                'data_source_id' => $sourceId,
+                'sync_task_id' => $taskId,
+                'system_hotel_id' => 80,
+                'target_date' => '2026-07-22',
+                'platform' => $platform,
+                'row_ids' => [$sourceId + 1000],
+            ],
+        ];
+
+        $complete = $method->invoke($command, 80, '2026-07-22', [68, 25], ['complete' => true, 'status' => 'success'], [
+            'platform_results' => [$sourceResult(68, 902, 'meituan'), $sourceResult(25, 901, 'ctrip')],
+        ]);
+        self::assertTrue($complete['collection_complete']);
+        self::assertSame([25, 68], $complete['source_ids']);
+        self::assertSame([25, 68], array_column($complete['source_tasks'], 'data_source_id'));
+        self::assertSame([901, 902], array_column($complete['source_tasks'], 'sync_task_id'));
+
+        $incomplete = $method->invoke($command, 80, '2026-07-22', [25, 68], ['complete' => true, 'status' => 'success'], [
+            'platform_results' => [$sourceResult(25, 901, 'ctrip')],
+        ]);
+        self::assertFalse($incomplete['collection_complete']);
     }
 }

@@ -137,7 +137,7 @@ final class AuthMiddlewareAuditTest extends TestCase
         }
     }
 
-    public function testRateLimitCacheKeyIncludesTenantUserIpEndpointAndWindow(): void
+    public function testRateLimitCacheKeyIncludesTenantUserIpEndpointAndWindowNamespace(): void
     {
         $key = $this->invokeNonPublic(new Auth(), 'buildRateLimitCacheKey', [
             7,
@@ -146,12 +146,11 @@ final class AuthMiddlewareAuditTest extends TestCase
             'protected_ai_decision',
             'POST',
             'api/agent/ota-diagnosis',
-            12345,
         ]);
 
         self::assertStringContainsString('tenant_7_user_42_ip_', $key);
         self::assertStringContainsString('scope_protected_ai_decision', $key);
         self::assertStringContainsString('endpoint_', $key);
-        self::assertStringEndsWith('_window_12345', $key);
+        self::assertStringEndsWith('_window', $key);
     }
 }

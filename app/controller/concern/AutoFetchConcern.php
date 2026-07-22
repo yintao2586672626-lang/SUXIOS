@@ -4088,7 +4088,11 @@ trait AutoFetchConcern
 
     public function cronTrigger(): Response
     {
-        $rateLimited = $this->checkPublicEndpointRateLimit('cron_trigger', 20, 60);
+        try {
+            $rateLimited = $this->checkPublicEndpointRateLimit('cron_trigger', 20, 60);
+        } catch (\Throwable $exception) {
+            return $this->publicEndpointRateLimiterUnavailableResponse('cron_trigger', $exception);
+        }
         if ($rateLimited !== null) {
             $this->recordPublicEndpointFailure('cron_trigger', 'rate_limited', 429, $rateLimited);
             return json(['code' => 429, 'message' => 'Too Many Requests'], 429);

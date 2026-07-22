@@ -132,7 +132,10 @@ test('Profile status cache is hotel-scoped and stale hotel responses cannot over
     'const rawPlatformProfileLoginTask =',
   );
 
-  assert.match(profileStatusLoader, /const isCurrentHotel = \(\) => String\(getAutoFetchHotelId\(\) \|\| ''\) === requestKey;/);
+  assert.match(profileStatusLoader, /const requestSession = captureAuthSession\(\);/);
+  assert.match(profileStatusLoader, /const requestHotelId = String\(hotelId \|\| ''\);/);
+  assert.match(profileStatusLoader, /const requestKey = `\$\{requestSession\.epoch\}:\$\{requestHotelId\}`;/);
+  assert.match(profileStatusLoader, /const isCurrentHotel = \(\) => isAuthSessionCurrent\(requestSession\)\s*&& String\(getAutoFetchHotelId\(\) \|\| ''\) === requestHotelId;/);
   assert.match(profileStatusLoader, /cached\.data/);
   assert.match(profileStatusLoader, /platformProfileStatus\.value = cached\.data/);
   assert.match(profileStatusLoader, /platformProfileStatusResultCache\.set\(requestKey, \{\s*expiresAt: Date\.now\(\) \+ cacheMs,\s*data: nextStatus,/);

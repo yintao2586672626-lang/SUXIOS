@@ -27,9 +27,10 @@ const report = read('scripts/report_business_chain_status.php');
 const runtimeTest = read('tests/automation/business_chain_status_report.test.mjs');
 const revenueAi = read('app/service/RevenueAiOverviewService.php');
 const pkg = read('package.json');
+const workflow = read('.github/workflows/php.yml');
 
 includesAll('business-chain report is registered', pkg, [
-  '"report:business-chain": "C:\\\\xampp\\\\php\\\\php.exe scripts\\\\report_business_chain_status.php"',
+  '"report:business-chain": "node scripts/run_php.mjs scripts/report_business_chain_status.php"',
   '"verify:business-chain-report": "node scripts/verify_business_chain_report_contract.mjs && node --test tests/automation/business_chain_status_report.test.mjs"',
 ]);
 
@@ -42,6 +43,42 @@ includesAll('business-chain report wires the requested chain services', report, 
   'revenue_analysis',
   'ai_decision_advice',
   'operation_closure',
+]);
+
+includesAll('business-chain report exposes a machine-readable database blocker', report, [
+  'business_chain_failure_payload',
+  "'error_code' => $databaseUnavailable ? 'database_unavailable' : 'report_generation_failed'",
+  "'claim_allowed' => false",
+  "'database_ready' => $databaseUnavailable ? false : null",
+]);
+
+includesAll('business-chain runtime tests use portable PHP and fail closed when runtime is required', runtimeTest, [
+  "process.env.PHP_BINARY || 'php'",
+  'function isRuntimeRequired(env = process.env)',
+  'env.CI',
+  'env.SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME',
+  'isRuntimeRequired',
+  'failOrSkipRuntime',
+  'skipWhenRuntimeUnavailable',
+  "spawnErrorCode === 'ENOENT'",
+  "spawnErrorCode === 'EPERM'",
+  "payload?.error_code !== 'database_unavailable'",
+  'business-chain runtime assertions are required when CI=true or SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME=1',
+  'project database is unavailable; runtime business-chain assertions were not evaluated',
+  'assert.fail',
+]);
+
+excludesAll('business-chain runtime tests do not hard-code a workstation PHP path or pre-skip PATH commands', runtimeTest, [
+  'C:\\\\xampp\\\\php\\\\php.exe',
+  'existsSync(php)',
+]);
+
+includesAll('CI requires the business-chain PHP and database runtime', workflow, [
+  "PHP_BINARY: php",
+  "SUXI_REQUIRE_BUSINESS_CHAIN_RUNTIME: '1'",
+  "SUXI_E2E_DB_OVERRIDE: '1'",
+  'DB_NAME: hotelx_ci_test',
+  'node scripts/verify_business_chain_report_contract.mjs',
 ]);
 
 includesAll('business-chain report supports explicit skip-P0 reference mode', report, [

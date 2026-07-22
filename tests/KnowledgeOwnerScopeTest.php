@@ -83,23 +83,45 @@ final class KnowledgeOwnerScopeTest extends TestCase
         $this->invokeNonPublic($controller, 'resolveKnowledgeImportHotelId', [99]);
     }
 
+    public function testKnowledgeExecutionIntentRequiresHotelOperationExecutePermission(): void
+    {
+        $allowed = $this->controllerWithUser(7, false, [11], ['operation.execute']);
+        $denied = $this->controllerWithUser(7, false, [11], []);
+        $superAdmin = $this->controllerWithUser(7, true, [], []);
+
+        self::assertTrue($this->invokeNonPublic($allowed, 'canCreateKnowledgeExecutionIntent', [11]));
+        self::assertFalse($this->invokeNonPublic($denied, 'canCreateKnowledgeExecutionIntent', [11]));
+        self::assertFalse($this->invokeNonPublic($allowed, 'canCreateKnowledgeExecutionIntent', [12]));
+        self::assertTrue($this->invokeNonPublic($superAdmin, 'canCreateKnowledgeExecutionIntent', [11]));
+    }
+
     /**
      * @param array<int, int> $permittedHotelIds
      */
-    private function controllerWithUser(int $userId, bool $isSuperAdmin, array $permittedHotelIds = []): Knowledge
+    private function controllerWithUser(
+        int $userId,
+        bool $isSuperAdmin,
+        array $permittedHotelIds = [],
+        array $hotelPermissions = []
+    ): Knowledge
     {
         $controller = (new ReflectionClass(Knowledge::class))->newInstanceWithoutConstructor();
         $reflection = new ReflectionObject($controller);
         $property = $reflection->getParentClass()->getProperty('currentUser');
         $property->setAccessible(true);
-        $property->setValue($controller, new class($userId, $isSuperAdmin, $permittedHotelIds) {
+        $property->setValue($controller, new class($userId, $isSuperAdmin, $permittedHotelIds, $hotelPermissions) {
             public int $id;
             private bool $isSuperAdmin;
 
             /**
              * @param array<int, int> $permittedHotelIds
              */
-            public function __construct(int $id, bool $isSuperAdmin, private array $permittedHotelIds)
+            public function __construct(
+                int $id,
+                bool $isSuperAdmin,
+                private array $permittedHotelIds,
+                private array $hotelPermissions
+            )
             {
                 $this->id = $id;
                 $this->isSuperAdmin = $isSuperAdmin;
@@ -116,6 +138,12 @@ final class KnowledgeOwnerScopeTest extends TestCase
             public function getPermittedHotelIds(): array
             {
                 return $this->permittedHotelIds;
+            }
+
+            public function hasHotelPermission(int $hotelId, string $permission): bool
+            {
+                return in_array($hotelId, $this->permittedHotelIds, true)
+                    && in_array($permission, $this->hotelPermissions, true);
             }
         });
 

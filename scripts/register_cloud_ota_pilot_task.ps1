@@ -56,14 +56,18 @@ $triggerTimes = @('06:00', '06:15', '06:30')
 $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 
 $bindingReady = $false
+$bindingSourceIds = @()
 if ($null -ne $resolvedBindingPath) {
     try {
         $binding = Get-Content -LiteralPath $resolvedBindingPath -Raw -Encoding UTF8 | ConvertFrom-Json
         $platforms = @($binding.bindings | ForEach-Object { [string]$_.platform } | Sort-Object -Unique)
+        $bindingSourceIds = @($binding.bindings | ForEach-Object { [int]$_.source_data_source_id } | Sort-Object -Unique)
         $bindingReady = [string]$binding.contract_version -eq 'suxios.cloud_ota_binding.v1' `
             -and [int]$binding.source_system_hotel_id -eq $HotelId `
             -and [int]$binding.destination_system_hotel_id -gt 0 `
             -and @($binding.bindings).Count -eq 2 `
+            -and $bindingSourceIds.Count -eq 2 `
+            -and @($bindingSourceIds | Where-Object { $_ -le 0 }).Count -eq 0 `
             -and $platforms.Count -eq 2 `
             -and $platforms -contains 'ctrip' `
             -and $platforms -contains 'meituan'
@@ -71,6 +75,7 @@ if ($null -ne $resolvedBindingPath) {
         $bindingReady = $false
     }
 }
+$sourceIdsArgument = $bindingSourceIds -join ','
 
 $runAsUserSafe = [Environment]::UserInteractive `
     -and [System.Diagnostics.Process]::GetCurrentProcess().SessionId -gt 0 `
@@ -93,8 +98,8 @@ try {
     $healthDetail = 'health check failed: ' + $_.Exception.GetType().Name
 }
 
-$actionArguments = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -Run -HotelId {1} -BindingPath "{2}" -ProjectRoot "{3}"' -f `
-    $resolvedRunnerPath, $HotelId, $resolvedBindingPath, $effectiveProjectRoot
+$actionArguments = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -Run -HotelId {1} -SourceIds "{2}" -BindingPath "{3}" -ProjectRoot "{4}"' -f `
+    $resolvedRunnerPath, $HotelId, $sourceIdsArgument, $resolvedBindingPath, $effectiveProjectRoot
 $credentialPattern = '(?i)(--?(cookie|token|password|authorization|spidertoken|secret|session|credential)\b|(?:cookie|token|password|authorization|spidertoken|secret|session|credential)\s*=)'
 $credentialFreeArguments = $actionArguments -notmatch $credentialPattern
 

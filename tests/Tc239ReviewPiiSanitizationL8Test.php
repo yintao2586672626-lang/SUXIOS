@@ -94,7 +94,15 @@ final class Tc239ReviewPiiSanitizationL8Test extends TestCase
         self::assertSame('review', $rows[0]['data_type'], $message);
         self::assertSame(4.7, $rows[0]['comment_score'], $message);
         self::assertSame(9, $rows[0]['quantity'], $message);
-        self::assertSame('normal', $rows[0]['validation_status'], $message);
+        self::assertSame('unverified', $rows[0]['validation_status'], $message);
+        $validationFlags = json_decode(
+            (string)$rows[0]['validation_flags'],
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        self::assertContains('source_ingestion_method_unverified', $validationFlags, $message);
+        self::assertContains('hotel_binding_unverified', $validationFlags, $message);
 
         $this->assertPiiDoesNotReachNormalizedStorage($rows, $message);
 

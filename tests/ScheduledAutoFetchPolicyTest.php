@@ -161,6 +161,23 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         self::assertSame([68], array_column($retryable, 'id'));
     }
 
+    public function testExplicitSourceScopePreservesEverySelectedDegradedSourceInStableOrder(): void
+    {
+        $sources = [
+            ['id' => 101, 'platform' => 'meituan', 'status' => 'waiting_config', 'last_sync_time' => '2026-07-15 09:28:44'],
+            ['id' => 68, 'platform' => 'meituan', 'status' => 'waiting_config', 'last_sync_time' => '2026-07-17 17:38:11'],
+            ['id' => 25, 'platform' => 'ctrip', 'status' => 'failed', 'last_sync_time' => '2026-07-17 17:38:06'],
+        ];
+
+        self::assertSame([68, 101], array_column(
+            $this->policy->profileSourcesForRun($sources, [101, 68, 101]),
+            'id'
+        ));
+        $unscopedIds = array_column($this->policy->profileSourcesForRun($sources), 'id');
+        sort($unscopedIds, SORT_NUMERIC);
+        self::assertSame([25, 68], $unscopedIds);
+    }
+
     public function testCliAndHttpDispatchersSharePolicyAndOnlyMarkCompleteRunsExecuted(): void
     {
         $command = (string)file_get_contents(dirname(__DIR__) . '/app/command/AutoFetchOnlineData.php');
@@ -183,7 +200,7 @@ final class ScheduledAutoFetchPolicyTest extends TestCase
         self::assertStringContainsString("in_array('ctrip', \$targetPlatforms, true)", $controller);
         self::assertStringContainsString("in_array('meituan', \$targetPlatforms, true)", $controller);
         self::assertStringContainsString("\$coreReadbackVerified = \$this->runReadbackCoreVerified(\$runReadback)", $command);
-        self::assertStringContainsString("'platform_results' => array_values(\$platformResults)", $command);
+        self::assertStringContainsString("'platform_results' => \$platformResults", $command);
         self::assertStringContainsString("!isset(\$failedPlatforms[\$platform])", $command);
         self::assertStringContainsString("return \$savedCount > 0 ? 'partial_success' : 'failed';", $controller);
     }

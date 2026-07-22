@@ -10,6 +10,7 @@ use app\model\OperationLog;
 use app\service\CompetitorDeviceAuthService;
 use app\service\CompetitorEventFeedService;
 use app\service\CompetitorManualObservationService;
+use app\service\FixedWindowRateLimiter;
 use app\service\HotelScopeService;
 use think\facade\Db;
 use think\Response;
@@ -1208,9 +1209,26 @@ class CompetitorApi extends Base
         $identity = $identity !== '' ? $identity : (string)$this->request->ip();
         $ipHash = substr(sha1((string)$this->request->ip()), 0, 16);
         $key = sprintf('competitor_api_rate_%s_%s', $scope, $ipHash);
-        $count = (int)cache($key);
+        try {
+            $rateLimit = $this->fixedWindowRateLimiter()->consume($key, $limit, $window);
+        } catch (\Throwable $exception) {
+            \think\facade\Log::error('Competitor public rate limiter unavailable.', [
+                'exception_type' => get_debug_type($exception),
+                'scope' => $scope,
+                'ip_hash' => $ipHash,
+            ]);
 
-        if ($count >= $limit) {
+            return json([
+                'code' => 503,
+                'message' => '限流服务暂不可用，请稍后重试',
+                'data' => [
+                    'reason' => 'rate_limiter_unavailable',
+                    'retry_after' => 1,
+                ],
+            ], 503, ['Retry-After' => '1']);
+        }
+
+        if (!$rateLimit['allowed']) {
             OperationLog::record('competitor', 'external_rate_limited', '竞对公开接口触发限流: ' . $scope, null, null, 'HTTP 429', [
                 'audit_type' => 'operation',
                 'scope' => $scope,
@@ -1224,15 +1242,19 @@ class CompetitorApi extends Base
                 'code' => 429,
                 'message' => '请求过于频繁，请稍后再试',
                 'data' => [
-                    'retry_after' => $window,
+                    'retry_after' => $rateLimit['retry_after'],
                     'limit' => $limit,
                     'window' => $window,
                 ],
-            ], 429, ['Retry-After' => (string)$window]);
+            ], 429, ['Retry-After' => (string)$rateLimit['retry_after']]);
         }
 
-        cache($key, $count + 1, $window + 5);
         return null;
+    }
+
+    protected function fixedWindowRateLimiter(): FixedWindowRateLimiter
+    {
+        return new FixedWindowRateLimiter();
     }
 
     private function externalRateLimitIdentity(string $deviceId, string $platform): string

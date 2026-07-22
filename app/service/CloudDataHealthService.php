@@ -335,8 +335,8 @@ final class CloudDataHealthService
                     'core_business_metrics_missing',
                     $platform,
                     '目标日只有辅助类数据，缺少可回读的 OTA 经营核心指标。',
-                    false,
-                    '补采或导入该平台目标日的房费收入、间夜或订单证据；现有报告仅按已验证渠道数据生成。'
+                    true,
+                    '补采或导入该平台目标日的房费收入、间夜或订单证据后再生成报告。'
                 );
             }
 
@@ -567,8 +567,7 @@ final class CloudDataHealthService
 
     private static function isCoreBusinessRow(array $row): bool
     {
-        $dataType = strtolower(trim((string)($row['data_type'] ?? '')));
-        return in_array($dataType, ['business', 'business_overview', 'revenue', 'order', 'orders'], true);
+        return OtaOperatingScope::isCoreBusinessDataType((string)($row['data_type'] ?? ''));
     }
 
     private static function hasFieldEvidence(array $row): bool

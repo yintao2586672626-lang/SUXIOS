@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use app\command\RunCloudDataBridge;
 use app\service\CloudOtaBundleImportService;
 use app\service\CloudOtaBundleExportService;
 use PHPUnit\Framework\TestCase;
@@ -56,7 +57,10 @@ final class CloudOtaBundleImportContractTest extends TestCase
 
         self::assertStringContainsString('CloudOtaBundleCodec::MAX_ROWS + 1', $exportSource);
         self::assertStringContainsString('cloud_bundle_source_row_limit_exceeded', $exportSource);
-        self::assertStringContainsString("'snapshot_complete' => true", $exportSource);
+        self::assertStringContainsString("->where('sync_task_id', (int)\$syncTask['id'])", $exportSource);
+        self::assertStringContainsString("'source_sync_task_id' => \$syncTaskId", $exportSource);
+        self::assertStringContainsString("'snapshot_complete' => count(\$rows) === \$targetRowCount", $exportSource);
+        self::assertStringContainsString('cloud_bundle_sync_task_row_identity_mismatch:', $exportSource);
         self::assertStringContainsString('($package[\'snapshot_complete\'] ?? false) === true', $importSource);
         self::assertStringContainsString('(int)($package[\'source_row_count\'] ?? -1) === count($rows)', $importSource);
     }
@@ -71,6 +75,17 @@ final class CloudOtaBundleImportContractTest extends TestCase
         self::assertStringContainsString('$selectedBindings = array_values(array_filter(', $source);
         self::assertStringContainsString("in_array((string)\$item['platform'], \$requiredPlatforms, true)", $source);
         self::assertStringContainsString('foreach ($selectedBindings as $item)', $source);
+        self::assertStringContainsString('loadVerifiedSyncTask(', $source);
+    }
+
+    public function testExportCommandParsesExactSourceToSyncTaskBindings(): void
+    {
+        $method = new ReflectionMethod(new RunCloudDataBridge(), 'parseSyncTaskIds');
+        self::assertSame([25 => 901, 68 => 902], $method->invoke(new RunCloudDataBridge(), '68:902,25:901'));
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('unique positive source_id:sync_task_id pairs');
+        $method->invoke(new RunCloudDataBridge(), '25:901,25:902');
     }
 
     public function testSystemdBridgeIsShortLivedAndResourceBounded(): void

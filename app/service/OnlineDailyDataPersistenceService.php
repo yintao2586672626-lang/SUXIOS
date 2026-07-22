@@ -139,7 +139,7 @@ final class OnlineDailyDataPersistenceService
         $identityFields = [
             'tenant_id', 'source', 'platform', 'data_type', 'data_date', 'dimension',
             'hotel_id', 'hotel_name', 'system_hotel_id', 'compare_type',
-            'data_period', 'snapshot_bucket', 'source_trace_id',
+            'data_period', 'snapshot_bucket', 'source_trace_id', 'persistence_identity_hash',
         ];
         $businessFields = array_values(array_filter([
             'amount', 'quantity', 'book_order_num', 'comment_score',

@@ -22,6 +22,7 @@ class AutoFetchOnlineData extends Command
             ->addOption('hotel-id', null, Option::VALUE_REQUIRED, 'Optional positive hotel id scope')
             ->addOption('target-date', null, Option::VALUE_REQUIRED, 'Explicit historical date within the previous 7 days')
             ->addOption('source-ids', null, Option::VALUE_REQUIRED, 'Optional comma-separated Profile source ids within the hotel scope')
+            ->addOption('force-rerun', null, Option::VALUE_NONE, 'Rerun one completed explicit hotel/date/source scope')
             ->setDescription('自动获取线上数据（定时任务调用）');
     }
 
@@ -66,10 +67,16 @@ class AutoFetchOnlineData extends Command
             }
         }
 
-        return $this->executeSegmentedSchedules($output, $hotelId, $targetDate, $sourceIds);
+        $forceRerun = (bool)$input->getOption('force-rerun');
+        if ($forceRerun && ($hotelId === null || $targetDate === null || $sourceIds === [])) {
+            $output->writeln('force-rerun requires explicit hotel-id, target-date, and source-ids.');
+            return 1;
+        }
+
+        return $this->executeSegmentedSchedules($output, $hotelId, $targetDate, $sourceIds, $forceRerun);
     }
 
-    private function executeSegmentedSchedules(Output $output, ?int $hotelIdFilter = null, ?string $targetDateOverride = null, array $sourceIds = []): int
+    private function executeSegmentedSchedules(Output $output, ?int $hotelIdFilter = null, ?string $targetDateOverride = null, array $sourceIds = [], bool $forceRerun = false): int
     {
         $output->writeln('[' . date('Y-m-d H:i:s') . '] Start online data auto-fetch schedule check.');
 
@@ -102,7 +109,7 @@ class AutoFetchOnlineData extends Command
             $retryMaxAttempts = $this->normalizeScheduleRetryMaxAttempts($status['retry_max_attempts'] ?? 3);
             $retryDelayMinutes = $this->normalizeScheduleRetryDelayMinutes($status['retry_delay_minutes'] ?? 5);
             $dueRuns = $targetDateOverride !== null
-                ? [$this->explicitHistoricalRun($hotelId, $targetDateOverride)]
+                ? [$this->explicitHistoricalRun($hotelId, $targetDateOverride, $sourceIds)]
                 : $this->buildDueRuns($hotelId, $status, $now);
             if (empty($dueRuns)) {
                 continue;
@@ -112,13 +119,17 @@ class AutoFetchOnlineData extends Command
             $ctripSectionConcurrency = $this->normalizeCtripSectionConcurrency($status['ctrip_section_concurrency'] ?? $status['ctripSectionConcurrency'] ?? 3);
             $lockKey = "online_data_profile_lock_{$hotelId}";
             foreach ($dueRuns as $run) {
-                if (Cache::get($run['executed_key'])) {
+                $executedReceipt = Cache::get($run['executed_key']);
+                if ($executedReceipt && !$forceRerun) {
                     $output->writeln("Hotel {$hotelName} {$run['label']} already executed, skipped.");
+                    if (is_array($executedReceipt)) {
+                        $this->writeMachineReceipt($output, $executedReceipt);
+                    }
                     continue;
                 }
-                $retryState = Cache::get($run['retry_key'], []);
+                $retryState = $forceRerun ? [] : Cache::get($run['retry_key'], []);
                 $retryState = is_array($retryState) ? $retryState : [];
-                if (!$this->isScheduleRetryDue($retryState, $retryMaxAttempts, $now)) {
+                if (!$forceRerun && !$this->isScheduleRetryDue($retryState, $retryMaxAttempts, $now)) {
                     $hasIncompleteDueRun = true;
                     $reason = ((int)($retryState['attempts'] ?? 0) >= $retryMaxAttempts)
                         ? 'retry exhausted'
@@ -208,8 +219,19 @@ class AutoFetchOnlineData extends Command
                     $output->writeln("Hotel {$hotelName} {$run['label']} {$outcome['status']}: " . (string)($result['message'] ?? '-'));
 
                     if ($outcome['complete']) {
-                        Cache::set($run['executed_key'], true, 86400);
-                        Cache::delete($run['retry_key']);
+                        $receipt = $this->buildMachineReceipt($hotelId, $run['data_date'], $sourceIds, $outcome, $result);
+                        $this->writeMachineReceipt($output, $receipt);
+                        if (!empty($receipt['collection_complete'])) {
+                            Cache::set($run['executed_key'], $receipt, 86400);
+                            Cache::delete($run['retry_key']);
+                        } else {
+                            Cache::set($run['retry_key'], [
+                                ...$retryDetails,
+                                'last_status' => 'receipt_invalid',
+                                'last_message' => 'collection completed without a verifiable source-task receipt',
+                            ], 86400 * 2);
+                            $hasIncompleteDueRun = true;
+                        }
                     } else {
                         Cache::set($run['retry_key'], $retryDetails, 86400 * 2);
                         $hasIncompleteDueRun = true;
@@ -255,18 +277,26 @@ class AutoFetchOnlineData extends Command
             }
             $ids[(int)$part] = (int)$part;
         }
-        return array_values($ids);
+        $ids = array_values($ids);
+        sort($ids, SORT_NUMERIC);
+        return $ids;
     }
 
     /** @return array{slot_id: string, period: string, data_date: string, executed_key: string, retry_key: string, label: string, executed_message: string} */
-    private function explicitHistoricalRun(int $hotelId, string $targetDate): array
+    private function explicitHistoricalRun(int $hotelId, string $targetDate, array $sourceIds = []): array
     {
+        $sourceIds = array_values(array_unique(array_filter(
+            array_map('intval', $sourceIds),
+            static fn(int $id): bool => $id > 0
+        )));
+        sort($sourceIds, SORT_NUMERIC);
+        $scopeSuffix = $sourceIds === [] ? '' : '_sources_' . implode('-', $sourceIds);
         return [
             'slot_id' => "historical:{$targetDate}",
             'period' => 'historical_daily',
             'data_date' => $targetDate,
-            'executed_key' => "online_data_historical_executed_{$hotelId}_{$targetDate}",
-            'retry_key' => "online_data_historical_retry_{$hotelId}_{$targetDate}",
+            'executed_key' => "online_data_historical_executed_{$hotelId}_{$targetDate}{$scopeSuffix}",
+            'retry_key' => "online_data_historical_retry_{$hotelId}_{$targetDate}{$scopeSuffix}",
             'label' => 'historical-explicit',
             'executed_message' => 'Explicit historical data already executed.',
         ];
@@ -360,7 +390,7 @@ class AutoFetchOnlineData extends Command
                 }
             }
             $policy = new ScheduledAutoFetchPolicy();
-            $sources = $policy->retryableProfileSources($sources);
+            $sources = $policy->profileSourcesForRun($sources, $sourceIds);
             $targetPlatforms = $policy->normalizePlatforms($targetPlatforms);
             if ($targetPlatforms !== []) {
                 $sources = array_values(array_filter(
@@ -423,10 +453,11 @@ class AutoFetchOnlineData extends Command
             $savedByPlatform[$platform] = ($savedByPlatform[$platform] ?? 0) + $sourceSavedCount;
             $runReadback = is_array($result['run_readback'] ?? null) ? $result['run_readback'] : [];
             $coreReadbackVerified = $this->runReadbackCoreVerified($runReadback);
-            $platformResults[$platform] = [
+            $platformResults[] = [
                 'platform' => $platform,
+                'data_source_id' => (int)$source['id'],
                 'success' => $coreReadbackVerified,
-                'saved_count' => ($platformResults[$platform]['saved_count'] ?? 0) + $sourceSavedCount,
+                'saved_count' => $sourceSavedCount,
                 'run_readback' => $runReadback,
                 'message' => (string)($result['message'] ?? $result['status'] ?? '-'),
             ];
@@ -449,7 +480,7 @@ class AutoFetchOnlineData extends Command
                 'saved_count' => $savedCount,
                 'data_period' => $dataPeriod,
                 'timing' => $timing,
-                'platform_results' => array_values($platformResults),
+                'platform_results' => $platformResults,
                 'failed_platforms' => array_keys($failedPlatforms),
                 'successful_platforms' => array_keys(array_filter(
                     $savedByPlatform,
@@ -466,10 +497,82 @@ class AutoFetchOnlineData extends Command
             'saved_count' => 0,
             'data_period' => $dataPeriod,
             'timing' => $timing,
-            'platform_results' => array_values($platformResults),
+            'platform_results' => $platformResults,
             'failed_platforms' => array_keys($failedPlatforms),
             'successful_platforms' => [],
         ];
+    }
+
+    /**
+     * @param array<int, int> $sourceIds
+     * @param array<string, mixed> $outcome
+     * @param array<string, mixed> $result
+     * @return array<string, mixed>
+     */
+    private function buildMachineReceipt(int $hotelId, string $targetDate, array $sourceIds, array $outcome, array $result): array
+    {
+        $sourceIds = array_values(array_unique(array_filter(
+            array_map('intval', $sourceIds),
+            static fn(int $id): bool => $id > 0
+        )));
+        sort($sourceIds, SORT_NUMERIC);
+        $sourceTasks = [];
+        foreach ((array)($result['platform_results'] ?? []) as $platformResult) {
+            if (!is_array($platformResult) || empty($platformResult['success'])) {
+                continue;
+            }
+            $readback = is_array($platformResult['run_readback'] ?? null) ? $platformResult['run_readback'] : [];
+            $dataSourceId = (int)($readback['data_source_id'] ?? $platformResult['data_source_id'] ?? 0);
+            $syncTaskId = (int)($readback['sync_task_id'] ?? 0);
+            $receiptHotelId = (int)($readback['system_hotel_id'] ?? 0);
+            $receiptDate = substr(trim((string)($readback['target_date'] ?? '')), 0, 10);
+            $platform = strtolower(trim((string)($readback['platform'] ?? $platformResult['platform'] ?? '')));
+            $rowIds = array_values(array_unique(array_filter(array_map(
+                'intval',
+                is_array($readback['row_ids'] ?? null) ? $readback['row_ids'] : []
+            ), static fn(int $id): bool => $id > 0)));
+            if (($readback['readback_verified'] ?? false) !== true
+                || $dataSourceId <= 0
+                || $syncTaskId <= 0
+                || $receiptHotelId !== $hotelId
+                || $receiptDate !== $targetDate
+                || !in_array($platform, ['ctrip', 'meituan'], true)
+                || $rowIds === []
+            ) {
+                continue;
+            }
+            $sourceTasks[$dataSourceId] = [
+                'data_source_id' => $dataSourceId,
+                'sync_task_id' => $syncTaskId,
+                'platform' => $platform,
+                'row_ids' => $rowIds,
+            ];
+        }
+        ksort($sourceTasks, SORT_NUMERIC);
+        $receiptSourceIds = array_map('intval', array_keys($sourceTasks));
+        $expectedSourceIds = $sourceIds === [] ? $receiptSourceIds : $sourceIds;
+        $collectionComplete = !empty($outcome['complete'])
+            && $expectedSourceIds !== []
+            && $receiptSourceIds === $expectedSourceIds;
+
+        return [
+            'schema_version' => 1,
+            'hotel_id' => $hotelId,
+            'target_date' => $targetDate,
+            'source_ids' => $expectedSourceIds,
+            'status' => (string)($outcome['status'] ?? ''),
+            'collection_complete' => $collectionComplete,
+            'source_tasks' => array_values($sourceTasks),
+        ];
+    }
+
+    /** @param array<string, mixed> $receipt */
+    private function writeMachineReceipt(Output $output, array $receipt): void
+    {
+        $json = json_encode($receipt, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (is_string($json)) {
+            $output->writeln('SUXIOS_AUTO_FETCH_RECEIPT=' . $json);
+        }
     }
 
     private function runReadbackCoreVerified(array $receipt): bool

@@ -46,6 +46,31 @@ test('dual OTA values preserve authoritative zero and reject missing arithmetic'
   assert.doesNotMatch(dualOtaStatic, /美团昨日漏斗来自.*样例/);
 });
 
+test('dual OTA all-store scope uses current aggregate evidence instead of requiring one selected hotel', () => {
+  const api = loadWindowApi(dualOtaStatic, 'SUXI_DUAL_OTA_HOME');
+
+  assert.equal(api.hasDualOtaScopeCurrentData({
+    hasSelectedHotel: false,
+    scope: 'combined',
+    ctripAggregateReady: true,
+    meituanAggregateReady: false,
+  }), true);
+  assert.equal(api.hasDualOtaScopeCurrentData({
+    hasSelectedHotel: false,
+    scope: 'meituan',
+    ctripAggregateReady: true,
+    meituanAggregateReady: false,
+  }), false);
+  assert.equal(api.hasDualOtaScopeCurrentData({
+    hasSelectedHotel: true,
+    scope: 'ctrip',
+    ctripSelectedReady: false,
+    ctripAggregateReady: true,
+  }), false);
+  assert.match(appMain, /const dualOtaCtripAggregatePeriodDataReady = \(\) =>/);
+  assert.match(appMain, /const dualOtaMeituanAggregatePeriodDataReady = \(\) =>/);
+});
+
 test('Ctrip field chain starts from its returned visitor stage without a duplicate browse gap', () => {
   const lossChainStart = appMain.indexOf('dualOtaCurrentLossNodes = () => {');
   const ctripStart = appMain.indexOf("if (scope === 'ctrip') {", lossChainStart);

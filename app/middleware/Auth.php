@@ -6,6 +6,7 @@ namespace app\middleware;
 use app\model\OperationLog;
 use app\model\SystemNotification;
 use app\model\User;
+use app\service\FixedWindowRateLimiter;
 use app\service\OperationAuditClassifier;
 use app\service\OperationAuditSanitizerService;
 use app\service\ProtectedCapabilityService;
@@ -399,7 +400,6 @@ class Auth
         if ($limit <= 0) {
             return null;
         }
-        $bucket = (int)floor(time() / $window);
         $params = $this->sanitizeAuditParams($request->param());
         $tenantId = $this->resolveTenantIdForRateLimit($params, $user);
         $path = (string)$policy['path'];
@@ -409,13 +409,33 @@ class Auth
             (string)$request->ip(),
             (string)$policy['scope'],
             strtoupper($request->method()),
-            $path,
-            $bucket
+            $path
         );
-        $count = (int)cache($key);
+        try {
+            $rateLimit = $this->fixedWindowRateLimiter()->consume($key, $limit, $window);
+        } catch (\Throwable $exception) {
+            \think\facade\Log::error('Authenticated rate limiter unavailable.', [
+                'exception_type' => get_debug_type($exception),
+                'tenant_id' => $tenantId,
+                'user_id' => (int)$user->id,
+                'scope' => (string)$policy['scope'],
+                'path' => $path,
+                'request_id' => $requestId,
+            ]);
 
-        if ($count >= $limit) {
-            $retryAfter = max(1, (($bucket + 1) * $window) - time());
+            return json([
+                'code' => 503,
+                'message' => 'Rate limiter unavailable',
+                'data' => [
+                    'reason' => 'rate_limiter_unavailable',
+                    'reference_id' => $requestId,
+                ],
+                'request_id' => $requestId,
+            ], 503, ['Retry-After' => '1']);
+        }
+
+        if (!$rateLimit['allowed']) {
+            $retryAfter = $rateLimit['retry_after'];
             $this->recordRateLimitExceeded($request, $user, $policy, $tenantId, $requestId, $retryAfter);
 
             return json([
@@ -432,9 +452,12 @@ class Auth
             ], 429, ['Retry-After' => (string)$retryAfter]);
         }
 
-        cache($key, $count + 1, $window + 5);
-
         return null;
+    }
+
+    protected function fixedWindowRateLimiter(): FixedWindowRateLimiter
+    {
+        return new FixedWindowRateLimiter();
     }
 
     /**
@@ -515,17 +538,15 @@ class Auth
         string $ip,
         string $scope,
         string $method,
-        string $path,
-        int $bucket
+        string $path
     ): string {
         return sprintf(
-            'rate_limit_tenant_%d_user_%d_ip_%s_scope_%s_endpoint_%s_window_%d',
+            'rate_limit_tenant_%d_user_%d_ip_%s_scope_%s_endpoint_%s_window',
             $tenantId,
             $userId,
             substr(sha1($ip), 0, 16),
             preg_replace('/[^a-z0-9_\-]/i', '_', $scope),
-            sha1(strtoupper($method) . ':' . strtolower($path)),
-            $bucket
+            sha1(strtoupper($method) . ':' . strtolower($path))
         );
     }
 

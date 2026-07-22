@@ -6,6 +6,46 @@ namespace app\service;
 final class ScheduledAutoFetchPolicy
 {
     /**
+     * Explicit source scope is an operator contract, so every selected source
+     * must run even when multiple degraded sources belong to one platform.
+     * Unscoped schedules retain the bounded one-degraded-source policy.
+     *
+     * @param array<int, array<string, mixed>> $sources
+     * @param array<int, int> $explicitSourceIds
+     * @return array<int, array<string, mixed>>
+     */
+    public function profileSourcesForRun(array $sources, array $explicitSourceIds = []): array
+    {
+        $explicitSourceIds = array_values(array_unique(array_filter(
+            array_map('intval', $explicitSourceIds),
+            static fn(int $id): bool => $id > 0
+        )));
+        sort($explicitSourceIds, SORT_NUMERIC);
+        if ($explicitSourceIds === []) {
+            return $this->retryableProfileSources($sources);
+        }
+
+        $sourcesById = [];
+        foreach ($sources as $source) {
+            if (!is_array($source)) {
+                continue;
+            }
+            $id = (int)($source['id'] ?? 0);
+            if ($id > 0) {
+                $sourcesById[$id] = $source;
+            }
+        }
+
+        $selected = [];
+        foreach ($explicitSourceIds as $sourceId) {
+            if (isset($sourcesById[$sourceId])) {
+                $selected[] = $sourcesById[$sourceId];
+            }
+        }
+        return $selected;
+    }
+
+    /**
      * Keep every currently usable Profile source. When a platform has no
      * usable source because the previous attempt changed it to a degraded
      * state, retain one deterministic source so the bounded retry policy can

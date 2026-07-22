@@ -928,6 +928,8 @@
                 }, delay);
             };
             const resetHotelScopedClientState = () => {
+                clearSessionScopedFrontendTimers();
+                resetAgentCenterClientState({ reason: 'auth-session' });
                 dualOtaWorkbenchRequestSeq += 1;
                 compassRequestSeq += 1;
                 homeTrendRequestId += 1;
@@ -1128,6 +1130,10 @@
                 showToast('登录状态暂时无法验证，已保留本地会话，请检查网络后刷新重试', 'warning');
             };
             const postFetchRefreshTimers = new Map();
+            const clearPostFetchRefreshTimers = () => {
+                postFetchRefreshTimers.forEach(timer => clearTimeout(timer));
+                postFetchRefreshTimers.clear();
+            };
             const schedulePostFetchRefresh = (key, callback, delay = 240) => {
                 const timerKey = String(key || 'default');
                 const existingTimer = postFetchRefreshTimers.get(timerKey);
@@ -4685,6 +4691,7 @@
                 || typeof dualOtaHomeStatic.hasAllDualOtaConnections !== 'function'
                 || typeof dualOtaHomeStatic.resolveDualOtaBoundHotelRow !== 'function'
                 || typeof dualOtaHomeStatic.isDualOtaWorkbenchRequestCurrent !== 'function'
+                || typeof dualOtaHomeStatic.hasDualOtaScopeCurrentData !== 'function'
                 || typeof dualOtaHomeStatic.parseDualOtaNumber !== 'function'
                 || typeof dualOtaHomeStatic.hasObservedDualOtaNumber !== 'function'
                 || typeof dualOtaHomeStatic.firstObservedDualOtaValue !== 'function'
@@ -4695,6 +4702,7 @@
             const hasAllDualOtaConnections = dualOtaHomeStatic.hasAllDualOtaConnections;
             const resolveDualOtaBoundHotelRow = dualOtaHomeStatic.resolveDualOtaBoundHotelRow;
             const isDualOtaWorkbenchRequestCurrent = dualOtaHomeStatic.isDualOtaWorkbenchRequestCurrent;
+            const hasDualOtaScopeCurrentData = dualOtaHomeStatic.hasDualOtaScopeCurrentData;
             const dualOtaObservedNumber = dualOtaHomeStatic.parseDualOtaNumber;
             const dualOtaHasObservedNumber = dualOtaHomeStatic.hasObservedDualOtaNumber;
             const dualOtaFirstObservedValue = dualOtaHomeStatic.firstObservedDualOtaValue;
@@ -5837,17 +5845,54 @@
                 dualOtaMeituanCurrentCoreDataReady()
                 && dualOtaDataDateMatchesSelectedRange(competitorSummary.value?.latest_data_date)
             );
-            const dualOtaSelectedHotelHasCurrentData = computed(() => {
-                if (!dualOtaSelectedHotel.value) return false;
-                const scope = String(dualOtaEffectiveStoreScope.value || 'combined').trim();
-                if (scope === 'ctrip') return dualOtaCtripCurrentPeriodDataReady();
-                if (scope === 'meituan') return dualOtaMeituanCurrentPeriodDataReady();
-                return dualOtaCtripCurrentPeriodDataReady() || dualOtaMeituanCurrentPeriodDataReady();
-            });
+            const dualOtaCtripAggregateCoreDataReady = () => {
+                const metrics = ctripBusinessSummary.value?.metrics || {};
+                const summaryReady = [metrics.totalAmount, metrics.totalQuantity, metrics.totalOrderNum]
+                    .every(value => dualOtaObservedNumber(value) !== null);
+                const rows = Array.isArray(ctripHotelsList.value) ? ctripHotelsList.value.filter(Boolean) : [];
+                const rowReady = rows.some(row => (
+                    dualOtaObservedNumber(row.amount) !== null
+                    && dualOtaObservedNumber(row.quantity) !== null
+                    && dualOtaObservedNumber(dualOtaFirstObservedValue(row.totalOrderNum, row.bookOrderNum)) !== null
+                ));
+                return summaryReady || rowReady;
+            };
+            const dualOtaMeituanAggregateCoreDataReady = () => {
+                const metrics = competitorSummary.value?.display_summary?.metrics || {};
+                const totals = dualOtaMeituanMetricTotals(metrics, dualOtaMeituanRows());
+                return [totals.totalRevenue, totals.totalRoomNights, totals.totalOrders]
+                    .every(value => value !== null);
+            };
+            const dualOtaCtripAggregatePeriodDataReady = () => (
+                dualOtaCtripAggregateCoreDataReady()
+                && dualOtaDataDateMatchesSelectedRange(ctripLatestMeta.value?.data_date)
+            );
+            const dualOtaMeituanAggregatePeriodDataReady = () => (
+                dualOtaMeituanAggregateCoreDataReady()
+                && dualOtaDataDateMatchesSelectedRange(competitorSummary.value?.latest_data_date)
+            );
+            const dualOtaCtripVisiblePeriodDataReady = () => (
+                dualOtaSelectedHotel.value
+                    ? dualOtaCtripCurrentPeriodDataReady()
+                    : dualOtaCtripAggregatePeriodDataReady()
+            );
+            const dualOtaMeituanVisiblePeriodDataReady = () => (
+                dualOtaSelectedHotel.value
+                    ? dualOtaMeituanCurrentPeriodDataReady()
+                    : dualOtaMeituanAggregatePeriodDataReady()
+            );
+            const dualOtaSelectedHotelHasCurrentData = computed(() => hasDualOtaScopeCurrentData({
+                hasSelectedHotel: Boolean(dualOtaSelectedHotel.value),
+                scope: dualOtaEffectiveStoreScope.value,
+                ctripSelectedReady: dualOtaCtripCurrentPeriodDataReady(),
+                meituanSelectedReady: dualOtaMeituanCurrentPeriodDataReady(),
+                ctripAggregateReady: dualOtaCtripAggregatePeriodDataReady(),
+                meituanAggregateReady: dualOtaMeituanAggregatePeriodDataReady(),
+            }));
             const dualOtaSelectedHotelDataGapText = computed(() => {
                 const gaps = [];
                 const rangeText = dualOtaRangeText();
-                if (dualOtaStoreScopeIncludesPlatform('ctrip') && !dualOtaCtripCurrentPeriodDataReady()) {
+                if (dualOtaStoreScopeIncludesPlatform('ctrip') && !dualOtaCtripVisiblePeriodDataReady()) {
                     const latestDate = dualOtaNormalizeDateKey(ctripLatestMeta.value?.data_date);
                     gaps.push(
                         dualOtaDataDateMatchesSelectedRange(latestDate)
@@ -5857,7 +5902,7 @@
                             : `${rangeText}携程暂无已入库数据`
                     );
                 }
-                if (dualOtaStoreScopeIncludesPlatform('meituan') && !dualOtaMeituanCurrentPeriodDataReady()) {
+                if (dualOtaStoreScopeIncludesPlatform('meituan') && !dualOtaMeituanVisiblePeriodDataReady()) {
                     const latestDate = dualOtaNormalizeDateKey(competitorSummary.value?.latest_data_date);
                     gaps.push(
                         dualOtaDataDateMatchesSelectedRange(latestDate)
@@ -6309,6 +6354,14 @@
             const externalWeatherCity = ref('');
             let weatherRequestId = 0;
             let homeQuickLayoutAutoSaveTimer = null;
+            const clearHomeQuickLayoutAutoSaveTimer = () => {
+                if (homeQuickLayoutAutoSaveTimer) {
+                    clearTimeout(homeQuickLayoutAutoSaveTimer);
+                    homeQuickLayoutAutoSaveTimer = null;
+                }
+                homeQuickLayoutSaving.value = false;
+                homeQuickLayoutSaveHint.value = '';
+            };
             const clearHomeSecondaryPanelsReadyTimer = () => {
                 if (homeSecondaryPanelsReadyTimer) {
                     clearTimeout(homeSecondaryPanelsReadyTimer);
@@ -7629,14 +7682,21 @@
             };
             const queueHomeQuickLayoutSave = () => {
                 if (!token.value) return;
+                const requestSession = captureAuthSession();
+                const requestHotelId = String(filterReportHotel.value || '');
+                const isCurrentSave = () => isAuthSessionCurrent(requestSession)
+                    && String(filterReportHotel.value || '') === requestHotelId;
                 if (homeQuickLayoutAutoSaveTimer) {
                     clearTimeout(homeQuickLayoutAutoSaveTimer);
                 }
                 homeQuickLayoutSaveHint.value = '未保存';
                 homeQuickLayoutAutoSaveTimer = setTimeout(async () => {
+                    homeQuickLayoutAutoSaveTimer = null;
+                    if (!isCurrentSave()) return;
                     homeQuickLayoutSaving.value = true;
                     homeQuickLayoutSaveHint.value = '自动保存中';
                     const saved = await saveCompassLayout({ silent: true });
+                    if (!isCurrentSave()) return;
                     homeQuickLayoutSaving.value = false;
                     homeQuickLayoutSaveHint.value = saved ? '已自动保存' : '保存失败';
                 }, 500);
@@ -10694,8 +10754,11 @@
                     platformProfileStatus.value = { items: [], summary: {} };
                     return platformProfileStatus.value;
                 }
-                const requestKey = String(hotelId || '');
-                const isCurrentHotel = () => String(getAutoFetchHotelId() || '') === requestKey;
+                const requestSession = captureAuthSession();
+                const requestHotelId = String(hotelId || '');
+                const requestKey = `${requestSession.epoch}:${requestHotelId}`;
+                const isCurrentHotel = () => isAuthSessionCurrent(requestSession)
+                    && String(getAutoFetchHotelId() || '') === requestHotelId;
                 const force = options && options.force === true;
                 const cacheMs = Number(options.cacheMs || 0);
                 if (force) {
@@ -10801,6 +10864,21 @@
                     delete platformProfileLoginPollTimers[platform];
                 }
             };
+            const clearPlatformProfileLoginTimers = () => {
+                clearPlatformProfileLoginTimer('ctrip');
+                clearPlatformProfileLoginTimer('meituan');
+                platformProfileLoginTasks.value = {};
+                platformProfileStatus.value = { items: [], summary: {} };
+                platformProfileStatusLoading.value = false;
+                platformProfileLoginSubmitting.ctrip = false;
+                platformProfileLoginSubmitting.meituan = false;
+                platformProfileStatusRequestPromises.clear();
+                platformProfileStatusResultCache.clear();
+            };
+            const isPlatformProfilePollCurrent = (session, hotelId) => (
+                isAuthSessionCurrent(session)
+                && String(getAutoFetchHotelId() || '').trim() === hotelId
+            );
 
             const firstNonEmptyText = (...values) => {
                 const value = values.find(item => item !== undefined && item !== null && String(item).trim() !== '');
@@ -10884,8 +10962,11 @@
 
             const pollPlatformProfileLoginStatus = async (platform, taskId) => {
                 if (!platform || !taskId) return;
+                const requestSession = captureAuthSession();
+                const requestHotelId = String(getAutoFetchHotelId() || '').trim();
                 clearPlatformProfileLoginTimer(platform);
                 const retryPoll = () => {
+                    if (!isPlatformProfilePollCurrent(requestSession, requestHotelId)) return;
                     const taskForRetry = platformProfileLoginTask(platform);
                     if (!taskForRetry?.done) {
                         platformProfileLoginPollTimers[platform] = setTimeout(() => pollPlatformProfileLoginStatus(platform, taskId), 3000);
@@ -10894,6 +10975,7 @@
                 try {
                     const params = new URLSearchParams({ task_id: taskId });
                     const res = await request(`/online-data/profile-login-status/${platform}?${params.toString()}`);
+                    if (!isPlatformProfilePollCurrent(requestSession, requestHotelId)) return;
                     if (res.code !== 200) {
                         showToast(res.message || '平台登录状态读取失败', 'error');
                         retryPoll();
@@ -10923,6 +11005,7 @@
                         showToast(taskForView.message || '平台授权失败，请由账号使用者在本机重新授权', 'error');
                     }
                 } catch (error) {
+                    if (!isPlatformProfilePollCurrent(requestSession, requestHotelId)) return;
                     showToast('平台登录状态读取失败: ' + error.message, 'error');
                     retryPoll();
                 }
@@ -10960,6 +11043,8 @@
 
             const triggerPlatformProfileLogin = async (platform, item = null, options = {}) => {
                 const hotelId = getAutoFetchHotelId();
+                const requestSession = captureAuthSession();
+                const requestHotelId = String(hotelId || '').trim();
                 if (!hotelId) {
                     showToast('请先选择酒店', 'error');
                     return;
@@ -10995,6 +11080,7 @@
                         if (options.keepCurrentSurface !== true) {
                             currentPage.value = 'online-data';
                             await nextTick();
+                            if (!isPlatformProfilePollCurrent(requestSession, requestHotelId)) return;
                             openPlatformSourcesTab({ force: true, delayMs: 0 });
                         }
                         openTargetSite(localPlatformAuthorizationUrl(platform));
@@ -11021,6 +11107,7 @@
                         method: 'POST',
                         body: JSON.stringify(payload),
                     });
+                    if (!isPlatformProfilePollCurrent(requestSession, requestHotelId)) return;
                     if (res.code !== 200) {
                         showToast(res.message || '平台 Profile 登录窗口启动失败', 'error');
                         return;
@@ -11033,9 +11120,12 @@
                         platformProfileLoginPollTimers[platform] = setTimeout(() => pollPlatformProfileLoginStatus(platform, task.task_id), 3000);
                     }
                 } catch (error) {
+                    if (!isPlatformProfilePollCurrent(requestSession, requestHotelId)) return;
                     showToast('平台 Profile 登录窗口启动失败: ' + error.message, 'error');
                 } finally {
-                    platformProfileLoginSubmitting[platform] = false;
+                    if (isPlatformProfilePollCurrent(requestSession, requestHotelId)) {
+                        platformProfileLoginSubmitting[platform] = false;
+                    }
                 }
             };
 
@@ -12840,6 +12930,16 @@
                 if (manualOnlineFetchConfigPrewarmTimer) {
                     clearTimeout(manualOnlineFetchConfigPrewarmTimer);
                     manualOnlineFetchConfigPrewarmTimer = null;
+                }
+            };
+            const clearSessionScopedFrontendTimers = () => {
+                clearPostFetchRefreshTimers();
+                clearHomeQuickLayoutAutoSaveTimer();
+                clearPlatformProfileLoginTimers();
+                clearManualOnlineFetchConfigPrewarmTimer();
+                if (dataLoadTimer) {
+                    clearTimeout(dataLoadTimer);
+                    dataLoadTimer = null;
                 }
             };
             const scheduleManualOnlineFetchConfigPrewarm = (newTab, delayMs = MANUAL_ONLINE_DATA_CONFIG_PREWARM_DELAY_MS) => {
@@ -26088,16 +26188,16 @@
             // ==================== AI Agent 中心 ====================
             // Agent Tab
             const agentTab = ref('overview');
-            const agentOverview = ref({
+            const createEmptyAgentOverview = () => ({
                 agents: {},
                 recent_logs: []
             });
+            const agentOverview = ref(createEmptyAgentOverview());
             const agentTabs = requireSystemStatic('agentTabs');
             const toLocalIsoDate = (date = new Date()) => {
                 const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
                 return localDate.toISOString().split('T')[0];
             };
-            const todayIsoDate = toLocalIsoDate();
             const otaDiagnosisScheduleDateTime = (daysFromNow, hour) => {
                 const value = new Date();
                 value.setDate(value.getDate() + daysFromNow);
@@ -26105,23 +26205,25 @@
                 const local = new Date(value.getTime() - value.getTimezoneOffset() * 60000);
                 return local.toISOString().slice(0, 16);
             };
-            const otaDiagnosisForm = ref({
+            const createOtaDiagnosisForm = () => ({
                 hotel_id: '',
                 platform: 'ctrip',
-                start_date: todayIsoDate,
-                end_date: todayIsoDate,
+                start_date: toLocalIsoDate(),
+                end_date: toLocalIsoDate(),
                 model_key: 'deepseek_chat',
             });
+            const otaDiagnosisForm = ref(createOtaDiagnosisForm());
             const otaDiagnosisLoading = ref(false);
             const otaDiagnosisResult = ref(null);
             const otaDiagnosisError = ref('');
             const otaDiagnosisEmpty = ref(false);
             const otaDiagnosisExecutionLoading = ref('');
-            const otaDiagnosisExecutionSchedule = ref({
+            const createOtaDiagnosisExecutionSchedule = () => ({
                 assignee_id: String(user.value?.id || ''),
                 due_at: otaDiagnosisScheduleDateTime(1, 18),
                 review_at: otaDiagnosisScheduleDateTime(2, 10),
             });
+            const otaDiagnosisExecutionSchedule = ref(createOtaDiagnosisExecutionSchedule());
             const otaDiagnosisAssigneeOptions = computed(() => {
                 const hotelId = String(otaDiagnosisResult.value?.hotel?.id || otaDiagnosisForm.value.hotel_id || '').trim();
                 const candidates = [...(Array.isArray(users.value) ? users.value : [])];
@@ -28922,14 +29024,16 @@
             };
 
             // Agent配置
-            const agentConfigs = ref({
+            const createDefaultAgentConfigs = () => ({
                 revenue: { is_enabled: false, config_data: { price_monitor_interval: 60, auto_pricing_enabled: false, pricing_strategy: 'balanced', min_profit_margin: 15, max_price_adjustment: 20, notification_channels: ['wechat'] } },
             });
+            const agentConfigs = ref(createDefaultAgentConfigs());
 
             // 收益管理Agent
             const revenueAgentTab = ref('config');
             const priceSuggestions = ref([]);
-            const priceSuggestionFilter = ref({ date: formatDate(new Date()), status: 0 });
+            const createPriceSuggestionFilter = () => ({ date: formatDate(new Date()), status: 0 });
+            const priceSuggestionFilter = ref(createPriceSuggestionFilter());
             const priceSuggestionGenerating = ref(false);
             const priceSuggestionGenerateResult = ref(null);
             const priceSuggestionReview = ref(null);
@@ -29004,7 +29108,7 @@
                 const row = (roomTypeConfigList.value || []).find(item => Number(item.is_enabled) === 1 && Number(item.id) > 0);
                 return row ? Number(row.id) : 0;
             };
-            const revenueAnalysisData = ref({
+            const createEmptyRevenueAnalysisData = () => ({
                 statistics: {},
                 room_types: [],
                 forecast_accuracy: {},
@@ -29013,6 +29117,7 @@
                 pricing_strategies: [],
                 date_range: {}
             });
+            const revenueAnalysisData = ref(createEmptyRevenueAnalysisData());
 
             // Agent日志
             const agentLogs = ref([]);
@@ -29021,10 +29126,11 @@
             // ========== 收益管理Agent 增强功能 ==========
             // 需求预测
             const demandForecasts = ref([]);
-            const forecastFilter = ref({
+            const createForecastFilter = () => ({
                 start_date: formatDate(new Date()),
                 end_date: formatDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000))
             });
+            const forecastFilter = ref(createForecastFilter());
             const createDemandForecastForm = () => ({
                 forecast_date: priceSuggestionFilter.value.date || formatDate(new Date()),
                 room_type_id: firstEnabledRoomTypeId(),
@@ -29037,10 +29143,11 @@
             const demandForecastForm = ref(createDemandForecastForm());
             const forecastAccuracy = ref({});
             const highDemandDates = ref([]);
-            const revenueDashboard = ref({
+            const createEmptyRevenueDashboard = () => ({
                 today_suggestions: [], pending_count: 0, forecast_accuracy: {},
                 competitor_alerts: [], week_revpar_forecast: null, high_demand_count: 0
             });
+            const revenueDashboard = ref(createEmptyRevenueDashboard());
 
             // 竞对分析
             const emptyCompetitorAnalysis = (hotelId = '', date = '') => ({
@@ -29089,6 +29196,80 @@
             });
             const competitorPriceSaving = ref(false);
             const competitorPriceForm = ref(createCompetitorPriceForm());
+            const createRevenueLoadState = () => ({
+                overview: { status: 'not_loaded', error: '' },
+                roomTypes: { status: 'not_loaded', error: '' },
+                priceSuggestions: { status: 'not_loaded', error: '' },
+                logs: { status: 'not_loaded', error: '' },
+                forecasts: { status: 'not_loaded', error: '' },
+                competitor: { status: 'not_loaded', error: '' },
+                dashboard: { status: 'not_loaded', error: '' },
+                analysis: { status: 'not_loaded', error: '' },
+                bundle: { status: 'not_loaded', error: '' },
+            });
+            const revenueLoadState = ref(createRevenueLoadState());
+            const setRevenueLoadState = (key, status, error = '') => {
+                revenueLoadState.value = {
+                    ...revenueLoadState.value,
+                    [key]: { status, error: String(error || '') },
+                };
+            };
+            let agentRevenueStateEpoch = 0;
+            const captureAgentRevenueRequestContext = (extra = {}) => ({
+                epoch: agentRevenueStateEpoch,
+                session: captureAuthSession(),
+                hotelId: String(filterReportHotel.value || ''),
+                ...extra,
+            });
+            const isAgentRevenueRequestCurrent = (context = {}) => (
+                Number(context.epoch) === agentRevenueStateEpoch
+                && isAuthSessionCurrent(context.session)
+                && String(filterReportHotel.value || '') === context.hotelId
+            );
+            const resetAgentCenterClientState = (options = {}) => {
+                agentRevenueStateEpoch += 1;
+                if (options.reason !== 'hotel-switch') {
+                    agentTab.value = 'overview';
+                    revenueAgentTab.value = 'config';
+                }
+                agentOverview.value = createEmptyAgentOverview();
+                agentConfigs.value = createDefaultAgentConfigs();
+                otaDiagnosisForm.value = createOtaDiagnosisForm();
+                otaDiagnosisLoading.value = false;
+                otaDiagnosisResult.value = null;
+                otaDiagnosisError.value = '';
+                otaDiagnosisEmpty.value = false;
+                otaDiagnosisExecutionLoading.value = "";
+                otaDiagnosisExecutionSchedule.value = createOtaDiagnosisExecutionSchedule();
+                otaDiagnosisHotelPickerOpen.value = false;
+                otaDiagnosisHotelKeyword.value = '';
+
+                priceSuggestions.value = [];
+                priceSuggestionFilter.value = createPriceSuggestionFilter();
+                priceSuggestionGenerating.value = false;
+                priceSuggestionGenerateResult.value = null;
+                priceSuggestionReview.value = null;
+                roomTypeConfigList.value = [];
+                roomTypeConfigMeta.value = {};
+                roomTypeConfigSaving.value = false;
+                roomTypeConfigForm.value = createRoomTypeConfigForm();
+                revenueAnalysisData.value = createEmptyRevenueAnalysisData();
+                agentLogs.value = [];
+                agentLogFilter.value = { agent_type: 0, log_level: 0 };
+                demandForecasts.value = [];
+                forecastFilter.value = createForecastFilter();
+                demandForecastSaving.value = false;
+                demandForecastForm.value = createDemandForecastForm();
+                forecastAccuracy.value = {};
+                highDemandDates.value = [];
+                revenueDashboard.value = createEmptyRevenueDashboard();
+                competitorFilter.value = { date: formatDate(new Date()) };
+                resetCompetitorAnalysisView();
+                competitorPriceSaving.value = false;
+                competitorPriceForm.value = createCompetitorPriceForm();
+                revenueLoadState.value = createRevenueLoadState();
+                debugLog('[agent-session] state reset', options.reason || 'unspecified');
+            };
             const competitorMicroscope = computed(() => revenueAiBuildCompetitorMicroscope(
                 competitorAnalysis.value || {},
                 competitorMicroscopeSelectedKey.value
@@ -29130,13 +29311,22 @@
                 };
             }));
             const revenueAnalysisDataNotice = computed(() => {
+                const loadEntries = Object.entries(revenueLoadState.value || {});
+                const failedEntries = loadEntries.filter(([, state]) => state?.status === 'failed');
+                if (failedEntries.length > 0) {
+                    const firstError = failedEntries.map(([, state]) => state?.error).find(Boolean) || '接口返回失败';
+                    return `收益数据读取失败：${firstError}。已清除上一会话或上一酒店数据。`;
+                }
+                if (loadEntries.some(([, state]) => state?.status === 'loading')) {
+                    return '收益数据读取中，当前不展示上一会话或上一酒店数据。';
+                }
                 const hasData = revenueRevparRows.value.length > 0
                     || demandForecasts.value.length > 0
                     || (revenueAnalysisData.value.pricing_strategies || []).length > 0
                     || (competitorAnalysis.value.alerts || []).length > 0;
                 return hasData
                     ? '已接入收益预测、竞对价格与定价建议样本，结果需结合OTA和日报口径复核。'
-                    : '当前缺少需求预测、竞对价格或日报样本，收益分析先显示空状态。';
+                    : '收益数据为空：当前缺少需求预测、竞对价格或日报样本，未沿用上一会话或上一酒店数据。';
             });
 
             const SAVED_OTA_DATA_CONFIG_CACHE_TTL_MS = 30000;
@@ -29233,22 +29423,29 @@
             };
 
             const generateOtaDiagnosis = async () => {
+                const requestContext = captureAgentRevenueRequestContext();
                 const runOtaDiagnosisGenerateFlow = await getOtaDiagnosisGenerateFlow();
+                if (!isAgentRevenueRequestCurrent(requestContext)) return;
+                const updateIfCurrent = setter => (...args) => {
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return;
+                    setter(...args);
+                };
                 return runOtaDiagnosisGenerateFlow({
                     form: otaDiagnosisForm.value,
                     hotelOptions: otaDiagnosisHotelOptions.value,
                     getModelKey: getSafeOtaDiagnosisModelKey,
                     runHotelFetch: runOtaDiagnosisHotelFetch,
                     requestDiagnosis: requestOtaDiagnosis,
-                    setLoading: value => { otaDiagnosisLoading.value = value; },
-                    setError: value => { otaDiagnosisError.value = value; },
-                    setResult: value => { otaDiagnosisResult.value = value; },
-                    setEmpty: value => { otaDiagnosisEmpty.value = value; },
-                    notify: showToast,
+                    setLoading: updateIfCurrent(value => { otaDiagnosisLoading.value = value; }),
+                    setError: updateIfCurrent(value => { otaDiagnosisError.value = value; }),
+                    setResult: updateIfCurrent(value => { otaDiagnosisResult.value = value; }),
+                    setEmpty: updateIfCurrent(value => { otaDiagnosisEmpty.value = value; }),
+                    notify: updateIfCurrent((message, level) => showToast(message, level)),
                 });
             };
 
             const createOtaDiagnosisExecutionIntent = async (row) => {
+                const requestContext = captureAgentRevenueRequestContext();
                 if (otaDiagnosisResult.value?.record_status === 'superseded' || otaDiagnosisResult.value?.saved_record?.status === 'superseded') {
                     showToast('该诊断已被更新的同范围诊断替代，仅供回看，不能转运营执行', 'warning');
                     return;
@@ -29286,6 +29483,7 @@
                             review_at: reviewAt,
                         }),
                     });
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return;
                     if (res.code !== 200) throw new Error(res.message || '转运营执行失败');
                     const intent = res.data?.execution_intent || {};
                     if (Number(intent.id || 0) <= 0) throw new Error('执行意图未返回可跟踪记录');
@@ -29296,9 +29494,12 @@
                     await nextTick();
                     await loadOperationActions();
                 } catch (error) {
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return;
                     showToast(error?.message || '转运营执行失败', 'error');
                 } finally {
-                    otaDiagnosisExecutionLoading.value = '';
+                    if (isAgentRevenueRequestCurrent(requestContext)) {
+                        otaDiagnosisExecutionLoading.value = '';
+                    }
                 }
             };
 
@@ -29361,6 +29562,7 @@
             };
 
             const openSavedOtaDiagnosis = async (log) => {
+                const requestContext = captureAgentRevenueRequestContext();
                 let context = log?.context_data;
                 if (typeof context === 'string') {
                     try { context = JSON.parse(context); } catch (_) { context = {}; }
@@ -29376,11 +29578,13 @@
                 const savedHotelId = String(snapshot?.hotel?.id || log?.hotel_id || '');
                 otaDiagnosisForm.value.platform = String(snapshot?.platform || context?.platform || 'ctrip');
                 await nextTick();
+                if (!isAgentRevenueRequestCurrent(requestContext)) return;
                 otaDiagnosisForm.value.hotel_id = savedHotelId;
                 otaDiagnosisForm.value.start_date = snapshot?.date_range?.start_date || otaDiagnosisForm.value.start_date;
                 otaDiagnosisForm.value.end_date = snapshot?.date_range?.end_date || otaDiagnosisForm.value.end_date;
                 agentTab.value = 'overview';
                 await nextTick();
+                if (!isAgentRevenueRequestCurrent(requestContext)) return;
                 if (snapshot?.record_status === 'superseded' || snapshot?.saved_record?.status === 'superseded') {
                     showToast('已打开被替代的历史诊断，仅供审计回看', 'warning');
                     return;
@@ -29389,23 +29593,36 @@
             };
 
             // 加载Agent概览
-            const loadAgentOverview = async () => {
+            const loadAgentOverview = async (options = {}) => {
+                const requestContext = captureAgentRevenueRequestContext();
+                agentOverview.value = createEmptyAgentOverview();
+                setRevenueLoadState('overview', 'loading');
                 try {
                     const res = await request('/agent/overview');
-                    if (res.code === 200) {
-                        agentOverview.value = res.data;
-                        // 更新配置状态
-                        if (res.data.agents) {
-                            agentConfigs.value.revenue.is_enabled = res.data.agents.revenue?.enabled || false;
-                        }
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return null;
+                    if (res.code !== 200) throw new Error(res.message || 'Agent概览读取失败');
+                    agentOverview.value = res.data || createEmptyAgentOverview();
+                    if (res.data?.agents) {
+                        agentConfigs.value.revenue.is_enabled = res.data.agents.revenue?.enabled || false;
                     }
+                    const hasData = Object.keys(agentOverview.value.agents || {}).length > 0
+                        || (agentOverview.value.recent_logs || []).length > 0;
+                    setRevenueLoadState('overview', hasData ? 'ready' : 'empty');
+                    return agentOverview.value;
                 } catch (e) {
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return null;
                     console.error('加载Agent概览失败:', e);
+                    agentOverview.value = createEmptyAgentOverview();
+                    agentConfigs.value = createDefaultAgentConfigs();
+                    setRevenueLoadState('overview', 'failed', e.message || 'Agent概览读取失败');
+                    if (!options.silent) showToast('Agent概览读取失败: ' + (e.message || '未知错误'), 'error');
+                    return null;
                 }
             };
 
             // 保存Agent配置
             const saveAgentConfig = async (agentType) => {
+                const requestContext = captureAgentRevenueRequestContext();
                 try {
                     const typeMap = { revenue: 2 };
                     const config = agentConfigs.value[agentType];
@@ -29419,6 +29636,7 @@
                             config_data: config.config_data
                         })
                     });
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return;
                     if (res.code === 200) {
                         meituanForm.value.cookies = '';
                         meituanForm.value.auth_data = {};
@@ -29427,6 +29645,7 @@
                         showToast(res.message || '保存失败', 'error');
                     }
                 } catch (e) {
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return;
                     showToast('保存失败: ' + e.message, 'error');
                 }
             };
@@ -29448,39 +29667,53 @@
                 };
             };
 
-            const loadRoomTypes = async () => {
-                if (!filterReportHotel.value) {
-                    roomTypeConfigList.value = [];
-                    roomTypeConfigMeta.value = {};
-                    return;
+            const loadRoomTypes = async (options = {}) => {
+                const requestContext = captureAgentRevenueRequestContext();
+                roomTypeConfigList.value = [];
+                roomTypeConfigMeta.value = {};
+                roomTypeConfigForm.value = createRoomTypeConfigForm();
+                if (!requestContext.hotelId) {
+                    setRevenueLoadState('roomTypes', 'empty');
+                    return [];
                 }
+                setRevenueLoadState('roomTypes', 'loading');
                 try {
                     const params = new URLSearchParams();
-                    params.append('hotel_id', filterReportHotel.value || 0);
+                    params.append('hotel_id', requestContext.hotelId);
                     const res = await request(`/agent/room-types?${params}`);
-                    if (res.code === 200) {
-                        roomTypeConfigList.value = res.data?.list || [];
-                        roomTypeConfigMeta.value = {
-                            input_scope: res.data?.input_scope || '',
-                            target_workflow: res.data?.target_workflow || '',
-                            evidence_status: res.data?.evidence_status || '',
-                            auto_write_ota: res.data?.auto_write_ota === true,
-                            next_action: res.data?.next_action || '',
-                        };
-                        const defaultRoomTypeId = firstEnabledRoomTypeId();
-                        if (!Number(demandForecastForm.value.room_type_id || 0) && defaultRoomTypeId > 0) {
-                            demandForecastForm.value.room_type_id = defaultRoomTypeId;
-                        }
-                        if (!Number(competitorPriceForm.value.room_type_id || 0) && defaultRoomTypeId > 0) {
-                            competitorPriceForm.value.room_type_id = defaultRoomTypeId;
-                        }
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return null;
+                    if (res.code !== 200) throw new Error(res.message || '房型价保读取失败');
+                    roomTypeConfigList.value = res.data?.list || [];
+                    roomTypeConfigMeta.value = {
+                        input_scope: res.data?.input_scope || '',
+                        target_workflow: res.data?.target_workflow || '',
+                        evidence_status: res.data?.evidence_status || '',
+                        auto_write_ota: res.data?.auto_write_ota === true,
+                        next_action: res.data?.next_action || '',
+                    };
+                    const defaultRoomTypeId = firstEnabledRoomTypeId();
+                    if (!Number(demandForecastForm.value.room_type_id || 0) && defaultRoomTypeId > 0) {
+                        demandForecastForm.value.room_type_id = defaultRoomTypeId;
                     }
+                    if (!Number(competitorPriceForm.value.room_type_id || 0) && defaultRoomTypeId > 0) {
+                        competitorPriceForm.value.room_type_id = defaultRoomTypeId;
+                    }
+                    setRevenueLoadState('roomTypes', roomTypeConfigList.value.length ? 'ready' : 'empty');
+                    return roomTypeConfigList.value;
                 } catch (e) {
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return null;
                     console.error('加载房型价保失败:', e);
+                    roomTypeConfigList.value = [];
+                    roomTypeConfigMeta.value = {};
+                    roomTypeConfigForm.value = createRoomTypeConfigForm();
+                    setRevenueLoadState('roomTypes', 'failed', e.message || '房型价保读取失败');
+                    if (!options.silent) showToast('房型价保读取失败: ' + (e.message || '未知错误'), 'error');
+                    return null;
                 }
             };
 
             const saveRoomTypeConfig = async () => {
+                const requestContext = captureAgentRevenueRequestContext();
                 if (!filterReportHotel.value) {
                     showToast('请先选择酒店', 'error');
                     return;
@@ -29496,6 +29729,7 @@
                         method: 'POST',
                         body: JSON.stringify(payload),
                     });
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return;
                     if (res.code === 200) {
                         showToast('房型与最低保护价已保存；继续补需求预测和竞对样本。');
                         resetRoomTypeConfigForm();
@@ -29508,9 +29742,12 @@
                         showToast(res.message || '保存失败', 'error');
                     }
                 } catch (e) {
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return;
                     showToast('保存失败: ' + e.message, 'error');
                 } finally {
-                    roomTypeConfigSaving.value = false;
+                    if (isAgentRevenueRequestCurrent(requestContext)) {
+                        roomTypeConfigSaving.value = false;
+                    }
                 }
             };
 
@@ -29536,6 +29773,7 @@
             };
 
             const saveDemandForecastInput = async () => {
+                const requestContext = captureAgentRevenueRequestContext();
                 const hotelId = Number(filterReportHotel.value || 0);
                 const roomTypeId = Number(demandForecastForm.value.room_type_id || 0);
                 const forecastDate = demandForecastForm.value.forecast_date;
@@ -29576,6 +29814,7 @@
                         method: 'POST',
                         body: JSON.stringify(payload),
                     });
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return;
                     if (res.code === 200) {
                         syncRevenuePricingInputDate(forecastDate);
                         showToast('需求预测已保存；继续补携程竞品价样本。');
@@ -29590,9 +29829,12 @@
                         showToast(res.message || '需求预测保存失败', 'error');
                     }
                 } catch (e) {
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return;
                     showToast('需求预测保存失败: ' + e.message, 'error');
                 } finally {
-                    demandForecastSaving.value = false;
+                    if (isAgentRevenueRequestCurrent(requestContext)) {
+                        demandForecastSaving.value = false;
+                    }
                 }
             };
 
@@ -29601,6 +29843,7 @@
             };
 
             const saveCompetitorPriceInput = async () => {
+                const requestContext = captureAgentRevenueRequestContext();
                 const hotelId = Number(filterReportHotel.value || 0);
                 const roomTypeId = Number(competitorPriceForm.value.room_type_id || 0);
                 const competitorHotelId = Number(competitorPriceForm.value.competitor_hotel_id || 0);
@@ -29641,6 +29884,7 @@
                         method: 'POST',
                         body: JSON.stringify(payload),
                     });
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return;
                     if (res.code === 200) {
                         syncRevenuePricingInputDate(analysisDate);
                         showToast('携程竞品价样本已保存；可重新运行调价建议生成预检。');
@@ -29656,41 +29900,94 @@
                         showToast(res.message || '竞品价样本保存失败', 'error');
                     }
                 } catch (e) {
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return;
                     showToast('竞品价样本保存失败: ' + e.message, 'error');
                 } finally {
-                    competitorPriceSaving.value = false;
+                    if (isAgentRevenueRequestCurrent(requestContext)) {
+                        competitorPriceSaving.value = false;
+                    }
                 }
             };
 
             const loadPriceSuggestionWorkbench = async () => {
-                await ensureRevenueAiStaticReady();
-                await Promise.allSettled([
-                    loadRoomTypes(),
-                    loadDemandForecasts(),
-                    loadCompetitorAnalysis(),
-                    loadPriceSuggestions(),
-                    loadRevenueAiOverview(),
-                ]);
+                const requestContext = captureAgentRevenueRequestContext();
+                priceSuggestions.value = [];
+                priceSuggestionReview.value = null;
+                roomTypeConfigList.value = [];
+                roomTypeConfigMeta.value = {};
+                demandForecasts.value = [];
+                forecastAccuracy.value = {};
+                highDemandDates.value = [];
+                revenueAiOverview.value = null;
+                revenueAiOverviewError.value = '';
+                resetCompetitorAnalysisView();
+                revenueLoadState.value = createRevenueLoadState();
+                setRevenueLoadState('bundle', 'loading');
+                try {
+                    await ensureRevenueAiStaticReady();
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return null;
+                    const results = await Promise.allSettled([
+                        loadRoomTypes(),
+                        loadDemandForecasts(),
+                        loadCompetitorAnalysis(),
+                        loadPriceSuggestions(),
+                        loadRevenueAiOverview(),
+                    ]);
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return null;
+                    const rejected = results.find(result => result.status === 'rejected');
+                    if (rejected) throw rejected.reason;
+                    const failed = Object.values(revenueLoadState.value).find(state => state?.status === 'failed');
+                    setRevenueLoadState('bundle', failed ? 'failed' : 'ready', failed?.error || '');
+                    return revenueLoadState.value;
+                } catch (e) {
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return null;
+                    setRevenueLoadState('bundle', 'failed', e.message || '收益工作台读取失败');
+                    showToast('收益工作台读取失败: ' + (e.message || '未知错误'), 'error');
+                    return null;
+                }
             };
 
             // 加载定价建议
-            const loadPriceSuggestions = async () => {
+            const loadPriceSuggestions = async (options = {}) => {
+                const requestContext = captureAgentRevenueRequestContext({
+                    date: String(priceSuggestionFilter.value.date || ''),
+                    status: String(priceSuggestionFilter.value.status || ''),
+                });
+                const isCurrentRequest = () => isAgentRevenueRequestCurrent(requestContext)
+                    && String(priceSuggestionFilter.value.date || '') === requestContext.date
+                    && String(priceSuggestionFilter.value.status || '') === requestContext.status;
+                priceSuggestions.value = [];
+                priceSuggestionReview.value = null;
+                if (!requestContext.hotelId) {
+                    setRevenueLoadState('priceSuggestions', 'empty');
+                    return [];
+                }
+                setRevenueLoadState('priceSuggestions', 'loading');
                 try {
                     const params = new URLSearchParams();
-                    params.append('hotel_id', filterReportHotel.value || 0);
-                    params.append('date', priceSuggestionFilter.value.date);
-                    if (priceSuggestionFilter.value.status) params.append('status', priceSuggestionFilter.value.status);
+                    params.append('hotel_id', requestContext.hotelId);
+                    params.append('date', requestContext.date);
+                    if (requestContext.status) params.append('status', requestContext.status);
                     const res = await request(`/agent/price-suggestions?${params}`);
-                    if (res.code === 200) {
-                        priceSuggestions.value = res.data.list || [];
-                    }
+                    if (!isCurrentRequest()) return null;
+                    if (res.code !== 200) throw new Error(res.message || '定价建议读取失败');
+                    priceSuggestions.value = res.data?.list || [];
+                    setRevenueLoadState('priceSuggestions', priceSuggestions.value.length ? 'ready' : 'empty');
+                    return priceSuggestions.value;
                 } catch (e) {
+                    if (!isCurrentRequest()) return null;
                     console.error('加载定价建议失败:', e);
+                    priceSuggestions.value = [];
+                    priceSuggestionReview.value = null;
+                    setRevenueLoadState('priceSuggestions', 'failed', e.message || '定价建议读取失败');
+                    if (!options.silent) showToast('定价建议读取失败: ' + (e.message || '未知错误'), 'error');
+                    return null;
                 }
             };
 
             // 审批定价建议
             const approvePrice = async (id, action) => {
+                const requestContext = captureAgentRevenueRequestContext();
                 try {
                     const normalizedAction = action === 'reject' ? 'reject' : 'approve';
                     const res = await request(`/revenue-ai/price-suggestions/${id}/review`, {
@@ -29700,6 +29997,7 @@
                             remark: `Agent 定价建议工作台人工${normalizedAction === 'approve' ? '批准' : '拒绝'}；未写 OTA。`,
                         }),
                     });
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return;
                     if (res.code === 200) {
                         showToast(action === 'approve' ? '已批准' : '已拒绝');
                         await Promise.allSettled([
@@ -29710,11 +30008,17 @@
                         showToast(res.message || '操作失败', 'error');
                     }
                 } catch (e) {
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return;
                     showToast('操作失败: ' + e.message, 'error');
                 }
             };
 
             const generatePriceSuggestions = async () => {
+                const requestContext = captureAgentRevenueRequestContext({
+                    date: String(priceSuggestionFilter.value.date || ''),
+                });
+                const isCurrentRequest = () => isAgentRevenueRequestCurrent(requestContext)
+                    && String(priceSuggestionFilter.value.date || '') === requestContext.date;
                 if (!filterReportHotel.value) {
                     showToast('请先选择酒店', 'error');
                     return;
@@ -29727,6 +30031,7 @@
                     params.append('hotel_id', filterReportHotel.value);
                     params.append('date', priceSuggestionFilter.value.date);
                     const res = await request(`/agent/price-suggestions/generate?${params}`, { method: 'POST' });
+                    if (!isCurrentRequest()) return;
                     const result = revenueAiBuildPriceSuggestionGenerateResult({ response: res });
                     priceSuggestionGenerateResult.value = result;
                     if (res.code === 200) {
@@ -29736,11 +30041,14 @@
                         showToast(result.message || res.message || '生成失败', 'error');
                     }
                 } catch (e) {
+                    if (!isCurrentRequest()) return;
                     const result = revenueAiBuildPriceSuggestionGenerateResult({ error: e });
                     priceSuggestionGenerateResult.value = result;
                     showToast('生成失败: ' + result.message, 'error');
                 } finally {
-                    priceSuggestionGenerating.value = false;
+                    if (isCurrentRequest()) {
+                        priceSuggestionGenerating.value = false;
+                    }
                 }
             };
 
@@ -29749,9 +30057,11 @@
             };
 
             const createPriceSuggestionExecutionIntent = async (id) => {
+                const requestContext = captureAgentRevenueRequestContext();
                 try {
                     const suggestion = priceSuggestions.value.find(item => Number(item?.id || 0) === Number(id)) || {};
                     const fields = await collectPriceExecutionIntentFields(suggestion);
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return;
                     if (fields === null) return;
                     const res = await request(`/revenue-ai/price-suggestions/${id}/execution-intent`, {
                         method: 'POST',
@@ -29761,11 +30071,13 @@
                             ...fields,
                         }),
                     });
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return;
                     if (res.code === 200) {
                         const responseIntent = res.data?.execution_intent || {};
                         const intentId = Number(responseIntent.id || 0);
                         if (!Number.isInteger(intentId) || intentId <= 0) throw new Error('执行意图创建结果缺少有效ID');
                         const persistedIntent = await readOperationExecutionIntent(intentId);
+                        if (!isAgentRevenueRequestCurrent(requestContext)) return;
                         if (persistedIntent.status !== 'pending_approval'
                             || String(persistedIntent.blocked_reason || '').trim() !== ''
                         ) {
@@ -29780,13 +30092,16 @@
                         showToast(res.message || '转单失败', 'error');
                     }
                 } catch (e) {
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return;
                     showToast('转单失败: ' + e.message, 'error');
                 }
             };
 
             const reviewPriceSuggestion = async (id) => {
+                const requestContext = captureAgentRevenueRequestContext();
                 try {
                     const res = await request(`/agent/price-suggestions/${id}/review`);
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return;
                     if (res.code === 200) {
                         priceSuggestionReview.value = res.data || null;
                         showToast('复盘数据已更新');
@@ -29794,59 +30109,114 @@
                         showToast(res.message || '复盘失败', 'error');
                     }
                 } catch (e) {
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return;
                     showToast('复盘失败: ' + e.message, 'error');
                 }
             };
 
             // 加载Agent日志
-            const loadAgentLogs = async () => {
+            const loadAgentLogs = async (options = {}) => {
+                const requestContext = captureAgentRevenueRequestContext({
+                    agentType: String(agentLogFilter.value.agent_type || ''),
+                    logLevel: String(agentLogFilter.value.log_level || ''),
+                });
+                const isCurrentRequest = () => isAgentRevenueRequestCurrent(requestContext)
+                    && String(agentLogFilter.value.agent_type || '') === requestContext.agentType
+                    && String(agentLogFilter.value.log_level || '') === requestContext.logLevel;
+                agentLogs.value = [];
+                if (!requestContext.hotelId) {
+                    setRevenueLoadState('logs', 'empty');
+                    return [];
+                }
+                setRevenueLoadState('logs', 'loading');
                 try {
                     const params = new URLSearchParams();
-                    params.append('hotel_id', filterReportHotel.value || 0);
-                    if (agentLogFilter.value.agent_type) params.append('agent_type', agentLogFilter.value.agent_type);
-                    if (agentLogFilter.value.log_level) params.append('log_level', agentLogFilter.value.log_level);
+                    params.append('hotel_id', requestContext.hotelId);
+                    if (requestContext.agentType) params.append('agent_type', requestContext.agentType);
+                    if (requestContext.logLevel) params.append('log_level', requestContext.logLevel);
                     const res = await request(`/agent/logs?${params}`);
-                    if (res.code === 200) {
-                        agentLogs.value = res.data.list || [];
-                    }
+                    if (!isCurrentRequest()) return null;
+                    if (res.code !== 200) throw new Error(res.message || 'Agent日志读取失败');
+                    agentLogs.value = res.data?.list || [];
+                    setRevenueLoadState('logs', agentLogs.value.length ? 'ready' : 'empty');
+                    return agentLogs.value;
                 } catch (e) {
+                    if (!isCurrentRequest()) return null;
                     console.error('加载Agent日志失败:', e);
+                    agentLogs.value = [];
+                    setRevenueLoadState('logs', 'failed', e.message || 'Agent日志读取失败');
+                    if (!options.silent) showToast('Agent日志读取失败: ' + (e.message || '未知错误'), 'error');
+                    return null;
                 }
             };
 
             // ========== 收益管理Agent API ==========
             // 加载需求预测
-            const loadDemandForecasts = async () => {
+            const loadDemandForecasts = async (options = {}) => {
+                const requestContext = captureAgentRevenueRequestContext({
+                    startDate: String(forecastFilter.value.start_date || ''),
+                    endDate: String(forecastFilter.value.end_date || ''),
+                });
+                const isCurrentRequest = () => isAgentRevenueRequestCurrent(requestContext)
+                    && String(forecastFilter.value.start_date || '') === requestContext.startDate
+                    && String(forecastFilter.value.end_date || '') === requestContext.endDate;
+                demandForecasts.value = [];
+                forecastAccuracy.value = {};
+                highDemandDates.value = [];
+                if (!requestContext.hotelId) {
+                    setRevenueLoadState('forecasts', 'empty');
+                    return [];
+                }
+                setRevenueLoadState('forecasts', 'loading');
                 try {
                     const params = new URLSearchParams();
-                    params.append('hotel_id', filterReportHotel.value || 0);
-                    params.append('start_date', forecastFilter.value.start_date);
-                    params.append('end_date', forecastFilter.value.end_date);
+                    params.append('hotel_id', requestContext.hotelId);
+                    params.append('start_date', requestContext.startDate);
+                    params.append('end_date', requestContext.endDate);
                     const res = await request(`/agent/demand-forecasts?${params}`);
-                    if (res.code === 200) {
-                        demandForecasts.value = res.data.forecasts || [];
-                        forecastAccuracy.value = res.data.accuracy || {};
-                        highDemandDates.value = res.data.high_demand_dates || [];
-                    }
+                    if (!isCurrentRequest()) return null;
+                    if (res.code !== 200) throw new Error(res.message || '需求预测读取失败');
+                    demandForecasts.value = res.data?.forecasts || [];
+                    forecastAccuracy.value = res.data?.accuracy || {};
+                    highDemandDates.value = res.data?.high_demand_dates || [];
+                    const hasData = demandForecasts.value.length > 0
+                        || highDemandDates.value.length > 0
+                        || Object.keys(forecastAccuracy.value).length > 0;
+                    setRevenueLoadState('forecasts', hasData ? 'ready' : 'empty');
+                    return demandForecasts.value;
                 } catch (e) {
+                    if (!isCurrentRequest()) return null;
                     console.error('加载需求预测失败:', e);
+                    demandForecasts.value = [];
+                    forecastAccuracy.value = {};
+                    highDemandDates.value = [];
+                    setRevenueLoadState('forecasts', 'failed', e.message || '需求预测读取失败');
+                    if (!options.silent) showToast('需求预测读取失败: ' + (e.message || '未知错误'), 'error');
+                    return null;
                 }
             };
 
             // 加载竞对分析
-            const loadCompetitorAnalysis = async () => {
+            const loadCompetitorAnalysis = async (options = {}) => {
                 const requestSeq = ++competitorAnalysisRequestSeq;
                 const hotelId = String(filterReportHotel.value || '').trim();
                 const date = String(competitorFilter.value.date || '').trim();
+                const requestContext = captureAgentRevenueRequestContext({ date });
                 const isCurrentRequest = () => requestSeq === competitorAnalysisRequestSeq
+                    && isAgentRevenueRequestCurrent(requestContext)
                     && hotelId === String(filterReportHotel.value || '').trim()
                     && date === String(competitorFilter.value.date || '').trim();
                 competitorAnalysisLoading.value = true;
                 competitorAnalysisError.value = '';
                 competitorMicroscopeSelectedKey.value = '';
                 competitorAnalysis.value = emptyCompetitorAnalysis(hotelId, date);
+                if (!hotelId) {
+                    competitorAnalysisLoading.value = false;
+                    setRevenueLoadState('competitor', 'empty');
+                    return null;
+                }
+                setRevenueLoadState('competitor', 'loading');
                 try {
-                    if (!hotelId) throw new Error('请先选择酒店');
                     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('请选择有效的分析日期');
                     await ensureRevenueAiStaticReady();
                     if (!isCurrentRequest()) return;
@@ -29905,6 +30275,10 @@
                             competitorAnalysis.value,
                             ''
                         ).selectedKey || '';
+                        const hasData = Object.keys(response.price_matrix || {}).length > 0
+                            || (response.alerts || []).length > 0
+                            || (response.meituan_competition_circle?.display_hotels || []).length > 0;
+                        setRevenueLoadState('competitor', hasData ? 'ready' : 'empty');
                     } else {
                         throw new Error([sourceErrors.ctrip, sourceErrors.meituan].filter(Boolean).join('；') || '竞对分析加载失败');
                     }
@@ -29913,56 +30287,151 @@
                     console.error('加载竞对分析失败:', e);
                     competitorAnalysis.value = emptyCompetitorAnalysis(hotelId, date);
                     competitorAnalysisError.value = e.message || '竞对分析加载失败';
-                    showToast(competitorAnalysisError.value, 'error');
+                    setRevenueLoadState('competitor', 'failed', competitorAnalysisError.value);
+                    if (!options.silent) showToast(competitorAnalysisError.value, 'error');
                 } finally {
-                    if (requestSeq === competitorAnalysisRequestSeq) {
+                    if (isCurrentRequest()) {
                         competitorAnalysisLoading.value = false;
                     }
                 }
             };
 
             // 加载收益管理仪表板
-            const loadRevenueDashboard = async () => {
+            const loadRevenueDashboard = async (options = {}) => {
+                const requestContext = captureAgentRevenueRequestContext();
+                revenueDashboard.value = createEmptyRevenueDashboard();
+                if (!requestContext.hotelId) {
+                    setRevenueLoadState('dashboard', 'empty');
+                    return revenueDashboard.value;
+                }
+                setRevenueLoadState('dashboard', 'loading');
                 try {
-                    const res = await request(`/agent/revenue-dashboard?hotel_id=${filterReportHotel.value || 0}`);
-                    if (res.code === 200) {
-                        revenueDashboard.value = res.data;
-                    }
+                    const res = await request(`/agent/revenue-dashboard?hotel_id=${encodeURIComponent(requestContext.hotelId)}`);
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return null;
+                    if (res.code !== 200) throw new Error(res.message || '收益仪表板读取失败');
+                    revenueDashboard.value = res.data || createEmptyRevenueDashboard();
+                    const hasData = (revenueDashboard.value.today_suggestions || []).length > 0
+                        || (revenueDashboard.value.competitor_alerts || []).length > 0
+                        || Number(revenueDashboard.value.pending_count || 0) > 0
+                        || Object.keys(revenueDashboard.value.forecast_accuracy || {}).length > 0;
+                    setRevenueLoadState('dashboard', hasData ? 'ready' : 'empty');
+                    return revenueDashboard.value;
                 } catch (e) {
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return null;
                     console.error('加载收益仪表板失败:', e);
+                    revenueDashboard.value = createEmptyRevenueDashboard();
+                    setRevenueLoadState('dashboard', 'failed', e.message || '收益仪表板读取失败');
+                    if (!options.silent) showToast('收益仪表板读取失败: ' + (e.message || '未知错误'), 'error');
+                    return null;
                 }
             };
 
             // 加载收益分析看板
-            const loadRevenueAnalysis = async () => {
+            const loadRevenueAnalysis = async (options = {}) => {
+                const requestContext = captureAgentRevenueRequestContext({
+                    startDate: String(forecastFilter.value.start_date || ''),
+                    endDate: String(forecastFilter.value.end_date || ''),
+                });
+                const isCurrentRequest = () => isAgentRevenueRequestCurrent(requestContext)
+                    && String(forecastFilter.value.start_date || '') === requestContext.startDate
+                    && String(forecastFilter.value.end_date || '') === requestContext.endDate;
+                revenueAnalysisData.value = createEmptyRevenueAnalysisData();
+                if (!requestContext.hotelId) {
+                    setRevenueLoadState('analysis', 'empty');
+                    return revenueAnalysisData.value;
+                }
+                setRevenueLoadState('analysis', 'loading');
                 try {
                     const params = new URLSearchParams();
-                    params.append('hotel_id', filterReportHotel.value || 0);
-                    params.append('start_date', forecastFilter.value.start_date);
-                    params.append('end_date', forecastFilter.value.end_date);
+                    params.append('hotel_id', requestContext.hotelId);
+                    params.append('start_date', requestContext.startDate);
+                    params.append('end_date', requestContext.endDate);
                     const res = await request(`/agent/revenue-analysis?${params}`);
-                    if (res.code === 200) {
-                        revenueAnalysisData.value = {
-                            ...revenueAnalysisData.value,
-                            ...(res.data || {})
-                        };
-                    }
+                    if (!isCurrentRequest()) return null;
+                    if (res.code !== 200) throw new Error(res.message || '收益分析读取失败');
+                    revenueAnalysisData.value = {
+                        ...createEmptyRevenueAnalysisData(),
+                        ...(res.data || {})
+                    };
+                    const hasData = (revenueAnalysisData.value.revpar_trend || []).length > 0
+                        || (revenueAnalysisData.value.pricing_strategies || []).length > 0
+                        || (revenueAnalysisData.value.room_types || []).length > 0
+                        || Object.keys(revenueAnalysisData.value.statistics || {}).length > 0;
+                    setRevenueLoadState('analysis', hasData ? 'ready' : 'empty');
+                    return revenueAnalysisData.value;
                 } catch (e) {
+                    if (!isCurrentRequest()) return null;
                     console.error('加载收益分析失败:', e);
+                    revenueAnalysisData.value = createEmptyRevenueAnalysisData();
+                    setRevenueLoadState('analysis', 'failed', e.message || '收益分析读取失败');
+                    if (!options.silent) showToast('收益分析读取失败: ' + (e.message || '未知错误'), 'error');
+                    return null;
                 }
             };
 
-            const loadRevenueAnalysisBundle = async () => {
-                await ensureRevenueAiStaticReady();
-                await Promise.allSettled([
-                    loadRevenueAiOverview(),
-                    loadRevenueAnalysis(),
-                    loadRevenueDashboard(),
-                    loadDemandForecasts(),
-                    loadCompetitorAnalysis(),
-                    loadRoomTypes(),
-                    loadPriceSuggestions()
-                ]);
+            const loadRevenueAnalysisBundle = async (options = {}) => {
+                const requestContext = captureAgentRevenueRequestContext();
+                revenueAnalysisData.value = createEmptyRevenueAnalysisData();
+                revenueDashboard.value = createEmptyRevenueDashboard();
+                demandForecasts.value = [];
+                forecastAccuracy.value = {};
+                highDemandDates.value = [];
+                priceSuggestions.value = [];
+                roomTypeConfigList.value = [];
+                roomTypeConfigMeta.value = {};
+                revenueAiOverview.value = null;
+                revenueAiOverviewError.value = '';
+                resetCompetitorAnalysisView();
+                revenueLoadState.value = createRevenueLoadState();
+                setRevenueLoadState('bundle', 'loading');
+                try {
+                    await ensureRevenueAiStaticReady();
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return null;
+                    const results = await Promise.allSettled([
+                        loadRevenueAiOverview(),
+                        loadRevenueAnalysis({ silent: true }),
+                        loadRevenueDashboard({ silent: true }),
+                        loadDemandForecasts({ silent: true }),
+                        loadCompetitorAnalysis({ silent: true }),
+                        loadRoomTypes({ silent: true }),
+                        loadPriceSuggestions({ silent: true })
+                    ]);
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return null;
+                    const rejected = results.find(result => result.status === 'rejected');
+                    if (rejected) throw rejected.reason;
+                    const failed = Object.entries(revenueLoadState.value)
+                        .filter(([key]) => key !== 'bundle')
+                        .map(([, state]) => state)
+                        .find(state => state?.status === 'failed');
+                    const overviewError = String(revenueAiOverviewError.value || '');
+                    if (failed || overviewError) {
+                        const errorMessage = failed?.error || overviewError;
+                        setRevenueLoadState('bundle', 'failed', errorMessage);
+                        if (!options.silent) showToast('收益数据读取失败: ' + errorMessage, 'error');
+                        return null;
+                    }
+                    const hasReadyData = Object.entries(revenueLoadState.value)
+                        .some(([key, state]) => key !== 'bundle' && state?.status === 'ready');
+                    setRevenueLoadState('bundle', hasReadyData ? 'ready' : 'empty');
+                    return revenueLoadState.value;
+                } catch (e) {
+                    if (!isAgentRevenueRequestCurrent(requestContext)) return null;
+                    revenueAnalysisData.value = createEmptyRevenueAnalysisData();
+                    revenueDashboard.value = createEmptyRevenueDashboard();
+                    demandForecasts.value = [];
+                    forecastAccuracy.value = {};
+                    highDemandDates.value = [];
+                    priceSuggestions.value = [];
+                    roomTypeConfigList.value = [];
+                    roomTypeConfigMeta.value = {};
+                    revenueAiOverview.value = null;
+                    revenueAiOverviewError.value = e.message || '收益数据读取失败';
+                    resetCompetitorAnalysisView();
+                    setRevenueLoadState('analysis', 'failed', e.message || '收益数据读取失败');
+                    setRevenueLoadState('bundle', 'failed', e.message || '收益数据读取失败');
+                    if (!options.silent) showToast('收益数据读取失败: ' + (e.message || '未知错误'), 'error');
+                    return null;
+                }
             };
 
             const switchAgentTab = async (tabKey) => {
@@ -30574,15 +31043,20 @@
                 await loadCompassData({ notify: true });
             };
 
-            watch(() => user.value?.id, () => {
+            watch(() => user.value?.id, (newUserId, previousUserId) => {
+                if (String(newUserId || '') !== String(previousUserId || '')) {
+                    resetAgentCenterClientState({ reason: 'user-switch' });
+                }
                 dualOtaHotelSearchCounts.value = readDualOtaHotelSearchCounts();
                 dualOtaHotelOrderIds.value = readDualOtaHotelOrderIds();
                 closeDualOtaHotelOrder();
             });
 
-            watch(filterReportHotel, () => {
-                if (currentPage.value === 'agent-center') {
-                    resetCompetitorAnalysisView();
+            watch(filterReportHotel, (newHotelId, previousHotelId) => {
+                if (String(newHotelId || '') !== String(previousHotelId || '')) {
+                    resetAgentCenterClientState({ reason: 'hotel-switch' });
+                    clearPostFetchRefreshTimers();
+                    clearPlatformProfileLoginTimers();
                 }
                 if (suppressNextReportHotelDashboardRefresh) {
                     suppressNextReportHotelDashboardRefresh = false;
@@ -35533,6 +36007,7 @@
                 clearStartupHotelListLoadTimer();
                 clearPublicSystemConfigRefreshTimer();
                 clearFormOperationSupportLoadTimer();
+                clearSessionScopedFrontendTimers();
                 clearHomeSecondaryPanelsReadyTimer();
                 clearDataHealthSecondaryPanelsReadyTimer();
                 clearDataHealthDetailPanelsReadyTimer();

@@ -665,7 +665,14 @@ trait OperationWorkbenchConcern
 
     public function dailyWorkbenchPatrolCron(): Response
     {
-        $rateLimited = $this->checkPublicEndpointRateLimit('daily_workbench_patrol_cron', 10, 60);
+        try {
+            $rateLimited = $this->checkPublicEndpointRateLimit('daily_workbench_patrol_cron', 10, 60);
+        } catch (\Throwable $exception) {
+            return $this->publicEndpointRateLimiterUnavailableResponse(
+                'daily_workbench_patrol_cron',
+                $exception
+            );
+        }
         if ($rateLimited !== null) {
             $this->recordPublicEndpointFailure('daily_workbench_patrol_cron', 'rate_limited', 429, $rateLimited);
             return json(['code' => 429, 'message' => 'Too Many Requests'], 429);

@@ -200,6 +200,9 @@ final class CloudOtaBundleCodec
             }
             $platform = self::platform((string)($package['platform'] ?? ''));
             $sourceDataSourceId = self::positiveInt($package['source_data_source_id'] ?? 0, 'source_data_source_id');
+            $sourceSyncTaskId = array_key_exists('source_sync_task_id', $package)
+                ? self::positiveInt($package['source_sync_task_id'], 'source_sync_task_id')
+                : null;
             $destinationDataSourceId = self::positiveInt($package['destination_data_source_id'] ?? 0, 'destination_data_source_id');
             $packageKey = $platform . ':' . $sourceDataSourceId . ':' . $destinationDataSourceId;
             if (isset($packageKeys[$packageKey])) {
@@ -281,6 +284,9 @@ final class CloudOtaBundleCodec
                 'row_count' => count($normalizedRows),
                 'rows' => $normalizedRows,
             ];
+            if ($sourceSyncTaskId !== null) {
+                $normalizedPackage['source_sync_task_id'] = $sourceSyncTaskId;
+            }
             if ($hasSnapshotComplete) {
                 if (!is_bool($package['snapshot_complete'])) {
                     throw new RuntimeException('cloud_bundle_snapshot_complete_invalid');
