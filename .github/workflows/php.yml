@@ -92,7 +92,24 @@ jobs:
           MYSQL_BINARY: mariadb
         run: node scripts/verify_tenant_history_migration_mariadb.mjs
 
+      - name: Initialize backend test database
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_NAME: hotelx_ci_test
+          DB_USER: root
+          DB_PASS: suxi-ci-root
+        run: php scripts/init_database.php
+
       - name: Run backend tests
+        env:
+          SUXI_E2E_DB_OVERRIDE: '1'
+          SUXI_E2E_DB_NAME: hotelx_ci_test
+          DB_HOST: 127.0.0.1
+          DB_PORT: '3306'
+          DB_NAME: hotelx_ci_test
+          DB_USER: root
+          DB_PASS: suxi-ci-root
         run: composer test
 
       - name: Run Node automation tests
